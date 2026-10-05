@@ -2,6 +2,8 @@
 
 Brought up to date 2026-10-04, release 1.3.0: every menu path is the 1.3.0 path (light menu, Settings page), the settings table matches `CONFIGURATION_SETTINGS_GUIDE.md`, and the flow carries what releases 1.1.0 and 1.2.0 changed (enquiries, approval levels, customer-first billing of delivery notes, split tenders at the counter, stock held for an order lapsing, new outlets waiting for approval). The traced money figures below are from 2026-08 and are unchanged.
 
+Updated 2026-10-05: the nine selling features of backlog 87 -- the walk-in counter sale, a service line, a charge with its own account, hold and recall, closing a shift, a promise to pay and a turnover rebate -- are in *At the counter and after the bill*, near the end, with the journal each posts. That section is worked from the code and its tests, not traced.
+
 Updated 2026-10-02: what a firm configures (table below); the delivery note's challan reason; the dispatch-before-invoice check; Dispatch and invoice; choosing batches on the delivery note (backlog 79). Brought up to #947 the same night: batches on the counter bill, a pinned batch, minimum shelf life and batch MRP; e-invoice registration (route, notes, sales returns, the 30-day limit), the no-IRN print and email gate, e-way bills without an IRN.
 
 How an offer becomes goods off the shelf and money in the bank, which document
@@ -311,7 +313,9 @@ Two things about the amounts:
   charges, header charges and round-off. Those belong in accounts of their own
   and will move there when this posts a line per component; lumping them into
   revenue for now keeps the entry balanced and the receivable exactly equal to
-  what the customer owes.
+  what the customer owes. **A charge taxed at its own rate is the exception**
+  (2026-10-05): it is credited to *4050 Other Charges Recovered* and comes off
+  the sales credit -- see *A charge with its own account* below.
 - Tax comes from `TaxRuleService.simulate` per line. Tax that is *included in
   the price* and tax under *reverse charge* are reported separately and are
   **not** added to the document total.
@@ -727,6 +731,210 @@ in a column of its own, which would be empty on almost every bill.
 
 Free goods are typed on the quotation, sales order and delivery note lines (a
 promotion can also give them); the invoice inherits them.
+
+## At the counter and after the bill — the selling features of backlog 87
+
+Added 2026-10-05 with the nine features of `docs/BACKLOG.md` §87 (SG-1 to
+SG-9). **These journals are worked from the posting code and its unit tests,
+not traced against a running backend** like the chain above; the figures use
+one simple sale -- 10 units at ₹100 with 18% GST inside the state, so ₹1,000
+before tax, ₹90 CGST, ₹90 SGST, ₹1,180 in all. A firm with an account per GST
+head posts the tax to *2220 Output CGST* and *2230 Output SGST*, as shown; the
+older single *2200 Output Tax* line above is what a firm without them posts.
+What exists for each feature is in `SALES_FRAMEWORK.md`; the manual cases are
+TC-SELL-036 onward in `docs/qa/08_SELLING.md`.
+
+| Step | Where |
+| --- | --- |
+| Walk-in sale, other charges, hold and recall, the shift strip | Sell > **Sales Invoices** > New Invoice, with the order and delivery note stages off |
+| A cashier's shifts | Sell > All Sell screens > Documents > **Counter Shifts** |
+| The collection sheet, promises | Sell > All Sell screens > Money > **Collection Sheet**, **Payment Promises** |
+| Rebate agreements | Sell > All Sell screens > Documents > **Customer Rebates** |
+| Settling a rebate | Accounts > All Accounts screens > Books > **Party Adjustments** |
+| Carriers | Settings > Set up > Territories & routes > **Transporters** |
+| GST sales register, HSN summary of sales | Reports > Financial |
+
+### A walk-in sale at the counter
+
+`POST /api/v1/sales-invoices/walk-in-customer`, then the bill as in steps 6
+and 7.
+
+The bill names the firm's one *Cash sale* customer and carries the buyer's
+name and phone. With the order and delivery note stages off, saving the bill
+raises both documents and approving it dispatches the note, so one action
+posts three kinds of entry -- the goods, the bill, and a receipt per tender:
+
+```
+Dr  5200 Cost of Goods Sold              600.00     (the note, at the movement's value)
+    Cr  1200 Inventory                           600.00
+
+Dr  1100 Trade Receivables              1180.00     (the bill)
+    Cr  4000 Sales                              1000.00
+    Cr  2220 Output CGST                          90.00
+    Cr  2230 Output SGST                          90.00
+
+Dr  1000 Cash                           1180.00     (the receipt, one tender)
+    Cr  1100 Trade Receivables                  1180.00
+```
+
+Paid with two tenders, ₹680 in cash and ₹500 by UPI, the receipt is two
+receipts, each allocated to the bill:
+
+```
+Dr  1000 Cash                            680.00
+    Cr  1100 Trade Receivables                   680.00
+
+Dr  1010 Bank                            500.00     (UPI, card and bank transfer go through the bank)
+    Cr  1100 Trade Receivables                   500.00
+```
+
+**Approval refuses a walk-in bill that is not paid in full.** The cash
+customer is nobody in particular, so its account must end at zero after every
+bill; a sale on credit needs a customer record. A walk-in bill earns no
+loyalty points, so no `Dr Loyalty Expense / Cr Loyalty Payable` follows it.
+The rule is in `SALES_CHAIN_RULES.md`.
+
+### A service line
+
+A product of type `SERVICE` rides the same documents and moves no stock. A
+bill of one service at ₹500 posts the bill and nothing else:
+
+```
+Dr  1100 Trade Receivables               590.00
+    Cr  4000 Sales                               500.00
+    Cr  2220 Output CGST                          45.00
+    Cr  2230 Output SGST                          45.00
+```
+
+There is no reservation at step 3, no stock movement at step 5 and **no cost
+of goods sold entry**: the delivery note of a bill of services alone posts no
+journal at all. On a bill with goods and a service, the note's cost entry is
+for the goods only. A sales return of a service credits the customer and puts
+nothing back on a shelf.
+
+### A charge with its own account
+
+A bill may carry up to ten charges, each taxed by the tax profile it names.
+The sale above with *Packing* ₹100 at 18%:
+
+```
+Dr  1100 Trade Receivables              1298.00
+    Cr  4000 Sales                              1000.00
+    Cr  4050 Other Charges Recovered             100.00
+    Cr  2220 Output CGST                          99.00
+    Cr  2230 Output SGST                          99.00
+```
+
+The charge is credited to *4050 Other Charges Recovered* and the same figure
+comes off the sales credit, so the receivable and the tax legs are what they
+would have been. A charge that names no tax profile adds its amount and no
+tax, and is credited to the same account. The delivery charge
+(`freight_amount`) is not one of these: it is still split across the lines,
+taxed at the goods' rates and credited to Sales. Cancelling the bill reverses
+the one journal, the charge with it. **A credit note or a sales return credits
+lines only**, so a charge stays owed; and charges are typed on the bill, not
+carried from the order.
+
+### Holding a bill, and recalling it
+
+`POST /api/v1/sales-invoices/{id}/hold`, `POST /api/v1/sales-invoices/{id}/recall`
+
+**Neither posts anything.** A hold is a flag on a draft: the bill keeps the
+stock its saved draft already reserved, ships nothing, and is refused at
+approval until it is recalled. Recalling clears the flag and the bill is the
+draft it was.
+
+### Closing a shift
+
+`POST /api/v1/counter-shifts` opens a cashier's till with a float;
+`POST /api/v1/counter-shifts/{id}/close` closes it on what was counted.
+
+Opening a shift posts nothing, and so does a bill landing in one: the receipts
+the bill's tenders became are what posted. **Closing is the only thing a shift
+posts, and only when the drawer disagrees with the books.** With a float of
+₹500 and one cash bill of ₹1,180, the drawer should hold ₹1,680.
+
+Counted ₹1,670, the drawer is ₹10 **short**:
+
+```
+Dr  6960 Cash Short and Over              10.00
+    Cr  1000 Cash                                 10.00
+```
+
+Counted ₹1,685, it is ₹5 **over**:
+
+```
+Dr  1000 Cash                              5.00
+    Cr  6960 Cash Short and Over                   5.00
+```
+
+Counted ₹1,680, nothing is posted. The journal takes the shift's number as
+its reference and is dated the day of the close. Expected cash is the float
+plus the cash tenders whose receipts still stand, so a reversed receipt drops
+out of it by itself. Two limits: every cash receipt is booked to the firm's
+cash control account whatever account a shift names, so a shift that names
+another posts only its difference there; and shifts are optional -- a bill
+approved by somebody with no shift open posts exactly as above and belongs to
+none.
+
+### A promise to pay
+
+`POST /api/v1/collections/promises`
+
+**A promise posts nothing and moves no balance.** It records the day and the
+amount a customer promised, against a bill. When the money comes it is an
+ordinary receipt (step 8), and the promise reads *kept* if the receipts dated
+from the day it was taken to the day promised for cover the amount; otherwise
+it reads *broken* once its day has passed. Reversing the receipt un-keeps it.
+Withdrawing a promise posts nothing either.
+
+### A turnover rebate: accrued, then settled
+
+`POST /api/v1/customer-rebates/{id}/accrue`, then a party adjustment of kind
+`CUSTOMER_REBATE` (`POST /api/v1/party-adjustments`, approved).
+
+An agreement gives a customer back a share of a period's turnover by slabs:
+from ₹1,000 one percent, from ₹5,000 two percent, the rate of the slab
+reached on the whole turnover before tax. A customer who bought ₹5,000 in the
+period has earned ₹100. Agreeing it posts nothing. Once the period is over it
+is accrued, dated on the period's last day:
+
+```
+Dr  5310 Rebates Allowed                 100.00
+    Cr  2900 Customer Rebates Payable            100.00
+```
+
+The firm now owes the customer ₹100, and nothing has touched the customer's
+account yet. Settling ₹60 of it against what the customer owes is a party
+adjustment; a draft posts nothing, and approving it posts:
+
+```
+Dr  2900 Customer Rebates Payable         60.00
+    Cr  1100 Trade Receivables                    60.00
+```
+
+and writes a `REBATE` row on the customer's account, so the statement and the
+ledger agree. ₹40 is left to settle. A settlement is capped at what the
+accrual has left and at what the customer owes. Cancelling the adjustment
+mirrors its journal and puts the balance back by its own deltas; an accrual
+nothing has settled is reversed by its mirror, and accruing again takes a
+reference of its own.
+
+**No leg is tax, on the accrual or the settlement.** A rebate raises no credit
+note and reaches no return; whether a GST credit note is due is for the firm's
+CA, and the agreement records whether it was agreed before the sale for that
+purpose. It is settled by party adjustment only, and accrues once, after the
+period ends. The rule is in `LEDGER_POSTING_RULES.md`.
+
+### The transporter, attachments and the two GST reports
+
+None of these posts. Choosing a carrier on a delivery note copies its name,
+GSTIN or TRANSIN and usual mode onto the note, and `freight_terms` (paid, to
+pay, to be billed) records who pays the carrier -- it prints on the challan
+and moves no money. A file attached to a quotation, order, note, invoice or
+return is kept with that document and changes nothing about it. The GST sales
+register and the HSN summary of sales read the documents above through
+GSTR-1's own readers and store nothing.
 
 ## Two rules worth carrying
 

@@ -1706,6 +1706,517 @@ promotion, or the customer's standing rate).
 - **Expect:** the reminder sends the customer's **statement of account** as a PDF: the movement from the oldest unpaid bill to today, the closing balance, the unpaid bills with days overdue, and the UPI line where it applies. Email queues an outbox row and the worker sends it; WhatsApp opens WhatsApp web (wa.me) as in TC-SELL-034 and is recorded in the customer's audit trail. A customer who owes nothing and one marked *No reminders* are refused by name on both roads. The five documents send by email with a covering note and the PDF rendered at send time; a cancelled document or a reversed receipt is refused. The order and the receipt each have a Print (the receipt on A5).
 - **Leaves:** outbox rows, audit entries.
 
+---
+
+**The nine selling features of backlog 87 (SG-1 to SG-9).** Cases TC-SELL-036 onward were written from the code and its automated tests on 2026-10-05 and have not yet been run by hand; treat a failure as possibly the case's mistake until it is settled. Each case stands alone: it names everything it needs and uses no other case's documents. They share these masters, which no earlier case touches:
+
+| Record | Values |
+| --- | --- |
+| Product `<SUFFIX>-CTR` *Counter Item* | Selling price 100, GST 18% Local, HSN / SAC `3402`, 500 in MAIN bought at 60 |
+| Product `<SUFFIX>-SVC` *Installation* | Product type *SERVICE*, selling price 500, GST 18% Local, HSN / SAC `998739`, no stock |
+| Customer `<SUFFIX>-C03` *Registered Buyer* | a GSTIN in the firm's own state, credit limit 0, no standing discount |
+| Counter billing | Settings > Selling > **Sales Stages**: *Sales order* and *Delivery note* both **off**. Sell > Sales Invoices → **New Invoice** then opens the counter bill. Switch both back **on** after the counter cases |
+| Figures | 10 of `<SUFFIX>-CTR` at 100 is 1,000.00 before tax, 90.00 CGST + 90.00 SGST, 1,180.00 in all. Where a case says *the bill of 1,180.00* it means that bill to the customer the case names |
+
+Counter Shifts and Customer Rebates are under Sell > All Sell screens > Documents; Collection Sheet and Payment Promises under Sell > All Sell screens > Money; Transporters under Settings > Set up > Territories & routes; Party Adjustments under Accounts > All Accounts screens > Books. The journal of any step is read under Accounts > **Journal Entries**.
+
+**GST sales register and HSN summary of sales (SG-1)**
+
+### TC-SELL-036 — The GST sales register reads a bill by tax head
+
+- **Covers:** backlog 87 row 1 (SG-1)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters in the table above; the Sales order and Delivery note stages **on**. One sale of 10 `<SUFFIX>-CTR` at 100 to `<SUFFIX>-C03`, Discount % `0`: order approved, delivery note dispatched, invoice approved today (1,180.00). One more invoice left as a **draft**.
+- **Steps:** as the fixture's **Firm admin**: Reports > Financial → **GST sales register**, period this month → run. Then **Export**.
+- **Expect:** one row for the approved bill: Type **Invoice**, its number, Customer *Registered Buyer*, GSTIN the customer's, Place of supply the firm's state code, Taxable **1,000.00**, IGST 0.00, CGST **90.00**, SGST **90.00**, Cess 0.00, Total tax **180.00**, Total **1,180.00**; *Against invoice* blank. The draft is not listed. The figures equal the bill's journal: Dr 1100 Trade Receivables 1,180.00, Cr 4000 Sales 1,000.00, Cr Output CGST 90.00, Cr Output SGST 90.00. The export matches the grid.
+- **Leaves:** an approved bill and a draft.
+
+### TC-SELL-037 — Credit notes and returns are rows in minus, a debit note a row in plus
+
+- **Covers:** backlog 87 row 1 (SG-1)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above, stages **on**; an approved bill of 1,180.00 to `<SUFFIX>-C03` as in TC-SELL-036, nothing received on it.
+- **Steps:** as the fixture's **Firm admin**: (a) Sell > Returns & notes > Credit Notes → **Raise credit note**: the bill, Line 1, Reason Rate difference, Credit, before tax **100** → Raise; run the register before approving it. (b) **Approve** it and run the register again. (c) Sell > Returns & notes > Debit Notes → New → the bill → **50** on its line → Save → Approve. (d) Sell > Returns & notes > Sales Returns → New Return against the bill, Quantity returned **2**, taken back into MAIN → Create draft → Approve → Complete. Run Reports > Financial → **GST sales register** for the month.
+- **Expect:** (a) a draft credit note is not in the register. (b) a row Type **Credit note**, *Against invoice* the bill's number, Taxable **-100.00**, CGST **-9.00**, SGST **-9.00**, Total **-118.00**, on the note's own date. (c) a row Type **Debit note**, Taxable **50.00**, CGST **4.50**, SGST **4.50**, Total **59.00**. (d) a row Type **Sales return**, Taxable **-200.00**, CGST **-18.00**, SGST **-18.00**, Total **-236.00**; an approved return that is not yet completed is not listed. The four rows' Taxable adds to **750.00**, the same net figure the HSN table (Table 12) of GSTR-1 states for the month under Accounts > All Accounts screens > Tax filing > GST Returns.
+- **Leaves:** a credit note, a debit note and a completed return on one bill.
+
+### TC-SELL-038 — The HSN summary of sales adds up to the register
+
+- **Covers:** backlog 87 row 1 (SG-1)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above, stages **on**; an approved bill of 10 `<SUFFIX>-CTR` at 100 to `<SUFFIX>-C03` dated today, and an approved bill of 5 `<SUFFIX>-DET` at 84, Discount % `0`, to the same customer (`<SUFFIX>-DET` carries no HSN).
+- **Steps:** as the fixture's **Firm admin**: Reports > Financial → **HSN summary of sales**, period this month → run. Then set the period to the whole financial year and run again.
+- **Expect:** a row HSN **3402**, Rate % **18**, Quantity **10**, Taxable **1,000.00**, CGST **90.00**, SGST **90.00**, Total tax **180.00**. A second row with a **blank** HSN for the detergent: Quantity 5, Taxable 420.00, CGST 37.80, SGST 37.80. The Taxable and Total tax columns add to the GST sales register's for the same days. A year is accepted here, though GSTR-1 itself is refused for more than three months.
+- **Leaves:** two approved bills.
+
+### TC-SELL-039 — Who may open the two GST reports
+
+- **Covers:** backlog 87 row 1 (SG-1)
+- **Fixture:** `selling-firm`
+- **Also needs:** a **Read Only** user and a **Warehouse** user in the firm.
+- **Steps:** as the **Read Only** user: Reports > Financial → GST sales register and HSN summary of sales. As the **Warehouse** user: look for them. **(HTTP)** as the Warehouse user, `GET /api/v1/sales-invoices/reports/gst-register`.
+- **Expect:** Read Only (who holds `SALES_VIEW` and `REPORT_VIEW`) opens both. The Warehouse user, who holds neither, is not offered them and the request is refused with **403**, "You do not have permission to perform this action."
+- **Leaves:** unchanged.
+
+---
+
+**Walk-in cash sale (SG-2)**
+
+### TC-SELL-040 — A walk-in bill names the Cash sale customer and is paid at the counter
+
+- **Covers:** backlog 87 row 2 (SG-2)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing (both stages **off**).
+- **Steps:** as the fixture's **Firm admin**: Sell > Sales Invoices → **New Invoice**. Under *Counter sale* press **Walk-in**. In *Buyer (optional)* type Buyer name `Ramesh` and Buyer phone `+919800000555`. Add `<SUFFIX>-CTR` quantity **10**. Read *Received now*. Press **Save & print (F9)**. Then Masters > Customers; Sell > Receipts; Accounts > Journal Entries. Start another bill and press **Walk-in** again.
+- **Expect:** Walk-in selects the customer **Cash sale** (code `CASH`) and shows the two buyer boxes. *Received now* offers the whole total of the bill, with the note "A walk-in bill is paid in full at the counter." F9 saves, approves and prints; the print names **Ramesh** and his phone in place of *Cash sale*. Masters > Customers lists one *Cash sale*, Outstanding 0.00; the second Walk-in reuses it and makes no second customer. Receipts shows one receipt of 1,180.00, Cash, applied to the bill. Journals: the bill Dr 1100 Trade Receivables 1,180.00 / Cr 4000 Sales 1,000.00 / Cr Output CGST 90.00 / Cr Output SGST 90.00; the receipt **Dr 1000 Cash 1,180.00 / Cr 1100 Trade Receivables 1,180.00**; and the delivery note's cost entry Dr 5200 Cost of Goods Sold 600.00 / Cr 1200 Inventory 600.00. Stock of `<SUFFIX>-CTR` is down 10.
+- **Leaves:** the firm's Cash sale customer, a paid bill, a receipt.
+
+### TC-SELL-041 — A walk-in bill that is not paid in full is refused at approval
+
+- **Covers:** backlog 87 row 2 (SG-2)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → **Walk-in** → `<SUFFIX>-CTR` quantity **10** → change *Received now* to **500** → **Save & print (F9)**. Then set *Received now* to **0** and try again. Then set it to **1180** and press F9.
+- **Expect:** with 500 the bill is kept as a draft and approval is refused, the screen staying open with the server's message: "A walk-in bill is paid in full at the counter: SI-… comes to … and … was received. Take the rest, or bill a customer with a record to sell on credit." (the two figures are the bill's total, 1,180, and the 500 received, printed as the server holds them). The same with 0. Nothing is posted and no receipt is made: Journal Entries has no entry for the bill. With 1180 it approves as in TC-SELL-040.
+- **Leaves:** one paid walk-in bill.
+
+### TC-SELL-042 — A walk-in bill paid with two tenders
+
+- **Covers:** backlog 87 row 2 (SG-2), SEL-12
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → **Walk-in** → `<SUFFIX>-CTR` quantity **10** → **Split payment**: Cash **680**; **Add payment** UPI **500**, Reference `UPI-QA-500` → **Save & print (F9)**. Then repeat with Cash 680 and UPI **400**.
+- **Expect:** 680 + 500 equals the bill, so it approves. Sell > Receipts shows **two** receipts, each applied to the bill: 680.00 Cash (**Dr 1000 Cash / Cr 1100 Trade Receivables**) and 500.00 with mode UPI (**Dr 1010 Bank / Cr 1100 Trade Receivables**). With 680 + 400 approval is refused with the paid-in-full message of TC-SELL-041, naming 1080 as received.
+- **Leaves:** a paid bill and two receipts; a draft.
+
+### TC-SELL-043 — A buyer's name belongs only on a walk-in bill
+
+- **Covers:** backlog 87 row 2 (SG-2)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → choose `<SUFFIX>-C03` and look for the buyer boxes. Press **Walk-in**, then choose `<SUFFIX>-C03` again. **(HTTP)** `POST /api/v1/sales-invoices` for `<SUFFIX>-C03` with `"buyer_name": "Ramesh"`.
+- **Expect:** *Buyer (optional)* shows only while the customer is *Cash sale*, and goes when another customer is chosen. The request is refused: "A buyer's name and phone are typed only on a walk-in bill. This bill names a customer with a record; correct the customer instead."
+- **Leaves:** unchanged.
+
+### TC-SELL-044 — The Cash sale customer cannot be deleted, given credit, registered or made inactive
+
+- **Covers:** backlog 87 row 2 (SG-2)
+- **Fixture:** `selling-firm`
+- **Also needs:** the Cash sale customer (press **Walk-in** once on a counter bill, as in TC-SELL-040).
+- **Steps:** as the fixture's **Firm admin**: Masters > Customers → *Cash sale*. (a) **Delete**. (b) Edit: Credit limit `5000` → Save. (c) Edit: a GST number → Save. (d) Edit: change the status to anything but Active → Save.
+- **Expect:** each is refused and the customer is unchanged: (a) "Cash sale is the walk-in customer every counter bill without a customer record names; it cannot be deleted." (b) "Cash sale is the walk-in customer and takes no credit: its bills are paid in full at the counter." (c) "Cash sale is the walk-in customer and is unregistered. Bill a registered buyer to a customer record of its own." (d) "Cash sale is the walk-in customer and stays active."
+- **Leaves:** unchanged.
+
+### TC-SELL-045 — A walk-in bill earns no loyalty points and files as B2C
+
+- **Covers:** backlog 87 row 2 (SG-2)
+- **Fixture:** `selling-firm` (its loyalty scheme gives 2 points per 100)
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: a walk-in bill of 10 `<SUFFIX>-CTR`, paid in full, F9. Then a counter bill of the same to `<SUFFIX>-C01` (Vijaya), Discount % `0`, *Received now* 1180, F9. Settings > Set up > Pricing > **Loyalty**. Reports > Financial → **GST sales register** for today.
+- **Expect:** Loyalty lists Vijaya with about **23.6** points from her bill (2 per 100 of 1,180.00) and has **no** row for *Cash sale*. In the register both bills show a blank GSTIN; the walk-in bill's Customer is *Cash sale*.
+- **Leaves:** two paid bills.
+
+---
+
+**Service invoices (SG-3)**
+
+### TC-SELL-046 — A bill of a service moves no stock and posts no cost
+
+- **Covers:** backlog 87 row 3 (SG-3)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → `<SUFFIX>-C03` → add `<SUFFIX>-SVC` quantity **1** → Save, then **Approve** the draft from the list. Stock > All Stock screens > Stock > Inventory and Stock > Stock Ledger for `<SUFFIX>-SVC`. Sell > Delivery Notes. Accounts > Journal Entries. Then a second bill of quantity **5000**.
+- **Expect:** the bill totals **590.00** (500.00 + 45.00 CGST + 45.00 SGST) and approves although the product has no stock. Its own delivery note reads **DISPATCHED**. The stock ledger has **no** row for the service and Inventory shows nothing reserved for it (or no row at all). Journals: only the bill's, Dr 1100 Trade Receivables 590.00 / Cr 4000 Sales 500.00 / Cr Output CGST 45.00 / Cr Output SGST 45.00; there is **no** Cost of Goods Sold entry for the note. 5000 units approve the same way.
+- **Leaves:** two approved bills owed by `<SUFFIX>-C03`.
+
+### TC-SELL-047 — Goods and a service on one bill
+
+- **Covers:** backlog 87 row 3 (SG-3)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → `<SUFFIX>-C03` → `<SUFFIX>-CTR` quantity **2** and `<SUFFIX>-SVC` quantity **1** → Save → Approve → **Print**. Stock Ledger for both products. Journal Entries. Reports > Financial → HSN summary of sales for today.
+- **Expect:** taxable 700.00, tax 126.00 (63.00 + 63.00), total **826.00**. The stock ledger shows `DISPATCH` −2 for the goods and nothing for the service. The note's cost entry is for the goods alone: Dr 5200 Cost of Goods Sold 120.00 / Cr 1200 Inventory 120.00. The print and the HSN summary carry the service under **998739** and the goods under 3402.
+- **Leaves:** an approved bill.
+
+### TC-SELL-048 — A service on a typed order and delivery note
+
+- **Covers:** backlog 87 row 3 (SG-3)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; the Sales order and Delivery note stages **on**.
+- **Steps:** as the fixture's **Firm admin**: Sell > Sales Orders → New Order: `<SUFFIX>-C03`, MAIN, `<SUFFIX>-SVC` quantity **3** → Create draft → **Approve**. Inventory for the service. Reports → **Back orders**. Sell > Delivery Notes → New off the order → Save → Approve → **Dispatch**. Stock Ledger. Bill the note and approve. Then cancel a second, approved order for the service.
+- **Expect:** the order approves with nothing on hand; Inventory shows no reservation and the order is **not** on the back-order report. The note dispatches, the order reads DELIVERED, and the stock ledger has no row and Journal Entries no cost entry. The bill is 1,770.00 (1,500.00 + 135.00 + 135.00). Cancelling an approved service order writes no stock movement either.
+- **Leaves:** an order, a note and a bill for a service; a cancelled order.
+
+### TC-SELL-049 — Returning a service credits the customer and puts nothing on a shelf
+
+*The server has no automated test of its own for this path (it rides the return's zero-movement path), so check it with extra care.*
+
+- **Covers:** backlog 87 row 3 (SG-3)
+- **Fixture:** `selling-firm`
+- **Also needs:** the approved bill of 1 `<SUFFIX>-SVC` (590.00) to `<SUFFIX>-C03` from the steps of TC-SELL-046, built for this case.
+- **Steps:** as the fixture's **Firm admin**: Sell > Returns & notes > Sales Returns → New Return against the bill, Quantity returned **1** → Create draft → Approve → **Complete**. Stock Ledger for the service. Masters > Customers → `<SUFFIX>-C03`.
+- **Expect:** the return completes and the customer's Outstanding falls by **590.00**. The stock ledger has **no** `SALES_RETURN` row for the service and no stock is added.
+- **Leaves:** a completed return.
+
+---
+
+**Charges on the bill with their own GST (SG-4)**
+
+### TC-SELL-050 — A charge is taxed at its own rate and credited to Other Charges Recovered
+
+- **Covers:** backlog 87 row 4 (SG-4)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → `<SUFFIX>-C03` → `<SUFFIX>-CTR` quantity **10**. Under **Other charges** press **Add charge**: Name `Packing`, Amount `100`, tax **GST 18% Local**, SAC `998540`. Read the totals. Save → Approve. Accounts > Journal Entries → the bill's entry.
+- **Expect:** the charge adds 100.00 and 18.00 of tax (9.00 CGST + 9.00 SGST): taxable 1,100.00, tax 198.00, total **1,298.00**. Journal: Dr 1100 Trade Receivables 1,298.00 / Cr 4000 Sales **1,000.00** / Cr **4050 Other Charges Recovered 100.00** / Cr Output CGST 99.00 / Cr Output SGST 99.00. The customer's Outstanding rises by 1,298.00.
+- **Leaves:** an approved bill with one charge.
+
+### TC-SELL-051 — A charge that names no tax carries none
+
+- **Covers:** backlog 87 row 4 (SG-4)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → `<SUFFIX>-C03` → `<SUFFIX>-CTR` quantity **10** → **Add charge**: Name `Handling`, Amount `50`, tax left at **(no tax)**, SAC blank. Also type **20** in *Delivery charge*. Save → Approve → the journal.
+- **Expect:** *Handling* adds 50.00 and no tax. The delivery charge is still taxed with the goods (20.00 + 3.60). Total 1,180.00 + 50.00 + 23.60 = **1,253.60**. Journal: Cr 4050 Other Charges Recovered **50.00**; Cr 4000 Sales 1,020.00 (goods and delivery charge); Output CGST 91.80, Output SGST 91.80; Dr 1100 Trade Receivables 1,253.60.
+- **Leaves:** an approved bill.
+
+### TC-SELL-052 — Charges on a draft are replaced by what the editor holds
+
+- **Covers:** backlog 87 row 4 (SG-4)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → `<SUFFIX>-C03` → `<SUFFIX>-CTR` quantity **10** → two charges: `Packing` 100 at GST 18% Local, and `Insurance` 40 at (no tax) → Save. Reopen the draft with **Edit**: both rows are there. Change Packing to **200**, remove Insurance with **Remove charge**, add a third row with an amount and **no name** → Save. Reopen. **(HTTP)** `PUT` the draft with eleven charges; and with a charge whose name is spaces.
+- **Expect:** the first save totals 1,180.00 + 118.00 + 40.00 = **1,338.00**. After the edit only *Packing* 200.00 remains (the unnamed row is not a charge) and the total is 1,180.00 + 236.00 = **1,416.00**. Eleven charges are refused (at most ten), and a blank name is refused: "A charge needs a name."
+- **Leaves:** a draft bill.
+
+### TC-SELL-053 — The charge on the print, in the register and in the HSN summary
+
+- **Covers:** backlog 87 row 4 (SG-4)
+- **Fixture:** `selling-firm`
+- **Also needs:** the approved bill of TC-SELL-050 (10 `<SUFFIX>-CTR` and *Packing* 100 at 18%, SAC `998540`: 1,298.00), built for this case.
+- **Steps:** as the fixture's **Firm admin**: select the bill → **Print**. Reports > Financial → GST sales register, then HSN summary of sales, for today. Accounts > All Accounts screens > Tax filing > GST Returns → GSTR-1 for the month.
+- **Expect:** the print lists **Packing** by name between the taxable value and the tax rows, and its HSN summary has a row for 998540. The register's row for the bill reads Taxable **1,100.00**, CGST 99.00, SGST 99.00, Total 1,298.00. The HSN summary has a row **998540**, Rate % 18, Quantity **0**, Taxable 100.00, beside the goods' row. GSTR-1 states the same 1,100.00.
+- **Leaves:** unchanged.
+
+### TC-SELL-054 — What a charge does not do yet
+
+- **Covers:** backlog 87 row 4 (SG-4), known limits
+- **Fixture:** `selling-firm`
+- **Also needs:** the approved bill of TC-SELL-050, built for this case, nothing received on it; the Sales order and Delivery note stages **on** for the second half.
+- **Steps:** as the fixture's **Firm admin**: Sell > Returns & notes > Credit Notes → **Raise credit note** on the bill: look at what can be credited; credit Line 1 by **1000** before tax → Raise → Approve. Then Sell > Sales Orders → New Order and look for charges.
+- **Expect:** a credit note offers the bill's **lines** only; the charge cannot be credited. After crediting the whole line (1,180.00) the customer still owes **118.00**, the charge and its tax. A sales order has no *Other charges*: charges are typed on the bill and are not carried from the order.
+- **Leaves:** a credit note.
+
+---
+
+**Transporter master and freight terms (SG-5)**
+
+### TC-SELL-055 — A transporter is kept once by name
+
+- **Covers:** backlog 87 row 5 (SG-5)
+- **Fixture:** `selling-firm`
+- **Steps:** as the fixture's **Firm admin**: Settings > Set up > Territories & routes > **Transporters** → New: Name `Speedy Carriers`, GSTIN `33AAAPL1234C1ZV`, Phone `+919800000777`, Usual mode **Rail**, Active ticked → Save. New again with the same name. New: Name `Hill Cargo`, GSTIN `12345` → Save. New: Name `Hill Cargo`, GSTIN blank, Transporter ID (TRANSIN) `33AABCH5678K1Z2` → Save.
+- **Expect:** *Speedy Carriers* is listed with Mode **Rail** and Active **Yes**. The second is refused: "There is already a transporter Speedy Carriers." A GSTIN that is not the shape of a GSTIN is refused and nothing is saved. *Hill Cargo* saves with only a Transporter ID.
+- **Leaves:** two transporters.
+
+### TC-SELL-056 — Choosing a carrier fills the delivery note
+
+- **Covers:** backlog 87 row 5 (SG-5)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; stages **on**; the transporter *Speedy Carriers* of TC-SELL-055 (GSTIN `33AAAPL1234C1ZV`, usual mode Rail); an approved order of 10 `<SUFFIX>-CTR` for `<SUFFIX>-C03`.
+- **Steps:** as the fixture's **Firm admin**: Sell > Delivery Notes → **New** → the order. In **Carrier (master)** choose *Speedy Carriers*. In **Freight** choose **To pay**. **Save delivery note** → Approve → Dispatch → **Print** the challan.
+- **Expect:** choosing the carrier fills *Transporter* `Speedy Carriers`, *Transporter GSTIN* `33AAAPL1234C1ZV` and *Moving by* **Rail**. The saved note keeps them, and the challan prints the transporter and **Freight: To pay**. Freight terms move no money: no journal names them, and the bill's *Delivery charge* is still what charges the customer.
+- **Leaves:** a dispatched note.
+
+### TC-SELL-057 — What is typed on the note wins, and the master never rewrites a note
+
+- **Covers:** backlog 87 row 5 (SG-5)
+- **Fixture:** `selling-firm`
+- **Also needs:** as TC-SELL-056, with two approved orders.
+- **Steps:** as the fixture's **Firm admin**: (a) New delivery note on the first order: choose *Speedy Carriers*, then overtype *Transporter* with `Speedy Carriers (Salem depot)` and set *Moving by* to **Road** → Save delivery note. (b) Settings > Set up > Territories & routes > Transporters → edit *Speedy Carriers*: Usual mode **Air** → Save. Print the note's challan. (c) **Delete** *Speedy Carriers*. Print the challan again.
+- **Expect:** (a) the note keeps what was typed: `Speedy Carriers (Salem depot)`, Road. (b) the challan still prints what the note held; the edit rewrote nothing. (c) deleting the transporter is not refused, and the note still prints its carrier. The name is free again for a new transporter.
+- **Leaves:** a note; no transporter *Speedy Carriers*.
+
+### TC-SELL-058 — An inactive carrier is not offered and is refused
+
+- **Covers:** backlog 87 row 5 (SG-5)
+- **Fixture:** `selling-firm`
+- **Also needs:** stages **on**; a transporter `Slow Lines` with **Active** unticked; an approved order.
+- **Steps:** as the fixture's **Firm admin**: Sell > Delivery Notes → New → the order → open **Carrier (master)**. **(HTTP)** `POST /api/v1/delivery-notes` for the order with `transporter_id` of *Slow Lines*; and with `"freight_terms": "COLLECT"`.
+- **Expect:** the picker lists active carriers only, and `(none)`. The request naming the inactive one is refused: "Slow Lines is marked inactive. Choose another transporter or make it active again." A freight term other than PAID, TO_PAY or TO_BE_BILLED is refused.
+- **Leaves:** unchanged.
+
+### TC-SELL-059 — Who keeps transporters, and what the note editor cannot do yet
+
+- **Covers:** backlog 87 row 5 (SG-5), known limit
+- **Fixture:** `selling-firm`
+- **Also needs:** a **Field Sales** user; one dispatched delivery note with a carrier.
+- **Steps:** as the **Field Sales** user: Settings > Set up > Territories & routes > Transporters. As the **Firm admin**: Sell > Delivery Notes → select the note and look for a way to change its carrier.
+- **Expect:** Field Sales (who holds `SALES_VIEW` and not `SALES_UPDATE`) sees the list and is offered no New, Edit or Delete. The delivery note editor only **creates** notes: the carrier and freight of a note already raised cannot be changed on screen.
+- **Leaves:** unchanged.
+
+---
+
+**Files on the five sales documents (SG-6)**
+
+### TC-SELL-060 — Attaching a file to a sales invoice
+
+- **Covers:** backlog 87 row 6 (SG-6)
+- **Fixture:** `selling-firm`
+- **Also needs:** any saved sales invoice; a PDF and a JPG or PNG photo under 10 MB.
+- **Steps:** as the fixture's **Firm admin**: Sell > Sales Invoices → select the invoice → **Attachments** → **Add file** → the PDF. Add the photo. Close. Read the **Files** column. Open Attachments again → **Open** the PDF, then **Save as**.
+- **Expect:** the panel is titled "Attachments · SI-…" and lists both files. The list's Files cell reads a paper clip and **2**; an invoice with nothing attached shows a blank cell. The file opens and saves byte for byte as it was added.
+- **Leaves:** two files on the invoice.
+
+### TC-SELL-061 — Only a PDF, JPG or PNG of up to 10 MB
+
+- **Covers:** backlog 87 row 6 (SG-6)
+- **Fixture:** `selling-firm`
+- **Also needs:** any saved sales invoice; a file over 10 MB; a `notes.docx`; a text file renamed `fake.pdf`.
+- **Steps:** as the fixture's **Firm admin**: Sell > Sales Invoices → the invoice → Attachments → Add file, each of the three in turn.
+- **Expect:** each is refused and nothing is added (if the file picker does not offer a file, that is the refusal; otherwise the server's message shows): "The file is … MB; the most a file may be is 10 MB."; "Only PDF, JPG and PNG files may be attached; 'notes.docx' is not one by its name."; "'fake.pdf' is not a PDF, JPG or PNG file by its contents."
+- **Leaves:** unchanged.
+
+### TC-SELL-062 — Each of the five documents keeps its own files
+
+- **Covers:** backlog 87 row 6 (SG-6)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above, stages **on**; one sale taken from a quotation to an order, a delivery note, an invoice and a sales return; a PDF.
+- **Steps:** as the fixture's **Firm admin**: on each of Sell > Quotations, Sales Orders, Delivery Notes, Sales Invoices and Sell > Returns & notes > Sales Returns, select the document → **Attachments** → Add file. Then open Attachments on the invoice.
+- **Expect:** every one of the five lists has **Attachments** and a **Files** column. A file added to the order shows on the order only: the invoice of the same sale lists just its own.
+- **Leaves:** one file on each document.
+
+### TC-SELL-063 — Deleting a file, and who may add one
+
+- **Covers:** backlog 87 row 6 (SG-6)
+- **Fixture:** `selling-firm`
+- **Also needs:** a sales invoice with one file attached; a **Read Only** user.
+- **Steps:** as the **Read Only** user: Sell > Sales Invoices → the invoice → Attachments. As the **Firm admin**: Attachments → **Delete** the file → confirm. Settings > Platform > System > Audit Logs.
+- **Expect:** Read Only sees the file and can open it, with no **Add file** and no **Delete**. After the administrator deletes it the panel reads "Nothing is attached yet.", the Files cell is blank, and the audit trail keeps that the file was removed.
+- **Leaves:** unchanged.
+
+---
+
+**Hold and recall a counter bill; shift closing (SG-7)**
+
+### TC-SELL-064 — Holding a counter bill and recalling it
+
+- **Covers:** backlog 87 row 7 (SG-7)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → `<SUFFIX>-C03` → `<SUFFIX>-CTR` quantity **3** → **Hold (F8)** → in *Hold this bill* type the note `blue shirt, back in 5 min` → **Hold**. Read Inventory for the product. Type a line on the fresh bill and press **Recall**. Clear the line, press **Recall (1)**, pick the bill. Change the quantity to **4** → **Save & print (F9)** with *Received now* 472.
+- **Expect:** "SI-… is held. Recall it from the Recall button." and a blank bill opens; the button reads **Recall (1)**. The held bill keeps the stock its saved draft reserved (Reserved 3) and ships nothing. Recall with a line typed is refused: "Hold this bill, or finish it, before recalling another." *Recall a held bill* lists the bill with its note, when it was held and its total; picking it reopens the draft and the button reads **Recall**. The bill then approves for 4 (472.00) like any other.
+- **Leaves:** an approved bill.
+
+### TC-SELL-065 — A held bill is never approved
+
+- **Covers:** backlog 87 row 7 (SG-7)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing; one bill held as in TC-SELL-064 and one ordinary draft bill.
+- **Steps:** as the fixture's **Firm admin**: Sell > Sales Invoices → select the held draft → **Approve**. Tick both drafts → bulk **Approve**. Select the held draft → **Edit**, change the quantity → save. Then **Cancel** the held draft.
+- **Expect:** approval is refused: "SI-… is held. Recall it first, then approve it." Bulk approve approves the ordinary draft and reports the held one with the same message. The edit saves and the bill is still held. Cancelling the held draft clears the hold: it no longer counts in **Recall**.
+- **Leaves:** an approved bill and a cancelled one.
+
+### TC-SELL-066 — Only a draft can be held
+
+- **Covers:** backlog 87 row 7 (SG-7)
+- **Fixture:** `selling-firm`
+- **Also needs:** an approved sales invoice and a draft one that is not held.
+- **Steps:** **(HTTP)** as the fixture's **Firm admin**: `POST /api/v1/sales-invoices/{id}/hold` with `{"note": "x"}` on the approved bill; `POST /api/v1/sales-invoices/{id}/recall` on the draft that is not held; `GET /api/v1/sales-invoices?is_held=true`.
+- **Expect:** "Only a draft bill can be held; SI-… is approved." and "SI-… is not held." The list returns only held bills, each with `is_held`, `held_at` and `held_note`.
+- **Leaves:** unchanged.
+
+### TC-SELL-067 — Opening a shift, and one open shift per cashier
+
+- **Covers:** backlog 87 row 7 (SG-7)
+- **Fixture:** `selling-firm`
+- **Also needs:** counter billing; a **Sales Manager** user in the firm; neither user has a shift open.
+- **Steps:** as the fixture's **Firm admin**: New Invoice. The strip above the scan field reads **No shift open** → **Open shift** → Opening float `500` → Open shift. **(HTTP)** `POST /api/v1/counter-shifts` with `{"opening_float": "100"}` again as the same user. Sign in as the **Sales Manager**: New Invoice → Open shift, float `200`. Sell > All Sell screens > Documents > **Counter Shifts**.
+- **Expect:** the strip reads "Shift SHIFT-…" (the firm's next number), when it was opened, **0 bills** and **cash expected 500.00**, with **Close shift**. The second request is refused (409): "You already have SHIFT-… open. Close it before opening another." The Sales Manager opens a shift of their own with the next number. Counter Shifts lists both: Cashier, Opened, Float, Expected, Status **Open**. Opening a shift posts nothing.
+- **Leaves:** two open shifts (close them: TC-SELL-069 shows how).
+
+### TC-SELL-068 — Expected cash is the float and the cash tenders
+
+- **Covers:** backlog 87 row 7 (SG-7)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing; no shift open for the Firm admin.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → **Open shift**, float `500`. Bill 1: **Walk-in**, 10 `<SUFFIX>-CTR`, *Received now* 1180 Cash, F9. Bill 2: Walk-in, 10 `<SUFFIX>-CTR`, **Split payment** Cash 680 + UPI 500, F9. Bill 3: `<SUFFIX>-C03`, 10 `<SUFFIX>-CTR`, *Received now* blank, Save → Approve. Read the strip; then Counter Shifts → the shift → **View**.
+- **Expect:** the strip reads **2 bills** and **cash expected 2,360.00** (500 + 1,180 + 680). View shows Bills 2, Total billed 2,360.00, CASH 1,860.00, UPI 500.00, CARD 0.00, BANK_TRANSFER 0.00, Opening float 500.00, Cash expected 2,360.00. The credit bill took no money at the counter and is not in the shift.
+- **Leaves:** an open shift with two bills; three approved bills.
+
+### TC-SELL-069 — Closing a shift short posts to Cash Short and Over
+
+- **Covers:** backlog 87 row 7 (SG-7)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing; a shift of the Firm admin's own with float `500` and one walk-in bill of 1,180.00 paid in cash (expected 1,680.00).
+- **Steps:** as the fixture's **Firm admin**: on the counter bill press **Close shift**. Type *Counted cash* `1670`, Note `End of day` → **Close shift** → **Print report** → Done. Accounts > Journal Entries. Counter Shifts.
+- **Expect:** the dialog shows the tenders, Opening float 500.00 and **Cash expected 1,680.00**; typing 1670 reads **Short by 10.00**. After closing: "Shift SHIFT-… is closed.", Cash counted 1,670.00. One journal, reference the shift's number, "Cash short at the close of SHIFT-…": **Dr 6960 Cash Short and Over 10.00 / Cr 1000 Cash 10.00**. The report is a PDF of the takings by mode, the count and the difference. Counter Shifts shows the shift **Closed**, Expected 1,680.00, Counted 1,670.00, Difference −10.00. Closing it again is refused: "SHIFT-… is already closed." The strip reads No shift open.
+- **Leaves:** a closed shift and its journal.
+
+### TC-SELL-070 — Closing over, and closing exact
+
+- **Covers:** backlog 87 row 7 (SG-7)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing; no shift open for the Firm admin.
+- **Steps:** as the fixture's **Firm admin**: (a) Open shift, float `500`; one walk-in bill of 1,180.00 in cash; Close shift with *Counted cash* `1685`. (b) Open shift again, float `500`; no bill; Close shift with `500`.
+- **Expect:** (a) reads **Over by 5.00**; the journal is the other way round: **Dr 1000 Cash 5.00 / Cr 6960 Cash Short and Over 5.00**, its reference this shift's own number. (b) reads **Cash is exact** and posts **no** journal. Both shifts read Closed, with Difference 5.00 and 0.00.
+- **Leaves:** two closed shifts.
+
+### TC-SELL-071 — Who may close a shift
+
+- **Covers:** backlog 87 row 7 (SG-7)
+- **Fixture:** `selling-firm`
+- **Also needs:** counter billing; a **Sales Manager** and a **Field Sales** user in the firm; an open shift of the **Sales Manager's**.
+- **Steps:** **(HTTP)** as the **Field Sales** user (who holds `SALES_INVOICE_CREATE` and not `SALES_APPROVE`): `POST /api/v1/counter-shifts/{id}/close` with `{"counted_cash": "200"}` on the Sales Manager's shift. Then the same as the **Firm admin**. On screen, as Field Sales: Sell > All Sell screens > Documents > Counter Shifts.
+- **Expect:** Field Sales is refused (403): "Only the cashier who opened this shift, or somebody who may approve sales, can close it." The Firm admin, who may approve sales, closes it: "Shift closed." Field Sales can see the Counter Shifts list and print a shift report.
+- **Leaves:** a closed shift.
+
+### TC-SELL-072 — Shifts are optional, and a held bill does not stop the close
+
+- **Covers:** backlog 87 row 7 (SG-7), known limits
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing; no shift open for the Firm admin.
+- **Steps:** as the fixture's **Firm admin**: (a) with **No shift open**, a walk-in bill of 1,180.00 in cash, F9. (b) Open shift, float `0`; raise a bill and **Hold (F8)** it; press **Close shift**, Counted cash `0`.
+- **Expect:** (a) the bill approves and its receipt posts as always; it belongs to no shift. (b) the close dialog warns "1 bill is still held. Recall and finish it, or close the shift and leave it for the next one." and still closes; the held bill stays a held draft. Known limits: a cash receipt is booked to the firm's Cash account whatever account a shift names, and there is no counter refund against a bill, no count by denomination and no handing a shift to another cashier.
+- **Leaves:** a paid bill, a closed shift, a held draft.
+
+---
+
+**Collection follow-up (SG-8)**
+
+### TC-SELL-073 — The collection sheet, by collector
+
+- **Covers:** backlog 87 row 8 (SG-8)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; an approved bill of 1,180.00 to `<SUFFIX>-C03` with nothing received; a second member of the firm (a **Counter Sales** user).
+- **Steps:** as the fixture's **Firm admin**: Masters > Customers → `<SUFFIX>-C03` → Edit → set **Collector** (its helper reads "Who chases the dues of this customer; the collection sheet groups by them") to the Counter Sales user → Save. Sell > All Sell screens > Money > **Collection Sheet**. Filter **Collector** to that user; tick **Overdue only**; untick it. **Print sheet**.
+- **Expect:** the sheet lists every bill still owing: Collector, Customer, Phone, Bill, Bill date, Due, Days overdue, Outstanding **1,180.00**, and the promise columns blank. The bill is under the chosen collector; a customer with no collector is under its account manager, or nobody. *Overdue only* hides a bill not yet due. Print sheet saves a PDF: "The collection sheet was saved."
+- **Leaves:** a collector on the customer.
+
+### TC-SELL-074 — Recording a promise posts nothing
+
+- **Covers:** backlog 87 row 8 (SG-8)
+- **Fixture:** `selling-firm`
+- **Also needs:** an approved bill of 1,180.00 to `<SUFFIX>-C03` with nothing received.
+- **Steps:** as the fixture's **Firm admin**: Collection Sheet → select the bill → **Record promise**. *Promised on* three days from today, Amount `1180` (offered), Note `will pay by NEFT` → **Save promise**. Sell > All Sell screens > Money > **Payment Promises**. Accounts > Journal Entries. Masters > Customers → the customer.
+- **Expect:** "Promise recorded." The sheet's row now shows Promised on, Promised amount 1,180.00 and Promise status **Pending**. Payment Promises lists it: Customer, Bill, Promised on, Amount 1,180.00, Received 0.00, Status Pending, Recorded on today, Recorded by. **No journal** is written and the customer's Outstanding is still 1,180.00.
+- **Leaves:** a pending promise.
+
+### TC-SELL-075 — A promise is kept by the money, and un-kept by a reversal
+
+- **Covers:** backlog 87 row 8 (SG-8)
+- **Fixture:** `selling-firm`
+- **Also needs:** an approved bill of 1,180.00 to `<SUFFIX>-C03` and a promise for the whole of it, promised for three days from today, both made for this case.
+- **Steps:** as the fixture's **Firm admin**: Sell > Receipts → Record Receipt: the customer, Amount `500`, Bank, Apply 500 to the bill. Payment Promises. Record a second receipt of `680`, applied to the bill. Payment Promises. Then **Reverse** the second receipt with a reason. Payment Promises.
+- **Expect:** after 500: Received 500.00, Status still **Pending** (part of the money does not keep a promise). After 680: Received 1,180.00, Status **Kept**. After the reversal: Received 500.00 and Status back to **Pending**. The receipts post as ever (Dr 1010 Bank / Cr 1100 Trade Receivables); the promise itself posts nothing at any point.
+- **Leaves:** a part-paid bill, a pending promise, a reversed receipt.
+
+### TC-SELL-076 — Due today, the chase list, and broken
+
+- **Covers:** backlog 87 row 8 (SG-8)
+- **Fixture:** `selling-firm`
+- **Also needs:** an approved bill of 1,180.00 to `<SUFFIX>-C03` with nothing received.
+- **Steps:** as the fixture's **Firm admin**: Collection Sheet → the bill → Record promise, *Promised on* **today**, Amount `1180` → Save promise. Payment Promises → tick **To chase today**; set **Status** to *Due today*. The **next day**, with nothing received, open Payment Promises and the chase list again; then record a new promise on the bill and look once more.
+- **Expect:** today the promise reads **Due today** and is on the chase list. The next day it reads **Broken** and is still on the chase list. Once a newer promise is taken on the bill, the broken one leaves the chase list but still reads Broken in the full list.
+- **Leaves:** a broken promise and a pending one.
+
+### TC-SELL-077 — Promises that are refused
+
+- **Covers:** backlog 87 row 8 (SG-8)
+- **Fixture:** `selling-firm`
+- **Also needs:** an approved bill of 1,180.00 to `<SUFFIX>-C03` with nothing received; a fully paid bill and a draft bill of the same customer; an approved bill of `<SUFFIX>-C01`.
+- **Steps:** as the fixture's **Firm admin**: Collection Sheet → the unpaid bill → Record promise with Amount `2000` → Save promise. **(HTTP)** `POST /api/v1/collections/promises` for `<SUFFIX>-C03`: (a) `promised_on` yesterday; (b) `sales_invoice_id` the paid bill; (c) the draft bill; (d) the bill of `<SUFFIX>-C01`.
+- **Expect:** 2000 is refused with the dialog still open: "Bill SI-… owes 1,180.00; a promise cannot be for more than that." (a) "A promise is for today or a later day." (the dialog's date picker offers no earlier day). (b) "Bill SI-… owes nothing." (c) "Bill SI-… is not approved, so nothing is owed on it yet." (d) "Bill SI-… belongs to another customer." Nothing is recorded by any of them.
+- **Leaves:** unchanged.
+
+### TC-SELL-078 — A promise is withdrawn, never edited
+
+- **Covers:** backlog 87 row 8 (SG-8)
+- **Fixture:** `selling-firm`
+- **Also needs:** a pending promise on an unpaid bill, made for this case.
+- **Steps:** as the fixture's **Firm admin**: Payment Promises → select the promise → **Withdraw** → leave the reason empty; then give `Customer asked for a week more` → Withdraw. Look for a way to edit or delete a promise. **(HTTP)** withdraw the same promise again.
+- **Expect:** an empty reason withdraws nothing. With a reason: "The promise was withdrawn.", Status **Withdrawn**, and the row stays in the list. Withdraw is no longer offered for it, nor for a Kept promise. There is no Edit and no Delete: a changed promise is a withdrawn one and a new one. The repeated request is refused (409): "That promise was already withdrawn."
+- **Leaves:** a withdrawn promise.
+
+### TC-SELL-079 — Who may read the sheet and who may record a promise
+
+- **Covers:** backlog 87 row 8 (SG-8)
+- **Fixture:** `selling-firm`
+- **Also needs:** an unpaid approved bill; a **Counter Sales**, a **Read Only** and a **Field Sales** user in the firm.
+- **Steps:** as each user in turn: Sell > All Sell screens > Money → Collection Sheet and Payment Promises. **(HTTP)** as Read Only, `POST /api/v1/collections/promises`.
+- **Expect:** Counter Sales (who holds `RECEIPT_VIEW` and `RECEIPT_CREATE`) reads both and is offered **Record promise** and **Withdraw**. Read Only (`RECEIPT_VIEW` alone) reads both and is offered neither; the request is refused with 403. Field Sales, who holds neither code, is not offered the two screens.
+- **Leaves:** unchanged.
+
+---
+
+**Turnover rebate to a customer (SG-9)**
+
+For these cases the agreement covers **last calendar month**, and its bills carry an invoice date in that month, so the accounting period of last month must be open. Slabs: from turnover of 1,000 → 1%, from 5,000 → 2%. The rate of the slab reached applies to the whole turnover, before tax.
+
+### TC-SELL-080 — The slab reached sets the rate on the whole turnover
+
+- **Covers:** backlog 87 row 9 (SG-9)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; a customer `<SUFFIX>-C05` *Rebate Buyer* with no other bills; one approved bill to it of 10 `<SUFFIX>-CTR` at 100 (1,000.00 before tax) dated in last month.
+- **Steps:** as the fixture's **Firm admin**: Sell > All Sell screens > Documents > **Customer Rebates** → New: **Customer** `<SUFFIX>-C05`, Code `TR-1`, Name `Turnover rebate`, period the first to the last day of last month, **Add slab** From turnover of `1000` Rebate % `1`, Add slab `5000` and `2` → save. Read the row. Approve a second bill to the customer, 40 `<SUFFIX>-CTR` at 100 dated in last month, and Refresh. Open **Statement**.
+- **Expect:** "Rebate TR-1 saved." Status ACTIVE, Turnover **1,000.00**, Rate % **1**, Earned **10.00**, Next slab / To next 5,000 and **4,000.00**. After the second bill: Turnover **5,000.00**, Rate % **2**, Earned **100.00**, no next slab. The statement shows the turnover by kind of document (invoiced, returned, credit notes, debit notes) and "Nothing has been settled yet." A bill dated outside the period, a draft, and another customer's bill do not count. Nothing is posted by the agreement.
+- **Leaves:** an agreement and two bills (5,900.00 owed).
+
+### TC-SELL-081 — A rebate is accrued once, after its period ends
+
+- **Covers:** backlog 87 row 9 (SG-9)
+- **Fixture:** `selling-firm`
+- **Also needs:** the agreement `TR-1` and the two bills of TC-SELL-080, built for this case (turnover 5,000.00, earned 100.00); a second agreement `TR-NOW` for another customer whose period is the **current** month.
+- **Steps:** as the fixture's **Firm admin**: Customer Rebates → select `TR-NOW` and look at **Accrue**. **(HTTP)** `POST /api/v1/customer-rebates/{id}/accrue` for it. Select `TR-1` → **Accrue** → leave *Accrual date (optional)* blank → Accrue. Accounts > Journal Entries. Approve one more bill dated in last month and Refresh. Try **Edit** and **Cancel** on `TR-1`.
+- **Expect:** **Accrue** is disabled while the period is running; the request is refused: "The period runs to … ; accrue it after that, once every bill of the period is in." For `TR-1`: "Rebate TR-1 accrued.", Status **ACCRUED**, Accrued 100.00, To settle 100.00. Journal dated the **last day of the period**, reference `CREBATE-TR-1`: **Dr 5310 Rebates Allowed 100.00 / Cr 2900 Customer Rebates Payable 100.00**; no tax leg. The late bill does not move what was booked, though the statement's *Turnover today* shows it. **Edit** and **Cancel** are disabled on an accrued agreement; the server's words for the same refusals are "A rebate agreement that is accrued cannot be changed." and "… cannot be cancelled."
+- **Leaves:** an accrued agreement and its journal.
+
+### TC-SELL-082 — Settling a rebate against the customer's bills
+
+- **Covers:** backlog 87 row 9 (SG-9)
+- **Fixture:** `selling-firm`
+- **Also needs:** the accrued agreement `TR-1` of TC-SELL-081, built for this case (100.00 to settle; the customer owes 5,900.00 on two bills).
+- **Steps:** as the fixture's **Firm admin**: Customer Rebates → `TR-1` → **Settle against bills**: Amount to settle `60`, Reason `September turnover rebate`, type 60 against the first open bill → save. Accounts > All Accounts screens > Books > **Party Adjustments** → the new draft → **Approve**. Journal Entries; Masters > Customers; Customer Rebates → Statement. Then settle `50` more.
+- **Expect:** the dialog says "… 100.00 left to settle. This drafts a party adjustment that credits the customer's account; it is approved in Party Adjustments." A draft posts nothing. Approving posts **Dr 2900 Customer Rebates Payable 60.00 / Cr 1100 Trade Receivables 60.00**, no tax; the customer's Outstanding falls by 60.00 and the first bill owes 60.00 less in Record Receipt. The agreement reads Settled 60.00, To settle **40.00**, and its statement lists the adjustment. 50 more is refused: "No more than 40.00 is left to settle." on the screen (the server says "The rebate has 40.00 still to settle, so … cannot be set against the customer's account."). A rebate is settled only this way: no credit note is raised and nothing reaches GSTR-1.
+- **Leaves:** an approved party adjustment of 60.00.
+
+### TC-SELL-083 — Reversing an accrual
+
+- **Covers:** backlog 87 row 9 (SG-9)
+- **Fixture:** `selling-firm`
+- **Also needs:** the agreement `TR-1` accrued (100.00) and settled by an approved adjustment of 60.00, as in TC-SELL-082, built for this case.
+- **Steps:** as the fixture's **Firm admin**: Customer Rebates → `TR-1` → **Reverse accrual**. Then Party Adjustments → the adjustment → **Cancel** with a reason. Reverse accrual again. Journal Entries. Then **Accrue** once more.
+- **Expect:** the first reversal is refused: "Part of this rebate is already set against the customer's account; cancel those settlements first." Cancelling the adjustment puts the 60.00 back on the customer's account and the agreement reads To settle 100.00. The reversal then works: "Accrual of TR-1 reversed.", Status ACTIVE, and a mirror journal `CREBATE-TR-1-REV`. Accruing again posts a new journal under `CREBATE-TR-1-2`.
+- **Leaves:** an agreement accrued a second time; a cancelled adjustment.
+
+### TC-SELL-084 — Two agreements cannot cover the same sales
+
+- **Covers:** backlog 87 row 9 (SG-9)
+- **Fixture:** `selling-firm`
+- **Also needs:** a customer `<SUFFIX>-C05` in the customer group *Wholesaler*; an ACTIVE agreement `TR-1` for the customer covering last month.
+- **Steps:** as the fixture's **Firm admin**: Customer Rebates → New for the same customer, Code `TR-2`, a period overlapping `TR-1` by one day → save. New for **Customer group** *Wholesaler*, Code `TR-G`, the same month → save. New for the same customer, Code `TR-1`, a month that does not overlap → save. New `TR-3` with two slabs both from `1000`. New `TR-4` whose period ends before it starts.
+- **Expect:** `TR-2` is refused: "… already has rebate agreement TR-1 from … to …; two cannot cover the same sales." `TR-G` is refused because a member already has an agreement of its own over those dates: "… is in the customer group Wholesaler and already has rebate agreement TR-1 of its own over these dates; cancel that one or leave the customer out of the group." A repeated code is refused: "A rebate agreement TR-1 already exists." Two slabs at one turnover and a backwards period are refused before anything is saved ("Two slabs cannot start at the same turnover."; "The period cannot end before it starts.").
+- **Leaves:** unchanged.
+
+### TC-SELL-085 — An agreement for a customer group
+
+- **Covers:** backlog 87 row 9 (SG-9)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; a customer group `REBATE-GRP` *Rebate Group* holding two customers, `<SUFFIX>-C06` and `<SUFFIX>-C07`, neither with an agreement; an approved bill of 3,000.00 before tax to the first and 2,000.00 before tax to the second, dated last month; `<SUFFIX>-C03` outside the group.
+- **Steps:** as the fixture's **Firm admin**: Customer Rebates → New: **Customer group** *Rebate Group*, Code `TR-GRP`, last month, slabs 1,000 → 1% and 5,000 → 2% → save. Statement. **Accrue**. **Settle against bills**: choose *Customer in the group* `<SUFFIX>-C06`, Amount `70`, a reason → save, and approve it in Party Adjustments. **(HTTP)** create a `CUSTOMER_REBATE` party adjustment naming `TR-GRP` for `<SUFFIX>-C03`.
+- **Expect:** Turnover **5,000.00** (the two customers together), Rate % 2, Earned **100.00**; the statement has one row per customer, 3,000.00 and 2,000.00. Accrual posts Dr 5310 Rebates Allowed 100.00 / Cr 2900 Customer Rebates Payable 100.00. The settlement comes off `<SUFFIX>-C06`'s account alone; To settle 30.00. For a customer outside the group it is refused: "That rebate agreement is for a customer group this customer is not in."
+- **Leaves:** a group agreement, accrued and part settled.
+
+### TC-SELL-086 — Who agrees a rebate, who settles it, and what it does not do
+
+- **Covers:** backlog 87 row 9 (SG-9), known limits
+- **Fixture:** `selling-firm`
+- **Also needs:** an accrued agreement with something left to settle whose customer still owes money; an ACTIVE agreement, period over, whose customer sold less than the first slab; a **Sales Manager**, an **Accounts** and a **Read Only** user.
+- **Steps:** as **Read Only**: Customer Rebates. As the **Sales Manager**: create an agreement, then **Settle against bills** on the accrued one and save. As **Accounts**: Accounts > All Accounts screens > Books > Party Adjustments. As the **Firm admin**: **Accrue** the agreement that reached no slab; Reports > Financial → **Customer rebate statement**.
+- **Expect:** Read Only sees the list and the Statement and no New. The Sales Manager (who holds `SALES_APPROVE`) may agree, edit, accrue, reverse and cancel, but the settlement is refused by the server, "You do not have permission to perform this action.": whoever promises a rebate does not move the customer's account (`PARTY_ADJUSTMENT_MANAGE` is not in that role). The Accounts job holds that code and sees the drafted adjustments under Party Adjustments. Nothing earned is not accrued: "Sales of … reached no slab, so there is nothing to accrue. Cancel the agreement instead." The report lists each agreement with Turnover, Rate %, Earned, Accrued, Settled and Balance. Known limits: a rebate carries no GST and raises no credit note (the *Agreed before the sale* tick is kept for the firm's CA); it accrues once, after the period ends, and is settled only by party adjustment.
+- **Leaves:** one more agreement.
+
+
 
 ## Pricing, promotions and incentives
 
