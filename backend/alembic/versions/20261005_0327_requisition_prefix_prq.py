@@ -16,7 +16,7 @@ Firm-owned: run ``scripts/migrate_all_stores.py``. Idempotent: a second run
 finds no rule at ``PR``.
 
 Revision ID: 20261005_0327
-Revises: 20261005_0331
+Revises: 20261005_0332
 Create Date: 2026-10-05
 
 """
@@ -28,7 +28,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261005_0327"
-down_revision: str | Sequence[str] | None = "20261005_0331"
+down_revision: str | Sequence[str] | None = "20261005_0332"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
