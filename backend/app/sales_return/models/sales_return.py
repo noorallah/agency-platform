@@ -222,6 +222,15 @@ class SalesReturnLine(BaseEntity):
     current_return_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The part of ``current_return_quantity`` that came back before any bill
+    #: charged for it, decided when the return completes (D-SELL-55). That
+    #: part moves stock and cost only -- no credit to the customer, no output
+    #: tax reversed -- and lowers what the delivery note may still be billed
+    #: for; only the rest is a credit note. Zero on a line raised off a bill,
+    #: on any line not yet completed, and again once a return is cancelled.
+    unbilled_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     #: How much of what came back can be sold again. The rest is damaged or
     #: scrap: still owned and still worth what it cost, but not sellable, so it
     #: arrives in a different bucket.

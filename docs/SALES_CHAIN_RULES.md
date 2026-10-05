@@ -71,6 +71,39 @@ the dispatch, a tax leg that is not zero still posts, and the note reads
 billed. Cancelling such a bill takes nothing off the account. It used to
 answer 500 at approval with the goods already gone.
 
+## Goods back before billing credit nothing
+
+**A sales return against a delivery note nobody was billed for moves stock
+and cost only** (D-SELL-55, the selling twin of D-BUY-26; `app/sales_return/billing.py`).
+No row goes on the customer's account, no output tax is reversed and nothing
+is debited to sales returns: the firm charged nothing, so it owes nothing
+back. It used to credit the full price -- the customer came out in advance
+for goods never billed -- and left the note billable in full.
+
+- **Returned goods are taken first from the unbilled part.** On a note line
+  part billed, the return is set against what no bill has charged for --
+  delivered, less charged, less earlier returns before billing -- and only
+  the rest is a credit note. Four delivered, three billed, two back: one is
+  credited. The choice is the buying one (D-BUY-26), and it is the one that
+  never credits a customer for goods they were not charged for.
+- **The split is decided at completion and stored** on the return line
+  (`unbilled_quantity`), cleared when a completed return is cancelled. The
+  document keeps its own totals, tax included, as a purchase return before
+  billing does (D-BUY-31); `return_billed_amounts` is what the journal and
+  the customer's account read.
+- **"Billed" is a bill that charged**: approved or closed. A draft has charged
+  nothing, so goods returned while one waits are returned before billing,
+  and the draft is refused at approval for what came back. A cancelled bill
+  leaves its note unbilled again.
+- **What came back before billing is not left to bill.** The save and the
+  approval of a bill both cap a note line at delivered less billed less
+  returned before billing, and `billable_documents` offers the same figure.
+- **Every reader of "what did returns credit" reads the billed part**: GSTR-1
+  and 3B and the GST sales register leave out a return wholly before billing
+  (`credits_a_bill`) and scale a part-billed line; the sales analysis and the
+  rebate turnover net off only the billed part; loyalty takes back only what
+  a bill earned.
+
 ## A firm chooses which stages of a sale its people type
 
 **A firm chooses which stages of a sale its people type**, per stage, in
