@@ -1421,6 +1421,64 @@ def test_a_counter_bill_grows_and_takes_another_product() -> None:
     assert _dispatches(session) == 2
 
 
+def test_a_saved_line_and_a_new_product_go_in_one_edit() -> None:
+    """The desktop's edit: saved lines by their source, a new one as a product.
+
+    D-SELL-59 on screen. A saved line's response does not say whether its
+    discount was typed, so the desktop cannot restate it as a product line
+    without turning an inherited rate into a typed one. It sends the saved
+    line back by its source fields and the added product as a product line,
+    in one request, and the server has to take that mixture.
+    """
+    session, setup, service, invoice = _counter_draft("3")
+    actor = uuid4()
+    other = Product(
+        firm_id=setup.firm.id,
+        code="SKU-003",
+        name="Product SKU-003",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+    )
+    session.add(other)
+    session.commit()
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            product_id=other.id,
+            quantity=Decimal("10"),
+            reference_number="ADJ-MIXED",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 1),
+        ),
+        firm_scope=setup.firm.id,
+        actor_id=actor,
+    )
+    mixed = _sent_back(service, invoice, "3")
+    mixed.lines.append(
+        SalesInvoiceLineWrite(
+            product_id=other.id,
+            line_number=2,
+            current_invoice_quantity=Decimal("2"),
+            unit_price=Decimal("50"),
+        )
+    )
+
+    service.update_invoice(invoice.id, mixed, firm_id=setup.firm.id, actor_id=actor)
+
+    session.refresh(invoice)
+    assert invoice.grand_total == Decimal("400.0000")
+    assert _reserved(session) == Decimal("5.0000")
+    lines = service.invoice_response(invoice).lines
+    assert [(line.product_id, line.current_invoice_quantity) for line in lines] == [
+        (setup.product.id, Decimal("3.0000")),
+        (other.id, Decimal("2.0000")),
+    ]
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+    assert _reserved(session) == Decimal("0.0000")
+    assert _dispatches(session) == 2
+
+
 def test_a_held_bill_recalled_and_grown_ships_what_it_now_bills() -> None:
     """The customer comes back for one more: hold, recall, 3 becomes 4."""
     session, setup, service, invoice = _counter_draft("3")
