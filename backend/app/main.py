@@ -17,6 +17,7 @@ from app.bill_of_entry.api import router as bills_of_entry_router
 from app.branches.api import router as branch_warehouse_router
 from app.branding.api import router as branding_router
 from app.business.api import router as business_framework_router
+from app.collections.api import router as collections_router
 from app.commission.api import router as commission_router
 from app.common.audit.api import router as audit_logs_router
 from app.common.directory.api import router as firm_members_router
@@ -238,6 +239,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(finance_router)
     application.include_router(receipts_router)
     application.include_router(payments_router)
+    application.include_router(collections_router)
     application.include_router(received_cheques_router)
     application.include_router(issued_cheques_router)
     application.include_router(payment_runs_router)

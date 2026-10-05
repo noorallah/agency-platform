@@ -185,6 +185,9 @@ class CustomerWrite(CustomerSchema):
     #: The account manager, a member of the firm; blank leaves documents to
     #: the territory's salesperson (backlog 67 row 2).
     salesman_id: UUID | None = None
+    #: Who collects this customer's dues, a member of the firm (SG-8); blank
+    #: leaves collection to the account manager.
+    collector_id: UUID | None = None
     #: The price level the customer buys at (SEL-9); blank takes the group's.
     price_level_id: UUID | None = None
     #: Percent off a bill paid within the days of its date (SEL-14); blank
@@ -333,6 +336,7 @@ class CustomerResponse(CustomerSchema):
     tan_number: str | None = None
     gst_registration_type: str | None = None
     salesman_id: UUID | None = None
+    collector_id: UUID | None = None
     price_level_id: UUID | None = None
     cash_discount_days: int | None = None
     cash_discount_percent: Decimal | None = None

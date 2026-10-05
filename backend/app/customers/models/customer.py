@@ -160,6 +160,10 @@ class Customer(BaseEntity):
     #: customer with no salesman of its own takes this one ahead of the
     #: territory's (`app/sales/services/scope_resolution.py`).
     salesman_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: Who collects this customer's dues (backlog 87 #8, SG-8): a member of
+    #: the firm, checked like the account manager and with no foreign key for
+    #: the same reason. Blank leaves collection to the account manager.
+    collector_id: Mapped[UUID | None] = mapped_column(UUIDType())
     #: The price level the customer buys at -- Retail, Wholesale, Dealer
     #: (SEL-9). Blank takes the group's, then the product's own price.
     price_level_id: Mapped[UUID | None] = mapped_column(

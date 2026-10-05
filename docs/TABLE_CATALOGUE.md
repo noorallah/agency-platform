@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**322 tables**, of which **17** live only in the platform store.
+**325 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -132,6 +132,12 @@ trigger each schema owns its own copy of.
 | `sales_invoice_attribute_values` | firm store ¹ | Store one custom field value for a sales invoice. | `sales_invoices`, `firms`, `attribute_definitions` |
 | `sales_order_attribute_values` | firm store ¹ | Store one custom field value for a sales order. | `sales_orders`, `firms`, `attribute_definitions` |
 
+### `app/collections`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `payment_promises` | firm store ¹ | Store one promise to pay, against a bill or the customer's account. | `customers`, `sales_invoices` |
+
 ### `app/commission`
 
 | Table | Store | Holds | Points at |
@@ -197,7 +203,8 @@ trigger each schema owns its own copy of.
 | `delivery_note_line_batches` | firm store ¹ | Which batches one delivery line takes, as a person chose them (79). | `delivery_note_lines`, `batches` |
 | `delivery_note_lines` | firm store ¹ | Store one delivery note line. | `delivery_notes`, `firms`, `sales_order_lines`, `products`, `uoms`, `packaging_types`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes`, `batches` |
 | `delivery_note_notes` | firm store ¹ | Store delivery note notes. | `delivery_notes`, `firms` |
-| `delivery_notes` | firm store ¹ | Store one delivery note header. | `firms`, `sales_orders`, `customers`, `branches`, `warehouses`, `business_profiles`, `users`, `territory_route_profiles`, `sales_territories` |
+| `delivery_notes` | firm store ¹ | Store one delivery note header. | `firms`, `sales_orders`, `customers`, `branches`, `warehouses`, `business_profiles`, `users`, `territory_route_profiles`, `sales_territories`, `transporters` |
+| `transporters` | firm store ¹ | One carrier: who it is and what an e-way bill asks about it. |  |
 
 ### `app/diagnostics`
 

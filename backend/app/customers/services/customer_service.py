@@ -186,6 +186,9 @@ class CustomerService:
             self._session, values, _CUSTOMER_REFERENCES, firm_id=firm_id
         )
         self._assert_account_manager(firm_id, data.salesman_id, current=None)
+        self._assert_account_manager(
+            firm_id, data.collector_id, current=None, role="collector"
+        )
         self._assert_linked_vendor(
             firm_id,
             data.linked_vendor_id,
@@ -343,6 +346,14 @@ class CustomerService:
                 customer.firm_id,
                 sent if isinstance(sent, UUID) else None,
                 current=customer.salesman_id,
+            )
+        if "collector_id" in values:
+            collector = values["collector_id"]
+            self._assert_account_manager(
+                customer.firm_id,
+                collector if isinstance(collector, UUID) else None,
+                current=customer.collector_id,
+                role="collector",
             )
         if "linked_vendor_id" in values:
             linked = values["linked_vendor_id"]
@@ -867,9 +878,17 @@ class CustomerService:
         return "; ".join(parts) + "." if parts else None
 
     def _assert_account_manager(
-        self, firm_id: UUID, salesman_id: UUID | None, *, current: UUID | None
+        self,
+        firm_id: UUID,
+        salesman_id: UUID | None,
+        *,
+        current: UUID | None,
+        role: str = "account manager",
     ) -> None:
         """Refuse an account manager who is not an active member of the firm.
+
+        The customer's collector (SG-8) is checked the same way, under its
+        own name in the message.
 
         Asked only when the write *moves* it: a manager who has since left
         stays on the record (and is skipped when documents are raised, see
@@ -885,9 +904,7 @@ class CustomerService:
             )
             != 1
         ):
-            raise ValidationError(
-                "The account manager must be an active member of this firm."
-            )
+            raise ValidationError(f"The {role} must be an active member of this firm.")
 
     def _settled_pan(
         self,

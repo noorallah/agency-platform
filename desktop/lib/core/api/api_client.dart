@@ -7749,6 +7749,145 @@ class ApiClient {
         : const <Json>[];
   }
 
+  // ---- Collection follow-up (backlog 87 #8, SG-8) ------------------------
+
+  /// Record what a customer promised to pay and by when, on a bill or --
+  /// with no [salesInvoiceId] -- on the account. Dates are `yyyy-MM-dd`.
+  Future<Json> recordPaymentPromise({
+    required String customerId,
+    String? salesInvoiceId,
+    required String promisedOn,
+    required String amount,
+    String? note,
+    String? collectorId,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/promises',
+          body: <String, dynamic>{
+            'customer_id': customerId,
+            if (salesInvoiceId != null) 'sales_invoice_id': salesInvoiceId,
+            'promised_on': promisedOn,
+            'amount': amount,
+            if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+            if (collectorId != null) 'collector_id': collectorId,
+          },
+        ),
+      );
+
+  /// One page of promises with what became of each. Returns the whole
+  /// response: `data` is the rows and `pagination` the page.
+  Future<Json> paymentPromises({
+    int page = 1,
+    int pageSize = 25,
+    String? customerId,
+    String? salesInvoiceId,
+    String? status,
+    String? dueFrom,
+    String? dueTo,
+    String? collectorId,
+  }) =>
+      request(
+        'GET',
+        '/api/v1/collections/promises',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '$pageSize',
+          if (customerId != null) 'customer_id': customerId,
+          if (salesInvoiceId != null) 'sales_invoice_id': salesInvoiceId,
+          if (status != null) 'status': status,
+          if (dueFrom != null) 'due_from': dueFrom,
+          if (dueTo != null) 'due_to': dueTo,
+          if (collectorId != null) 'collector_id': collectorId,
+        },
+      );
+
+  /// The promises to chase today: due today and unpaid, or broken and not
+  /// renewed. Returns the whole response, as [paymentPromises] does.
+  Future<Json> paymentPromisesDueToday({
+    int page = 1,
+    int pageSize = 25,
+    String? collectorId,
+  }) =>
+      request(
+        'GET',
+        '/api/v1/collections/promises/due-today',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '$pageSize',
+          if (collectorId != null) 'collector_id': collectorId,
+        },
+      );
+
+  /// Take a promise back, with the reason; the record stays.
+  Future<Json> withdrawPaymentPromise(
+    String id, {
+    required String reason,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/promises/$id/withdraw',
+          body: <String, dynamic>{'reason': reason},
+        ),
+      );
+
+  Map<String, String> _collectionSheetQuery({
+    String? collectorId,
+    String? routeId,
+    String? asOf,
+    bool overdueOnly = false,
+  }) =>
+      <String, String>{
+        if (collectorId != null) 'collector_id': collectorId,
+        if (routeId != null) 'route_id': routeId,
+        if (asOf != null) 'as_of': asOf,
+        if (overdueOnly) 'overdue_only': 'true',
+      };
+
+  /// One page of the collection sheet: the bills still owing, by collector,
+  /// then customer, then due date. Returns the whole response.
+  Future<Json> collectionSheet({
+    int page = 1,
+    int pageSize = 25,
+    String? collectorId,
+    String? routeId,
+    String? asOf,
+    bool overdueOnly = false,
+  }) =>
+      request(
+        'GET',
+        '/api/v1/collections/sheet',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '$pageSize',
+          ..._collectionSheetQuery(
+            collectorId: collectorId,
+            routeId: routeId,
+            asOf: asOf,
+            overdueOnly: overdueOnly,
+          ),
+        },
+      );
+
+  /// The collection sheet as the paper a collector carries.
+  Future<List<int>> collectionSheetPdf({
+    String? collectorId,
+    String? routeId,
+    String? asOf,
+    bool overdueOnly = false,
+  }) =>
+      downloadBytes(
+        '/api/v1/collections/sheet/pdf',
+        query: _collectionSheetQuery(
+          collectorId: collectorId,
+          routeId: routeId,
+          asOf: asOf,
+          overdueOnly: overdueOnly,
+        ),
+      );
+
   /// What the customer's overdue bills have accrued in interest as of a date
   /// (SEL-14).
   Future<List<Json>> customerOverdueInterest(
