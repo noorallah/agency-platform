@@ -40,6 +40,8 @@ class GoodsReceiptLine {
     required this.updatedAt,
     this.mrp = '',
     this.sellingPrice = '',
+    this.ptr = '',
+    this.pts = '',
     this.taxRuleCode,
     this.taxRuleVersion,
     this.schemeName = '',
@@ -66,6 +68,8 @@ class GoodsReceiptLine {
 
   /// Per stock unit, before tax; empty when none was recorded.
   final String sellingPrice;
+  final String ptr;
+  final String pts;
 
   final String id;
   final int lineNumber;
@@ -145,6 +149,8 @@ class GoodsReceiptLine {
         updatedAt: stringValue(json['updated_at']),
         mrp: stringValue(json['mrp']),
         sellingPrice: stringValue(json['selling_price']),
+        ptr: stringValue(json['ptr']),
+        pts: stringValue(json['pts']),
         schemeName: stringValue(json['scheme_name']),
         returnedUnbilledQuantity:
             stringValue(json['returned_unbilled_quantity']),

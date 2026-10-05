@@ -54,6 +54,8 @@ class GoodsReceiptDraftLine {
     this.manufacturingDate = '',
     this.mrp = '',
     this.sellingPrice = '',
+    this.ptr = '',
+    this.pts = '',
     this.remarks = '',
     this.schemeName = '',
     this.serialTracked = false,
@@ -94,6 +96,10 @@ class GoodsReceiptDraftLine {
 
   /// Per stock unit, before tax.
   String sellingPrice;
+
+  /// Retailer / stockist rates (BATCH_PTR_PTS); sent only when typed.
+  String ptr;
+  String pts;
   String remarks;
 
   /// The supplier's scheme the free goods came under (BUY-1); optional.
@@ -121,7 +127,7 @@ class GoodsReceiptDraftLine {
     return left < 0 ? 0 : left;
   }
 
-  Json toJson() => {
+  Json toJson({bool ptrPts = false}) => {
         'purchase_order_line_id': purchaseOrderLineId,
         'line_number': lineNumber,
         if (description.isNotEmpty) 'description': description,
@@ -143,6 +149,10 @@ class GoodsReceiptDraftLine {
           'mrp': mrp.trim(),
         if (batchNumber.trim().isNotEmpty && sellingPrice.trim().isNotEmpty)
           'selling_price': sellingPrice.trim(),
+        if (ptrPts && batchNumber.trim().isNotEmpty && ptr.trim().isNotEmpty)
+          'ptr': ptr.trim(),
+        if (ptrPts && batchNumber.trim().isNotEmpty && pts.trim().isNotEmpty)
+          'pts': pts.trim(),
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
         if (schemeName.trim().isNotEmpty) 'scheme_name': schemeName.trim(),
         if (serialTracked && serialsTouched) 'serial_numbers': serials,
@@ -409,6 +419,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       draft.manufacturingDate = line.manufacturingDate;
       draft.mrp = line.mrp;
       draft.sellingPrice = line.sellingPrice;
+      draft.ptr = line.ptr;
+      draft.pts = line.pts;
       draft.remarks = line.remarks;
       draft.schemeName = line.schemeName;
       draft.serialTracked = draft.serialTracked || line.serialTracked;
@@ -478,6 +490,27 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       if (line.batchRequired && line.batchNumber.trim().isEmpty) {
         return 'Line ${line.lineNumber}: this product must be received with a '
             'batch number.';
+      }
+      if (widget.features.isEnabled('BATCH_PTR_PTS')) {
+        final String? rate = ptrPtsProblem(line);
+        if (rate != null) return rate;
+      }
+    }
+    return null;
+  }
+
+  /// A PTR or PTS above the line's MRP, said before the server has to.
+  String? ptrPtsProblem(GoodsReceiptDraftLine line) {
+    final double? mrp = double.tryParse(line.mrp.trim());
+    if (mrp == null) return null;
+    for (final MapEntry<String, String> rate in {
+      'PTR': line.ptr,
+      'PTS': line.pts,
+    }.entries) {
+      final double? value = double.tryParse(rate.value.trim());
+      if (value != null && value > mrp) {
+        return 'Line ${line.lineNumber}: ${rate.key} cannot be more than '
+            'the MRP.';
       }
     }
     return null;
@@ -554,7 +587,12 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
         // document has to explain.
         'lines': [
           for (int index = 0; index < sending.length; index++)
-            {...sending[index].toJson(), 'line_number': index + 1},
+            {
+              ...sending[index].toJson(
+                ptrPts: widget.features.isEnabled('BATCH_PTR_PTS'),
+              ),
+              'line_number': index + 1,
+            },
         ],
       };
       final GoodsReceiptRecord? current = _record;

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/business/business_features.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
@@ -128,6 +129,19 @@ class _SalesInvoiceManagementPageState
   /// What the invoice view prints for a line's product, unit and tax profile.
   DocumentLineLabels _labels = const DocumentLineLabels();
 
+  /// What the firm has switched on; unknown until read, which offers all.
+  BusinessFeatures _features = const BusinessFeatures.unknown();
+
+  Future<void> _loadFeatures() async {
+    try {
+      final List<String> codes = await widget.api.activeBusinessFeatureCodes();
+      if (!mounted) return;
+      setState(() => _features = BusinessFeatures(codes.toSet()));
+    } on Object {
+      // Left unknown: the batch list simply shows what the server returns.
+    }
+  }
+
   Future<void> _loadLabels() async {
     final DocumentLineLabels labels = await DocumentLineLabels.load(widget.api);
     if (!mounted) return;
@@ -139,6 +153,7 @@ class _SalesInvoiceManagementPageState
     super.initState();
     unawaited(_load());
     unawaited(_loadLabels());
+    unawaited(_loadFeatures());
   }
 
   @override
@@ -507,6 +522,7 @@ class _SalesInvoiceManagementPageState
         today: DateTime.now(),
         mayApprove: _mayApprove(),
         steps: _steps,
+        features: _features,
       ),
     );
     if (await _afterWindow(created, null)) return;
@@ -531,6 +547,7 @@ class _SalesInvoiceManagementPageState
         invoiceId: invoice['id'] as String,
         mayApprove: _mayApprove(),
         steps: _steps,
+        features: _features,
       ),
     );
     if (await _afterWindow(saved, invoice)) return;

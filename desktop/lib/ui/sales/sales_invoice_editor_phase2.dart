@@ -1232,6 +1232,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       picks: picks,
       enabled: !_saving,
       comparable: comparable,
+      showPtrPts: widget.features.isEnabled('BATCH_PTR_PTS'),
       onBatchPrice: onBatchPrice,
       keyPrefix: 'sales-invoice',
       unreadableNote: 'could not read the batches; they will go earliest '

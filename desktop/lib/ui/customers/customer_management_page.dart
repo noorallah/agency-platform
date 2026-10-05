@@ -1293,6 +1293,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   // Empty string is "no level", sent as null. Sent only once the levels
   // arrived (`_priceLevelsLoaded`): absent leaves the level alone.
   late String _priceLevelId = widget.customer?.priceLevelId ?? '';
+  // Empty string is "not set", sent as null.
+  late String _tradeClass = widget.customer?.tradeClass ?? '';
   List<PriceLevelRecord> _priceLevels = const [];
   bool _priceLevelsLoaded = false;
   late final CustomFieldsController? _customFields =
@@ -1418,6 +1420,30 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   /// The Price level picker. Values are level ids; '' is "no level". A stored
   /// level that is no longer active stays selectable as its own item so a
   /// save does not clear it.
+  Widget _tradeClassDropdown() {
+    return DropdownButtonFormField<String>(
+      key: const ValueKey('customer-trade-class'),
+      isExpanded: true,
+      initialValue: _tradeClass,
+      decoration: const InputDecoration(
+        labelText: 'Trade class',
+        helperText: 'Picks PTR or PTS when a sales price is left blank',
+      ),
+      items: const [
+        DropdownMenuItem(value: '', child: Text('Not set')),
+        DropdownMenuItem(value: 'RETAILER', child: Text('Retailer')),
+        DropdownMenuItem(value: 'STOCKIST', child: Text('Stockist')),
+        DropdownMenuItem(value: 'OTHER', child: Text('Other')),
+      ],
+      onChanged: _readOnly
+          ? null
+          : (value) => setState(() {
+                _tradeClass = value ?? '';
+                _dirty = true;
+              }),
+    );
+  }
+
   Widget _priceLevelDropdown() {
     final List<DropdownMenuItem<String>> items = [
       const DropdownMenuItem(value: '', child: Text('No level')),
@@ -1732,6 +1758,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         // and null clears it.
         if (widget.loadPriceLevels != null && _priceLevelsLoaded)
           'price_level_id': _priceLevelId.isEmpty ? null : _priceLevelId,
+        'trade_class': _tradeClass.isEmpty ? null : _tradeClass,
         'credit_limit': _fields['credit_limit']!.text.trim(),
         'default_discount_percent':
             _fields['default_discount_percent']!.text.trim().isEmpty
@@ -1971,6 +1998,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             _groupDropdown(),
             if (widget.loadPriceLevels != null && _priceLevelsLoaded)
               _priceLevelDropdown(),
+            _tradeClassDropdown(),
             _number(
               'credit_limit',
               'Credit limit',

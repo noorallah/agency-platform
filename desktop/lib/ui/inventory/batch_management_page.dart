@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
+import '../../core/business/business_features.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
@@ -112,8 +115,24 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
     super.dispose();
   }
 
+  /// What the firm has switched on; unknown until read, which offers all.
+  BusinessFeatures _features = const BusinessFeatures.unknown();
+
+  bool get _ptrPts => _features.isEnabled('BATCH_PTR_PTS');
+
+  Future<void> _loadFeatures() async {
+    try {
+      final List<String> codes = await widget.api.activeBusinessFeatureCodes();
+      if (!mounted) return;
+      setState(() => _features = BusinessFeatures(codes.toSet()));
+    } on Object {
+      // Left unknown: PTR and PTS stay offered and the server decides.
+    }
+  }
+
   Future<void> _bootstrap() async {
     if (!widget.hasActiveFirm) return;
+    unawaited(_loadFeatures());
     await _load();
   }
 
@@ -539,15 +558,17 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
       total: _total,
       pageOffset: (_page - 1) * _rowsPerPage,
       rowsPerPage: _rowsPerPage,
-      columns: const [
-        GridColumn(key: 'batch_number', label: 'Batch #'),
-        GridColumn(key: 'product', label: 'Product'),
-        GridColumn(key: 'status', label: 'Status'),
-        GridColumn(key: 'quantity', label: 'Qty'),
-        GridColumn(key: 'available', label: 'Available'),
-        GridColumn(key: 'expiry', label: 'Expiry Date'),
-        GridColumn(key: 'mrp', label: 'MRP'),
-        GridColumn(key: 'warehouse', label: 'Warehouse'),
+      columns: [
+        const GridColumn(key: 'batch_number', label: 'Batch #'),
+        const GridColumn(key: 'product', label: 'Product'),
+        const GridColumn(key: 'status', label: 'Status'),
+        const GridColumn(key: 'quantity', label: 'Qty'),
+        const GridColumn(key: 'available', label: 'Available'),
+        const GridColumn(key: 'expiry', label: 'Expiry Date'),
+        const GridColumn(key: 'mrp', label: 'MRP'),
+        if (_ptrPts) const GridColumn(key: 'ptr', label: 'PTR'),
+        if (_ptrPts) const GridColumn(key: 'pts', label: 'PTS'),
+        const GridColumn(key: 'warehouse', label: 'Warehouse'),
       ],
       id: (b) => b.id,
       selectedId: _selectedBatch?.id,
@@ -561,6 +582,8 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         b.availableQuantity,
         b.expiryDate.isNotEmpty ? b.expiryDate : '—',
         b.mrp.isNotEmpty ? b.mrp : '—',
+        if (_ptrPts) b.ptr.isNotEmpty ? b.ptr : '—',
+        if (_ptrPts) b.pts.isNotEmpty ? b.pts : '—',
         b.warehouseName.isNotEmpty ? b.warehouseName : '—',
       ],
       onSelect: (b) => setState(() => _selectedBatch = b),
@@ -726,6 +749,10 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
                 if (batch.mrp.isNotEmpty) DetailLine('MRP', batch.mrp),
                 if (batch.sellingPrice.isNotEmpty)
                   DetailLine('Selling price', batch.sellingPrice),
+                if (_ptrPts && batch.ptr.isNotEmpty)
+                  DetailLine('PTR', batch.ptr),
+                if (_ptrPts && batch.pts.isNotEmpty)
+                  DetailLine('PTS', batch.pts),
                 if (batch.expiryDate.isNotEmpty)
                   DetailLine('Expiry', batch.expiryDate),
                 if (batch.manufacturingDate.isNotEmpty)
@@ -1011,7 +1038,7 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   void _openCreateBatchDialog() {
     showDialog<bool>(
       context: context,
-      builder: (_) => _BatchFormDialog(api: widget.api),
+      builder: (_) => _BatchFormDialog(api: widget.api, ptrPts: _ptrPts),
     ).then((created) {
       if (created == true) _load();
     });
@@ -1020,7 +1047,11 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   void _openEditBatchDialog(BatchRecord batch) {
     showDialog<bool>(
       context: context,
-      builder: (_) => _BatchFormDialog(api: widget.api, existing: batch),
+      builder: (_) => _BatchFormDialog(
+        api: widget.api,
+        existing: batch,
+        ptrPts: _ptrPts,
+      ),
     ).then((updated) {
       if (updated == true) _load();
     });
@@ -1193,8 +1224,15 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
 // ── Form dialogs ─────────────────────────────────────────────────────────────
 
 class _BatchFormDialog extends StatefulWidget {
-  const _BatchFormDialog({required this.api, this.existing});
+  const _BatchFormDialog({
+    required this.api,
+    this.existing,
+    this.ptrPts = false,
+  });
   final ApiClient api;
+
+  /// Offer PTR and PTS (BATCH_PTR_PTS).
+  final bool ptrPts;
   final BatchRecord? existing;
 
   @override
@@ -1209,6 +1247,8 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
   final _manufacturingDate = TextEditingController();
   final _mrp = TextEditingController();
   final _sellingPrice = TextEditingController();
+  final _ptr = TextEditingController();
+  final _pts = TextEditingController();
   final _remarks = TextEditingController();
   String _status = 'AVAILABLE';
   bool _saving = false;
@@ -1224,6 +1264,8 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
       _manufacturingDate.text = b.manufacturingDate;
       _mrp.text = b.mrp;
       _sellingPrice.text = b.sellingPrice;
+      _ptr.text = b.ptr;
+      _pts.text = b.pts;
       _remarks.text = b.remarks;
       _status = b.status;
     }
@@ -1237,6 +1279,8 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
     _manufacturingDate.dispose();
     _mrp.dispose();
     _sellingPrice.dispose();
+    _ptr.dispose();
+    _pts.dispose();
     _remarks.dispose();
     super.dispose();
   }
@@ -1248,6 +1292,18 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
     if (text.isEmpty) return null;
     final double? n = double.tryParse(text);
     return n == null || n < 0 ? 'Enter an amount' : null;
+  }
+
+  /// A PTR or PTS above the MRP, said here before the server has to.
+  String? _rateError(String? v) {
+    final String? amount = _amountError(v);
+    if (amount != null) return amount;
+    final double? mrp = double.tryParse(_mrp.text.trim());
+    final double? value = double.tryParse(v?.trim() ?? '');
+    if (mrp != null && value != null && value > mrp) {
+      return 'Cannot be more than the MRP';
+    }
+    return null;
   }
 
   Future<void> _save() async {
@@ -1273,6 +1329,16 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
           'selling_price': _sellingPrice.text.trim()
         else if (widget.existing?.sellingPrice.isNotEmpty ?? false)
           'selling_price': null,
+        if (widget.ptrPts) ...{
+          if (_ptr.text.trim().isNotEmpty)
+            'ptr': _ptr.text.trim()
+          else if (widget.existing?.ptr.isNotEmpty ?? false)
+            'ptr': null,
+          if (_pts.text.trim().isNotEmpty)
+            'pts': _pts.text.trim()
+          else if (widget.existing?.pts.isNotEmpty ?? false)
+            'pts': null,
+        },
         if (_remarks.text.isNotEmpty) 'remarks': _remarks.text.trim(),
       };
       if (widget.existing != null) {
@@ -1376,6 +1442,30 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
                     ),
                     validator: _amountError,
                   ),
+                  if (widget.ptrPts) ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const ValueKey('batch-form-ptr'),
+                      controller: _ptr,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'PTR',
+                        helperText: 'Price to retailer, per stock unit.',
+                      ),
+                      validator: _rateError,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const ValueKey('batch-form-pts'),
+                      controller: _pts,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'PTS',
+                        helperText: 'Price to stockist, per stock unit.',
+                      ),
+                      validator: _rateError,
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     isExpanded: true,
