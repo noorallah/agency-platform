@@ -1272,3 +1272,50 @@ shows and the books do not. An entry and its reversal, both unmatched, net to
 nothing and are left out. A posting dated before the account's first imported
 statement and matched by no line is taken as cleared before reconciling began
 (decision A125).
+
+## A promise to pay is recorded, never posted (SG-8, 2026-10-05)
+
+`app/collections` keeps what a customer said about paying: `payment_promises`
+holds the day promised **for**, the amount, a note, the day it was taken and
+who took it, against one sales invoice or -- with no invoice -- against the
+account as a whole. It moves no balance and writes no journal; the receipt
+that later arrives is what posts, through `/api/v1/receipts` as always.
+
+**Whether a promise was kept is derived on every read, never stored.** It is
+*kept* when the posted receipts dated from the day it was taken up to and
+including the day promised for cover the amount -- what they allocated to the
+bill (`settlement_allocations`), or, for a promise on the account, what the
+customer paid in that window. Past that day without them it is *broken*; on
+the day, *due today*; before it, *pending*. Reversing a receipt therefore
+un-keeps the promise it had kept, with nothing to put right. Money that came
+before the promise was taken, or after its day, does not count toward it.
+The amount received is one correlated expression (`received_amount` in
+`app/collections/services/promises.py`), so the list filters on status and
+pages in SQL.
+
+**A promise is withdrawn, never edited or deleted** (`cancelled_at`,
+`cancel_reason`, audited). A changed promise is a withdrawn one and a new one,
+so how often a customer has promised stays on record. A bill promise is
+refused on a draft, on another customer's bill, on a bill that owes nothing,
+and for more than the bill owes -- read from Record Receipt's own list
+(`ReceiptService.outstanding_invoices`), so the two cannot disagree.
+
+**The collector** is `customers.collector_id`, a member of the firm checked
+like the account manager; where it is blank the customer's account manager
+(`customers.salesman_id`) collects. A promise records who took it, defaulting
+to that person on the day.
+
+**The collection sheet** (`GET /api/v1/collections/sheet`, and `/sheet/pdf`
+for the paper) is Record Receipt's list of open bills for every customer --
+opening bills included -- with days overdue, the latest live promise on the
+bill (else on the account) and the collector, sorted by collector, customer
+and due date. `as_of` dates the overdue count and the promise's status; what a
+bill owes is always what it owes now. **The chase list**
+(`GET /api/v1/collections/promises/due-today`) is the promises for today not
+yet paid plus the broken ones nobody has taken a newer promise on; a bill that
+has since stopped owing drops off it while its promise still reads broken.
+
+Reading takes `RECEIPT_VIEW` and writing `RECEIPT_CREATE`. Not built: the
+desktop screens (a follow-up), the promise on the customer statement and on
+`GET /api/v1/receipts/outstanding`, reminders raised from a broken promise,
+and a promise against an opening bill (it is made on the account instead).
