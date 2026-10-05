@@ -93,7 +93,9 @@ class _EnquiriesPageState extends State<EnquiriesPage> {
     });
     try {
       final List<Enquiry> rows = _dueOnly
-          ? await widget.api.followUpsDue()
+          ? await fetchAllPages<Enquiry>(
+              (int page) => widget.api.followUpsDue(page: page),
+            )
           : await fetchAllPages<Enquiry>(
               (int page) => widget.api.enquiries(page: page, status: _status),
             );

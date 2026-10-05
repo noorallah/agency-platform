@@ -64,19 +64,24 @@ def _money(value: object) -> Decimal:
 def _counted_receipt() -> tuple[ColumnElement[bool], ...]:
     """Return what makes a receipt count toward the promise being read.
 
-    Posted -- a reversed receipt keeps nothing -- dated inside the promise's
-    window, both ends included, **and written after the promise was**. The
-    day alone let money received that morning keep a promise taken in the
-    afternoon: it came back KEPT while the bill still owed, and never reached
-    the chase list (D-SELL-56). A promise is about money still to come, so
-    only a receipt recorded after it counts.
+    Posted -- a reversed receipt keeps nothing -- **written after the promise
+    was**, and dated no later than the day promised for. The day alone let
+    money received that morning keep a promise taken in the afternoon: it
+    came back KEPT while the bill still owed, and never reached the chase
+    list (D-SELL-56). A promise is about money still to come, so only a
+    receipt recorded after it counts.
+
+    **Recorded after is the whole test of "after"**: the receipt's own date
+    is not a lower bound. A receipt entered after the promise and dated the
+    day before -- yesterday's cash, keyed in today -- pays the bill and keeps
+    the promise; it used to leave it PENDING, to read Broken on its day
+    (D-SELL-73).
     """
     return (
         Settlement.firm_id == PaymentPromise.firm_id,
         Settlement.direction == SettlementDirection.RECEIPT.value,
         Settlement.status == SettlementStatus.POSTED.value,
         Settlement.is_deleted.is_(False),
-        Settlement.settlement_date >= PaymentPromise.recorded_on,
         Settlement.settlement_date <= PaymentPromise.promised_on,
         Settlement.created_at >= PaymentPromise.created_at,
     )

@@ -1337,7 +1337,10 @@ un-keeps the promise it had kept, with nothing to put right. Money that came
 before the promise was taken, or after its day, does not count toward it --
 **before by time, not by day**: a receipt recorded earlier the same day does
 not keep a promise taken after it (`Settlement.created_at >=
-PaymentPromise.created_at`, D-SELL-56). **A kept promise cannot be
+PaymentPromise.created_at`, D-SELL-56). **Recorded after is the whole test
+of "after"**: the receipt's own date is no lower bound, so yesterday's cash
+keyed in after the promise keeps it; only the day promised for bounds the
+date (D-SELL-73). **A kept promise cannot be
 withdrawn**; the server refuses it, not only the screen (D-SELL-62).
 The amount received is one correlated expression (`received_amount` in
 `app/collections/services/promises.py`), so the list filters on status and

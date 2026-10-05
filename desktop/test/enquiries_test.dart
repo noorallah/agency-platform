@@ -92,6 +92,9 @@ class _Api extends ApiClient {
   final List<String> requested = <String>[];
   final Map<String, Json?> bodies = <String, Json?>{};
 
+  /// What each read of the follow-ups due asked for.
+  final List<Map<String, String>> dueQueries = <Map<String, String>>[];
+
   /// What each read of the enquiry list asked for.
   final List<Map<String, String>> listQueries = <Map<String, String>>[];
 
@@ -154,6 +157,7 @@ class _Api extends ApiClient {
     }
     if (method == 'POST') return <String, dynamic>{'data': _enquiry()};
     if (path == '/api/v1/enquiries/follow-ups-due') {
+      dueQueries.add(query ?? const <String, String>{});
       return <String, dynamic>{
         'data': [_enquiry(id: 'e-due', prospect: 'Due Today')],
       };
@@ -373,6 +377,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('enquiry-due-toggle')));
     await tester.pumpAndSettle();
     expect(api.requested, contains('GET /api/v1/enquiries/follow-ups-due'));
+    // Asked for by the page, within the server's bound (D-SELL-63).
+    expect(api.dueQueries.single['page'], '1');
+    expect(api.dueQueries.single['page_size'], '100');
     expect(find.text('ENQ-e-due'), findsOneWidget);
     expect(find.text('ENQ-e-1'), findsNothing);
   });

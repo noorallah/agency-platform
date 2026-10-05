@@ -18,7 +18,7 @@ from pydantic import ValidationError as SchemaError
 from app.core.exceptions import ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
-from app.enquiry.api.router import list_enquiries
+from app.enquiry.api.router import follow_ups_due, list_enquiries
 from app.enquiry.api.router import router as enquiry_router
 from app.enquiry.services import (
     EnquiryConvertWrite,
@@ -199,3 +199,24 @@ def test_the_enquiry_list_is_paged() -> None:
     past = list_enquiries(scope=scope, db=setup.session, page=99, page_size=2)
     assert past.data == [] and past.pagination.total_records == 3
     assert_page_size_is_bounded(enquiry_router, "/api/v1/enquiries")
+
+
+def test_the_follow_ups_due_are_paged_too() -> None:
+    """D-SELL-63, the half left: ``page_size=1000`` answered every row."""
+    setup = _Setup(_session_factory()())
+    service = EnquiryService(setup.session)
+    for index in range(3):
+        service.create(
+            _enquiry(setup, prospect_name=f"Prospect {index}"),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    scope = report_scope(setup.firm.id)
+
+    first = follow_ups_due(scope=scope, db=setup.session, page=1, page_size=2)
+    second = follow_ups_due(scope=scope, db=setup.session, page=2, page_size=2)
+
+    assert first.pagination.total_records == 3
+    assert (len(first.data), len(second.data)) == (2, 1)
+    assert not {row.id for row in first.data} & {row.id for row in second.data}
+    assert_page_size_is_bounded(enquiry_router, "/api/v1/enquiries/follow-ups-due")
