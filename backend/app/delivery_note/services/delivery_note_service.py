@@ -2642,7 +2642,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             if (
                 batch is not None
                 and batch.expiry_date is not None
-                and batch.expiry_date < as_of
+                # Out of date on its expiry date, as a batch is (D-STK-17).
+                and batch.expiry_date <= as_of
             ):
                 raise ValidationError(
                     f"{label}: serial {share[0][1].serial_number} is in batch "

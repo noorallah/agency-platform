@@ -705,6 +705,28 @@ def test_a_reservation_skips_a_batch_that_has_expired() -> None:
     }, "the batch let go is the batch shipped"
 
 
+def test_a_batch_is_passed_over_on_its_expiry_date() -> None:
+    """D-STK-17: out of date on the date itself, for the system as for a person.
+
+    Driven 2026-10-06 on two pharmacy firms: on a batch's expiry date the
+    picker called it expired and a pinned order, a batch picked on a note and
+    a counter bill were each refused -- while an order naming no batch was
+    given that very batch, first expiry first, and shipped it. The day before,
+    it is still the batch to ship.
+    """
+    session, _, _, batches, order = _stale_and_fresh_order(date(2026, 8, 17), "5")
+    reserved = _movements(session, "RESERVE", order.order_number)
+    assert [(row.batch_id, row.reserved_quantity_delta) for row in reserved] == [
+        (batches["FRESH"].id, Decimal("5.0000"))
+    ], "the batch expiring today is not the one chosen"
+
+    session, _, _, batches, order = _stale_and_fresh_order(date(2026, 8, 16), "5")
+    reserved = _movements(session, "RESERVE", order.order_number)
+    assert [(row.batch_id, row.reserved_quantity_delta) for row in reserved] == [
+        (batches["STALE"].id, Decimal("5.0000"))
+    ], "the day before, it is still good and goes first"
+
+
 def test_a_back_order_behind_expired_stock_names_the_batch() -> None:
     """Twenty on the shelf and five back-ordered needs saying why, by name.
 
