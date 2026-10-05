@@ -392,7 +392,7 @@ Roles: `CASHIER`, `BILLING_EXECUTIVE`. 13 permission codes.
 
 ## R04. Field Sales
 
-Roles: `SALES_EXECUTIVE`. 12 permission codes.
+Roles: `SALES_EXECUTIVE`. 13 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
@@ -404,7 +404,7 @@ Roles: `SALES_EXECUTIVE`. 12 permission codes.
 | Sell > Returns & notes > Sales Returns | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
 | Sell > All Sell screens > Documents > Counter Shifts | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
 | Sell > All Sell screens > Documents > Customer Rebates | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
-| Sell > Customer Statements | none beyond viewing | Not run | |
+| Sell > Customer Statements | `CUSTOMER_CREATE` | Not run | |
 | Sell > All Sell screens > Insight > Sales Analysis | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
 | Sell > All Sell screens > Field sales > Beat Plans | none beyond viewing | Not run | |
 | Sell > All Sell screens > Field sales > Call Lists | none beyond viewing | Not run | |
@@ -416,7 +416,7 @@ Roles: `SALES_EXECUTIVE`. 12 permission codes.
 | Accounts > All Accounts screens > Tax filing > GST checks | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
 | Accounts > All Accounts screens > Tax filing > GST Payment | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
 | Accounts > All Accounts screens > Tax filing > PMT-06 deposits | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
-| Masters > Customers | none beyond viewing | Not run | |
+| Masters > Customers | `CUSTOMER_CREATE` | Not run | |
 | Masters > Products | none beyond viewing | Not run | |
 | Masters > Branches | none beyond viewing | Not run | |
 | Masters > Warehouses | none beyond viewing | Not run | |

@@ -95,6 +95,29 @@ more found on the way (D-BUY-41 to D-BUY-43, D-CMP-23, D-UI-11 in
 `docs/DEFECTS.md`) were fixed the same day, with TC-BUY-091 and 092 for a
 debit note and a purchase return against a foreign-currency bill.
 
+**Brought up to date on 2026-10-06** with the buying and selling fixes of
+2026-10-05 and 06. The product was driven over HTTP in six rounds (the
+`*_API_CHECK_*` files beside this one hold what was sent and what came back),
+and the case text was corrected to what the application does now: a supplier
+rate contract is numbered `RTC-` and a reverse-charge self-invoice `RSI-`;
+free goods go back off the goods receipt, and the same goods go back once
+whichever document the return names; a saved or recalled counter bill can be
+cut down, grown and given another product; a coupon is claimed when the bill
+is approved; a walk-in bill is paid to the paisa of its amount payable; a
+customer's credit limit, standing discount, opening balance, credit days and
+cash-discount terms, and its opening bills, need the manage-customer-settings
+permission, which the Firm Administrator and Firm Manager jobs hold; an
+opening balance typed on a customer is collected as a bill; and "today" is
+the firm's own calendar day at any hour. Nineteen cases were added:
+**TC-BUY-093 to 098** (`06_PURCHASING`), **TC-SELL-088 to 095**
+(`08_SELLING`), **TC-CUST-007 to 010** (`05_MASTERS`) and **TC-CONF-009**
+(`04_FIRMS_AND_CONFIGURATION`). **Their expectations were driven over HTTP;
+their screens have not been walked**, so say so in the result notes. Steps
+marked (HTTP) cover what the screens cannot do: a purchase return has no Free
+box and no import on screen. `01_ROLES_AND_ACCESS` now shows Field Sales
+holding `CUSTOMER_CREATE`. `14_TEST_DATA` is written by hand and has no rows
+for the new cases yet: each new case states its own values.
+
 **What 1.2.0 changed (carried into 1.3.0): the menu.** Each drop-down now shows daily work only; every other screen is behind **All <area> screens** at its foot, under the same group name, so a path such as *Sell > Insight > Sales Analysis* is now *Sell > All Sell screens > Insight > Sales Analysis*. **Returns & notes** opens the returns and notes. The **Admin** area has left the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform** (People, Firms, Agency, System); the set-up lists (price lists, promotions, territories, customer groups, product categories, units, places) are under **Settings > Set up**. Ctrl+K finds any screen by name. Cases TC-ME-009 to TC-ME-013 (`02_SIGN_IN_AND_ACCOUNTS`) cover the new menu, Settings > Set up, favourites and My preferences, which replaces the *Primary firm* menu entry. For one tester's book across every module, with sample data and what to check after each action, see `docs/QA_TEST_BOOK.md`. For a module-by-module reference (what to configure, which screens to open, what to verify elsewhere, known limits) see `docs/QA_MODULE_REFERENCE.md`.
 
 **What 1.3.0 adds: the agency's branding.** The sign-in screen, the header and the first sign-in now show the agency's own name, tagline and logo, set on a Branding page of a fresh server install or under **Settings > Platform > Agency > Branding**. Cases TC-ME-014 to TC-ME-018 (`02_SIGN_IN_AND_ACCOUNTS`) cover the sign-in screen, More help and the offline fallback, the first-run *Set up your agency* dialog, the Branding settings page and the header; the installer page is in `docs/INSTALLER_QA_CHECKLIST.md` (A4a and section F). **Written from the code and not yet driven against a running server.** They are in `docs/INDEPENDENT_TEST_CASES.md` too, so regenerating keeps them.
@@ -117,11 +140,11 @@ If it fails, the cases below cannot be trusted until the failure is fixed.
 | `01_ROLES_AND_ACCESS` | What each of the 11 job templates may reach and do | 11 jobs, 723 screen rows | |
 | `02_SIGN_IN_AND_ACCOUNTS` | Sign-in, lockout, sessions, your own account, platform mode, the 1.3.0 menu, branding | 37 | |
 | `03_USERS_AND_ROLES` | Users, hiring, job templates, roles in two tiers | 52 | 5 |
-| `04_FIRMS_AND_CONFIGURATION` | Creating and finishing a firm, isolation, numbering, profiles, tax, units, custom fields | 45 | 19 |
-| `05_MASTERS` | Customers, vendors, products, branches, warehouses, principals and brands, merging duplicates, codes from a series | 22 | 13 |
-| `06_PURCHASING` | Purchase order to supplier payment, returns, GST on purchases, requisitions, supplier terms, payment runs, landed cost; from 2026-10-05 the GST purchase register, payables by month, Paid now, attachments, TDS 194C and 194J, TCS, RFQ, rate contracts, serials at receipt, supplier schemes, imports and bills of entry, fixed assets, PTR and PTS | 90 | 19 |
+| `04_FIRMS_AND_CONFIGURATION` | Creating and finishing a firm, isolation, numbering, profiles, tax, units, custom fields, "today" as the firm's own day | 46 | 19 |
+| `05_MASTERS` | Customers, vendors, products, branches, warehouses, principals and brands, merging duplicates, codes from a series; from 2026-10-06 who may set a customer's money terms, and the opening balance as a bill | 26 | 13 |
+| `06_PURCHASING` | Purchase order to supplier payment, returns, GST on purchases, requisitions, supplier terms, payment runs, landed cost; from 2026-10-05 the GST purchase register, payables by month, Paid now, attachments, TDS 194C and 194J, TCS, RFQ, rate contracts, serials at receipt, supplier schemes, imports and bills of entry, fixed assets, PTR and PTS; from 2026-10-06 free goods and the same goods on a return, the batch on a return, the return import, the self-invoice number | 98 | 19 |
 | `07_INVENTORY` | Stock, transfer documents, write-offs, repacking, kits, counts, batches, serials | 20 | 18 |
-| `08_SELLING` | Enquiry and quotation to cash, holds, returns, credit notes, debit notes, proforma, counter billing, price levels; from 2026-10-05 the GST sales register, walk-in cash sale, service invoices, other charges, transporters, attachments, hold and recall, counter shifts, collection follow-up, customer rebates | 87 | 9 |
+| `08_SELLING` | Enquiry and quotation to cash, holds, returns, credit notes, debit notes, proforma, counter billing, price levels; from 2026-10-05 the GST sales register, walk-in cash sale, service invoices, other charges, transporters, attachments, hold and recall, counter shifts, collection follow-up, customer rebates; from 2026-10-06 a saved counter bill changed before approval, a coupon that may be used once, a bill that is not a whole paisa, returns never billed, reservations by batch | 95 | 9 |
 | `09_PRICING_AND_INCENTIVES` | Price lists, promotions, coupons, loyalty, commission, targets, principal claims | 12 | 5 |
 | `10_TERRITORY` | Territories, routes, beat plans, call lists, transporters | 6 | 8 |
 | `11_COMPLIANCE` | GSTR-1, GSTR-3B, e-invoice and e-way bill sandbox, TCS, the tax calendar, filing checks, amendments, quarterly filing | 26 | 3 |
@@ -129,8 +152,8 @@ If it fails, the cases below cannot be trusted until the failure is fixed.
 | `13_CROSS_CUTTING` | Permissions enforced by the server, two people editing one record | 17 | |
 | `14_TEST_DATA` | The values to type for every firm, person, master and case (written by hand) | | |
 
-In all: **451 detailed cases, 134 screen checks and 11 role checks** (counted
-from the files on 2026-10-05). The
+In all: **470 detailed cases, 134 screen checks and 11 role checks** (counted
+from the files on 2026-10-06). The
 installation itself is tested separately by `docs/INSTALLER_QA_CHECKLIST.md`,
 and `docs/QA_FUNCTIONAL_WALKTHROUGH.md` is a one-day end-to-end run that
 makes a good first pass before this suite. For one tester's book across every
