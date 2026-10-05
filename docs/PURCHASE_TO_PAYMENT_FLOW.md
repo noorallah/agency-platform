@@ -162,6 +162,17 @@ Dr  1200 Inventory                      1000.00
 **At cost, excluding tax.** The order was 1000 + 180 tax = 1180, and only the
 1000 reaches the balance sheet — tax is not part of what the stock is worth.
 
+**Free goods from a supplier's scheme add units, not value** (PG-11, §86 #25).
+A scheme set on the product (`/api/v1/supplier-schemes`, Buy > All Buy screens
+> Documents > *Supplier schemes*) fills the order line's free quantity where it
+was left blank, and the receipt inherits it. An order of 10 at 100 under
+"10+2" receives 12 units and still posts the entry above, 1000.00: the
+receipt's cost per unit is the line's value before tax over accepted plus
+free, 83.33 here. Where the scheme gives another product, that product comes
+in on a line of its own with nothing charged, so it arrives at no value. The
+bill charges the 10; nothing more posts for the free goods.
+`docs/PURCHASE_FRAMEWORK.md`, *Supplier free schemes*.
+
 The credit goes to *Goods Received Not Invoiced*, not to payables, because the
 goods have arrived but the supplier's bill has not. Without this the inventory
 account would only ever be credited by dispatches and would drift negative while
@@ -229,6 +240,64 @@ The supplier is owed `grand_total + tcs_amount - tds_amount`; the payment,
 the outstanding list and the payables report all read that figure, and
 *TCS paid to suppliers* (`/reports/tcs-paid`) totals it by quarter for the
 26AS match.
+
+**TDS under 194C or 194J is deducted on the bill** (PG-5, §86 #10), at the
+earlier of credit and payment. A supplier whose master names the section
+(**Usual TDS section**, with **Individual / HUF** or **Technical services**)
+has the deduction proposed when its bill is approved, worked on the value
+before GST and on the supplier's whole April-March year. A contractor's bill
+of 40,000 + 7,200 GST at 2%:
+
+```
+Dr  2300 Goods Received Not Invoiced   40000.00
+Dr  1320 Input CGST                     3600.00
+Dr  1330 Input SGST                     3600.00
+    Cr  2100 Trade Payables                    46400.00
+    Cr  2700 TDS Payable                         800.00
+```
+
+The supplier is owed 46,400.00. A bill of 20,000 before it proposed nothing
+(under 30,000, and the year under 1,00,000); a bill of 50,000 after it takes
+the year to 1,10,000, so the tax is due on the whole year -- 2,200.00 -- and
+that bill carries 1,400.00, the earlier bill's 400.00 with its own. 194J has
+only the yearly limit (30,000) and takes 10%, or 2% on technical services; no
+PAN is 20% under either. The Approve dialog shows the proposal and takes an
+override (**TDS to deduct**: blank takes it, 0 deducts nothing), which the
+trail keeps beside the proposal. Money paid ahead of any bill bears the tax on
+the payment instead:
+
+```
+Dr  2100 Trade Payables                50000.00
+    Cr  1010 Bank                              49000.00
+    Cr  2700 TDS Payable                        1000.00
+```
+
+and the bill that follows finds it deducted and proposes nothing. The rule and
+its thresholds are in `docs/LEDGER_POSTING_RULES.md`; the firm's rates are
+under Settings > Tax > *TDS on purchases (194Q, 194C, 194J)*.
+
+**A capital-goods line is an asset, not stock** (PG-13, §86 #7). A bill line
+ticked **Capital goods** names an asset class, and approving the bill raises
+one fixed asset per such line at the line's value before tax. The bill's own
+receipt brings that line in with no stock movement and no accrual, so the
+debit goes straight to the asset account -- a desk at 36,500 + 18%:
+
+```
+Dr  1500 Fixed Assets                  36500.00
+Dr  1320 Input CGST                     3285.00
+Dr  1330 Input SGST                     3285.00
+    Cr  2100 Trade Payables                    43070.00
+```
+
+The GST is claimed in full and shown apart in the GST purchase register as
+*Capital goods tax*. This works where the bill raises its own receipt (the
+receipt stage off): a line billing a receipt somebody already completed is
+refused, because those goods are in stock. Afterwards the asset
+is depreciated by run (Dr 6950 Depreciation / Cr 1590 Accumulated
+Depreciation) and leaves at book value on disposal, with the difference to
+4960; cancelling the bill takes the asset off the register unless it has been
+depreciated or disposed. Accounts > All Accounts screens > *Fixed assets*;
+`docs/LEDGER_POSTING_RULES.md` has the arithmetic.
 
 Note the accounting shape: `GRNI` is debited and credited by equal amounts
 across steps 4 and 6, so it nets to zero once the invoice arrives. A balance
@@ -300,6 +369,25 @@ too, including the receipt a bill typed alone (§38) would have completed. The
 block needs `PAYMENT_CREATE` on top of `PURCHASE_APPROVE` (403 without it);
 without the block the approval is unchanged. Undoing the money is the usual
 `POST /payments/{id}/reverse`, which leaves the bill approved and owing.
+
+On the desktop it is the bill's **Approve** step: the dialog has a **Paid
+now** tick (for a holder of `PAYMENT_CREATE`) with Method, Mode, Amount,
+Reference and Date paid, and its button becomes **Approve and pay**. A bill
+of 600 + 108 GST paid in cash at once raises the two entries of steps 6 and 7
+in one commit:
+
+```
+bill      Dr  2300 Goods Received Not Invoiced    600.00
+          Dr  1320 Input CGST                      54.00
+          Dr  1330 Input SGST                      54.00
+              Cr  2100 Trade Payables                     708.00
+payment   Dr  2100 Trade Payables                 708.00
+              Cr  1000 Cash                               708.00
+```
+
+Paying 300 of it leaves 408.00 outstanding. Where the bill bears TCS or TDS
+the amount offered is what the supplier is owed, `grand_total + tcs_amount -
+tds_amount`. A bill in another currency is not offered Paid now.
 
 ### What is owed, by supplier and month, against 2100
 

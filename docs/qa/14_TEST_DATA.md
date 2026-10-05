@@ -780,6 +780,110 @@ The walkthrough's own buying (W19 to W29): supplier invoice numbers
 `QA-V1-INV-001` for the receipt of 6 and `QA-V1-INV-002` for the receipt
 of 4; the payment of `1180.00`, Bank, instrument reference `NEFT-QA-1180`.
 
+### 06 Purchasing, cases added 2026-10-05 (TC-BUY-029 to TC-BUY-085)
+
+The fourteen purchasing features of backlog 86. **Written from the code on
+2026-10-05 and not yet typed through the screens**; a value the form refuses
+is a note for section H, not a failed case. None of these cases belongs to
+the order of D1: each builds what it needs, and where it says *po-received*
+or *po-invoiced* it means a **fresh** order of 10 of `QA-B` at `100` from
+`QA-V` taken to that stage (receipts of 4 and 6; the bill for the receipt of
+6 is 708.00), not PO-1.
+
+**Masters these cases add** (QA01 unless the row says otherwise):
+
+| Record | Values | Used by |
+| --- | --- | --- |
+| Product `QA-NH` | *No HSN Item qa*; as `QA-B` but **HSN / SAC left blank** | TC-BUY-030 |
+| Vendor `QA-T1` | *Contractor One qa*; PAN `AAACT1111C`; **Usual TDS section** *194C*; Individual / HUF not set | TC-BUY-043 |
+| Vendor `QA-T2` | *Contractor Two qa*; PAN `AAACT2222C`; 194C | TC-BUY-044 |
+| Vendor `QA-T3` | *Contractor No PAN qa*; **no PAN**; 194C | TC-BUY-045 |
+| Vendor `QA-T4` | *Contractor Person qa*; PAN `ABCPT4444D`; 194C; **Individual / HUF** *Yes* | TC-BUY-045 |
+| Vendor `QA-T5` | *Consultant qa*; PAN `AAAFT5555E`; **Usual TDS section** *194J*; Technical services not ticked | TC-BUY-046 |
+| Vendor `QA-T6` | *Technical Services qa*; PAN `AAAFT6666F`; 194J; **Technical services (2%)** ticked | TC-BUY-046 |
+| Vendor `QA-T7` | *Contractor Advance qa*; PAN `AAACT7777G`; 194C | TC-BUY-047 |
+| Vendor `QA-T8` | *Contractor Override qa*; PAN `AAACT8888H`; 194C | TC-BUY-048 |
+| Vendor `QA-VQ` | *Quote Supplier qa*; Phone `+919800000400` | TC-BUY-056 to 059 |
+| Vendor `QA-VN` | *No Number Supplier qa*; phone, mobile and contacts left blank | TC-BUY-055 |
+| Vendor `QA-VU` | *Overseas Supplier qa*; **Currency** `USD`; no GSTIN | TC-BUY-070 to 076 |
+| Product `QA-IMP` | *Imported Item qa*; PIECE; tax profile **GST 0%**; Purchase price `100` | TC-BUY-070 to 074, 076 |
+| Product `QA-IMP2` | *Imported Item Two qa*; as `QA-IMP`; Selling price `12000` | TC-BUY-075 |
+| Product `QA-FA` | *Office Desk qa*; PIECE; GST 18% Local; Purchase price `36500` | TC-BUY-077 |
+| Asset class `QA-WDV` | *Written Down qa*; Method *Written down value*; Rate % `40`; Residual % `5` | TC-BUY-079, 080 |
+| Asset class `QA-IT` | *Block Check qa*; Method *Straight line*; Useful life (years) `10`; Residual % `5`; Income-tax rate % `25` | TC-BUY-081 |
+| In QA07 (Electronics): a vendor `QA-VE` | *Electronics Supplier qa* | TC-BUY-063 to 065, 085 |
+| In QA06 (Pharmacy): a vendor `QA-VP` | *Pharma Supplier qa* | TC-BUY-082, 083 |
+| In QA06: customers `QA-CR`, `QA-CS`, `QA-CO`, `QA-CN` | *Retail Chemist qa* (Trade class *Retailer*), *Stockist qa* (*Stockist*), *Other Buyer qa* (*Other*), *Unclassed Buyer qa* (*Not set*) | TC-BUY-084 |
+
+The TDS suppliers are each used by **one** case because the tax is worked on
+the supplier's whole financial year: to run a TDS case a second time, make a
+new supplier with the same values and the next code (`QA-T1B`).
+
+| Case | Values to type |
+| --- | --- |
+| TC-BUY-029 | Reports > Financial > GST purchase register, From the 1st of this month, To today |
+| TC-BUY-030 | Order `1` of `QA-NH` at `100` from `QA-V`; receive; bill; approve |
+| TC-BUY-031 | Bill the receipt of 6; **Input credit** *Blocked (s.17(5))* |
+| TC-BUY-032 | Debit note `100` on the bill's line, reason *Price difference*; return `2` off the receipt of 6 |
+| TC-BUY-033 | Nothing to type |
+| TC-BUY-034 | Payment `200.00`, Bank, instrument reference `NEFT-QA-0200P` |
+| TC-BUY-035 | Return `1` off the receipt of 4; then bill the receipt of 6 |
+| TC-BUY-036 | **Paid now** ticked; Method *Cash*; Amount and Date paid blank |
+| TC-BUY-037 | Method *Bank*; Amount `800`, then `300`; Reference `NEFT-QA-0300` |
+| TC-BUY-038 | Reversal reason *Paid in error* |
+| TC-BUY-039 | Sign in as the *Purchase Manager* of B3 |
+| TC-BUY-040 | Caption *Supplier bill QA-SUP-001*; any PDF and any photo under 10 MB |
+| TC-BUY-041 | A `.txt` file; the same file renamed `fake.pdf`; a file over 10 MB |
+| TC-BUY-042 | Caption *Delivery challan* |
+| TC-BUY-043 | `QA-T1`: order `400` of `QA-B` at `100` |
+| TC-BUY-044 | `QA-T2`: `200`, then `400`, then `500` of `QA-B` at `100` |
+| TC-BUY-045 | `QA-T3` and `QA-T4`: `400` of `QA-B` at `100` each |
+| TC-BUY-046 | `QA-T5`: `250`, then `100` at `100`; `QA-T6`: `400` at `100` |
+| TC-BUY-047 | `QA-T7`: payment `50000`, Bank, **TDS deducted** `1000`, **TDS section** *194C*; then `500` of `QA-B` at `100` |
+| TC-BUY-048 | `QA-T8`: three bills of `400` at `100`; **TDS to deduct** `0`, `500`, `47200` |
+| TC-BUY-049 | 194C per-year threshold `150000`, then back to `100000`; Rate % `35` |
+| TC-BUY-050 | **TCS charged by supplier %** `0.1` |
+| TC-BUY-051 | Rate `0.1`, **TCS amount** `1.00` |
+| TC-BUY-052 | TCS amount `1.00` on both bills |
+| TC-BUY-053 | Rate `0.1`; report From the 1st of this month, To today |
+| TC-BUY-054 | Channel *WhatsApp* |
+| TC-BUY-055 | `QA-V`'s mobile from C2; the second order from `QA-VN`; number to type `+919800000499` |
+| TC-BUY-056 | Suppliers `QA-V` and `QA-VQ`; `QA-B` quantity `10`; quotes `100` less `5`%, 7 days; and `96`, 3 days |
+| TC-BUY-057 | Reason *Delivers in three days* |
+| TC-BUY-058 | Requisition: one line `QA-B` quantity `10`, supplier `QA-V`; cancel reason *Raised twice* |
+| TC-BUY-059 | Sign in as the *Read Only*, *Purchasing* and *Warehouse* people of B3 |
+| TC-BUY-060 | `QA-V`; Valid from today, Valid to a month on; `QA-B` Rate `90`, Quantity `20`; order `15` |
+| TC-BUY-061 | Orders of `15` and `10` |
+| TC-BUY-062 | Cancel reason *Supplier withdrew the rate* |
+| TC-BUY-063 | QA07: order `3` of the serial-tracked product from `QA-VE`; range Prefix `QA-SN`, Start `1`, Count `2`, Width `4`; third serial `QA-SN0003` |
+| TC-BUY-064 | QA07: serial `qa-sn0001`; a new serial `QA-SN0100` typed on two lines |
+| TC-BUY-065 | QA07: receipts of 2 with `QA-SN0201`, `QA-SN0202` and `QA-SN0203`, `QA-SN0204` |
+| TC-BUY-066 | Scheme: `QA-V`, `QA-B`, Buy quantity `10`, Free quantity `2`; order `25` at `100` |
+| TC-BUY-067 | Free `0`; Free `1`; quantity `9` |
+| TC-BUY-068 | Scheme: `QA-V`, `QA-B`, Buy `10`, Free `1`, Free product `QA-B2`; order `25` at `100` |
+| TC-BUY-069 | Second scheme from today plus 7 days; all-suppliers scheme Buy `10`, Free `1` |
+| TC-BUY-070 | `QA-VU`; `QA-IMP` quantity `10`, rate `100`; Exchange rate `83` |
+| TC-BUY-071 | Pay in *USD*; rates `84` and `82`; Amount `1000`; Bank |
+| TC-BUY-072 | USD at `84`, Amount `400`; reversal reason *Wrong rate* |
+| TC-BUY-073 | Amount `1200` against the 1,000 bill |
+| TC-BUY-074 | Bill of Entry number `1234567`; Port code `INMAA1`; Assessable value `85000`; BCD % `10`; IGST % `18` |
+| TC-BUY-075 | Second bill: `QA-IMP2`, 10 at `100` USD at `83`, 4 sold; Bill of Entry number `1234568`; BCD amount `9000`; cancel reason *Entered against the wrong bill* |
+| TC-BUY-076 | As of the last day of last month; USD `85` |
+| TC-BUY-077 | `QA-V`; Entered on `2026-10-01`; `QA-FA` quantity `1`, rate `36500`; class FURNITURE |
+| TC-BUY-078 | A fresh *po-received*; class FURNITURE |
+| TC-BUY-079 | Assets *Desk SLM qa* (FURNITURE) and *Server WDV qa* (`QA-WDV`), each Cost `36500`, acquired `2026-10-01`, Residual value blank; run From `2026-10-01` To `2026-10-31` |
+| TC-BUY-080 | Disposed on `2026-10-31`; Sale amount `35000` by Bank, then `36000` by Cash; Reason *Sold to staff* |
+| TC-BUY-081 | Assets *Block A qa* (acquired `2026-06-01`) and *Block B qa* (`2026-12-01`), each Cost `40000`, class `QA-IT`; cancel reason *Run too early* |
+| TC-BUY-082 | QA06: order `20` at `60` from `QA-VP`; batch `QA-PTR-1`, expiry a year on, MRP `120`, PTR `90`, PTS `80`; second receipt PTR `92` |
+| TC-BUY-083 | QA06: MRP `100`, PTR `120`, then `90` |
+| TC-BUY-084 | QA06: the product's Selling price `100`; orders for `QA-CR`, `QA-CS`, `QA-CO`, `QA-CN`, quantity `1`, batch `QA-PTR-1`; typed price `95` |
+| TC-BUY-085 | QA07: nothing to type |
+
+TC-BUY-070 to 077 switch **Purchase order** off under Settings > Buying >
+Purchase Settings > Buying stages for as long as they run. Do them together,
+last in a sitting, and switch **Purchase order** and **Goods receipt** back
+on before any other purchasing case.
+
 ### 07 Inventory
 
 | Case | Firm | Values to type |

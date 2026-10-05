@@ -1061,6 +1061,671 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Expect:** a free-issue-only product is refused on a priced sales line by name. The receipt line keeps the scheme; the write-offs post to *Promotional Expense* (not Inventory Adjustment) and carry the customer; the Free goods report shows what came in free, what went out free and what is left. A supplier gift posts Dr the asset or expense account named (or *Drawings* when the owner kept it) and Cr *Supplier Incentives Received*, with no input tax; the gift register links to the receipt line marked "gift, not stock"; the 194R summary totals gifts per supplier; cancelling reverses the journal. Managing gifts needs SUPPLIER_GIFT_MANAGE.
 - **Leaves:** write-offs, a register row, journals.
 
+---
+
+**The purchasing features of backlog 86 (PG-1 to PG-14), built 2026-10-05.**
+Cases TC-BUY-029 onward were written from the code and its automated tests on
+2026-10-05 and have not yet been run by hand. Each stands alone: it names what
+it needs and reads nothing another case left. The new screens are under
+Buy > All Buy screens > Documents (**Requests for quotation**, **Rate
+contracts**, **Supplier schemes**, **Bills of entry**), Buy > All Buy screens >
+Money > **Payables by Month**, Accounts > All Accounts screens > **Fixed
+assets**, and Settings > Tax > **TDS on purchases (194Q, 194C, 194J)**. The
+journals below name the accounts a firm starts with: 1000 Cash, 1010 Bank,
+1200 Inventory, 1310 Input IGST, 1320 Input CGST, 1330 Input SGST, 1430 TCS
+Receivable, 1500 Fixed Assets, 1590 Accumulated Depreciation, 2100 Trade
+Payables, 2300 Goods Received Not Invoiced, 2700 TDS Payable, 2800 Customs
+Duty Payable, 4950 Exchange Gain/Loss, 4960 the gain or loss on disposing of
+an asset, 5220 Customs Duty and 6950 Depreciation.
+
+**Two groups change a firm-wide setting.** The import cases (TC-BUY-070 to
+076) and the capital-goods case TC-BUY-077 need a firm that types
+only the bill: Settings > Buying > Purchase Settings > **Buying stages** with
+**Purchase order** off, which takes **Goods receipt** off with it. Run them
+when nobody else is buying in the firm, or in a firm of its own, and switch
+both back on afterwards.
+
+### GST purchase register and HSN summary of purchases (backlog 86 #17)
+
+### TC-BUY-029 — The GST purchase register lists an approved bill by tax head
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #17 (PG-1)
+- **Fixture:** `po-invoiced`
+- **Steps:** as the fixture's **Firm admin**, Reports > **Financial** → **GST purchase register**, the period covering today. Find the fixture's bill by its number. Then Buy > Purchase Invoices → New for the receipt of 4, save it and leave it a **draft**; open the report again.
+- **Expect:** one row for the approved bill: Type **Bill**, the supplier's name and GSTIN (blank where the supplier has none), Taxable **600.00**, CGST **54.00**, SGST **54.00**, IGST 0.00, Total tax **108.00**, Not claimable 0.00, Reverse charge 0.00, Capital goods tax 0.00, Bill total **708.00**. The draft bill is not listed; neither is a cancelled one. Only approved and closed bills count.
+- **Leaves:** a draft bill.
+
+### TC-BUY-030 — The HSN summary folds the same bills by HSN code and unit
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #17 (PG-1)
+- **Fixture:** `po-invoiced`
+- **Also needs:** a second product with **no** HSN code, bought and billed from the same supplier (order 1 at 100, receive, bill, approve).
+- **Steps:** as the fixture's **Firm admin**, Reports > Financial → **HSN summary of purchases**, the period covering today.
+- **Expect:** a row for the HSN of `<SUFFIX>-B` with its unit, Quantity **6**, Taxable **600.00**, CGST 54.00, SGST 54.00, Total tax 108.00 and Bills **1** (more where other bills in the period carry the same HSN). The product with no HSN shows under a **blank** HSN, so the gap is visible, not folded into another row.
+- **Leaves:** nothing beyond what it needed.
+
+### TC-BUY-031 — Tax that may not be claimed shows in Not claimable
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #17 (PG-1)
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → New for the receipt of 6; on its line set **Input credit** to *Blocked (s.17(5))* → save → **Approve**. Reports > Financial → **GST purchase register**.
+- **Expect:** the bill's row carries CGST 54.00 and SGST 54.00 as charged, Total tax 108.00 and **Not claimable 108.00**. The heads are what the supplier charged; the last column says how much of it the firm may not claim.
+- **Leaves:** an approved bill with blocked credit.
+
+### TC-BUY-032 — A debit note and a purchase return are minus rows on their own dates
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #17 (PG-1, debit notes and returns netted in)
+- **Fixture:** `po-invoiced`
+- **Steps:** as the fixture's **Firm admin**, Buy > Returns & notes > **Debit Notes** → New against the fixture's bill: 100 on its line → Save → **Approve**. Buy > Returns & notes > Purchase Returns → New off the **receipt of 6**: Returning **2** → Save → Approve → Complete. Reports > Financial → **GST purchase register**, then **HSN summary of purchases**.
+- **Expect:** besides the bill's row, a row of Type **Debit note** with the bill's number under **Against bill**, Taxable **-100.00**, CGST **-9.00**, SGST **-9.00**; and a row of Type **Purchase return**, Taxable **-200.00**, CGST **-18.00**, SGST **-18.00**. Each is dated the day it was raised, not the bill's day. The HSN summary's row for the product is lower by the same amounts. A return of goods that were never billed is not listed.
+- **Leaves:** a debit note, a return.
+
+### Payables by supplier and month (backlog 85; backlog 86 #20)
+
+### TC-BUY-033 — What each supplier is owed, by month, agrees with the books
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 85, backlog 86 #20 (PG-2)
+- **Fixture:** `po-invoiced`
+- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Money > **Payables by Month**. Read the row for `<SUFFIX>-V`, the Total row and the line under the grid. Switch **By invoice date** to **By due date**. Narrow to the supplier with the **All suppliers** box.
+- **Expect:** the page opens on **Owed**, as of today. The supplier's row shows **708.00** in this month's column and **708.00** under **Outstanding** (more if the supplier has other open bills). The columns are Supplier, **Older**, one per month, **Later**, **Credits**, **Outstanding**. The Total row sums every supplier, and the line under it reads "Agrees with the books: control account 2100 holds …" with the same figure. If it reads "Does not agree with the books: control account 2100 holds …", that is a failure to report with both figures. By due date the 708.00 moves to the month the bill falls due.
+- **Leaves:** nothing.
+
+### TC-BUY-034 — A part payment, the Paid view, and the branch filter
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 85 (PG-2)
+- **Fixture:** `po-invoiced`
+- **Steps:** as the fixture's **Firm admin**, Buy > Payments → **Record Payment**: `<SUFFIX>-V`, amount **200.00**, Bank, against the bill → Record payment. Buy > All Buy screens > Money > **Payables by Month**. Switch **Owed** to **Paid**. Back on Owed, pick a branch in **All branches**. **(HTTP)** `GET /api/v1/purchase-invoices/reports/payables?as_of=<today>&view=paid&branch_id=<a branch id>`.
+- **Expect:** Owed shows **508.00** for the supplier and still agrees with 2100. Paid shows **200.00** in this month's column, with the column headed **Paid**. With a branch chosen the line under the grid reads "Narrowed to a branch: advances and refunds name no branch, so there is no books check." The HTTP call is refused: "A payment names no branch, so the Paid view cannot be narrowed to one. Clear the branch filter."
+- **Leaves:** a payment of 200.00.
+
+### TC-BUY-035 — Supplier credit sits in Credits, not in a month
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 85 (PG-2), D-BUY-32
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, Buy > Returns & notes > Purchase Returns → New off the **receipt of 4** (which no bill names): Returning **1** → Save → Approve → Complete. Buy > Purchase Invoices → bill the **receipt of 6** and approve (708.00). Buy > All Buy screens > Money > **Payables by Month**.
+- **Expect:** the supplier's row shows 708.00 in this month and the return's value as a minus figure under **Credits**, so **Outstanding** is the bill less the credit. The total still agrees with control account 2100: the page counts every document that posts to it, not bills alone.
+- **Leaves:** a return, an approved bill.
+
+### Cash purchase in one step (backlog 86 #19)
+
+### TC-BUY-036 — Approve a bill and pay it in the same step
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #19 (PG-3)
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → New for the receipt of 6 → save. Select the draft → **Approve**. In the dialog **Approve PI-…** tick **Paid now**; leave **Method** *Cash*, **Amount** blank ("Blank pays the full bill.") and **Date paid** blank → **Approve and pay**. Then Buy > Payments, Record Payment for the supplier, and Accounts > Journal Entries.
+- **Expect:** the dialog reads "Approving posts the bill to the books." and the button changes from **Approve** to **Approve and pay** when Paid now is ticked. Afterwards the bill is **APPROVED** and a payment `PY-…` of **708.00** dated the bill's date is in Payments, allocated to this bill; Record Payment no longer lists the bill. Two journals: the bill's, Dr 2300 Goods Received Not Invoiced 600.00, Dr 1320 Input CGST 54.00, Dr 1330 Input SGST 54.00 / Cr 2100 Trade Payables 708.00; and the payment's, Dr 2100 Trade Payables 708.00 / Cr 1000 Cash 708.00.
+- **Leaves:** an approved bill, paid.
+
+### TC-BUY-037 — Paying part now leaves the rest owing; more than the bill is refused
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #19 (PG-3)
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, bill the receipt of 6 and save the draft. **Approve** → tick **Paid now**, **Method** *Bank*, **Amount** `800` → **Approve and pay**. Then change Amount to `300`, **Reference** `NEFT-QA-0300` → **Approve and pay**.
+- **Expect:** 800 is refused inside the dialog, which stays open with what was typed: "Bill PI-… owes 708.00, so 800 cannot be paid against it now. Record an advance through Payments." (the figures may print with more decimals). The bill is **still a draft**: the refusal took the approval back with it. With 300 the bill is approved, a bank payment of 300.00 is recorded, and Record Payment shows the bill owing **408.00**. Payment journal: Dr 2100 Trade Payables 300.00 / Cr 1010 Bank 300.00.
+- **Leaves:** an approved bill owing 408.00.
+
+### TC-BUY-038 — Reversing the payment leaves the bill approved and owing
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #19 (PG-3)
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, bill the receipt of 6, **Approve** with **Paid now** ticked and everything else as offered → **Approve and pay**. Buy > Payments → select the payment → **Reverse** with a reason. Open the bill and Record Payment for the supplier.
+- **Expect:** the payment made with the approval is an ordinary payment: it reverses like any other. Afterwards the bill is still **APPROVED** and owes **708.00** again; the payment's mirror journal is posted (Dr 1000 Cash 708.00 / Cr 2100 Trade Payables 708.00).
+- **Leaves:** an approved bill, unpaid; a reversed payment.
+
+### TC-BUY-039 — Paid now needs the right to record payments
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #19 (PG-3)
+- **Fixture:** `po-received`
+- **Also needs:** a user hired with the *Purchase Manager* job template, who may approve bills (PURCHASE_APPROVE) but not record payments (no PAYMENT_CREATE).
+- **Steps:** as the **Purchase Manager**, bill the receipt of 6, save, **Approve**. Look at the dialog. **Approve**. **(HTTP)** on a second draft bill, as the same user: `POST /api/v1/purchase-invoices/{id}/approve` with body `{"payment": {"method": "CASH"}}`.
+- **Expect:** the dialog offers **no Paid now** tick and its button reads **Approve**; the bill approves and owes 708.00. The HTTP call is refused with **403**: "Paying a bill as it is approved records a payment, which needs PAYMENT_CREATE. Approve it without the payment, or ask somebody who may record payments." The second bill stays a draft.
+- **Leaves:** an approved bill, unpaid.
+
+### Attach the supplier's bill (backlog 86 #16)
+
+### TC-BUY-040 — Attach, open, save and delete a file on a purchase bill
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #16 (PG-4)
+- **Fixture:** `po-invoiced`
+- **Also needs:** a PDF and a JPG or PNG photo on this PC, each under 10 MB.
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → open the fixture's approved bill → **Attachments**. Type a **Caption (optional)**, **Add file** → the PDF. Add the photo the same way. Use **Open** and **Save as** on one. Close, **Refresh** the list. Open Attachments again → **Delete** on the photo → **Delete**. Settings > Platform > System > Audit Logs.
+- **Expect:** the dialog is titled **Attachments · …** and starts with "Nothing is attached yet." Files can be added to an **approved** bill: a paid bill still needs its paper. Each file lists with its name and caption; Open shows it, Save as writes the same file. The list's **Files** column shows a paper clip and **2**, then **1** after the delete. The delete asks "Delete …?" and says the trail keeps the removal; the audit log has `document_file.attached` twice and `document_file.removed` once.
+- **Leaves:** one attached file.
+
+### TC-BUY-041 — The wrong kind of file, and a file that is too large, are refused
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #16 (PG-4)
+- **Fixture:** `po-invoiced`
+- **Also needs:** a `.txt` or `.xlsx` file; a text file renamed to end `.pdf`; a PDF or image larger than 10 MB.
+- **Steps:** as the fixture's **Firm admin**, open the bill's **Attachments** and **Add file** with each of the three in turn.
+- **Expect:** each is refused and nothing is listed. The wrong extension: "Only PDF, JPG and PNG files may be attached; '…' is not one by its name." The renamed file: "'…' is not a PDF, JPG or PNG file by its contents." The large one: "The file is … MB; the most a file may be is 10 MB." The dialog stays open.
+- **Leaves:** nothing.
+
+### TC-BUY-042 — Attachments on a goods receipt, and who may add them
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #16 (PG-4)
+- **Fixture:** `po-received`
+- **Also needs:** a user hired with the *Read Only* job template; a photo under 10 MB.
+- **Steps:** as the fixture's **Firm admin**, Buy > Goods Receipts → open a completed receipt → **Attachments** → **Add file** → the photo. Start a **new** receipt and press Attachments before saving it. Then sign in as the **Read Only** user and open the first receipt's Attachments.
+- **Expect:** the completed receipt takes the file and its row shows the clip and **1** under **Files**. On a receipt not yet saved the dialog says "Save first to attach files". The Read Only user sees the file and can **Open** and **Save as**, but is offered neither **Add file** nor **Delete**: adding and removing follow the right to receive goods (on a bill, the right to create or edit bills).
+- **Leaves:** one attached file.
+
+### TDS 194C and 194J worked out (backlog 86 #10)
+
+### TC-BUY-043 — One contractor bill past 30,000 proposes 194C and posts it
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #10 (PG-5)
+- **Fixture:** `buy-ready`
+- **Also needs:** a supplier of its own with **no other bill or payment this financial year** (April to March): a PAN whose fourth letter is not P or H (a company or firm), **Usual TDS section** *194C*, **Individual / HUF** left unset. Use a new supplier each time the case is run.
+- **Steps:** as the fixture's **Firm admin**, order **400** of `<SUFFIX>-B` at **100** from that supplier, approve, receive and complete, bill the receipt and save. Select the draft → **Approve**. Read the dialog and leave **TDS to deduct** blank → **Approve**. Open Record Payment for the supplier, and the bill's journal.
+- **Expect:** the bill is 40,000.00 + 7,200.00 GST = **47,200.00**. The dialog names the section and rate -- TDS 194C at 2%, basis OTHER -- then "Threshold crossed.", "Due so far: ₹800.00, already deducted: ₹0.00." and "Proposed on this bill: ₹800.00."; the box's helper reads "Blank takes the proposal (₹800.00); 0 deducts nothing." TDS is worked on the value **before GST**. After approval the supplier is owed **46,400.00**. Journal: Dr 2300 Goods Received Not Invoiced 40,000.00, Dr 1320 Input CGST 3,600.00, Dr 1330 Input SGST 3,600.00 / Cr 2100 Trade Payables 46,400.00, Cr 2700 TDS Payable 800.00.
+- **Leaves:** an approved bill with TDS of 800.00.
+
+### TC-BUY-044 — The year's limit crossed mid-year carries the earlier bills' tax
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #10 (PG-5)
+- **Fixture:** `buy-ready`
+- **Also needs:** a supplier of its own as in TC-BUY-043 (194C, a company PAN, nothing else this financial year).
+- **Steps:** as the fixture's **Firm admin**, from that supplier raise, receive, bill and approve three bills in turn, all dated in this financial year, reading the Approve dialog each time and leaving **TDS to deduct** blank: **200** at 100 (20,000 before GST), then **400** at 100 (40,000), then **500** at 100 (50,000).
+- **Expect:** bill 1 (20,000): "Threshold not yet crossed." and "Nothing is proposed on this bill." -- it is under 30,000 and the year is under 1,00,000. Bill 2 (40,000): one bill past 30,000, so **800.00** is proposed (2% of 40,000). Bill 3 (50,000): the year is now 1,10,000, past 1,00,000, so the tax is due on the **whole year**: 2% of 1,10,000 = 2,200.00, less the 800.00 already deducted, so **1,400.00** is proposed -- 400.00 more than 2% of this bill, which is bill 1's tax catching up. After the three, 2700 TDS Payable has been credited 2,200.00 for this supplier.
+- **Leaves:** three approved bills.
+
+### TC-BUY-045 — No PAN is 20%, and an individual is 1%
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #10 (PG-5)
+- **Fixture:** `buy-ready`
+- **Also needs:** two suppliers of their own with nothing else this financial year, both **Usual TDS section** *194C*: one with **no PAN**, one with a PAN and **Individual / HUF** set to *Yes*.
+- **Steps:** as the fixture's **Firm admin**, from each supplier order **400** of `<SUFFIX>-B` at 100, receive, bill, and open **Approve**.
+- **Expect:** the supplier with no PAN: 194C at 20%, basis NO_PAN, and **8,000.00** proposed on the 40,000. The individual: 194C at 1%, basis INDIVIDUAL_HUF, and **400.00** proposed. Where Individual / HUF is left unset, a PAN whose fourth letter is P or H is read as an individual or HUF.
+- **Leaves:** two approved bills.
+
+### TC-BUY-046 — 194J applies once the year passes 30,000
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #10 (PG-5)
+- **Fixture:** `buy-ready`
+- **Also needs:** a supplier of its own with a PAN and nothing else this financial year, **Usual TDS section** *194J*, **Technical services (2%)** not ticked. A second such supplier with **Technical services (2%)** ticked.
+- **Steps:** as the fixture's **Firm admin**, from the first supplier raise, receive, bill and approve **250** of `<SUFFIX>-B` at 100 (25,000), then **100** at 100 (10,000), reading the Approve dialog each time. From the second supplier one bill of **400** at 100.
+- **Expect:** the first bill proposes nothing: 194J has no single-bill limit and the year is under 30,000. The second takes the year to 35,000: 194J at 10%, basis PROFESSIONAL, and **3,500.00** proposed -- on the whole 35,000, not the 5,000 over the limit. That bill is 11,800.00 with GST and owes the supplier **8,300.00**. The technical-services supplier's bill of 40,000 proposes **800.00** at 2%, basis TECHNICAL.
+- **Leaves:** three approved bills.
+
+### TC-BUY-047 — Deducted once: money paid ahead of the bill, then the bill
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #10 (PG-5)
+- **Fixture:** `buy-ready`
+- **Also needs:** a supplier of its own as in TC-BUY-043 (194C, a company PAN, nothing else this financial year).
+- **Steps:** as the fixture's **Firm admin**, Buy > Payments → **Record Payment**: that supplier, **Amount** `50000`, Bank, no bill to apply it to; **TDS deducted** `1000`, **TDS section** *194C* → Record payment. Then order **500** of `<SUFFIX>-B` at 100 from the supplier, receive, bill, and open **Approve**. Approve.
+- **Expect:** the advance posts Dr 2100 Trade Payables 50,000.00 / Cr 1010 Bank 49,000.00, Cr 2700 TDS Payable 1,000.00. The bill of 50,000 (59,000.00 with GST) then shows "Nothing is proposed on this bill.", because the tax on this money was deducted when it was paid; it approves with no TDS and owes the full 59,000.00, against which the advance can be set. The **TDS deducted** box on a payment is never filled for you: a hint such as "194C proposes ₹…" shows in it only when the supplier's bills already leave tax due.
+- **Leaves:** an advance, an approved bill.
+
+### TC-BUY-048 — Overriding the proposal, and its limits
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #10 (PG-5)
+- **Fixture:** `po-received`
+- **Also needs:** a supplier of its own as in TC-BUY-043 with three bills of 40,000 before GST ready to approve (for each: order 400 at 100, receive, bill, save).
+- **Steps:** as the fixture's **Firm admin**: (1) on the 194C supplier's draft bill, **Approve** → type `0` in **TDS to deduct** → Approve. (2) On a second such bill type `500` → Approve. (3) On a third type an amount equal to the bill's total. (4) On the fixture's own supplier, who has **no** TDS section, bill the receipt of 6 and **(HTTP)** `POST /api/v1/purchase-invoices/{id}/approve` with body `{"tds_amount": 50}`. Then Settings > Platform > System > Audit Logs.
+- **Expect:** (1) nothing is deducted; the bill owes its full total. (2) 500.00 is deducted in place of the proposal -- which by now is 1,600.00, the first bill's tax with this one's, since nothing was deducted there -- and the bill owes 46,700.00. (3) refused: "TDS deducted must be less than what the bill owes." (4) refused: "TDS on a bill is worked out under 194C or 194J. Set the supplier's TDS section first, or deduct on the payment." -- and for a supplier with no section the Approve dialog shows no TDS lines at all. The audit row `purchase_invoice.approved` of an overridden bill keeps the proposed amount, the amount deducted and that it was overridden.
+- **Leaves:** approved bills.
+
+### TC-BUY-049 — The 194C and 194J settings
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #10 (PG-5)
+- **Fixture:** `buy-ready`
+- **Steps:** as the fixture's **Firm admin**, Settings > Tax > **TDS on purchases (194Q, 194C, 194J)**. Read the 194C and 194J cards beneath the 194Q settings. On 194C change **Threshold per supplier, per year** to `150000` → **Save 194C**; press Save 194C again without changing anything. Type `35` in **Rate %** → Save 194C. Switch **Deduct 194J** off → **Save 194J**, then approve a bill from a 194J supplier past 30,000 in the year. Put everything back.
+- **Expect:** a firm that never saved them reads 194C: threshold per payment 30,000, per year 1,00,000, rate 2, without a PAN 20; 194J: per year 30,000, rate 10, without a PAN 20, and **no** per-payment box. The first save toasts "194C settings saved."; the second says "Nothing has changed." A rate of 35 is refused: "A rate is more than 0 and at most 30 percent." With 194J switched off the bill proposes nothing. Saving needs ACCOUNT_MANAGE; a user without it sees the cards read-only.
+- **Leaves:** the settings as they were.
+
+### TCS charged by a supplier (backlog 86 #9)
+
+### TC-BUY-050 — A rate alone is worked on the bill total, and posts to TCS Receivable
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #9 (PG-6)
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → New for the receipt of 6. Type `0.1` in **TCS charged by supplier %**, leave **TCS amount** blank → save. Read the totals. **Approve**. Open Record Payment for the supplier and the bill's journal.
+- **Expect:** the bill's own total stays **708.00** and its GST 108.00: TCS is outside GST's taxable value and moves no line. The totals show **TCS charged 0.71** (0.1% of 708.00, the bill **with** GST) and **Net payable 708.71**. After approval the supplier is owed **708.71**. Journal: Dr 2300 Goods Received Not Invoiced 600.00, Dr 1320 Input CGST 54.00, Dr 1330 Input SGST 54.00, Dr 1430 TCS Receivable 0.71 / Cr 2100 Trade Payables 708.71.
+- **Leaves:** an approved bill with TCS.
+
+### TC-BUY-051 — A typed TCS amount wins over the rate
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #9 (PG-6)
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, bill the receipt of 6 with **TCS charged by supplier %** `0.1` and **TCS amount** `1.00` → save. Reopen the draft, clear both boxes → save. Type the rate again and leave the amount blank → save.
+- **Expect:** with both typed, TCS is **1.00** and Net payable 709.00: the amount the supplier printed wins over the rate. With both cleared there is no TCS line and Net payable is 708.00. With the rate alone it is 0.71 again.
+- **Leaves:** a draft bill.
+
+### TC-BUY-052 — Paying the bill clears its TCS, and cancelling reverses it
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #9 (PG-6)
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, bill the receipt of 6 with **TCS amount** `1.00`, save, **Approve** with **Paid now** ticked and Amount blank → **Approve and pay**. Then bill the receipt of 4 with TCS amount `1.00`, approve without paying, and **Cancel** that bill.
+- **Expect:** Paid now pays **709.00**, the bill with its TCS, and the bill owes nothing. The cancelled bill's journal is mirrored, so its 1.00 comes back off 1430 TCS Receivable together with the payable.
+- **Leaves:** a paid bill, a cancelled bill.
+
+### TC-BUY-053 — The TCS paid to suppliers report closes each quarter
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #9 (PG-6)
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, bill the receipt of 6 with **TCS charged by supplier %** `0.1`, approve. Reports > Financial → **TCS paid to suppliers**, the period covering today.
+- **Expect:** a row for the bill: the quarter (October 2026 reads **Q3 2026-27**; April to June is Q1), Supplier, PAN, Bill, Supplier bill, Date, **Base 708.00**, **Rate % 0.1**, **TCS 0.71**. Under the quarter's bills a row named **Total Q3 2026-27** sums the base and the TCS. A draft or cancelled bill, and a bill with no TCS, is not listed.
+- **Leaves:** an approved bill with TCS.
+
+### Send the purchase order by WhatsApp (backlog 86 #3)
+
+### TC-BUY-054 — The Send dialog offers WhatsApp, and refuses until the firm is set up
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #3 (PG-7)
+- **Fixture:** `po-approved`
+- **Also needs:** a firm whose messaging has never been switched on (the state a new firm is in).
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Orders → select the approved order → **Send**. Open **Channel**. Choose **WhatsApp** → **Send**. Then Settings > Firm > **Messaging**: switch messaging and the WhatsApp channel on with the firm's account, but name **no** template for *Purchase order sent to the supplier*. Send again.
+- **Expect:** the dialog is titled **Send PO-…**. Channel offers **Email** and **WhatsApp** and **not SMS** (SMS is for the sales invoice alone); **Send to** says "Blank sends to the supplier's own address or WhatsApp number". With messaging off: "Messaging is off for this firm. Switch it on under Settings > Messaging first." With it on and no template named: "Name the WhatsApp template for 'Purchase order sent to the supplier' under Settings > Messaging first; WhatsApp sends only registered templates." Each refusal stays in the dialog.
+- **Leaves:** messaging switched on, if the last step was taken.
+
+### TC-BUY-055 — A purchase order goes to the supplier's mobile and is marked sent
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #3 (PG-7)
+- **Fixture:** `po-approved`
+- **Also needs:** messaging and the WhatsApp channel switched on with the firm's own WhatsApp Business account (`docs/MESSAGING_SETUP_GUIDE.md`), and a registered template named for *Purchase order sent to the supplier*; the supplier `<SUFFIX>-V` with a mobile number; a second supplier with **no** mobile, no phone and no contact number, with an approved order. Mark the case Blocked if the firm has no WhatsApp account.
+- **Steps:** as the fixture's **Firm admin**, select the fixture's approved order → **Send** → **Channel** *WhatsApp*, **Send to** blank → **Send**. Open the order's **History**. Then Send the second supplier's order the same way; then again with a number typed in **Send to**.
+- **Expect:** "Queued to send." The message goes to the supplier's own mobile (else its phone, else its primary contact's number). The order's history gains "Sent to the supplier by whatsapp." WhatsApp carries the registered template only; the order's PDF is not attached, as with the sales invoice. The supplier with no number is refused: "Cannot send: the supplier has no mobile number. Enter a number." With a number typed the message is queued to that number.
+- **Leaves:** queued messages.
+
+### Requests for quotation and quote comparison (backlog 86 #1)
+
+### TC-BUY-056 — An RFQ to two suppliers, their quotes, and the comparison
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #1 (PG-8)
+- **Fixture:** `buy-ready`
+- **Also needs:** a second active supplier.
+- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Documents > **Requests for quotation** → New (**New request for quotation**): **Add a supplier** twice (`<SUFFIX>-V` and the second), **Add line**: `<SUFFIX>-B`, **Quantity** `10` → **Save**. Select it → **Send**. **Enter quotes**: for `<SUFFIX>-V` **Rate** `100`, **Discount %** `5`, **Lead time (days)** `7` → **Save quote**; for the second supplier Rate `96`, Discount % blank, Lead time `3` → Save quote. **Compare**.
+- **Expect:** the RFQ takes a number from its own `RFQ` series and reads **Draft**, then **Sent**. The comparison (**Compare quotes for RFQ-…**) shows both suppliers on the line by rate after discount and **before tax**: `<SUFFIX>-V` **95.00** marked **Lowest**, the second supplier 96.00. Before any quote is entered Compare reads "No supplier has quoted yet. Enter quotes first."
+- **Leaves:** a sent RFQ with two quotes.
+
+### TC-BUY-057 — Choosing a quote that is not the lowest needs a reason; orders are raised per supplier
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #1 (PG-8)
+- **Fixture:** `buy-ready`
+- **Also needs:** a sent RFQ with two quotes as TC-BUY-056 leaves it (build it first if running this case alone).
+- **Steps:** as the fixture's **Firm admin**, select the RFQ → **Compare**. Choose the second supplier's quote (96.00). In the dialog **Not the lowest rate** type a reason → **Choose it**. **Save selections**. **Raise orders** → in **Raise purchase orders** confirm. **Open purchase orders**. Reopen the RFQ and try **Enter quotes**.
+- **Expect:** the dialog says one purchase order is raised to each supplier chosen. One **draft** purchase order is raised to the second supplier for 10 of `<SUFFIX>-B` at **96.00**, with the RFQ's number as its reference. The RFQ reads **Closed**. A closed RFQ takes no more quotes: "A closed RFQ takes no quotations; quotes are entered while it is sent." **(HTTP)** choosing the dearer quote with no reason is refused: "Line 1: say why … is chosen over the lowest quote."
+- **Leaves:** a closed RFQ, a draft purchase order.
+
+### TC-BUY-058 — An RFQ from an approved requisition; send and cancel refusals
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #1 (PG-8)
+- **Fixture:** `buy-ready`
+- **Also needs:** an **approved** purchase requisition with one line naming `<SUFFIX>-V` (Buy > All Buy screens > Documents > Requisitions → New, Submit, Approve), and a second requisition still in draft.
+- **Steps:** as the fixture's **Firm admin**, on the approved requisition press **Create RFQ**. Press it again. Look for it on the draft requisition. In Requests for quotation → New with a line but **no** supplier → Save → **Send**. Select a draft RFQ → **Cancel** → leave the reason empty, then give one.
+- **Expect:** the first press starts a **draft** RFQ with the requisition's lines and, as suppliers, those its lines name plus each product's preferred supplier. The second is refused: "RFQ … was already started from requisition …." Create RFQ cannot be pressed on a draft requisition (the server says "An RFQ is started only from an approved requisition."). Sending with no supplier: "Invite at least one supplier before sending." Cancelling needs a reason (the dialog **Cancel RFQ-…** says "The reason stays on the request."); afterwards the RFQ reads **Cancelled**. When orders are raised from an RFQ that came from a requisition, the requisition becomes ORDERED.
+- **Leaves:** a draft RFQ, a cancelled RFQ.
+
+### TC-BUY-059 — Who may raise orders from an RFQ
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #1 (PG-8)
+- **Fixture:** `buy-ready`
+- **Also needs:** a user hired with the *Read Only* job template and one hired with *Purchasing*; a sent RFQ with a quote chosen.
+- **Steps:** as the **Read Only** user open Buy > All Buy screens > Documents > Requests for quotation. As the **Purchasing** user open the RFQ and **Raise orders**. As a user hired with *Warehouse* look for the screen.
+- **Expect:** Read Only (RFQ_VIEW) sees the list and the comparison but none of New, Send, Enter quotes, Save selections or Raise orders. Purchasing (RFQ_MANAGE and PURCHASE_CREATE) raises the orders. The Warehouse job holds neither RFQ code and is not offered the screen.
+- **Leaves:** a closed RFQ, draft orders.
+
+### Rate contracts and blanket orders (backlog 86 #2)
+
+### TC-BUY-060 — A rate contract prices the order line
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #2 (PG-9)
+- **Fixture:** `buy-ready`
+- **Also needs:** the product `<SUFFIX>-B` not already on an active rate contract with `<SUFFIX>-V` (close or cancel one left by an earlier run).
+- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Documents > **Rate contracts** → New (**New rate contract**): **Supplier** `<SUFFIX>-V`, **Valid from** today, **Valid to** a month on, **Add line**: `<SUFFIX>-B`, **Rate** `90`, **Quantity** `20` → Save. Select it → **Approve**. Buy > Purchase Orders → New for `<SUFFIX>-V`: add `<SUFFIX>-B`, quantity `15`, the price **left blank** → Save. Then a second order line with the price typed `95`.
+- **Expect:** the contract takes a number from its own `RC` series, reads **Draft**, then **Active**. The order line is priced **90.00** and carries a mark whose tooltip reads "Rate contract: this rate comes from a supplier contract."; the contract's rate ranks above the supplier's price list and catalogue, and above the product's purchase price of 100. A price typed on the line (95) is kept as typed. Approving a contract needs PURCHASE_APPROVE: a *Purchasing* user can type one but cannot approve it.
+- **Leaves:** an active contract, a draft order.
+
+### TC-BUY-061 — Drawn and remaining are derived; over-drawing warns and never refuses
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #2 (PG-9)
+- **Fixture:** `buy-ready`
+- **Also needs:** an active rate contract for `<SUFFIX>-B` with `<SUFFIX>-V` at 90 for **20** units, as TC-BUY-060 builds, with nothing drawn yet.
+- **Steps:** as the fixture's **Firm admin**, raise an order for **15** at the contract rate → Submit → Approve. Open the contract and its **Releases**. Raise a second order for **10**; read the banner on the draft; Submit → Approve. Open the contract again. **Cancel** the first order and open the contract once more.
+- **Expect:** after the first approval the contract line shows drawn **15**, remaining **5**; Releases (**Releases against RC-…**) lists the order line as "PO-… · line 1" with "15 @ 90". A draft order does not count as drawn. The second order shows a banner on the draft and after approval: "Over rate contract: RC-… …: 25 drawn of 20 contracted." -- and it still approves. The contract then reads drawn 25, remaining **0** (never below zero). Cancelling the first order gives its 15 back: drawn 10, remaining 10, with nothing to reverse.
+- **Leaves:** a contract, one approved and one cancelled order.
+
+### TC-BUY-062 — Overlap, expiry, closing and cancelling a contract
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #2 (PG-9)
+- **Fixture:** `buy-ready`
+- **Also needs:** an active rate contract for `<SUFFIX>-B` with `<SUFFIX>-V` covering today.
+- **Steps:** as the fixture's **Firm admin**: (1) type a second contract for the same supplier and product over overlapping dates → Save → **Approve**. (2) Type a contract whose **Valid to** was yesterday → Save → Approve. (3) Try to edit the active contract. (4) **Close** the active contract, then raise an order line with a blank price. (5) On a draft contract press **Delete**; on another press **Cancel** with an empty reason, then with one.
+- **Expect:** (1) refused, naming the other contract: "Another active rate contract with this supplier covers the same product for an overlapping period: …". (2) refused: "RC-… ended on …; change its period before approving it." An active contract whose last day has passed reads **Expired** in the list and prices nothing. (3) refused: "Only a draft rate contract can be changed." (4) the contract reads **Closed** and the new line takes the next price in line (the supplier's price list or catalogue, else the product's 100). (5) a draft is removed outright ("A draft contract is removed outright."); Cancel needs a reason ("The reason stays on the contract."), after which the contract reads **Cancelled** and shows "Cancelled: …".
+- **Leaves:** a closed contract, a cancelled contract.
+
+### Serial numbers at receipt (backlog 86 #11)
+
+### TC-BUY-063 — Serials typed, pasted or filled from a range on the receipt line
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #11 (PG-10)
+- **Fixture:** `electronics-firm`
+- **Also needs:** a supplier, and an **approved** purchase order for **3** of the serial-tracked product.
+- **Steps:** as the firm's administrator, Buy > Goods Receipts → New against the order, Accepted `3`. Click the line's **Serials** cell. In **Serial numbers · …** open **Fill a range**: **Prefix** `QA-SN`, **Start** `1`, **Count** `2`, **Width** `4` → **Add range** → OK. Save the receipt → **Complete**. Reopen the Serials cell, type a third number on a line of its own → OK → save → **Complete**. Open the completed receipt, click "3 serial numbers" on the line, and click one unit. Stock > All Stock screens > Tracking > **Serial Numbers**.
+- **Expect:** the cell reads **2 of 3**, and the dialog "2 of 3 entered". The range fills `QA-SN0001` and `QA-SN0002`. A draft may be short, but completing it is refused: "Line 1 (…) receives 3 serial-tracked units but 2 are entered: enter 1 more on the goods receipt." With three it completes; three units exist, available, in the receipt's warehouse. The completed receipt shows each unit's trail (**Trail of …**) with this goods receipt first. Units are counted against accepted **plus free** goods.
+- **Leaves:** three serial numbers in stock.
+
+### TC-BUY-064 — A serial is one unit in the whole firm
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #11 (PG-10)
+- **Fixture:** `electronics-firm`
+- **Also needs:** a supplier; one completed receipt that brought in serial `QA-SN0001` (TC-BUY-063, or receive one unit first); two more approved orders for the serial-tracked product, one of 1 and one with **two lines** of 1 each; an approved order for a product that is **not** serial-tracked.
+- **Steps:** as the firm's administrator: (1) receive the order of 1 with serial `qa-sn0001` (lower case) → save. (2) On the two-line order type the same new serial on both lines → save. (3) In the Serials dialog type one number twice. (4) **(HTTP)** send `serial_numbers` on a receipt line of the product that is not serial-tracked.
+- **Expect:** (1) refused, case ignored: "Line 1 (…): serial qa-sn0001 already belongs to a unit in this firm (AVAILABLE)." (2) refused: "Serial … is entered on line 1 and on line 2 of GRN-…." (3) the dialog flags it: "Entered twice: …". (4) refused: "…: this product is not serial-tracked, so its lines take no serial numbers." -- and on the screen such a line has no Serials cell to click.
+- **Leaves:** draft receipts.
+
+### TC-BUY-065 — Cancelling the receipt, and returning named units to the supplier
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #11 (PG-10)
+- **Fixture:** `electronics-firm`
+- **Also needs:** a supplier and two completed receipts of the serial-tracked product from it, of 2 units each, with their serials entered; a customer.
+- **Steps:** as the firm's administrator: (1) **Cancel** the first receipt. Look for its serials under Serial Numbers and receive them again on a new receipt. (2) From the second receipt sell and dispatch **one** unit to the customer, then try to **Cancel** that receipt. (3) Buy > Returns & notes > Purchase Returns → New off the second receipt: Returning `1`, click the line's **Serials** cell and name the unit still in stock → Save → Approve → Complete. (4) Cancel the completed return.
+- **Expect:** (1) the cancelled receipt's units are removed and their numbers are free to be received again. (2) refused: "GRN-… cannot be cancelled: serial … has left stock since it was received (…)." (3) the return must name one unit per unit going back, each in stock and received from this supplier; after Complete the unit reads **Returned**. A serial of another product is refused: "…: serial … is not a unit of this product in this firm." (4) cancelling the completed return puts the unit back **Available**.
+- **Leaves:** serial units, a cancelled return.
+
+### Supplier free schemes on the item (backlog 86 #25, #27)
+
+### TC-BUY-066 — A 10+2 scheme fills the free quantity on the order
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #25 (PG-11)
+- **Fixture:** `buy-ready`
+- **Also needs:** no other active scheme on `<SUFFIX>-B` for `<SUFFIX>-V` (switch off one left by an earlier run).
+- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Documents > **Supplier schemes** → New (**New supplier scheme**): **Supplier** `<SUFFIX>-V`, product `<SUFFIX>-B`, **Buy quantity** `10`, **Free quantity** `2`, **Free product** blank ("Blank: the same product is given free."), Valid from today → Save. Buy > Purchase Orders → New for `<SUFFIX>-V`: `<SUFFIX>-B`, quantity `25`, price `100`, the **Free** box left blank → Save. Submit, Approve, receive in full and Complete. Stock > All Stock screens > Stock > Inventory.
+- **Expect:** the scheme lists as **10+2**, *In force*. The order line's Free reads **4** (two free for each full ten: 25 buys two tens) and the side panel says "Line 1: Scheme 10+2 applied" under **Supplier schemes**. The line is still charged 25 x 100 = 2,500.00 before tax. The receipt offers 25 accepted and 4 free; after Complete **29** are on hand. The receipt's journal is Dr 1200 Inventory 2,500.00 / Cr 2300 Goods Received Not Invoiced 2,500.00: free goods add units, not value, so each of the 29 costs 86.21.
+- **Leaves:** a scheme, 29 on hand.
+
+### TC-BUY-067 — A typed free quantity is kept, and 0 refuses the scheme
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #25 (PG-11)
+- **Fixture:** `buy-ready`
+- **Also needs:** an active 10+2 scheme on `<SUFFIX>-B` for `<SUFFIX>-V`, as TC-BUY-066 builds.
+- **Steps:** as the fixture's **Firm admin**, raise three draft orders for `<SUFFIX>-B` from `<SUFFIX>-V`: quantity `25` with Free typed `0`; quantity `25` with Free typed `1`; quantity `9` with Free blank. Then an order dated before the scheme's **Valid from**, quantity `25`, Free blank.
+- **Expect:** a typed **0** stays 0 and no "Scheme … applied" note shows: zero refuses the scheme, blank takes it. A typed 1 stays 1. Nine units earn nothing (fewer than one full ten). The order dated before the scheme started takes no free goods: a scheme applies only inside its dates.
+- **Leaves:** draft orders.
+
+### TC-BUY-068 — A scheme that gives another product adds a gift line
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #25, #27 (PG-11)
+- **Fixture:** `buy-ready`
+- **Also needs:** a second product to be given free; no other active scheme on `<SUFFIX>-B` for `<SUFFIX>-V`.
+- **Steps:** as the fixture's **Firm admin**, Supplier schemes → New: `<SUFFIX>-V`, product `<SUFFIX>-B`, Buy quantity `10`, Free quantity `1`, **Free product** the second product → Save. Purchase Orders → New for `<SUFFIX>-V`: `<SUFFIX>-B`, quantity `25`, price `100`. Wait for the editor to price the order. Save.
+- **Expect:** the scheme lists as "10 + 1" followed by the free product's name. The editor adds **one** line for the second product with nothing ordered and **Free 2**, at no charge, and does not add it a second time when the order is priced again. That free-only line is priced live (its amount is 0) and is kept on save. The order total is the 25 x 100 and its tax alone.
+- **Leaves:** a scheme, a draft order.
+
+### TC-BUY-069 — Two schemes on one product cannot overlap; who may set them
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #25 (PG-11)
+- **Fixture:** `buy-ready`
+- **Also needs:** an active scheme on `<SUFFIX>-B` for `<SUFFIX>-V` running from today with no end date; a user hired with the *Read Only* job template.
+- **Steps:** as the fixture's **Firm admin**: New scheme for the same supplier and product from next week → Save. New scheme with **Valid to** before **Valid from** → Save. New scheme for the same product with the supplier left as **All suppliers** → Save; raise an order from `<SUFFIX>-V`. Switch the supplier's own scheme off (**Active**) and raise another. As the **Read Only** user open Supplier schemes.
+- **Expect:** the overlapping scheme is refused: "An active scheme for … on this product already runs … to …. End or switch it off first." Dates back to front: "A scheme cannot end before it starts." A scheme for all suppliers may stand beside a supplier's own, and the supplier's own wins on that supplier's orders; with it switched off (*Switched off*) the all-suppliers scheme applies. Read Only (SUPPLIER_SCHEME_VIEW) sees the list and no New, Save or Delete.
+- **Leaves:** schemes.
+
+### Imports: foreign currency, Bill of Entry, exchange difference (backlog 86 #4, #5)
+
+### TC-BUY-070 — A bill in the supplier's currency posts rupees at its rate
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #4, #5 (PG-12 part A)
+- **Fixture:** `buy-ready`
+- **Also needs:** **Buying stages** with **Purchase order** off (see the note at the head of these cases); a supplier abroad with **Currency** `USD` on its form; a product on the **GST 0%** tax profile with nothing on hand.
+- **Steps:** as the fixture's **Firm admin**, Masters > Vendors → the supplier: confirm **Currency** reads USD (try `US` → Save first). Buy > Purchase Invoices → New: that supplier; add the product, quantity `10`, rate `100`. Read **Currency** and the note beside it. Save with **Exchange rate (₹ per USD)** blank; then type `83` → **Save & approve**. Open the bill, Stock > All Stock screens > Stock > Inventory, and Accounts > Journal Entries.
+- **Expect:** a two-letter currency is refused on the supplier: "The currency is a three-letter code, such as USD." The bill starts in **USD** and shows "TCS, TDS and Paid now are rupee matters; pay this bill from Payments in USD." in place of the TCS boxes. With no rate: "A bill in USD needs its exchange rate: the rupees one USD was worth on the bill's date." At 83 the bill reads **1,000.00 USD** with its rupee equivalent **83,000.00**. The Approve dialog says "This bill is in USD, so TDS and Paid now are not offered. Pay it from Payments, in that currency, at the rate of the day." Ten units arrive valued 83,000.00 (8,300 each). Journals: Dr 1200 Inventory 83,000.00 / Cr 2300 Goods Received Not Invoiced 83,000.00, then Dr 2300 83,000.00 / Cr 2100 Trade Payables 83,000.00 -- no price variance.
+- **Leaves:** an approved USD bill owing 1,000.00 USD; buying stages off until switched back.
+
+### TC-BUY-071 — Paying in the currency at another rate posts an exchange loss or gain
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #4, #5 (PG-12 part A)
+- **Fixture:** `buy-ready`
+- **Also needs:** two approved bills of **1,000.00 USD at 83** from a USD supplier, unpaid, each built as in TC-BUY-070.
+- **Steps:** as the fixture's **Firm admin**, Buy > Payments → **Record Payment**: the supplier. Read the note under the supplier. Set **Pay in** to *USD*, **Exchange rate (₹ per USD)** `84`, **Amount (USD)** `1000`, apply `1000` to the first bill → Record payment. Then pay the second bill the same way at `82`. Open both payments' journals.
+- **Expect:** before a currency is chosen the note lists the bills open in another currency ("Open in another currency: …") and says to choose the currency to pay them. In USD: "The amount and each applied figure are in USD, and the payment is applied in full to the USD bills. No TDS, deductions or advance on these." At 84 the toast adds "Exchange loss ₹1000.00." and the journal is Dr 2100 Trade Payables 83,000.00, Dr 4950 Exchange Gain/Loss 1,000.00 / Cr 1010 Bank 84,000.00. At 82 it adds "Exchange gain ₹1000.00.": Dr 2100 83,000.00 / Cr 1010 Bank 82,000.00, Cr 4950 Exchange Gain/Loss 1,000.00. Both bills owe nothing in either currency.
+- **Leaves:** two paid bills.
+
+### TC-BUY-072 — A part payment settles in proportion; reversing brings it all back
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #4, #5 (PG-12 part A)
+- **Fixture:** `buy-ready`
+- **Also needs:** one approved bill of **1,000.00 USD at 83**, unpaid, as in TC-BUY-070.
+- **Steps:** as the fixture's **Firm admin**, Record Payment in USD at `84`: Amount `400`, applied to the bill. Open Record Payment again and read what the bill owes. Buy > Payments → **Reverse** the payment with a reason. Read the bill again.
+- **Expect:** 400 USD at 84 costs 33,600.00 and clears 33,200.00 of the bill (400 x 83): Dr 2100 Trade Payables 33,200.00, Dr 4950 Exchange Gain/Loss 400.00 / Cr 1010 Bank 33,600.00. The bill then owes **600.00 USD** and **49,800.00** rupees, both shown. Reversing mirrors all three legs, and the bill owes 1,000.00 USD and 83,000.00 again.
+- **Leaves:** an unpaid USD bill, a reversed payment.
+
+### TC-BUY-073 — Rupees, TDS and an advance are refused against a foreign bill
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #4, #5 (PG-12 part A)
+- **Fixture:** `buy-ready`
+- **Also needs:** one approved bill of 1,000.00 USD at 83, unpaid.
+- **Steps:** as the fixture's **Firm admin**: (1) Record Payment with **Pay in** left *Rupees* and look for the USD bill among the bills to apply to. (2) In USD at 84, Amount `1200`, applying 1,000 to the bill. (3) In USD with the rate blank. (4) **(HTTP)** `POST /api/v1/payments` in rupees with an allocation to the USD bill; and a USD payment with `tds_amount` 10. (5) **(HTTP)** save a USD bill with `tcs_amount` 5.
+- **Expect:** (1) in rupees the USD bill is not offered: rupees pay the rupee bills. (2) refused before sending: "A payment in USD is applied in full to the supplier's USD bills: … of the … is applied." -- an advance in another currency is not carried. (3) the dialog asks for the exchange rate. (4) "Bill … is in USD. Pay it with a payment in USD at the day's rate."; and "A payment in USD takes no TDS, rounding, bank charges or discount; record it for the amount that was sent." (5) "TCS under 206C(1H) is charged by a seller in India; a bill in another currency carries none."
+- **Leaves:** nothing new.
+
+### TC-BUY-074 — A Bill of Entry lands customs duty on the stock and claims the IGST
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #4 (PG-12 part B)
+- **Fixture:** `buy-ready`
+- **Also needs:** one approved bill of 10 at 100 USD at 83 from a USD supplier, as in TC-BUY-070, with all ten units still on hand (83,000.00, 8,300 each).
+- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Documents > **Bills of entry** → New (**New Bill of Entry**): **Bill of Entry number** `1234567`, the BoE date today, **Port code** `INMAA1`, **Supplier** the USD supplier; tick the bill under **Supplier bills the goods came on**; **Add item**: the product, **Quantity** `10`, **Assessable value** `85000`, **BCD %** `10`, **SWS %** blank, **IGST %** `18`, every amount box blank → **Save**. Read the worked figures. Select it → **Post**. Stock > All Stock screens > Stock > Inventory; Journal Entries; Accounts > All Accounts screens > Tax filing > GST Returns → GSTR-3B for the month.
+- **Expect:** the draft works out **BCD 8,500.00**, **SWS 850.00** (10% of the BCD when no rate is typed), IGST base 94,350.00 and **IGST 16,983.00**. After Post the document reads **Posted** and shows Customs duty 9,350.00, IGST 16,983.00, **To stock 9,350.00**, To COGS 0.00, To expense 0.00. The ten units are now worth 92,350.00: the average rises from 8,300.00 to **9,235.00**. Journal: Dr 1200 Inventory 9,350.00, Dr 1310 Input IGST 16,983.00 / Cr 2800 Customs Duty Payable 26,333.00. GSTR-3B shows 16,983.00 under 4(A)(1) *Import of goods*. Customs duty has no credit; only the IGST does.
+- **Leaves:** a posted Bill of Entry; stock revalued.
+
+### TC-BUY-075 — Typed amounts, goods already sold, cancelling and the duplicate number
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #4 (PG-12 part B)
+- **Fixture:** `buy-ready`
+- **Also needs:** a posted Bill of Entry as TC-BUY-074 leaves it; a second approved USD bill of 10 units of a **different** product, of which **4 have been sold and dispatched**; a user hired with the *Purchasing* job template.
+- **Steps:** as the fixture's **Firm admin**: (1) New Bill of Entry for the second bill: Assessable value `85000`, BCD % `10`, **BCD amount** typed `9000`, IGST % `18` → Save → Post. (2) **Cancel** the Bill of Entry of TC-BUY-074 with a reason; read the stock and GSTR-3B. (3) New Bill of Entry with the same number, port and date as an existing one → Save. (4) A Bill of Entry with no item → Post. (5) As the **Purchasing** user type a draft and look for Post.
+- **Expect:** (1) the typed 9,000.00 wins over 10%; SWS is 900.00 and the duty 9,900.00. Six of the ten units are on hand, so **To stock** is 5,940.00 and **To COGS** 3,960.00: duty on goods already sold goes to cost of goods sold. (2) the dialog (**Cancel Bill of Entry …**) says the journal is reversed and the duty comes off the stock; afterwards it reads **Cancelled**, the average is 8,300.00 again and 4(A)(1) no longer carries its IGST. (3) refused: "Bill of Entry … at … on … is already …." (4) refused: "Add at least one line before posting." (5) Purchasing (BILL_OF_ENTRY_MANAGE) saves the draft but is not offered **Post** or Cancel, which need PURCHASE_APPROVE. Customs itself is paid by a journal: Dr 2800 Customs Duty Payable / Cr 1010 Bank.
+- **Leaves:** a posted and a cancelled Bill of Entry.
+
+### TC-BUY-076 — Revaluing what is still owed in another currency at a period end
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #5 (PG-12 part A)
+- **Fixture:** `buy-ready`
+- **Also needs:** exactly one unpaid bill in USD in the firm, of 1,000.00 USD at 83; no revaluation yet posted for the date used.
+- **Steps:** as the fixture's **Firm admin**, Accounts > Journal Entries → **Revalue foreign payables**. **As of** the last day of last month (the bill must be dated on or before it; use today if it is not), `USD: rupees per unit` `85` → **Post revaluation**. Read the result and the journal list. Post the same date again. Then pay the bill in USD at 84.
+- **Expect:** the dialog says it restates what is still owed in each currency. The result reads a net exchange **loss of 2,000.00** (1,000 USD x (85 - 83)). One entry `FXREV-<date>` dated the as-of date: Dr 4950 Exchange Gain/Loss 2,000.00 / Cr 2100 Trade Payables 2,000.00; and its mirror `FXREV-<date>-REV` dated the next day. A second run for the same date is refused: "Payables in other currencies were already revalued on … (FXREV-…)." The revaluation is unrealised: the bill still reads 83,000.00, and paying it at 84 posts the whole 1,000.00 loss against its own rate. Pressing Post with no rate typed: "Type the rate of at least one currency."
+- **Leaves:** a revaluation and its reversal; a paid bill.
+
+### Fixed assets (backlog 86 #7)
+
+### TC-BUY-077 — A capital-goods bill line becomes a fixed asset, not stock
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #7 (PG-13)
+- **Fixture:** `buy-ready`
+- **Also needs:** **Buying stages** with **Purchase order** off (see the note at the head of these cases); a product for the asset (a desk) on GST 18% with nothing on hand.
+- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Fixed assets > **Asset classes**: confirm the five a firm starts with. Buy > Purchase Invoices → New for `<SUFFIX>-V`, **Entered on** `2026-10-01`: the desk, quantity `1`, rate `36500`. On the line tick **Capital goods (raises a fixed asset when approved)**; save without choosing a class; then **Asset class (required)** *FURNITURE · Furniture and Fittings* → **Save & approve**. Accounts > All Accounts screens > Fixed assets > **Asset register**; Stock > All Stock screens > Stock > Inventory; Journal Entries; Reports > Financial → GST purchase register.
+- **Expect:** the classes are PLANT, FURNITURE, COMPUTERS, VEHICLES and OFFICE_EQUIPMENT, all *Straight line* with Residual % 5. Without a class: "Line 1 is capital goods: choose its asset class." After approval the register has one asset `FA-…`, class FURNITURE, Cost **36,500.00**, Net book value 36,500.00, *In use*, "Raised by bill PI-…". **Nothing** is added to stock. One journal: Dr 1500 Fixed Assets 36,500.00, Dr 1320 Input CGST 3,285.00, Dr 1330 Input SGST 3,285.00 / Cr 2100 Trade Payables 43,070.00 -- no Inventory and no Goods Received Not Invoiced. The GST is claimed in full; the register row shows it again under **Capital goods tax 6,570.00**.
+- **Leaves:** a fixed asset, an approved bill.
+
+### TC-BUY-078 — Capital goods already received into stock are refused; cancelling the bill takes the asset off
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #7 (PG-13)
+- **Fixture:** `po-received`
+- **Also needs:** for the second part, a capital-goods bill approved as in TC-BUY-077 whose asset has **not** been depreciated.
+- **Steps:** as the fixture's **Firm admin**: (1) with the full chain on, Buy > Purchase Invoices → New for the completed receipt of 6; tick **Capital goods** on its line, choose a class → save → **Approve**. (2) **Cancel** the approved capital-goods bill of the second part and open the Asset register. (3) On an asset raised by a bill press **Delete**, and try to change its Cost.
+- **Expect:** (1) refused: "Line 1 is capital goods, but GRN-… already took it into stock. Capital goods are received on the bill itself: untick capital goods, or bill it without a completed receipt." (2) the bill is cancelled, its journal mirrored and its asset gone from the register. (3) "Asset FA-… was raised by a bill; cancelling the bill takes it off the register." and "Asset FA-… costs what its bill charged; change the bill, not the asset."
+- **Leaves:** a draft bill, a cancelled bill.
+
+### TC-BUY-079 — A depreciation run: straight line and written down value, by days
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #7 (PG-13)
+- **Fixture:** `buy-ready`
+- **Also needs:** no depreciation run covering October 2026 or later (cancel the latest first if one does); an asset class of its own typed under **Asset classes** → New (**New asset class**): Code `QA-WDV`, **Method** *Written down value*, **Rate %** `40`, **Residual %** `5`; two assets typed under **Asset register** → New (**New fixed asset**), both acquired and put to use on **2026-10-01** at **Cost** `36500`: one in class FURNITURE (straight line, life 10 years, residual 5%), one in `QA-WDV`.
+- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Fixed assets > **Depreciation runs** → **Run depreciation**: **From** `2026-10-01`, **To** `2026-10-31` → Run depreciation. Open the run and find the two assets. Open each asset's **Schedule**. Journal Entries. Then run the same period again, and a period ending before `2026-10-31`.
+- **Expect:** typing an asset by hand posts nothing. The run lists each asset charged with its days: both **31**. The furniture asset: (36,500 - 1,825) / 10 years = 3,467.50 a year, x 31/365 = **294.50**. The written-down asset: 40% of 36,500 = 14,600.00 a year, x 31/365 = **1,240.00**. One journal for the whole run, reference `DEP-…`, dated 2026-10-31: Dr 6950 Depreciation / Cr 1590 Accumulated Depreciation, 1,534.50 for these two (more where other assets were due). Each asset's Net book value falls by its charge and its schedule shows the charge, then the years projected. The same period again: "Depreciation run … already charged 2026-10-01 to 2026-10-31. Cancel it, or run a period after it." An earlier period: "Runs go forward: … charged up to 2026-10-31. Cancel it to run an earlier period."
+- **Leaves:** a posted run, two assets.
+
+### TC-BUY-080 — Disposing of an asset books a loss or a gain
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #7 (PG-13)
+- **Fixture:** `buy-ready`
+- **Also needs:** the two assets and the October 2026 run of TC-BUY-079 (book values 36,205.50 and 35,260.00).
+- **Steps:** as the fixture's **Firm admin**, Asset register → select the furniture asset → **Dispose** (**Dispose of FA-…**): **Disposed on** `2026-10-31`, **Sale amount** `35000`, **Money came by** *Bank*, a **Reason** → Dispose. Then the written-down asset: Disposed on `2026-10-31`, Sale amount `36000`, *Cash*. Journal Entries. Then try to dispose of another depreciated asset on `2026-10-15`, and to cancel the October run.
+- **Expect:** the dialog states the net book value the asset stands at. The furniture asset: Dr 1590 Accumulated Depreciation 294.50, Dr 1010 Bank 35,000.00, Dr 4960 (loss on disposal) 1,205.50 / Cr 1500 Fixed Assets 36,500.00; the register shows it **Disposed**, with **Gain / loss -1,205.50**. The written-down asset: Dr 1590 1,240.00, Dr 1000 Cash 36,000.00 / Cr 1500 36,500.00, Cr 4960 (gain) 740.00. Disposing on the last day already charged adds no further depreciation; on a later day the days since are charged first, in a run of type *Disposal*. A day before the last charge is refused: "Depreciation on FA-… is charged to 2026-10-31. Dispose of it on or after that day, or cancel the runs that charged past it." Cancelling the October run is now refused, because assets it charged have since been disposed at the book value it left.
+- **Leaves:** two disposed assets.
+
+### TC-BUY-081 — Cancelling a run, the Income-tax block schedule, and who may post
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #7 (PG-13)
+- **Fixture:** `buy-ready`
+- **Also needs:** a financial year April 2026 to March 2027; an asset class of its own, Code `QA-IT`, straight line, with **Income-tax rate %** `25` (a rate no other class uses); two assets typed by hand in it at Cost `40000` each, one acquired and put to use `2026-06-01`, one `2026-12-01`; a latest depreciation run that charged them and no disposal since; a user hired with the *Read Only* job template.
+- **Steps:** as the fixture's **Firm admin**, Depreciation runs → select the latest run → **Cancel** with a reason (**Cancel run …**). Accounts > All Accounts screens > Fixed assets > **Income-tax block schedule**, **Financial year** 2026-27; find the 25% block. Try to **Delete** the class `QA-IT`. As the **Read Only** user open the Asset register and look for New, Dispose and Run depreciation. **(HTTP)** as a user holding FIXED_ASSET_MANAGE but not JOURNAL_POST: `POST /api/v1/fixed-assets/depreciation-runs`.
+- **Expect:** the cancelled run reads **Cancelled** with its reason, its journal is reversed (`DEP-…-REV`) and the period can be run again. The 25% block for 2026-27 shows Opening WDV 0.00, **Additions (full) 40,000.00** (used 180 days or more in the year), **Additions (half) 40,000.00** (used less than 180 days), Depreciation **15,000.00** (10,000.00 at 25% plus 5,000.00 at half the rate) and Closing WDV **65,000.00**. The schedule posts nothing. Deleting the class is refused: "Asset class QA-IT has assets on the register. Move them to another class, or mark this one inactive." Read Only (FIXED_ASSET_VIEW) reads the four screens and is offered nothing that changes them. The HTTP call is refused with 403: "This posts a journal, which needs JOURNAL_POST as well."
+- **Leaves:** a cancelled run, two assets.
+
+### Batch-wise PTR and PTS (backlog 86 #22)
+
+### TC-BUY-082 — PTR and PTS captured on the receipt line reach the batch
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #22 (PG-14)
+- **Fixture:** `pharma-firm`
+- **Also needs:** a supplier, and an approved purchase order for **20** of the batch-tracked product at 60.
+- **Steps:** as the firm's administrator, Buy > Goods Receipts → New against the order, Accepted `20`. On the line type a new batch number `QA-PTR-1`, its expiry, **MRP** `120`, **PTR per unit (retailer)** `90`, **PTS per unit (stockist)** `80` → save → **Complete**. Stock > Batches: read the batch's row and open it. Then receive a second order into the **same** batch with PTR `92` and PTS blank → Complete. Settings > Platform > System > Audit Logs.
+- **Expect:** the batch list shows columns **PTR** and **PTS**; the new batch reads MRP 120, PTR **90**, PTS **80**. After the second receipt PTR reads **92** and PTS is still 80: a rate the receipt states replaces the batch's, a blank never clears it. The change is audited as `batch.rates_updated` with the old pair.
+- **Leaves:** a batch with trade rates.
+
+### TC-BUY-083 — A trade rate needs a batch and may not exceed the MRP
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #22 (PG-14)
+- **Fixture:** `pharma-firm`
+- **Also needs:** a supplier and an approved purchase order for the batch-tracked product.
+- **Steps:** as the firm's administrator, on a new goods receipt line type MRP `100` and PTR `120` → save. Correct PTR to `90`. **(HTTP)** send a receipt line with `ptr` 90 and no `batch_number`. Stock > Batches → edit a batch: type PTS above its MRP → Save.
+- **Expect:** the screen refuses a rate above the MRP before sending; the server's own words are "PTR 120.00 cannot exceed the MRP 100.00." The line without a batch: "Line 1: PTR and PTS are kept on the batch, so the line needs a batch number." The batch editor's PTR ("Price to retailer, per stock unit.") and PTS ("Price to stockist, per stock unit.") are held to the same cap.
+- **Leaves:** a draft receipt.
+
+### TC-BUY-084 — A retailer is charged PTR and a stockist PTS from the batch
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #22 (PG-14)
+- **Fixture:** `pharma-firm`
+- **Also needs:** a batch in stock with MRP 120, PTR 90 and PTS 80, as TC-BUY-082 builds, of a product whose selling price is **100** and which is on no price list; four customers, their **Trade class** set to *Retailer*, *Stockist*, *Other* and *Not set*.
+- **Steps:** as the firm's administrator, Masters > Customers → open one and read **Trade class** ("Picks PTR or PTS when a sales price is left blank"). Sell > Sales Orders → New for the retailer: add the product, choose the batch under **Batch** on the line, leave the price blank → save. The same for the stockist, the *Other* customer and the *Not set* customer. Then for the retailer again with the price typed `95`, and once more with no batch chosen.
+- **Expect:** Retailer: **90.00**. Stockist: **80.00**. Other and Not set: **100.00**, the product's own price. A typed 95 stays 95. With no batch chosen the retailer is charged 100.00: the rates live on the batch. An agreed price list for the customer would rank above the batch's rate, and the batch's rate above the customer's price level. The price box is never prefilled on screen; the rate appears when the order is priced. On a delivery note the batch picker shows "PTR 90.00" and "PTS 80.00" beside the MRP.
+- **Leaves:** draft sales orders.
+
+### TC-BUY-085 — A firm without the feature is shown none of it
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #22 (PG-14)
+- **Fixture:** `electronics-firm`
+- **Also needs:** a supplier and an approved purchase order.
+- **Steps:** as the firm's administrator, open a new goods receipt line, Stock > Batches, and a customer's form. **(HTTP)** send a goods receipt line with `ptr` 90 in this firm.
+- **Expect:** the Electronics profile does not carry *batch-wise PTR / PTS* (Pharmacy, Food and Wholesale do), so the receipt line has no PTR or PTS box, the batch list no PTR or PTS column and the customer form no **Trade class**. The HTTP write is refused by the feature gate and nothing else about the receipt is affected: a line that sends neither field saves as before.
+- **Leaves:** nothing.
+
 
 ## Stock
 

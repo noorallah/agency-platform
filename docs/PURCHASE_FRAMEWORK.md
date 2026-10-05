@@ -559,9 +559,17 @@ comes from its own series (`RFQ`, document framework).
 - **Permissions.** `RFQ_VIEW` and `RFQ_MANAGE`, in the purchase group, so the
   purchase executive, the purchase manager and the firm administrator hold
   both.
+- **On the desktop** (PR #1128). Buy > All Buy screens > Documents >
+  *Requests for quotation* (`desktop/lib/ui/purchases/rfq_page.dart`): the
+  list with a status filter, the request window (suppliers invited, lines),
+  **Send**, **Enter quotes** (one supplier at a time), **Compare** with the
+  lowest landed rate marked and a reason asked for any other choice, **Save
+  selections** and **Raise orders**. An approved requisition has a **Create
+  RFQ** action.
 - **Not built.** Emailing the RFQ to the suppliers: the send-document service
   sends one document to one party with its own PDF, and an RFQ has neither a
   print layout nor a single recipient. Left for later.
+- **QA.** TC-BUY-056 to TC-BUY-059 in `docs/qa/06_PURCHASING.md`.
 
 ## Rate contracts and blanket orders (PG-9, backlog 86 #2, 2026-10-05)
 
@@ -599,16 +607,97 @@ document framework). The purchase orders priced from it are its releases.
   contract, oldest first, with `counts_as_drawn`.
 - **Permissions.** `RATE_CONTRACT_VIEW` and `RATE_CONTRACT_MANAGE`, in the
   purchase group; approving takes `PURCHASE_APPROVE`.
-- **Not built yet.** The desktop window and the rate's source on the order
-  line (PG-9 part 2).
+- **On the desktop** (PR #1130). Buy > All Buy screens > Documents > *Rate
+  contracts* (`desktop/lib/ui/purchases/rate_contract_page.dart`): the list
+  with status and supplier filters, the contract window with drawn and
+  remaining per line, **Approve**, **Close**, **Cancel** with a reason,
+  **Delete** for a draft, and **Releases**. On the phase 2 purchase order a
+  line priced from a contract carries a mark on its rate, and an order that
+  over-draws shows the warning as a banner.
+- **QA.** TC-BUY-060 to TC-BUY-062.
+
+## The rest of backlog 86: where each feature lives (PG-1 to PG-14, 2026-10-05)
+
+Fourteen purchasing features were built on 2026-10-05 (`docs/BACKLOG.md` §86,
+`docs/BACKLOG_BUILD_PLAN.md`). RFQ and rate contracts have their own sections
+above. The rest are one row each here: what it is, where it is kept and
+reached, who may use it, and the document that holds its rule. The QA cases
+are TC-BUY-029 to TC-BUY-085 in `docs/qa/06_PURCHASING.md`, written from the
+code and not yet run by hand.
+
+| Feature | What it is | Tables and columns | Routes | Permissions | The rule |
+| --- | --- | --- | --- | --- | --- |
+| **GST purchase register, HSN summary of purchases** (PG-1) | Approved and closed bills by tax head, and inward supplies folded by HSN and unit; approved debit notes and completed returns after billing are minus rows on their own dates | none: read from `purchase_invoice_line_taxes` on every call (`app/purchase_invoice/services/gst_purchase_register.py`) | `GET /purchase-invoices/reports/gst-register`, `/reports/hsn-summary` | `PURCHASE_VIEW` or `REPORT_VIEW` (Reports > Financial) | `docs/PURCHASE_TO_PAYMENT_FLOW.md`, *The GST purchase register and HSN summary* |
+| **Payables by supplier and month** (PG-2) | What each supplier is owed by month, with Older, Credits and Outstanding, checked against control account 2100; an Owed / Paid switch | none: derived from `settlement_allocations`, returns, debit notes and advances (`app/purchase_invoice/services/payables_report.py`) | `GET /purchase-invoices/reports/payables` | `PURCHASE_VIEW` or `REPORT_VIEW`; Buy > Money > *Payables by Month* | `docs/PURCHASE_TO_PAYMENT_FLOW.md`, *What is owed, by supplier and month, against 2100* |
+| **Cash purchase in one step** (PG-3) | Approving a bill may record its payment in the same commit | none new: an ordinary `settlements` row allocated to the bill | `POST /purchase-invoices/{id}/approve` with a `payment` block | `PURCHASE_APPROVE` and, for the block, `PAYMENT_CREATE` | `docs/PURCHASE_TO_PAYMENT_FLOW.md`, step 7 |
+| **Attach the supplier's bill** (PG-4) | PDF, JPG or PNG up to 10 MB on a bill and on a goods receipt, at any status | `document_files`, `document_file_contents` (migration `20261005_0306`); the feature is `ATTACHMENTS` | `/purchase-invoices/{id}/files`, `/goods-receipts/{id}/files` (upload, list, content, delete) | viewing: the document's view code; adding and removing: `PURCHASE_CREATE` or `PURCHASE_UPDATE` on a bill, `PURCHASE_RECEIVE` on a receipt | `docs/PURCHASE_TO_PAYMENT_FLOW.md`, step 5; `docs/API_AND_PERSISTENCE_CONVENTIONS.md` |
+| **TDS 194C / 194J worked out** (PG-5) | The supplier names its section; the bill proposes and posts the deduction at approval, a payment proposes it for money ahead of any bill, and it is deducted once | `tds_section_settings`; `vendors.default_tds_section`, `tds_individual_huf`, `tds_technical_services`; on the bill `tds_section`, `tds_base_amount`, `tds_proposed_amount`, `tds_amount` (migration `20261005_0307`) | `/finance/tds-sections/settings`, `/finance/tds-sections/suppliers/{vendor_id}`; `tds_amount` on the approve request | settings: `ACCOUNT_MANAGE`; the proposal: `ACCOUNT_VIEW`, `PAYMENT_VIEW` or `PAYMENT_CREATE` | `docs/LEDGER_POSTING_RULES.md`, *194C and 194J are worked out the way 194Q is* |
+| **TCS charged by a supplier** (PG-6) | 206C(1H) collected on top of the bill: a rate, an amount or both; an asset, outside GST's taxable value | `tcs_rate_percent`, `tcs_amount` on the bill; control purpose `TCS_RECEIVABLE` (migration `20261005_0308`) | the bill's own create and update; `GET /purchase-invoices/reports/tcs-paid` | the bill's; the report `PURCHASE_VIEW` or `REPORT_VIEW` | `docs/LEDGER_POSTING_RULES.md`, *TCS a supplier charges the firm is an asset on the bill* |
+| **Send the PO by WhatsApp** (PG-7) | The order's **Send** offers WhatsApp beside Email; the firm names the template for the event `PURCHASE_ORDER_SENT`; the order is then marked sent | none new: `messaging_outbox`, and `sent_via` on the order | `POST /messaging/send` with `PURCHASE_ORDER` | `DOCUMENT_SEND` | `docs/MESSAGING_FRAMEWORK.md` |
+| **Serial numbers at receipt** (PG-10) | A serial-tracked receipt line names one serial per unit (typed, pasted or a range); completion creates the units; a purchase return names the units going back | `goods_receipt_line_serials` (migration `20261005_0311`), `serial_numbers`, `document_line_serials` | `serial_numbers` on the receipt and return lines; `POST /goods-receipts/serials/expand`; `GET /batch-serial/serials/{id}/trail` | the receipt's and the return's | `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, *The trail starts at the receipt* |
+| **Supplier free scheme on the item** (PG-11) | "Buy 10, get 2" for one supplier or all, of the same product or another; fills a blank free quantity on the order line, and offers another product as a gift line | `supplier_schemes` (migration `20261005_0312`); `scheme_id`, `scheme_name` on the order line | `/api/v1/supplier-schemes` | `SUPPLIER_SCHEME_VIEW`, `SUPPLIER_SCHEME_MANAGE` | below, *Supplier free schemes* |
+| **Imports** (PG-12) | A bill and its payment in the supplier's currency with the exchange difference at payment; period-end revaluation; a Bill of Entry that lands customs duty on the stock and claims import IGST | `currency_code`, `exchange_rate`, `base_tax_total`, `base_grand_total` on the bill, `vendors.currency_code` (migration `20261005_0313`); `bills_of_entry`, `bill_of_entry_lines`, `bill_of_entry_documents`, `bill_of_entry_allocations` (migration `20261005_0314`) | the bill and `/payments` with a currency and rate; `POST /finance/fx-revaluation`; `/api/v1/bills-of-entry` | the bill's and the payment's; revaluation `JOURNAL_POST`; `BILL_OF_ENTRY_VIEW`, `BILL_OF_ENTRY_MANAGE`, posting and cancelling `PURCHASE_APPROVE` | `docs/LEDGER_POSTING_RULES.md`, the two sections on a bill in another currency and a Bill of Entry |
+| **Fixed assets** (PG-13) | A bill line marked capital goods raises an asset instead of stock; a register, asset classes, depreciation runs, disposal, and the Income-tax block schedule | `asset_classes`, `fixed_assets`, `depreciation_runs`, `depreciation_run_lines` (migration `20261005_0315`); `is_capital_goods`, `asset_class_id` on the bill line | `/api/v1/fixed-assets` (`/classes`, `/depreciation-runs`, `/{asset_id}/dispose`, `/{asset_id}/schedule`, `/reports/it-block-schedule`) | `FIXED_ASSET_VIEW`, `FIXED_ASSET_MANAGE` (accounting group); a run, cancelling one and a disposal also need `JOURNAL_POST` | `docs/LEDGER_POSTING_RULES.md`, *A fixed asset is debited at cost, depreciated by run, and leaves at book value* |
+| **Batch-wise PTR / PTS** (PG-14) | Price to retailer and to stockist on the batch, captured on the receipt line and charged by the customer's trade class | `batches.ptr`, `batches.pts`, `ptr` / `pts` on the receipt line, `customers.trade_class` (migration `20261005_0316`); feature `BATCH_PTR_PTS` | the receipt's and the batch's own | the receipt's and the batch's | `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, *Batch-wise PTR / PTS*; `docs/PRICING_AND_PROMOTIONS.md` |
+
+Four things about them that a reader of this file needs and the rule docs do
+not say in one place:
+
+- **Capital goods and imports are typed on the bill alone.** A capital-goods
+  line billed off a receipt somebody already completed is refused, because
+  the goods are in stock; and the purchase order window has no currency box,
+  so an import is typed as a bill with the order and receipt stages off
+  (*Stage switches* above), which raises the order and receipt at the bill's
+  rate. Both therefore belong to a firm, or a moment, that types only the bill.
+- **What a bill owes is `grand_total + tcs_amount - tds_amount`**, in every
+  place a payable is read: Record Payment, the payables report, *Paid now*.
+- **Paid now, TDS and TCS are rupee matters.** A bill in another currency
+  offers none of them, and is paid from Payments in its own currency.
+- **Posting a Bill of Entry needs the linked receipts completed**: duty lands
+  on goods received, and a line no linked receipt carries is an expense.
+
+### Supplier free schemes (PG-11, backlog 86 #25 and #27)
+
+`app/supplier_schemes`, routes under `/api/v1/supplier-schemes`, migration
+`20261005_0312`. A scheme is a product, a buy quantity, a free quantity, an
+optional other product given free, a period, and either one supplier or none
+(every supplier of the product).
+
+- **Same product.** A purchase order line priced inside the scheme's dates
+  takes `floor(ordered / buy) x free` as its free quantity -- only where the
+  line left it blank. A typed figure is kept and an explicit `0` refuses the
+  scheme, the same two answers as a discount (`resolve_supplier_free_goods` in
+  `app/core/utils/pricing.py`). The line records `scheme_id` and the label as
+  it read then (`scheme_name`, such as `10+2`).
+- **Another product.** The free goods go on a line of their own, nothing
+  charged. The order preview offers it as a suggestion and the desktop adds
+  the line once; saving never invents a line. A line with only free goods is
+  priced live and kept (backlog 86 #27).
+- **Which scheme.** A supplier's own scheme beats an all-suppliers one. Two
+  active schemes of the same reach on one product may not overlap in dates;
+  the check holds a lock on the product, because overlap is a fact about a set
+  of rows.
+- **Downstream.** The receipt and the bill raised from the line inherit its
+  free goods. Free goods add units and no value: the receipt's cost per unit
+  is the line's value before tax over accepted plus free.
+- **On the desktop** (PR #1134). Buy > All Buy screens > Documents > *Supplier
+  schemes*; on the phase 2 purchase order the side panel says "Scheme 10+2
+  applied" for each line a scheme filled.
+- **QA.** TC-BUY-066 to TC-BUY-069.
 
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the
   order to PARTIALLY_RECEIVED / RECEIVED (`PurchaseService`), corrected
   2026-09-28.
-- ~~RFQ and Vendor Quotation~~ -- server built 2026-10-05 (PG-8), see
-  *Requests for quotation* above; the desktop screens are PG-8 part 2.
+- ~~RFQ and Vendor Quotation~~ -- built 2026-10-05 (PG-8), server and
+  desktop; see *Requests for quotation* above.
+- **Left out of the fourteen features of backlog 86**: reading a supplier's
+  bill into a draft (OCR); emailing an RFQ; a Bill of Entry in the GST
+  purchase register and against GSTR-2B's import rows; purchase returns and
+  debit notes in another currency; withholding on a payment abroad (section
+  195); capitalising goods already in stock; GST on the sale of an asset
+  (raise a sales invoice); an Income-tax book posting.
 - **Purchase analytics.** The fixed reports exist (register, pending,
   overdue, by vendor, by buyer, by product under
   `/api/v1/purchases/reports/*`, corrected 2026-09-28); an analysis by any
