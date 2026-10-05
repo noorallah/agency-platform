@@ -291,6 +291,25 @@ repository-only; Setup gives it a Start menu entry, and the build copies it to
 between repository documents are reduced to their text, since nothing they
 point at is beside a customer's copy.
 
+**The QA hand-over documents are rendered by `packaging/render_handover.py`.**
+It is a build-time tool that reuses `render_guide.py`: each document of the
+hand-over (the release notes, the sanity check, the QA books, the guides, the
+selling and purchasing references, module status and the defect list, and
+every chapter of `docs/qa/` under `06 QA suite`) is rendered from its source
+in `docs/` to one HTML page and printed to a PDF beside it with Edge. The
+list of documents and the names a tester sees are `DOCUMENTS` in the script.
+Run it from the repository root, after the documents are final:
+
+```powershell
+backend\.venv\Scripts\python.exe packaging\render_handover.py "dist\windows\<folder>"
+backend\.venv\Scripts\python.exe packaging\render_handover.py "dist\windows\<folder>" "qa suite"
+```
+
+The optional second argument renders only the documents whose name contains
+it, ignoring case. It needs the `markdown` package and Microsoft Edge at its
+usual path; it prints how many documents were rendered, names each one that
+failed (a missing source, or no PDF produced) and exits non-zero if any did.
+
 ---
 
 ## The release check

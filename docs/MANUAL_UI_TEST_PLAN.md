@@ -16,7 +16,7 @@ added for the backlog items built in Waves 1 to 3 (written from the code, not
 yet driven).
 
 Refreshed again on **2026-10-05** for the purchasing build (backlog 86,
-TC-BUY-029 to 085) and the selling build (backlog 87, TC-SELL-036 to 086):
+TC-BUY-029 to 090) and the selling build (backlog 87, TC-SELL-036 to 087):
 sections 7 and 9 end with them. Those features have not been through a full
 test suite, a CI run or a hand test, and their cases were written from the
 code and not yet driven.
@@ -324,7 +324,7 @@ goods reports. TC-BUY-017 and 018 were added to the QA suite by hand on
 2026-10-02 and are now in the case file too.
 
 **Added 2026-10-05** (backlog 86, PG-1 to PG-14; written from the code, not
-yet driven, and not through a full suite or CI): TC-BUY-029 to 085, with no
+yet driven, and not through a full suite or CI): TC-BUY-029 to 090, with no
 old row to map from. Each stands alone and names what it needs.
 
 | Screen or flow to walk | Cases |
@@ -340,16 +340,20 @@ old row to map from. Each stands alone and names what it needs.
 | **Rate contracts** | TC-BUY-060 to 062 |
 | The **Serials** cell on a receipt and a return line | TC-BUY-063 to 065 |
 | **Supplier schemes**, and the Free box on the order | TC-BUY-066 to 069 |
-| A supplier's **Currency**, the bill and payment in it, **Bills of entry**, *Revalue foreign payables* | TC-BUY-070 to 076 |
-| **Capital goods** on a bill line; Accounts → All Accounts screens → **Fixed assets** | TC-BUY-077 to 081 |
+| A supplier's **Currency**; **Currency** and **Exchange rate** on the purchase order; the bill and payment in the currency; **Bills of entry**; *Revalue foreign payables* | TC-BUY-070 to 076, 086, 087 |
+| **Capital goods** on the order line, the receipt line and the bill line; Accounts → All Accounts screens → **Fixed assets** | TC-BUY-077 to 081, 088, 090 |
 | **PTR** and **PTS** on a batch, **Trade class** on a customer | TC-BUY-082 to 085 |
+| A foreign-currency bill in the **GST purchase register** and the HSN summary | TC-BUY-089 |
 
-Two things about the order to run them in. **TC-BUY-070 to 077 switch a
-firm-wide setting** (Settings → Buying → Purchase Settings → Buying stages,
-*Purchase order* off): run them last, or in a firm of their own, and switch it
-back. **The TDS cases (TC-BUY-043 to 048) each need a supplier with no other
-bill or payment in the financial year.** Open defects D-BUY-35 to D-BUY-40
-(`docs/DEFECTS.md`) were found by reading this code and are not yet driven.
+Two things about the order to run them in. **Only TC-BUY-086 and TC-BUY-088
+switch a firm-wide setting** (Settings → Buying → Purchase Settings → Buying
+stages, *Purchase order* off): run those two last, or in a firm of their own,
+and switch it back. The import and capital-goods cases otherwise run on the
+full chain. **The TDS cases (TC-BUY-043 to 048) each need a supplier with no
+other bill or payment in the financial year.** D-BUY-35 to D-BUY-40, found by
+reading this code, were fixed on 2026-10-05 (#1175) and the cases follow the
+fixes; D-BUY-41 and D-CMP-23 (`docs/DEFECTS.md`), found on the way, are open
+and not yet driven.
 
 
 ## 8. Stock
@@ -447,7 +451,7 @@ terms and **Raise interest debit note**, **Pending approval** customers,
 Approvals by level are TC-FIN-021.
 
 **Added 2026-10-05** (backlog 87, SG-1 to SG-9; written from the code, not yet
-driven, and not through a full suite or CI): TC-SELL-036 to 086, with no old
+driven, and not through a full suite or CI): TC-SELL-036 to 087, with no old
 row to map from. They share a few masters the section's opening table lists.
 
 | Screen or flow to walk | Cases |
@@ -461,10 +465,13 @@ row to map from. They share a few masters the section's opening table lists.
 | **Hold (F8)**, **Recall**, the shift strip; Sell → All Sell screens → Documents → **Counter Shifts** | TC-SELL-064 to 072 |
 | Sell → All Sell screens → Money → **Collection Sheet**, **Payment Promises**; **Collector** on the customer | TC-SELL-073 to 079 |
 | Sell → All Sell screens → Documents → **Customer Rebates** | TC-SELL-080 to 086 |
+| A cashier's bill approved by a manager, and whose shift takes it | TC-SELL-068, 087 |
 
 The counter cases need Settings → Selling → Sales Stages with *Sales order*
-and *Delivery note* off; switch both back on afterwards. D-SELL-51 (a
-cashier's shift may take no bills) and D-SELL-52 are open and not yet driven.
+and *Delivery note* off; switch both back on afterwards. D-SELL-51 and
+D-SELL-52 were fixed on 2026-10-05 (#1174): a bill is counted in the shift of
+the cashier who made it, and *Settle against bills* is shown only to a user
+who may manage party adjustments.
 
 
 ## 10. Pricing, promotions and incentives
@@ -883,7 +890,7 @@ with the firm that carries each.
 
 | Area | State |
 | --- | --- |
-| Emailing a document | Not built. The PDF exists; there is no SMTP client or mail configuration. Deferred by the owner. |
+| Emailing a document | Built on 2026-10-01 (`docs/MESSAGING_FRAMEWORK.md`): **Send** on a document queues an email with its PDF, through the firm's own SMTP account. Off until the firm switches Messaging on and sets it up under Settings → Firm → Messaging (`docs/MESSAGING_SETUP_GUIDE.md`). Automatic WhatsApp and SMS sends still need the firm's own provider accounts. |
 | Licensing | Not built. A permission and a role exist and are unused. Deferred by the owner. |
 | `lots` | The one table still holding no live row in any store. |
 | `IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`, `SERVICE_CONTRACTS`, `PROJECT_MANAGEMENT` | Declared as roadmap features and refused if switched on. Six, not seven: `COMMISSION` came off on 2026-09-03, because `app/commission` shipped on 08-23 and the flag outlived the fact — an administrator was being refused a feature the platform had. |

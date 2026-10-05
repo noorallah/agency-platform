@@ -285,9 +285,9 @@ the platform administrator's user form.
 | `nightdesk@qa.test` | Night Desk Holder (qa) | QA01 admin, after the role *Night Desk qa* exists (the Night Desk row in E, 03) | QA01 | Roles in this firm: `Night Desk qa` only | TC-ROLE-007..009 (the *Role holder*) |
 | `nightcounter@qa.test` | Night Counter Hire (qa) | QA01 admin, after TC-TMPL-002 | QA01 | Job template **Night Counter renamed** (`qa-night-counter`) | TC-TMPL-010 |
 | `admin@qa03.test` | QA03 Admin (qa) | platform admin | QA03 | Job template Firm Administrator | 08, 09, TC-COMP-007, TC-FIN-002/004/005/008/009, TC-CONC-002/004/005 |
-| `salesmgr@qa03.test` | QA03 Sales Manager (qa) | QA03 admin | QA03 | Job template Sales Manager | TC-SELL-067, 071, 086 (the *Sales Manager*) |
+| `salesmgr@qa03.test` | QA03 Sales Manager (qa) | QA03 admin | QA03 | Job template Sales Manager | TC-SELL-067, 068, 071, 086, 087 (the *Sales Manager*) |
 | `field@qa03.test` | QA03 Field Sales (qa) | QA03 admin | QA03 | Job template Field Sales | TC-SELL-059, 071, 079 (the *Field Sales* user) |
-| `counter@qa03.test` | QA03 Counter Sales (qa) | QA03 admin | QA03 | Job template Counter Sales | TC-SELL-073, 079 (the *Counter Sales* user, and Registered Buyer's collector) |
+| `counter@qa03.test` | QA03 Counter Sales (qa) | QA03 admin | QA03 | Job template Counter Sales | TC-SELL-067, 068, 073, 079, 087 (the *Counter Sales* user, and Registered Buyer's collector) |
 | `accounts@qa03.test` | QA03 Accounts (qa) | QA03 admin | QA03 | Job template Accounts | TC-SELL-086 (the *Accounts* user) |
 | `warehouse@qa03.test` | QA03 Warehouse (qa) | QA03 admin | QA03 | Job template Warehouse | TC-SELL-039 (the *Warehouse* user) |
 | `readonly@qa03.test` | QA03 Read Only (qa) | QA03 admin | QA03 | Job template Read Only | TC-SELL-039, 063, 079, 086 (the *Read Only* user) |
@@ -780,7 +780,7 @@ The walkthrough's own buying (W19 to W29): supplier invoice numbers
 `QA-V1-INV-001` for the receipt of 6 and `QA-V1-INV-002` for the receipt
 of 4; the payment of `1180.00`, Bank, instrument reference `NEFT-QA-1180`.
 
-### 06 Purchasing, cases added 2026-10-05 (TC-BUY-029 to TC-BUY-085)
+### 06 Purchasing, cases added 2026-10-05 (TC-BUY-029 to TC-BUY-090)
 
 The fourteen purchasing features of backlog 86. **Written from the code on
 2026-10-05 and not yet typed through the screens**; a value the form refuses
@@ -805,10 +805,10 @@ or *po-invoiced* it means a **fresh** order of 10 of `QA-B` at `100` from
 | Vendor `QA-T8` | *Contractor Override qa*; PAN `AAACT8888H`; 194C | TC-BUY-048 |
 | Vendor `QA-VQ` | *Quote Supplier qa*; Phone `+919800000400` | TC-BUY-056 to 059 |
 | Vendor `QA-VN` | *No Number Supplier qa*; phone, mobile and contacts left blank | TC-BUY-055 |
-| Vendor `QA-VU` | *Overseas Supplier qa*; **Currency** `USD`; no GSTIN | TC-BUY-070 to 076 |
-| Product `QA-IMP` | *Imported Item qa*; PIECE; tax profile **GST 0%**; Purchase price `100` | TC-BUY-070 to 074, 076 |
+| Vendor `QA-VU` | *Overseas Supplier qa*; **Currency** `USD`; no GSTIN | TC-BUY-070 to 076, 086, 087, 089 |
+| Product `QA-IMP` | *Imported Item qa*; PIECE; tax profile **GST 0%**; an HSN / SAC of its own, `8471`; Purchase price `100` | TC-BUY-070 to 074, 076, 086, 087, 089 |
 | Product `QA-IMP2` | *Imported Item Two qa*; as `QA-IMP`; Selling price `12000` | TC-BUY-075 |
-| Product `QA-FA` | *Office Desk qa*; PIECE; GST 18% Local; Purchase price `36500` | TC-BUY-077 |
+| Product `QA-FA` | *Office Desk qa*; PIECE; GST 18% Local; Purchase price `36500` | TC-BUY-077, 088, 090 |
 | Asset class `QA-WDV` | *Written Down qa*; Method *Written down value*; Rate % `40`; Residual % `5` | TC-BUY-079, 080 |
 | Asset class `QA-IT` | *Block Check qa*; Method *Straight line*; Useful life (years) `10`; Residual % `5`; Income-tax rate % `25` | TC-BUY-081 |
 | In QA07 (Electronics): a vendor `QA-VE` | *Electronics Supplier qa* | TC-BUY-063 to 065, 085 |
@@ -839,9 +839,9 @@ new supplier with the same values and the next code (`QA-T1B`).
 | TC-BUY-044 | `QA-T2`: `200`, then `400`, then `500` of `QA-B` at `100` |
 | TC-BUY-045 | `QA-T3` and `QA-T4`: `400` of `QA-B` at `100` each |
 | TC-BUY-046 | `QA-T5`: `250`, then `100` at `100`; `QA-T6`: `400` at `100` |
-| TC-BUY-047 | `QA-T7`: payment `50000`, Bank, **TDS deducted** `1000`, **TDS section** *194C*; then `500` of `QA-B` at `100` |
+| TC-BUY-047 | `QA-T7`: payment `50000`, Bank; read the hint, then **TDS deducted** `1000`, **TDS section** *194C*; then `500` of `QA-B` at `100` |
 | TC-BUY-048 | `QA-T8`: three bills of `400` at `100`; **TDS to deduct** `0`, `500`, `47200` |
-| TC-BUY-049 | 194C per-year threshold `150000`, then back to `100000`; Rate % `35` |
+| TC-BUY-049 | 194C **Threshold per supplier, per year** `150000`, then back to `100000`; **Rate % (companies, firms and others)** `35`, then blank, then `0`, then back to `2`; threshold `-1`, then back |
 | TC-BUY-050 | **TCS charged by supplier %** `0.1` |
 | TC-BUY-051 | Rate `0.1`, **TCS amount** `1.00` |
 | TC-BUY-052 | TCS amount `1.00` on both bills |
@@ -862,15 +862,15 @@ new supplier with the same values and the next code (`QA-T1B`).
 | TC-BUY-067 | Free `0`; Free `1`; quantity `9` |
 | TC-BUY-068 | Scheme: `QA-V`, `QA-B`, Buy `10`, Free `1`, Free product `QA-B2`; order `25` at `100` |
 | TC-BUY-069 | Second scheme from today plus 7 days; all-suppliers scheme Buy `10`, Free `1` |
-| TC-BUY-070 | `QA-VU`; `QA-IMP` quantity `10`, rate `100`; Exchange rate `83` |
+| TC-BUY-070 | Purchase order to `QA-VU`: `QA-IMP` quantity `10`, rate `100`; Exchange rate `83`; receive `10`; on the bill Exchange rate `83` |
 | TC-BUY-071 | Pay in *USD*; rates `84` and `82`; Amount `1000`; Bank |
 | TC-BUY-072 | USD at `84`, Amount `400`; reversal reason *Wrong rate* |
 | TC-BUY-073 | Amount `1200` against the 1,000 bill |
 | TC-BUY-074 | Bill of Entry number `1234567`; Port code `INMAA1`; Assessable value `85000`; BCD % `10`; IGST % `18` |
 | TC-BUY-075 | Second bill: `QA-IMP2`, 10 at `100` USD at `83`, 4 sold; Bill of Entry number `1234568`; BCD amount `9000`; cancel reason *Entered against the wrong bill* |
 | TC-BUY-076 | As of the last day of last month; USD `85` |
-| TC-BUY-077 | `QA-V`; Entered on `2026-10-01`; `QA-FA` quantity `1`, rate `36500`; class FURNITURE |
-| TC-BUY-078 | A fresh *po-received*; class FURNITURE |
+| TC-BUY-077 | Purchase order to `QA-V`: `QA-FA` quantity `1`, rate `36500`, **Capital goods** ticked on the line; receive `1`; on the bill class FURNITURE |
+| TC-BUY-078 | A fresh *po-received* (its lines not marked capital goods); class FURNITURE |
 | TC-BUY-079 | Assets *Desk SLM qa* (FURNITURE) and *Server WDV qa* (`QA-WDV`), each Cost `36500`, acquired `2026-10-01`, Residual value blank; run From `2026-10-01` To `2026-10-31` |
 | TC-BUY-080 | Disposed on `2026-10-31`; Sale amount `35000` by Bank, then `36000` by Cash; Reason *Sold to staff* |
 | TC-BUY-081 | Assets *Block A qa* (acquired `2026-06-01`) and *Block B qa* (`2026-12-01`), each Cost `40000`, class `QA-IT`; cancel reason *Run too early* |
@@ -878,11 +878,17 @@ new supplier with the same values and the next code (`QA-T1B`).
 | TC-BUY-083 | QA06: MRP `100`, PTR `120`, then `90` |
 | TC-BUY-084 | QA06: the product's Selling price `100`; orders for `QA-CR`, `QA-CS`, `QA-CO`, `QA-CN`, quantity `1`, batch `QA-PTR-1`; typed price `95` |
 | TC-BUY-085 | QA07: nothing to type |
+| TC-BUY-086 | Buying stages: **Purchase order** off. Bill to `QA-VU`: `QA-IMP` quantity `10`, rate `100`; Exchange rate `83` |
+| TC-BUY-087 | Two orders to `QA-VU`: `QA-IMP` `10` at `100`, Exchange rate `83`, each received in full; one order to `QA-V`: `QA-B` `10` at `100`, received in full. First bill Exchange rate `84.50`; second bill **Currency** `INR`; amend reason *Rate moved* |
+| TC-BUY-088 | Buying stages: **Purchase order** off. Bill to `QA-V`; Entered on `2026-10-01`; `QA-FA` quantity `1`, rate `36500`; class FURNITURE |
+| TC-BUY-089 | The bill of TC-BUY-070 (or one built the same way this month); register From the 1st of this month, To today |
+| TC-BUY-090 | Two orders to `QA-V`: `QA-FA` quantity `1`, rate `36500`, Capital goods **not** ticked; tick it on each receipt; cancel reason *Received in error* |
 
-TC-BUY-070 to 077 switch **Purchase order** off under Settings > Buying >
-Purchase Settings > Buying stages for as long as they run. Do them together,
-last in a sitting, and switch **Purchase order** and **Goods receipt** back
-on before any other purchasing case.
+Only TC-BUY-086 and TC-BUY-088 switch **Purchase order** off under Settings >
+Buying > Purchase Settings > Buying stages. Do the two together, last in a
+sitting, and switch **Purchase order** and **Goods receipt** back on before
+any other purchasing case. Every other import and capital-goods case runs
+with both stages on.
 
 ### 07 Inventory
 
@@ -1001,8 +1007,8 @@ shared.
 | TC-SELL-064 | `QA-C03`; `QA-CTR` `3`; note `blue shirt, back in 5 min`; then quantity `4`, Received now `472` |
 | TC-SELL-065 | One held bill (`QA-CTR` `3`) and one plain draft (`QA-CTR` `1`), both `QA-C03` |
 | TC-SELL-066 | (HTTP) `{"note": "x"}` |
-| TC-SELL-067 | Opening float `500`; (HTTP) `{"opening_float": "100"}`; `salesmgr@qa03.test` float `200` |
-| TC-SELL-068 | Float `500`; walk-in `QA-CTR` `10` Cash `1180`; walk-in `QA-CTR` `10` Cash `680` + UPI `500`; `QA-C03` `QA-CTR` `10`, nothing received |
+| TC-SELL-067 | `counter@qa03.test`: Opening float `500`; (HTTP) `{"opening_float": "100"}`; `salesmgr@qa03.test` float `200` |
+| TC-SELL-068 | `salesmgr@qa03.test` has a shift open, float `200`. `counter@qa03.test`: float `500`; walk-in `QA-CTR` `10` Cash `1180`; walk-in `QA-CTR` `10` Cash `680` + UPI `500`; `QA-C03` `QA-CTR` `10`, nothing received. `salesmgr@qa03.test` approves the three |
 | TC-SELL-069 | Float `500`; walk-in `QA-CTR` `10` Cash `1180`; Counted cash `1670`; Note `End of day` |
 | TC-SELL-070 | Float `500`, one walk-in bill of 1180 in cash, Counted cash `1685`; then float `500`, no bill, Counted cash `500` |
 | TC-SELL-071 | `salesmgr@qa03.test` opens a shift, float `200`; (HTTP) `{"counted_cash": "200"}` as `field@qa03.test`, then as the firm admin |
@@ -1021,6 +1027,7 @@ shared.
 | TC-SELL-084 | `TR-2`: last day of last month to the 15th of this month; `TR-G`: Customer group *Wholesaler*, last month; `TR-3`: slabs `1000` / `1` and `1000` / `2`; `TR-4`: from the 20th to the 10th of one month |
 | TC-SELL-085 | Code `TR-GRP`; Customer group *Rebate Group qa*; bills dated last month: `QA-C06` `QA-CTR` `30`, `QA-C07` `QA-CTR` `20`, at `100`, Discount % `0`; settle `70` on `QA-C06`, Reason `Group rebate` |
 | TC-SELL-086 | `readonly@qa03.test`, `salesmgr@qa03.test`, `accounts@qa03.test`. The agreement that reaches no slab: a new customer with one bill of `QA-CTR` `5` (500.00) dated last month, slab `1000` / `1` |
+| TC-SELL-087 | `salesmgr@qa03.test` has a shift open, float `200`; `counter@qa03.test` has none: walk-in `QA-CTR` `10` Cash `1180`. Then `counter@qa03.test` float `500` and a second walk-in `QA-CTR` `10` Cash `1180`. `salesmgr@qa03.test` approves both |
 
 ### 09 Pricing and incentives
 

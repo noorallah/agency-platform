@@ -627,11 +627,11 @@ cashier's till for a sitting:
 A count that differs from the expected cash posts the difference to *Cash
 Short and Over* (6960); an exact count posts nothing. The cashier whose till
 it is, or somebody who may approve sales, closes it. **Shifts are optional**:
-a firm that opens none bills exactly as before. Known problem, not yet
-checked on a screen (D-SELL-51): a bill is counted in the shift of the person
-who **approves** it, and the counter roles cannot approve, so a cashier's
-shift may show no bills. Not built: a refund at the counter against a bill, a
-count by denomination, and handing a shift to another cashier.
+a firm that opens none bills exactly as before. A bill paid at the counter
+is counted in the open shift of the cashier who **made** it, whoever approves
+it; the approver's own shift takes it only when the maker has none open. Not
+built: a refund at the counter against a bill, a count by denomination, and
+handing a shift to another cashier.
 
 **Customer Rebates** (*Sell → All Sell screens → Documents → Customer
 Rebates*). "2% back on the year's purchases over 10 lakh", promised to **one
@@ -649,8 +649,9 @@ rebate statement*) shows the turnover, the slab reached, what is accrued,
 settled and still to settle. **No GST is computed on a rebate.** The agreement
 records whether it was *agreed before the sale*, for the firm's CA. Agreeing
 and accruing need the right to approve sales; settling needs the right to
-manage party adjustments, which a Sales Manager does not hold (D-SELL-52: the
-screen still offers the button). Not built: settling by a GST credit note,
+manage party adjustments, and **Settle against bills** is shown only to a
+user who holds it. A Sales Manager does not, so a firm administrator or a
+firm manager settles. Not built: settling by a GST credit note,
 paying a rebate out in money, and accruing part-way through a period.
 
 ## 5.3 Money
@@ -1088,10 +1089,17 @@ rupees at that rate. Such a bill offers no TCS, TDS or *Paid now*. Pay it
 from *Payments* in its own currency at the day's rate: the difference from
 the bill's rate posts to *Exchange Gain/Loss*. *Revalue foreign payables* on
 *Journal Entries* books the unrealised difference on what is still owed at a
-period end and reverses it the next day. **As built, an import is typed as a
-bill alone**, with the purchase order and goods receipt stages switched off
-(*Settings → Buying → Purchase Settings → Buying stages*): the order window
-has no currency (D-BUY-39).
+period end and reverses it the next day. **An import goes through the whole
+chain.** The purchase order has **Currency** and, for any currency but
+rupees, a required **Exchange rate**; a new order starts in the supplier's
+currency. The receipt values the stock in rupees at the order's rate. The
+bill is in the order's currency: a bill in any other is refused, naming the
+order, and a bill at another rate posts only the rate difference to price
+variance. Neither the currency nor the rate of an order can change once a
+receipt has been completed against it. A bill typed alone (the order and
+receipt stages off) works as before. Not yet converted: a debit note or a
+purchase return against a foreign-currency bill (D-BUY-41), and GSTR-2B
+matching, rule 37 and rule 42 for such a bill (D-CMP-23).
 
 **Bills of entry** (*Buy → All Buy screens → Documents → Bills of entry*).
 The customs document for an import. Link the bills and receipts it covers;
@@ -1104,11 +1112,14 @@ Duty Payable*. The receipts must be completed first. **Cancel** (with a
 reason) reverses it. GSTR-3B shows the IGST in 4(A)(1) *Import of goods*. Not
 built: the Bill of Entry in the GST purchase register and against GSTR-2B.
 
-**Capital goods on a bill.** A bill line has a **Capital goods** tick and,
-with it, a required **asset class**. At approval the line raises a fixed
-asset (8.1) instead of stock, and its GST is claimed in full. A line billing
-a receipt already completed is refused, because those goods are in stock
-(D-BUY-40).
+**Capital goods.** A bill line has a **Capital goods** tick and, with it, a
+required **asset class**. At approval the line raises a fixed asset (8.1)
+instead of stock, and its GST is claimed in full. A firm that orders and
+receives first ticks **Capital goods** on the purchase order line (or on the
+receipt line): the receipt then brings the line in without entering stock,
+and the bill line for it is capital goods and cannot be unticked. Only a
+line a receipt has already taken **into stock** is refused at the bill: untick
+it, or cancel the receipt and mark the line on the order or the receipt.
 
 ## 6.3 Money and insight
 
@@ -1706,9 +1717,10 @@ and rate. Both read what GSTR-1 reads, so they agree with the return. The
 **GST purchase register** does the same for approved and closed supplier
 bills, with tax that may not be claimed and reverse charge shown apart, and
 debit notes and returns after billing as minus rows; the **HSN summary of
-purchases** folds them by HSN code and unit. (A bill in another currency
-shows in currency units, not rupees: D-BUY-35.) All were added on 2026-10-05
-and have not been tested by hand.
+purchases** folds them by HSN code and unit. A bill in another currency is
+shown in rupees at the bill's own rate, here and in the purchase invoice
+register, purchase analysis and GSTR-3B's input side. All were added on
+2026-10-05 and have not been tested by hand.
 
 ---
 

@@ -874,8 +874,9 @@ plus the cash tenders whose receipts still stand, so a reversed receipt drops
 out of it by itself. Two limits: every cash receipt is booked to the firm's
 cash control account whatever account a shift names, so a shift that names
 another posts only its difference there; and shifts are optional -- a bill
-approved by somebody with no shift open posts exactly as above and belongs to
-none.
+lands in the open shift of the cashier who made it, or in its approver's when
+the maker has none open, and when neither has one it posts exactly as above
+and belongs to none.
 
 ### A promise to pay
 

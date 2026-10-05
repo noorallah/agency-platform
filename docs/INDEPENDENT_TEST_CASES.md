@@ -1078,12 +1078,18 @@ Payables, 2300 Goods Received Not Invoiced, 2700 TDS Payable, 2800 Customs
 Duty Payable, 4950 Exchange Gain/Loss, 4960 the gain or loss on disposing of
 an asset, 5220 Customs Duty and 6950 Depreciation.
 
-**Two groups change a firm-wide setting.** The import cases (TC-BUY-070 to
-076) and the capital-goods case TC-BUY-077 need a firm that types
-only the bill: Settings > Buying > Purchase Settings > **Buying stages** with
-**Purchase order** off, which takes **Goods receipt** off with it. Run them
-when nobody else is buying in the firm, or in a firm of its own, and switch
-both back on afterwards.
+**Imports and capital goods run on the full chain.** The import cases
+(TC-BUY-070 to 076) and the capital-goods case TC-BUY-077 no longer need the
+buying stages switched off: since 2026-10-05 the purchase order carries
+**Currency** and **Exchange rate**, and the order line and the receipt line a
+**Capital goods** tick. They are written for a firm that orders, receives and
+bills. Two cases keep the bill typed alone, TC-BUY-086 (an import) and
+TC-BUY-088 (capital goods), and **only those two change a firm-wide
+setting**: Settings > Buying > Purchase Settings > **Buying stages** with
+**Purchase order** off, which takes **Goods receipt** off with it. Run those
+two when nobody else is buying in the firm, or in a firm of its own, and
+switch both back on afterwards. TC-BUY-086 to 090 were added after the fixes
+of 2026-10-05 and, like the rest, have not been run by hand.
 
 ### GST purchase register and HSN summary of purchases (backlog 86 #17)
 
@@ -1247,8 +1253,8 @@ both back on afterwards.
 - **Covers:** backlog 86 #10 (PG-5)
 - **Fixture:** `buy-ready`
 - **Also needs:** a supplier of its own with **no other bill or payment this financial year** (April to March): a PAN whose fourth letter is not P or H (a company or firm), **Usual TDS section** *194C*, **Individual / HUF** left unset. Use a new supplier each time the case is run.
-- **Steps:** as the fixture's **Firm admin**, order **400** of `<SUFFIX>-B` at **100** from that supplier, approve, receive and complete, bill the receipt and save. Select the draft → **Approve**. Read the dialog and leave **TDS to deduct** blank → **Approve**. Open Record Payment for the supplier, and the bill's journal.
-- **Expect:** the bill is 40,000.00 + 7,200.00 GST = **47,200.00**. The dialog names the section and rate -- TDS 194C at 2%, basis OTHER -- then "Threshold crossed.", "Due so far: ₹800.00, already deducted: ₹0.00." and "Proposed on this bill: ₹800.00."; the box's helper reads "Blank takes the proposal (₹800.00); 0 deducts nothing." TDS is worked on the value **before GST**. After approval the supplier is owed **46,400.00**. Journal: Dr 2300 Goods Received Not Invoiced 40,000.00, Dr 1320 Input CGST 3,600.00, Dr 1330 Input SGST 3,600.00 / Cr 2100 Trade Payables 46,400.00, Cr 2700 TDS Payable 800.00.
+- **Steps:** as the fixture's **Firm admin**, order **400** of `<SUFFIX>-B` at **100** from that supplier, approve, receive and complete, bill the receipt and save. Select the draft → **Approve**. Read the dialog and leave **TDS to deduct** blank → **Approve**. Open Record Payment for the supplier, and the bill's journal. **(HTTP)** before approving, `GET /api/v1/purchase-invoices/{invoice_id}/tds-proposal`.
+- **Expect:** the bill is 40,000.00 + 7,200.00 GST = **47,200.00**. The dialog shows what the server worked for this bill, on the base approval posts: the bill before GST, which is its lines **plus any additional charges** (a bill of 28,000 of lines with 5,000 of charges is past the 30,000 limit and proposes 660.00). The HTTP call answers the same section, rate and `proposed` 800.00. The dialog names the section and rate -- TDS 194C at 2%, basis OTHER -- then "Threshold crossed.", "Due so far: ₹800.00, already deducted: ₹0.00." and "Proposed on this bill: ₹800.00."; the box's helper reads "Blank takes the proposal (₹800.00); 0 deducts nothing." TDS is worked on the value **before GST**. After approval the supplier is owed **46,400.00**. Journal: Dr 2300 Goods Received Not Invoiced 40,000.00, Dr 1320 Input CGST 3,600.00, Dr 1330 Input SGST 3,600.00 / Cr 2100 Trade Payables 46,400.00, Cr 2700 TDS Payable 800.00.
 - **Leaves:** an approved bill with TDS of 800.00.
 
 ### TC-BUY-044 — The year's limit crossed mid-year carries the earlier bills' tax
@@ -1291,8 +1297,8 @@ both back on afterwards.
 - **Covers:** backlog 86 #10 (PG-5)
 - **Fixture:** `buy-ready`
 - **Also needs:** a supplier of its own as in TC-BUY-043 (194C, a company PAN, nothing else this financial year).
-- **Steps:** as the fixture's **Firm admin**, Buy > Payments → **Record Payment**: that supplier, **Amount** `50000`, Bank, no bill to apply it to; **TDS deducted** `1000`, **TDS section** *194C* → Record payment. Then order **500** of `<SUFFIX>-B` at 100 from the supplier, receive, bill, and open **Approve**. Approve.
-- **Expect:** the advance posts Dr 2100 Trade Payables 50,000.00 / Cr 1010 Bank 49,000.00, Cr 2700 TDS Payable 1,000.00. The bill of 50,000 (59,000.00 with GST) then shows "Nothing is proposed on this bill.", because the tax on this money was deducted when it was paid; it approves with no TDS and owes the full 59,000.00, against which the advance can be set. The **TDS deducted** box on a payment is never filled for you: a hint such as "194C proposes ₹…" shows in it only when the supplier's bills already leave tax due.
+- **Steps:** as the fixture's **Firm admin**, Buy > Payments → **Record Payment**: that supplier, **Amount** `50000`, Bank, no bill to apply it to. Wait a moment and read the hint in **TDS deducted**. Then **TDS deducted** `1000`, **TDS section** *194C* → Record payment. Then order **500** of `<SUFFIX>-B` at 100 from the supplier, receive, bill, and open **Approve**. Approve.
+- **Expect:** the advance posts Dr 2100 Trade Payables 50,000.00 / Cr 1010 Bank 49,000.00, Cr 2700 TDS Payable 1,000.00. The bill of 50,000 (59,000.00 with GST) then shows "Nothing is proposed on this bill.", because the tax on this money was deducted when it was paid; it approves with no TDS and owes the full 59,000.00, against which the advance can be set. The **TDS deducted** box on a payment is never filled for you; its hint follows the amount being paid. About half a second after `50000` is typed with nothing applied to a bill it reads "194C proposes ₹1000.00" (2% of the money paid ahead). Changing the amount, or applying part of it to a bill, works the hint again for the new figures; before 2026-10-05 it ignored the amount.
 - **Leaves:** an advance, an approved bill.
 
 ### TC-BUY-048 — Overriding the proposal, and its limits
@@ -1312,8 +1318,8 @@ both back on afterwards.
 
 - **Covers:** backlog 86 #10 (PG-5)
 - **Fixture:** `buy-ready`
-- **Steps:** as the fixture's **Firm admin**, Settings > Tax > **TDS on purchases (194Q, 194C, 194J)**. Read the 194C and 194J cards beneath the 194Q settings. On 194C change **Threshold per supplier, per year** to `150000` → **Save 194C**; press Save 194C again without changing anything. Type `35` in **Rate %** → Save 194C. Switch **Deduct 194J** off → **Save 194J**, then approve a bill from a 194J supplier past 30,000 in the year. Put everything back.
-- **Expect:** a firm that never saved them reads 194C: threshold per payment 30,000, per year 1,00,000, rate 2, without a PAN 20; 194J: per year 30,000, rate 10, without a PAN 20, and **no** per-payment box. The first save toasts "194C settings saved."; the second says "Nothing has changed." A rate of 35 is refused: "A rate is more than 0 and at most 30 percent." With 194J switched off the bill proposes nothing. Saving needs ACCOUNT_MANAGE; a user without it sees the cards read-only.
+- **Steps:** as the fixture's **Firm admin**, Settings > Tax > **TDS on purchases (194Q, 194C, 194J)**. Read the 194C and 194J cards beneath the 194Q settings, and the helper under each rate. On 194C change **Threshold per supplier, per year** to `150000` → **Save 194C**; press Save 194C again without changing anything. Type `35` in **Rate % (companies, firms and others)** → Save 194C; clear the box → Save 194C; type `0` → Save 194C; put `2` back. Type `-1` in **Threshold per supplier, per year** → Save 194C; put it back. Switch **Deduct 194J** off → **Save 194J**, then approve a bill from a 194J supplier past 30,000 in the year. Put everything back.
+- **Expect:** a firm that never saved them reads 194C: **Threshold per payment** 30,000, **Threshold per supplier, per year** 1,00,000, **Rate % (companies, firms and others)** 2, **Rate % for an individual or HUF** 1, **Rate % without a PAN** 20; 194J: per year 30,000, **Rate % for professional fees** 10, **Rate % for technical services, call centres and royalty on films** 2, without a PAN 20, and **no** per-payment box. The second rate on 194C says it is used where the supplier is marked an individual or HUF on the supplier form, or, left on Auto, where the fourth letter of the PAN is P or H; on 194J, where the supplier is marked as providing technical services. No box speaks of a lower-deduction certificate. The first save toasts "194C settings saved."; the second says "Nothing has changed." A rate the server would refuse is refused in the card, before anything is sent: 35 and 0 read "Rate % (companies, firms and others) must be a number more than 0 and at most 30."; a blank reads "Enter Rate % (companies, firms and others): a number more than 0 and at most 30."; a threshold of -1 reads "The limit per supplier, per year cannot be below 0." With 194J switched off the bill proposes nothing. Saving needs ACCOUNT_MANAGE; a user without it sees the cards read-only.
 - **Leaves:** the settings as they were.
 
 ### TCS charged by a supplier (backlog 86 #9)
@@ -1546,16 +1552,16 @@ both back on afterwards.
 
 ### Imports: foreign currency, Bill of Entry, exchange difference (backlog 86 #4, #5)
 
-### TC-BUY-070 — A bill in the supplier's currency posts rupees at its rate
+### TC-BUY-070 — An order, receipt and bill in the supplier's currency post rupees at the rate
 
 *Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
 
-- **Covers:** backlog 86 #4, #5 (PG-12 part A)
+- **Covers:** backlog 86 #4, #5 (PG-12 part A; the full chain since D-BUY-39)
 - **Fixture:** `buy-ready`
-- **Also needs:** **Buying stages** with **Purchase order** off (see the note at the head of these cases); a supplier abroad with **Currency** `USD` on its form; a product on the **GST 0%** tax profile with nothing on hand.
-- **Steps:** as the fixture's **Firm admin**, Masters > Vendors → the supplier: confirm **Currency** reads USD (try `US` → Save first). Buy > Purchase Invoices → New: that supplier; add the product, quantity `10`, rate `100`. Read **Currency** and the note beside it. Save with **Exchange rate (₹ per USD)** blank; then type `83` → **Save & approve**. Open the bill, Stock > All Stock screens > Stock > Inventory, and Accounts > Journal Entries.
-- **Expect:** a two-letter currency is refused on the supplier: "The currency is a three-letter code, such as USD." The bill starts in **USD** and shows "TCS, TDS and Paid now are rupee matters; pay this bill from Payments in USD." in place of the TCS boxes. With no rate: "A bill in USD needs its exchange rate: the rupees one USD was worth on the bill's date." At 83 the bill reads **1,000.00 USD** with its rupee equivalent **83,000.00**. The Approve dialog says "This bill is in USD, so TDS and Paid now are not offered. Pay it from Payments, in that currency, at the rate of the day." Ten units arrive valued 83,000.00 (8,300 each). Journals: Dr 1200 Inventory 83,000.00 / Cr 2300 Goods Received Not Invoiced 83,000.00, then Dr 2300 83,000.00 / Cr 2100 Trade Payables 83,000.00 -- no price variance.
-- **Leaves:** an approved USD bill owing 1,000.00 USD; buying stages off until switched back.
+- **Also needs:** a supplier abroad with **Currency** `USD` on its form; a product on the **GST 0%** tax profile with nothing on hand. The buying stages stay **on**.
+- **Steps:** as the fixture's **Firm admin**, Masters > Vendors → the supplier: confirm **Currency** reads USD (try `US` → Save first). Buy > Purchase Orders → New: that supplier; read **Currency**. Add the product, quantity `10`, rate `100`. Save with **Exchange rate (₹ per USD)** blank; then type `83` → save → Submit → **Approve**. Buy > Goods Receipts → New against the order, Accepted `10` → **Complete**; read Stock > All Stock screens > Stock > Inventory and Accounts > Journal Entries. Buy > Purchase Invoices → New for the receipt: read **Currency** and the note beside it; type **Exchange rate (₹ per USD)** `83` → save → **Approve**. Open the bill and Journal Entries.
+- **Expect:** a two-letter currency is refused on the supplier: "The currency is a three-letter code, such as USD." The order starts in **USD**, the supplier's currency, and shows **Exchange rate (₹ per USD)**. With no rate it is not saved: "Enter the exchange rate: the rupees one USD is worth, above 0." At 83 the total is labelled **Total USD**, 1,000.00, and the note under it gives the rupee equivalent at 83 (83,000). Completing the receipt brings ten units in valued **83,000.00** (8,300 each), at the order's rate: Dr 1200 Inventory 83,000.00 / Cr 2300 Goods Received Not Invoiced 83,000.00. The bill is in **USD** and shows "TCS, TDS and Paid now are rupee matters; pay this bill from Payments in USD." in place of the TCS boxes; it reads **1,000.00 USD** with its rupee equivalent **83,000.00**. The Approve dialog says "This bill is in USD, so TDS and Paid now are not offered. Pay it from Payments, in that currency, at the rate of the day." The bill's journal: Dr 2300 Goods Received Not Invoiced 83,000.00 / Cr 2100 Trade Payables 83,000.00 -- no price variance, because the bill is at the order's rate.
+- **Leaves:** an approved USD order, a completed receipt and an approved USD bill owing 1,000.00 USD.
 
 ### TC-BUY-071 — Paying in the currency at another rate posts an exchange loss or gain
 
@@ -1625,16 +1631,16 @@ both back on afterwards.
 
 ### Fixed assets (backlog 86 #7)
 
-### TC-BUY-077 — A capital-goods bill line becomes a fixed asset, not stock
+### TC-BUY-077 — A machine ordered as capital goods is received without stock and billed as a fixed asset
 
 *Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
 
-- **Covers:** backlog 86 #7 (PG-13)
+- **Covers:** backlog 86 #7 (PG-13; the full chain since D-BUY-40)
 - **Fixture:** `buy-ready`
-- **Also needs:** **Buying stages** with **Purchase order** off (see the note at the head of these cases); a product for the asset (a desk) on GST 18% with nothing on hand.
-- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Fixed assets > **Asset classes**: confirm the five a firm starts with. Buy > Purchase Invoices → New for `<SUFFIX>-V`, **Entered on** `2026-10-01`: the desk, quantity `1`, rate `36500`. On the line tick **Capital goods (raises a fixed asset when approved)**; save without choosing a class; then **Asset class (required)** *FURNITURE · Furniture and Fittings* → **Save & approve**. Accounts > All Accounts screens > Fixed assets > **Asset register**; Stock > All Stock screens > Stock > Inventory; Journal Entries; Reports > Financial → GST purchase register.
-- **Expect:** the classes are PLANT, FURNITURE, COMPUTERS, VEHICLES and OFFICE_EQUIPMENT, all *Straight line* with Residual % 5. Without a class: "Line 1 is capital goods: choose its asset class." After approval the register has one asset `FA-…`, class FURNITURE, Cost **36,500.00**, Net book value 36,500.00, *In use*, "Raised by bill PI-…". **Nothing** is added to stock. One journal: Dr 1500 Fixed Assets 36,500.00, Dr 1320 Input CGST 3,285.00, Dr 1330 Input SGST 3,285.00 / Cr 2100 Trade Payables 43,070.00 -- no Inventory and no Goods Received Not Invoiced. The GST is claimed in full; the register row shows it again under **Capital goods tax 6,570.00**.
-- **Leaves:** a fixed asset, an approved bill.
+- **Also needs:** a product for the asset (a desk) on GST 18% with nothing on hand. The buying stages stay **on**.
+- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Fixed assets > **Asset classes**: confirm the five a firm starts with. Buy > Purchase Orders → New for `<SUFFIX>-V`: the desk, quantity `1`, rate `36500`; on the line tick **Capital goods** → save → Submit → **Approve**. Buy > Goods Receipts → New against the order: read the line's **Capital goods** tick; Accepted `1` → **Complete**. Read Stock > All Stock screens > Stock > Inventory and Accounts > Journal Entries. Buy > Purchase Invoices → New for the receipt: read the line's tick and try to clear it; save without choosing a class; then **Asset class (required)** *FURNITURE · Furniture and Fittings* → save → **Approve**. Accounts > All Accounts screens > Fixed assets > **Asset register**; Inventory; Journal Entries; Reports > Financial → GST purchase register.
+- **Expect:** the classes are PLANT, FURNITURE, COMPUTERS, VEHICLES and OFFICE_EQUIPMENT, all *Straight line* with Residual % 5. Under the order line's tick: "A fixed asset, not stock: received without entering stock, and the bill raises the asset." The receipt line starts ticked, as ordered ("Received without entering stock; the bill raises the fixed asset."). Completing the receipt adds **nothing** to stock and posts nothing to Inventory or Goods Received Not Invoiced; the order is received all the same. On the bill the line is ticked **Capital goods (raises a fixed asset when approved)**, cannot be unticked, and says "Received as capital goods." Without a class: "Line 1 is capital goods: choose its asset class." After approval the register has one asset `FA-…`, class FURNITURE, Cost **36,500.00**, Net book value 36,500.00, *In use*, "Raised by bill PI-…". Stock is still nothing. One journal: Dr 1500 Fixed Assets 36,500.00, Dr 1320 Input CGST 3,285.00, Dr 1330 Input SGST 3,285.00 / Cr 2100 Trade Payables 43,070.00 -- no Inventory and no Goods Received Not Invoiced. The GST is claimed in full; the register row shows it again under **Capital goods tax 6,570.00**.
+- **Leaves:** a received order, a fixed asset, an approved bill.
 
 ### TC-BUY-078 — Capital goods already received into stock are refused; cancelling the bill takes the asset off
 
@@ -1643,8 +1649,8 @@ both back on afterwards.
 - **Covers:** backlog 86 #7 (PG-13)
 - **Fixture:** `po-received`
 - **Also needs:** for the second part, a capital-goods bill approved as in TC-BUY-077 whose asset has **not** been depreciated.
-- **Steps:** as the fixture's **Firm admin**: (1) with the full chain on, Buy > Purchase Invoices → New for the completed receipt of 6; tick **Capital goods** on its line, choose a class → save → **Approve**. (2) **Cancel** the approved capital-goods bill of the second part and open the Asset register. (3) On an asset raised by a bill press **Delete**, and try to change its Cost.
-- **Expect:** (1) refused: "Line 1 is capital goods, but GRN-… already took it into stock. Capital goods are received on the bill itself: untick capital goods, or bill it without a completed receipt." (2) the bill is cancelled, its journal mirrored and its asset gone from the register. (3) "Asset FA-… was raised by a bill; cancelling the bill takes it off the register." and "Asset FA-… costs what its bill charged; change the bill, not the asset."
+- **Steps:** as the fixture's **Firm admin**: (1) Buy > Purchase Invoices → New for the completed receipt of 6, whose line was **not** marked capital goods; tick **Capital goods** on its line, choose a class → save → **Approve**. (2) **Cancel** the approved capital-goods bill of the second part and open the Asset register. (3) On an asset raised by a bill press **Delete**, and try to change its Cost.
+- **Expect:** (1) refused: "Line 1 is capital goods, but GRN-… already took it into stock. Untick capital goods on this line; or cancel GRN-… and mark the line capital goods on the order or the receipt, so it is received without entering stock." (2) the bill is cancelled, its journal mirrored and its asset gone from the register. (3) "Asset FA-… was raised by a bill; cancelling the bill takes it off the register." and "Asset FA-… costs what its bill charged; change the bill, not the asset."
 - **Leaves:** a draft bill, a cancelled bill.
 
 ### TC-BUY-079 — A depreciation run: straight line and written down value, by days
@@ -1725,6 +1731,63 @@ both back on afterwards.
 - **Steps:** as the firm's administrator, open a new goods receipt line, Stock > Batches, and a customer's form. **(HTTP)** send a goods receipt line with `ptr` 90 in this firm.
 - **Expect:** the Electronics profile does not carry *batch-wise PTR / PTS* (Pharmacy, Food and Wholesale do), so the receipt line has no PTR or PTS box, the batch list no PTR or PTS column and the customer form no **Trade class**. The HTTP write is refused by the feature gate and nothing else about the receipt is affected: a line that sends neither field saves as before.
 - **Leaves:** nothing.
+
+### After the fixes of 2026-10-05 (D-BUY-35, D-BUY-39, D-BUY-40)
+
+### TC-BUY-086 — A bill typed alone in the supplier's currency
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #4, #5 (PG-12 part A), the bill typed with no order
+- **Fixture:** `buy-ready`
+- **Also needs:** **Buying stages** with **Purchase order** off (see the note at the head of these cases); a supplier abroad with **Currency** `USD` on its form; a product on the **GST 0%** tax profile with nothing on hand.
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → New: that supplier; add the product, quantity `10`, rate `100`. Read **Currency** and the note beside it. Save with **Exchange rate (₹ per USD)** blank; then type `83` → **Save & approve**. Open the bill, Stock > All Stock screens > Stock > Inventory, and Accounts > Journal Entries. Switch the buying stages back on.
+- **Expect:** the bill starts in **USD** and shows "TCS, TDS and Paid now are rupee matters; pay this bill from Payments in USD." in place of the TCS boxes. With no rate it is not saved: "Enter the exchange rate: the rupees one USD was worth on the supplier's invoice date." (the server's own words for the same refusal: "A bill in USD needs its exchange rate: the rupees one USD was worth on the bill's date."). At 83 the bill reads **1,000.00 USD** with its rupee equivalent **83,000.00**. The order and the receipt the bill raises are at the bill's rate, so ten units arrive valued 83,000.00 (8,300 each). Journals: Dr 1200 Inventory 83,000.00 / Cr 2300 Goods Received Not Invoiced 83,000.00, then Dr 2300 83,000.00 / Cr 2100 Trade Payables 83,000.00 -- no price variance.
+- **Leaves:** an approved USD bill owing 1,000.00 USD; the buying stages as they were.
+
+### TC-BUY-087 — A bill at another rate posts only the difference; another currency, a missing rate and a late change are refused
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #4, #5 (PG-12 part A; D-BUY-39)
+- **Fixture:** `buy-ready`
+- **Also needs:** a USD supplier and a GST 0% product as in TC-BUY-070; **two** orders of 10 at 100 **USD at 83** from it, approved, received and completed (stock 83,000.00 each), neither billed; one order of 10 at 100 from `<SUFFIX>-V` in **rupees**, approved, received and completed, not billed.
+- **Steps:** as the fixture's **Firm admin**: (1) bill the first USD receipt with **Exchange rate (₹ per USD)** `84.50` → save → **Approve**; read its journal. (2) Bill the second USD receipt, change **Currency** to `INR` → save. (3) **(HTTP)** `POST /api/v1/purchase-invoices` billing the **rupee** order's receipt with `currency_code` `USD` and `exchange_rate` `83`. (4) **(HTTP)** `POST /api/v1/purchase-orders` with `currency_code` `USD` and no `exchange_rate`. (5) **(HTTP)** `POST /api/v1/purchase-orders/{order_id}/amend` on the first USD order with `exchange_rate` `85` and a reason. (6) **(HTTP)** `POST /api/v1/purchase-invoices` billing the second USD receipt with **no** `currency_code` and no `exchange_rate`.
+- **Expect:** (1) the bill is 1,000.00 USD, 84,500.00 in rupees: Dr 2300 Goods Received Not Invoiced 83,000.00, Dr Purchase Price Variance 1,500.00 / Cr 2100 Trade Payables 84,500.00 -- only the rate difference is variance. (2) refused: "Purchase order PO-… is in USD, and its goods were received at that value, so its bill is in USD too. This bill is in rupees: bill it in USD, or raise the order in the supplier's currency before receiving the goods." (3) refused the other way round: "Purchase order PO-… is in rupees, and its goods were received at that value, so its bill is in rupees too. This bill is in USD: bill it in rupees, or raise the order in the supplier's currency before receiving the goods." (4) refused where the order is typed: "A bill in USD needs its exchange rate: the rupees one USD was worth on the bill's date." (the server uses the bill's wording for an order too). (5) refused: "GRN-… has already valued this order's goods at its currency and rate, so neither can change. A different rate on the supplier's bill is typed on the bill." (6) saved in **USD at 83**: a bill that names no currency takes its order's currency and rate, ahead of the supplier's own.
+- **Leaves:** an approved USD bill with a price variance; a draft USD bill.
+
+### TC-BUY-088 — A capital-goods line on a bill typed alone
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #7 (PG-13), the bill typed with no order
+- **Fixture:** `buy-ready`
+- **Also needs:** **Buying stages** with **Purchase order** off (see the note at the head of these cases); a product for the asset (a desk) on GST 18% with nothing on hand.
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → New for `<SUFFIX>-V`, **Entered on** `2026-10-01`: the desk, quantity `1`, rate `36500`. On the line tick **Capital goods (raises a fixed asset when approved)**; save without choosing a class; then **Asset class (required)** *FURNITURE · Furniture and Fittings* → **Save & approve**. Accounts > All Accounts screens > Fixed assets > **Asset register**; Stock > All Stock screens > Stock > Inventory; Journal Entries. Switch the buying stages back on.
+- **Expect:** without a class: "Line 1 is capital goods: choose its asset class." After approval the register has one asset `FA-…`, class FURNITURE, Cost **36,500.00**, Net book value 36,500.00, *In use*, "Raised by bill PI-…". **Nothing** is added to stock. One journal: Dr 1500 Fixed Assets 36,500.00, Dr 1320 Input CGST 3,285.00, Dr 1330 Input SGST 3,285.00 / Cr 2100 Trade Payables 43,070.00 -- no Inventory and no Goods Received Not Invoiced.
+- **Leaves:** a fixed asset, an approved bill; the buying stages as they were.
+
+### TC-BUY-089 — A bill in another currency is in rupees in the GST purchase register and the HSN summary
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #17 (PG-1; D-BUY-35)
+- **Fixture:** `buy-ready`
+- **Also needs:** one approved bill of 10 at 100 **USD at 83** dated this month, built as in TC-BUY-070, for a product with an HSN code that no other bill of the period carries.
+- **Steps:** as the fixture's **Firm admin**, Reports > Financial → **GST purchase register**, the period covering today; find the bill. Then **HSN summary of purchases** for the same period.
+- **Expect:** the bill's row reads Taxable **83,000.00** and Bill total **83,000.00**, in rupees at the bill's own rate -- what its journal posted -- and not 1,000.00. The tax heads are 0.00 for this GST 0% product; on a taxed import each head is likewise its figure multiplied by the bill's rate. The HSN summary's row for the product reads Quantity 10 and Taxable **83,000.00**. The purchase invoice register, purchase analysis and GSTR-3B's input side read the bill the same way. Not covered here: a debit note or a purchase return against such a bill is not yet converted in the ledger (D-BUY-41, open), and GSTR-2B matching, rule 37 and rule 42 still read currency units (D-CMP-23, open).
+- **Leaves:** nothing beyond what it needed.
+
+### TC-BUY-090 — The receiver marks capital goods at the dock; the bill cannot bill them as stock
+
+*Added 2026-10-05 from the code and its automated tests; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 86 #7 (PG-13; D-BUY-40)
+- **Fixture:** `buy-ready`
+- **Also needs:** a product for the asset (a desk) on GST 18% with nothing on hand; **two** approved orders for 1 at 36,500 from `<SUFFIX>-V`, the line **not** ticked Capital goods on either.
+- **Steps:** as the fixture's **Firm admin**: (1) Buy > Goods Receipts → New against the first order; tick **Capital goods** on the line; Accepted `1` → **Complete**; read Inventory. (2) Buy > Purchase Invoices → New for that receipt and read the line. **(HTTP)** `POST /api/v1/purchase-invoices` billing the same receipt line with `is_capital_goods` `false`. (3) Receive the second order the same way, ticked, and complete it; then **Cancel** that receipt with a reason; read Inventory and Journal Entries.
+- **Expect:** (1) an order typed without the mark is put right on the receipt: the line is received with no stock movement and nothing in Inventory or Goods Received Not Invoiced. (2) the bill line starts ticked and says "Received as capital goods."; it needs an asset class like any capital-goods line. The HTTP bill is refused: "Line 1 was received as capital goods, so nothing entered stock for this bill to clear. Tick capital goods and choose its asset class." (3) the receipt reads Cancelled; nothing came in, so nothing goes out of stock and no journal is reversed.
+- **Leaves:** a completed capital-goods receipt with a draft bill; a cancelled receipt.
 
 
 ## Stock
@@ -2695,19 +2758,19 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 
 - **Covers:** backlog 87 row 7 (SG-7)
 - **Fixture:** `selling-firm`
-- **Also needs:** counter billing; a **Sales Manager** user in the firm; neither user has a shift open.
-- **Steps:** as the fixture's **Firm admin**: New Invoice. The strip above the scan field reads **No shift open** → **Open shift** → Opening float `500` → Open shift. **(HTTP)** `POST /api/v1/counter-shifts` with `{"opening_float": "100"}` again as the same user. Sign in as the **Sales Manager**: New Invoice → Open shift, float `200`. Sell > All Sell screens > Documents > **Counter Shifts**.
-- **Expect:** the strip reads "Shift SHIFT-…" (the firm's next number), when it was opened, **0 bills** and **cash expected 500.00**, with **Close shift**. The second request is refused (409): "You already have SHIFT-… open. Close it before opening another." The Sales Manager opens a shift of their own with the next number. Counter Shifts lists both: Cashier, Opened, Float, Expected, Status **Open**. Opening a shift posts nothing.
+- **Also needs:** counter billing; a **Counter Sales** user and a **Sales Manager** user in the firm; neither has a shift open.
+- **Steps:** as the **Counter Sales** user: New Invoice. The strip above the scan field reads **No shift open** → **Open shift** → Opening float `500` → Open shift. **(HTTP)** `POST /api/v1/counter-shifts` with `{"opening_float": "100"}` again as the same user. Sign in as the **Sales Manager**: New Invoice → Open shift, float `200`. Sell > All Sell screens > Documents > **Counter Shifts**.
+- **Expect:** the strip reads "Shift SHIFT-…" (the firm's next number), when it was opened, **0 bills** and **cash expected 500.00**, with **Close shift**. The second request is refused (409): "You already have SHIFT-… open. Close it before opening another." The Sales Manager opens a shift of their own with the next number. Counter Shifts lists both: Cashier, Opened, Float, Expected, Status **Open**. Opening a shift posts nothing. A Counter Sales user may open a shift: it takes the right to raise sales invoices, not the right to approve them.
 - **Leaves:** two open shifts (close them: TC-SELL-069 shows how).
 
-### TC-SELL-068 — Expected cash is the float and the cash tenders
+### TC-SELL-068 — Expected cash is the float and the cash tenders, in the shift of the cashier who made the bill
 
-- **Covers:** backlog 87 row 7 (SG-7)
+- **Covers:** backlog 87 row 7 (SG-7; D-SELL-51)
 - **Fixture:** `selling-firm`
-- **Also needs:** the masters above; counter billing; no shift open for the Firm admin.
-- **Steps:** as the fixture's **Firm admin**: New Invoice → **Open shift**, float `500`. Bill 1: **Walk-in**, 10 `<SUFFIX>-CTR`, *Received now* 1180 Cash, F9. Bill 2: Walk-in, 10 `<SUFFIX>-CTR`, **Split payment** Cash 680 + UPI 500, F9. Bill 3: `<SUFFIX>-C03`, 10 `<SUFFIX>-CTR`, *Received now* blank, Save → Approve. Read the strip; then Counter Shifts → the shift → **View**.
-- **Expect:** the strip reads **2 bills** and **cash expected 2,360.00** (500 + 1,180 + 680). View shows Bills 2, Total billed 2,360.00, CASH 1,860.00, UPI 500.00, CARD 0.00, BANK_TRANSFER 0.00, Opening float 500.00, Cash expected 2,360.00. The credit bill took no money at the counter and is not in the shift.
-- **Leaves:** an open shift with two bills; three approved bills.
+- **Also needs:** the masters above; counter billing; a **Counter Sales** user and a **Sales Manager** user in the firm; the Sales Manager has a shift of their own open with float `200`; no shift open for the Counter Sales user.
+- **Steps:** as the **Counter Sales** user: New Invoice → **Open shift**, float `500`. Bill 1: **Walk-in**, 10 `<SUFFIX>-CTR`, *Received now* 1180 Cash, F9. Bill 2: Walk-in, 10 `<SUFFIX>-CTR`, **Split payment** Cash 680 + UPI 500, F9. Bill 3: `<SUFFIX>-C03`, 10 `<SUFFIX>-CTR`, *Received now* blank, Save. Sign in as the **Sales Manager**: Sell > Sales Invoices → **Approve** the three drafts. Sign in as the Counter Sales user again and read the strip; then Counter Shifts → each of the two shifts → **View**.
+- **Expect:** Counter Sales cannot approve, so F9 leaves each bill a **draft** for somebody who may; while they are drafts the strip still reads 0 bills. Once the Sales Manager has approved them the **cashier's** strip reads **2 bills** and **cash expected 2,360.00** (500 + 1,180 + 680): a bill paid at the counter is counted in the open shift of the cashier who **made** it, whoever approves it. View on the cashier's shift shows Bills 2, Total billed 2,360.00, CASH 1,860.00, UPI 500.00, CARD 0.00, BANK_TRANSFER 0.00, Opening float 500.00, Cash expected 2,360.00. The Sales Manager's own shift still reads **0 bills** and cash expected **200.00**. The credit bill took no money at the counter and is in neither shift.
+- **Leaves:** two open shifts, the cashier's with two bills; three approved bills.
 
 ### TC-SELL-069 — Closing a shift short posts to Cash Short and Over
 
@@ -2842,7 +2905,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Fixture:** `selling-firm`
 - **Also needs:** the accrued agreement `TR-1` of TC-SELL-081, built for this case (100.00 to settle; the customer owes 5,900.00 on two bills).
 - **Steps:** as the fixture's **Firm admin**: Customer Rebates → `TR-1` → **Settle against bills**: Amount to settle `60`, Reason `September turnover rebate`, type 60 against the first open bill → save. Accounts > All Accounts screens > Books > **Party Adjustments** → the new draft → **Approve**. Journal Entries; Masters > Customers; Customer Rebates → Statement. Then settle `50` more.
-- **Expect:** the dialog says "… 100.00 left to settle. This drafts a party adjustment that credits the customer's account; it is approved in Party Adjustments." A draft posts nothing. Approving posts **Dr 2900 Customer Rebates Payable 60.00 / Cr 1100 Trade Receivables 60.00**, no tax; the customer's Outstanding falls by 60.00 and the first bill owes 60.00 less in Record Receipt. The agreement reads Settled 60.00, To settle **40.00**, and its statement lists the adjustment. 50 more is refused: "No more than 40.00 is left to settle." on the screen (the server says "The rebate has 40.00 still to settle, so … cannot be set against the customer's account."). A rebate is settled only this way: no credit note is raised and nothing reaches GSTR-1.
+- **Expect:** **Settle against bills** is on the toolbar because the Firm admin may manage party adjustments (`PARTY_ADJUSTMENT_MANAGE`); it is shown on that right alone, and is live only for an accrued agreement with something left to settle. The dialog says "… 100.00 left to settle. This drafts a party adjustment that credits the customer's account; it is approved in Party Adjustments." A draft posts nothing. Approving posts **Dr 2900 Customer Rebates Payable 60.00 / Cr 1100 Trade Receivables 60.00**, no tax; the customer's Outstanding falls by 60.00 and the first bill owes 60.00 less in Record Receipt. The agreement reads Settled 60.00, To settle **40.00**, and its statement lists the adjustment. 50 more is refused: "No more than 40.00 is left to settle." on the screen (the server says "The rebate has 40.00 still to settle, so … cannot be set against the customer's account."). A rebate is settled only this way: no credit note is raised and nothing reaches GSTR-1.
 - **Leaves:** an approved party adjustment of 60.00.
 
 ### TC-SELL-083 — Reversing an accrual
@@ -2877,9 +2940,22 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Covers:** backlog 87 row 9 (SG-9), known limits
 - **Fixture:** `selling-firm`
 - **Also needs:** an accrued agreement with something left to settle whose customer still owes money; an ACTIVE agreement, period over, whose customer sold less than the first slab; a **Sales Manager**, an **Accounts** and a **Read Only** user.
-- **Steps:** as **Read Only**: Customer Rebates. As the **Sales Manager**: create an agreement, then **Settle against bills** on the accrued one and save. As **Accounts**: Accounts > All Accounts screens > Books > Party Adjustments. As the **Firm admin**: **Accrue** the agreement that reached no slab; Reports > Financial → **Customer rebate statement**.
-- **Expect:** Read Only sees the list and the Statement and no New. The Sales Manager (who holds `SALES_APPROVE`) may agree, edit, accrue, reverse and cancel, but the settlement is refused by the server, "You do not have permission to perform this action.": whoever promises a rebate does not move the customer's account (`PARTY_ADJUSTMENT_MANAGE` is not in that role). The Accounts job holds that code and sees the drafted adjustments under Party Adjustments. Nothing earned is not accrued: "Sales of … reached no slab, so there is nothing to accrue. Cancel the agreement instead." The report lists each agreement with Turnover, Rate %, Earned, Accrued, Settled and Balance. Known limits: a rebate carries no GST and raises no credit note (the *Agreed before the sale* tick is kept for the firm's CA); it accrues once, after the period ends, and is settled only by party adjustment.
+- **Steps:** as **Read Only**: Customer Rebates. As the **Sales Manager**: create an agreement, select the accrued one and look for **Settle against bills**. **(HTTP)** as the Sales Manager, create a `CUSTOMER_REBATE` party adjustment naming the accrued agreement. As **Accounts**: look for Customer Rebates in the menu, then Accounts > All Accounts screens > Books > Party Adjustments. As the **Firm admin**: select the accrued agreement and look for **Settle against bills**; **Accrue** the agreement that reached no slab; Reports > Financial → **Customer rebate statement**.
+- **Expect:** Read Only sees the list and the Statement and no New. The Sales Manager (who holds `SALES_APPROVE`) may agree, edit, accrue, reverse and cancel, and is **not offered Settle against bills**: the button is shown on `PARTY_ADJUSTMENT_MANAGE` alone, which is not in that role -- whoever promises a rebate does not move the customer's account. The HTTP request is refused all the same: "You do not have permission to perform this action." The Firm admin is offered the button; of the jobs a firm starts with, Firm Administrator and Firm Manager can settle from the screen. The Accounts job holds the code but cannot open Customer Rebates (it holds no right to view sales), so it settles nothing from that screen; it sees the drafted adjustments under Party Adjustments. Nothing earned is not accrued: "Sales of … reached no slab, so there is nothing to accrue. Cancel the agreement instead." The report lists each agreement with Turnover, Rate %, Earned, Accrued, Settled and Balance. Known limits: a rebate carries no GST and raises no credit note (the *Agreed before the sale* tick is kept for the firm's CA); it accrues once, after the period ends, and is settled only by party adjustment.
 - **Leaves:** one more agreement.
+
+---
+
+**Added after the fixes of 2026-10-05 (D-SELL-51)**
+
+### TC-SELL-087 — A bill whose maker has no shift open goes to the approver's shift
+
+- **Covers:** backlog 87 row 7 (SG-7; D-SELL-51, the fallback)
+- **Fixture:** `selling-firm`
+- **Also needs:** the masters above; counter billing; a **Counter Sales** user with **no** shift open; a **Sales Manager** with a shift of their own open, float `200`, and no bill in it.
+- **Steps:** as the **Counter Sales** user, with **No shift open**: Walk-in, 10 `<SUFFIX>-CTR`, *Received now* 1180 Cash, F9. As the **Sales Manager**: Sell > Sales Invoices → **Approve** the draft; read the strip on New Invoice. Then as the Counter Sales user **Open shift**, float `500`, and raise a second walk-in bill of 1,180.00 in cash; the Sales Manager approves it. Read both strips and Counter Shifts.
+- **Expect:** the first bill's maker has no shift, so it lands in the approver's: the Sales Manager's strip reads **1 bill** and **cash expected 1,380.00** (200 + 1,180). The second bill lands in the cashier's shift: **1 bill**, cash expected **1,680.00**; the Sales Manager's shift stays at 1 bill and 1,380.00. Had neither of them a shift open, the bill would approve as always and belong to no shift (TC-SELL-072).
+- **Leaves:** two open shifts with one bill each; two approved bills.
 
 
 
@@ -3208,9 +3284,9 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `selling-paid`
 - **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS**; open **Settings** (close without saving). Accounts > Journal Entries → search `TCS-RC`.
 - **Expect**
-  - The register is **empty**: both receipts are dated after 1 April 2025, when the Finance Act 2025 omitted section 206C(1H), so neither was charged.
+  - The register is **empty**: both receipts are dated after 1 April 2025, when the Finance Act 2025 omitted section 206C(1H), so neither was charged. *(Checked on 2026-10-05: `tcs_collections` holds no row for the two receipts and the ledger has no 2500 TCS Payable line.)*
   - Settings still read as the firm keyed them: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0. Switching it on does not bring the tax back.
-  - Journal Entries: no `TCS-RC-…` entry. A receipt dated **before** 1 April 2025 would raise one of its own, **Dr 1100 Trade Receivables / Cr 2500 TCS Payable**; a firm whose books open in 2026-27 cannot date one there, so that half is covered by the unit suite (`tests/unit/test_tcs.py`).
+  - Journal Entries: no `TCS-RC-…` entry. A receipt dated **before** 1 April 2025 would raise one of its own, **Dr 1100 Trade Receivables / Cr 2500 TCS Payable**; a firm whose books open in 2026-27 cannot date one there, so that half is covered by the unit suite (`tests/unit/test_tcs.py`) rather than by hand.
 - **Data (HTTP):** `GET /api/v1/tcs/collections` → no rows. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.11 in `fx_<suffix>_s` — `tcs_collections` empty and no line on 2500; closing Settings without saving writes nothing (a save would write `tcs.settings_changed`). Checked 2026-10-05 on `fx_t1005j1us_s`.
 - **Leaves:** unchanged.
 
