@@ -147,6 +147,17 @@ the order is what gets approved. An unrecognised code leaves the order
 saveable and simply gives nothing -- a typo in a field that gives money away
 must not refuse a sale.
 
+**A coupon is taken where the price is set, on a new bill and on its edit
+alike.** A counter bill -- one typed straight in, whose order the service
+raised -- is priced on the bill, so any edit of its draft takes a coupon: one
+the order does not hold raises the order again with it, the one it holds
+changes nothing, leaving it out keeps it, and an explicit `null` takes it
+off. The edit that shipped the same used to answer 422 for the coupon the
+quantity edit took. A bill of documents somebody raised still refuses one, on
+create and on edit ("This bill continues documents already priced, so it
+cannot take one."), because a field that gives money away must not be
+accepted and do nothing (D-SELL-40).
+
 **Bonus points are an offer settled at approval, not at pricing** (SEL-4,
 A73): `LOYALTY_MULTIPLIER` is the only benefit on its offer, the pricing
 engine passes over it, and `LoyaltyService.bonus_for` applies the largest
