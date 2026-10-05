@@ -177,6 +177,7 @@ class Customer {
     this.linkedVendorId = '',
     this.priceLevelId,
     this.tradeClass,
+    this.collectorId,
     this.isCashSale = false,
   });
 
@@ -272,6 +273,10 @@ class Customer {
   /// (PTR or PTS) a blank sales price takes.
   final String? tradeClass;
 
+  /// The firm member who chases this customer's dues (backlog 87 #8), or
+  /// null when nobody in particular does.
+  final String? collectorId;
+
   /// The firm's one built-in *Cash sale* customer, who a walk-in bill names.
   final bool isCashSale;
 
@@ -345,6 +350,7 @@ class Customer {
         linkedVendorId: stringValue(json['linked_vendor_id']),
         priceLevelId: json['price_level_id'] as String?,
         tradeClass: json['trade_class'] as String?,
+        collectorId: json['collector_id'] as String?,
         isCashSale: boolValue(json['is_cash_sale']),
       );
 }

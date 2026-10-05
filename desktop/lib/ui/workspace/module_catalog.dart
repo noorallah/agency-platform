@@ -1184,6 +1184,19 @@ abstract final class ModuleCatalog {
           label: 'Receipts',
           requiredPermissions: ['RECEIPT_VIEW'],
         ),
+        // Chasing what is owed (backlog 87 #8): the sheet a collector
+        // carries, and the promises customers have made. Both read on the
+        // receipt code, because whoever takes the money in chases it.
+        ModuleTabDefinition(
+          id: 'collection-sheet',
+          label: 'Collection Sheet',
+          requiredPermissions: ['RECEIPT_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'payment-promises',
+          label: 'Payment Promises',
+          requiredPermissions: ['RECEIPT_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'payments',
           label: 'Payments',
