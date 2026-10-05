@@ -68,6 +68,8 @@ const Map<String, String> _accepted = <String, String>{
           '-- a screen posting rows it parsed itself would be a second parser',
   'supplierRebate': 'as batchRecord; the agreements list carries every field '
       'the rebate editor opens with (BUY-13)',
+  'customerRebate': 'as supplierRebate; the agreements list carries every '
+      'field the rebate editor opens with (SG-9)',
   'supplierScheme': 'as batchRecord; the schemes list carries every field '
       'the scheme editor opens with (PG-11)',
   'customerOverdueInterest': 'the customer statement carries the same '

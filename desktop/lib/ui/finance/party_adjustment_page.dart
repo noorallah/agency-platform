@@ -697,6 +697,8 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
         ..._startable,
         if (_kind == 'SUPPLIER_REBATE')
           ('SUPPLIER_REBATE', partyAdjustmentKindLabel('SUPPLIER_REBATE')),
+        if (_kind == 'CUSTOMER_REBATE')
+          ('CUSTOMER_REBATE', partyAdjustmentKindLabel('CUSTOMER_REBATE')),
         if (_kind == 'PRINCIPAL_CLAIM')
           ('PRINCIPAL_CLAIM', partyAdjustmentKindLabel('PRINCIPAL_CLAIM')),
       ];
@@ -730,7 +732,8 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
       _kind != 'SUPPLIER_WRITE_BACK' &&
       _kind != 'SUPPLIER_REBATE' &&
       _kind != 'PRINCIPAL_CLAIM';
-  bool get _needsVendor => _kind != 'CUSTOMER_WRITE_OFF';
+  bool get _needsVendor =>
+      _kind != 'CUSTOMER_WRITE_OFF' && _kind != 'CUSTOMER_REBATE';
 
   @override
   void initState() {

@@ -58,6 +58,7 @@ import 'purchase_returns/purchase_return_management_page.dart';
 import 'sales/beat_plan_management_page.dart';
 import 'sales/call_list_page.dart';
 import 'sales/counter_shifts_page.dart';
+import 'sales/customer_rebates_page.dart';
 import 'sales/enquiries_page.dart';
 import 'sales/geography_master_page.dart';
 import 'sales/route_builder_page.dart';
@@ -3316,6 +3317,12 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'customer-rebates' => CustomerRebatesPage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'proforma-invoices' => ProformaPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3504,6 +3511,12 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Counter Shifts',
           'Each cashier’s till from opening to closing: what it took by mode, '
               'what was counted, and the difference from the cash expected.',
+        ),
+      'customer-rebates' => (
+          'Customer Rebates',
+          'Turnover rebates agreed with a customer or a customer group: '
+              'progress up the ladder, accrual once the period ends, and '
+              'settlement against open bills.',
         ),
       'proforma-invoices' => (
           'Proforma Invoices',

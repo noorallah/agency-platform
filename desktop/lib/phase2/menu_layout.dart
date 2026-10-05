@@ -290,6 +290,7 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.sales, 'approvals', 'Approvals'),
         MenuItemSpec(AppModule.sales, 'credit-notes', 'Credit Notes'),
         MenuItemSpec(AppModule.sales, 'customer-debit-notes', 'Debit Notes'),
+        MenuItemSpec(AppModule.sales, 'customer-rebates', 'Customer Rebates'),
       ]),
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'receipts', 'Receipts'),
