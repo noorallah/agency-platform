@@ -48,9 +48,11 @@ approval (``note_reduction``), and the APPROVED event records that it was
 agreed, or what a note so judged holds: a reduction from a note with no such
 record is judged at the bill. A note that types nothing is never judged.
 
-A line sold in another unit than
-the one stock is kept in is judged on its typed discount alone: the ranking's
-price carries no unit, and guessing one would refuse honest lines.
+**A line sold in another unit is judged in that unit** (D-PRC-24). The
+ranking's price is per stock unit, so the customer's price for a box is that
+price times the stock units the line's own conversion factor says a box holds;
+then the line is judged exactly as a stock-unit line is. A product with no
+selling price still has no customer's price to cut.
 """
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -385,8 +387,12 @@ class DiscountLimitService:
 
         What the ranking gives this customer for the product, the quantity
         and the date before anything is typed, the batch the line is pinned
-        to included. A line that charges nothing, or is sold in another unit
-        than its stock is kept in, is left out and so not judged on price.
+        to included -- **in the unit the line is sold in**: the ranking's
+        price per stock unit times the line's own conversion factor, the one
+        its stock moves at. A line by the box was left out, because the
+        ranking's price carries no unit, so 2 BOX of 12 at a typed 600.00 a
+        box, half of twelve pieces at 100.00, was approved by somebody
+        limited to 5% (D-PRC-24). A line that charges nothing is left out.
         """
         resolver = UnitPriceResolver(
             self._session,
@@ -398,12 +404,12 @@ class DiscountLimitService:
         prices: dict[int, Decimal] = {}
         for line in lines:
             quantity = Decimal(getattr(line, "quantity", None) or _ZERO)
-            stock = Decimal(getattr(line, "base_quantity", None) or _ZERO)
-            if quantity <= _ZERO or stock != quantity:
+            if quantity <= _ZERO:
                 continue
-            prices[int(getattr(line, "line_number", 0))] = resolver.price(
+            prices[int(getattr(line, "line_number", 0))] = resolver.price_at_factor(
                 getattr(line, "product_id"),  # noqa: B009
                 quantity,
+                factor=Decimal(str(getattr(line, "conversion_factor", None) or 1)),
                 batch_id=getattr(line, "pinned_batch_id", None),
             ).price
         return prices

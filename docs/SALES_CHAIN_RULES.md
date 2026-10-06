@@ -313,6 +313,13 @@ right), a counter bill raised again from its edit (a typed amount is
 pro-rated by the new quantity), dispatch-and-invoice (silent lines), and bulk
 approve and cancel (they call the single action and build no line).
 
+**A line by the box is a box all the way down** (D-PRC-24 to D-PRC-26,
+2026-10-06). The order line stores the product's stock unit, the factor and
+the base quantity whether or not the caller named the stock unit; a blank
+price is the stock-unit price times that factor; the note and the bill inherit
+both; and the discount limit judges a typed price against the box's price.
+`UOM_FRAMEWORK.md` and `PRICING_AND_PROMOTIONS.md` have the rules.
+
 ## A chain of committing services is not a transaction
 
 **A chain of committing services is not a transaction, and `begin_nested` does

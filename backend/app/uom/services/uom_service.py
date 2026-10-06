@@ -203,6 +203,24 @@ def missing_conversion_message(
     )
 
 
+def stock_unit_of(product: Product | None, fallback: UUID | None = None) -> UUID | None:
+    """Return the unit a product's stock is kept in.
+
+    Its base unit, else its inventory unit -- the unit every stock movement
+    reduces to (`InventoryService._resolve_base_quantity`) -- else
+    ``fallback``, the stock unit a document line named for a product that
+    carries none of its own. A line that names a *selling* unit asks here
+    rather than trusting the stock unit it was sent: an order line naming BOX
+    and no stock unit read 2 at a factor of 1 while 24 pieces left the shelf
+    (D-PRC-26).
+    """
+    if product is not None:
+        own = product.base_uom_id or product.inventory_uom_id
+        if own is not None:
+            return own
+    return fallback
+
+
 class UomService:
     """Coordinate UOM masters, conversions, and product packaging hierarchy."""
 
@@ -798,6 +816,38 @@ class UomService:
             conversion_rule_id=rule.id,
             conversion_date=on_date,
         )
+
+    def unit_factor(
+        self,
+        *,
+        product_id: UUID,
+        from_uom_id: UUID | None,
+        to_uom_id: UUID | None,
+        on_date: date,
+        firm_scope: UUID,
+    ) -> Decimal:
+        """Return how many of one unit make one of another, for a product.
+
+        The factor `convert_quantity` would convert a line at -- the same
+        rule, resolved the same way -- for a caller that needs the factor
+        without a quantity: a price kept per stock unit is worth that many
+        times as much per selling unit (D-PRC-25). One where either unit is
+        unset or the two are the same.
+
+        Raises:
+            ValidationError: No rule converts the pair, naming the product
+                and both units.
+
+        """
+        if from_uom_id is None or to_uom_id is None or from_uom_id == to_uom_id:
+            return Decimal("1")
+        return self._resolve_conversion_rule(
+            firm_scope=firm_scope,
+            product_id=product_id,
+            from_uom_id=from_uom_id,
+            to_uom_id=to_uom_id,
+            on_date=on_date,
+        ).conversion_factor
 
     def upsert_profile_default(
         self,

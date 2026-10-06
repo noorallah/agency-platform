@@ -109,12 +109,36 @@ two sides of a document do not agree on how much of a default they take:
 | Module | Line unit comes from |
 | --- | --- |
 | `purchase` | `line.purchase_uom_id` **or** `product.purchase_uom_id` |
-| `sales_order` | `line.sales_uom_id` only — no fallback to the product |
+| `sales_order` | `line.sales_uom_id` only — no fallback to the product; its **stock** unit is the product's (below) |
 | `sales_invoice` | the invoice line's unit against the *source line's* unit |
 
 So a sales order raised without a unit on the line converts nothing, whatever
 the product says. Worth knowing before assuming a product's `sales_uom_id`
 governs what leaves the shelf.
+
+**A sales order line that names a selling unit converts to the product's
+stock unit, whatever stock unit it was sent** (D-PRC-26, 2026-10-06). The
+order converted only when the line carried *both* units, while the
+reservation asks the product (`base_uom_id`, else `inventory_uom_id`): a line
+naming BOX and no `inventory_uom_id` read a quantity of 2 at a factor of 1,
+`base_quantity` 2, while 24 pieces were reserved and left the shelf, and the
+price floor judged 600.00 a box as the price of one unit. `stock_unit_of`
+(`app/uom/services/uom_service.py`) is that one answer -- the product's base
+unit, else its inventory unit, else the unit the line named for a product
+that carries neither -- and `SalesOrderService` stores it on the line with the
+factor, the rule's version and the base quantity `convert_quantity` gives, so
+the reservation, the delivery note (which inherits the order line's units),
+the price floor and every report read the same 24. A pair no rule converts is
+refused where the line is written, by name: "SKU-001: no active conversion
+rule converts CARTON to PIECE. Add one under Units -> Conversion Rules, or
+enter the quantity in PIECE." -- never counted at a factor of 1. A product
+with **no** stock unit at all has nothing to convert to: its line stays at a
+factor of 1, and stock moves the quantity as typed, as before. A counter bill
+is covered through the order it raises. **A price follows the same factor**: a
+blank price on a line in another unit is the stock-unit price times it
+(D-PRC-25, `PRICING_AND_PROMOTIONS.md`). An order line stored before this
+keeps the figures it was stored with until it is saved again. The purchase
+order still converts only when the line names both units.
 
 `business_profile_uom_defaults` supplies the starting point for a firm's
 industry (base, inventory, purchase and sales units, plus the two fraction
@@ -382,7 +406,10 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
   incremented by every ORM update.
 - **The conversion date is the document's date**, resolved with `utc_now()`.
 - **An unconfigured pair is an error, not a factor of 1.** The `factor = 1`
-  short-circuit applies *only* when the two units are the same or one is unset.
+  short-circuit applies *only* when the two units are the same or one is unset
+  -- and on a sales order line "unset" is no longer the caller's to choose: a
+  line that names a selling unit takes its stock unit from the product
+  (D-PRC-26).
 - **Seeding the catalogue is not seeding conversions.** 36 units shipped with
   zero rules, so the module was inert: every line took the `factor = 1`
   short-circuit and the first line raised in a different unit would have failed.
