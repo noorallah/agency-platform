@@ -14,6 +14,7 @@ import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/models/purchase.dart';
+import 'package:agency_desktop/models/uom_packaging.dart';
 import 'package:agency_desktop/models/vendor.dart';
 import 'package:agency_desktop/ui/purchases/purchase_management_page.dart';
 import 'package:agency_desktop/ui/purchases/supplier_scheme_page.dart';
@@ -63,7 +64,7 @@ class _Api extends ApiClient {
         );
 
   /// What every preview answers in `scheme_suggestions`.
-  final List<Json> suggestions;
+  List<Json> suggestions;
   final List<Json> previews = <Json>[];
   final Map<String, Json?> bodies = <String, Json?>{};
 
@@ -200,7 +201,11 @@ Product _product(String id, String code, String name) =>
       'status': 'ACTIVE',
     });
 
-Future<void> _pumpOrder(WidgetTester tester, _Api api) async {
+Future<void> _pumpOrder(
+  WidgetTester tester,
+  _Api api, {
+  List<UomRecord> uoms = const <UomRecord>[],
+}) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -253,6 +258,7 @@ Future<void> _pumpOrder(WidgetTester tester, _Api api) async {
             _product('product-1', 'MED-001', 'Pain Relief'),
             _product('product-2', 'MED-002', 'Cough Syrup'),
           ],
+          uoms: uoms,
           buyers: const [],
           taxProfiles: const [],
           storageNodes: const [],
@@ -281,6 +287,29 @@ Finder _box(String name, int line) => find.byWidgetPredicate((widget) =>
 Finder _freeBox(int line) => _box('free', line);
 
 Finder _qtyBox(int line) => _box('qty', line);
+
+UomRecord _uom(String id, String code) => UomRecord(
+      id: id,
+      code: code,
+      name: code,
+      symbol: code,
+      dimension: 'COUNT',
+      status: 'ACTIVE',
+      isDecimalAllowed: false,
+    );
+
+/// A scheme giving the paid line's own product: 2 pieces for 2 boxes of 12
+/// (D-PRC-39), so the server names the stock unit in `free_uom_id`.
+Json _ownSuggestion() => {
+      ..._suggestion(product: 'product-1'),
+      'free_uom_id': 'u-pc',
+    };
+
+bool _readOnly(WidgetTester tester, Finder box) => tester
+    .widget<EditableText>(
+      find.descendant(of: box, matching: find.byType(EditableText)),
+    )
+    .readOnly;
 
 List<dynamic> _sentLines(Json body) => body['lines'] as List<dynamic>;
 
@@ -416,5 +445,108 @@ void main() {
     expect(line['ordered_quantity'], '0');
     expect(line['free_quantity'], '3');
     expect(tester.takeException(), isNull);
+  });
+
+  group('the supplier scheme free line of the same product (D-PRC-39)', () {
+    final List<UomRecord> uoms = <UomRecord>[
+      _uom('u-box', 'BOX'),
+      _uom('u-pc', 'PIECE'),
+    ];
+
+    testWidgets('is offered, and one action adds it as its own line',
+        (tester) async {
+      final _Api api = _Api(suggestions: [_ownSuggestion()]);
+      await _pumpOrder(tester, api, uoms: uoms);
+
+      // Offered, not added: the paid line is the only line sent.
+      expect(find.text('Scheme 10+2: 2 PIECE free'), findsOneWidget);
+      expect(_sentLines(api.previews.last), hasLength(1));
+      expect(
+        (_sentLines(api.previews.last).single as Json).containsKey('scheme_id'),
+        isFalse,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('po-scheme-add-s-1')));
+      await _settlePreview(tester);
+
+      final List<dynamic> lines = _sentLines(api.previews.last);
+      expect(lines, hasLength(2));
+      final Json free = lines.last as Json;
+      expect(free['product_id'], 'product-1');
+      expect(free['ordered_quantity'], '0');
+      expect(free['free_quantity'], '2');
+      expect(free['scheme_id'], 's-1');
+      expect(free['purchase_uom_id'], 'u-pc');
+      expect(free['inventory_uom_id'], 'u-pc');
+      const Set<String> declared = <String>{
+        'product_id',
+        'description',
+        'vendor_product_code',
+        'purchase_uom_id',
+        'inventory_uom_id',
+        'ordered_quantity',
+        'free_quantity',
+        'scheme_id',
+        'unit_price',
+        'discount_percent',
+        'discount_amount',
+        'tax_profile_id',
+        'batch_required',
+        'expiry_required',
+        'serial_required',
+        'is_capital_goods',
+        'manufacturing_date',
+        'expiry_date',
+        'warehouse_id',
+        'storage_node_id',
+        'remarks',
+      };
+      expect(free.keys.toSet().difference(declared), isEmpty);
+      // The paid line never names a scheme.
+      expect((lines.first as Json).containsKey('scheme_id'), isFalse);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('is shown read-only and not offered a second time',
+        (tester) async {
+      final _Api api = _Api(suggestions: [_ownSuggestion()]);
+      await _pumpOrder(tester, api, uoms: uoms);
+      await tester.tap(find.byKey(const ValueKey('po-scheme-add-s-1')));
+      await _settlePreview(tester);
+
+      expect(find.byKey(const ValueKey('po-scheme-add-s-1')), findsNothing);
+      expect(find.byKey(const ValueKey('po-scheme-free-2')), findsOneWidget);
+      expect(_readOnly(tester, _qtyBox(1)), isTrue);
+      expect(_readOnly(tester, _freeBox(1)), isTrue);
+      expect(_readOnly(tester, _qtyBox(0)), isFalse);
+
+      // More previews answer the same suggestion: still one free line.
+      await tester.enterText(_qtyBox(0), '20');
+      await _settlePreview(tester);
+      await _settlePreview(tester);
+      expect(_sentLines(api.previews.last), hasLength(2));
+      expect(find.byKey(const ValueKey('po-scheme-add-s-1')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('goes when the paid quantity no longer earns it',
+        (tester) async {
+      final _Api api = _Api(suggestions: [_ownSuggestion()]);
+      await _pumpOrder(tester, api, uoms: uoms);
+      await tester.tap(find.byKey(const ValueKey('po-scheme-add-s-1')));
+      await _settlePreview(tester);
+      expect(_sentLines(api.previews.last), hasLength(2));
+
+      // The next preview earns nothing.
+      api.suggestions = const <Json>[];
+      await tester.enterText(_qtyBox(0), '3');
+      await _settlePreview(tester);
+
+      expect(find.byKey(const ValueKey('po-scheme-free-2')), findsNothing);
+      await tester.enterText(_qtyBox(0), '4');
+      await _settlePreview(tester);
+      expect(_sentLines(api.previews.last), hasLength(1));
+      expect(tester.takeException(), isNull);
+    });
   });
 }
