@@ -19,7 +19,14 @@ class _ReturnLineDraft {
   bool serialsRead = false;
   final Set<String> picked = <String>{};
 
-  double get returned => double.tryParse(quantity.trim()) ?? 0;
+  double get typedQuantity => double.tryParse(quantity.trim()) ?? 0;
+
+  /// Everything coming back on the line. A quantity of 0 beside a free
+  /// figure is the other way of typing free goods alone ("0 charged, 1
+  /// free"), and the server reads it as that many, all free (D-PRC-51).
+  double get returned => typedQuantity > 0
+      ? typedQuantity
+      : (line.shippedFree ? freeQuantity : 0);
   double get damagedQuantity => double.tryParse(damaged.trim()) ?? 0;
   double get scrapQuantity => double.tryParse(scrap.trim()) ?? 0;
   double get sent => double.tryParse(line.quantity) ?? 0;
@@ -231,7 +238,9 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
             'source_document_id': document.id,
             'source_document_line_id': sending[i].line.id,
             'line_number': i + 1,
-            'current_return_quantity': sending[i].quantity.trim(),
+            'current_return_quantity': sending[i].quantity.trim().isEmpty
+                ? '0'
+                : sending[i].quantity.trim(),
             // Blank is not sent: the server then takes the charged units
             // first. Only a line that shipped free goods can say otherwise.
             if (sending[i].line.shippedFree &&
@@ -422,7 +431,8 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
   }
 
   double _typedTaxable(_ReturnLineDraft draft) =>
-      draft.returned * _number(draft.line.unitPrice);
+      (draft.returned - draft.freeQuantity).clamp(0, double.infinity) *
+      _number(draft.line.unitPrice);
 
   Widget _cellBox(
     BuildContext context, {
@@ -501,7 +511,8 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
           Tooltip(
             message: 'Sent ${_quantity(draft.sent)} charged and '
                 '${_quantity(draft.sentFree)} free. Blank takes the charged '
-                'units first; free units are credited nothing.',
+                'units first; free units are credited nothing. Returning 0 '
+                'with a number here sends back only that many free units.',
             child: _cellBox(
               context,
               index: index,

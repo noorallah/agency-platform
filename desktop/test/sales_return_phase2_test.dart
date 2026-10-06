@@ -196,6 +196,32 @@ void main() {
     expect(line['free_quantity'], '1');
   });
 
+  testWidgets('free units go back as free with a quantity of 0 (D-PRC-51)',
+      (tester) async {
+    final List<Json?> saved = <Json?>[];
+    await _openEditor(tester, _noteWithFree(), saved);
+
+    // Nothing typed anywhere: the line is left off and the form says so.
+    await tester.tap(find.byKey(const ValueKey('sales-return-save')));
+    await tester.pumpAndSettle();
+    expect(saved, isEmpty);
+
+    // The free box alone, the returning box untouched at 0.
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('sales-return-free-dn-1-0')), '1');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-return-save')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    final Json line = (saved.single!['lines'] as List).single as Json;
+    expect(line['current_return_quantity'], '0');
+    expect(line['free_quantity'], '1');
+    expect(line['damaged_quantity'], '0');
+    expect(line['scrap_quantity'], '0');
+    // The server works the restock out, so none is sent to disagree with it.
+    expect(line.containsKey('restock_quantity'), isFalse);
+  });
+
   testWidgets('more free than was sent free, or than comes back, is refused '
       'on the form', (tester) async {
     final List<Json?> saved = <Json?>[];
