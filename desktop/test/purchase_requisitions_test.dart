@@ -235,6 +235,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.byKey(const ValueKey('requisition-quantity-0')), '12');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('requisition-supplier-0-')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Sri Ganesh Traders').last);
@@ -287,6 +288,7 @@ void main() {
     await _select(tester, 'REQ-1');
     await _command(tester, 'cancel');
     await tester.enterText(find.byType(TextField).last, 'No longer needed');
+    await tester.pump();
     await tester.tap(find.text('Cancel requisition'));
     await tester.pumpAndSettle();
 

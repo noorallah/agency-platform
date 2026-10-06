@@ -519,11 +519,13 @@ void main() {
       final Finder box = find.byKey(const ValueKey('vendor-currency'));
       await tester.ensureVisible(box);
       await tester.enterText(box, 'us');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('vendor-save')));
       await tester.pumpAndSettle();
       expect(api.vendorSaved, isNull);
 
       await tester.enterText(box, 'usd');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('vendor-save')));
       await tester.pumpAndSettle();
       expect(api.vendorSaved?['currency_code'], 'USD');
@@ -535,6 +537,7 @@ void main() {
       final Finder box = find.byKey(const ValueKey('vendor-currency'));
       await tester.ensureVisible(box);
       await tester.enterText(box, '');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('vendor-save')));
       await tester.pumpAndSettle();
       expect(api.vendorSaved?.containsKey('currency_code'), isTrue);
@@ -688,6 +691,7 @@ void main() {
       await tester.enterText(
           find.widgetWithText(TextField, 'Amount (USD)'), '1000');
       await tester.enterText(_applyBox(), '1000');
+      await tester.pump();
       await tester.tap(find.text('Record payment'));
       await tester.pumpAndSettle();
       expect(api.payment, isNull);
@@ -713,6 +717,7 @@ void main() {
 
       await tester.enterText(find.byKey(const ValueKey('boe-number')), '7788');
       await tester.enterText(find.byKey(const ValueKey('boe-port')), 'inmaa1');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('boe-vendor')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Shenzhen Parts').last);
@@ -770,6 +775,7 @@ void main() {
       await tester.pumpAndSettle();
       await _command(tester, 'cancel');
       await tester.enterText(find.byType(TextField).last, 'Wrong supplier');
+      await tester.pump();
       await tester.tap(find.text('Cancel the Bill of Entry'));
       await tester.pumpAndSettle();
       expect(api.bodies['POST /api/v1/bills-of-entry/2/cancel'],
@@ -804,6 +810,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(
           find.byKey(const ValueKey('fx-rate-USD')), '84.5');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('fx-post')));
       await tester.pumpAndSettle();
 

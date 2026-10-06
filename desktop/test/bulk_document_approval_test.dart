@@ -372,6 +372,7 @@ void main() {
         await tester.tap(find.text('Cancel selected'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, 'Entered twice.');
+        await tester.pump();
         await tester
             .tap(find.widgetWithText(FilledButton, screen.cancelLabel!));
         await tester.pumpAndSettle();

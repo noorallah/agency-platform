@@ -261,6 +261,7 @@ void main() {
       isNot(contains('POST /api/v1/party-adjustments/pa-1/cancel')),
     );
     await tester.enterText(find.byType(TextField).last, 'Entered twice');
+    await tester.pump();
     await tester.tap(find.text('Cancel adjustment'));
     await tester.pumpAndSettle();
 

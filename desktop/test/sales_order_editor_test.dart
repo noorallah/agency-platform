@@ -29,6 +29,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/first_line.dart';
+
 Json _customer(String id, String name, {String discount = '0'}) =>
     <String, dynamic>{
       'id': id,
@@ -273,6 +275,7 @@ Future<bool?> _pump(
   _OrderApi api, {
   String? orderId,
   Size window = const Size(1600, 1200),
+  bool fill = true,
 }) async {
   tester.view.physicalSize = window;
   tester.view.devicePixelRatio = 1;
@@ -299,6 +302,9 @@ Future<bool?> _pump(
   ));
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
+  if (orderId == null && fill) {
+    await fillFirstLine(tester, document: 'sales-order', product: 'Shampoo');
+  }
   return popped;
 }
 
@@ -424,6 +430,10 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, 'Add line'));
     await tester.pumpAndSettle();
     await _choose(tester, 'sales-order-line-product-1', 'P2  Rice 5kg');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Quantity').at(1),
+      '2',
+    );
     await _create(tester);
 
     final List<dynamic> lines = api.created!['lines'] as List<dynamic>;
@@ -833,7 +843,7 @@ void main() {
   testWidgets('the form fits a 1366 by 768 window with several lines',
       (tester) async {
     final _OrderApi api = _api();
-    await _pump(tester, api, window: const Size(1366, 768));
+    await _pump(tester, api, window: const Size(1366, 768), fill: false);
     for (int index = 0; index < 3; index += 1) {
       // The button walks down the form as lines are added, so it has to be
       // scrolled to rather than assumed to be on screen.
@@ -881,6 +891,13 @@ void main() {
       ));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
+      if (orderId == null) {
+        await fillFirstLine(
+          tester,
+          document: 'sales-order',
+          product: 'Shampoo',
+        );
+      }
     }
 
     Future<void> chooseCustomer(WidgetTester tester) async {
@@ -1152,6 +1169,7 @@ void main() {
     ));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
+    await fillFirstLine(tester, document: 'sales-order', product: 'Shampoo');
     // Nothing to price until the order names its customer.
     expect(api.previews, isEmpty);
     await tester.tap(find.byKey(const ValueKey('sales-order-customer')));

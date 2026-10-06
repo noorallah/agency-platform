@@ -203,6 +203,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('selection-reject')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Price too low');
+    await tester.pump();
     await tester.tap(find.text('Reject').last);
     await tester.pumpAndSettle();
     expect(api.rejectBody, <String, dynamic>{
@@ -227,6 +228,7 @@ void main() {
         .tap(find.byKey(const ValueKey('selection-bulk-reject')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Not agreed');
+    await tester.pump();
     await tester.tap(find.text('Reject documents'));
     await tester.pumpAndSettle();
     expect(api.bulkBody, <String, dynamic>{
@@ -259,6 +261,7 @@ void main() {
         find.byKey(const ValueKey('approval-rule-amount-1')), '200000');
     await tester.enterText(
         find.byKey(const ValueKey('approval-rule-role-1')), 'FINANCE');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('approval-rules-save')));
     await tester.pumpAndSettle();
     expect(api.rulesType, 'SALES_ORDER');

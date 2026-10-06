@@ -221,6 +221,8 @@ void main() {
     await tester.enterText(find.byKey(const ValueKey('gift-item')), 'Watch');
     await tester.enterText(find.byKey(const ValueKey('gift-value')), '9000');
 
+    await tester.pump();
+
     await tester.tap(find.byKey(const ValueKey('gift-kept-by')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Owner').last);
@@ -244,6 +246,7 @@ void main() {
     await _chooseVendor(tester);
     await tester.enterText(find.byKey(const ValueKey('gift-item')), 'Clock');
     await tester.enterText(find.byKey(const ValueKey('gift-value')), '1500');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('gift-save')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('gift-problem')), findsOneWidget);
@@ -259,6 +262,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('selection-take-back')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Returned to them');
+    await tester.pump();
     await tester.tap(find.text('Take back').last);
     await tester.pumpAndSettle();
     expect(api.requested, contains('POST /api/v1/vendors/gifts/g-1/cancel'));

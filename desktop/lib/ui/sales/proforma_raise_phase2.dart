@@ -95,7 +95,7 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
-            Navigator.of(context).pop(),
+            leaveDocument(context),
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): _raise,
       },
       child: Focus(
@@ -111,7 +111,7 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
                 hint: 'Ctrl+S raise',
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () => leaveDocument(context),
                     child: const Text('Cancel'),
                   ),
                   FilledButton(

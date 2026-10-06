@@ -182,6 +182,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('run-bill-i-2')));
     await tester.enterText(
         find.byKey(const ValueKey('run-amount-i-1')), '1500');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('run-save')));
     await tester.pumpAndSettle();
 
@@ -202,6 +203,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('selection-cancel')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Wrong date');
+    await tester.pump();
     await tester.tap(find.text('Cancel run'));
     await tester.pumpAndSettle();
     expect(api.requested, contains('POST /api/v1/payment-runs/r-1/cancel'));

@@ -38,7 +38,7 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
           // A draft this window saved itself goes back to the list as saved.
-          if (!_saving) Navigator.pop(context, _saved);
+          if (!_saving) leaveDocument(context, result: _saved, saved: _saved != null);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
           if (!_saving) unawaited(_save());
@@ -62,7 +62,7 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
                 actions: [
                   TextButton(
                     onPressed:
-                        _saving ? null : () => Navigator.pop(context, _saved),
+                        _saving ? null : () => leaveDocument(context, result: _saved, saved: _saved != null),
                     child: Text(_saved == null ? 'Cancel' : 'Close'),
                   ),
                   TextButton.icon(

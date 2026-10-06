@@ -14,6 +14,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/first_line.dart';
+
 /// Prices offered before anything is sold.
 ///
 /// A quotation commits nothing, so the screen's job is to keep saying so — and
@@ -332,6 +334,24 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
+/// Open the writing screen and take the customer and the first line the
+/// editor used to start with (D-UI-22: it starts empty now).
+Future<void> _newQuotation(WidgetTester tester) async {
+  await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+  await tester.pumpAndSettle();
+  await tester.tap(
+    find.widgetWithText(DropdownButtonFormField<String>, 'Customer'),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.textContaining('Anand Agencies').last);
+  await tester.pumpAndSettle();
+  await fillFirstLine(
+    tester,
+    document: 'quotation',
+    product: 'Shampoo Bottle',
+  );
+}
+
 Future<void> _select(WidgetTester tester) async {
   await tester.tap(find.textContaining('QT-2026-2027-000001').first);
   await tester.pumpAndSettle();
@@ -535,8 +555,7 @@ void main() {
         (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       // Thirty days from the pinned today, so the field is never empty.
       expect(find.text('2026-09-13'), findsOneWidget);
@@ -576,13 +595,19 @@ void main() {
     testWidgets('it sends every line that was typed', (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(find.widgetWithText(TextFormField, 'Quantity'), '5');
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Unit price'), '250');
       await tester.tap(find.widgetWithText(TextButton, 'Add line'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('quotation-line-product-1')));
+      await tester.tap(
+          find.byKey(const ValueKey<String>('quotation-line-product-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Shampoo Bottle').last);
       await tester.pumpAndSettle();
 
       // Two of each now, so each field is addressed by position.
@@ -614,14 +639,21 @@ void main() {
         (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(find.widgetWithText(TextFormField, 'Quantity'), '1');
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Unit price'), '10');
       for (final String pair in const ['2:20', '3:30']) {
         await tester.tap(find.widgetWithText(TextButton, 'Add line'));
+        await tester.pumpAndSettle();
+        final String row = pair.startsWith('2') ? '1' : '2';
+        await tester.ensureVisible(
+            find.byKey(ValueKey<String>('quotation-line-product-$row')));
+        await tester.tap(
+            find.byKey(ValueKey<String>('quotation-line-product-$row')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.textContaining('Shampoo Bottle').last);
         await tester.pumpAndSettle();
         await tester.enterText(find.widgetWithText(TextFormField, 'Quantity').last,
             pair.split(':').first);
@@ -634,6 +666,8 @@ void main() {
       // Drop the middle line. Its controllers belong to the draft, so what is
       // left has to be the first and third rows -- if the state kept parallel
       // lists instead, the third row would inherit the second's numbers.
+      await tester.ensureVisible(find.byTooltip('Remove this line').at(1));
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Remove this line').at(1));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
@@ -652,8 +686,7 @@ void main() {
 
     testWidgets('the only line cannot be removed', (tester) async {
       await _pump(tester, _QuoteApi());
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       // A quotation with no lines is not an offer and the server refuses one,
       // so the control says why rather than failing on save.
@@ -819,8 +852,7 @@ void main() {
       // list the moment they shipped. The rate is said instead.
       final _QuoteApi api = _QuoteApi(customerDiscount: '10');
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       expect(find.widgetWithText(TextFormField, 'Discount %'), findsOneWidget);
       expect(
@@ -854,8 +886,7 @@ void main() {
       // from the desktop, whoever the customer was.
       final _QuoteApi api = _QuoteApi(customerDiscount: '0');
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       expect(find.text('Blank takes any arrangement on file.'), findsOneWidget);
 
@@ -874,8 +905,7 @@ void main() {
     testWidgets('typing over the standing discount wins', (tester) async {
       final _QuoteApi api = _QuoteApi(customerDiscount: '10');
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Quantity'), '5');
@@ -905,8 +935,7 @@ void main() {
         (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Discount %'), '500');
@@ -922,8 +951,7 @@ void main() {
         (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Quantity'), '5');
@@ -950,8 +978,7 @@ void main() {
       // would refuse the empty string as a schema error.
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Quantity'), '5');
@@ -970,8 +997,7 @@ void main() {
       // without going to the API.
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Quantity'), '10');
@@ -996,8 +1022,7 @@ void main() {
       // source line offered", and there is nothing to inherit from here.
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Quantity'), '10');
@@ -1019,8 +1044,7 @@ void main() {
       // this app, so the order is asserted rather than looked at.
       final _QuoteApi api = _QuoteApi(customerDiscount: '10');
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       for (final String label in <String>[
         'Quantity',
@@ -1057,8 +1081,7 @@ void main() {
         (tester) async {
       final _QuoteApi api = _QuoteApi(customerDiscount: '10');
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Quantity'), '10');
@@ -1097,8 +1120,7 @@ void main() {
       // document made somebody type the price again.
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       expect(find.text('lists at 180.00, MRP 199.00'), findsOneWidget);
 
@@ -1119,8 +1141,7 @@ void main() {
         (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.tap(find.byKey(const ValueKey<String>('quotation-line-product-0')));
       await tester.pumpAndSettle();
@@ -1134,8 +1155,7 @@ void main() {
       // Refilling it would overwrite a price the salesman had just agreed.
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Unit price'), '150');
@@ -1160,8 +1180,7 @@ void main() {
     testWidgets('it refuses a quantity or price of nothing', (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
-      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
-      await tester.pumpAndSettle();
+      await _newQuotation(tester);
 
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Quantity'),

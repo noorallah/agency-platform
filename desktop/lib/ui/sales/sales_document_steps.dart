@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/price_floor.dart';
+import '../../phase2/document_page.dart' show documentQuantity;
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_steps.dart';
 import '../trade_licences/licence_check_dialog.dart';
@@ -55,7 +56,7 @@ Future<DocumentStepDone?> _approveSale(
   if (!price.proceed) return null;
   final String? overrideReason = licence.overrideReason;
   final String? priceOverrideReason = price.overrideReason;
-  await api.documentAction(
+  final Json approved = await api.documentAction(
     resource,
     '${row['id']}',
     '/approve',
@@ -69,8 +70,45 @@ Future<DocumentStepDone?> _approveSale(
           },
   );
   // Said by the list once it reads itself again, and only by the status:
-  // a message here would cover the credit warning shown before the call.
-  return const DocumentStepDone('', step: 'approve');
+  // a message here would cover the credit warning shown before the call --
+  // except when the order was approved for more than the stock on hand,
+  // which nothing else says (D-UI-24).
+  final String? shortage = approvedShortfallNotice(approved['data']);
+  return shortage == null
+      ? const DocumentStepDone('', step: 'approve')
+      : DocumentStepDone(shortage, warning: true, step: 'approve');
+}
+
+/// What an approved order's response says about stock it could not reserve,
+/// or null where every line was covered (D-UI-24).
+///
+/// The server approves the order whatever the stock and leaves the shortfall
+/// on back order, so approval itself is no sign of it. Each line carries what
+/// it needs (`reservable_quantity`) and what was set aside
+/// (`reserved_quantity`), so the difference is read from the response that
+/// is already in hand: no further call.
+String? approvedShortfallNotice(Object? order) {
+  if (order is! Map) return null;
+  final Object? lines = order['lines'];
+  if (lines is! List) return null;
+  final List<String> short = <String>[];
+  for (final Object? line in lines) {
+    if (line is! Map) continue;
+    final double? need = double.tryParse('${line['reservable_quantity']}');
+    final double? held = double.tryParse('${line['reserved_quantity']}');
+    if (need == null || held == null || need <= held) continue;
+    String figure(double value) => documentQuantity(value.toStringAsFixed(4));
+    final String name = '${line['description'] ?? ''}'.trim();
+    short.add(
+      '${figure(need - held)} of ${figure(need)}'
+      '${name.isEmpty ? '' : ' of $name'}',
+    );
+  }
+  if (short.isEmpty) return null;
+  final String what = short.length == 1
+      ? '${short.single} are not in stock and stay'
+      : '${short.join('; ')} are not in stock and stay';
+  return 'Approved. $what on back order.';
 }
 
 /// The steps of one sale whose lifecycle actions are plain

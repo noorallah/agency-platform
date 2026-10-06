@@ -309,6 +309,7 @@ void main() {
       await tester.tap(find.text('Reject draft'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'wrong account');
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Reject'));
       await tester.pumpAndSettle();
       expect(api.rejected, 'je-JV-1:wrong account');

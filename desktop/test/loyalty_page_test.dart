@@ -364,12 +364,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.byKey(const ValueKey('loyalty-adjust-points')), '-5');
+    await tester.pump();
     await tester.tap(find.text('Record adjustment'));
     await tester.pumpAndSettle();
     expect(api.written, isEmpty, reason: 'no reason given yet');
 
     await tester.enterText(find.byKey(const ValueKey('loyalty-adjust-reason')),
         'Credited twice on SI-4');
+    await tester.pump();
     await tester.tap(find.text('Record adjustment'));
     await tester.pumpAndSettle();
 
@@ -437,6 +439,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), 'Keyed on the wrong bill');
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Put points back'));
       await tester.pumpAndSettle();
 
@@ -538,6 +541,7 @@ void main() {
       await tester.tap(putBack);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'Wrong bill');
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Put points back'));
       await tester.pumpAndSettle();
       expect(find.textContaining('already put back'), findsOneWidget);

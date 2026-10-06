@@ -48,7 +48,7 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
-            Navigator.pop(context),
+            leaveDocument(context),
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): _submit,
       },
       child: Focus(

@@ -342,6 +342,7 @@ void main() {
     await tester.tap(find.text('RICE · Basmati rice').last);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('rc-rate-0')), '92');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('rc-save')));
     await tester.pumpAndSettle();
 
@@ -389,6 +390,7 @@ void main() {
     await _select(tester, 'RC-2');
     await _command(tester, 'cancel');
     await tester.enterText(find.byType(TextField).last, 'Prices revised');
+    await tester.pump();
     await tester.tap(find.text('Cancel contract'));
     await tester.pumpAndSettle();
     expect(api.calls, contains('POST /api/v1/rate-contracts/2/cancel'));

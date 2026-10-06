@@ -81,6 +81,26 @@ class DocumentTabsController extends ChangeNotifier {
   }
 }
 
+/// Leave the document the way its Cancel button and Esc should (D-UI-21).
+///
+/// `maybePop` rather than `pop`, so the tab's unsaved-work guard gets to ask
+/// "Close without saving?" when something was typed, and the document closes
+/// at once when nothing was. [saved] says the document has already been
+/// saved from this window (its button reads Close, not Cancel): there is
+/// nothing left to lose, so it closes directly and does not ask again.
+void leaveDocument(
+  BuildContext context, {
+  Object? result,
+  bool saved = false,
+}) {
+  final NavigatorState navigator = Navigator.of(context);
+  if (saved) {
+    navigator.pop(result);
+  } else {
+    unawaited(navigator.maybePop(result));
+  }
+}
+
 /// Asks before a document tab that has been typed in is closed by its tab's
 /// X (or anything else that goes through `maybePop`).
 ///

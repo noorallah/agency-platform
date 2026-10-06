@@ -75,6 +75,11 @@ class _ReasonDialogState extends State<_ReasonDialog> {
   }
 
   void _confirm() {
+    // A reason is needed: an empty box keeps the dialog open and says so
+    // (the button is disabled meanwhile), rather than closing in silence.
+    if (_reason.text.trim().isEmpty) {
+      return;
+    }
     final String text = _reason.text.trim();
     Navigator.of(context).pop(text.isEmpty ? null : text);
   }
@@ -97,8 +102,14 @@ class _ReasonDialogState extends State<_ReasonDialog> {
               const SizedBox(height: AppSpacing.md),
               TextField(
                 controller: _reason,
-                decoration: InputDecoration(labelText: widget.label),
+                decoration: InputDecoration(
+                  labelText: widget.label,
+                  helperText: _reason.text.trim().isEmpty
+                      ? 'A reason is needed'
+                      : null,
+                ),
                 autofocus: true,
+                onChanged: (_) => setState(() {}),
                 onSubmitted: (_) => _confirm(),
               ),
             ],
@@ -110,7 +121,7 @@ class _ReasonDialogState extends State<_ReasonDialog> {
             child: Text(widget.cancelLabel),
           ),
           FilledButton(
-            onPressed: _confirm,
+            onPressed: _reason.text.trim().isEmpty ? null : _confirm,
             child: Text(widget.confirmLabel),
           ),
         ],

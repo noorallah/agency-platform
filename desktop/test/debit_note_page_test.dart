@@ -289,6 +289,7 @@ void main() {
     // Nothing is sent until a reason is typed.
     expect(api.requested, isNot(contains('POST /api/v1/debit-notes/dn-1/cancel')));
     await tester.enterText(find.byType(TextField).last, 'Supplier agreed');
+    await tester.pump();
     await tester.tap(find.text('Cancel note'));
     await tester.pumpAndSettle();
 

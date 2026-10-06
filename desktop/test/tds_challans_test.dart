@@ -225,6 +225,7 @@ void main() {
 
     await tester.enterText(
         find.byKey(const ValueKey('tds-challan-counterfoil')), '1000');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('tds-challan-save')));
     await tester.pumpAndSettle();
 
@@ -272,6 +273,7 @@ void main() {
       isNot(contains('POST /api/v1/finance/tds-challans/ch-1/cancel')),
     );
     await tester.enterText(find.byType(TextField).last, 'Wrong serial');
+    await tester.pump();
     await tester.tap(find.text('Cancel challan'));
     await tester.pumpAndSettle();
 

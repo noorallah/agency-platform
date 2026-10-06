@@ -352,6 +352,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('repack-cancel')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'Counted wrong');
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Cancel repack').last);
       await tester.pumpAndSettle();
 
