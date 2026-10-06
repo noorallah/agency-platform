@@ -820,7 +820,7 @@ class _PurchaseInvoiceManagementPageState
               description: line.description,
               uom: _labels.unit(line.invoiceUomId),
               packaging: line.packagingTypeId,
-              quantity: line.currentInvoiceQuantity,
+              quantity: line.shownQuantity,
               unitPrice: line.unitPrice,
               discount: line.discountAmount,
               taxProfile: _labels.taxProfile(line.taxProfileId),
@@ -1077,6 +1077,7 @@ class _PurchaseInvoiceLine {
     required this.grossAmount,
     required this.netAmount,
     required this.remarks,
+    this.enteredQuantity = '',
     this.itcEligibility = '',
     this.taxRuleCode,
     this.taxRuleVersion,
@@ -1088,12 +1089,22 @@ class _PurchaseInvoiceLine {
   final String invoiceUomId;
   final String packagingTypeId;
   final String currentInvoiceQuantity;
+
+  /// What was typed, in [invoiceUomId], where the line was typed in another
+  /// unit than the receipt line it bills (D-PRC-37); empty otherwise.
+  /// [currentInvoiceQuantity] is then the same goods in the receipt line's
+  /// unit, so it is not what the unit beside the figure counts.
+  final String enteredQuantity;
   final String unitPrice;
   final String discountAmount;
   final String taxProfileId;
   final String grossAmount;
   final String netAmount;
   final String remarks;
+
+  /// The quantity the line's own unit counts.
+  String get shownQuantity =>
+      enteredQuantity.isEmpty ? currentInvoiceQuantity : enteredQuantity;
 
   /// The input credit status the server resolved for the line.
   final String itcEligibility;
@@ -1110,6 +1121,7 @@ class _PurchaseInvoiceLine {
         invoiceUomId: stringValue(json['invoice_uom_id']),
         packagingTypeId: stringValue(json['packaging_type_id']),
         currentInvoiceQuantity: stringValue(json['current_invoice_quantity']),
+        enteredQuantity: stringValue(json['entered_quantity']),
         unitPrice: stringValue(json['unit_price']),
         discountAmount: stringValue(json['discount_amount']),
         taxProfileId: stringValue(json['tax_profile_id']),

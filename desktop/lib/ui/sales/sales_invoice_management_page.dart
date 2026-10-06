@@ -422,7 +422,11 @@ class _SalesInvoiceManagementPageState
           description: (item['description'] as String?) ?? '',
           uom: _labels.unit('${item['invoice_uom_id'] ?? ''}'),
           packaging: '${item['packaging_type_id'] ?? ''}',
-          quantity: '${item['current_invoice_quantity'] ?? '0'}',
+          // What was typed, in the unit shown beside it, where the line was
+          // typed in another unit than the one it bills (D-PRC-37).
+          quantity: item['entered_quantity'] != null
+              ? '${item['entered_quantity']}'
+              : '${item['current_invoice_quantity'] ?? '0'}',
           unitPrice: '${item['unit_price'] ?? '0'}',
           discount: '${item['discount_amount'] ?? '0'}',
           discountPercent: '${item['discount_percent'] ?? ''}',

@@ -753,9 +753,11 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     TextEditingController? controller, {
     String? Function(String?)? validator,
     String? hint,
+    bool readOnly = false,
   }) =>
       TextFormField(
         controller: controller,
+        readOnly: readOnly,
         textAlign: TextAlign.right,
         keyboardType: TextInputType.number,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13),
@@ -836,6 +838,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               style: text,
             ),
             Text(
+              key: ValueKey<String>('sales-invoice-line-typed-unit-$index'),
+              '${_isTypedInOtherUnit(line.sourceDocumentLineId) ? 'Typed in ${_typedUnitCode(line.sourceDocumentLineId)}, kept as typed  ·  ' : ''}'
               '${_extraDocuments.isEmpty ? '' : '${document.sourceDocumentNumber}  ·  '}'
               'dispatched ${documentQuantity(line.sourceQuantity)}'
               '${already.isEmpty || already == '0' ? '' : ', already billed ${documentQuantity(already)}'}'
@@ -852,6 +856,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         _cellBox(
           context,
           _quantities[line.sourceDocumentLineId],
+          readOnly: _isTypedInOtherUnit(line.sourceDocumentLineId),
           validator: (value) => _billableQuantity(value, line),
         ),
         // The note's own price and discount: a bill continues the document

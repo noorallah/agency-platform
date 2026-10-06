@@ -17,6 +17,7 @@ import '../../models/sales_invoice.dart';
 import '../../models/document_preview.dart';
 import '../../models/line_tax_rule.dart';
 import '../../models/tax_framework.dart';
+import '../../models/uom_packaging.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
@@ -269,6 +270,52 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// draft's own quantity is counted against the source line and would
   /// otherwise be subtracted from the number the user is allowed to keep.
   final Map<String, double> _ownQuantities = <String, double>{};
+
+  /// Lines of a saved draft that were typed in another unit than the line
+  /// they bill (D-PRC-37): the unit typed, by source line, and the quantity
+  /// typed in it. `current_invoice_quantity` holds the same goods in the
+  /// source line's unit (0.5833 of a box for 7 pieces), so the box shows
+  /// what was typed and a save sends it back with its unit -- the other way
+  /// round it would be read as 0.5833 pieces. Such a box is read-only: the
+  /// stock cap and the price estimate here count the source unit.
+  final Map<String, String> _typedUnits = <String, String>{};
+  final Map<String, String> _enteredQuantities = <String, String>{};
+  final Map<String, String> _unitCodes = <String, String>{};
+
+  /// A quantity as a box reads it: no trailing zeros.
+  static String _plainQuantity(String value) {
+    final double? parsed = double.tryParse(value.trim());
+    if (parsed == null) return value.trim();
+    return parsed == parsed.roundToDouble()
+        ? parsed.toInt().toString()
+        : parsed.toString();
+  }
+
+  bool _isTypedInOtherUnit(String lineId) => _typedUnits.containsKey(lineId);
+
+  /// The unit a typed-in-another-unit line was entered in, by code.
+  String _typedUnitCode(String lineId) =>
+      _unitCodes[_typedUnits[lineId]] ?? 'its own unit';
+
+  /// Read the unit names once, only when a draft line names a unit of its own.
+  void _loadTypedUnitNames() {
+    if (_typedUnits.isEmpty) return;
+    unawaited(() async {
+      try {
+        final List<UomRecord> units = await widget.api.uoms(
+          includeInactive: true,
+        );
+        if (!mounted) return;
+        setState(() {
+          for (final UomRecord unit in units) {
+            _unitCodes[unit.id] = unit.code;
+          }
+        });
+      } on ApiException {
+        // The line then says "its own unit".
+      }
+    }());
+  }
 
   String? get _invoiceId => _draftId ?? widget.invoiceId;
 
@@ -546,11 +593,13 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     for (final BillableDocument document in rebuilt) {
       for (final BillableLine line in document.lines) {
         _quantities[line.sourceDocumentLineId] = TextEditingController(
-          text: '${_ownQuantities[line.sourceDocumentLineId] ?? 0}',
+          text: _enteredQuantities[line.sourceDocumentLineId] ??
+              '${_ownQuantities[line.sourceDocumentLineId] ?? 0}',
         );
         if (line.trackSerial) _loadSerials(line.productId, line.warehouseId);
       }
     }
+    _loadTypedUnitNames();
     final double bill =
         double.tryParse('${invoice['bill_discount_percent'] ?? 0}') ?? 0;
     _billDiscountTypedAsAmount = '${invoice['bill_discount_source']}' ==
@@ -692,6 +741,12 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       final double own =
           double.tryParse('${line['current_invoice_quantity'] ?? 0}') ?? 0;
       _ownQuantities[lineId] = own;
+      final String enteredQuantity = stringValue(line['entered_quantity']);
+      final String enteredUnit = stringValue(line['invoice_uom_id']);
+      if (enteredQuantity.isNotEmpty && enteredUnit.isNotEmpty) {
+        _typedUnits[lineId] = enteredUnit;
+        _enteredQuantities[lineId] = _plainQuantity(enteredQuantity);
+      }
       final Iterable<BillableLine> still =
           extra.where((item) => item.sourceDocumentLineId == lineId);
       final double elsewhere = still.isEmpty
@@ -889,9 +944,16 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     }
   }
 
+  /// The quantity in the source line's unit, which is what the price and the
+  /// caps count: a line typed in another unit holds that quantity beside the
+  /// box, not in it.
   double _quantityOf(BillableLine line) =>
-      double.tryParse(_quantities[line.sourceDocumentLineId]?.text.trim() ?? '') ??
-      0;
+      _isTypedInOtherUnit(line.sourceDocumentLineId)
+          ? _ownQuantities[line.sourceDocumentLineId] ?? 0
+          : double.tryParse(
+                _quantities[line.sourceDocumentLineId]?.text.trim() ?? '',
+              ) ??
+              0;
 
   /// What the bill-discount box says a blank does.
   String get _billDiscountHelper => _billDiscountTypedAsAmount
@@ -973,6 +1035,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           'source_document_line_id': line.sourceDocumentLineId,
           'line_number': lines.length + 1,
           'current_invoice_quantity': typed,
+          // What was typed goes back with the unit it was typed in.
+          if (_isTypedInOtherUnit(line.sourceDocumentLineId))
+            'invoice_uom_id': _typedUnits[line.sourceDocumentLineId],
           'unit_price': line.unitPrice,
           if (_picksSerials(source, line))
             'serial_ids': [...?_pickedSerials[line.sourceDocumentLineId]],
@@ -1077,6 +1142,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       'product_id': _productOfLine(sourceLine),
       'line_number': line['line_number'],
       'current_invoice_quantity': line['current_invoice_quantity'],
+      if (line['invoice_uom_id'] != null)
+        'invoice_uom_id': line['invoice_uom_id'],
       'unit_price': _enteredRates[sourceLine] ?? line['unit_price'],
       if (discount > 0) 'discount_percent': '$discount',
       if (line['serial_ids'] != null) 'serial_ids': line['serial_ids'],
@@ -2107,9 +2174,13 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
             Expanded(
               child: TextFormField(
                 controller: _quantities[line.sourceDocumentLineId],
-                decoration: const InputDecoration(
+                readOnly: _isTypedInOtherUnit(line.sourceDocumentLineId),
+                decoration: InputDecoration(
                   labelText: 'Bill',
                   isDense: true,
+                  helperText: _isTypedInOtherUnit(line.sourceDocumentLineId)
+                      ? 'In ${_typedUnitCode(line.sourceDocumentLineId)}, as typed'
+                      : null,
                 ),
                 keyboardType: TextInputType.number,
                 validator: (value) => _billableQuantity(value, line),
@@ -2127,6 +2198,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     final double? parsed = double.tryParse(text);
     if (parsed == null) return 'Enter a quantity.';
     if (parsed < 0) return 'Cannot be negative.';
+    // Counted by the server, in the unit it was typed in.
+    if (_isTypedInOtherUnit(line.sourceDocumentLineId)) return null;
     // A counter bill's own note is raised again for whatever it now bills.
     if (_editsCounterBill) return null;
     final double remaining = double.tryParse(line.remainingQuantity) ?? 0;
