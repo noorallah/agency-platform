@@ -22,6 +22,7 @@ import '../../models/settlement.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
 import '../workspace/reason_prompt.dart';
+import 'purchase_requisition_page.dart' show ProductSearchBox;
 
 String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
 
@@ -41,6 +42,27 @@ const List<(String, String)> _kinds = [
   ('BREAKAGE', 'Breakage'),
 ];
 
+/// The groups a claim's lines fall into: the four a period claims, then a
+/// price cut, which stands on a claim of its own.
+const List<(String, String)> _groups = [
+  ..._kinds,
+  ('RATE_DIFFERENCE', 'Rate difference'),
+];
+
+/// One line in words: what it is for, then the stock and rates a price cut
+/// states. A line taking back from an earlier claim is negative and says so in
+/// its description, as the server sent it.
+String _lineText(PrincipalClaimLine line) => [
+      if (line.sourceNumber.isNotEmpty) line.sourceNumber,
+      if (line.productName.isNotEmpty) line.productName,
+      if (line.batchNumber.isNotEmpty) 'Batch ${line.batchNumber}',
+      if (line.quantity.isNotEmpty) '× ${line.quantity}',
+      if (line.oldRate.isNotEmpty || line.newRate.isNotEmpty)
+        'Old rate ${line.oldRate.isEmpty ? '-' : _money(line.oldRate)} → '
+            'new rate ${line.newRate.isEmpty ? '-' : _money(line.newRate)}',
+      if (line.description.isNotEmpty) line.description,
+    ].join(' · ');
+
 /// The lines of a claim (or of a preview), grouped by what they are for.
 class _ClaimLines extends StatelessWidget {
   const _ClaimLines({required this.lines});
@@ -57,7 +79,7 @@ class _ClaimLines extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final (String code, String label) in _kinds)
+        for (final (String code, String label) in _groups)
           if (lines.any((line) => line.kind == code)) ...[
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.sm),
@@ -70,12 +92,7 @@ class _ClaimLines extends StatelessWidget {
                 child: Row(children: [
                   Expanded(
                     child: Text(
-                      [
-                        if (line.sourceNumber.isNotEmpty) line.sourceNumber,
-                        if (line.productName.isNotEmpty) line.productName,
-                        if (line.quantity.isNotEmpty) '× ${line.quantity}',
-                        if (line.description.isNotEmpty) line.description,
-                      ].join(' · '),
+                      _lineText(line),
                       style: theme.textTheme.bodySmall,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -202,6 +219,18 @@ class _PrincipalClaimsPageState extends State<PrincipalClaimsPage> {
     await _load();
   }
 
+  Future<void> _raisePriceCut() async {
+    final PrincipalClaim? saved = await showDialog<PrincipalClaim>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => NewPriceCutClaimDialog(api: widget.api),
+    );
+    if (saved == null || !mounted) return;
+    setState(() => _selectedId = saved.id);
+    _tell('Claim ${saved.claimNumber} raised.', AppNotificationKind.success);
+    await _load();
+  }
+
   Future<void> _receive(PrincipalClaim claim) async {
     final PrincipalClaim? saved = await showDialog<PrincipalClaim>(
       context: context,
@@ -296,7 +325,8 @@ class _PrincipalClaimsPageState extends State<PrincipalClaimsPage> {
     return ManagementWorkspaceLayout(
       notice: 'What a principal owes for the schemes it funded, stock that '
           'expired and goods that broke. Preview a period, raise the claim, '
-          'then settle it by their credit note or a payment received.',
+          'then settle it by their credit note or a payment received. A price '
+          'cut on stock in hand is claimed with Price cut claim.',
       toolbar: _toolbar(picked),
       searchPanel: SearchFilterPanel(
         controller: _search,
@@ -343,6 +373,13 @@ class _PrincipalClaimsPageState extends State<PrincipalClaimsPage> {
     final PrincipalClaim? c = selected;
     return WorkspaceToolbar(
       trailing: [
+        if (_mayManage)
+          OutlinedButton.icon(
+            key: const ValueKey('claim-new-price-cut'),
+            onPressed: () => unawaited(_raisePriceCut()),
+            icon: const Icon(Icons.trending_down),
+            label: const Text('Price cut claim'),
+          ),
         ColumnsButton(
           onPressed: () async {
             if (await _columns.choose(context) && mounted) setState(() {});
@@ -439,7 +476,10 @@ class _PrincipalClaimsPageState extends State<PrincipalClaimsPage> {
             StatusBadge.fromStatus(claim.status),
           ]),
           Text(
-            '${claim.principalName} · ${claim.periodFrom} to ${claim.periodTo}',
+            claim.lines.any((line) => line.kind == 'RATE_DIFFERENCE')
+                ? '${claim.principalName} · price cut from ${claim.periodFrom}'
+                : '${claim.principalName} · ${claim.periodFrom} to '
+                    '${claim.periodTo}',
             style: theme.textTheme.bodySmall,
           ),
           const SizedBox(height: AppSpacing.md),
@@ -447,6 +487,8 @@ class _PrincipalClaimsPageState extends State<PrincipalClaimsPage> {
           _amountRow('Free goods', claim.freeGoodsAmount),
           _amountRow('Expired stock', claim.expiryAmount),
           _amountRow('Breakage', claim.breakageAmount),
+          if ((double.tryParse(claim.rateDifferenceAmount) ?? 0) != 0)
+            _amountRow('Rate difference', claim.rateDifferenceAmount),
           const Divider(),
           _amountRow('Total', claim.totalAmount, strong: true),
           _amountRow('Settled by credit note', claim.settledByCreditNote),
@@ -522,6 +564,11 @@ class _PrincipalClaimsPageState extends State<PrincipalClaimsPage> {
         column: const GridColumn(key: 'period', label: 'Period', priority: 2),
         cell: (item) => '${item.periodFrom} to ${item.periodTo}',
         shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'rate-difference', label: 'Rate difference', numeric: true),
+        cell: (item) => _money(item.rateDifferenceAmount),
       ),
       ChoosableColumn(
         column: const GridColumn(key: 'total', label: 'Total', numeric: true),
@@ -739,6 +786,16 @@ class _NewPrincipalClaimDialogState extends State<NewPrincipalClaimDialog>
         row('Breakage', preview.breakageAmount),
         const Divider(),
         row('Total', preview.totalAmount, strong: true),
+        if (preview.carriedForward > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              'Carried to the next claim: '
+              '${_money(preview.adjustmentsCarriedForward)}',
+              key: const ValueKey('claim-carried-forward'),
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
         _ClaimLines(lines: preview.lines),
       ],
     );
@@ -1339,6 +1396,630 @@ class _SettleClaimDialogState extends State<SettleClaimDialog>
           key: const ValueKey('settle-save'),
           onPressed: saving || _loading ? null : _save,
           child: Text(saving ? 'Saving…' : 'Draft settlement'),
+        ),
+      ],
+    );
+  }
+}
+
+/// A rate with trailing zeros dropped, kept to at least two places.
+String _rate(String value) {
+  final double? parsed = double.tryParse(value);
+  if (parsed == null) return value;
+  String text = parsed.toStringAsFixed(4);
+  while (text.endsWith('0') && text.indexOf('.') < text.length - 3) {
+    text = text.substring(0, text.length - 1);
+  }
+  return text;
+}
+
+/// A quantity with trailing zeros dropped.
+String _quantity(String value) {
+  final double? parsed = double.tryParse(value);
+  if (parsed == null) return value;
+  String text = parsed.toStringAsFixed(4);
+  while (text.endsWith('0')) {
+    text = text.substring(0, text.length - 1);
+  }
+  return text.endsWith('.') ? text.substring(0, text.length - 1) : text;
+}
+
+/// One row of a price cut: a product (and batch) with the stock the server
+/// counted and the two rates the person may correct. A rate is sent only
+/// once it has been typed; an untouched one is sent as null so the server
+/// takes the rate it has recorded.
+class _RateRow {
+  _RateRow({
+    required this.productId,
+    required this.item,
+    this.batchId = '',
+    this.batchNumber = '',
+    this.stock = '',
+    this.amount = '',
+    String oldRate = '',
+    String newRate = '',
+    this.oldTyped = false,
+    this.newTyped = false,
+    this.manual = false,
+  })  : oldBox = TextEditingController(text: oldRate),
+        newBox = TextEditingController(text: newRate);
+
+  final String productId;
+  final String item;
+  final String batchId;
+  final String batchNumber;
+  final String stock;
+  final String amount;
+  final TextEditingController oldBox;
+  final TextEditingController newBox;
+  bool oldTyped;
+  bool newTyped;
+
+  /// Added by hand rather than proposed by the server.
+  final bool manual;
+
+  String get key => '$productId-$batchId';
+
+  String? _sent(TextEditingController box, bool typed) {
+    final String text = box.text.trim();
+    return typed && text.isNotEmpty ? text : null;
+  }
+
+  Json toJson() => <String, dynamic>{
+        'product_id': productId,
+        'batch_id': batchId.isEmpty ? null : batchId,
+        'old_rate': _sent(oldBox, oldTyped),
+        'new_rate': _sent(newBox, newTyped),
+      };
+
+  void dispose() {
+    oldBox.dispose();
+    newBox.dispose();
+  }
+}
+
+/// Claim a principal's price cut on the stock in hand: the server proposes a
+/// line for every product that dropped in price on the day, the person
+/// corrects, removes or adds, and the claim is exactly the grid. Pops the
+/// raised [PrincipalClaim]; stays open with the server's message on a refusal.
+class NewPriceCutClaimDialog extends StatefulWidget {
+  const NewPriceCutClaimDialog({super.key, required this.api});
+
+  final ApiClient api;
+
+  @override
+  State<NewPriceCutClaimDialog> createState() => _NewPriceCutClaimDialogState();
+}
+
+class _NewPriceCutClaimDialogState extends State<NewPriceCutClaimDialog>
+    with SaveInDialog {
+  final TextEditingController _remarks = TextEditingController();
+  final TextEditingController _addProduct = TextEditingController();
+  final TextEditingController _addOld = TextEditingController();
+  final TextEditingController _addNew = TextEditingController();
+  final List<_RateRow> _graveyard = <_RateRow>[];
+  List<PrincipalRecord> _principals = const [];
+  List<_RateRow> _rows = <_RateRow>[];
+  String? _principalId;
+  DateTime? _effective;
+  DateTime _claimDate = DateTime.now();
+  PrincipalClaimPreview? _preview;
+  Product? _picked;
+  bool _started = false;
+  bool _dirty = false;
+  bool _previewing = false;
+  String? _problem;
+  String? _loadNote;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_readPrincipals());
+  }
+
+  @override
+  void dispose() {
+    _remarks.dispose();
+    _addProduct.dispose();
+    _addOld.dispose();
+    _addNew.dispose();
+    for (final _RateRow row in [..._rows, ..._graveyard]) {
+      row.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _readPrincipals() async {
+    try {
+      final List<PrincipalRecord> found = await widget.api.principals();
+      if (!mounted) return;
+      setState(() => _principals = found.where((p) => p.isActive).toList());
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _loadNote = error.message);
+    }
+  }
+
+  /// Retires the rows; their boxes are disposed with the dialog, not while the
+  /// frame that still draws them is running.
+  void _retire(List<_RateRow> rows) => _graveyard.addAll(rows);
+
+  /// A new principal or day starts the claim again.
+  void _restart(VoidCallback change) => setState(() {
+        change();
+        _retire(_rows);
+        _rows = <_RateRow>[];
+        _preview = null;
+        _started = false;
+        _dirty = false;
+        _problem = null;
+        saveError = null;
+      });
+
+  Future<void> _pick(bool effective) async {
+    final DateTime today = DateTime.now();
+    final DateTime? current = effective ? _effective : _claimDate;
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: current ?? today,
+      firstDate: DateTime(2000),
+      lastDate: effective ? today : DateTime(2100),
+    );
+    if (picked == null) return;
+    if (effective) {
+      _restart(() => _effective = picked);
+    } else {
+      setState(() {
+        _claimDate = picked;
+        _problem = null;
+      });
+    }
+  }
+
+  String? _check() {
+    if (_principalId == null) return 'Choose the principal.';
+    if (_effective == null) {
+      return 'Choose the day the new rates take effect from.';
+    }
+    if (_claimDate.isBefore(_effective!)) {
+      return 'The claim cannot be dated before the new rates took effect.';
+    }
+    for (final _RateRow row in _rows) {
+      for (final (TextEditingController box, bool typed) in [
+        (row.oldBox, row.oldTyped),
+        (row.newBox, row.newTyped),
+      ]) {
+        final String text = box.text.trim();
+        if (typed && text.isNotEmpty && double.tryParse(text) == null) {
+          return 'A rate on ${row.item} is not a number.';
+        }
+      }
+    }
+    return null;
+  }
+
+  Json _body({required bool withLines}) => <String, dynamic>{
+        'principal_id': _principalId,
+        'kinds': ['RATE_DIFFERENCE'],
+        'effective_date': _iso(_effective!),
+        'claim_date': _iso(_claimDate),
+        if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
+        if (withLines)
+          'rate_lines': [for (final _RateRow r in _rows) r.toJson()],
+      };
+
+  /// Asks for the proposal the first time (no lines sent) and recalculates
+  /// from the grid afterwards.
+  Future<void> _calculate() async {
+    final String? problem = _check();
+    setState(() => _problem = problem);
+    if (problem != null) return;
+    setState(() {
+      _previewing = true;
+      saveError = null;
+    });
+    try {
+      final PrincipalClaimPreview found = await widget.api
+          .previewPrincipalClaim(_body(withLines: _started));
+      if (!mounted) return;
+      final List<_RateRow> before = _rows;
+      setState(() {
+        _rows = [
+          for (final PrincipalClaimLine line in found.lines)
+            if (line.kind == 'RATE_DIFFERENCE') _rowFor(line, before),
+        ];
+        _retire(before);
+        _preview = found;
+        _started = true;
+        _dirty = false;
+        _previewing = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        saveError = error.message;
+        _previewing = false;
+      });
+    }
+  }
+
+  /// The row for a line the server sent back, keeping what the person typed
+  /// on the row it replaces.
+  _RateRow _rowFor(PrincipalClaimLine line, List<_RateRow> before) {
+    final String key = '${line.productId}-${line.batchId}';
+    final _RateRow? old = before.where((r) => r.key == key).firstOrNull ??
+        before
+            .where((r) =>
+                r.manual && r.batchId.isEmpty && r.productId == line.productId)
+            .firstOrNull;
+    return _RateRow(
+      productId: line.productId,
+      batchId: line.batchId,
+      batchNumber: line.batchNumber,
+      item: [
+        if (line.sourceNumber.isNotEmpty) line.sourceNumber,
+        if (line.productName.isNotEmpty) line.productName,
+      ].join(' · '),
+      stock: line.quantity,
+      amount: line.amount,
+      oldRate: old != null && old.oldTyped
+          ? old.oldBox.text
+          : (line.oldRate.isEmpty ? '' : _rate(line.oldRate)),
+      newRate: old != null && old.newTyped
+          ? old.newBox.text
+          : (line.newRate.isEmpty ? '' : _rate(line.newRate)),
+      oldTyped: old?.oldTyped ?? false,
+      newTyped: old?.newTyped ?? false,
+      manual: old?.manual ?? false,
+    );
+  }
+
+  void _raise() {
+    final String? problem = _check();
+    setState(() => _problem = problem);
+    if (problem != null) return;
+    unawaited(saveAndClose<PrincipalClaim>(
+      () => widget.api.raisePrincipalClaim(_body(withLines: true)),
+    ));
+  }
+
+  void _remove(_RateRow row) => setState(() {
+        _rows = [
+          for (final _RateRow r in _rows)
+            if (r != row) r,
+        ];
+        _retire([row]);
+        _dirty = true;
+        _problem = null;
+      });
+
+  void _add() {
+    final Product? product = _picked;
+    String? problem;
+    if (product == null) {
+      problem = 'Pick the product to add.';
+    } else if (_rows
+        .any((r) => r.productId == product.id && r.batchId.isEmpty)) {
+      problem = '${product.name} is already in the list.';
+    } else if ((_addOld.text.trim().isNotEmpty &&
+            double.tryParse(_addOld.text.trim()) == null) ||
+        (_addNew.text.trim().isNotEmpty &&
+            double.tryParse(_addNew.text.trim()) == null)) {
+      problem = 'Type the rates as numbers.';
+    }
+    setState(() => _problem = problem);
+    if (problem != null || product == null) return;
+    setState(() {
+      _rows = [
+        ..._rows,
+        _RateRow(
+          productId: product.id,
+          item: '${product.code} · ${product.name}',
+          oldRate: _addOld.text.trim(),
+          newRate: _addNew.text.trim(),
+          oldTyped: _addOld.text.trim().isNotEmpty,
+          newTyped: _addNew.text.trim().isNotEmpty,
+          manual: true,
+        ),
+      ];
+      _picked = null;
+      _addProduct.clear();
+      _addOld.clear();
+      _addNew.clear();
+      _dirty = true;
+    });
+  }
+
+  Widget _dateField(String key, String label, DateTime? value,
+          {required bool effective}) =>
+      InkWell(
+        key: ValueKey(key),
+        onTap: saving ? null : () => unawaited(_pick(effective)),
+        child: InputDecorator(
+          decoration: InputDecoration(labelText: label),
+          child: Text(value == null ? 'Choose' : _iso(value)),
+        ),
+      );
+
+  Widget _cell(double width, Widget child) =>
+      SizedBox(width: width, child: child);
+
+  Widget _rateBox(
+          Key key, TextEditingController box, VoidCallback typed, bool on) =>
+      TextField(
+        key: key,
+        controller: box,
+        enabled: on,
+        textAlign: TextAlign.end,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(isDense: true),
+        onChanged: (_) => setState(() {
+          typed();
+          _dirty = true;
+        }),
+      );
+
+  Widget _header(ThemeData theme) {
+    final TextStyle? style = theme.textTheme.labelMedium;
+    return Row(children: [
+      Expanded(child: Text('Item', style: style)),
+      _cell(80, Text('Batch', style: style)),
+      _cell(80, Text('Stock on hand', style: style, textAlign: TextAlign.end)),
+      const SizedBox(width: AppSpacing.sm),
+      _cell(90, Text('Old rate', style: style, textAlign: TextAlign.end)),
+      const SizedBox(width: AppSpacing.sm),
+      _cell(90, Text('New rate', style: style, textAlign: TextAlign.end)),
+      _cell(90, Text('Amount', style: style, textAlign: TextAlign.end)),
+      const SizedBox(width: 40),
+    ]);
+  }
+
+  Widget _rowWidget(_RateRow row, ThemeData theme, bool on) {
+    final String id = row.key;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(children: [
+        Expanded(
+          child: Text(row.item,
+              style: theme.textTheme.bodySmall,
+              overflow: TextOverflow.ellipsis),
+        ),
+        _cell(
+            80,
+            Text(row.batchNumber.isEmpty ? '-' : row.batchNumber,
+                style: theme.textTheme.bodySmall,
+                overflow: TextOverflow.ellipsis)),
+        _cell(
+            80,
+            Text(row.stock.isEmpty ? '-' : _quantity(row.stock),
+                key: ValueKey('pc-stock-$id'),
+                style: theme.textTheme.bodySmall,
+                textAlign: TextAlign.end)),
+        const SizedBox(width: AppSpacing.sm),
+        _cell(
+            90,
+            _rateBox(ValueKey('pc-old-$id'), row.oldBox,
+                () => row.oldTyped = true, on)),
+        const SizedBox(width: AppSpacing.sm),
+        _cell(
+            90,
+            _rateBox(ValueKey('pc-new-$id'), row.newBox,
+                () => row.newTyped = true, on)),
+        _cell(
+            90,
+            Text(row.amount.isEmpty ? '-' : _money(row.amount),
+                key: ValueKey('pc-amount-$id'),
+                style: theme.textTheme.bodySmall,
+                textAlign: TextAlign.end)),
+        SizedBox(
+          width: 40,
+          child: IconButton(
+            key: ValueKey('pc-remove-$id'),
+            tooltip: 'Take this row off the claim',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: on ? () => _remove(row) : null,
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _grid(ThemeData theme, bool busy) {
+    final PrincipalClaimPreview preview = _preview!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_rows.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            child: Text(
+              preview.lines.isEmpty
+                  ? 'No price drop is recorded for this principal on that day. '
+                      'Add the products by hand below, with their old and new '
+                      'rates.'
+                  : 'Nothing is left on the claim. Add a product below.',
+              key: const ValueKey('pc-empty'),
+              style: theme.textTheme.bodySmall,
+            ),
+          )
+        else ...[
+          _header(theme),
+          const Divider(height: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 280),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final _RateRow row in _rows) _rowWidget(row, theme, !busy),
+              ],
+            ),
+          ),
+          const Divider(height: 8),
+          Row(children: [
+            Expanded(
+              child:
+                  Text('Rate difference', style: theme.textTheme.titleSmall),
+            ),
+            Text(_money(preview.rateDifferenceAmount),
+                key: const ValueKey('pc-total'),
+                style: theme.textTheme.titleSmall),
+          ]),
+          if (_dirty)
+            Text('Recalculate to refresh the stock and amounts.',
+                key: const ValueKey('pc-stale'),
+                style: theme.textTheme.bodySmall),
+          if (preview.carriedForward > 0)
+            Text(
+                'Carried to the next claim: '
+                '${_money(preview.adjustmentsCarriedForward)}',
+                key: const ValueKey('claim-carried-forward'),
+                style: theme.textTheme.bodySmall),
+        ],
+        const SizedBox(height: AppSpacing.md),
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Expanded(
+            child: ProductSearchBox(
+              fieldKey: const ValueKey('pc-add-product'),
+              api: widget.api,
+              controller: _addProduct,
+              enabled: !busy,
+              onPicked: (Product p) => _picked = p,
+              onCleared: () => _picked = null,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          SizedBox(
+            width: 90,
+            child: TextField(
+              key: const ValueKey('pc-add-old'),
+              controller: _addOld,
+              enabled: !busy,
+              textAlign: TextAlign.end,
+              decoration:
+                  const InputDecoration(labelText: 'Old rate', isDense: true),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          SizedBox(
+            width: 90,
+            child: TextField(
+              key: const ValueKey('pc-add-new'),
+              controller: _addNew,
+              enabled: !busy,
+              textAlign: TextAlign.end,
+              decoration:
+                  const InputDecoration(labelText: 'New rate', isDense: true),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          OutlinedButton.icon(
+            key: const ValueKey('pc-add'),
+            onPressed: busy ? null : _add,
+            icon: const Icon(Icons.add),
+            label: const Text('Add product'),
+          ),
+        ]),
+        Text(
+          'A rate left blank is taken from the price recorded for that day.',
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final bool busy = saving || _previewing;
+    return AlertDialog(
+      title: const Text('Claim a price cut on stock in hand'),
+      content: SizedBox(
+        width: 840,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              saveErrorBanner(),
+              if (_loadNote != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(_loadNote!,
+                      style: TextStyle(color: theme.colorScheme.error)),
+                ),
+              DropdownButtonFormField<String>(
+                key: const ValueKey('pc-principal'),
+                isExpanded: true,
+                initialValue: _principalId,
+                decoration: const InputDecoration(labelText: 'Principal'),
+                items: [
+                  for (final PrincipalRecord p in _principals)
+                    DropdownMenuItem<String>(
+                      value: p.id,
+                      child: Text(p.name, overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged:
+                    busy ? null : (id) => _restart(() => _principalId = id),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(children: [
+                Expanded(
+                    child: _dateField(
+                        'pc-effective', 'New rates effective from', _effective,
+                        effective: true)),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                    child: _dateField('pc-claim-date', 'Claim date', _claimDate,
+                        effective: false)),
+              ]),
+              TextField(
+                key: const ValueKey('pc-remarks'),
+                controller: _remarks,
+                enabled: !busy,
+                decoration: const InputDecoration(labelText: 'Remarks'),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: _started
+                    ? OutlinedButton.icon(
+                        key: const ValueKey('pc-recalculate'),
+                        onPressed: busy || _rows.isEmpty
+                            ? null
+                            : () => unawaited(_calculate()),
+                        icon: const Icon(Icons.refresh),
+                        label: Text(_previewing ? 'Working…' : 'Recalculate'),
+                      )
+                    : OutlinedButton.icon(
+                        key: const ValueKey('pc-preview'),
+                        onPressed: busy ? null : () => unawaited(_calculate()),
+                        icon: const Icon(Icons.visibility_outlined),
+                        label: Text(_previewing ? 'Working…' : 'Preview'),
+                      ),
+              ),
+              if (_started) ...[
+                const SizedBox(height: AppSpacing.sm),
+                _grid(theme, busy),
+              ],
+              if (_problem != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.sm),
+                  child: Text(_problem!,
+                      key: const ValueKey('pc-problem'),
+                      style: TextStyle(color: theme.colorScheme.error)),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: cancelHandler, child: const Text('Cancel')),
+        FilledButton(
+          key: const ValueKey('pc-raise'),
+          onPressed: busy || !_started || _rows.isEmpty ? null : _raise,
+          child: Text(saving ? 'Raising…' : 'Raise claim'),
         ),
       ],
     );
