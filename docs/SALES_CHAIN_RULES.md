@@ -302,6 +302,17 @@ it raises for itself, so the bill, its note and its hidden order read the
 same total, and an edit that changes nothing leaves an offer's discount the
 offer's (the order is priced again whenever the edit raises it again).
 
+**A document the chain raises says no more than a person would** (D-PRC-22,
+2026-10-06). The note a bill raises for a firm that types none stated the
+order line's whole discount amount on every part, so each part bill of an
+order took all of it. The chain's note line is silent about the discount now
+and inherits its slice like any other; the places that build one line from
+another were read for the same copy -- the order a bare bill raises and the
+order a quotation becomes (both the whole quantity, so the whole amount is
+right), a counter bill raised again from its edit (a typed amount is
+pro-rated by the new quantity), dispatch-and-invoice (silent lines), and bulk
+approve and cancel (they call the single action and build no line).
+
 ## A chain of committing services is not a transaction
 
 **A chain of committing services is not a transaction, and `begin_nested` does

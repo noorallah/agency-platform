@@ -358,6 +358,29 @@ written to `promotion_redemptions` on the way down: the claim is the order's,
 and what the performance report says an offer gave is now what came off the
 bills.
 
+**A line's own discount is sliced the same way, by whoever raises the note**
+(D-PRC-22, 2026-10-06). With the delivery-note stage off, a bill of part of an
+order raises the note itself (`SalesChainService._note_line`), and that hidden
+line *stated* the order line's whole `discount_amount` -- and an amount stated
+beats everything. An order of 10 at 100.00 with 100.00 off the line and 90.00
+off the bill, 955.80, billed 4 and then 6, took the 100.00 off both bills:
+311.52 + 526.28 = 837.80, the customer under-billed 118.00 and 18.00 of GST
+never charged, the same whether the order's discount was typed as an amount or
+as 10%. The hidden line now says nothing about a discount, as a note a person
+types says nothing, and one rule serves both. Silent, **at the price of the
+line it continues**, a note line takes its slice of the order line's
+`discount_amount` and a bill line its slice of the note line's
+(`continued_share`, with the same "earlier parts" as the bill discount), so
+the parts sum to the order's discount exactly: 100.00 off 3 units is 33.3333,
+33.3334 and 33.3333 over three bills, where the order's rate of 33.3333%
+applied to each part alone lost a ten-thousandth each time -- on a counter
+bill as well, whose bill read 99.9999 under its order's 100.0000. The rate
+recorded beside the slice is derived from it, so a percentage is still read as
+that percentage. A line continued **at another price** inherits the rate as
+itself, because the order's amount no longer describes it. The bills above are
+382.32 and 573.48. Free goods needed no change: a part bill's hidden note
+already said nothing about them.
+
 ## A bill can state what was given away
 
 **A bill can state what was given away.** `free_quantity` is goods supplied at

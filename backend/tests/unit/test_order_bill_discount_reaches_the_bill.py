@@ -61,12 +61,18 @@ PRICE = D("84")
 class _Trade:
     """A Tamil Nadu firm selling one product at 84.00 plus 18% to a local buyer."""
 
-    def __init__(self, *, counter: bool = False) -> None:
-        """Build the firm on the GST template; ``counter`` types only the bill."""
+    def __init__(self, *, counter: bool = False, notes: bool = True) -> None:
+        """Build the firm on the GST template.
+
+        ``counter`` types only the bill; ``notes`` off types the order and
+        the bill, and the bill raises the delivery note itself.
+        """
         self.session: Session = _request_session()
         self.setup = _Firm(self.session)
         if counter:
             self.setup.stages(quotation=False, sales_order=False, delivery_note=False)
+        elif not notes:
+            self.setup.stages(quotation=False, sales_order=True, delivery_note=False)
         self.actor = uuid4()
         self.setup.firm.gst_number = "33AABCU9603R1ZM"
         self.setup.customer.gst_number = "33AAACR5055K1Z5"
@@ -105,8 +111,18 @@ class _Trade:
         self.session.commit()
 
     def order(self, quantity: str, **fields: object) -> SalesOrder:
-        """Raise and approve an order of the product at 84.00."""
+        """Raise and approve an order of the product at 84.00.
+
+        ``unit_price``, ``discount_percent`` and ``discount_amount`` are the
+        line's; anything else named is the order's own.
+        """
         free = fields.pop("free_quantity", None)
+        price = D(str(fields.pop("unit_price", PRICE)))
+        typed = {
+            name: D(str(fields.pop(name)))
+            for name in ("discount_percent", "discount_amount")
+            if name in fields
+        }
         row = self.orders.create_order(
             SalesOrderCreate.model_validate(
                 {
@@ -119,8 +135,9 @@ class _Trade:
                             line_number=1,
                             product_id=self.setup.product.id,
                             quantity=D(quantity),
-                            unit_price=PRICE,
+                            unit_price=price,
                             free_quantity=None if free is None else D(str(free)),
+                            **typed,
                         )
                     ],
                 }
@@ -223,6 +240,34 @@ class _Trade:
         self.session.expire_all()
         return self.bills.get_invoice(row.id, firm_scope=self.firm_id)
 
+    def bill_of_order(self, order: SalesOrder, quantity: str) -> SalesInvoice:
+        """Bill part of an order straight off it, and approve the bill.
+
+        For a firm that types no delivery notes: the bill raises the note.
+        """
+        row = self.bills.create_invoice(
+            SalesInvoiceCreate.model_validate(
+                {
+                    "customer_id": self.setup.customer.id,
+                    "invoice_date": DAY,
+                    "lines": [
+                        SalesInvoiceLineWrite(
+                            source_document_type="SALES_ORDER",
+                            source_document_id=order.id,
+                            source_document_line_id=self.order_line(order).id,
+                            line_number=1,
+                            current_invoice_quantity=D(quantity),
+                        )
+                    ],
+                }
+            ),
+            firm_id=self.firm_id,
+            actor_id=self.actor,
+        )
+        self.bills.approve_invoice(row.id, firm_scope=self.firm_id, actor_id=self.actor)
+        self.session.expire_all()
+        return self.bills.get_invoice(row.id, firm_scope=self.firm_id)
+
     def bill_line(self, bill: SalesInvoice) -> SalesInvoiceLine:
         """Return the bill's one line."""
         line = self.session.scalar(
@@ -268,7 +313,11 @@ class _Trade:
         return totals
 
     def counter_bill(self, quantity: str, **fields: object) -> SalesInvoice:
-        """Save a draft bill typed straight in: a customer, a product, a price."""
+        """Save a draft bill typed straight in: a customer, a product, a price.
+
+        ``line_discount_amount`` is typed on the line; the rest on the bill.
+        """
+        off = fields.pop("line_discount_amount", None)
         row = self.bills.create_invoice(
             SalesInvoiceCreate.model_validate(
                 {
@@ -280,6 +329,7 @@ class _Trade:
                             line_number=1,
                             current_invoice_quantity=D(quantity),
                             unit_price=PRICE,
+                            discount_amount=None if off is None else D(str(off)),
                         )
                     ],
                 }
@@ -690,3 +740,104 @@ def test_a_note_line_of_nothing_is_still_refused() -> None:
 
     with pytest.raises(ValidationError, match="delivers a quantity of 0"):
         trade.note(order, "0", ship=False)
+
+
+@pytest.mark.parametrize(
+    "typed", [{"discount_amount": "100"}, {"discount_percent": "10"}]
+)
+def test_part_bills_of_an_order_share_its_line_discount(typed: dict[str, str]) -> None:
+    """D-PRC-22: 10 at 100 less 100 a line and 90 a bill, billed 4 then 6.
+
+    With the delivery-note stage off each part bill took the whole 100.00 off
+    its line: 311.52 + 526.28 = 837.80 against the order's 955.80, the
+    customer under-billed 118.00 and 18.00 of GST never charged.
+    """
+    trade = _Trade(notes=False)
+    order = trade.order("10", unit_price="100", bill_discount_amount="90", **typed)
+    assert order.grand_total == D("955.8000")
+    assert trade.order_line(order).discount_amount == D("100.0000")
+
+    bills = [trade.bill_of_order(order, "4"), trade.bill_of_order(order, "6")]
+
+    lines = [trade.bill_line(bill) for bill in bills]
+    assert [line.discount_percent for line in lines] == [D("10.0000"), D("10.0000")]
+    assert [trade.bill_line(bill).discount_amount for bill in bills] == [
+        D("40.0000"),
+        D("60.0000"),
+    ]
+    assert [bill.bill_discount_amount for bill in bills] == [
+        D("36.0000"),
+        D("54.0000"),
+    ]
+    assert [bill.grand_total for bill in bills] == [D("382.3200"), D("573.4800")]
+    assert sum(bill.tax_total for bill in bills) == order.tax_total == D("145.8000")
+    owed = [sum(debit for debit, _ in trade.legs(bill).values()) for bill in bills]
+    assert owed == [D("382.32"), D("573.48")]
+    trade.session.expire_all()
+    assert trade.orders.get_order(order.id, firm_scope=trade.firm_id).status == (
+        "DELIVERED"
+    )
+
+
+def test_three_part_bills_of_an_order_sum_to_its_line_discount_exactly() -> None:
+    """100.00 off 3 at 100 is 33.3333%; three bills of 1 still take 100.00."""
+    trade = _Trade(notes=False)
+    order = trade.order("3", unit_price="100", discount_amount="100")
+
+    bills = [trade.bill_of_order(order, "1") for _ in range(3)]
+
+    assert [trade.bill_line(bill).discount_amount for bill in bills] == [
+        D("33.3333"),
+        D("33.3334"),
+        D("33.3333"),
+    ]
+    assert sum(bill.grand_total for bill in bills) == order.grand_total
+    assert sum(bill.tax_total for bill in bills) == order.tax_total
+
+
+def test_notes_a_person_types_share_the_line_discount_exactly() -> None:
+    """Stages on: notes of 1, 1 and 1, each billed, take 100.00 between them."""
+    trade = _Trade()
+    order = trade.order("3", unit_price="100", discount_amount="100")
+
+    notes = [trade.note(order, "1") for _ in range(3)]
+    bills = [trade.bill(note, "1") for note in notes]
+
+    assert sum(trade.note_line(note).discount_amount for note in notes) == D("100.0000")
+    assert sum(trade.bill_line(bill).discount_amount for bill in bills) == D("100.0000")
+    assert sum(bill.grand_total for bill in bills) == order.grand_total
+
+
+def test_one_note_billed_in_three_parts_shares_its_line_discount_exactly() -> None:
+    """A note of 3 with 100.00 off its line, billed 1, 1 and 1, bills 100.00 off."""
+    trade = _Trade()
+    order = trade.order("3", unit_price="100", discount_amount="100")
+    note = trade.note(order, "3")
+
+    bills = [trade.bill(note, "1") for _ in range(3)]
+
+    assert sum(trade.bill_line(bill).discount_amount for bill in bills) == D("100.0000")
+    assert sum(bill.grand_total for bill in bills) == order.grand_total
+
+
+def test_a_counter_bill_takes_the_whole_of_a_typed_line_amount() -> None:
+    """Stages off: 3 at 84 with 100.00 typed off the line is 100.00, not 99.9999."""
+    trade = _Trade(counter=True)
+
+    draft = trade.counter_bill("3", line_discount_amount="100")
+
+    assert trade.bill_line(draft).discount_amount == D("100.0000")
+    assert draft.grand_total == trade.own_order(draft).grand_total
+
+
+def test_part_bills_of_an_order_share_its_free_goods_in_whole_units() -> None:
+    """Note stage off: 10 + 1 free billed 4 then 6 ships 4, then 6 and the gift."""
+    trade = _Trade(notes=False)
+    order = trade.order("10", free_quantity="1")
+
+    bills = [trade.bill_of_order(order, "4"), trade.bill_of_order(order, "6")]
+
+    assert [trade.bill_line(bill).free_quantity for bill in bills] == [
+        D("0.0000"),
+        D("1.0000"),
+    ]

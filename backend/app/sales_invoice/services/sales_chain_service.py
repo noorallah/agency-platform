@@ -445,8 +445,13 @@ class SalesChainService:
     ) -> DeliveryNoteLineWrite:
         """Ship one order line, carrying the deal the order already struck.
 
-        The discounts come off the persisted order line rather than the
-        request, so the two documents cannot disagree about what was agreed.
+        The line says nothing about a discount, so the note inherits the
+        order line's by the share it ships, as a note a person types does
+        (`DeliveryNoteService._line_discount`). It used to state the order
+        line's whole ``discount_amount`` whatever part was billed, and an
+        amount stated beats everything: an order of 10 with 100.00 off the
+        line, billed 4 and then 6 with the note stage off, took the 100.00
+        off both bills and under-billed the customer 118.00 (D-PRC-22).
         """
         shipping = self._shipping(line, quantities)
         # A bill of the whole order ships its free goods whole. A part bill
@@ -461,8 +466,6 @@ class SalesChainService:
             current_delivery_quantity=shipping,
             free_quantity=free,
             unit_price=line.unit_price,
-            discount_percent=line.discount_percent or None,
-            discount_amount=line.discount_amount or None,
             tax_profile_id=line.tax_profile_id,
             packaging_type_id=line.packaging_type_id,
             sales_uom_id=line.sales_uom_id,

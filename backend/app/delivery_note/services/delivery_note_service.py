@@ -1736,6 +1736,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         *,
         source: SalesOrderLine | None,
         unit_price: Decimal,
+        before: Decimal = ZERO,
     ) -> LineDiscount:
         """Return the discount one dispatched line ships under.
 
@@ -1752,28 +1753,41 @@ class DeliveryNoteService(TransactionalDocumentService):
         note -- so a customer promised a promoted price was billed the
         undiscounted one.
 
-        A percentage inherits cleanly across a part shipment, because a rate
-        does not care about quantity. An absolute amount is pro-rated by the
-        share leaving the warehouse, since a whole-line figure copied onto half
-        a line would discount more than was ever agreed.
+        At the order's own price the line takes **its slice of the order
+        line's amount** (`continued_share`): what the order took off up to
+        where this note stops, less what it took off up to where the notes
+        before it stopped (``before``). The parts of a line therefore sum to
+        the order's discount exactly, the note that completes it taking what
+        the rounding left -- where the order's rate applied to each part
+        alone left a ten-thousandth belonging to nobody, on a counter bill
+        too (D-PRC-22). The rate recorded beside it is derived from the
+        slice, so it is the order's rate. Where the note ships at **another
+        price** the order's amount no longer describes the line, and the
+        order's rate is inherited as itself.
 
         The price list and the customer's standing rate are deliberately not
         consulted here. The order already resolved both when it was priced, so
         a line that came out at nothing came out at nothing on purpose.
         """
-        gross = self._q(self._q(item.current_delivery_quantity) * unit_price)
+        shipping = self._q(item.current_delivery_quantity)
+        gross = self._q(shipping * unit_price)
         percent = item.discount_percent
         amount = item.discount_amount
         if percent is None and amount is None and source is not None:
             ordered = self._q(source.quantity)
-            if source.discount_percent:
-                percent = source.discount_percent
-            elif source.discount_amount and ordered > ZERO:
-                amount = self._q(
-                    self._q(source.discount_amount)
-                    * self._q(item.current_delivery_quantity)
-                    / ordered
+            agreed = self._q(source.discount_amount or ZERO)
+            same_price = self._q(unit_price) == self._q(source.unit_price or ZERO)
+            if agreed > ZERO and ordered > ZERO and same_price:
+                amount = min(
+                    continued_share(
+                        agreed, before=before, part=shipping, whole=ordered
+                    ),
+                    gross,
                 )
+            elif source.discount_percent:
+                percent = source.discount_percent
+            elif agreed > ZERO and ordered > ZERO:
+                amount = self._q(agreed * shipping / ordered)
         return resolve_line_discount(gross=gross, percent=percent, amount=amount)
 
     def _customer_discount(self, customer_id: UUID) -> Decimal | None:
@@ -2032,20 +2046,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             self._unit_price(item, source_lines.get(item.sales_order_line_id))
             for item in lines
         ]
-        priced = [
-            self._line_discount(
-                item,
-                source=source_lines.get(item.sales_order_line_id),
-                unit_price=prices[index],
-            )
-            for index, item in enumerate(lines)
-        ]
-        taxables = [
-            self._q(self._q(item.current_delivery_quantity) * price - line.amount)
-            for item, price, line in zip(lines, prices, priced, strict=True)
-        ]
         # What other notes already ship of each order line, so a part
-        # delivery takes its own slice of the order's discount and of its
+        # delivery takes its own slice of the order's discounts and of its
         # free goods, and the last one takes what is left.
         shipped = [
             (
@@ -2058,6 +2060,19 @@ class DeliveryNoteService(TransactionalDocumentService):
                 )
             )
             for item in lines
+        ]
+        priced = [
+            self._line_discount(
+                item,
+                source=source_lines.get(item.sales_order_line_id),
+                unit_price=prices[index],
+                before=shipped[index][0],
+            )
+            for index, item in enumerate(lines)
+        ]
+        taxables = [
+            self._q(self._q(item.current_delivery_quantity) * price - line.amount)
+            for item, price, line in zip(lines, prices, priced, strict=True)
         ]
         shares = self._bill_discount_shares(
             row,
