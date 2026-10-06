@@ -19,6 +19,30 @@ them for one principal and one period:
 * **Breakage** -- each damaged or scrapped line of a completed sales return of
   the principal's products, at the taxable rate the customer was credited.
 
+A fifth kind is not a period's at all. A **rate difference** claim is for one
+price cut: the principal lowers its rate from a day, and owes the difference
+on the stock the firm held when the day before closed.
+
+* The **rate** is the purchase rate per stock unit before tax -- what the
+  principal bills the firm, which is what the cut lowered. Not a batch's
+  ``pts``/``ptr``: those are what the *firm* sells a batch at, and a batch
+  keeps one figure with no history. The rates default from the product's
+  price revision dated that day (new) and the rate in force the day before
+  (old), and a typed rate replaces either: the circular is the authority.
+* The **stock** is never typed. It is the sum of the movements dated on or
+  before the day before the cut -- the figure *Stock valuation* shows as on
+  that day, every warehouse summed -- per batch where the product is kept by
+  batch.
+* The **source** is the principal, the product, the batch and the day
+  (``rate_difference_source``), so the same stock is claimed once for one
+  cut; a line that is typed and can claim nothing is refused by name, and a
+  proposed one is left out.
+* The journal credits **purchase price variance**. The stock is not revalued:
+  it keeps its moving average, leaves at the dearer cost, and this credit
+  offsets that cost of sales. The claim carries no tax; where the principal
+  settles it by a GST credit note, the tax follows that note, booked as a
+  supplier credit note.
+
 Free goods are valued from the stock ledger's dispatch, never from a price:
 a line whose dispatch has no cost contributes nothing rather than zero, and
 goods on a note not yet shipped are not claimed. Free goods a completed
@@ -39,16 +63,19 @@ can be cancelled, which reverses its journal and frees its sources.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
-from uuid import UUID
+from typing import TYPE_CHECKING
+from uuid import UUID, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import Row, and_, func, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.selectable import ScalarSelect
 
+from app.batch_serial.models import BatchRecord
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
@@ -60,7 +87,11 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
-from app.inventory.models import InventoryTransaction, StockLedgerEntry
+from app.inventory.models import (
+    InventoryRecord,
+    InventoryTransaction,
+    StockLedgerEntry,
+)
 from app.principal_claims.models import (
     PrincipalClaim,
     PrincipalClaimLine,
@@ -68,23 +99,73 @@ from app.principal_claims.models import (
 )
 from app.products.models import Product
 from app.products.models.brand import Brand, Principal
+from app.products.models.price_revision import ProductPriceRevision
 from app.promotions.models import Promotion, PromotionRedemption
 from app.sales_order.models import SalesOrderLine
 from app.sales_return.free_goods import free_goods_returned
 from app.sales_return.models import SalesReturn, SalesReturnLine
 
-KINDS = ("SCHEME", "FREE_GOODS", "EXPIRY", "BREAKAGE")
+if TYPE_CHECKING:
+    from app.document_framework.services.letter_pdf import LetterTable
+
+#: What a period's claim gathers: things that happened between two dates.
+PERIOD_KINDS = ("SCHEME", "FREE_GOODS", "EXPIRY", "BREAKAGE")
+#: A price cut is one day, not a period, so its claim stands on its own.
+RATE_DIFFERENCE = "RATE_DIFFERENCE"
+KINDS = (*PERIOD_KINDS, RATE_DIFFERENCE)
 _DONE_RETURNS = ("COMPLETED", "CLOSED")
 #: A note whose goods have left. A draft or approved note has shipped
 #: nothing, and a cancelled one gave its goods back.
 _SHIPPED_NOTES = ("DISPATCHED", "COMPLETED", "CLOSED")
 #: Where a claimed amount's cost sat, and so which account gets it back.
-_PROMOTION, _STOCK, _SOLD = "PROMOTION", "STOCK", "SOLD"
+_PROMOTION, _STOCK, _SOLD, _PRICE = "PROMOTION", "STOCK", "SOLD", "PRICE"
 CENT = Decimal("0.01")
+#: Fixed, so the same principal, product, batch and day always make the same
+#: source id -- which is what lets the lines' unique index refuse a second
+#: claim for one price cut.
+_RATE_SOURCES = UUID("6f0f5c1e-6a0b-4d53-9a3f-2f1c8f4a7d10")
+
+
+def rate_difference_source(
+    principal_id: UUID, product_id: UUID, batch_id: UUID | None, effective_date: date
+) -> UUID:
+    """Return the source a price cut's stock is claimed under, once."""
+    return uuid5(
+        _RATE_SOURCES,
+        f"{principal_id}:{product_id}:{batch_id or '-'}:{effective_date.isoformat()}",
+    )
+
+
+class RateDifferenceLineWrite(BaseModel):
+    """One product on a price cut: its rates, never its stock.
+
+    The quantity is the server's, read from the stock ledger. A rate left out
+    is taken from the price revision recorded for that day; a rate typed
+    replaces it, because the principal's circular is the authority.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: UUID
+    #: One batch of a product kept by batch. Left out, the line covers every
+    #: batch with stock that no other line names.
+    batch_id: UUID | None = None
+    #: Purchase rate per stock unit before tax, before and after the cut.
+    old_rate: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
+    new_rate: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
 
 
 class PrincipalClaimWrite(BaseModel):
-    """Raise a claim on one principal for one period."""
+    """Raise a claim on one principal: for one period, or for one price cut.
+
+    A rate difference claim names ``kinds=["RATE_DIFFERENCE"]`` and the
+    ``effective_date`` of the cut; its period is that one day, so
+    ``period_from`` and ``period_to`` may be left out.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -92,9 +173,35 @@ class PrincipalClaimWrite(BaseModel):
     period_from: date
     period_to: date
     claim_date: date
-    #: Which of the four to claim; all of them when omitted.
-    kinds: list[str] = Field(default_factory=lambda: list(KINDS), min_length=1)
+    #: Which of the period's four to claim; all four when omitted. A rate
+    #: difference is asked for by name and alone.
+    kinds: list[str] = Field(default_factory=lambda: list(PERIOD_KINDS), min_length=1)
+    #: Rate difference only: the day the principal's new rates took effect.
+    #: The stock claimed on is what stood at the close of the day before.
+    effective_date: date | None = None
+    #: Rate difference only. Left out, the claim is every product of the
+    #: principal with stock and a recorded cut that day. Given, it is exactly
+    #: these lines -- the proposed ones as corrected, less any taken off, plus
+    #: any added by product.
+    rate_lines: list[RateDifferenceLineWrite] | None = Field(
+        default=None, min_length=1, max_length=2000
+    )
     remarks: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_day(cls, data: object) -> object:
+        """Give a rate difference claim its one-day period where none is sent."""
+        if (
+            isinstance(data, dict)
+            and data.get("kinds") == [RATE_DIFFERENCE]
+            and data.get("effective_date") is not None
+        ):
+            data = dict(data)
+            for end in ("period_from", "period_to"):
+                if data.get(end) is None:
+                    data[end] = data["effective_date"]
+        return data
 
     @model_validator(mode="after")
     def _shape(self) -> PrincipalClaimWrite:
@@ -106,7 +213,37 @@ class PrincipalClaimWrite(BaseModel):
             raise ValueError(f"Unknown claim kind(s): {', '.join(sorted(unknown))}.")
         if self.claim_date < self.period_from:
             raise ValueError("A claim is raised on or after its period starts.")
+        if RATE_DIFFERENCE not in self.kinds:
+            if self.effective_date is not None or self.rate_lines is not None:
+                raise ValueError(
+                    "An effective date and rates belong to a price cut: only a "
+                    "rate difference claim takes them."
+                )
+            return self
+        if self.kinds != [RATE_DIFFERENCE]:
+            raise ValueError(
+                "A rate difference claim stands on its own: it is for one price "
+                "cut, not a period. Raise the period's claim separately."
+            )
+        if self.effective_date is None:
+            raise ValueError("Give the date the new rates took effect.")
+        if (self.period_from, self.period_to) != (
+            self.effective_date,
+            self.effective_date,
+        ):
+            raise ValueError(
+                "A rate difference claim's period is the day of the cut: leave "
+                "the period out."
+            )
+        named = [(line.product_id, line.batch_id) for line in self.rate_lines or []]
+        if len(named) != len(set(named)):
+            raise ValueError("A product (or a batch of it) is listed more than once.")
         return self
+
+    @property
+    def is_rate_difference(self) -> bool:
+        """Say whether this is a claim for a price cut rather than a period."""
+        return self.kinds == [RATE_DIFFERENCE]
 
 
 class PrincipalClaimCancel(BaseModel):
@@ -140,7 +277,15 @@ class PrincipalClaimLineResponse(BaseModel):
     source_date: date
     product_id: UUID | None
     product_name: str | None
+    #: For a rate difference: the stock on hand at the close of the day
+    #: before the cut, summed over the firm's warehouses.
     quantity: Decimal | None
+    #: Rate difference only: the batch, and the purchase rate per stock unit
+    #: before tax before and after the cut.
+    batch_id: UUID | None = None
+    batch_number: str | None = None
+    old_rate: Decimal | None = None
+    new_rate: Decimal | None = None
     description: str
     amount: Decimal
 
@@ -176,6 +321,8 @@ class PrincipalClaimResponse(BaseModel):
     free_goods_amount: Decimal
     expiry_amount: Decimal
     breakage_amount: Decimal
+    #: A price cut on the stock in hand: (old rate - new rate) x quantity.
+    rate_difference_amount: Decimal
     total_amount: Decimal
     settled_by_credit_note: Decimal
     settled_by_payment: Decimal
@@ -201,6 +348,7 @@ class PrincipalClaimPreview(BaseModel):
     free_goods_amount: Decimal
     expiry_amount: Decimal
     breakage_amount: Decimal
+    rate_difference_amount: Decimal
     total_amount: Decimal
     lines: list[PrincipalClaimLineResponse]
 
@@ -219,6 +367,11 @@ class _Candidate:
     amount: Decimal
     #: Which expense the cost sat in: the journal credits it back there.
     credit: str = _PROMOTION
+    #: Rate difference only.
+    batch_id: UUID | None = None
+    batch_number: str | None = None
+    old_rate: Decimal | None = None
+    new_rate: Decimal | None = None
 
 
 class PrincipalClaimService(TransactionalDocumentService):
@@ -250,9 +403,13 @@ class PrincipalClaimService(TransactionalDocumentService):
         period_to: date,
         kinds: list[str] | None = None,
     ) -> list[_Candidate]:
-        """Return every unclaimed source of the period, schemes first."""
+        """Return every unclaimed source of the period, schemes first.
+
+        The period's four kinds only: a price cut is gathered for a day, by
+        ``_rate_differences``.
+        """
         self._principal(principal_id, firm_id=firm_id)
-        wanted = set(kinds or KINDS)
+        wanted = set(kinds or PERIOD_KINDS)
         found: list[_Candidate] = []
         goods = (
             self._free_goods(firm_id, principal_id, period_from, period_to)
@@ -273,17 +430,25 @@ class PrincipalClaimService(TransactionalDocumentService):
             c for c in found if (c.kind, c.source_id) not in claimed and c.amount > 0
         ]
 
-    def preview(
-        self, data: PrincipalClaimWrite, *, firm_id: UUID
-    ) -> PrincipalClaimPreview:
-        """Return what raising the claim would hold, writing nothing."""
-        found = self.candidates(
+    def _gather(self, data: PrincipalClaimWrite, *, firm_id: UUID) -> list[_Candidate]:
+        """Return what the claim described would hold: a cut's, or a period's."""
+        if data.is_rate_difference and data.effective_date is not None:
+            return self._rate_differences(
+                firm_id, data.principal_id, data.effective_date, data.rate_lines
+            )
+        return self.candidates(
             firm_id=firm_id,
             principal_id=data.principal_id,
             period_from=data.period_from,
             period_to=data.period_to,
             kinds=data.kinds,
         )
+
+    def preview(
+        self, data: PrincipalClaimWrite, *, firm_id: UUID
+    ) -> PrincipalClaimPreview:
+        """Return what raising the claim would hold, writing nothing."""
+        found = self._gather(data, firm_id=firm_id)
         totals = self._totals(found)
         names = self._product_names({c.product_id for c in found if c.product_id})
         return PrincipalClaimPreview(
@@ -294,6 +459,7 @@ class PrincipalClaimService(TransactionalDocumentService):
             free_goods_amount=totals["FREE_GOODS"],
             expiry_amount=totals["EXPIRY"],
             breakage_amount=totals["BREAKAGE"],
+            rate_difference_amount=totals[RATE_DIFFERENCE],
             total_amount=sum(totals.values(), ZERO),
             lines=[
                 self._line_response(number, c, names)
@@ -313,16 +479,15 @@ class PrincipalClaimService(TransactionalDocumentService):
 
         """
         principal = self._principal(data.principal_id, firm_id=firm_id)
-        found = self.candidates(
-            firm_id=firm_id,
-            principal_id=data.principal_id,
-            period_from=data.period_from,
-            period_to=data.period_to,
-            kinds=data.kinds,
-        )
+        found = self._gather(data, firm_id=firm_id)
         if not found:
+            what = (
+                f"the price cut of {data.period_from:%d-%m-%Y}"
+                if data.is_rate_difference
+                else "that period"
+            )
             raise ValidationError(
-                f"Nothing is left to claim from {principal.name} for that period."
+                f"Nothing is left to claim from {principal.name} for {what}."
             )
         totals = self._totals(found)
         _, rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
@@ -347,6 +512,7 @@ class PrincipalClaimService(TransactionalDocumentService):
             free_goods_amount=totals["FREE_GOODS"],
             expiry_amount=totals["EXPIRY"],
             breakage_amount=totals["BREAKAGE"],
+            rate_difference_amount=totals[RATE_DIFFERENCE],
             total_amount=sum(totals.values(), ZERO),
             status="RAISED",
             remarks=data.remarks,
@@ -367,6 +533,9 @@ class PrincipalClaimService(TransactionalDocumentService):
                     source_date=candidate.source_date,
                     product_id=candidate.product_id,
                     quantity=candidate.quantity,
+                    batch_id=candidate.batch_id,
+                    old_rate=candidate.old_rate,
+                    new_rate=candidate.new_rate,
                     description=candidate.description[:300],
                     amount=candidate.amount,
                     created_by=actor_id,
@@ -381,7 +550,7 @@ class PrincipalClaimService(TransactionalDocumentService):
         )
         # By where the cost sat, not by kind: a scheme's discount went to
         # promotional expense and its free goods to cost of goods sold.
-        back = dict.fromkeys((_PROMOTION, _STOCK, _SOLD), ZERO)
+        back = dict.fromkeys((_PROMOTION, _STOCK, _SOLD, _PRICE), ZERO)
         for candidate in found:
             back[candidate.credit] += candidate.amount
         entry = DocumentPostingService(self._session).post_principal_claim(
@@ -392,6 +561,7 @@ class PrincipalClaimService(TransactionalDocumentService):
             scheme_amount=back[_PROMOTION],
             stock_amount=back[_STOCK],
             free_goods_amount=back[_SOLD],
+            rate_difference_amount=back[_PRICE],
             actor_id=actor_id,
         )
         row.journal_entry_id = entry.id
@@ -659,6 +829,19 @@ class PrincipalClaimService(TransactionalDocumentService):
                 )
             ).all()
         }
+        batch_ids = {line.batch_id for line in lines if line.batch_id}
+        batches: dict[UUID, str] = (
+            {
+                batch_id: number
+                for batch_id, number in self._session.execute(
+                    select(BatchRecord.id, BatchRecord.batch_number).where(
+                        BatchRecord.id.in_(batch_ids)
+                    )
+                ).all()
+            }
+            if batch_ids
+            else {}
+        )
         answer: list[PrincipalClaimResponse] = []
         for row in rows:
             by_note = credited.get(row.id, ZERO)
@@ -687,6 +870,7 @@ class PrincipalClaimService(TransactionalDocumentService):
                     free_goods_amount=row.free_goods_amount,
                     expiry_amount=row.expiry_amount,
                     breakage_amount=row.breakage_amount,
+                    rate_difference_amount=row.rate_difference_amount,
                     total_amount=row.total_amount,
                     settled_by_credit_note=by_note,
                     settled_by_payment=by_money,
@@ -707,6 +891,12 @@ class PrincipalClaimService(TransactionalDocumentService):
                                 names.get(line.product_id) if line.product_id else None
                             ),
                             quantity=line.quantity,
+                            batch_id=line.batch_id,
+                            batch_number=(
+                                batches.get(line.batch_id) if line.batch_id else None
+                            ),
+                            old_rate=line.old_rate,
+                            new_rate=line.new_rate,
                             description=line.description,
                             amount=line.amount,
                         )
@@ -741,7 +931,6 @@ class PrincipalClaimService(TransactionalDocumentService):
         from app.document_framework.services.letter_pdf import (
             LetterPage,
             LetterPdfRenderer,
-            LetterTable,
         )
         from app.document_framework.services.print_support import (
             firm_party,
@@ -751,47 +940,28 @@ class PrincipalClaimService(TransactionalDocumentService):
 
         row = self.get(claim_id, firm_id=firm_id)
         view = self.responses([row])[0]
-        headings = {
-            "SCHEME": "Schemes passed on",
-            "FREE_GOODS": "Free goods given on bills",
-            "EXPIRY": "Expired stock",
-            "BREAKAGE": "Breakage returned by customers",
-        }
-        tables = [
-            LetterTable(
-                heading=headings[kind],
-                columns=("Date", "Document", "Item", "Quantity", "Amount"),
-                rows=[
-                    (
-                        line.source_date.strftime("%d-%m-%Y"),
-                        line.source_number,
-                        line.product_name or line.description,
-                        (
-                            f"{Decimal(str(line.quantity)).normalize():f}"
-                            if line.quantity is not None
-                            else ""
-                        ),
-                        f"{Decimal(str(line.amount)):,.2f}",
-                    )
-                    for line in view.lines
-                    if line.kind == kind
-                ],
-                numeric=frozenset({"Quantity", "Amount"}),
-            )
-            for kind in KINDS
-            if any(line.kind == kind for line in view.lines)
-        ]
+        tables = self.statement_tables(view)
+        cut = any(line.kind == RATE_DIFFERENCE for line in view.lines)
         facts = [
             ("Claim number", row.claim_number),
             ("Date", row.claim_date.strftime("%d-%m-%Y")),
             (
-                "Period",
-                f"{row.period_from:%d-%m-%Y} to {row.period_to:%d-%m-%Y}",
+                # A price cut is a day, and the stock is the day before's.
+                ("New rates effective", f"{row.period_from:%d-%m-%Y}")
+                if cut
+                else (
+                    "Period",
+                    f"{row.period_from:%d-%m-%Y} to {row.period_to:%d-%m-%Y}",
+                )
             ),
             ("Schemes", f"{Decimal(str(row.scheme_amount)):,.2f}"),
             ("Free goods", f"{Decimal(str(row.free_goods_amount)):,.2f}"),
             ("Expiry", f"{Decimal(str(row.expiry_amount)):,.2f}"),
             ("Breakage", f"{Decimal(str(row.breakage_amount)):,.2f}"),
+            (
+                "Rate difference",
+                f"{Decimal(str(row.rate_difference_amount)):,.2f}",
+            ),
             ("Total claimed", f"{Decimal(str(row.total_amount)):,.2f}"),
             ("Still due", f"{view.outstanding:,.2f}"),
         ]
@@ -808,14 +978,98 @@ class PrincipalClaimService(TransactionalDocumentService):
                     facts=facts,
                     addressee=PartyBlock(name=view.principal_name, address_lines=[]),
                     paragraphs=[
-                        "We claim the amounts below for the period, and request "
-                        "your credit note or payment."
+                        (
+                            (
+                                "We claim the difference between the old and the "
+                                "new rate on the stock we held at the close of "
+                                f"{row.period_from - timedelta(days=1):%d-%m-%Y}, "
+                                "and request your credit note or payment."
+                            )
+                            if cut
+                            else (
+                                "We claim the amounts below for the period, and "
+                                "request your credit note or payment."
+                            )
+                        )
                     ],
                     tables=tables,
                 )
             ]
         )
         return pdf, f"{row.claim_number}.pdf".replace("/", "-")
+
+    @staticmethod
+    def statement_tables(view: PrincipalClaimResponse) -> list[LetterTable]:
+        """Lay a claim's lines out as the statement's tables, one per kind.
+
+        A rate difference has columns of its own -- the batch and both rates
+        -- so the principal can check each line against its circular and the
+        stock statement.
+        """
+        from app.document_framework.services.letter_pdf import LetterTable
+
+        def units(value: Decimal | None) -> str:
+            """Print a quantity without trailing zeros."""
+            return "" if value is None else f"{Decimal(str(value)).normalize():f}"
+
+        def money(value: Decimal | None) -> str:
+            """Print an amount or a rate to the paisa."""
+            return "" if value is None else f"{Decimal(str(value)):,.2f}"
+
+        headings = {
+            "SCHEME": "Schemes passed on",
+            "FREE_GOODS": "Free goods given on bills",
+            "EXPIRY": "Expired stock",
+            "BREAKAGE": "Breakage returned by customers",
+        }
+        tables = [
+            LetterTable(
+                heading=headings[kind],
+                columns=("Date", "Document", "Item", "Quantity", "Amount"),
+                rows=[
+                    (
+                        line.source_date.strftime("%d-%m-%Y"),
+                        line.source_number,
+                        line.product_name or line.description,
+                        units(line.quantity),
+                        money(line.amount),
+                    )
+                    for line in view.lines
+                    if line.kind == kind
+                ],
+                numeric=frozenset({"Quantity", "Amount"}),
+            )
+            for kind in PERIOD_KINDS
+            if any(line.kind == kind for line in view.lines)
+        ]
+        cut = [line for line in view.lines if line.kind == RATE_DIFFERENCE]
+        if cut:
+            tables.append(
+                LetterTable(
+                    heading="Rate difference on stock in hand",
+                    columns=(
+                        "Item",
+                        "Batch",
+                        "Quantity",
+                        "Old rate",
+                        "New rate",
+                        "Amount",
+                    ),
+                    rows=[
+                        (
+                            line.product_name or line.description,
+                            line.batch_number or "",
+                            units(line.quantity),
+                            money(line.old_rate),
+                            money(line.new_rate),
+                            money(line.amount),
+                        )
+                        for line in cut
+                    ],
+                    numeric=frozenset({"Quantity", "Old rate", "New rate", "Amount"}),
+                )
+            )
+        return tables
 
     # ---- sources -------------------------------------------------------
 
@@ -1127,6 +1381,291 @@ class PrincipalClaimService(TransactionalDocumentService):
             )
         return found
 
+    def _rate_differences(
+        self,
+        firm_id: UUID,
+        principal_id: UUID,
+        on: date,
+        typed: list[RateDifferenceLineWrite] | None,
+    ) -> list[_Candidate]:
+        """Return what a price cut taking effect on ``on`` lets the firm claim.
+
+        One line per product, or per batch of a product kept by batch: the
+        stock at the close of the day before, times the old rate less the
+        new. With no lines typed it is every product of the principal with
+        stock and a recorded cut that day, less what a live claim already
+        holds; a rise, an unchanged rate and an empty shelf are left out.
+        With lines typed it is exactly those, and one that can claim nothing
+        -- not the principal's, no drop, no stock, claimed already -- is
+        refused by name rather than dropped, since somebody asked for it.
+
+        Raises:
+            ValidationError: If the cut has not taken effect, or a typed line
+                can claim nothing.
+
+        """
+        principal = self._principal(principal_id, firm_id=firm_id)
+        if on > firm_today(self._session, firm_id):
+            raise ValidationError(
+                f"A price cut from {on:%d-%m-%Y} has not taken effect: the stock "
+                "it is claimed on is what closes the day before."
+            )
+        close = on - timedelta(days=1)
+        catalogue = {
+            row.id: row
+            for row in self._session.execute(
+                select(
+                    Product.id,
+                    Product.code,
+                    Product.name,
+                    Product.track_batch,
+                    Product.purchase_price,
+                )
+                .join(Brand, Brand.id == Product.brand_id)
+                .where(Product.firm_id == firm_id, Brand.principal_id == principal_id)
+            ).all()
+        }
+        recorded = self._recorded_rates(firm_id, principal_id, on, catalogue)
+        held = self._stock_at_close(firm_id, principal_id, close)
+        explicit = typed is not None
+        asked: list[tuple[UUID, UUID | None, Decimal | None, Decimal | None]]
+        if typed is None:
+            asked = [
+                (product_id, None, old, new)
+                for product_id, (old, new) in recorded.items()
+                if new < old
+            ]
+        else:
+            asked = [
+                (line.product_id, line.batch_id, line.old_rate, line.new_rate)
+                for line in typed
+            ]
+        strangers = [
+            product_id for product_id, *_ in asked if product_id not in catalogue
+        ]
+        if strangers:
+            codes = self._session.scalars(
+                select(Product.code).where(
+                    Product.firm_id == firm_id, Product.id.in_(strangers)
+                )
+            ).all()
+            raise ValidationError(
+                f"{', '.join(sorted(codes)) or 'A product listed'} is not one of "
+                f"{principal.name}'s products, so it is no part of this claim."
+            )
+        # A line naming a batch speaks for that batch; one naming none covers
+        # whatever of the product is left.
+        named = {
+            (product_id, batch_id)
+            for product_id, batch_id, *_ in asked
+            if batch_id is not None
+        }
+        found: list[_Candidate] = []
+        for product_id, batch_id, typed_old, typed_new in asked:
+            product = catalogue[product_id]
+            if batch_id is not None and not product.track_batch:
+                raise ValidationError(
+                    f"{product.code} is not kept by batch; leave the batch out."
+                )
+            default = recorded.get(product_id)
+            old = typed_old if typed_old is not None else (default or (None,))[0]
+            new = typed_new if typed_new is not None else (default or (None, None))[1]
+            if old is None or new is None:
+                raise ValidationError(
+                    f"No change of purchase price is recorded for {product.code} "
+                    f"from {on:%d-%m-%Y}; type the old and the new rate."
+                )
+            if new >= old:
+                raise ValidationError(
+                    f"{product.code}: the new rate {new:f} is not lower than the "
+                    f"old rate {old:f}, so there is nothing to claim."
+                )
+            stock = held.get(product_id, {})
+            if product.track_batch:
+                shelves = [
+                    (held_batch, number, quantity)
+                    for held_batch, (number, quantity) in stock.items()
+                    if (
+                        held_batch == batch_id
+                        if batch_id is not None
+                        else (product_id, held_batch) not in named
+                    )
+                ]
+            else:
+                shelves = [(None, None, sum((q for _, q in stock.values()), ZERO))]
+            shelves = [shelf for shelf in shelves if shelf[2] > 0]
+            if not shelves and explicit:
+                raise ValidationError(
+                    f"{product.code} had no stock on hand at the close of "
+                    f"{close:%d-%m-%Y}, so there is nothing to claim on it."
+                )
+            how = (
+                "rates from the price revision"
+                if default == (old, new)
+                else "rates as typed"
+            )
+            for held_batch, number, quantity in shelves:
+                amount = ((old - new) * quantity).quantize(CENT)
+                if amount <= 0:
+                    continue
+                found.append(
+                    _Candidate(
+                        kind=RATE_DIFFERENCE,
+                        source_id=rate_difference_source(
+                            principal_id, product_id, held_batch, on
+                        ),
+                        source_number=product.code,
+                        source_date=on,
+                        product_id=product_id,
+                        quantity=quantity,
+                        description=(
+                            f"Price cut from {on:%d-%m-%Y} on stock at the close "
+                            f"of {close:%d-%m-%Y}: {how}"
+                        ),
+                        amount=amount,
+                        credit=_PRICE,
+                        batch_id=held_batch,
+                        batch_number=number,
+                        old_rate=old,
+                        new_rate=new,
+                    )
+                )
+        found.sort(key=lambda c: (c.source_number, c.batch_number or ""))
+        holders = self._claimed_on({c.source_id for c in found})
+        if explicit:
+            for candidate in found:
+                if candidate.source_id in holders:
+                    batch = (
+                        f" batch {candidate.batch_number}"
+                        if candidate.batch_number
+                        else ""
+                    )
+                    raise ValidationError(
+                        f"{candidate.source_number}{batch} is already claimed for "
+                        f"the price cut of {on:%d-%m-%Y}, on claim "
+                        f"{holders[candidate.source_id]}; cancel that claim to "
+                        "claim it again."
+                    )
+        return [c for c in found if c.source_id not in holders]
+
+    def _recorded_rates(
+        self,
+        firm_id: UUID,
+        principal_id: UUID,
+        on: date,
+        catalogue: dict[UUID, Row[tuple[UUID, str, str, bool, Decimal | None]]],
+    ) -> dict[UUID, tuple[Decimal, Decimal]]:
+        """Return the purchase rate before and from ``on``, where one was revised.
+
+        The new rate is the price revision dated that day; the old one is the
+        rate in force the day before -- the latest earlier revision naming a
+        purchase price, else the product's own. A product with no revision
+        that day, or no earlier rate to compare with, is absent.
+        """
+        revised = (
+            ProductPriceRevision.firm_id == firm_id,
+            ProductPriceRevision.is_deleted.is_(False),
+            ProductPriceRevision.purchase_price.is_not(None),
+            ProductPriceRevision.product_id.in_(
+                self._principal_products(firm_id, principal_id)
+            ),
+        )
+        new = {
+            product_id: Decimal(str(price))
+            for product_id, price in self._session.execute(
+                select(
+                    ProductPriceRevision.product_id,
+                    ProductPriceRevision.purchase_price,
+                ).where(*revised, ProductPriceRevision.effective_from == on)
+            ).all()
+        }
+        if not new:
+            return {}
+        old: dict[UUID, Decimal] = {}
+        # Oldest first, so the latest earlier revision is what is left. Read
+        # for the principal's products, never by a list of ids.
+        for product_id, price in self._session.execute(
+            select(ProductPriceRevision.product_id, ProductPriceRevision.purchase_price)
+            .where(*revised, ProductPriceRevision.effective_from < on)
+            .order_by(ProductPriceRevision.effective_from.asc())
+        ).all():
+            old[product_id] = Decimal(str(price))
+        rates: dict[UUID, tuple[Decimal, Decimal]] = {}
+        for product_id, price in new.items():
+            product = catalogue.get(product_id)
+            before = old.get(product_id)
+            if before is None and product is not None:
+                card = product.purchase_price
+                before = None if card is None else Decimal(str(card))
+            if before is not None and before > 0:
+                rates[product_id] = (before, price)
+        return rates
+
+    def _stock_at_close(
+        self, firm_id: UUID, principal_id: UUID, close: date
+    ) -> dict[UUID, dict[UUID | None, tuple[str | None, Decimal]]]:
+        """Return the principal's stock at the close of a day, by product and batch.
+
+        Read from the movements dated on or before the day, as the stock
+        valuation reads it, so the figure is the one *Stock valuation* shows
+        as on that day: what the firm owns, every warehouse summed,
+        quarantined goods included. Grouped in SQL by the batch of the stock
+        row each movement moved.
+        """
+        owned = func.coalesce(
+            InventoryTransaction.owned_quantity_delta,
+            InventoryTransaction.current_quantity_delta
+            + InventoryTransaction.quarantine_quantity_delta,
+        )
+        stock: dict[UUID, dict[UUID | None, tuple[str | None, Decimal]]] = {}
+        for product_id, batch_id, number, quantity in self._session.execute(
+            select(
+                InventoryTransaction.product_id,
+                InventoryRecord.batch_id,
+                BatchRecord.batch_number,
+                func.sum(owned),
+            )
+            .join(
+                InventoryRecord, InventoryRecord.id == InventoryTransaction.inventory_id
+            )
+            .outerjoin(BatchRecord, BatchRecord.id == InventoryRecord.batch_id)
+            .where(
+                InventoryTransaction.firm_id == firm_id,
+                InventoryTransaction.is_deleted.is_(False),
+                InventoryTransaction.transaction_date <= close,
+                InventoryTransaction.product_id.in_(
+                    self._principal_products(firm_id, principal_id)
+                ),
+            )
+            .group_by(
+                InventoryTransaction.product_id,
+                InventoryRecord.batch_id,
+                BatchRecord.batch_number,
+            )
+        ).all():
+            stock.setdefault(product_id, {})[batch_id] = (
+                number,
+                Decimal(str(quantity or 0)),
+            )
+        return stock
+
+    def _claimed_on(self, source_ids: set[UUID]) -> dict[UUID, str]:
+        """Return the claim number holding each rate difference source."""
+        if not source_ids:
+            return {}
+        return {
+            source_id: number
+            for source_id, number in self._session.execute(
+                select(PrincipalClaimLine.source_id, PrincipalClaim.claim_number)
+                .join(PrincipalClaim, PrincipalClaim.id == PrincipalClaimLine.claim_id)
+                .where(
+                    PrincipalClaimLine.kind == RATE_DIFFERENCE,
+                    PrincipalClaimLine.source_id.in_(list(source_ids)),
+                    PrincipalClaimLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+
     # ---- helpers -------------------------------------------------------
 
     def _principal(self, principal_id: UUID, *, firm_id: UUID) -> Principal:
@@ -1203,6 +1742,10 @@ class PrincipalClaimService(TransactionalDocumentService):
                 names.get(candidate.product_id) if candidate.product_id else None
             ),
             quantity=candidate.quantity,
+            batch_id=candidate.batch_id,
+            batch_number=candidate.batch_number,
+            old_rate=candidate.old_rate,
+            new_rate=candidate.new_rate,
             description=candidate.description,
             amount=candidate.amount,
         )

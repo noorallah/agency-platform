@@ -478,6 +478,67 @@ charged units alone reduces no claim: the free goods stayed given. Free
 goods that did come back are netted, below.
 `tests/unit/test_principal_claim_free_goods.py` is the guard.
 
+**A principal's price cut is claimed on the stock in hand** (rate difference,
+2026-10-06; gap 2 of the pricing market study). The principal lowers its rate
+from a day and owes the firm the difference on what stood on the shelf when
+the day before closed -- the claim a Marg or Busy user writes up from a stock
+statement and a debit note. It is a fifth kind, **RATE_DIFFERENCE**
+(`principal_claims.rate_difference_amount`), and the only one that is not a
+period's: `POST /api/v1/principal-claims/preview` and `POST
+/api/v1/principal-claims` take `kinds: ["RATE_DIFFERENCE"]` with an
+`effective_date`, the claim's period is that one day, and the kind stands
+alone on its claim -- a period's claim never gathers it, and `kinds` left out
+still means the period's four. Five decisions:
+
+- **The rate is the purchase rate per stock unit before tax** -- what the
+  principal bills the firm, which is the thing the cut lowered. Not a batch's
+  `pts` or `ptr`: those are what the *firm* sells that batch at, and a batch
+  keeps one figure with no history, so there is no "before" to read. The new
+  rate defaults from the product's price revision dated that day
+  (`product_price_revisions.purchase_price`) and the old one from the rate in
+  force the day before -- the latest earlier revision, else the product's own
+  purchase price. **A typed rate replaces either**, because the principal's
+  circular is the authority and the revision is only somebody's copy of it;
+  the line says which it used. A supplier catalogue price
+  (`supplier_products.unit_price`) is not read: it is per purchase unit, not
+  per stock unit. A revision that lowers only the MRP proposes nothing -- the
+  claim is on what was paid -- and that product is added with its rates typed.
+- **The stock is never typed.** It is the sum of the movements dated on or
+  before the day before the cut, every warehouse together -- the quantity
+  *Stock valuation* shows as on that day, so the principal's auditor and the
+  firm read one figure. A receipt dated on the day of the cut came in at the
+  new rate and is no part of it. A product kept by batch is one line per batch
+  with stock; a line that names no batch covers every batch no other line
+  names. A cut dated after the firm's today is refused: yesterday has not
+  closed.
+- **Left to itself the preview proposes; given lines, it takes exactly those.**
+  With no `rate_lines` it is every product of the principal with stock and a
+  recorded cut that day, less what a live claim already holds; a rise, an
+  unchanged rate and an empty shelf are left out in silence. With
+  `rate_lines` -- the proposed ones as corrected, less any taken off, plus any
+  added by product -- a line that can claim nothing is **refused by name**
+  rather than dropped: not the principal's product, a new rate not lower than
+  the old, nothing on the shelf, or no rate typed and none recorded.
+- **The same stock is claimed once for one cut.** A rate difference has no row
+  to name as its source, so the source is a key made of the principal, the
+  product, the batch and the effective date (`rate_difference_source`), held
+  by the same partial unique index as every other kind. A second claim is
+  refused naming the claim that holds it; cancelling that claim soft-deletes
+  its lines and frees them. A second cut on another day is another source.
+- **The stock is not revalued, and the claim carries no tax.** The moving
+  average stays where the purchases put it and the goods leave at the dearer
+  cost; the journal -- Dr claims receivable, Cr **purchase price variance**
+  -- puts the principal's money beside that cost of sales, where it offsets
+  it. Where the principal settles by a GST credit note (section 34) the firm's
+  input credit comes down by that note's tax: book the note as a supplier
+  credit note, which is where the tax is reversed. The claim itself never
+  states any.
+
+Settlement, cancellation and the statement are the other kinds' -- the PDF
+gains a *Rate difference on stock in hand* table of item, batch, quantity, old
+rate, new rate and amount. `tests/unit/test_principal_claim_rate_difference.py`
+is the guard.
+
 ## What may be billed is what was charged, not what left the warehouse
 
 **What may be billed is what was charged, not what left the warehouse.** A

@@ -2080,6 +2080,7 @@ class DocumentPostingService:
         stock_amount: Decimal,
         actor_id: UUID,
         free_goods_amount: Decimal = ZERO,
+        rate_difference_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Book what a principal owes on a claim (SEL-11).
 
@@ -2089,6 +2090,12 @@ class DocumentPostingService:
         adjustment account their write-off and return were charged to, and
         goods given free on a sale to cost of goods sold, where the dispatch
         that shipped them put what they cost.
+
+        A rate difference -- the principal's price cut on the stock in hand
+        -- credits purchase price variance. The stock is not revalued: it
+        keeps its average and leaves at the dearer cost, and this credit sits
+        beside that cost of sales to offset it. No tax: the principal's own
+        credit note carries any, booked as a supplier credit note.
 
         Raises:
             ValidationError: If accounts or an open period are missing.
@@ -2101,6 +2108,8 @@ class DocumentPostingService:
         scheme = quantize_ledger(quantize_money(scheme_amount))
         loss = quantize_ledger(quantize_money(stock_amount))
         given = quantize_ledger(quantize_money(free_goods_amount))
+        variance = ControlAccountPurpose.PURCHASE_PRICE_VARIANCE
+        cut = quantize_ledger(quantize_money(rate_difference_amount))
         wanted = [receivable]
         if scheme > ZERO:
             wanted.append(promotion)
@@ -2108,18 +2117,25 @@ class DocumentPostingService:
             wanted.append(stock)
         if given > ZERO:
             wanted.append(sold)
+        if cut > ZERO:
+            wanted.append(variance)
         accounts = self._require_mapping(firm_id, tuple(wanted))
         context = self.context_for(firm_id, claim_date)
         describe = f"Claim {claim_number} on the principal"
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[receivable],
-                debit_amount=scheme + loss + given,
+                debit_amount=scheme + loss + given + cut,
                 credit_amount=ZERO,
                 description=describe,
             )
         ]
-        for purpose, value in ((promotion, scheme), (stock, loss), (sold, given)):
+        for purpose, value in (
+            (promotion, scheme),
+            (stock, loss),
+            (sold, given),
+            (variance, cut),
+        ):
             if value > ZERO:
                 lines.append(
                     JournalLineData(

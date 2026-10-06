@@ -16,7 +16,9 @@ class PrincipalClaim(BaseEntity):
 
     Raised from the schemes the principal funds, the firm's expiry
     write-offs of its products and the broken goods customers returned;
-    settled by the principal's credit note or by its payment.
+    settled by the principal's credit note or by its payment. A rate
+    difference claim is for one price cut rather than a period: both ends of
+    its period are the day the new rates took effect.
     """
 
     __tablename__ = "principal_claims"
@@ -62,6 +64,11 @@ class PrincipalClaim(BaseEntity):
     free_goods_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=0, server_default="0"
     )
+    #: The principal's price cut on the stock in hand when it took effect:
+    #: old rate less new rate, times what stood at the close of the day before.
+    rate_difference_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0, server_default="0"
+    )
     total_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=0, server_default="0"
     )
@@ -76,6 +83,8 @@ class PrincipalClaim(BaseEntity):
 
 class PrincipalClaimLine(BaseEntity):
     """One thing claimed: a redemption, free goods, a write-off or a return line.
+
+    Or, for a rate difference, the stock a price cut found on the shelf.
 
     A source is claimed once: a live line holds it, and cancelling the claim
     soft-deletes its lines so the source can be claimed again.
@@ -101,12 +110,16 @@ class PrincipalClaimLine(BaseEntity):
     )
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    #: ``SCHEME``, ``FREE_GOODS``, ``EXPIRY`` or ``BREAKAGE``.
+    #: ``SCHEME``, ``FREE_GOODS``, ``EXPIRY``, ``BREAKAGE`` or
+    #: ``RATE_DIFFERENCE``.
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
     #: The redemption, delivery note line, stock movement or sales return
     #: line claimed. No foreign key: four tables, named by ``kind`` -- a
     #: scheme's line is a redemption for its money and a delivery note line
-    #: for its free goods.
+    #: for its free goods. A rate difference has no row to name: its source
+    #: is a key made of the principal, the product, the batch and the day the
+    #: cut took effect (``rate_difference_source``), so the same stock is
+    #: claimed once for one cut.
     source_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
     source_number: Mapped[str] = mapped_column(String(80), nullable=False)
     source_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -114,6 +127,14 @@ class PrincipalClaimLine(BaseEntity):
         UUIDType(), ForeignKey("products.id", ondelete="RESTRICT")
     )
     quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    #: Rate difference only. The batch the stock was in, where the product is
+    #: kept by batch; a bare id, as ``source_id`` is. The rates are the
+    #: purchase rate per stock unit before tax, before and after the cut, as
+    #: the claim stated them: the principal's circular is the authority, so
+    #: they are kept here rather than re-read from the price revisions.
+    batch_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    old_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    new_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     description: Mapped[str] = mapped_column(String(300), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
 
