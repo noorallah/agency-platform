@@ -896,6 +896,31 @@ anybody spends; asking for more than is left answers "That customer holds
 can no longer be spent." and writes nothing. The expiring report still lists
 a batch awaiting the sweep: its cost is still owed, and the row is the notice.
 
+**Points are taken back only from what can be spent** (D-PRC-30, 2026-10-06).
+A redemption drew the line and the three things that take points *away* did
+not. `adjust` checked a negative figure against the raw sum of the ledger and
+pooled it oldest batch first, so a customer with 2.36 points live and 70.80
+lapsed had -50 accepted ("Balance adjusted.", Dr 2600 50.00 / Cr 5700 50.00)
+and could still spend 2.36: the 50 had come out of the lapsed batch. A
+negative adjustment, the take-back of a return or a credit note
+(`stage_take_back`) and the take-back of a cancelled bill (`stage_reversal`)
+now **stage the lapse first**, exactly as a redemption does, and then read
+what is left:
+
+- An adjustment beyond it is refused and writes nothing: "That customer holds
+  2.3600 points that can be spent, so -50.0000 would take the balance below
+  zero. 70.8000 more ran out of time on 2026-09-27 and are gone already." An
+  adjustment of -2 leaves 0.36 to spend, with the 70.80 lapsed in the same
+  transaction and its cost released. A positive adjustment lapses nothing.
+- A return, a credit note or a cancellation of a bill whose points have run
+  out of time **takes nothing back**: the batch has nothing left, the lapse
+  (an EXPIRED row naming the batch, with its journal) is the record of where
+  the points went, and no shortfall is carried against the customer's other
+  points -- the module never had that notion; a take-back was always "what is
+  left of the batch".
+
+`tests/unit/test_points_taken_back_are_spendable.py` is the guard.
+
 **So that the cost does not wait on somebody remembering**, the sweep is a
 subcommand of the shipped binary, `agency-server loyalty-expire`
 (`sweep_every_firm` in `app/loyalty/services/expiry_sweep.py`): every live
