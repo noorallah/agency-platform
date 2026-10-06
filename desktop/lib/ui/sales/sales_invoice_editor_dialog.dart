@@ -120,7 +120,14 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// one somebody typed on the bill. The box stays blank for it, so a save
   /// says nothing and the inheritance stands; a figure typed replaces it, 0
   /// included.
+  ///
+  /// The same holds for a discount somebody typed as an AMOUNT
+  /// (`bill_discount_typed_as` is `amount`, D-PRC-35): refilling the percent
+  /// box with the rate it works out to and sending it back would turn the
+  /// amount into a rate. [_billDiscountTypedAsAmount] says which of the two it
+  /// is, and the box is blank for both.
   bool _billDiscountInherited = false;
+  bool _billDiscountTypedAsAmount = false;
   String _inheritedBillDiscountAmount = '';
   double _inheritedBillDiscountPercent = 0;
   final TextEditingController _freight = TextEditingController();
@@ -546,8 +553,12 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     }
     final double bill =
         double.tryParse('${invoice['bill_discount_percent'] ?? 0}') ?? 0;
+    _billDiscountTypedAsAmount = '${invoice['bill_discount_source']}' ==
+            'typed' &&
+        '${invoice['bill_discount_typed_as']}' == 'amount';
     _billDiscountInherited =
-        '${invoice['bill_discount_source']}' == 'inherited';
+        '${invoice['bill_discount_source']}' == 'inherited' ||
+            _billDiscountTypedAsAmount;
     if (_billDiscountInherited) {
       _inheritedBillDiscountAmount =
           '${invoice['bill_discount_amount'] ?? ''}';
@@ -883,17 +894,23 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       0;
 
   /// What the bill-discount box says a blank does.
-  String get _billDiscountHelper => _billDiscountInherited
-      ? "Typing a figure replaces the order's; 0 removes it."
-      : 'Comes off what the lines discounted to, and the tax falls with it.';
+  String get _billDiscountHelper => _billDiscountTypedAsAmount
+      ? 'Typing a percentage replaces the amount; 0 removes it.'
+      : _billDiscountInherited
+          ? "Typing a figure replaces the order's; 0 removes it."
+          : 'Comes off what the lines discounted to, and the tax falls with it.';
 
   /// The discount the bill took from its order, read-only beside the box.
   Widget? _inheritedBillDiscountNote(BuildContext context) {
     if (!_billDiscountInherited) return null;
     final double amount = double.tryParse(_inheritedBillDiscountAmount) ?? 0;
     return Text(
-      'From the order: ${amount.toStringAsFixed(2)}',
-      key: const ValueKey<String>('bill-discount-inherited'),
+      _billDiscountTypedAsAmount
+          ? 'Typed as an amount: ${amount.toStringAsFixed(2)}'
+          : 'From the order: ${amount.toStringAsFixed(2)}',
+      key: ValueKey<String>(_billDiscountTypedAsAmount
+          ? 'bill-discount-typed-amount'
+          : 'bill-discount-inherited'),
       style: Theme.of(context).textTheme.bodySmall,
     );
   }
@@ -1400,6 +1417,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _coupon.clear();
       _billDiscount.clear();
       _billDiscountInherited = false;
+      _billDiscountTypedAsAmount = false;
       _freight.clear();
       _receivedNow.clear();
       _receivedRef.clear();
