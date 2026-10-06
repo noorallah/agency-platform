@@ -164,28 +164,40 @@ def _read_return(
     refers to every one. Only the lines returning billed goods are credited
     against an invoice; the rest credit no tax invoice and are left out.
 
+    Which invoices those are is what the return's print and GSTR-1 say
+    (``bills_credited``): the bill a line names, and for a line raised off a
+    delivery note every bill its units were set against when the return
+    completed. Asked only of lines raised on a bill, a return off the note
+    that credited a bill was refused here as crediting none (D-PRC-89).
+
     Raises:
         ResourceNotFoundError: When the firm has no such return.
         ValidationError: When it returns nothing an invoice billed.
 
     """
+    from app.sales_return.billing import billed_share, bills_credited
     from app.sales_return.models import SalesReturn, SalesReturnLine
 
     found = session.get(SalesReturn, return_id)
     if found is None or found.firm_id != firm_scope or found.is_deleted:
         raise ResourceNotFoundError("Sales return not found.")
+    completed = found.status in _ISSUED_RETURN
     rows = list(
         session.scalars(
             select(SalesReturnLine)
             .where(
                 SalesReturnLine.sales_return_id == found.id,
                 SalesReturnLine.is_deleted.is_(False),
-                SalesReturnLine.source_document_type == "SALES_INVOICE",
             )
             .order_by(SalesReturnLine.line_number.asc())
         )
     )
-    invoice_ids = list(dict.fromkeys(row.source_document_id for row in rows))
+    credited = bills_credited(session, rows, completed=completed)
+    invoice_ids = list(
+        dict.fromkeys(
+            bill.invoice_id for row in rows for bill in credited.get(row.id, [])
+        )
+    )
     invoices = {
         row.id: row
         for row in session.scalars(
@@ -196,36 +208,57 @@ def _read_return(
         )
     }
     ordered = tuple(invoices[key] for key in invoice_ids if key in invoices)
+    if not ordered and not completed and found.status != "CANCELLED":
+        # A return off a delivery note is set against its bills only when it
+        # completes, so until then it cannot say whether it credits one.
+        raise ValidationError(
+            f"{found.return_number} is not completed; only a completed return "
+            "is registered."
+        )
     if not ordered:
         raise ValidationError(
             f"{found.return_number} returns goods no invoice billed, so it "
             "credits no tax invoice and is not registered."
         )
-    lines = [
-        ReturnLine(
-            sales_invoice_line_id=row.source_document_line_id,
-            product_id=row.product_id,
-            description=row.description,
-            # As the printed credit note states the line -- 7 for seven
-            # pieces off a line sold by the box, not the 0.5833 of a box the
-            # row stores -- through the function the print reads; the unit
-            # price is then the taxable value over it, 100.000 (D-PRC-50).
-            quantity=stated_line(
-                quantity=row.current_return_quantity,
-                free_quantity=row.free_quantity,
-                unit_price=row.unit_price,
-                source_uom_id=row.sales_uom_id,
-                typed_uom_id=row.return_uom_id,
-                entered_quantity=row.entered_quantity,
-                conversion_factor=row.conversion_factor,
-            ).quantity,
-            # What the line credited before tax, as GSTR-1 reads it.
-            taxable_amount=Decimal(str(row.net_amount)) - Decimal(str(row.tax_amount)),
-            tax_amount=Decimal(str(row.tax_amount)),
+    lines: list[ReturnLine] = []
+    for row in rows:
+        bills = [
+            bill for bill in credited.get(row.id, []) if bill.invoice_id in invoices
+        ]
+        if not bills:
+            continue
+        # What came back before any bill charged it credited nothing, and
+        # is no part of the credit note.
+        share = billed_share(row)
+        # As the printed credit note states the line -- 7 for seven pieces
+        # off a line sold by the box, not the 0.5833 of a box the row
+        # stores -- through the function the print reads; the unit price is
+        # then the taxable value over it, 100.000 (D-PRC-50).
+        stated = stated_line(
+            quantity=row.current_return_quantity,
+            free_quantity=row.free_quantity,
+            unit_price=row.unit_price,
+            source_uom_id=row.sales_uom_id,
+            typed_uom_id=row.return_uom_id,
+            entered_quantity=row.entered_quantity,
+            conversion_factor=row.conversion_factor,
+        ).quantity
+        tax = Decimal(str(row.tax_amount)) * share
+        lines.append(
+            ReturnLine(
+                # The bill line whose tax heads the line's tax is split by,
+                # and whose HSN code it carries: the one it names, or the
+                # earliest it was set against. The bills of one delivery
+                # note line charged the same goods under the same heads.
+                sales_invoice_line_id=bills[0].invoice_line_id,
+                product_id=row.product_id,
+                description=row.description,
+                quantity=stated if share == 1 else stated * share,
+                # What the line credited before tax, as GSTR-1 reads it.
+                taxable_amount=Decimal(str(row.net_amount)) * share - tax,
+                tax_amount=tax,
+            )
         )
-        for row in rows
-        if row.source_document_id in invoices
-    ]
     return NoteDocument(
         kind=SALES_RETURN,
         id=found.id,

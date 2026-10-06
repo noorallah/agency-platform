@@ -40,7 +40,11 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
 )
-from app.sales_return.billing import CreditedBill, bills_credited
+from app.sales_return.billing import (
+    CreditedBill,
+    bills_credited,
+    returns_crediting_bills,
+)
 from app.sales_return.models import (
     SalesReturn,
     SalesReturnLine,
@@ -132,19 +136,14 @@ class CreditNotePrintService:
         return pdf, f"{safe}.pdf"
 
     def _credits_an_invoice(self, return_id: UUID) -> bool:
-        """Whether the return gives back goods an invoice billed."""
-        return (
-            self._session.scalar(
-                select(SalesReturnLine.id)
-                .where(
-                    SalesReturnLine.sales_return_id == return_id,
-                    SalesReturnLine.source_document_type == "SALES_INVOICE",
-                    SalesReturnLine.is_deleted.is_(False),
-                )
-                .limit(1)
-            )
-            is not None
-        )
+        """Whether the return gives back goods an invoice billed.
+
+        By either route: on a bill's own line, or off a delivery note and
+        set against the bills that charged it (D-PRC-89). The same answer
+        the print's "Against invoice" rows, GSTR-1 and the registration
+        give, because all of them read ``bills_credited``.
+        """
+        return bool(returns_crediting_bills(self._session, [return_id]))
 
     # ------------------------------------------------------------------
     def _template(self, firm_scope: UUID) -> TemplateSettings:

@@ -1772,3 +1772,51 @@ def bills_credited(
                     CreditedBill(invoice_id, invoice_line_id, number, dated)
                 )
     return dict(found)
+
+
+def returns_crediting_bills(
+    session: Session, return_ids: Iterable[UUID]
+) -> dict[UUID, list[CreditedBill]]:
+    """Return, per completed return, the bills it credits, earliest first.
+
+    The one answer to "is this return a credit note against a tax invoice",
+    which the e-invoice readers ask -- the print's IRN gate, the list of
+    documents waiting to be registered and the registration itself. They
+    used to ask "does it have a line raised on a bill" instead, so a return
+    raised off a delivery note and set against the bill that charged it was
+    outside all three while its own print and GSTR-1 named the invoice
+    (D-PRC-89). It is read from ``bills_credited``, so the route a return
+    was raised by cannot change the answer.
+
+    A return that has not completed has credited nobody, and one whose goods
+    no bill had charged credits no tax invoice: both are absent. A fixed
+    number of statements per chunk of ids.
+    """
+    lines: list[SalesReturnLine] = []
+    for part in chunks(list(dict.fromkeys(return_ids))):
+        lines.extend(
+            session.scalars(
+                select(SalesReturnLine)
+                .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+                .where(
+                    SalesReturnLine.sales_return_id.in_(part),
+                    SalesReturnLine.is_deleted.is_(False),
+                    SalesReturn.is_deleted.is_(False),
+                    SalesReturn.status.in_(_COMPLETED),
+                )
+                .order_by(
+                    SalesReturnLine.sales_return_id, SalesReturnLine.line_number.asc()
+                )
+            ).all()
+        )
+    credited = bills_credited(session, lines)
+    found: dict[UUID, dict[UUID, CreditedBill]] = defaultdict(dict)
+    for line in lines:
+        for bill in credited.get(line.id, []):
+            found[line.sales_return_id].setdefault(bill.invoice_id, bill)
+    return {
+        return_id: sorted(
+            bills.values(), key=lambda bill: (bill.invoice_date, bill.invoice_number)
+        )
+        for return_id, bills in found.items()
+    }
