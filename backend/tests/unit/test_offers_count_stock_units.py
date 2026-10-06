@@ -100,7 +100,9 @@ class _Offers(_Shop):
 
     def approve(self, order: SalesOrder) -> None:
         """Approve the order."""
-        self.orders.approve_order(order.id, firm_scope=self.firm_id, actor_id=self.actor)
+        self.orders.approve_order(
+            order.id, firm_scope=self.firm_id, actor_id=self.actor
+        )
 
     def on_hand(self) -> Decimal:
         """Return how much of the product the firm holds."""
@@ -196,7 +198,7 @@ def test_free_goods_that_make_whole_boxes_stay_on_the_box_line() -> None:
 
 
 def test_a_quantity_condition_counts_the_pieces_in_a_box() -> None:
-    """"A line of 20 or more" holds for 2 BOX of 12 and not for 1."""
+    """A line of 20 or more: that holds for 2 BOX of 12 and not for 1."""
     shop = _Offers(TEN_PLUS_ONE)
     shop.session.add(
         PromotionCondition(
@@ -246,9 +248,7 @@ def test_a_free_unit_budget_counts_stock_units() -> None:
     first = shop.order(sales_uom_id=shop.box)
     shop.approve(first)
 
-    room = budget_rooms(shop.session, [shop.offer], firm_id=shop.firm_id)[
-        shop.offer.id
-    ]
+    room = budget_rooms(shop.session, [shop.offer], firm_id=shop.firm_id)[shop.offer.id]
     assert (room.free_claimed, room.free_left) == (D("2.0000"), D("1.0000"))
     second = shop.order(sales_uom_id=shop.box)
     assert len(shop.lines(second)) == 1, "the offer is not quoted in part"
@@ -336,7 +336,7 @@ def test_saving_the_order_again_with_its_free_line_does_not_double_it() -> None:
                         "sales_uom_id": shop.piece,
                         "inventory_uom_id": shop.piece,
                     },
-                ]
+                ],
             }
         ),
         firm_scope=shop.firm_id,
@@ -609,7 +609,10 @@ def test_a_purchase_by_the_box_is_offered_its_free_pieces_as_a_line() -> None:
 @pytest.mark.parametrize(
     ("line", "free"),
     [
-        ({"ordered_quantity": "24", "purchase_uom_id": "PIECE", "unit_price": "60"}, "2"),
+        (
+            {"ordered_quantity": "24", "purchase_uom_id": "PIECE", "unit_price": "60"},
+            "2",
+        ),
         ({"ordered_quantity": "2"}, "0"),
     ],
 )

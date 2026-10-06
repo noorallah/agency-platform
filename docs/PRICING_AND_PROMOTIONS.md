@@ -298,8 +298,8 @@ leaving it with none.
 
 Three things to know. The money budget counts what `benefit_amount` counts --
 line and bill discount and waived delivery, not the value of free goods, which
-are charged nothing; the free budget counts units in the unit each line is
-sold in, added across products. A free quantity **typed** on a line stands
+are charged nothing; the free budget counts **stock units** (D-PRC-39),
+added across products. A free quantity **typed** on a line stands
 (D-SELL-41) and is not the offer's, so `PromotionLineRequest.free_typed` keeps
 the engine from counting it; a gift whose product somebody already typed as a
 line is still counted, since the engine cannot tell that line from a sale.
@@ -407,18 +407,52 @@ stock** -- checked on 2026-10-06, one answer each:
 | Commission `PER_UNIT` | stock units | this change; `docs/COMMISSION_FRAMEWORK.md` |
 | Rate contract | its own unit; a line in another unit is not priced from it | unchanged |
 | Supplier's order terms (minimum, multiple) | the line's quantity, in the buying unit the catalogue is kept in | unchanged |
-| **Promotions** (line-quantity conditions, buy X get Y, slabs) and **supplier schemes** | **the line's quantity as typed, and free goods in the line's unit** | unchanged -- see below |
+| **Promotions** (line-quantity conditions, buy X get Y, combos) and **supplier schemes** | stock units, and free goods are stock units | D-PRC-39 -- see below |
 
-**An offer counts the line as typed, and that is still open.** "Buy 10 get 1"
-on a line of 12 BOX gives 1 BOX; on 2 BOX of 12 it gives nothing, where 24
-pieces typed as pieces earn 2. Counting stock units is the better rule, and
-it is not a change to which number is read: the offer's free goods are put on
-the line in the line's unit, a box cannot carry two free pieces, and the
-claim and the free-unit budget record what the engine gave. Doing it means
-free goods in stock units on a line of their own and budgets that count stock
-units, inside `app/promotions`. Until then a firm that sells by the box and
-by the piece states its offer for the unit it means, and an offer with a
-quantity condition should be tried in both units before it is published.
+**An offer counts stock units, and gives stock units** (D-PRC-39,
+2026-10-06). "Buy 10 get 1" gave 2 BOX of 12 nothing and no claim, the same
+goods typed as 24 PIECE two free, and 12 BOX one BOX: the engine read the
+quantity as typed and put the free goods on the line in the line's unit. An
+offer names products and a product has one stock unit, so every count an
+offer makes is of those -- a `line_quantity` condition, the "buy X" of
+`FREE_QUANTITY`, `BUY_X_GET_Y_DISCOUNT` and `FREE_PRODUCT`, a combo's set.
+`PromotionLineRequest.stock_factor` is the stock units one unit of the line
+holds (`UomService.stock_factor`, the factor the price list's breaks use; 1
+where left out), the engine counts `quantity x stock_factor`, and the sales
+order and the quotation send it.
+
+**The free goods are a number of stock units, and nothing is lost or
+invented stating them.** Where they are a whole number of the line's own
+unit they go on the line as before: buy 12 get 12 on 2 BOX is 24 pieces,
+2 BOX free on the box line. Where they are not -- 2 pieces earned by 2 BOX --
+they are a **free line of the same product in its stock unit**, through the
+path a gift of another product takes (`PromotionGift.for_line_number` marks
+it; `SalesOrderService._gift_lines` adds it naming the stock unit): the
+order reads "2 BOX" and "0 + 2 PIECE free, Free with B10G1", 26 pieces are
+reserved and shipped, and the free line names the offer in
+`free_promotion_id`. So 12 BOX under "buy 10 get 1" earn 14 PIECE, as 144
+pieces typed as pieces do, where they used to earn one BOX. An editor that
+sends the free line back (a line of that product selling nothing and giving
+some away) is not given a second one; like any gift line it then stands as
+typed, so an editor should drop it and let the engine add it again.
+
+**Every reader of free units counts stock units**: the claim's
+`free_quantity` (the engine's figure), the free-unit budget, what a short
+close keeps (`release_undelivered`: the notes' free units at each note
+line's factor), what a completed return brings back (`claims_given`, through
+`free_stock_units_returned` in `app/sales_return/free_goods.py`), the offer
+reports, which all read `claims_given`, and the quantity on a principal
+claim's free-goods line. A sales return's own cap needed no change: a return
+line is stored in the unit of the line the goods left on, so "sent free" and
+"already returned" are compared in one unit, and the free line above is
+returned in pieces. **Rows written before this stay as they are**: until
+now an offer's free goods on a box line were a number of boxes, so such a
+claim reads 1 where 12 pieces left, and a free box returned against it
+takes the claim to nothing rather than below it.
+`tests/unit/test_offers_count_stock_units.py` is the guard.
+
+**A supplier's scheme counts the same way** -- see *A supplier's free scheme
+fills the line by itself*, below.
 
 ## A discount on the whole document reaches the lines, and therefore the tax
 
@@ -1540,8 +1574,13 @@ keeps the scheme's id and its label as it read then
 (`purchase_order_lines.scheme_id`, `scheme_name`).
 
 The free quantity is `resolve_supplier_free_goods` in
-`app/core/utils/pricing.py`: `floor(ordered / buy) * free`, in the line's own
-unit. **`None` and `0` are different answers here too** --
+`app/core/utils/pricing.py`: `floor(bought / buy) * free`, **both in stock
+units** (D-PRC-39, 2026-10-06) -- a line bought by the box is counted at the
+pieces it stands for, the factor its quantity converts at, so 2 BOX of 12
+under "10+1" are 24 bought and earn 2 where they earned nothing. Free goods
+that are a whole number of the line's unit fill the line (10+6 on 2 BOX is
+1 BOX free); those that are not are offered as a line of their own, below.
+**`None` and `0` are different answers here too** --
 `PurchaseLineWrite.free_quantity` is `Decimal | None` with no zero default:
 blank takes the scheme, an explicit `0` refuses it, any other typed figure
 stands. A typed figure equal to the scheme's is the scheme echoed back and
@@ -1554,6 +1593,18 @@ it if there is one -- and the client adds the line (ordered 0, free n,
 `scheme_id`) when the buyer accepts. Saving takes the lines as sent and never
 invents one; a line naming a scheme that does not give its product is
 refused.
+
+**Free units of the line's own product that no line unit can carry are
+offered the same way** (D-PRC-39): 2 pieces earned by a line of 2 BOX come
+back as a suggestion naming the same product, `free_quantity` 2 and
+`free_uom_id` the product's stock unit. The client adds the line as it adds
+any gift line (ordered 0, free 2, `scheme_id`), and **the server keeps that
+line in the stock unit whatever unit it was sent in** -- a line naming no
+unit would otherwise default to the product's buying unit and turn 2 pieces
+into 2 boxes. The receipt and the bill inherit it like any free-only line.
+Until a client adds the line the order carries no free goods for that line,
+which is the "saving never invents a line" rule and not a loss: the preview
+goes on offering it.
 
 A free-only line (paid 0, free n) is worth nothing and taxed nothing; the
 receipt keeps it (D-BUY-33) and inherits the scheme's label, and the bill
