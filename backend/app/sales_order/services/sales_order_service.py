@@ -943,7 +943,8 @@ class SalesOrderService(TransactionalDocumentService):
         rest. The money each offer took is read off the order's own lines,
         as a claim on a principal reads it (`offer_took_off`), and kept in
         the share of each line that was delivered; free units are kept as
-        the notes shipped them.
+        the notes shipped them, in stock units as the claim counts them
+        (D-PRC-39).
         """
         lines = list(
             self._session.scalars(
@@ -959,7 +960,10 @@ class SalesOrderService(TransactionalDocumentService):
                 select(
                     DeliveryNoteLine.sales_order_line_id,
                     func.sum(DeliveryNoteLine.current_delivery_quantity),
-                    func.sum(DeliveryNoteLine.free_quantity),
+                    func.sum(
+                        DeliveryNoteLine.free_quantity
+                        * func.coalesce(DeliveryNoteLine.conversion_factor, 1)
+                    ),
                 )
                 .join(
                     DeliveryNote, DeliveryNote.id == DeliveryNoteLine.delivery_note_id
@@ -1019,9 +1023,14 @@ class SalesOrderService(TransactionalDocumentService):
             if line.free_promotion_id is not None:
                 free_delivered[line.free_promotion_id] = free_delivered.get(
                     line.free_promotion_id, ZERO
-                ) + max(
-                    shipped.get(line.id, (ZERO, ZERO))[1],
-                    billed.get(line.id, (ZERO, ZERO))[1],
+                ) + self._q(
+                    max(
+                        shipped.get(line.id, (ZERO, ZERO))[1],
+                        # A bill straight off the order is in the order
+                        # line's unit.
+                        billed.get(line.id, (ZERO, ZERO))[1]
+                        * Decimal(str(line.conversion_factor or 1)),
+                    )
                 )
         waived = Decimal(str(row.freight_waived_amount or 0))
         by_value = worth_delivered / worth if worth > ZERO else ZERO
@@ -2220,6 +2229,7 @@ class SalesOrderService(TransactionalDocumentService):
         benefits: PromotionBenefits,
         *,
         lines: Sequence[SalesOrderLineWrite],
+        stock_units: Mapping[UUID, UUID | None] | None = None,
     ) -> list[SalesOrderLineWrite]:
         """Turn what the engine gave into lines the document can carry.
 
@@ -2233,16 +2243,33 @@ class SalesOrderService(TransactionalDocumentService):
         offer by hand and the engine finding it are the same benefit, and the
         typed line is the one that stands -- the same precedence every other
         benefit follows.
+
+        **Free units of a line's own product** come the same way where they
+        are not a whole number of the line's unit (D-PRC-39): 2 BOX of 12
+        under "buy 10 get 1" earn 2 pieces, which no box line can carry, so
+        they are a free line of the same product **in its stock unit**. Such
+        a line is "already typed" only where the caller sent a line of that
+        product that sells nothing and gives some away -- the editor sending
+        this line back -- because the product itself is always on the
+        document.
         """
         gifts = benefits.gifts()
         if not gifts:
             return []
         typed = {item.product_id for item in lines}
+        free_only = {
+            item.product_id
+            for item in lines
+            if item.quantity == ZERO and (item.free_quantity or ZERO) > ZERO
+        }
         next_number = max((item.line_number for item in lines), default=0) + 1
         added: list[SalesOrderLineWrite] = []
         for gift in gifts:
-            if gift.product_id in typed:
+            own = gift.for_line_number is not None
+            if gift.product_id in (free_only if own else typed):
                 continue
+            # Named, so the document reads "2 PIECE free" beside "2 BOX".
+            unit = (stock_units or {}).get(gift.product_id) if own else None
             added.append(
                 SalesOrderLineWrite(
                     line_number=next_number + len(added),
@@ -2251,6 +2278,8 @@ class SalesOrderService(TransactionalDocumentService):
                     free_quantity=gift.quantity,
                     unit_price=ZERO,
                     discount_percent=ZERO,
+                    sales_uom_id=unit,
+                    inventory_uom_id=unit,
                     description=f"Free with {gift.promotion_code}",
                 )
             )
@@ -2266,6 +2295,7 @@ class SalesOrderService(TransactionalDocumentService):
         customer_group_id: UUID | None = None,
         bill_priced: bool = False,
         freight_amount: Decimal | None = None,
+        factors: Sequence[Decimal] | None = None,
     ) -> PromotionBenefits:
         """Ask the firm's promotions what this document earns.
 
@@ -2294,6 +2324,11 @@ class SalesOrderService(TransactionalDocumentService):
                         line_number=index + 1,
                         product_id=item.product_id,
                         quantity=self._q(item.quantity),
+                        # An offer counts stock units: 2 BOX of 12 are 24
+                        # for "buy 10 get 1" (D-PRC-39).
+                        stock_factor=(
+                            Decimal("1") if factors is None else factors[index]
+                        ),
                         gross=grosses[index],
                         caller_priced=(
                             item.discount_percent is not None
@@ -2527,6 +2562,7 @@ class SalesOrderService(TransactionalDocumentService):
             customer_group_id=group_id,
             bill_priced=bill_amount is not None or bill_percent is not None,
             freight_amount=freight_amount,
+            factors=factors,
         )
 
         # A gift is a **line**, not a field: nothing on the document mentions
@@ -2535,7 +2571,9 @@ class SalesOrderService(TransactionalDocumentService):
         # flows through conversion, tax and totals exactly as a typed one
         # does -- there is no second path for it to drift down.
         asked = len(lines)
-        lines = list(lines) + self._gift_lines(benefits, lines=lines)
+        lines = list(lines) + self._gift_lines(
+            benefits, lines=lines, stock_units=stock_units
+        )
         grosses += [ZERO] * (len(lines) - len(grosses))
         # A gift line names no unit: it is in the stock unit.
         factors += [Decimal("1")] * (len(lines) - len(factors))

@@ -90,11 +90,21 @@ class _LineState:
 
     line_number: int
     gross: Decimal
+    #: The line's quantity in **stock units**: an offer names products, a
+    #: product has one stock unit, and every count an offer makes -- a
+    #: quantity condition, "buy X", a combo's set -- is of those (D-PRC-39).
     quantity: Decimal
     discount: Decimal = ZERO
+    #: The quantity as the line states it, in the line's own unit.
+    entered_quantity: Decimal = ZERO
+    #: The stock units one of the line's units holds: 12 for a box of twelve.
+    stock_factor: Decimal = Decimal("1")
     #: What the line sells, for an offer about a set of products (SEL-3).
     product_id: UUID | None = None
+    #: Free units put on this line, in the line's own unit.
     free_quantity: Decimal = ZERO
+    #: The same free units in stock units, which is what a claim counts.
+    free_stock: Decimal = ZERO
     #: Somebody typed this line's free quantity, so no offer adds to it.
     free_typed: bool = False
     #: The offer that gave this line's free units: the last, if two did.
@@ -130,7 +140,11 @@ class PromotionService:
             _LineState(
                 line_number=line.line_number,
                 gross=quantize_money(line.gross),
-                quantity=Decimal(str(line.quantity)),
+                quantity=quantize_money(
+                    Decimal(str(line.quantity)) * Decimal(str(line.stock_factor))
+                ),
+                entered_quantity=Decimal(str(line.quantity)),
+                stock_factor=Decimal(str(line.stock_factor)),
                 product_id=getattr(line, "product_id", None),
                 free_typed=line.free_typed,
             )
@@ -172,6 +186,7 @@ class PromotionService:
             nonlocal bill_discount, freight_waived
             before_each = [state.discount for state in states]
             before_free = [state.free_quantity for state in states]
+            before_stock = [state.free_stock for state in states]
             before_gifts = len(gifts)
             before_lines = sum(before_each, ZERO)
             added_bill, waives_freight = self._apply(
@@ -188,8 +203,10 @@ class PromotionService:
                 + added_bill
                 + (quantize_money(data.freight_amount) if waives_freight else ZERO)
             )
-            free_given = sum((state.free_quantity for state in states), ZERO) - sum(
-                before_free, ZERO
+            # Counted in stock units, whatever unit each line is sold in:
+            # a budget of 500 free units is 500 of the product's own unit.
+            free_given = sum((state.free_stock for state in states), ZERO) - sum(
+                before_stock, ZERO
             )
             free_given += sum((gift.quantity for gift in gifts[before_gifts:]), ZERO)
             if worth <= ZERO and free_given <= ZERO:
@@ -217,11 +234,12 @@ class PromotionService:
             if overrun is not None:
                 # Whole or not at all, as approval refuses it: part of a
                 # scheme is a price nobody published.
-                for state, discount, free in zip(
-                    states, before_each, before_free, strict=True
+                for state, discount, free, stock in zip(
+                    states, before_each, before_free, before_stock, strict=True
                 ):
                     state.discount = discount
                     state.free_quantity = free
+                    state.free_stock = stock
                 del gifts[before_gifts:]
                 decisions.append(
                     self._decision(promotion, False, f"This offer {overrun}")
@@ -902,8 +920,8 @@ class PromotionService:
         )
         value = sum((state.discount for state in fresh), ZERO) + added_bill
         for state in fresh:
-            if state.free_quantity > ZERO and state.quantity > ZERO:
-                value += state.free_quantity * state.gross / state.quantity
+            if state.free_quantity > ZERO and state.entered_quantity > ZERO:
+                value += state.free_quantity * state.gross / state.entered_quantity
         if gifts:
             prices: dict[UUID, Decimal | None] = {
                 product_id: price
@@ -965,9 +983,12 @@ class PromotionService:
                     for state in matched:
                         # Whole multiples only: buying nineteen on a "ten get
                         # one" earns one free unit, not one and nine tenths.
+                        # Counted in stock units: 2 BOX of 12 are 24 bought.
                         times = int(state.quantity // buy)
                         if times > 0 and not state.free_typed:
-                            state.free_quantity += free * times
+                            self._give_free(
+                                state, free * times, promotion=promotion, gifts=gifts
+                            )
             elif kind == PromotionActionType.BUY_X_GET_Y_DISCOUNT.value:
                 buy = Decimal(str(params.get("buy_quantity", 0) or 0))
                 get = Decimal(str(params.get("free_quantity", 0) or 0))
@@ -1050,6 +1071,44 @@ class PromotionService:
                 # than the offer's.
                 waives_freight = True
         return added_bill, waives_freight
+
+    @staticmethod
+    def _give_free(
+        state: _LineState,
+        earned: Decimal,
+        *,
+        promotion: Promotion,
+        gifts: list[PromotionGift] | None,
+    ) -> None:
+        """Give a line the free units it earned, losing and inventing none.
+
+        ``earned`` is in stock units, as the offer states it. Where that is a
+        whole number of the line's own unit it goes on the line -- 24 pieces
+        on a line sold by the box of 12 are 2 BOX free -- and where it is not
+        (2 pieces on that line) it is a **free line of the same product in
+        the stock unit**, handed to the document the way a gift of another
+        product is. A line sold in its stock unit takes the figure as it is.
+        """
+        factor = state.stock_factor
+        if factor == Decimal("1"):
+            state.free_quantity += earned
+            state.free_stock += earned
+            return
+        in_line = quantize_money(earned / factor)
+        whole = in_line == in_line.to_integral_value() and in_line > ZERO
+        if whole or gifts is None or state.product_id is None:
+            state.free_quantity += in_line
+            state.free_stock += earned
+            return
+        gifts.append(
+            PromotionGift(
+                product_id=state.product_id,
+                quantity=earned,
+                promotion_code=promotion.code,
+                promotion_id=promotion.id,
+                for_line_number=state.line_number,
+            )
+        )
 
     def _gift_product(self, gift_id: object, promotion: Promotion) -> UUID | None:
         """Return the product an offer gives away, if the firm still has it.
