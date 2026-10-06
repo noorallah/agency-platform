@@ -152,6 +152,8 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'claims', label: 'Claims', numeric: true),
       ReportColumn(key: 'customers', label: 'Customers', numeric: true),
       ReportColumn(key: 'benefit_amount', label: 'Given', numeric: true),
+      ReportColumn(
+          key: 'free_quantity', label: 'Free units given', numeric: true),
     ],
   ),
   // The Targets screen's Achievement view, listed here too so it is found
@@ -283,8 +285,17 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'document_type', label: 'Document'),
       ReportColumn(key: 'document_number', label: 'Number'),
       ReportColumn(key: 'redeemed_on', label: 'On'),
-      ReportColumn(key: 'benefit_amount', label: 'Benefit', numeric: true),
-      ReportColumn(key: 'free_quantity', label: 'Free units', numeric: true),
+      ReportColumn(key: 'benefit_amount', label: 'Given', numeric: true),
+      ReportColumn(
+          key: 'free_quantity', label: 'Free units given', numeric: true),
+      ReportColumn(
+          key: 'claimed_benefit_amount',
+          label: 'Claimed at approval',
+          numeric: true),
+      ReportColumn(
+          key: 'claimed_free_quantity',
+          label: 'Free units claimed',
+          numeric: true),
       ReportColumn(key: 'status', label: 'Status'),
     ],
   ),
