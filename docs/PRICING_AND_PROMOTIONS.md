@@ -192,8 +192,73 @@ of another together -- beside the `benefit_amount` it always carried. Both are
 summed from **CLAIMED** rows across the version group by one function,
 `budget_rooms` in `promotion_service.py`, which pricing, approval, the list
 and the report all read, so they cannot disagree. Nothing is stored on the
-offer: a draft has taken nothing, a cancelled order gives its part back, and
-an edit carries the budget to the new revision without refilling it.
+offer: a draft has taken nothing, a cancelled order gives its part back, an
+order closed short gives back what it never delivered (below), and an edit
+carries the budget to the new revision without refilling it.
+
+**What a claim gave is one figure, read from one statement** (D-PRC-28,
+D-PRC-34, 2026-10-06). A redemption's `benefit_amount` and `free_quantity`
+say what the document **claimed** at approval, and two things make what it
+*gave* less: part of it is released when the order is closed short, and a
+free unit that came back on a completed return was not given. The offer and
+its budgets netted the second and the performance report did not, so one
+offer read 3 free units claimed of 3 on its own row and 4 beside the same
+cap in the report. `claims_given` in `app/promotions/services/offer_use.py`
+is now the one statement -- one row per claim with `benefit_given` (claimed
+less released) and `free_given` (claimed less released less returned, never
+below zero) -- and `budget_rooms`, the performance report, the redemptions
+report, the coupon report and the discount-by-promotion report
+(`/sales-invoices/reports/discount-by-promotion`, which gains
+`free_quantity`) all group it. Free units come back to **the claim that gave
+them**: the order line names the offer and the claim names the order. The
+redemptions report shows the netted figures as `benefit_amount` and
+`free_quantity` and what the document claimed as `claimed_benefit_amount`
+and `claimed_free_quantity`; a REVERSED or PENDING row reads what was
+claimed in both. Money is still not netted by a return -- only a short close
+moves `benefit_given`; what a return does to the principal's share is in the
+claim, below.
+
+**An order closed short keeps what it delivered of a claim and gives back the
+rest.** Closing an order with a note or a bill against it used to keep every
+claim whole ("the claim was used", D-SELL-22), so an order of 4 under a 10%
+offer and a buy 2 get 1, closed after a note of 2, left 40.00 and 2 free
+units counted against the two budgets where 20.00 and 1 were given, and a
+capped scheme stopped early. `close_order` now calls
+`RedemptionService.release_undelivered`: the money each offer took is read
+off the order's own lines (`offer_took_off`, the reading a principal's claim
+uses) and kept in the share of each line that **left** -- notes whose goods
+went out, or a standing bill straight off the order; a note still a draft or
+approved at the close can never ship, so its part goes back too -- and free
+units are kept as the notes shipped them. The row stays CLAIMED and records
+what went back in `released_benefit_amount`, `released_free_quantity` and
+`released_at` (`20261006_0339`), with an audit row
+`promotion_redemption.released` naming the order; nothing is deleted and
+`benefit_amount` is not rewritten. **A count limit is a claim made, not an
+amount**: "one use" stays used if anything was delivered. A claim none of
+which was delivered is REVERSED, as a cancellation's is
+(`promotion_redemption.reversed`), and the use is free again. An order
+closed short before `20261006_0339` keeps its whole claim: nothing recorded
+how much of it had been delivered.
+
+**An offer that gives a document nothing is not applied, and records no
+claim** (D-PRC-32). An offer could match and give nothing -- its free
+quantity typed over by hand on the line, its gift product retired, no
+delivery charge to waive -- and still read "Applied." and stage a claim of 0
+and 0, which used up `max_redemptions` and "once a customer" for nothing.
+`apply_one` now undoes such an offer as it does one that overruns its
+budget; the trace says "A free quantity was typed on the line this offer
+matched, so the offer's own was not given and nothing is claimed." or "This
+offer gave nothing on this document, so nothing is claimed." (followed, for
+a retired gift, by the sentence that was already there), and a non-stacking
+offer that gave nothing no longer stops the offers after it.
+
+**Only a claim can be reversed.** `RedemptionService.reverse` used to turn
+PENDING rows REVERSED along with CLAIMED ones, so a counter bill priced again
+without its offer -- its hidden order withdrawn and raised afresh -- left a
+REVERSED row for a claim never made, and the performance report counted it
+under reversed. A PENDING row whose document is withdrawn is dropped, the way
+re-pricing a draft drops it. `tests/unit/test_offer_use_is_one_figure.py`
+guards all four.
 
 **A claim fits whole or not at all.** Approval refuses the document under the
 same lock, in the same function as the count (`RedemptionService._assert_room`):
@@ -447,8 +512,9 @@ join (`free_goods_returned` in `app/sales_return/free_goods.py`, by either
 route). An offer's free-unit budget: `budget_rooms` takes the units returned
 off lines whose order line names the offer (`free_promotion_id`) out of
 `free_claimed`, so a scheme of 500 free units that gave 2 and took 1 back has
-given 1. The money budget is not moved by a return -- nothing nets
-`benefit_amount` yet. And the principal's claim: the preview for a period
+given 1 -- since D-PRC-34 through `claims_given`, which every report of the
+offer reads too. The money budget is not moved by a return -- nothing nets
+`benefit_amount` for one. And the principal's claim: the preview for a period
 leaves out free goods that have since come back, a line with nothing left is
 dropped, and **a claim already raised is not rewritten** by a return that
 comes after it. `tests/unit/test_sales_return_free_goods.py` is the guard.

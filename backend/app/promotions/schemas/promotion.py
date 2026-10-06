@@ -695,12 +695,19 @@ class PromotionRedemptionRecord(PromotionSchema):
     document_id: UUID
     document_number: str | None
     redeemed_on: date
-    #: The money the claim took off the document.
+    #: The money the claim gave: what it took off the document, less the part
+    #: an order closed short never delivered. The figure the offer's budget
+    #: counts; a REVERSED or PENDING row reads what the document claimed.
     benefit_amount: Decimal
-    #: The units it gave free. A free-goods offer is costed here and reads
-    #: zero above: goods given free are charged nothing, so they take nothing
-    #: off the bill, and no worth is stored for them on the claim.
+    #: The units it gave free, less those released at a short close and those
+    #: a completed return brought back. A free-goods offer is costed here and
+    #: reads zero above: goods given free are charged nothing, so they take
+    #: nothing off the bill, and no worth is stored for them on the claim.
     free_quantity: Decimal = Decimal("0")
+    #: What the document claimed when it was approved, before anything was
+    #: released or came back. Equal to the two above on most claims.
+    claimed_benefit_amount: Decimal = Decimal("0")
+    claimed_free_quantity: Decimal = Decimal("0")
     status: str
 
 

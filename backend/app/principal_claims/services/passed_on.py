@@ -44,6 +44,7 @@ from app.core.utils.money import ZERO
 from app.credit_note.models import CreditNote, CreditNoteLine
 from app.delivery_note.models import DeliveryNoteLine
 from app.promotions.models import Promotion, PromotionRedemption
+from app.promotions.services.offer_use import offer_took_off
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_return.models import SalesReturn, SalesReturnLine
@@ -203,9 +204,14 @@ def passed_on_bills(
         )
     ).all():
         order = orders.get(order_id)
-        off = _dec(discount) if source == "promotion" else ZERO
-        if order is not None and order.bill_discount_source == "promotion":
-            off += _dec(bill_share)
+        off = offer_took_off(
+            discount_source=source,
+            discount_amount=discount,
+            bill_discount_amount=bill_share,
+            bill_discount_source=(
+                None if order is None else order.bill_discount_source
+            ),
+        )
         took[line_id] = off
         worth[line_id] = _dec(gross)
         order_took[order_id] += off

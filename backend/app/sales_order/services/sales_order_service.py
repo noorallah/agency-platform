@@ -51,8 +51,8 @@ from app.customers.services.ship_to import resolve_ship_to
 from app.customers.services.trading_status import (
     assert_customer_takes_new_documents,
 )
-from app.delivery_note.models import DeliveryNote
-from app.delivery_note.rules import delivered_by_order_line
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.rules import delivered_by_order_line, goods_have_left_clause
 from app.document_files.services import FileParent, document_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -83,6 +83,7 @@ from app.promotions.schemas import (
     PromotionLineRequest,
 )
 from app.promotions.services import PromotionService, RedemptionService
+from app.promotions.services.offer_use import offer_took_off
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.document_preview import line_companions
 from app.sales.services.scope_resolution import resolve_sales_scope
@@ -930,6 +931,117 @@ class SalesOrderService(TransactionalDocumentService):
             firm_id=row.firm_id, document_id=row.id, actor_id=actor_id
         )
 
+    def _release_undelivered_promotions(
+        self, row: SalesOrder, *, actor_id: UUID
+    ) -> None:
+        """Keep what the order delivered of each offer's claim; release the rest.
+
+        What was delivered is what **left**: the notes whose goods went out,
+        and a bill straight off the order where one stands. A note still a
+        draft or approved when the order closes can never ship -- a closed
+        order moves no note forward -- so its part is released with the
+        rest. The money each offer took is read off the order's own lines,
+        as a claim on a principal reads it (`offer_took_off`), and kept in
+        the share of each line that was delivered; free units are kept as
+        the notes shipped them.
+        """
+        lines = list(
+            self._session.scalars(
+                select(SalesOrderLine).where(
+                    SalesOrderLine.sales_order_id == row.id,
+                    SalesOrderLine.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        shipped: dict[UUID, tuple[Decimal, Decimal]] = {
+            line_id: (Decimal(str(charged or 0)), Decimal(str(free or 0)))
+            for line_id, charged, free in self._session.execute(
+                select(
+                    DeliveryNoteLine.sales_order_line_id,
+                    func.sum(DeliveryNoteLine.current_delivery_quantity),
+                    func.sum(DeliveryNoteLine.free_quantity),
+                )
+                .join(
+                    DeliveryNote, DeliveryNote.id == DeliveryNoteLine.delivery_note_id
+                )
+                .where(
+                    DeliveryNote.firm_id == row.firm_id,
+                    DeliveryNote.sales_order_id == row.id,
+                    DeliveryNote.is_deleted.is_(False),
+                    DeliveryNoteLine.is_deleted.is_(False),
+                    goods_have_left_clause(),
+                )
+                .group_by(DeliveryNoteLine.sales_order_line_id)
+            ).all()
+        }
+        billed: dict[UUID, tuple[Decimal, Decimal]] = {
+            line_id: (Decimal(str(charged or 0)), Decimal(str(free or 0)))
+            for line_id, charged, free in self._session.execute(
+                select(
+                    SalesInvoiceLine.source_document_line_id,
+                    func.sum(SalesInvoiceLine.current_invoice_quantity),
+                    func.sum(SalesInvoiceLine.free_quantity),
+                )
+                .join(
+                    SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id
+                )
+                .where(
+                    SalesInvoice.firm_id == row.firm_id,
+                    SalesInvoice.is_deleted.is_(False),
+                    SalesInvoice.status.in_(("APPROVED", "CLOSED")),
+                    SalesInvoiceLine.is_deleted.is_(False),
+                    SalesInvoiceLine.source_document_type == "SALES_ORDER",
+                    SalesInvoiceLine.source_document_id == row.id,
+                )
+                .group_by(SalesInvoiceLine.source_document_line_id)
+            ).all()
+        }
+        took = worth = took_delivered = worth_delivered = ZERO
+        free_delivered: dict[UUID, Decimal] = {}
+        for line in lines:
+            charged = max(
+                shipped.get(line.id, (ZERO, ZERO))[0],
+                billed.get(line.id, (ZERO, ZERO))[0],
+            )
+            ordered = Decimal(str(line.quantity or 0))
+            share = min(charged / ordered, Decimal("1")) if ordered > ZERO else ZERO
+            off = offer_took_off(
+                discount_source=line.discount_source,
+                discount_amount=line.discount_amount,
+                bill_discount_amount=line.bill_discount_amount,
+                bill_discount_source=row.bill_discount_source,
+            )
+            gross = Decimal(str(line.gross_amount or 0))
+            took += off
+            worth += gross
+            took_delivered += off * share
+            worth_delivered += gross * share
+            if line.free_promotion_id is not None:
+                free_delivered[line.free_promotion_id] = free_delivered.get(
+                    line.free_promotion_id, ZERO
+                ) + max(
+                    shipped.get(line.id, (ZERO, ZERO))[1],
+                    billed.get(line.id, (ZERO, ZERO))[1],
+                )
+        waived = Decimal(str(row.freight_waived_amount or 0))
+        by_value = worth_delivered / worth if worth > ZERO else ZERO
+        whole = took + waived
+        money_share = (
+            (took_delivered + waived * by_value) / whole if whole > ZERO else by_value
+        )
+        service = RedemptionService(self._session)
+        service.release_undelivered(
+            firm_id=row.firm_id,
+            document_id=row.id,
+            delivered={
+                promotion_id: (money_share, free_delivered.get(promotion_id, ZERO))
+                for promotion_id in service.claimed_promotions(
+                    firm_id=row.firm_id, document_id=row.id
+                )
+            },
+            actor_id=actor_id,
+        )
+
     def cancel_order(
         self,
         order_id: UUID,
@@ -1293,9 +1405,13 @@ class SalesOrderService(TransactionalDocumentService):
         # An order nothing was shipped or billed against used no offer, so its
         # claims go back as a cancellation's do. Once a note or a bill stands,
         # the goods left at the offer's price and the claim was used: closing
-        # stops what is still to come and keeps what happened (D-SELL-22).
+        # stops what is still to come and keeps what happened (D-SELL-22) --
+        # and gives back the part of each claim that was never delivered,
+        # which a budget otherwise went on counting as given (D-PRC-28).
         if not self._documents_raised(row):
             self._release_promotions(row, actor_id=actor_id)
+        else:
+            self._release_undelivered_promotions(row, actor_id=actor_id)
         row.status = SalesOrderStatus.CLOSED.value
         row.closed_at = utc_now()
         row.close_reason = reason.strip() if reason else None

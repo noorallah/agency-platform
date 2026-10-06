@@ -332,3 +332,17 @@ class PromotionRedemption(BaseEntity):
         String(20), nullable=False, default="CLAIMED", server_default="CLAIMED"
     )
     reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The part of the claim given back because it was never delivered: an
+    #: order closed short keeps what its notes shipped and releases the rest
+    #: (D-PRC-28). `benefit_amount` and `free_quantity` stay what the
+    #: document claimed at approval -- what was claimed and what was given
+    #: back are two facts -- and every reader of an offer's use takes the
+    #: difference (`app/promotions/services/offer_use.py`). Zero on a claim
+    #: nothing was released from; a claim released whole is REVERSED instead.
+    released_benefit_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    released_free_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

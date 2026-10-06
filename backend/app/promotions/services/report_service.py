@@ -14,6 +14,13 @@ name, and would report a limit as untouched the moment it was edited -- which
 is three of the defects this module has already had. `PromotionService._claimed`
 counts across the version group for exactly that reason, and a report that did
 not would disagree with the engine that refuses the claim.
+
+A second rule since 2026-10-06: **what a claim gave is read from one place**,
+`offer_use.claims_given`. A claim's own columns say what the document claimed
+at approval; an order closed short gives part of that back and a returned
+free unit was not given, and the performance report used to state 4 free
+units beside a budget that had counted 3 (D-PRC-34). All three reports here
+take the netted figures from that statement, as the budgets do.
 """
 
 from decimal import Decimal
@@ -37,6 +44,7 @@ from app.promotions.schemas import (
     PromotionStatus,
 )
 from app.promotions.services.coupon_crud import offer_statuses, shown_status
+from app.promotions.services.offer_use import claims_given
 from app.promotions.services.redemption_service import CLAIMED, PENDING, REVERSED
 
 
@@ -84,16 +92,16 @@ class PromotionReportService:
         benefit: dict[UUID, Decimal] = {}
         free: dict[UUID, Decimal] = {}
         customers: dict[UUID, set[UUID]] = {}
-        for claim in self._redemptions(firm_scope):
+        for claim in self._session.execute(claims_given(firm_scope)).all():
             owner = group_of.get(claim.promotion_id)
             if owner is None:
                 continue
             if claim.status == CLAIMED:
                 claimed[owner] = claimed.get(owner, 0) + 1
                 benefit[owner] = benefit.get(owner, ZERO) + Decimal(
-                    str(claim.benefit_amount)
+                    str(claim.benefit_given)
                 )
-                free[owner] = free.get(owner, ZERO) + Decimal(str(claim.free_quantity))
+                free[owner] = free.get(owner, ZERO) + Decimal(str(claim.free_given))
                 if claim.customer_id is not None:
                     customers.setdefault(owner, set()).add(claim.customer_id)
             elif claim.status == PENDING:
@@ -183,6 +191,19 @@ class PromotionReportService:
         promotions = {version.id: version for version in self._promotions(firm_scope)}
         coupons = self._coupon_codes({row.coupon_id for row in rows})
         names = self._customer_names({row.customer_id for row in rows})
+        # What each claim on the page gave, from the statement the budgets
+        # read. A page is at most the page size, so its ids are a short list.
+        given = {
+            claim.id: (
+                Decimal(str(claim.benefit_given)),
+                Decimal(str(claim.free_given)),
+            )
+            for claim in self._session.execute(
+                claims_given(
+                    firm_scope, PromotionRedemption.id.in_([row.id for row in rows])
+                )
+            ).all()
+        }
         records = [
             PromotionRedemptionRecord(
                 redemption_id=row.id,
@@ -198,8 +219,21 @@ class PromotionReportService:
                 document_id=row.document_id,
                 document_number=row.document_number,
                 redeemed_on=row.redeemed_on,
-                benefit_amount=row.benefit_amount,
-                free_quantity=row.free_quantity,
+                # A claim gave what it claimed less what was released and
+                # what came back; one given back whole (REVERSED) and a
+                # draft's (PENDING) still read what the document claimed.
+                benefit_amount=(
+                    given.get(row.id, (row.benefit_amount, ZERO))[0]
+                    if row.status == CLAIMED
+                    else row.benefit_amount
+                ),
+                free_quantity=(
+                    given.get(row.id, (ZERO, row.free_quantity))[1]
+                    if row.status == CLAIMED
+                    else row.free_quantity
+                ),
+                claimed_benefit_amount=row.benefit_amount,
+                claimed_free_quantity=row.free_quantity,
                 status=row.status,
             )
             for row in rows
@@ -241,15 +275,19 @@ class PromotionReportService:
         benefit: dict[UUID, Decimal] = {}
         free: dict[UUID, Decimal] = {}
         customers: dict[UUID, set[UUID]] = {}
-        for claim in self._redemptions(firm_scope):
-            if claim.coupon_id is None or claim.status != CLAIMED:
-                continue
+        for claim in self._session.execute(
+            claims_given(
+                firm_scope,
+                PromotionRedemption.status == CLAIMED,
+                PromotionRedemption.coupon_id.is_not(None),
+            )
+        ).all():
             claimed[claim.coupon_id] = claimed.get(claim.coupon_id, 0) + 1
             benefit[claim.coupon_id] = benefit.get(claim.coupon_id, ZERO) + Decimal(
-                str(claim.benefit_amount)
+                str(claim.benefit_given)
             )
             free[claim.coupon_id] = free.get(claim.coupon_id, ZERO) + Decimal(
-                str(claim.free_quantity)
+                str(claim.free_given)
             )
             if claim.customer_id is not None:
                 customers.setdefault(claim.coupon_id, set()).add(claim.customer_id)
@@ -296,14 +334,6 @@ class PromotionReportService:
                     Promotion.firm_id == firm_scope,
                     Promotion.is_deleted.is_(False),
                 )
-            ).all()
-        )
-
-    def _redemptions(self, firm_scope: UUID) -> list[PromotionRedemption]:
-        """Every live claim row, newest first."""
-        return list(
-            self._session.scalars(
-                self._redemption_statement(firm_scope, WHOLE_HISTORY)
             ).all()
         )
 

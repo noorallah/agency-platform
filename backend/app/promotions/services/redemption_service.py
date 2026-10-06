@@ -26,7 +26,17 @@ campaign had run out of.
 
 **REVERSED** is written when the document is cancelled. Not deleted: what a
 customer claimed and what they gave back are two facts, and a ledger that
-forgets the first cannot explain the second.
+forgets the first cannot explain the second. Only a claim can be reversed: a
+PENDING row whose document is withdrawn was never a claim, so it is dropped
+as a re-pricing drops it, and the reports count no reversal for it.
+
+**Released** is the same fact for part of a claim. An order closed short
+keeps what its notes delivered and gives back the rest (D-PRC-28): the row
+stays CLAIMED -- an offer limited to one use was used -- and
+``released_benefit_amount`` / ``released_free_quantity`` record what went
+back, with an audit row of their own. A claim none of which was delivered is
+REVERSED, as a cancellation's is. What a claim *gave* is the difference, and
+every reader takes it from `offer_use.claims_given`.
 
 Booking at approval rather than while the document is priced is the load-bearing
 decision. Pricing runs on the caller's session and must never commit, so a
@@ -34,6 +44,7 @@ counter incremented there would either publish a half-written order or count a
 draft nobody ever approved.
 """
 
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -41,8 +52,10 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.common.audit.services import record_audit
 from app.core.exceptions import ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.money import ZERO, quantize_money
 from app.promotions.models import (
     Promotion,
     PromotionCoupon,
@@ -189,7 +202,14 @@ class RedemptionService:
         return False
 
     def reverse(self, *, firm_id: UUID, document_id: UUID, actor_id: UUID) -> None:
-        """Give back everything this document claimed."""
+        """Give back everything this document claimed.
+
+        A claim is REVERSED and kept. A PENDING row is dropped: nothing was
+        claimed, so there is nothing to reverse, and a counter bill priced
+        again without its offer used to leave a REVERSED row the performance
+        report counted as a claim given back.
+        """
+        now = utc_now()
         for row in self._session.scalars(
             select(PromotionRedemption).where(
                 PromotionRedemption.firm_id == firm_id,
@@ -198,9 +218,111 @@ class RedemptionService:
                 PromotionRedemption.is_deleted.is_(False),
             )
         ).all():
-            row.status = REVERSED
-            row.reversed_at = utc_now()
+            if row.status == PENDING:
+                row.is_deleted = True
+                row.deleted_at = now
+                row.deleted_by = actor_id
+            else:
+                row.status = REVERSED
+                row.reversed_at = now
             row.updated_by = actor_id
+        self._session.flush()
+
+    def claimed_promotions(self, *, firm_id: UUID, document_id: UUID) -> list[UUID]:
+        """Return the offers this document holds a live claim on."""
+        return list(
+            self._session.scalars(
+                select(PromotionRedemption.promotion_id).where(
+                    PromotionRedemption.firm_id == firm_id,
+                    PromotionRedemption.document_id == document_id,
+                    PromotionRedemption.status == CLAIMED,
+                    PromotionRedemption.is_deleted.is_(False),
+                )
+            ).all()
+        )
+
+    def release_undelivered(
+        self,
+        *,
+        firm_id: UUID,
+        document_id: UUID,
+        delivered: Mapping[UUID, tuple[Decimal, Decimal]],
+        actor_id: UUID,
+    ) -> None:
+        """Keep what an order delivered of each claim and give back the rest.
+
+        Called when an order with notes or bills against it is closed short.
+        ``delivered`` says, per promotion, the share of the offer's money
+        that reached a delivery (between 0 and 1) and the free units the
+        offer gave that were delivered. The claim keeps that and releases
+        what is left; a claim none of which was delivered is reversed, as a
+        cancelled order's is. Worked from the claim's own figures each time,
+        so calling it again changes nothing.
+
+        Staged, never committed: the close owns the transaction.
+        """
+        now = utc_now()
+        for row in self._session.scalars(
+            select(PromotionRedemption).where(
+                PromotionRedemption.firm_id == firm_id,
+                PromotionRedemption.document_id == document_id,
+                PromotionRedemption.status == CLAIMED,
+                PromotionRedemption.is_deleted.is_(False),
+            )
+        ).all():
+            share, free_delivered = delivered.get(row.promotion_id, (ZERO, ZERO))
+            share = min(max(share, ZERO), Decimal("1"))
+            claimed = Decimal(str(row.benefit_amount))
+            claimed_free = Decimal(str(row.free_quantity))
+            kept = quantize_money(claimed * share)
+            kept_free = min(max(free_delivered, ZERO), claimed_free)
+            before: dict[str, object] = {
+                "status": row.status,
+                "released_benefit_amount": str(
+                    quantize_money(Decimal(str(row.released_benefit_amount or 0)))
+                ),
+                "released_free_quantity": str(
+                    quantize_money(Decimal(str(row.released_free_quantity or 0)))
+                ),
+            }
+            if kept <= ZERO and kept_free <= ZERO:
+                row.status = REVERSED
+                row.reversed_at = now
+                action = "promotion_redemption.reversed"
+            else:
+                row.released_benefit_amount = claimed - kept
+                row.released_free_quantity = claimed_free - kept_free
+                action = "promotion_redemption.released"
+            after: dict[str, object] = {
+                "status": row.status,
+                "released_benefit_amount": str(
+                    quantize_money(Decimal(str(row.released_benefit_amount or 0)))
+                ),
+                "released_free_quantity": str(
+                    quantize_money(Decimal(str(row.released_free_quantity or 0)))
+                ),
+            }
+            if after == before:
+                continue
+            if row.status == CLAIMED:
+                row.released_at = now
+            row.updated_by = actor_id
+            record_audit(
+                self._session,
+                action=action,
+                entity_type="promotion_redemption",
+                entity_id=row.id,
+                actor_id=actor_id,
+                firm_id=firm_id,
+                before_data=before,
+                after_data={
+                    **after,
+                    "document_number": row.document_number,
+                    "benefit_amount": str(row.benefit_amount),
+                    "free_quantity": str(row.free_quantity),
+                    "reason": "The order was closed short.",
+                },
+            )
         self._session.flush()
 
     def _assert_room(

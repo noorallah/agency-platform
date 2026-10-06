@@ -1114,6 +1114,8 @@ class PromotionDiscountRecord(BaseModel):
     claims: int
     customers: int
     benefit_amount: Decimal
+    #: The free units the offer's claims gave, after returns (D-PRC-34).
+    free_quantity: Decimal = Decimal("0")
 
 
 def _discount_given(
