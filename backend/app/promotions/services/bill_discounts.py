@@ -23,6 +23,19 @@ offer set it, its part of the bill discount where the order says an offer set
 that (`offer_took_off`, here as a column), and the delivery charge an offer
 waived, by value -- is what the bill passed on.
 
+**Every part is a part of the units charged** (D-PRC-82). A discount is given
+on what the customer pays for, so the note's part of the order line is what
+the note charged over what the order line charged
+(``SalesOrderLine.quantity``), both in the order line's unit. It was once
+worked over the note line's ``ordered_quantity``, which is the order line in
+**stock units with its free goods folded in**: 24 charged with 2 free read 26,
+each bill of 12 carried 12/26 of the discount, and the 2/26 that fell on the
+free units reached no bill and came back with no return -- a principal
+claimed 110.76 of 120.00 and a returned order left 18.4615 on the offer's
+budget. A line sold by the box read worse (2 BOX over 24 pieces). Free units
+carry none of a discount, coming or going: a return of free units alone
+(``SalesReturnLine.free_quantity``) takes nothing back.
+
 **What came back** is summed over three routes and never more than the line:
 a completed return of the bill line, a completed return of the note line it
 billed (the billed part of it), and an approved credit note against it, by
@@ -178,9 +191,12 @@ def discount_on_bills(firm_id: UUID, *where: ColumnElement[bool]) -> Select[Any]
     ) * case(
         (
             from_a_note,
+            # Charged over charged, in the order line's unit. Never the note
+            # line's `ordered_quantity`: that is stock units with the free
+            # goods in it (D-PRC-82).
             _part(
                 DeliveryNoteLine.current_delivery_quantity,
-                DeliveryNoteLine.ordered_quantity,
+                SalesOrderLine.quantity,
             ),
         ),
         else_=1,

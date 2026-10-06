@@ -239,6 +239,27 @@ not completed gives nothing back -- the goods are still with the customer.
 The count limits are not moved: "one use" returned is still one use.
 `tests/unit/test_returned_discount_frees_the_budget.py` is the guard.
 
+**A discount is given on the units charged; free units carry none of it**
+(D-PRC-82, 2026-10-06). The share of an order line a bill line took is what
+the bill charged of its note line, times what the note charged of the order
+line -- `current_delivery_quantity` over the order line's `quantity`, both in
+the order line's unit. It was worked over the note line's `ordered_quantity`,
+which is the order line in **stock units with its free goods folded in**, so
+24 charged with 2 free (typed, or a second offer's) read 26: each bill of 12
+carried 12/26 of the 240.00, the principal was claimed 55.38 a bill where
+60.00 was due, and the 2/26 that fell on the free units reached no bill and
+came back with no return -- a sale returned whole left 18.4615 on the offer's
+budget. A line sold by the box read worse still (2 BOX over 24 pieces: a
+twelfth). The slices the note and the bill take of the order's discount
+(`continued_share`), and the part a short close releases, already divided by
+the charged quantity; `discount_on_bills` was the one place that did not.
+Free units coming back alone take nothing back, and a line with nothing free
+reads as it did. **Claims already raised are not restated**: a claim line
+keeps the figure it was raised at and holds its bill's source, so the
+shortfall on it is not claimed again. An offer's budget is derived on every
+read, so it reads right from the fix on. The cases are in
+`tests/unit/test_principal_claim_scheme_bills.py`.
+
 **An order closed short keeps what it delivered of a claim and gives back the
 rest.** Closing an order with a note or a bill against it used to keep every
 claim whole ("the claim was used", D-SELL-22), so an order of 4 under a 10%
