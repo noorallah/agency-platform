@@ -115,6 +115,7 @@ Json _gstr1() => <String, dynamic>{
       'hsn': <Json>[
         <String, dynamic>{
           'hsn': '33061020',
+          'unit': 'BOX',
           'rate': 18.0,
           'quantity': 15.0,
           'taxable_value': 1500.0,
@@ -170,6 +171,21 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('the HSN summary has a Unit column after the code (D-PRC-50)',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pump(tester, _ReturnsApi(one: _gstr1(), summary: _gstr3b()));
+    expect(tester.takeException(), isNull);
+    expect(find.text('Unit'), findsOneWidget);
+    expect(find.text('BOX'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Unit')).dx,
+      greaterThan(tester.getTopLeft(find.text('HSN')).dx),
+    );
+  });
+
   testWidgets('the period is chosen by month or calendar, not typed',
       (tester) async {
     // Both dates were free text, and a malformed one reached the server

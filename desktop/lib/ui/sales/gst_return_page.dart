@@ -686,6 +686,7 @@ class _GstReturnPageState extends State<GstReturnPage> {
             for (final dynamic row in hsn)
               ([
                 stringValue((row as Map)['hsn']),
+                stringValue(row['unit']),
                 '${row['rate']}%',
                 '${row['quantity']}',
                 _money(row['taxable_value']),
@@ -693,7 +694,15 @@ class _GstReturnPageState extends State<GstReturnPage> {
                 _money(row['state_tax']),
               ]),
           ],
-          headers: const ['HSN', 'Rate', 'Quantity', 'Taxable', 'CGST', 'SGST'],
+          headers: const [
+            'HSN',
+            'Unit',
+            'Rate',
+            'Quantity',
+            'Taxable',
+            'CGST',
+            'SGST',
+          ],
         ),
         // Every number in the range is accounted for: a cancelled bill is a
         // gap the return has to explain (D-CMP-10).
