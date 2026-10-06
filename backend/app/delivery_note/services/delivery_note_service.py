@@ -734,6 +734,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             else None
         )
         approval_details = ((licence_details or {}) | (discount_details or {})) or None
+        self._settle_inherited_free_goods(row, actor_id=actor_id)
         row.status = DeliveryNoteStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
@@ -758,6 +759,91 @@ class DeliveryNoteService(TransactionalDocumentService):
             after_data=approval_details,
         )
         return row
+
+    def _settle_inherited_free_goods(
+        self, row: DeliveryNote, *, actor_id: UUID
+    ) -> None:
+        """Work a note's inherited free goods again, now that it is approved.
+
+        A line that said nothing about free goods took the order line's
+        share when it was saved, less what notes **already approved** had
+        taken. Two drafts of one order line each saw none approved, so an
+        order of 10 + 3 free shipped as drafts of 3 and 7 gave 0 and 2, and
+        one unit never left (D-PRC-29). Approval is when the order of the
+        notes is settled, so the share is worked here from the same function
+        and the same notes: whatever order the drafts were typed in, the
+        notes of a line ship the order's free units between them, in whole
+        units, and the one that completes the line takes what is left.
+
+        A figure somebody typed is not touched. Nothing is charged for free
+        goods, so no price, discount or tax moves: only the units the line
+        ships and what is left of the order line.
+
+        Raises:
+            ValidationError: If the figure moved on a line whose batches or
+                serial numbers were picked for the old one.
+
+        """
+        # A request session does not flush on a read.
+        self._session.flush()
+        lines = list(
+            self._session.scalars(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id == row.id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                    DeliveryNoteLine.free_quantity_inherited.is_(True),
+                )
+            ).all()
+        )
+        for line in lines:
+            source = self._session.get(SalesOrderLine, line.sales_order_line_id)
+            if source is None:
+                continue
+            before, already = self._already_shipped(
+                firm_id=row.firm_id,
+                sales_order_line_id=line.sales_order_line_id,
+                exclude_note_id=row.id,
+            )
+            settled = self._q(
+                continued_free_goods(
+                    self._q(source.free_quantity),
+                    before=before,
+                    part=self._q(line.current_delivery_quantity),
+                    whole=self._q(source.quantity),
+                    already=already,
+                )
+            )
+            was = self._q(line.free_quantity)
+            if settled == was:
+                continue
+            picked = line.serial_numbers or self._session.scalar(
+                select(func.count())
+                .select_from(DeliveryNoteLineBatch)
+                .where(DeliveryNoteLineBatch.delivery_note_line_id == line.id)
+            )
+            if picked:
+                raise ValidationError(
+                    f"Line {line.line_number} of {row.delivery_note_number} now "
+                    f"ships {settled.normalize():f} free, not {was.normalize():f}: "
+                    "another delivery of the same order line was approved "
+                    "since this note was saved. Save the note again so the "
+                    "batches or serial numbers picked cover what it ships."
+                )
+            shipped = self._q(
+                (self._q(line.current_delivery_quantity) + settled)
+                * Decimal(str(line.conversion_factor or 1))
+            )
+            moved = shipped - self._q(line.delivered_quantity)
+            line.free_quantity = settled
+            line.delivered_quantity = shipped
+            left = self._q(line.remaining_quantity) - moved
+            line.remaining_quantity = left if left > ZERO else ZERO
+            line.short_shipment_quantity = line.remaining_quantity
+            line.updated_by = actor_id
+            row.total_free_quantity = self._q(row.total_free_quantity) + settled - was
+            row.total_current_delivery_quantity = (
+                self._q(row.total_current_delivery_quantity) + moved
+            )
 
     def _judge_typed_reductions(
         self, row: DeliveryNote, *, actor_id: UUID
@@ -2269,6 +2355,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 previously_delivered_quantity=previous_delivered,
                 current_delivery_quantity=current_qty,
                 free_quantity=free_qty,
+                free_quantity_inherited=item.free_quantity is None,
                 delivered_quantity=delivered_qty,
                 remaining_quantity=remaining_qty if remaining_qty > ZERO else ZERO,
                 damaged_quantity=self._q(item.damaged_quantity),

@@ -261,6 +261,15 @@ class DeliveryNoteLine(BaseEntity):
     free_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: True where the note said nothing about free goods and took the order
+    #: line's share. That share depends on what other notes of the line had
+    #: already taken, which a draft cannot know of another draft, so it is
+    #: settled again when the note is approved (D-PRC-29). A figure somebody
+    #: typed, zero included, stands as typed. False on lines written before
+    #: the column: nothing says which of those were typed.
+    free_quantity_inherited: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     delivered_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
