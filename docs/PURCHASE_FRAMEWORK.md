@@ -871,6 +871,25 @@ raises them through the real services, so the documents are real:
 - A bill of products carries batch, expiry and free goods per line, which the
   raised receipt takes -- nobody else will ever record them. Stock goes to the
   default warehouse (or the branch's default when none is set).
+- **A bill off an order in parts brings the order line's free goods in once**
+  (D-PRC-90). A bill line that types no `free_quantity` takes the share that
+  goes with the quantity it bills, in whole units, and the part that completes
+  the line takes what is left (`continued_free_goods` in
+  `app/core/utils/pricing.py`, the rule a delivery note ships by): 24 + 2 free
+  billed 12 and 12 receives 1 and 1; billed 8 and 16, 0 and 2. A line that
+  charges for nothing (ordered 0, free n: a scheme's free line) comes in whole
+  with the first bill that names it, at quantity 0. A figure typed on the bill
+  line stands, a typed 0 included, up to what the order line still has to
+  give; beyond that the bill is refused by name ("Line 1 brings in 2 free, and
+  line 1 of PO-... has 1 left to give: 2 free on the order, 1 already
+  received."). What the line's other receipts hold counts whether they are
+  completed or still drafts (`GoodsReceiptService.taken_by_receipts`), so two
+  draft part bills share the free goods whichever is approved first, and a
+  cancelled one gives its share back. Each receipt used to take the bill's
+  figure or the order line's whole one: two parts put 4 free units on the
+  shelf where 2 were ordered, at a diluted average cost. A goods receipt a
+  person types (receipt stage on) is unchanged: it states its own free goods,
+  blank is none, and it is not capped at the order's figure.
 
 The desktop follows the switches: Goods Receipts leaves the menu when receipts
 are off, the Purchase Orders tab when orders are off (Purchase Settings stays),

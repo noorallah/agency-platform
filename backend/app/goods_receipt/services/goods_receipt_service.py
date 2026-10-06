@@ -2257,6 +2257,38 @@ class GoodsReceiptService(TransactionalDocumentService):
             after_data={"status": target},
         )
 
+    def taken_by_receipts(
+        self, purchase_order_id: UUID, *, firm_id: UUID
+    ) -> dict[UUID, tuple[Decimal, Decimal]]:
+        """Return what an order's receipts hold of each line: charged, free.
+
+        Every receipt that is not cancelled counts, **a draft included**: a
+        bill that receives its own goods leaves its receipt a draft until the
+        bill is approved, and two draft bills of one order line must share
+        the line's free goods between them whichever is approved first
+        (D-PRC-90). `_received_quantities_for_po` counts what has arrived;
+        this counts what has been claimed.
+        """
+        # A request session does not flush on a read.
+        self._session.flush()
+        rows = self._session.execute(
+            select(
+                GoodsReceiptLine.purchase_order_line_id,
+                func.coalesce(func.sum(GoodsReceiptLine.current_receipt_quantity), 0),
+                func.coalesce(func.sum(GoodsReceiptLine.free_quantity), 0),
+            )
+            .join(GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id)
+            .where(
+                GoodsReceipt.firm_id == firm_id,
+                GoodsReceipt.purchase_order_id == purchase_order_id,
+                GoodsReceipt.status != GoodsReceiptStatus.CANCELLED.value,
+                GoodsReceipt.is_deleted.is_(False),
+                GoodsReceiptLine.is_deleted.is_(False),
+            )
+            .group_by(GoodsReceiptLine.purchase_order_line_id)
+        ).all()
+        return {row[0]: (self._q(row[1] or 0), self._q(row[2] or 0)) for row in rows}
+
     def _received_quantities_for_po(
         self,
         purchase_order_id: UUID,

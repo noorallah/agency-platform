@@ -45,7 +45,11 @@ from app.purchase_return.services.purchase_return_service import (
     PurchaseReturnService,
 )
 from app.uom.models import ConversionRule, Uom
-from tests.unit.test_purchase_chain_synthesis import _Firm
+from tests.unit.test_purchase_chain_synthesis import (
+    _Firm,
+    _order_with_free,
+    _part_bill,
+)
 
 D = Decimal
 DAY = date(2026, 8, 4)
@@ -1003,3 +1007,42 @@ def test_a_receipt_refused_for_its_quantity_or_its_unit_says_which_unit() -> Non
         "Goods receipt exceeds allowed quantity for PO line 1: 2 BOX ordered, "
         "0 BOX already received, and this line receives 3 BOX."
     )
+
+
+def test_part_bills_of_boxes_bring_free_boxes_and_free_pieces_in_once() -> None:
+    """D-PRC-90 by the box: 2 BOX + 1 BOX free, and 3 PIECE free on a line.
+
+    With the receipt stage off each part bill took the order line's whole
+    free figure: two parts of one box each put 2 free boxes and 6 free
+    pieces on the shelf. The free box comes with the part that completes
+    the line (half a free box is no box), and the line of free pieces comes
+    whole with the first bill that names it.
+    """
+    buyer = _Buyer()
+    buyer.firm.stages(order=True, receipt=False)
+    product = buyer.firm.product.id
+    order, (boxes, pieces) = _order_with_free(
+        buyer.firm,
+        {
+            "product_id": product,
+            "ordered_quantity": "2",
+            "free_quantity": "1",
+            "unit_price": "720",
+            "purchase_uom_id": buyer.box,
+        },
+        {
+            "product_id": product,
+            "ordered_quantity": "0",
+            "free_quantity": "3",
+            "purchase_uom_id": buyer.piece,
+        },
+    )
+
+    _part_bill(buyer.firm, order, (boxes, "1", {}), (pieces, "0", {}))
+    assert buyer.valuation() == (D("15.0000"), D("48.000000"), D("720.0000"))
+
+    _part_bill(buyer.firm, order, (boxes, "1", {}))
+    assert buyer.stock() == D("39.0000")
+    quantity, _, value = buyer.valuation()
+    assert (quantity, value) == (D("39.0000"), D("1440.0000"))
+    assert buyer.books() == (D("1440.00"), D("0"), D("-1440.00"))

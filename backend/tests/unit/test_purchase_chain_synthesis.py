@@ -26,7 +26,7 @@ from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt
 from app.identity.system_seed import ROLE_PERMISSION_CODES
-from app.inventory.models import InventoryRecord
+from app.inventory.models import InventoryRecord, ProductValuation
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate, PurchaseWorkflowSettingsWrite
@@ -451,3 +451,264 @@ def test_only_a_firm_role_above_purchasing_may_switch_the_stages() -> None:
     assert code not in ROLE_PERMISSION_CODES["PURCHASE_EXECUTIVE"]
     assert code in ROLE_PERMISSION_CODES["FIRM_ADMIN"]
     assert code in ROLE_PERMISSION_CODES["FIRM_MANAGER"]
+
+
+# --- D-PRC-90: a bill off an order in parts brings the free goods in once ---
+
+
+def _order_with_free(
+    firm: _Firm, *lines: dict[str, object]
+) -> tuple[PurchaseOrder, list[PurchaseOrderLine]]:
+    """Raise and approve an order: 24 at 60 with 2 free unless lines say."""
+    service = PurchaseService(firm.session)
+    order = service.create_order(
+        PurchaseOrderCreate.model_validate(
+            {
+                "branch_id": firm.branch.id,
+                "warehouse_id": firm.warehouse.id,
+                "vendor_id": firm.vendor.id,
+                "purchase_date": "2026-08-02",
+                "lines": list(lines)
+                or [
+                    {
+                        "product_id": firm.product.id,
+                        "ordered_quantity": "24",
+                        "free_quantity": "2",
+                        "unit_price": "60",
+                        "discount_amount": "144",
+                    }
+                ],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    service.submit_order(order.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    service.approve_order(order.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    stored = list(
+        firm.session.scalars(
+            select(PurchaseOrderLine)
+            .where(PurchaseOrderLine.purchase_order_id == order.id)
+            .order_by(PurchaseOrderLine.line_number)
+        ).all()
+    )
+    return order, stored
+
+
+def _part_bill(
+    firm: _Firm,
+    order: PurchaseOrder,
+    *parts: tuple[PurchaseOrderLine, str, dict[str, object]],
+    approve: bool = True,
+) -> GoodsReceipt:
+    """Bill parts of an order's lines with receipts off; return the receipt."""
+    bills = firm.bills()
+    bill = bills.create_invoice(
+        PurchaseInvoiceCreate.model_validate(
+            {
+                "invoice_date": "2026-08-10",
+                "supplier_invoice_number": f"S-{uuid4().hex[:8]}",
+                "supplier_invoice_date": "2026-08-09",
+                "lines": [
+                    {
+                        "source_document_type": "PURCHASE_ORDER",
+                        "source_document_id": order.id,
+                        "source_document_line_id": line.id,
+                        "line_number": number,
+                        "current_invoice_quantity": quantity,
+                    }
+                    | extra
+                    for number, (line, quantity, extra) in enumerate(parts, start=1)
+                ],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    _, receipt = firm.raised(bill)
+    if approve:
+        bills.approve_invoice(bill.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    firm.session.refresh(receipt)
+    return receipt
+
+
+def _valuation(firm: _Firm) -> tuple[Decimal, Decimal, Decimal]:
+    """Return the units valued, their moving average and their value."""
+    firm.session.expire_all()
+    row = firm.session.scalars(
+        select(ProductValuation).where(ProductValuation.product_id == firm.product.id)
+    ).one()
+    return (
+        Decimal(str(row.quantity_on_hand)),
+        Decimal(str(row.average_cost)).quantize(Decimal("0.0001")),
+        Decimal(str(row.total_value)).quantize(Decimal("0.01")),
+    )
+
+
+@pytest.mark.parametrize(
+    ("parts", "free", "after"),
+    [
+        (
+            ("12", "12"),
+            ("1", "1"),
+            ((Decimal("13"), Decimal("49.8462")), (Decimal("26"), Decimal("49.8462"))),
+        ),
+        (
+            ("8", "16"),
+            ("0", "2"),
+            ((Decimal("8"), Decimal("54.0000")), (Decimal("26"), Decimal("49.8462"))),
+        ),
+        (
+            ("16", "8"),
+            ("1", "1"),
+            ((Decimal("17"), Decimal("50.8235")), (Decimal("26"), Decimal("49.8462"))),
+        ),
+        (
+            ("8", "8", "8"),
+            ("0", "1", "1"),
+            (
+                (Decimal("8"), Decimal("54.0000")),
+                (Decimal("17"), Decimal("50.8235")),
+                (Decimal("26"), Decimal("49.8462")),
+            ),
+        ),
+    ],
+)
+def test_part_bills_of_an_order_bring_its_free_goods_in_once(
+    firm: _Firm,
+    parts: tuple[str, ...],
+    free: tuple[str, ...],
+    after: tuple[tuple[Decimal, Decimal], ...],
+) -> None:
+    """24 + 2 free billed in parts: 26 on the shelf at 1,296.00, never 28."""
+    firm.stages(order=True, receipt=False)
+    order, (line,) = _order_with_free(firm)
+
+    for quantity, expected, (stock, average) in zip(parts, free, after, strict=True):
+        receipt = _part_bill(firm, order, (line, quantity, {}))
+        assert receipt.total_free_quantity == Decimal(expected)
+        assert firm.stock() == stock
+        assert _valuation(firm)[:2] == (stock, average)
+
+    assert _valuation(firm) == (Decimal("26"), Decimal("49.8462"), Decimal("1296.00"))
+    assert firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED) == 0
+    firm.session.refresh(order)
+    assert order.status == "RECEIVED"
+
+
+def test_a_bill_of_the_whole_order_line_still_brings_all_its_free_goods(
+    firm: _Firm,
+) -> None:
+    """One bill of 24: both free units come with it."""
+    firm.stages(order=True, receipt=False)
+    order, (line,) = _order_with_free(firm)
+
+    receipt = _part_bill(firm, order, (line, "24", {}))
+
+    assert receipt.total_free_quantity == Decimal("2")
+    assert _valuation(firm) == (Decimal("26"), Decimal("49.8462"), Decimal("1296.00"))
+
+
+def test_free_goods_typed_on_a_part_bill_stand_and_the_rest_follow(
+    firm: _Firm,
+) -> None:
+    """Both free units typed on the first part: the part that completes has 0."""
+    firm.stages(order=True, receipt=False)
+    order, (line,) = _order_with_free(firm)
+
+    first = _part_bill(firm, order, (line, "12", {"free_quantity": "2"}))
+    assert first.total_free_quantity == Decimal("2")
+    assert firm.stock() == Decimal("14")
+
+    second = _part_bill(firm, order, (line, "12", {}))
+    assert second.total_free_quantity == Decimal("0")
+    assert _valuation(firm) == (Decimal("26"), Decimal("49.8462"), Decimal("1296.00"))
+
+
+def test_a_typed_zero_on_a_part_bill_leaves_the_free_goods_for_the_last(
+    firm: _Firm,
+) -> None:
+    """A typed zero is an answer: nothing free came with this part."""
+    firm.stages(order=True, receipt=False)
+    order, (line,) = _order_with_free(firm)
+
+    first = _part_bill(firm, order, (line, "12", {"free_quantity": "0"}))
+    assert first.total_free_quantity == Decimal("0")
+    second = _part_bill(firm, order, (line, "12", {}))
+    assert second.total_free_quantity == Decimal("2")
+    assert firm.stock() == Decimal("26")
+
+
+def test_free_goods_typed_beyond_what_the_order_line_has_left_are_refused(
+    firm: _Firm,
+) -> None:
+    """More than the order gives, or than its earlier parts left, by name."""
+    firm.stages(order=True, receipt=False)
+    order, (line,) = _order_with_free(firm)
+
+    with pytest.raises(ValidationError, match="has 2 left to give"):
+        _part_bill(firm, order, (line, "12", {"free_quantity": "3"}))
+    firm.session.rollback()
+    _part_bill(firm, order, (line, "12", {"free_quantity": "1"}))
+    with pytest.raises(
+        ValidationError,
+        match="brings in 2 free.*has 1 left to give: 2 free on the order, "
+        "1 already received",
+    ):
+        _part_bill(firm, order, (line, "12", {"free_quantity": "2"}))
+    firm.session.rollback()
+    assert firm.stock() == Decimal("13")
+
+
+def test_two_draft_part_bills_share_the_free_goods_whichever_is_approved(
+    firm: _Firm,
+) -> None:
+    """Drafts of 8 and 16 hold 0 and 2 between them before either arrives."""
+    firm.stages(order=True, receipt=False)
+    order, (line,) = _order_with_free(firm)
+
+    first = _part_bill(firm, order, (line, "8", {}), approve=False)
+    second = _part_bill(firm, order, (line, "16", {}), approve=False)
+
+    assert first.total_free_quantity == Decimal("0")
+    assert second.total_free_quantity == Decimal("2")
+
+
+def test_a_cancelled_part_bill_gives_its_free_goods_back(firm: _Firm) -> None:
+    """A draft part withdrawn is not counted against the next one."""
+    firm.stages(order=True, receipt=False)
+    order, (line,) = _order_with_free(firm)
+    receipt = _part_bill(firm, order, (line, "24", {}), approve=False)
+    assert receipt.total_free_quantity == Decimal("2")
+    assert receipt.raised_by_purchase_invoice_id is not None
+    firm.bills().cancel_invoice(
+        receipt.raised_by_purchase_invoice_id,
+        firm_scope=firm.firm.id,
+        actor_id=firm.actor_id,
+        reason="typed twice",
+    )
+
+    again = _part_bill(firm, order, (line, "24", {}))
+
+    assert again.total_free_quantity == Decimal("2")
+    assert firm.stock() == Decimal("26")
+
+
+def test_a_free_only_order_line_comes_in_whole_with_the_first_bill_naming_it(
+    firm: _Firm,
+) -> None:
+    """Paid 0, free 3: the first bill naming the line brings all 3, once."""
+    firm.stages(order=True, receipt=False)
+    order, (paid, gift) = _order_with_free(
+        firm,
+        {"product_id": firm.product.id, "ordered_quantity": "24", "unit_price": "60"},
+        {"product_id": firm.product.id, "ordered_quantity": "0", "free_quantity": "3"},
+    )
+
+    first = _part_bill(firm, order, (paid, "12", {}), (gift, "0", {}))
+    assert first.total_free_quantity == Decimal("3")
+    assert firm.stock() == Decimal("15")
+
+    second = _part_bill(firm, order, (paid, "12", {}), (gift, "0", {}))
+    assert second.total_free_quantity == Decimal("0")
+    assert firm.stock() == Decimal("27")
