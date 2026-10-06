@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A completed receipt of twenty units, taken in on batch MARCH-01.
-GoodsReceiptRecord _receipt() => GoodsReceiptRecord.fromJson({
+GoodsReceiptRecord _receipt({String free = '0'}) => GoodsReceiptRecord.fromJson({
       'id': 'grn-1',
       'grn_number': 'GRN-2026-000001',
       'receipt_date': '2026-08-10',
@@ -23,6 +23,7 @@ GoodsReceiptRecord _receipt() => GoodsReceiptRecord.fromJson({
           'product_id': 'prod-1',
           'description': 'Amoxicillin 500mg',
           'accepted_quantity': '20',
+          'free_quantity': free,
           'unit_price': '25',
           'purchase_uom_id': 'uom-box',
           'warehouse_id': 'wh-1',
@@ -338,6 +339,98 @@ void main() {
 
     expect(find.textContaining('rejected cannot exceed'), findsOneWidget);
     expect(api.sent, isNull);
+  });
+
+  testWidgets('free units go back as free with a quantity of 0 (D-PRC-51)',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _ReturnApi api = _ReturnApi(registered: ['MARCH-01']);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: PurchaseReturnEditorDialog(
+              api: api,
+              receipts: [_receipt(free: '2')],
+              products: [
+                Product.fromJson({
+                  'id': 'prod-1',
+                  'code': 'SKU-1',
+                  'name': 'Amoxicillin 500mg',
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('purchase-return-receipt')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('GRN-2026-000001').last);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // The free box is there, blank: nothing is prefilled into it.
+    final Finder freeBox =
+        find.byKey(const ValueKey<String>('purchase-return-free-grn-1-0'));
+    expect(freeBox, findsOneWidget);
+    expect(tester.widget<TextFormField>(freeBox).initialValue, '');
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('purchase-return-returning-grn-1-0')),
+      '0',
+    );
+    await tester.enterText(freeBox, '1');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['current_return_quantity'], '0');
+    expect(api.previews.last['lines'][0]['free_quantity'], '1');
+
+    await tester.tap(find.byKey(const ValueKey('purchase-return-save')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    final Json line = (api.sent!['lines'] as List<dynamic>).single as Json;
+    expect(line['current_return_quantity'], '0');
+    expect(line['free_quantity'], '1');
+    expect(line['rejected_quantity'], '0');
+  });
+
+  testWidgets('a receipt with no free goods offers no free box',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _ReturnApi api = _ReturnApi(registered: ['MARCH-01']);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: PurchaseReturnEditorDialog(
+              api: api,
+              receipts: [_receipt()],
+              products: const [],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('purchase-return-receipt')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('GRN-2026-000001').last);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey<String>('purchase-return-free-grn-1-0')),
+      findsNothing,
+    );
   });
 
   testWidgets('phase 2 returns on one screen, priced as it is typed',

@@ -56,6 +56,7 @@ class PurchaseReturnDraftLine {
     this.reasonCode = '',
     this.remarks = '',
     this.serialTracked = false,
+    this.receivedFree = '0',
   });
 
   /// Whether the product carries a serial per unit, read from the receipt
@@ -82,7 +83,15 @@ class PurchaseReturnDraftLine {
   /// What the receipt recorded, which is the batch these goods arrived in.
   final String receiptBatchNumber;
 
+  /// How many of what the receipt brought in were free goods; the free box
+  /// is offered only when it is above zero.
+  final String receivedFree;
+
   String returnQuantity;
+
+  /// How many of what goes back are free goods; blank lets the server take
+  /// the bought units first. Never prefilled.
+  String free = '';
   String rejectedQuantity;
   String batchNumber;
   String itemCondition;
@@ -90,6 +99,17 @@ class PurchaseReturnDraftLine {
   bool isScrap;
   String reasonCode;
   String remarks;
+
+  double get typedQuantity => double.tryParse(returnQuantity.trim()) ?? 0;
+  double get freeQuantity => double.tryParse(free.trim()) ?? 0;
+  double get receivedFreeQuantity => double.tryParse(receivedFree) ?? 0;
+
+  /// Everything going back on the line. A quantity of 0 beside a free figure
+  /// is the other way of typing free goods alone ("0 bought, 1 free"), and
+  /// the server reads it as that many, all free (D-PRC-51).
+  double get returning => typedQuantity > 0
+      ? typedQuantity
+      : (receivedFreeQuantity > 0 ? freeQuantity : 0);
 
   double get outstanding {
     final double received = double.tryParse(receivedQuantity) ?? 0;
@@ -113,6 +133,10 @@ class PurchaseReturnDraftLine {
         // Blank is left out, so the server takes the receipt line's price.
         // Sending '0' for blank valued the goods at nothing (D-BUY-3).
         if (unitPrice.trim().isNotEmpty) 'unit_price': unitPrice.trim(),
+        // Blank is left out, so the server takes the bought units first.
+        // Only a line whose receipt brought free goods can say otherwise.
+        if (receivedFreeQuantity > 0 && free.trim().isNotEmpty)
+          'free_quantity': free.trim(),
         'is_damaged': isDamaged,
         'is_scrap': isScrap,
         if (itemCondition.isNotEmpty) 'item_condition': itemCondition,
@@ -294,7 +318,10 @@ class _PurchaseReturnEditorDialogState
           returned[id] = (returned[id] ?? 0) +
               (double.tryParse(
                       stringValue(line['current_return_quantity'])) ??
-                  0);
+                  0) +
+              // The free units went back beside the bought ones and are
+              // stored apart from them.
+              (double.tryParse(stringValue(line['free_quantity'])) ?? 0);
         }
       }
     } on ApiException catch (exception) {
@@ -359,6 +386,7 @@ class _PurchaseReturnEditorDialogState
       receiptBatchNumber: line.batchNumber,
       returnQuantity: '0',
       serialTracked: line.serialTracked,
+      receivedFree: line.freeQuantity,
     );
     draft.returnQuantity = _trim(draft.outstanding);
     // The batch these goods arrived in is the one going back, so it is the
@@ -378,7 +406,7 @@ class _PurchaseReturnEditorDialogState
 
   List<PurchaseReturnDraftLine> _sendableLines() => [
         for (final PurchaseReturnDraftLine line in _lines)
-          if ((double.tryParse(line.returnQuantity) ?? 0) > 0) line,
+          if (line.returning > 0) line,
       ];
 
   String? _validation() {
@@ -389,10 +417,19 @@ class _PurchaseReturnEditorDialogState
     }
     for (final PurchaseReturnDraftLine line in sending) {
       final double rejected = double.tryParse(line.rejectedQuantity) ?? 0;
-      final double returning = double.tryParse(line.returnQuantity) ?? 0;
+      final double returning = line.returning;
       if (rejected > returning) {
         return 'Line ${line.lineNumber}: rejected cannot exceed the quantity '
             'being returned.';
+      }
+      if (line.receivedFreeQuantity > 0 &&
+          line.freeQuantity > line.receivedFreeQuantity) {
+        return 'Line ${line.lineNumber}: only '
+            '${_trim(line.receivedFreeQuantity)} free came in on the receipt.';
+      }
+      if (line.freeQuantity > returning) {
+        return 'Line ${line.lineNumber}: the free goods are more than are '
+            'going back.';
       }
     }
     return null;

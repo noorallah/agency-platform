@@ -15,6 +15,7 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     DocumentColumn('Returned', 72, numeric: true),
     DocumentColumn('Can go', 62, numeric: true),
     DocumentColumn('Returning', 80, numeric: true),
+    DocumentColumn('Of which free', 96, numeric: true),
     DocumentColumn('Rejected', 72, numeric: true),
     DocumentColumn('Batch', 120),
     DocumentColumn('Serials', 88),
@@ -333,7 +334,8 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
   }
 
   double _typedTaxable(PurchaseReturnDraftLine line) =>
-      _number(line.returnQuantity) * _number(line.unitPrice);
+      (line.returning - line.freeQuantity).clamp(0, double.infinity) *
+      _number(line.unitPrice);
 
   Widget _cellBox(
     BuildContext context, {
@@ -416,7 +418,7 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     Product? product,
   ) {
     if (!line.serialTracked) return const SizedBox.shrink();
-    final int needed = _number(line.returnQuantity).round();
+    final int needed = line.returning.round();
     return TextButton(
       key: ValueKey<String>('purchase-return-serials-$index'),
       style: TextButton.styleFrom(
@@ -456,7 +458,7 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final TextStyle? quiet =
         text?.copyWith(color: theme.colorScheme.onSurfaceVariant);
-    final double returning = _number(line.returnQuantity);
+    final double returning = line.returning;
     final double taxable = priced == null
         ? _typedTaxable(line)
         : _number(stringValue(priced['gross_amount'])) -
@@ -497,6 +499,25 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
           over: returning > line.outstanding,
           onChanged: (value) => line.returnQuantity = value,
         ),
+        if (line.receivedFreeQuantity > 0)
+          Tooltip(
+            message: 'Came in '
+                '${_PurchaseReturnEditorDialogState._trim(line.receivedFreeQuantity)}'
+                ' free. Blank takes the bought units first; free units are '
+                'credited nothing. Returning 0 with a number here sends back '
+                'only that many free units.',
+            child: _cellBox(
+              context,
+              index: index,
+              name: 'free',
+              value: line.free,
+              over: line.freeQuantity > line.receivedFreeQuantity ||
+                  line.freeQuantity > returning,
+              onChanged: (value) => line.free = value,
+            ),
+          )
+        else
+          Text('', style: quiet),
         _cellBox(
           context,
           index: index,
@@ -572,7 +593,7 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     final Product? product = _product(line.productId);
     final Map<String, dynamic>? priced = _pricedLine(index);
     final DocumentPreviewLine? companion = _companion(index);
-    final double returning = _number(line.returnQuantity);
+    final double returning = line.returning;
     final double left = line.outstanding - returning;
     final double taxable = priced == null
         ? _typedTaxable(line)
