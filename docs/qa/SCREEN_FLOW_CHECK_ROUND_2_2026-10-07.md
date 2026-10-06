@@ -23,6 +23,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SCRQ-28 | Medium | SC-DN-030 | Delivery notes, Dispatch from a stale list | Note already dispatched by another user, list not refreshed: Dispatch opens the "No invoice yet" dialog as if it could go; after "Dispatch anyway" nothing at all is said | "Only approved delivery notes can be dispatched." (or the list refreshes and says so) | `lib/ui/delivery_notes/delivery_note_management_page.dart:1355-1370` |
 | SCRQ-29 | Medium | SC-DN-023 | New delivery note editor, Cancel | As SCRQ-21: Cancel closes an editor holding an order and a typed quantity without a question | "Discard unsaved changes?" | `lib/ui/delivery_notes/delivery_note_editor_phase2.dart` (Cancel pops directly) |
 | SCRQ-30 | Medium | SC-DN-025, SC-SO-034 | Menu, Warehouse role (INVENTORY_MANAGER) | The storekeeper's menu has no Sell area at all; Delivery Notes and Sales Orders answer 403. The book's role table says Warehouse "dispatches stock", and its chain (FS, SM, WH) cannot reach WH | the role can open Delivery Notes to dispatch, or the book's role table is corrected | `backend/app/identity/system_seed.py` (INVENTORY_MANAGER grants no SALES_* code) |
+| SCRQ-31 | Low | SC-SB-001 | Sell > Sales Invoices, list | The grid opens with Invoice Number, Files, Customer, Invoice Date and Status first; Payment Terms, Taxable Value and Tax are not on screen at 1600x1000 (cards All, Draft, Approved, Cancelled, Closed, Pending, Overdue are) | the book lists Payment Terms, Taxable Value, Tax as shown, or the book says they are hidden columns | `lib/ui/sales/sales_invoice_management_page.dart` (`GridColumn` priorities near line 1170) |
 <!-- /HAND:FINDINGS -->
 
 ## Established behaviour (the book should say this)
@@ -44,6 +45,10 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 - The delivery note editor only creates: there is no Edit for a note in any status, so SC-DN-018 is true for a Draft too and SC-DN-029 (two sessions on one draft) cannot be made on screen.
 - Field Sales is offered Delivery Notes (list, no Approve or Dispatch) and, under Accounts, GST returns, GSTR-2B, Rule 37, Rule 42, GST checks, GST payment and GST deposits (menu read only, not opened).
 - Read Only is offered the list of Delivery Notes and every write button is absent.
+- Bills (SB): the editor is notes-only in this firm (no Counter sale tick, no scan field); Invoice date is read-only text set to today, so SB-024 and a future date cannot be typed. A bill with no customer: "Bill at least one line."; customer chosen and nothing ticked, Save opens the tick list ("Delivery notes to bill") as its answer; a line of 0: "Bill at least one line." (no sentence about the quantity); 99999: "Only 2.0 left to bill."; the Cancel button of a typed-in bill editor does ask (SB-032, unlike SO/DN).
+- Bills: Approve from a stale list "Only draft sales invoices can be approved."; Cancel with a receipt "SI-... cannot be cancelled while it has money applied from RC-.... Reverse or cancel those first."; with a return "... while it has sales return SR-.... Reverse or cancel those first."; a billed note is not in Choose notes; a bill without notes through HTTP: "This firm raises a sales order and a delivery note before it bills, so an invoice line must name the document it bills."; a stale save: "Somebody else saved this invoice while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs." (editor stays open, typing kept; the book's wording differs).
+- Roles on bills: Field Sales is offered Sales Invoices with + New and no Approve, Cancel or Close; Sales Manager has Approve, Edit, Cancel; Accounts is not offered Sales Invoices (its journal list answers 200); Read Only sees the list and no write button.
+- Tapping Print on a bill opens the operating system's print preview and the test run never returns (the run died); Send and Attachments open dialogs. The first administrator run of the SB file died after the third step with exit 79 (app self-exit); the identical rerun completed.
 <!-- /HAND:ESTABLISHED -->
 
 ## Notes
@@ -78,7 +83,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | PY | Positive PASS: 1 |
 | QT | Positive PASS: 6 |
 | RC | Positive PASS: 1 |
-| SB | Positive PASS: 2 |
+| SB | Multi-user PASS: 3, Multi-user SKIP: 1, Negative PASS: 11, Negative SKIP: 6, Positive FAIL: 1, Positive PASS: 6, Positive SKIP: 8, Role PASS: 3 |
 | SO | Multi-user PASS: 3, Negative FAIL: 3, Negative PASS: 7, Negative SKIP: 3, Positive PASS: 8, Positive SKIP: 1, Role PASS: 4 |
 | SR | Positive PASS: 2 |
 
@@ -130,8 +135,45 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-QT-007 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-QT-008 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-RC-002 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-SB-001 | Positive | FAIL | note: :: headers on screen: QA Agency / > / Selling t10069cwy / Home / Sell / Buy / Stock / Accounts / Masters / Reports / Search or jump to… / Ctrl+K / Selling t10069cwy / S( / Sales Invoices / Sales Invoices / All / 43 / Draft / 18 / Approved / 23 / Cancelled / 0 / Closed / 2 / Pending / 18 / Overdue / 1 / All dates / … / + New / Invoice Number / Files / Customer / Invoice Date / Reference / Status / Grand Total / SI-26-27-000043 / Vijaya Stores t10069cwy / 2026-10-07 03:35 / Draft / 188.80 / SI-26-27-000042 / Vijaya Stores t10069cwy / 2026-10-07 03:35 / Draft / 188.80 / SI-26-27-000041 /... | `sc_sb_test.dart` (tradeadmin) |
 | SC-SB-002 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-SB-003 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-SB-004 | Positive | PASS | saved 1, newest status APPROVED | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-005 | Positive | PASS | chips 2, saved 1, lines 2 | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-006 | Positive | SKIP | counter bill: the fixture firm bills notes; no Counter sale tick or scan field in this firm's stages | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-007 | Positive | SKIP | counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-008 | Positive | SKIP | counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-009 | Positive | SKIP | counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-010 | Positive | SKIP | service line and delivery charge need a direct bill; notes carry only goods | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-011 | Positive | PASS | Send opened=true; Attachments opened=true | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-012 | Positive | SKIP | coupon applies only on a direct bill of products | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-013 | Positive | PASS | status CLOSED, screen says "SI-26-27-000039 closed." | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-014 | Positive | SKIP | row tick boxes of the grid not reached in two attempts (same as SC-SO-013) | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-015 | Positive | SKIP | counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-016 | Negative | PASS | open=true, saved=0, said="Bill at least one line." | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-017 | Negative | PASS | open=true, saved=0, said="Delivery notes to bill — Vijaya Stores t10069cwy / Delivery note / Date / Order / Left to bill (before tax) / DN-26-27-000080 / 07-10-2026 / SO-2026-2027-000157 / 160.00 / DN-26-27-000079 / 07-10-2026 / SO-2026-2027-000156 / 240.00 / DN-26-27-000078 / 07-10-2026 / SO-2026-2027-000155 / 320.00 / DN-26-27-000068 / 07-10-2026 / SO-2026-2027-000145 / 160.00 / DN-26-27-000067 / 07-10-2026 / SO-2026-2027-000144 / 240.00 / DN-26-27-000066 / 07-10-2026 / SO-2026-2027-000143 / 320.00 / DN-26-27-000038 / 07-10-2026 / SO-2026-2027-000111 / 80.00 / DN-26-27-000033 / 07-10-2026... | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-018 | Negative | PASS | open=true, saved=0, said="Bill at least one line." | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-019 | Negative | PASS | open=true, saved=0, said="Bill at least one line. / Only 2.0 left to bill." | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-020 | Negative | PASS | billed note DN-26-27-000081 offered=false; unbilled DN-26-27-000078 offered=true | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-021 | Negative | PASS | HTTP 422: {"success":false,"error":{"code":"validation_error","message":"This firm raises a sales order and a delivery note before it bills, so an invoice line must name the document it bills."},"timestamp":"2026-10-06T22:08:24.526033Z","requestId":" | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-022 | Negative | SKIP | counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-023 | Negative | SKIP | no Cash sale customer in the fixture firm | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-024 | Negative | SKIP | Invoice date is read-only (set to today by the screen); no input to type a future date into | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-025 | Negative | SKIP | no closed financial period in the fixture firm | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-026 | Negative | PASS | Edit is absent on an Approved bill | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-027 | Negative | PASS | status APPROVED, screen says "Only draft sales invoices can be approved." | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-028 | Negative | PASS | status APPROVED, screen says "SI-26-27-000044 cannot be cancelled while it has money applied from RC-2026-2027-000010. Reverse or cancel those first." | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-029 | Negative | PASS | status APPROVED, screen says "SI-26-27-000045 cannot be cancelled while it has sales return SR-26-27-000010. Reverse or cancel those first." | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-030 | Negative | SKIP | Price Floor setting is off and a bill of notes carries the notes' prices; no rate can be typed | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-031 | Negative | SKIP | no customer with a credit limit in the fixture firm (see SC-SO-022) | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-032 | Negative | PASS | editor closed=false, asked=true | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-034 | Role | PASS | offered; buttons {+ New: enabled, New Invoice: absent, Approve: absent, Cancel: absent, Close: absent} | `sc_sb_test.dart` (qsexe) |
+| SC-SB-036 | Role | PASS | buttons {Approve: enabled, Edit: enabled, Cancel: enabled} (the bill's rate cell is read-only text; override tested at HTTP level elsewhere) | `sc_sb_test.dart` (qsmgr) |
+| SC-SB-037 | Role | PASS | buttons {New Invoice: absent, + New: absent, Edit: absent, Approve: absent, Cancel: absent, Close: absent} | `sc_sb_test.dart` (qro) |
+| SC-SB-038 | Multi-user | PASS | qacct reads the journals 200 (the bill itself is not in the Accounts role) | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-039 | Multi-user | PASS | note: :: the refusal does not say the record changed or to reload: Somebody else saved this invoice while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs. / Dismiss; editor open=true; terms now NET 45; reference null; screen says " // new on screen: Somebody else saved this invoice while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs. / Dismiss" | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-040 | Multi-user | SKIP | counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift | `sc_sb_test.dart` (tradeadmin) |
+| SC-SB-041 | Multi-user | PASS | row reads: SI-26-27-000043 / Vijaya Stores t10069cwy / 2026-10-07 03:35 / Approved / 188.80 | `sc_sb_test.dart` (tradeadmin) |
 | SC-SO-001 | Positive | PASS | columns present; cards: Draft, Approved, Cancelled, Closed, Draft, Draft | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-002 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-SO-003 | Positive | PASS | - | `selling_flow_test.dart` |
