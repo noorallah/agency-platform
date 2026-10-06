@@ -342,10 +342,19 @@ class Server {
   }
 
   /// Sign in as [itEmail] and find the firm the account belongs to.
-  static Future<Server> connect() async {
+  static Future<Server> connect() => connectAs(itEmail, itPassword);
+
+  /// Sign in as somebody else, over HTTP only (no screen). With [firm] given
+  /// the account need not belong to one (a platform administrator).
+  static Future<Server> connectAs(String email, String password,
+      {String? firm}) async {
     final HttpClient client = HttpClient();
     final Json login = await _send(client, 'POST', '/api/v1/auth/login',
-        body: <String, dynamic>{'email': itEmail, 'password': itPassword});
+        body: <String, dynamic>{'email': email, 'password': password});
+    if (firm != null) {
+      return Server._(client,
+          (login['data'] as Map<String, dynamic>)['access_token'] as String, firm);
+    }
     final String token =
         (login['data'] as Map<String, dynamic>)['access_token'] as String;
     final Json firms =
@@ -373,6 +382,11 @@ class Server {
         '${b['created_at']}'.compareTo('${a['created_at']}'));
     return list.first;
   }
+
+  /// Send a write ([method] POST or PUT) and return the `data` member.
+  Future<dynamic> write(String method, String path, Json body) async =>
+      (await _send(_client, method, path,
+          body: body, token: _token, firm: firmId))['data'];
 
   /// One record read back whole.
   Future<Json> one(String collection, String id) async =>

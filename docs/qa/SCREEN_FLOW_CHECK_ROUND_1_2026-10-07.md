@@ -119,3 +119,25 @@ commission accrual and payouts, principal claim raise and payment, quotation
 print and send, credit notes and debit notes, and no second warehouse or
 branch. The price list and offer were only checked as saved; their effect on a
 document was checked only for the 5 percent line discount.
+
+## Negative cases (partial, one run of `negative_flow_test.dart`)
+
+Written and run once before the owner moved these to a feature-wise case book;
+kept as it is. `roles_flow_test.dart` was written (users `qsexe`, `qstore`,
+`qgone` created in the fixture firm) but **never run**.
+
+| Case | What the screen did | Judgement |
+| --- | --- | --- |
+| order: save with no customer, no product | editor stayed open, nothing saved, no new text on screen | SCRQ-5, Medium if no message is visible (the flow only sees text that was not there before) |
+| order: quantity 0 | stayed open, "Enter the quantity." | fine |
+| order: quantity -5 | stayed open, nothing saved, no new text (the 0 message may still have been showing) | unverified |
+| return: 9999 against a bill | stayed open, nothing saved, no message found about the quantity | SCRQ-6, Medium |
+| receipt: 9,999,999 for a customer who owes less | dialog closed, one receipt saved (an advance), no notice | SCRQ-7, Medium: no confirmation or warning for an unusual amount |
+| offer ending before it starts | stayed open, nothing saved, the only message is "The request validation failed." | SCRQ-8, Medium: the server's reason is not shown |
+| coupon with an existing code | stayed open, nothing saved, message says "Somebody else saved this coupon while you were editing it" | SCRQ-9, Medium: wrong message for a duplicate code |
+| purchase order already approved | Approve is not offered | fine |
+
+Not run: delivery note over-delivery, bill over delivered, future dates,
+cancelling a billed receipt, purchase over-receipt, duplicate supplier number,
+payment above the bill, loyalty over-redeem, malformed GSTIN, duplicate product
+code, discount over limit, stock shortage on approve, all role and two-user cases.
