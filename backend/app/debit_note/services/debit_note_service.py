@@ -806,10 +806,13 @@ class DebitNoteService(TransactionalDocumentService):
             firm_id=note.firm_id, line_ids=[source.id]
         ).get(source.id, ZERO)
         if asked > billed - claimed - returned:
+            # Money, said as money: "1440.0000 billed, 400.0000 already
+            # claimed" counted rupees to four places (D-PRC-70), where the
+            # credit note's twin says them to the paisa.
             raise ValidationError(
                 "A debit note cannot claim more than is left of the bill "
-                f"line: {billed} billed, {claimed} already claimed, "
-                f"{returned} already returned."
+                f"line: {billed:.2f} billed, {claimed:.2f} already claimed, "
+                f"{returned:.2f} already returned."
             )
         return billed
 

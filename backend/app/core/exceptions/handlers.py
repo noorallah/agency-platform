@@ -50,6 +50,27 @@ async def application_error_handler(_: Request, exception: Exception) -> JSONRes
     )
 
 
+#: What pydantic puts in front of a sentence one of our validators raised.
+_VALIDATOR_PREFIXES = ("Value error, ", "Assertion failed, ")
+
+
+def plain_validator_message(message: object) -> str:
+    """Return a validator's sentence without the prefix pydantic gives it.
+
+    A ``ValueError`` raised in a validator reaches the caller as "Value
+    error, Lines 1 and 2 of the request are both numbered 1. ..." -- the
+    library's label in front of a sentence written to be read by a person
+    (D-PRC-70). Taken off here, once, for every request the API refuses; the
+    error's ``code`` still says ``value_error``. Pydantic's own messages
+    ("Field required") carry no such prefix and pass through.
+    """
+    text = str(message)
+    for prefix in _VALIDATOR_PREFIXES:
+        if text.startswith(prefix):
+            return text[len(prefix) :]
+    return text
+
+
 async def validation_error_handler(_: Request, exception: Exception) -> JSONResponse:
     """Serialize request validation errors using the standard error contract."""
     if not isinstance(exception, RequestValidationError):
@@ -62,7 +83,7 @@ async def validation_error_handler(_: Request, exception: Exception) -> JSONResp
         details=[
             ValidationErrorDetail(
                 field=".".join(str(segment) for segment in error["loc"]),
-                message=error["msg"],
+                message=plain_validator_message(error["msg"]),
                 code=error["type"],
             ).model_dump()
             for error in exception.errors()
