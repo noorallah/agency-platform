@@ -390,6 +390,26 @@ order read APPROVED -- so the desktop gate lists the new statuses rather than
 disabling a button the API accepts. Orders predating the change are not
 backfilled, as on the purchase side.
 
+**A draft note shows what its order line has left now** (D-PRC-43,
+2026-10-06). A delivery note line stores `previously_delivered_quantity` and
+`remaining_quantity` as they stood when it was saved, and a draft went on
+showing them: drafts of 6 and 4 of a line of 10, and the draft of 4 read "6
+remaining, 0 delivered before" after the 6 was approved and after it was
+dispatched, on the note and on the list. The cap was right throughout -- it
+sums the notes each time -- so only a screen trusting the figure was misled.
+For a **draft** the two figures, `short_shipment_quantity` and the note's
+`total_previously_delivered_quantity` are now derived when the note is read
+(`_delivered_by_other_notes`, one grouped statement for a page of notes):
+what the notes that count against the order line -- approved or later, the
+set the cap reads -- have delivered, and the order's quantity less that and
+less this note's own. Cancelling the other note gives the draft its quantity
+back the same way. **An approved note shows what was true when it was
+approved**: approval writes the figures once (`_stamp_what_is_left`) and they
+stand, because the challan an approved note prints states the balance at the
+time it was issued and must print the same tomorrow. The field names and the
+response shape did not change.
+`tests/unit/test_draft_note_shows_what_is_left_now.py` is the guard.
+
 ## An invoice is corrected upward by a debit note, not by a second invoice
 
 `app/customer_debit_note` (prefix `SDN`). It names the invoice and its lines,
