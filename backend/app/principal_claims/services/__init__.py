@@ -21,8 +21,10 @@ them for one principal and one period:
 
 Free goods are valued from the stock ledger's dispatch, never from a price:
 a line whose dispatch has no cost contributes nothing rather than zero, and
-goods on a note not yet shipped are not claimed. A sales return takes back
-what was charged and never the free units, so no return reduces them.
+goods on a note not yet shipped are not claimed. Free goods a completed
+sales return has brought back (D-PRC-8) are not claimed: they were not given
+after all. A return of the charged units alone reduces nothing, and a claim
+already raised is not rewritten by a return that comes after it.
 
 A source is claimed once. Raising posts Dr claims receivable, Cr the
 expense the cost sat in -- promotional expense for a scheme's discount, cost
@@ -68,6 +70,7 @@ from app.products.models import Product
 from app.products.models.brand import Brand, Principal
 from app.promotions.models import Promotion, PromotionRedemption
 from app.sales_order.models import SalesOrderLine
+from app.sales_return.free_goods import free_goods_returned
 from app.sales_return.models import SalesReturn, SalesReturnLine
 
 KINDS = ("SCHEME", "FREE_GOODS", "EXPIRY", "BREAKAGE")
@@ -971,14 +974,33 @@ class PrincipalClaimService(TransactionalDocumentService):
                 )
             ).all()
         }
+        # Free goods that have since come back were not given after all
+        # (D-PRC-8): a completed return, off the note line or off the bill
+        # that billed it, takes its free units out of what is claimed. Read
+        # over the period's notes, never by a list of ids.
+        came_back = {
+            note_line_id: Decimal(str(units or 0))
+            for note_line_id, units in self._session.execute(
+                free_goods_returned(
+                    DeliveryNoteLine.id,
+                    func.sum(SalesReturnLine.free_quantity),
+                )
+                .join(
+                    DeliveryNote, DeliveryNote.id == DeliveryNoteLine.delivery_note_id
+                )
+                .where(*shipped, SalesReturn.firm_id == firm_id)
+                .group_by(DeliveryNoteLine.id)
+            ).all()
+        }
         found: list[_Candidate] = []
         for line, note, promotion_id in rows:
             key = (note.id, line.product_id)
             cost = costs.get(key)
             whole = moved.get(key, ZERO)
-            free = Decimal(str(line.free_quantity or 0))
-            sent = Decimal(str(line.current_delivery_quantity or 0)) + free
-            if cost is None or whole <= 0 or sent <= 0:
+            shipped_free = Decimal(str(line.free_quantity or 0))
+            sent = Decimal(str(line.current_delivery_quantity or 0)) + shipped_free
+            free = shipped_free - came_back.get(line.id, ZERO)
+            if cost is None or whole <= 0 or sent <= 0 or free <= 0:
                 continue
             # The line's part of the movement, then the free part of the line.
             given = (

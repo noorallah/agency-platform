@@ -372,6 +372,64 @@ nobody dispatched is one the warehouse cannot reconcile. The desktop's
 quotation editor is the only screen that can give a line away; there was no
 field for it anywhere before, so the column was unreachable without the API.
 
+## Free goods can come back, credited nothing
+
+**Free goods can come back on a sales return, credited nothing** (D-PRC-8,
+2026-10-06, the selling twin of D-BUY-56). A bill of 12 + 1 free: the return
+of the 12 went through and a second return of 1 for the same line was refused
+-- "(12.0000 sent, 12.0000 already returned)" -- because a return was capped
+at what the line *charged* for. The thirteenth unit had nowhere to go but a
+stock adjustment. `sales_return_lines.free_quantity` (migration
+`20261006_0337`) is the free goods a line brings back **beside** its charged
+units, and `current_return_quantity` stays the charged ones, which every
+price, tax, billing and credit figure is worked on.
+
+On the request, `current_return_quantity` is **everything coming back** and
+`free_quantity` says how many of those are free. **Left blank, the charged
+units are taken first** and only what comes back beyond them is free, so the
+return of "the last one" above simply works; a number says so outright -- the
+free unit coming back on its own while the charged ones stay sold. The
+response reads the same way: the total, and the free part of it. A line may
+bring back what its source line sent, charged and free, less what earlier
+live returns took of each, and the refusal says what is left: "Return quantity
+exceeds what was dispatched on the source document (4.0000 sent and 1.0000
+free, 0.0000 and 0.0000 already returned; line 1 can still bring back 4.0000
+charged and 1.0000 free)." A source line with no free goods keeps the wording
+it had. Unlike a purchase return, **a line off the bill may bring free goods
+back as well as one off the note**: a counter firm never sees its notes, and
+the bill line carries the free quantity it inherited.
+
+**The same free unit comes back once, whichever document the return names**
+(the twin of D-BUY-61). The charged cap already counted across the note line
+and the bill line that billed it (`_goods_behind`, D-SELL-7); the free cap
+does the same against the note line's `free_quantity`: "Free quantity exceeds
+what left free on DN-… (1.0000 sent free, 1.0000 already returned against it
+or the bill for it)."
+
+Free units are priced, taxed and credited nothing -- a line of free goods
+alone posts no credit note and writes nothing to the customer's account --
+and **arrive in stock with the charged ones at the cost the product is
+carried at**, so `Dr Inventory / Cr Cost of Goods Sold` follows the whole
+movement. The damaged and scrap buckets are parts of everything that came
+back. The by-product report counts them in `return_quantity` and states them
+in `free_quantity`, with no value; the register, the by-customer report and
+the summary read the credited amount, which they do not change. **GSTR-1 is
+left alone, deliberately**: a bill's free goods are not in its HSN quantity,
+so a credit's free goods are not either -- adding them only on the way back
+would net a product's quantity below what was declared sold.
+
+**A free unit that came back was not given.** Two readers count free goods on
+the way out, and both net what completed returns brought back through one
+join (`free_goods_returned` in `app/sales_return/free_goods.py`, by either
+route). An offer's free-unit budget: `budget_rooms` takes the units returned
+off lines whose order line names the offer (`free_promotion_id`) out of
+`free_claimed`, so a scheme of 500 free units that gave 2 and took 1 back has
+given 1. The money budget is not moved by a return -- nothing nets
+`benefit_amount` yet. And the principal's claim: the preview for a period
+leaves out free goods that have since come back, a line with nothing left is
+dropped, and **a claim already raised is not rewritten** by a return that
+comes after it. `tests/unit/test_sales_return_free_goods.py` is the guard.
+
 **A note that says nothing ships the order's free goods** (D-PRC-4,
 2026-10-06). `free_quantity` on a delivery note line defaulted to `0`, so
 silence and a refusal were one value: an order of 12 with 1 free shipped 12,
@@ -415,10 +473,10 @@ before `20261006_0335` has no marker and reads as typed. An editor that sends
 an offer's free quantity back as a figure makes it a typed one on that save --
 the gap the quotation section above records -- which also takes it out of the
 offer's free-unit budget; `SalesOrderLineResponse.free_promotion_id` is there
-so an editor can leave the box blank instead. And a sales return takes back
-what was charged, never the free units, so no return reduces a claim: the
-goods stayed given. `tests/unit/test_principal_claim_free_goods.py` is the
-guard.
+so an editor can leave the box blank instead. And a sales return of the
+charged units alone reduces no claim: the free goods stayed given. Free
+goods that did come back are netted, below.
+`tests/unit/test_principal_claim_free_goods.py` is the guard.
 
 ## What may be billed is what was charged, not what left the warehouse
 

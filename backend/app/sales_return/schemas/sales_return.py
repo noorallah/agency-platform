@@ -71,7 +71,15 @@ class SalesReturnLineWrite(SalesReturnSchema):
     source_document_id: UUID
     source_document_line_id: UUID
     line_number: int = Field(ge=1)
+    #: Everything coming back on this line, free goods included.
     current_return_quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
+    #: How many of ``current_return_quantity`` are free goods (D-PRC-8).
+    #: Blank takes the charged units first and counts as free only what comes
+    #: back beyond them; a number says so outright -- the free unit of a
+    #: "buy 12 get 1" coming back on its own. Free goods are credited nothing.
+    free_quantity: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
     #: How much of it can be sold again. Defaults to all of it on the reading
     #: that goods come back fit unless somebody says otherwise, which is what a
     #: warehouse clerk booking a return in a hurry means.
@@ -284,7 +292,10 @@ class SalesReturnLineResponse(SalesReturnSchema):
     description: str | None
     dispatched_quantity: Decimal
     already_returned_quantity: Decimal
+    #: Everything coming back, free goods included, as it was typed.
     current_return_quantity: Decimal
+    #: The free goods among them, credited nothing (D-PRC-8).
+    free_quantity: Decimal = Decimal("0")
     #: The part of the quantity that came back before any bill charged for
     #: it (D-SELL-55): stock and cost only, no credit and no tax reversed.
     #: Decided at completion; zero before it.
@@ -454,7 +465,10 @@ class SalesReturnByProductRecord(SalesReturnSchema):
     product_id: UUID
     product_code: str
     product_name: str
+    #: Everything that came back, free goods included.
     return_quantity: Decimal
+    #: The free goods among them: quantity with no value (D-PRC-8).
+    free_quantity: Decimal = Decimal("0")
     restock_quantity: Decimal
     #: What was credited for the product (D-SELL-74): the billed part only.
     return_amount: Decimal
