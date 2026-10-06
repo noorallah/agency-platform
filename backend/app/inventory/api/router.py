@@ -40,6 +40,7 @@ from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
+from app.core.validation.payloads import parse_payload
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
     BulkApproveRequest,
@@ -962,7 +963,7 @@ async def import_opening_stock(
         if payload is None:
             raise ValidationError("payload is required for JSON import.")
         row = service.import_opening_stock_json(
-            OpeningStockImportRequest.model_validate_json(payload),
+            parse_payload(OpeningStockImportRequest, payload),
             firm_scope=scope.firm_id,
             actor_id=scope.actor_id,
         )

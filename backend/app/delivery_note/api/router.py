@@ -31,6 +31,7 @@ from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.validation.payloads import parse_payload
 from app.delivery_note.schemas import (
     DeliveryNoteByDimensionRecord,
     DeliveryNoteCreate,
@@ -827,7 +828,7 @@ async def import_delivery_notes(
         raise ValidationError("payload is required for JSON import.")
     service = DeliveryNoteService(db)
     rows = service.import_notes(
-        DeliveryNoteImportRequest.model_validate_json(payload),
+        parse_payload(DeliveryNoteImportRequest, payload),
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )

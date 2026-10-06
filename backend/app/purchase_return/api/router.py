@@ -30,6 +30,7 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.validation.payloads import parse_payload
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -583,7 +584,7 @@ async def import_purchase_returns(
         raise ValidationError("payload is required for JSON import.")
     service = PurchaseReturnService(db)
     rows = service.import_returns(
-        PurchaseReturnImportRequest.model_validate_json(payload),
+        parse_payload(PurchaseReturnImportRequest, payload),
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )

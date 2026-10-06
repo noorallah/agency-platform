@@ -20,6 +20,7 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.validation.payloads import parse_payload
 from app.document_files.api import download_response, read_upload
 from app.document_files.schemas import DocumentFileResponse
 from app.document_files.services import DocumentFileService, FileParent
@@ -286,7 +287,7 @@ async def import_quotations(
         raise ValidationError("payload is required for JSON import.")
     service = QuotationService(db)
     rows = service.import_quotations(
-        QuotationImportRequest.model_validate_json(payload),
+        parse_payload(QuotationImportRequest, payload),
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
