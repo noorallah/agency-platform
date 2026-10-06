@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
@@ -26,6 +27,18 @@ ResourceDefinition<PriceLevelRecord> priceLevelDefinition(
       // Builds `/api/v1/price-levels[/{id}]` through the generic helpers.
       resource: 'price-levels',
       showFrame: showFrame,
+      // The version the row was read at rides along as If-Match, on save and
+      // on delete (D-PRC-13).
+      recordNoun: 'price level',
+      updateRecord: (level, body) => api.updatePriceLevel(
+        level.id,
+        body,
+        expectedVersion: preconditionFor(level.version),
+      ),
+      deleteRecord: (level) => api.deletePriceLevel(
+        level.id,
+        expectedVersion: preconditionFor(level.version),
+      ),
       description: 'The named levels a customer can be put on.',
       searchHint: 'Search price levels by code or name',
       headers: const ['Code', 'Name', 'Order', 'Status'],

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/api/api_client.dart';
+import '../core/api/concurrency.dart';
 import '../core/design/design_tokens.dart';
 import '../core/dialogs/app_dialogs.dart';
 import '../core/notifications/notification_service.dart';
@@ -254,7 +255,21 @@ class ResourceDefinition<T> {
     this.bulkActions = const [],
     this.loadPage,
     this.twoColumnForm = true,
+    this.updateRecord,
+    this.deleteRecord,
+    this.recordNoun,
   });
+
+  /// A resource that publishes a `version` writes through these instead of
+  /// the generic `update`/`delete`, so the version the row was read at rides
+  /// along as `If-Match` and a stale one is answered with the standard
+  /// "somebody else changed this" message. Left null, the generic calls run
+  /// exactly as before.
+  final Future<Json> Function(T item, Json body)? updateRecord;
+  final Future<void> Function(T item)? deleteRecord;
+
+  /// The record as a person would say it ("price level"), for that message.
+  final String? recordNoun;
 
   final String title, resource;
   final List<String> headers;
@@ -733,13 +748,33 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
         await widget.definition.saveAssignments!(savedId, values);
       }
       if (widget.definition.updateEntity) {
-        final Json updated = await widget.api.update(
-          widget.definition.resource,
-          savedId,
-          widget.definition.payload(values, false),
-          partial: widget.definition.partialUpdate,
-        );
-        _saveWarning = _warningIn(updated);
+        final Json body = widget.definition.payload(values, false);
+        try {
+          final Json updated = widget.definition.updateRecord != null
+              ? await widget.definition.updateRecord!(item, body)
+              : await widget.api.update(
+                  widget.definition.resource,
+                  savedId,
+                  body,
+                  partial: widget.definition.partialUpdate,
+                );
+          _saveWarning = _warningIn(updated);
+        } on ApiException catch (exception) {
+          // Only a resource that sends its version can lose a race, and the
+          // dialog stays open holding what was typed.
+          if (exception.isConflict && widget.definition.updateRecord != null) {
+            throw ApiException(
+              concurrencyMessage(
+                widget.definition.recordNoun ?? 'record',
+                changesKept: true,
+              ),
+              statusCode: exception.statusCode,
+              details: exception.details,
+              code: exception.code,
+            );
+          }
+          rethrow;
+        }
       }
       return;
     }
@@ -784,12 +819,31 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     );
     if (!accepted) return;
     try {
-      await widget.api
-          .delete(widget.definition.resource, widget.definition.id(item));
+      if (widget.definition.deleteRecord != null) {
+        await widget.definition.deleteRecord!(item);
+      } else {
+        await widget.api
+            .delete(widget.definition.resource, widget.definition.id(item));
+      }
       if (!mounted) return;
       await _load();
     } on ApiException catch (exception) {
-      if (mounted) _showError(exception);
+      if (!mounted) return;
+      if (exception.isConflict && widget.definition.deleteRecord != null) {
+        // Somebody saved it since the list was read: say so, and read again
+        // so the next attempt carries the version that is there now.
+        NotificationService.show(
+          context,
+          concurrencyMessage(
+            widget.definition.recordNoun ?? 'record',
+            changesKept: false,
+          ),
+          kind: AppNotificationKind.error,
+        );
+        await _load();
+        return;
+      }
+      _showError(exception);
     }
   }
 

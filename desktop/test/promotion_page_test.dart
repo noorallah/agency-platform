@@ -1134,5 +1134,20 @@ void main() {
           .toSet();
       expect(claims, contains('free_quantity'));
     });
+
+    test('all three offer reports have a Free units column', () {
+      for (final String id in <String>[
+        'promotion-performance',
+        'promotion-redemptions',
+        'promotion-coupons',
+      ]) {
+        final column = reportCatalog
+            .firstWhere((report) => report.id == id)
+            .columns
+            .firstWhere((column) => column.key == 'free_quantity');
+        expect(column.label, 'Free units', reason: id);
+        expect(column.numeric, isTrue, reason: id);
+      }
+    });
   });
 }

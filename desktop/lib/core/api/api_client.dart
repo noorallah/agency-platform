@@ -6852,6 +6852,27 @@ class ApiClient {
     ];
   }
 
+  /// Change a price level. [expectedVersion] is the `version` the row was
+  /// read at, sent as `If-Match`; a stale one is a 409.
+  Future<Json> updatePriceLevel(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) =>
+      request(
+        'PUT',
+        '/api/v1/price-levels/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      );
+
+  /// Delete a price level, with the `version` the row was read at.
+  Future<void> deletePriceLevel(String id, {int? expectedVersion}) => request(
+        'DELETE',
+        '/api/v1/price-levels/$id',
+        expectedVersion: expectedVersion,
+      );
+
   /// One product's rate at each level it has one.
   Future<List<ProductLevelRate>> productLevelRates(String productId) async {
     final Json response =

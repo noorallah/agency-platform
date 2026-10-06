@@ -185,6 +185,86 @@ void main() {
     });
   });
 
+  group('the Price Levels master sends the version it read (D-PRC-13)', () {
+    Future<_LevelsWire> open(
+      WidgetTester tester, {
+      int? refuseWith,
+    }) async {
+      final _LevelsWire api = _LevelsWire(refuseWith: refuseWith);
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PriceLevelPage(
+            api: api,
+            permissions:
+                _permissions(['PRICE_LIST_VIEW', 'PRICE_LIST_MANAGE']),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    Future<void> openEditor(WidgetTester tester) async {
+      await tester.tap(find.descendant(
+        of: find.byType(DataTable),
+        matching: find.byTooltip('Edit'),
+      ).first);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a save carries the row version as If-Match', (tester) async {
+      final _LevelsWire api = await open(tester);
+      await openEditor(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save & Close').last);
+      await tester.pumpAndSettle();
+
+      expect(api.calls, ['PUT /api/v1/price-levels/l1 if-match=7']);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a delete carries it too', (tester) async {
+      final _LevelsWire api = await open(tester);
+      await tester.tap(find.byIcon(Icons.more_vert).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete').last);
+      await tester.pumpAndSettle();
+
+      expect(api.calls, ['DELETE /api/v1/price-levels/l1 if-match=7']);
+    });
+
+    testWidgets('a stale save says somebody else changed it and stays open',
+        (tester) async {
+      final _LevelsWire api = await open(tester, refuseWith: 409);
+      await openEditor(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save & Close').last);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Somebody else saved this price level'),
+          findsOneWidget);
+      expect(find.textContaining('Reload and try again'), findsNothing);
+      // Still open, still holding what was typed.
+      expect(find.widgetWithText(FilledButton, 'Save & Close'), findsWidgets);
+      expect(api.calls, hasLength(1));
+    });
+
+    testWidgets('a stale delete says so', (tester) async {
+      await open(tester, refuseWith: 409);
+      await tester.tap(find.byIcon(Icons.more_vert).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete').last);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Somebody else saved this price level'),
+          findsOneWidget);
+    });
+  });
+
   group('prices by level on the product', () {
     testWidgets('the whole list is sent after the product saves',
         (tester) async {
@@ -485,6 +565,54 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+}
+
+/// One price level at version 7, recording every write with its If-Match.
+class _LevelsWire extends ApiClient {
+  _LevelsWire({this.refuseWith})
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  final int? refuseWith;
+  final List<String> calls = <String>[];
+
+  static const Map<String, dynamic> _row = <String, dynamic>{
+    'id': 'l1',
+    'code': 'DEALER',
+    'name': 'Dealer',
+    'sort_order': 1,
+    'is_active': true,
+    'version': 7,
+  };
+
+  @override
+  Future<Json> request(
+    String method,
+    String path, {
+    Json? body,
+    Map<String, String>? query,
+    bool authenticated = true,
+    bool retrying = false,
+    int? expectedVersion,
+  }) async {
+    if (method == 'PUT' || method == 'DELETE') {
+      calls.add('$method $path if-match=$expectedVersion');
+      if (refuseWith != null) {
+        throw ApiException(
+          'This record changed since you loaded it. Reload and try again.',
+          statusCode: refuseWith,
+        );
+      }
+      return <String, dynamic>{'data': _row};
+    }
+    return <String, dynamic>{
+      'data': <Json>[_row],
+    };
+  }
 }
 
 class _Asked {
