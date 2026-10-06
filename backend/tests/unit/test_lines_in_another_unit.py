@@ -55,9 +55,13 @@ from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate
 from app.sales_order.services.sales_order_service import SalesOrderService
+from app.sales_return.models import SalesReturn, SalesReturnLine
+from app.sales_return.schemas import SalesReturnCreate
+from app.sales_return.services import SalesReturnService
 from app.uom.models import ConversionRule, Uom
 from tests.unit.test_purchase_management import _vendor
 from tests.unit.test_sales_chain_synthesis import _Firm, _request_session
+from tests.unit.test_sales_order_module import _tax_group
 
 D = Decimal
 DAY = date(2026, 8, 4)
@@ -610,3 +614,289 @@ def test_a_per_unit_commission_pays_for_the_pieces_in_a_box() -> None:
 
     [row] = [row for row in report.rows if row.salesman_id == seller.id]
     assert row.commission_amount == D("60.00")
+
+
+# ---- pieces that are not whole boxes (D-PRC-37, D-PRC-38) -------------------
+#
+# The third live check (2026-10-06): a note of 2 BOX at 1,200.00, GST 18%,
+# 2,832.00. Billed 7 PIECE with no price it was stored as 0.5833 BOX and
+# worth 699.96, 825.95 with tax; with the other 17 at a typed 100.00 (stored
+# at 1,199.9718 a box) the two bills came to 2,831.95.
+
+
+def _shipped(shop: _Shop, quantity: str = "2", **line: object) -> DeliveryNoteLine:
+    """Order, deliver and dispatch a line by the box; return the note's line."""
+    order = shop.order(quantity=quantity, sales_uom_id=shop.box, **line)
+    shop.orders.approve_order(order.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    notes = DeliveryNoteService(shop.session)
+    note = notes.create_note(
+        DeliveryNoteCreate.model_validate(
+            {
+                "sales_order_id": order.id,
+                "delivery_date": DAY,
+                "lines": [
+                    {
+                        "sales_order_line_id": shop.line(order).id,
+                        "line_number": 1,
+                        "current_delivery_quantity": quantity,
+                    }
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    notes.approve_note(note.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    notes.dispatch_note(note.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    shop.session.expire_all()
+    return shop.session.scalars(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    ).one()
+
+
+def _bill(
+    shop: _Shop, note_line: DeliveryNoteLine, quantity: str, **line: object
+) -> tuple[SalesInvoice, SalesInvoiceLine]:
+    """Bill some of a note line and approve the bill; return it and its line."""
+    service = SalesInvoiceService(shop.session)
+    bill = service.create_invoice(
+        SalesInvoiceCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "invoice_date": DAY,
+                "lines": [
+                    {
+                        "source_document_type": "DELIVERY_NOTE",
+                        "source_document_id": note_line.delivery_note_id,
+                        "source_document_line_id": note_line.id,
+                        "line_number": 1,
+                        "current_invoice_quantity": quantity,
+                    }
+                    | line
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    bill = service.approve_invoice(
+        bill.id, firm_scope=shop.firm_id, actor_id=shop.actor
+    )
+    shop.session.expire_all()
+    billed = shop.session.scalars(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == bill.id)
+    ).one()
+    return bill, billed
+
+
+def _gst_18(shop: _Shop) -> None:
+    """Charge the shop's product GST at 18%."""
+    shop.setup.product.tax_profile_group_code = "GST_STANDARD"
+    shop.session.commit()
+    _tax_group(
+        shop.session,
+        firm_id=shop.firm_id,
+        percent="18",
+        starts=date(2026, 4, 1),
+        ends=None,
+    )
+
+
+def _on_hand(shop: _Shop) -> Decimal:
+    """Return the pieces of the product the warehouse holds."""
+    shop.session.expire_all()
+    return D(
+        str(
+            shop.session.scalar(
+                select(
+                    func.coalesce(func.sum(InventoryRecord.current_quantity), 0)
+                ).where(InventoryRecord.product_id == shop.setup.product.id)
+            )
+        )
+    )
+
+
+def test_seven_pieces_of_a_box_are_billed_as_seven_pieces() -> None:
+    """7 PIECE are 700.00 and 826.00 with tax; with the other 17, 2,832.00."""
+    shop = _Shop()
+    _gst_18(shop)
+    note_line = _shipped(shop)
+
+    first, seven = _bill(shop, note_line, "7", invoice_uom_id=shop.piece)
+
+    assert (seven.entered_quantity, seven.invoice_uom_id) == (D("7.0000"), shop.piece)
+    # The cap still counts in the note line's unit, at the note's price.
+    assert (seven.current_invoice_quantity, seven.unit_price) == (
+        D("0.5833"),
+        D("1200.0000"),
+    )
+    assert seven.conversion_factor == D("0.0833333333")
+    assert (seven.gross_amount, seven.tax_amount) == (D("700.0000"), D("126.0000"))
+    assert first.grand_total == D("826.0000")
+
+    second, rest = _bill(
+        shop, note_line, "17", invoice_uom_id=shop.piece, unit_price="100"
+    )
+
+    assert (rest.entered_quantity, rest.current_invoice_quantity) == (
+        D("17.0000"),
+        D("1.4167"),
+    )
+    # 100.00 a piece is 1,200.00 a box, not 1,199.9718.
+    assert (rest.unit_price, rest.gross_amount) == (D("1200.0000"), D("1700.0000"))
+    assert second.grand_total == D("2006.0000")
+    assert first.grand_total + second.grand_total == D("2832.0000")
+    assert (first.status, second.status) == ("APPROVED", "APPROVED")
+
+
+def test_parts_in_pieces_that_round_up_as_boxes_still_bill_the_whole_note() -> None:
+    """5, 5 and 14 PIECE are 2.0001 BOX rounded apart: the third is taken."""
+    shop = _Shop()
+    note_line = _shipped(shop)
+
+    lines = [
+        _bill(shop, note_line, quantity, invoice_uom_id=shop.piece)[1]
+        for quantity in ("5", "5", "14")
+    ]
+
+    assert [line.current_invoice_quantity for line in lines] == [
+        D("0.4167"),
+        D("0.4167"),
+        D("1.1666"),
+    ]
+    assert [line.gross_amount for line in lines] == [
+        D("500.0000"),
+        D("500.0000"),
+        D("1400.0000"),
+    ]
+    with pytest.raises(ValidationError, match="exceeds the available source"):
+        _bill(shop, note_line, "1", invoice_uom_id=shop.piece)
+    shop.session.rollback()
+
+
+def test_the_bill_that_completes_a_note_takes_what_the_others_left() -> None:
+    """A box at 1,000.00 billed 4 + 4 + 4 pieces is 333.33 + 333.33 + 333.34."""
+    shop = _Shop()
+    note_line = _shipped(shop, "1", unit_price="1000")
+
+    lines = [
+        _bill(shop, note_line, "4", invoice_uom_id=shop.piece)[1] for _ in range(3)
+    ]
+
+    assert [line.gross_amount for line in lines] == [
+        D("333.3333"),
+        D("333.3333"),
+        D("333.3400"),
+    ]
+
+
+def _brought_back(
+    shop: _Shop, source: tuple[str, UUID, UUID], quantity: str, **line: object
+) -> SalesReturnLine:
+    """Raise, approve and complete a return of one line; return its line."""
+    service = SalesReturnService(shop.session)
+    row = service.create_return(
+        SalesReturnCreate.model_validate(
+            {
+                "warehouse_id": shop.setup.warehouse.id,
+                "return_date": DAY,
+                "lines": [
+                    {
+                        "source_document_type": source[0],
+                        "source_document_id": source[1],
+                        "source_document_line_id": source[2],
+                        "line_number": 1,
+                        "current_return_quantity": quantity,
+                    }
+                    | line
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    service.approve_return(row.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    service.complete_return(row.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    shop.session.expire_all()
+    return shop.session.scalars(
+        select(SalesReturnLine).where(SalesReturnLine.sales_return_id == row.id)
+    ).one()
+
+
+@pytest.mark.parametrize("billed_as", ["boxes", "pieces"])
+def test_seven_pieces_come_back_off_a_bill_of_boxes(billed_as: str) -> None:
+    """A return of 7 PIECE is credited 700.00 and puts 7 pieces on the shelf.
+
+    Whether the bill it credits was typed 2 BOX or 24 PIECE: either way the
+    bill line counts 2 of the note's boxes.
+    """
+    shop = _Shop()
+    note_line = _shipped(shop)
+    typed = (
+        {"current": "24", "invoice_uom_id": shop.piece}
+        if billed_as == "pieces"
+        else {"current": "2"}
+    )
+    bill, billed = _bill(
+        shop,
+        note_line,
+        str(typed.pop("current")),
+        **typed,
+    )
+    assert billed.current_invoice_quantity == D("2.0000")
+    held = _on_hand(shop)
+
+    back = _brought_back(
+        shop,
+        ("SALES_INVOICE", bill.id, billed.id),
+        "7",
+        return_uom_id=shop.piece,
+    )
+
+    assert (back.entered_quantity, back.return_uom_id) == (D("7.0000"), shop.piece)
+    assert (back.sales_uom_id, back.current_return_quantity) == (shop.box, D("0.5833"))
+    assert (back.unit_price, back.gross_amount) == (D("1200.0000"), D("700.0000"))
+    assert _on_hand(shop) == held + D("7")
+
+
+def test_a_box_comes_back_off_a_note_as_twelve_pieces() -> None:
+    """1 BOX off the note, and 12 PIECE off it, each put 12 pieces back."""
+    shop = _Shop()
+    note_line = _shipped(shop)
+    held = _on_hand(shop)
+    source = ("DELIVERY_NOTE", note_line.delivery_note_id, note_line.id)
+
+    box = _brought_back(shop, source, "1")
+    assert _on_hand(shop) == held + D("12")
+    pieces = _brought_back(shop, source, "12", return_uom_id=shop.piece)
+
+    assert (box.current_return_quantity, box.entered_quantity) == (D("1.0000"), None)
+    assert (pieces.current_return_quantity, pieces.entered_quantity) == (
+        D("1.0000"),
+        D("12.0000"),
+    )
+    assert _on_hand(shop) == held + D("24")
+
+
+def test_half_a_box_typed_as_a_box_is_refused_where_it_is_saved() -> None:
+    """0.5 BOX on a bill or a return never reaches approval or completion."""
+    shop = _Shop()
+    note_line = _shipped(shop)
+    words = "BOX is counted in whole numbers, so 0.5 BOX cannot be entered."
+
+    with pytest.raises(ValidationError) as on_the_bill:
+        _bill(shop, note_line, "0.5")
+    shop.session.rollback()
+    with pytest.raises(ValidationError) as on_the_return:
+        _brought_back(
+            shop,
+            ("DELIVERY_NOTE", note_line.delivery_note_id, note_line.id),
+            "0.5",
+            return_uom_id=shop.box,
+        )
+    shop.session.rollback()
+
+    assert str(on_the_bill.value.message) == words
+    assert str(on_the_return.value.message) == words
+    assert shop.session.scalars(select(SalesInvoice)).all() == []
+    assert shop.session.scalars(select(SalesReturn)).all() == []

@@ -23,7 +23,7 @@ from app.core.exceptions import ValidationError
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate
 from app.delivery_note.services import DeliveryNoteService
-from app.inventory.models import InventoryTransaction
+from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.inventory.services import InventoryService
 from app.sales_invoice.models import SalesInvoice
 from app.sales_invoice.schemas import SalesInvoiceCreate
@@ -604,3 +604,35 @@ def test_a_counter_bill_by_the_box_above_the_mrp_is_refused_at_save() -> None:
         f"Line 1: charges 123.20 a unit with tax, {ABOVE_120}"
     )
     assert shop.session.scalars(select(SalesInvoice)).all() == []
+
+
+def test_a_box_drawn_from_two_batches_is_held_and_shipped_as_its_pieces() -> None:
+    """EARLY holds ten and LATE ten: a box of twelve takes ten and two.
+
+    Each batch's share of the box -- 0.8333 and 0.1667 of it -- is not a
+    quantity anybody typed, and approving the order was refused "BOX is
+    counted in whole numbers, so 0.8333 BOX cannot be entered" (D-PRC-38).
+    What is held and what leaves is the allocation itself.
+    """
+    shop = _Pharmacy()
+    order = shop.order(
+        pinned=False, quantity="1", sales_uom_id=shop.box, unit_price="1200"
+    )
+
+    note = shop.note_of(order, "1")
+    held = {
+        name: shop.session.scalars(
+            select(InventoryRecord).where(
+                InventoryRecord.batch_id == shop.batches[name].id
+            )
+        )
+        .one()
+        .reserved_quantity
+        for name in ("EARLY", "LATE")
+    }
+    assert held == {"EARLY": Decimal("10.0000"), "LATE": Decimal("2.0000")}
+
+    shop.notes.dispatch_note(note.id, firm_scope=shop.firm.id, actor_id=shop.actor)
+
+    assert shop.drawn() == {"EARLY": Decimal("10.0000"), "LATE": Decimal("2.0000")}
+    assert shop.approve(shop.bill_of(note, "1")).grand_total == Decimal("1344.0000")

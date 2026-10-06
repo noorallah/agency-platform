@@ -1,19 +1,21 @@
 """UOM framework service exports."""
 
 from app.uom.services.uom_service import (
+    ContinuedQuantity,
     UomService,
     assert_quantity_fits_unit,
     buying_units_of,
-    price_per_source_unit,
+    exact_quantity,
     round_by_rule,
     stock_unit_of,
 )
 
 __all__ = [
+    "ContinuedQuantity",
     "UomService",
     "assert_quantity_fits_unit",
     "buying_units_of",
-    "price_per_source_unit",
+    "exact_quantity",
     "round_by_rule",
     "stock_unit_of",
 ]

@@ -532,6 +532,10 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     order_uom_id: UUID | None
     invoice_uom_id: UUID | None
     conversion_factor: Decimal
+    #: What was typed, in ``invoice_uom_id``, where the line was typed in
+    #: another unit than the line it bills; ``current_invoice_quantity`` is
+    #: then the same goods in that source line's unit (D-PRC-37).
+    entered_quantity: Decimal | None = None
     conversion_version: int | None
     warehouse_id: UUID | None
     storage_node_id: UUID | None

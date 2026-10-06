@@ -3270,6 +3270,10 @@ class DeliveryNoteService(TransactionalDocumentService):
                         ),
                         remarks=f"delivery_note release line {line.line_number}",
                         batch_id=batch_id,
+                        # A batch's share of the line frees that batch's own
+                        # hold: 0.1667 of a box of twelve is 2.0004 pieces,
+                        # more than the two it holds (D-PRC-38).
+                        share_of_line=len(release_split) > 1,
                     )
                     if released is None:
                         released = posted
@@ -3398,6 +3402,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     remarks=line.remarks or row.remarks,
                     batch_id=batch_id,
                     serial_id=self._trail.single_serial(shares[index], allocated),
+                    share_of_line=len(allocation) > 1,
                 )
                 if shares[index]:
                     self._trail.mark_sold(
