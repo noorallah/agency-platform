@@ -49,8 +49,19 @@ Free goods are valued from the stock ledger's dispatch, never from a price:
 a line whose dispatch has no cost contributes nothing rather than zero, and
 goods on a note not yet shipped are not claimed. Free goods a completed
 sales return has brought back (D-PRC-8) are not claimed: they were not given
-after all. A return of the charged units alone reduces nothing, and a claim
-already raised is not rewritten by a return that comes after it.
+after all. A return of the charged units alone reduces nothing.
+
+**A claim already raised is not rewritten; what came back after it comes off
+the next one** (D-PRC-31). A return, a credit note or a cancelled bill after
+a claim covered the goods or the discount leaves that claim as it was raised
+-- the principal may have paid it -- and the next claim on the principal
+carries a negative **adjustment** line for the difference, the debit
+adjustment a distributor carries forward. What is owed back is never stored:
+it is what the earlier line was claimed for (its amount plus the live
+adjustments naming it) less what the same source is entitled to today, so it
+is taken once however often it is looked for. A claim is never negative:
+adjustments are taken oldest first as far as the claim's own lines reach and
+the rest is carried to the claim after.
 
 A source is claimed once. Raising posts Dr claims receivable, Cr the
 expense the cost sat in -- promotional expense for a scheme's discount, cost
@@ -64,7 +75,7 @@ can be cancelled, which reverses its journal and frees its sources.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -81,12 +92,14 @@ from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger
+from app.credit_note.models import CreditNote
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.models import JournalEntry
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import (
@@ -107,6 +120,7 @@ from app.products.models import Product
 from app.products.models.brand import Brand, Principal
 from app.products.models.price_revision import ProductPriceRevision
 from app.promotions.models import Promotion
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrderLine
 from app.sales_return.free_goods import free_goods_returned
 from app.sales_return.models import SalesReturn, SalesReturnLine
@@ -130,6 +144,23 @@ CENT = Decimal("0.01")
 #: source id -- which is what lets the lines' unique index refuse a second
 #: claim for one price cut.
 _RATE_SOURCES = UUID("6f0f5c1e-6a0b-4d53-9a3f-2f1c8f4a7d10")
+
+
+#: The kinds a later return can take back: what a scheme passed on and
+#: goods given free. Expired stock and breakage do not come back.
+_ADJUSTED_KINDS = ("SCHEME", "FREE_GOODS")
+#: How far before a claim's period it looks for goods that came back after
+#: an earlier claim. Bounded so a preview does not re-read every bill the
+#: firm ever claimed; two years is longer than any return is taken.
+_LOOK_BACK = timedelta(days=730)
+#: Fixed, so the n-th adjustment of one claim line always makes the same
+#: source id and two claims raised at once cannot both take it.
+_ADJUSTMENTS = UUID("8b0d6a47-52c1-4e9a-b3f7-0c2d9e615a84")
+
+
+def adjustment_source(line_id: UUID, sequence: int) -> UUID:
+    """Return the source the n-th adjustment of a claim line is held under."""
+    return uuid5(_ADJUSTMENTS, f"{line_id}:{sequence}")
 
 
 def rate_difference_source(
@@ -293,7 +324,11 @@ class PrincipalClaimLineResponse(BaseModel):
     old_rate: Decimal | None = None
     new_rate: Decimal | None = None
     description: str
+    #: Negative on an adjustment: goods or a discount an earlier claim held
+    #: that came back after it was raised.
     amount: Decimal
+    #: On an adjustment, the claim whose line it takes back from.
+    adjusts_claim_number: str | None = None
 
 
 class PrincipalClaimReceiptResponse(BaseModel):
@@ -356,6 +391,9 @@ class PrincipalClaimPreview(BaseModel):
     breakage_amount: Decimal
     rate_difference_amount: Decimal
     total_amount: Decimal
+    #: What came back after earlier claims and could not come off this one,
+    #: because a claim is never negative: it comes off the next.
+    adjustments_carried_forward: Decimal = Decimal("0")
     lines: list[PrincipalClaimLineResponse]
 
 
@@ -378,6 +416,10 @@ class _Candidate:
     batch_number: str | None = None
     old_rate: Decimal | None = None
     new_rate: Decimal | None = None
+    #: An adjustment only: the earlier claim's line it takes back from, and
+    #: that claim's number.
+    adjusts_line_id: UUID | None = None
+    adjusts_claim_number: str | None = None
 
 
 class PrincipalClaimService(TransactionalDocumentService):
@@ -436,25 +478,70 @@ class PrincipalClaimService(TransactionalDocumentService):
             c for c in found if (c.kind, c.source_id) not in claimed and c.amount > 0
         ]
 
-    def _gather(self, data: PrincipalClaimWrite, *, firm_id: UUID) -> list[_Candidate]:
-        """Return what the claim described would hold: a cut's, or a period's."""
+    def _gather(
+        self, data: PrincipalClaimWrite, *, firm_id: UUID
+    ) -> tuple[list[_Candidate], Decimal]:
+        """Return what the claim described would hold, and what is carried on.
+
+        A cut's lines, or a period's sources followed by the adjustments for
+        what came back after earlier claims. The second figure is the part
+        of those adjustments this claim could not take.
+        """
         if data.is_rate_difference and data.effective_date is not None:
-            return self._rate_differences(
-                firm_id, data.principal_id, data.effective_date, data.rate_lines
+            return (
+                self._rate_differences(
+                    firm_id, data.principal_id, data.effective_date, data.rate_lines
+                ),
+                ZERO,
             )
-        return self.candidates(
+        found = self.candidates(
             firm_id=firm_id,
             principal_id=data.principal_id,
             period_from=data.period_from,
             period_to=data.period_to,
             kinds=data.kinds,
         )
+        owed = self._came_back_since(
+            firm_id, data.principal_id, kinds=data.kinds, period_from=data.period_from
+        )
+        return self._net_of(found, owed)
+
+    @staticmethod
+    def _net_of(
+        found: list[_Candidate], owed: list[_Candidate]
+    ) -> tuple[list[_Candidate], Decimal]:
+        """Take the adjustments off a claim's lines as far as they reach.
+
+        A claim can be settled by a payment or a credit note and by nothing
+        else, and neither can settle a negative figure, so a claim's total is
+        never below zero. The adjustments are taken oldest claim first; the one
+        that would take the claim below zero is taken in part, and whatever
+        is left is carried: it is still owed back, and the next claim finds
+        it again because what a line has been adjusted by is summed.
+        """
+        room = sum((c.amount for c in found), ZERO)
+        taken: list[_Candidate] = []
+        carried = ZERO
+        for adjustment in owed:
+            back = -adjustment.amount
+            take = min(back, max(room, ZERO))
+            if take >= CENT:
+                taken.append(
+                    adjustment
+                    if take == back
+                    else replace(adjustment, amount=-take, quantity=None)
+                )
+                room -= take
+            else:
+                take = ZERO
+            carried += back - take
+        return found + taken, carried
 
     def preview(
         self, data: PrincipalClaimWrite, *, firm_id: UUID
     ) -> PrincipalClaimPreview:
         """Return what raising the claim would hold, writing nothing."""
-        found = self._gather(data, firm_id=firm_id)
+        found, carried = self._gather(data, firm_id=firm_id)
         totals = self._totals(found)
         names = self._product_names({c.product_id for c in found if c.product_id})
         return PrincipalClaimPreview(
@@ -467,6 +554,7 @@ class PrincipalClaimService(TransactionalDocumentService):
             breakage_amount=totals["BREAKAGE"],
             rate_difference_amount=totals[RATE_DIFFERENCE],
             total_amount=sum(totals.values(), ZERO),
+            adjustments_carried_forward=carried,
             lines=[
                 self._line_response(number, c, names)
                 for number, c in enumerate(found, start=1)
@@ -485,15 +573,25 @@ class PrincipalClaimService(TransactionalDocumentService):
 
         """
         principal = self._principal(data.principal_id, firm_id=firm_id)
-        found = self._gather(data, firm_id=firm_id)
+        found, carried = self._gather(data, firm_id=firm_id)
         if not found:
             what = (
                 f"the price cut of {data.period_from:%d-%m-%Y}"
                 if data.is_rate_difference
                 else "that period"
             )
+            # Only adjustments, and no claim to take them off: a claim of
+            # less than nothing cannot be settled, so none is raised.
+            waiting = (
+                f" Goods or discounts worth {carried} came back after earlier "
+                "claims; that comes off the next claim on this principal that "
+                "has something to claim."
+                if carried > ZERO
+                else ""
+            )
             raise ValidationError(
                 f"Nothing is left to claim from {principal.name} for {what}."
+                f"{waiting}"
             )
         totals = self._totals(found)
         _, rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
@@ -544,6 +642,7 @@ class PrincipalClaimService(TransactionalDocumentService):
                     new_rate=candidate.new_rate,
                     description=candidate.description[:300],
                     amount=candidate.amount,
+                    adjusts_line_id=candidate.adjusts_line_id,
                     created_by=actor_id,
                     updated_by=actor_id,
                 )
@@ -555,22 +654,25 @@ class PrincipalClaimService(TransactionalDocumentService):
             "and raise it again."
         )
         # By where the cost sat, not by kind: a scheme's discount went to
-        # promotional expense and its free goods to cost of goods sold.
+        # promotional expense and its free goods to cost of goods sold. An
+        # adjustment is negative in the account its earlier line credited,
+        # so the mirror lands where the original did.
         back = dict.fromkeys((_PROMOTION, _STOCK, _SOLD, _PRICE), ZERO)
         for candidate in found:
             back[candidate.credit] += candidate.amount
-        entry = DocumentPostingService(self._session).post_principal_claim(
-            firm_id=firm_id,
-            claim_id=row.id,
-            claim_number=number,
-            claim_date=data.claim_date,
-            scheme_amount=back[_PROMOTION],
-            stock_amount=back[_STOCK],
-            free_goods_amount=back[_SOLD],
-            rate_difference_amount=back[_PRICE],
-            actor_id=actor_id,
-        )
-        row.journal_entry_id = entry.id
+        if any(back.values()):
+            entry = DocumentPostingService(self._session).post_principal_claim(
+                firm_id=firm_id,
+                claim_id=row.id,
+                claim_number=number,
+                claim_date=data.claim_date,
+                scheme_amount=back[_PROMOTION],
+                stock_amount=back[_STOCK],
+                free_goods_amount=back[_SOLD],
+                rate_difference_amount=back[_PRICE],
+                actor_id=actor_id,
+            )
+            row.journal_entry_id = entry.id
         self._audit("principal_claim.raised", row, actor_id)
         self._session.commit()
         return row
@@ -692,12 +794,13 @@ class PrincipalClaimService(TransactionalDocumentService):
             created_by=actor_id,
             updated_by=actor_id,
         )
+        reference = self._next_receipt_reference(row)
         self._session.add(receipt)
         self._session.flush()
         entry = DocumentPostingService(self._session).post_principal_claim_receipt(
             firm_id=firm_id,
             settlement_id=receipt.id,
-            reference_number=f"CLAIM-{row.claim_number}-PAY-{utc_now():%Y%m%d%H%M%S}",
+            reference_number=reference,
             received_on=data.received_on,
             amount=data.amount,
             money_account_id=data.money_account_id,
@@ -708,6 +811,41 @@ class PrincipalClaimService(TransactionalDocumentService):
         self._audit("principal_claim.payment_received", row, actor_id)
         self._session.commit()
         return receipt
+
+    def _next_receipt_reference(self, row: PrincipalClaim) -> str:
+        """Return the journal reference for the claim's next payment.
+
+        ``CLAIM-<number>-PAY-<n>``, counted from the payments the claim has
+        already had -- reversed ones included, since their journals still
+        hold their references. It was the clock to the second, so two
+        payments recorded inside one second were the same reference and the
+        second was refused with a 409 (D-PRC-33). References already written
+        are left as they are; a number one of them holds is stepped over.
+        """
+        taken = set(
+            self._session.scalars(
+                select(JournalEntry.reference_number)
+                .join(
+                    PrincipalClaimReceipt,
+                    PrincipalClaimReceipt.journal_entry_id == JournalEntry.id,
+                )
+                .where(PrincipalClaimReceipt.claim_id == row.id)
+            ).all()
+        )
+        sequence = (
+            int(
+                self._session.scalar(
+                    select(func.count())
+                    .select_from(PrincipalClaimReceipt)
+                    .where(PrincipalClaimReceipt.claim_id == row.id)
+                )
+                or 0
+            )
+            + 1
+        )
+        while f"CLAIM-{row.claim_number}-PAY-{sequence}" in taken:
+            sequence += 1
+        return f"CLAIM-{row.claim_number}-PAY-{sequence}"
 
     def reverse_receipt(
         self, claim_id: UUID, receipt_id: UUID, *, firm_id: UUID, actor_id: UUID
@@ -723,12 +861,20 @@ class PrincipalClaimService(TransactionalDocumentService):
         ):
             raise ResourceNotFoundError("Payment not found on this claim.")
         if receipt.journal_entry_id is not None:
+            # The payment's own reference with -REV: a payment is reversed
+            # once, so the pair is as unique as the payment is, and the two
+            # read together in the ledger. The clock to the second it used
+            # to carry collided like the payment's did (D-PRC-33).
+            posted = self._session.get(JournalEntry, receipt.journal_entry_id)
+            paid_as = (
+                posted.reference_number
+                if posted is not None and posted.reference_number
+                else f"CLAIM-{row.claim_number}-PAY"
+            )
             JournalEntryEngine(self._session).reverse_entry(
                 receipt.journal_entry_id,
                 firm_id=firm_id,
-                reference_number=(
-                    f"CLAIM-{row.claim_number}-PAYREV-{utc_now():%Y%m%d%H%M%S}"
-                ),
+                reference_number=f"{paid_as}-REV",
                 actor_id=actor_id,
             )
         receipt.status = "REVERSED"
@@ -757,6 +903,32 @@ class PrincipalClaimService(TransactionalDocumentService):
             raise ValidationError(
                 "Part of this claim is settled; reverse its payments and cancel "
                 "its credit notes first."
+            )
+        # A later claim that took something back from this one stands on it:
+        # cancelling this would free the whole source to be claimed again
+        # while the adjustment went on taking part of it back.
+        adjusting = aliased(PrincipalClaimLine)
+        later = sorted(
+            set(
+                self._session.scalars(
+                    select(PrincipalClaim.claim_number)
+                    .join(adjusting, adjusting.claim_id == PrincipalClaim.id)
+                    .join(
+                        PrincipalClaimLine,
+                        PrincipalClaimLine.id == adjusting.adjusts_line_id,
+                    )
+                    .where(
+                        PrincipalClaimLine.claim_id == row.id,
+                        adjusting.is_deleted.is_(False),
+                        adjusting.claim_id != row.id,
+                    )
+                ).all()
+            )
+        )
+        if later:
+            raise ValidationError(
+                f"Claim {', '.join(later)} takes back goods or a discount that "
+                "came back after this claim was raised; cancel that claim first."
             )
         if row.journal_entry_id is not None:
             JournalEntryEngine(self._session).reverse_entry(
@@ -835,6 +1007,22 @@ class PrincipalClaimService(TransactionalDocumentService):
                 )
             ).all()
         }
+        adjusted_ids = [line.adjusts_line_id for line in lines if line.adjusts_line_id]
+        adjusted: dict[UUID, str] = (
+            {
+                line_id: number
+                for line_id, number in self._session.execute(
+                    select(PrincipalClaimLine.id, PrincipalClaim.claim_number)
+                    .join(
+                        PrincipalClaim,
+                        PrincipalClaim.id == PrincipalClaimLine.claim_id,
+                    )
+                    .where(PrincipalClaimLine.id.in_(adjusted_ids))
+                ).all()
+            }
+            if adjusted_ids
+            else {}
+        )
         batch_ids = {line.batch_id for line in lines if line.batch_id}
         batches: dict[UUID, str] = (
             {
@@ -905,6 +1093,11 @@ class PrincipalClaimService(TransactionalDocumentService):
                             new_rate=line.new_rate,
                             description=line.description,
                             amount=line.amount,
+                            adjusts_claim_number=(
+                                adjusted.get(line.adjusts_line_id)
+                                if line.adjusts_line_id
+                                else None
+                            ),
                         )
                         for line in lines
                         if line.claim_id == row.id
@@ -1319,6 +1512,221 @@ class PrincipalClaimService(TransactionalDocumentService):
                 )
             )
         return found
+
+    def _came_back_since(
+        self,
+        firm_id: UUID,
+        principal_id: UUID,
+        *,
+        kinds: list[str],
+        period_from: date,
+    ) -> list[_Candidate]:
+        """Return an adjustment for each earlier line that now claims too much.
+
+        An earlier claim's line stands as it was raised. Where its source has
+        since had something come back -- a completed return, an approved
+        credit note, the bill cancelled -- the source is worked again as a
+        claim raised today would work it, and the line is owed back
+        whatever it was claimed for beyond that: its own amount plus the
+        live adjustments naming it, less today's entitlement. Summed, never
+        stored, so a second look finds nothing more to take.
+
+        Only the lines something came back against are worked again
+        (`_lines_with_something_back`), over the span of their own dates.
+        A scheme line raised before 2026-10-06 names its redemption rather
+        than a bill and is never adjusted: nothing says which bill it was.
+        """
+        wanted = set(kinds) & set(_ADJUSTED_KINDS)
+        if not wanted:
+            return []
+        back = self._lines_with_something_back(
+            firm_id, principal_id, wanted, since=period_from - _LOOK_BACK
+        )
+        if not back:
+            return []
+        lines = self._session.execute(
+            select(PrincipalClaimLine, PrincipalClaim.claim_number)
+            .join(PrincipalClaim, PrincipalClaim.id == PrincipalClaimLine.claim_id)
+            .where(PrincipalClaimLine.id.in_(list(back)))
+            .order_by(
+                PrincipalClaim.claim_date,
+                PrincipalClaim.claim_number,
+                PrincipalClaimLine.line_number,
+            )
+        ).all()
+        start = min(line.source_date for line, _ in lines)
+        end = max(line.source_date for line, _ in lines)
+        today: dict[tuple[str, UUID], _Candidate] = {}
+        if any(line.product_id is None for line, _ in lines):
+            for candidate in self._schemes(firm_id, principal_id, start, end):
+                today[(candidate.kind, candidate.source_id)] = candidate
+        if any(line.product_id is not None for line, _ in lines):
+            for candidate in self._free_goods(firm_id, principal_id, start, end):
+                today[(candidate.kind, candidate.source_id)] = candidate
+        taken: dict[UUID, tuple[Decimal, Decimal, int]] = {
+            line_id: (Decimal(str(amount or 0)), Decimal(str(units or 0)), int(count))
+            for line_id, amount, units, count in self._session.execute(
+                select(
+                    PrincipalClaimLine.adjusts_line_id,
+                    func.sum(PrincipalClaimLine.amount),
+                    func.sum(func.coalesce(PrincipalClaimLine.quantity, 0)),
+                    func.count(),
+                )
+                .where(
+                    PrincipalClaimLine.adjusts_line_id.in_(list(back)),
+                    PrincipalClaimLine.is_deleted.is_(False),
+                )
+                .group_by(PrincipalClaimLine.adjusts_line_id)
+            ).all()
+        }
+        owed: list[_Candidate] = []
+        for line, claim_number in lines:
+            entitled = today.get((line.kind, line.source_id))
+            adjusted, adjusted_units, times = taken.get(line.id, (ZERO, ZERO, 0))
+            over = (
+                Decimal(str(line.amount))
+                + adjusted
+                - (ZERO if entitled is None else entitled.amount)
+            )
+            if over < CENT:
+                continue
+            units: Decimal | None = None
+            if line.quantity is not None:
+                left = (
+                    ZERO
+                    if entitled is None or entitled.quantity is None
+                    else entitled.quantity
+                )
+                gone = Decimal(str(line.quantity)) + adjusted_units - left
+                units = -gone if gone > ZERO else None
+            owed.append(
+                _Candidate(
+                    kind=line.kind,
+                    source_id=adjustment_source(line.id, times + 1),
+                    source_number=line.source_number,
+                    source_date=line.source_date,
+                    product_id=line.product_id,
+                    quantity=units,
+                    description=(
+                        f"Came back after claim {claim_number} "
+                        f"({', '.join(sorted(back[line.id]))}): {line.description}"
+                    ),
+                    amount=-over,
+                    # Where the earlier line's credit went: goods to cost of
+                    # goods sold, a discount to promotional expense.
+                    credit=_SOLD if line.product_id is not None else _PROMOTION,
+                    adjusts_line_id=line.id,
+                    adjusts_claim_number=claim_number,
+                )
+            )
+        return owed
+
+    def _lines_with_something_back(
+        self, firm_id: UUID, principal_id: UUID, kinds: set[str], *, since: date
+    ) -> dict[UUID, set[str]]:
+        """Return the earlier claim lines something came back against, and what.
+
+        Keyed by claim line, each with the numbers of the documents that
+        brought it back, for the adjustment to name. A line for goods names
+        the delivery note line they left on; a scheme's money line names the
+        bill by number. Five joins, each bounded by the claimed lines of one
+        principal and by documents dated on or after ``since``.
+        """
+        own = (
+            PrincipalClaimLine.firm_id == firm_id,
+            PrincipalClaimLine.is_deleted.is_(False),
+            PrincipalClaimLine.adjusts_line_id.is_(None),
+            PrincipalClaimLine.amount > 0,
+            PrincipalClaimLine.kind.in_(sorted(kinds)),
+            PrincipalClaim.principal_id == principal_id,
+            PrincipalClaim.is_deleted.is_(False),
+            PrincipalClaim.status != "CANCELLED",
+        )
+        goods = PrincipalClaimLine.product_id.is_not(None)
+        money = and_(
+            PrincipalClaimLine.product_id.is_(None),
+            PrincipalClaimLine.kind == "SCHEME",
+        )
+        returned = (
+            SalesReturn.firm_id == firm_id,
+            SalesReturn.is_deleted.is_(False),
+            SalesReturn.status.in_(_DONE_RETURNS),
+            SalesReturn.return_date >= since,
+            SalesReturnLine.is_deleted.is_(False),
+        )
+        billed = (
+            select(PrincipalClaimLine.id)
+            .join(PrincipalClaim, PrincipalClaim.id == PrincipalClaimLine.claim_id)
+            .join(
+                SalesInvoice,
+                and_(
+                    SalesInvoice.firm_id == firm_id,
+                    SalesInvoice.invoice_number == PrincipalClaimLine.source_number,
+                    SalesInvoice.is_deleted.is_(False),
+                ),
+            )
+            .where(*own, money)
+        )
+        statements = (
+            # Free goods a completed return brought back.
+            free_goods_returned(PrincipalClaimLine.id, SalesReturn.return_number)
+            .join(
+                PrincipalClaimLine,
+                PrincipalClaimLine.source_id == DeliveryNoteLine.id,
+            )
+            .join(PrincipalClaim, PrincipalClaim.id == PrincipalClaimLine.claim_id)
+            .where(*own, goods, *returned),
+            # A return off the bill.
+            billed.add_columns(SalesReturn.return_number)
+            .join(
+                SalesReturnLine,
+                and_(
+                    SalesReturnLine.source_document_type == "SALES_INVOICE",
+                    SalesReturnLine.source_document_id == SalesInvoice.id,
+                ),
+            )
+            .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+            .where(*returned),
+            # A return off the note the bill billed.
+            billed.add_columns(SalesReturn.return_number)
+            .join(
+                SalesInvoiceLine,
+                and_(
+                    SalesInvoiceLine.sales_invoice_id == SalesInvoice.id,
+                    SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
+                    SalesInvoiceLine.is_deleted.is_(False),
+                ),
+            )
+            .join(
+                SalesReturnLine,
+                and_(
+                    SalesReturnLine.source_document_type == "DELIVERY_NOTE",
+                    SalesReturnLine.source_document_line_id
+                    == SalesInvoiceLine.source_document_line_id,
+                ),
+            )
+            .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+            .where(*returned),
+            # An approved credit note against the bill.
+            billed.add_columns(CreditNote.credit_note_number)
+            .join(CreditNote, CreditNote.sales_invoice_id == SalesInvoice.id)
+            .where(
+                CreditNote.is_deleted.is_(False),
+                CreditNote.status == "APPROVED",
+                CreditNote.credit_note_date >= since,
+            ),
+            # The bill itself cancelled.
+            billed.add_columns(SalesInvoice.invoice_number).where(
+                SalesInvoice.status == "CANCELLED"
+            ),
+        )
+        back: dict[UUID, set[str]] = {}
+        for position, statement in enumerate(statements):
+            for line_id, number in self._session.execute(statement).all():
+                back.setdefault(line_id, set()).add(
+                    f"bill {number} cancelled" if position == 4 else str(number)
+                )
+        return back
 
     def _expiries(
         self, firm_id: UUID, principal_id: UUID, start: date, end: date
@@ -1780,6 +2188,7 @@ class PrincipalClaimService(TransactionalDocumentService):
             new_rate=candidate.new_rate,
             description=candidate.description,
             amount=candidate.amount,
+            adjusts_claim_number=candidate.adjusts_claim_number,
         )
 
     def _audit(self, action: str, row: PrincipalClaim, actor_id: UUID) -> None:

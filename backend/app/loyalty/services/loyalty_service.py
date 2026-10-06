@@ -516,6 +516,15 @@ class LoyaltyService:
         # while it is read -- a redemption racing this would otherwise spend
         # the points being taken back.
         self._hold_customer(earned.customer_id, firm_scope=firm_id)
+        # What has run out of time lapses first, as it does before a
+        # redemption: a take-back comes out of points the customer could
+        # still spend, never out of ones that are gone already (D-PRC-30).
+        self._expire_for(
+            earned.customer_id,
+            firm_scope=firm_id,
+            today=firm_today(self._session, firm_id),
+            actor_id=actor_id,
+        )
         left = next(
             (
                 remaining
@@ -616,6 +625,12 @@ class LoyaltyService:
         that lapsed had its cost reversed by the sweep. The cost is released
         as a lapse is, `Dr Loyalty Payable / Cr Loyalty Expense`.
 
+        **Only what can still be spent.** A batch past its date is lapsed
+        here first, as a redemption lapses it (D-PRC-30), so a return of a
+        bill whose points have run out of time takes nothing back -- the
+        lapse is the record of where they went, and no shortfall is carried
+        against the customer's other points.
+
         Args:
             invoice_id: The bill whose earning is reduced.
             credited: The value, tax included, taken off that bill.
@@ -639,6 +654,12 @@ class LoyaltyService:
         if billed <= ZERO:
             return None
         self._hold_customer(earned.customer_id, firm_scope=firm_id)
+        self._expire_for(
+            earned.customer_id,
+            firm_scope=firm_id,
+            today=firm_today(self._session, firm_id),
+            actor_id=actor_id,
+        )
         left = next(
             (
                 remaining
@@ -960,6 +981,15 @@ class LoyaltyService:
         value per point today; points taken back release what they were
         credited at, oldest batch first, as a redemption does (D-CFG-3).
 
+        **Points are taken back only from what can be spent** (D-PRC-30). The
+        balance it was checked against was the raw sum of the ledger, lapsed
+        points included, and the oldest batch -- the lapsed one -- was what it
+        came out of: a customer with 2.36 live and 70.80 lapsed had 50 taken
+        away and could still spend 2.36. Taking points back now lapses what
+        has run out of time first, in the same transaction and with its cost
+        released, exactly as a redemption does (D-PRC-3), and is refused
+        beyond what is left.
+
         Args:
             firm_scope: The owning firm.
             customer_id: Whose balance.
@@ -971,8 +1001,8 @@ class LoyaltyService:
             The entry written.
 
         Raises:
-            ValidationError: If it is for nothing, or would take the balance
-                below zero.
+            ValidationError: If it is for nothing, or would take away more
+                points than the customer can spend.
 
         """
         customer = self._customer(customer_id, firm_scope=firm_scope)
@@ -982,11 +1012,28 @@ class LoyaltyService:
         # The same hold: an adjustment that takes points away is refused
         # below the balance, and reads it to decide.
         self._hold_customer(customer_id, firm_scope=firm_scope)
+        gone: list[tuple[LoyaltyEntry, Decimal]] = []
+        if change < ZERO:
+            # A refusal below rolls this back with everything else.
+            gone = self._expire_for(
+                customer_id,
+                firm_scope=firm_scope,
+                today=firm_today(self._session, firm_scope),
+                actor_id=actor_id,
+            )
         held = self._points_of(customer_id, firm_scope=firm_scope)
         if held + change < ZERO:
+            lapsed = quantize_money(sum((points for _, points in gone), ZERO))
             raise ValidationError(
-                f"That customer holds {held} points, so {change} would take "
-                "the balance below zero."
+                f"That customer holds {held} points that can be spent, so "
+                f"{change} would take the balance below zero."
+                + (
+                    f" {lapsed} more ran out of time on "
+                    f"{max(batch.expires_on for batch, _ in gone if batch.expires_on)}"
+                    " and are gone already."
+                    if gone
+                    else ""
+                )
             )
         settings = self.settings_for(firm_scope)
         rate = ZERO if settings is None else Decimal(settings.amount_per_point)
