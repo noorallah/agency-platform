@@ -221,6 +221,26 @@ def stock_unit_of(product: Product | None, fallback: UUID | None = None) -> UUID
     return fallback
 
 
+def buying_units_of(
+    product: Product | None, *, unit: UUID | None, stock_unit: UUID | None
+) -> tuple[UUID | None, UUID | None]:
+    """Return the unit a purchase line is counted in, and its stock unit.
+
+    ``unit`` is what the line is bought in -- the unit it names, else the
+    one it defaults to -- and ``stock_unit`` the stock unit it was sent. A
+    line with a buying unit converts to the unit the product's stock is kept
+    in (`stock_unit_of`), whatever stock unit it was sent or none: a purchase
+    order line naming BOX alone read 2 at a factor of 1 while its goods
+    receipt, which read both units off the stored row, put 24 pieces on the
+    shelf. A line with no buying unit at all is in the stock unit and
+    converts nothing.
+    """
+    if unit is None:
+        own = product.inventory_uom_id if product is not None else None
+        return None, stock_unit or own
+    return unit, stock_unit_of(product, stock_unit)
+
+
 class UomService:
     """Coordinate UOM masters, conversions, and product packaging hierarchy."""
 
@@ -848,6 +868,74 @@ class UomService:
             to_uom_id=to_uom_id,
             on_date=on_date,
         ).conversion_factor
+
+    def quantity_between(
+        self,
+        *,
+        product_id: UUID,
+        quantity: Decimal,
+        from_uom_id: UUID,
+        to_uom_id: UUID,
+        on_date: date,
+        firm_scope: UUID,
+    ) -> tuple[Decimal, Decimal]:
+        """Return a quantity in another unit, and the factor it converted at.
+
+        For a line that continues another document's line in a different
+        unit: a bill of 24 PIECE for a receipt of 2 BOX. The rule for the
+        pair converts it where there is one, exactly as `convert_quantity`
+        does. Where there is none the two meet in the unit the product's
+        stock is kept in -- 24 pieces are 24 stock units and a box is 12, so
+        2 BOX -- because the rules a firm writes run from a pack to the stock
+        unit and seldom back again.
+
+        Raises:
+            ValidationError: Neither a rule for the pair nor rules to the
+                stock unit convert it, naming the product and the units.
+
+        """
+        if from_uom_id == to_uom_id:
+            return quantity, Decimal("1")
+        product = self._session.scalar(
+            select(Product).where(
+                Product.id == product_id, Product.firm_id == firm_scope
+            )
+        )
+        stock = stock_unit_of(product)
+        direct = ConversionRequest(
+            product_id=product_id,
+            from_uom_id=from_uom_id,
+            to_uom_id=to_uom_id,
+            quantity=quantity,
+            conversion_date=on_date,
+        )
+        if stock is None:
+            converted = self.convert_quantity(direct, firm_scope=firm_scope)
+            return converted.converted_quantity, converted.conversion_factor
+        try:
+            converted = self.convert_quantity(direct, firm_scope=firm_scope)
+        except ValidationError:
+            into_stock = self.unit_factor(
+                product_id=product_id,
+                from_uom_id=from_uom_id,
+                to_uom_id=stock,
+                on_date=on_date,
+                firm_scope=firm_scope,
+            )
+            out_of_stock = self.unit_factor(
+                product_id=product_id,
+                from_uom_id=to_uom_id,
+                to_uom_id=stock,
+                on_date=on_date,
+                firm_scope=firm_scope,
+            )
+            # Multiplied before it is divided: 24 x 1 / 12 is 2, where 24
+            # times a rounded twelfth is not.
+            return (
+                quantity * into_stock / out_of_stock,
+                into_stock / out_of_stock,
+            )
+        return converted.converted_quantity, converted.conversion_factor
 
     def upsert_profile_default(
         self,

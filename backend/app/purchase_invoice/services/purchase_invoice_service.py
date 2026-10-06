@@ -126,7 +126,6 @@ from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
-from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 from app.vendors.models import Vendor
 
@@ -2496,18 +2495,20 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 and invoice_uom_id is not None
                 and invoice_uom_id != source_uom_id
             ):
-                conversion = self._uom.convert_quantity(
-                    ConversionRequest(
-                        product_id=self._product_id(source_line),
-                        from_uom_id=invoice_uom_id,
-                        to_uom_id=source_uom_id,
-                        quantity=requested_quantity,
-                        conversion_date=invoice_date,
-                    ),
+                # In the source line's unit, which is what the cap below
+                # and every later reader counts in: by the rule for the
+                # pair, else through the product's stock unit, so 24 PIECE
+                # bills a receipt of 2 BOX with only the box-to-piece rule.
+                converted, factor = self._uom.quantity_between(
+                    product_id=self._product_id(source_line),
+                    from_uom_id=_required_uuid(invoice_uom_id),
+                    to_uom_id=source_uom_id,
+                    quantity=requested_quantity,
+                    on_date=invoice_date,
                     firm_scope=firm_id,
                 )
-                invoice_quantity = self._q(conversion.converted_quantity)
-                conversion_factor = self._q(conversion.conversion_factor)
+                invoice_quantity = self._q(converted)
+                conversion_factor = self._q(factor)
             already_invoiced = self._already_invoiced_quantity(
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,

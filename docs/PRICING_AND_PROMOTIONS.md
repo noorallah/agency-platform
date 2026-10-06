@@ -1185,11 +1185,16 @@ a line bought by the box. They, and a supplier price list's fixed rate, are
 now multiplied by the factor the line's quantity is converted at
 (`UomService.unit_factor`); 2 BOX at 60.00 a piece is 720.00 a box. A rate
 contract is per its own unit and the supplier's catalogue price per purchase
-unit, so neither is converted. One thing is left as it was: a purchase line
-converts only when it names **both** its units (`PurchaseService._conversion`
-reads the line, not the product), so a line naming BOX alone is still counted
-and priced at a factor of 1 -- consistently with itself, but not with the
-product. That is the buying twin of D-PRC-26 and is not fixed here.
+unit, so neither is converted. **The factor is the one the quantity converts
+at, whichever way the line names its units** (2026-10-06): a purchase line
+converted only when it named *both* its units, so a line naming BOX alone, or
+relying on the product's buying unit, was counted and priced at a factor of 1.
+`PurchaseService._line_units` now gives the price fill and the quantity the
+same two units -- the unit the line names, else the product's buying unit,
+and the product's stock unit -- so all three shapes are 720.00 a box and 24
+pieces. A bill of products typed with no order is priced the same way through
+the order it raises. `docs/UOM_FRAMEWORK.md` has the rule, and what the goods
+receipt did to the cost of every line bought by the box.
 
 ## What the pricing check of 2026-10-06 tightened (D-PRC-10 to D-PRC-16)
 

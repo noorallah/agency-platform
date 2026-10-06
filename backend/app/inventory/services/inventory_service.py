@@ -2453,12 +2453,20 @@ class InventoryService:
         remarks: str | None = None,
         unit_cost: Decimal | None = None,
         batch_id: UUID | None = None,
+        entered_unit_cost: Decimal | None = None,
     ) -> InventoryTransaction:
         """Post the stock a goods receipt brought in.
 
         ``batch_id`` puts the goods in that batch's row rather than the
         product's single row, which is what makes two deliveries of one
         medicine countable apart.
+
+        ``unit_cost`` is the cost of one **stock** unit. A document that
+        knows only what one of *its* units cost -- a box, on a line received
+        by the box -- passes ``entered_unit_cost`` instead, and it is divided
+        by the factor the quantity moved at, so the movement is worth what
+        the line is: the receipt passed a box's cost as ``unit_cost`` and 24
+        pieces came in at 720.00 each.
         """
         (
             base_quantity,
@@ -2483,6 +2491,12 @@ class InventoryService:
         )
         blocked_base = Decimal(str(blocked_quantity)) * conversion_factor
         damaged_base = Decimal(str(damaged_quantity)) * conversion_factor
+        if entered_unit_cost is not None:
+            unit_cost = (
+                entered_unit_cost / conversion_factor
+                if conversion_factor > ZERO
+                else entered_unit_cost
+            )
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=branch_id,
