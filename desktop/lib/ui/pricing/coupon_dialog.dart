@@ -54,7 +54,10 @@ class _CouponDialogState extends State<CouponDialog> {
 
   late String _promotionId = widget.existing?.promotionId ??
       (widget.promotions.isEmpty ? '' : widget.promotions.first.id);
-  late String _status = widget.existing?.status ?? 'ACTIVE';
+  // The coupon's own setting, never the derived one: the shown status follows
+  // its offer, and sending it back would switch a code off for good the first
+  // time it was saved under a paused offer (D-PRC-16).
+  late String _status = widget.existing?.ownStatus ?? 'ACTIVE';
   bool _saving = false;
   String? _error;
 
@@ -205,7 +208,14 @@ class _CouponDialogState extends State<CouponDialog> {
                 DropdownButtonFormField<String>(
                   isExpanded: true,
                   initialValue: _status,
-                  decoration: const InputDecoration(labelText: 'Status'),
+                  decoration: InputDecoration(
+                    labelText: 'Status',
+                    helperText: widget.existing?.statusNote.isEmpty ?? true
+                        ? null
+                        : '${widget.existing!.statusNote}. This is the '
+                            'code\'s own setting.',
+                    helperMaxLines: 2,
+                  ),
                   items: const [
                     DropdownMenuItem(value: 'DRAFT', child: Text('Draft')),
                     DropdownMenuItem(value: 'ACTIVE', child: Text('Active')),

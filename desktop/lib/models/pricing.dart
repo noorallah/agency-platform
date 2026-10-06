@@ -715,20 +715,44 @@ class PromotionCouponRecord {
     this.version = 0,
     this.description = '',
     this.status = 'ACTIVE',
+    String? ownStatus,
+    this.offerStatus = 'ACTIVE',
     this.maxRedemptions,
     this.maxRedemptionsPerCustomer,
     this.effectiveFrom = '',
     this.effectiveTo = '',
     this.redemptionCount = 0,
-  });
+  }) : ownStatus = ownStatus ?? status;
 
   final String id;
   final String promotionId;
   final String promotionCode;
   final String code;
   final String description;
+
+  /// What the code reads as, which follows its offer: derived by the server,
+  /// so a code left ACTIVE under a paused offer reads INACTIVE. Show it; never
+  /// send it back.
   final String status;
+
+  /// What the code itself is set to, and the only status an editor may send:
+  /// sending [status] back would switch the code off for good the first time
+  /// somebody saved it under a paused offer. An older response without it
+  /// reads as [status].
+  final String ownStatus;
+
+  /// The status of the offer's current revision.
+  final String offerStatus;
   final int version;
+
+  /// Why the code reads differently from how it is set, or empty when it
+  /// does not.
+  String get statusNote {
+    if (status == ownStatus) return '';
+    return offerStatus == 'DRAFT'
+        ? 'Off because its offer is still a draft'
+        : 'Off because its offer is paused';
+  }
 
   /// Null is no limit, which is a different answer from zero.
   final int? maxRedemptions;
@@ -752,6 +776,12 @@ class PromotionCouponRecord {
         code: stringValue(json['code']),
         description: stringValue(json['description']),
         status: stringValue(json['status']),
+        ownStatus: json['own_status'] == null
+            ? null
+            : stringValue(json['own_status']),
+        offerStatus: json['offer_status'] == null
+            ? 'ACTIVE'
+            : stringValue(json['offer_status']),
         version: (json['version'] as num?)?.toInt() ?? 0,
         maxRedemptions: (json['max_redemptions'] as num?)?.toInt(),
         maxRedemptionsPerCustomer:
@@ -765,7 +795,7 @@ class PromotionCouponRecord {
         'promotion_id': promotionId,
         'code': code,
         if (description.isNotEmpty) 'description': description,
-        'status': status,
+        'status': ownStatus,
         'max_redemptions': maxRedemptions,
         'max_redemptions_per_customer': maxRedemptionsPerCustomer,
         if (effectiveFrom.isNotEmpty) 'effective_from': effectiveFrom,

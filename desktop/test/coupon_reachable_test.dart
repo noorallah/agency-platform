@@ -30,7 +30,7 @@ PermissionService _permissions(List<String> codes) => PermissionService()
   }));
 
 class _Api extends ApiClient {
-  _Api({this.offers = const <Json>[]})
+  _Api({this.offers = const <Json>[], this.coupons = const <Json>[]})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -39,6 +39,7 @@ class _Api extends ApiClient {
         );
 
   final List<Json> offers;
+  final List<Json> coupons;
 
   Json? sentBody;
   final List<String> posted = <String>[];
@@ -60,8 +61,8 @@ class _Api extends ApiClient {
     }
     if (path.contains('promotions/coupons')) {
       return <String, dynamic>{
-        'data': const <Json>[],
-        'pagination': <String, dynamic>{'total_records': 0},
+        'data': coupons,
+        'pagination': <String, dynamic>{'total_records': coupons.length},
       };
     }
     return <String, dynamic>{
@@ -91,8 +92,12 @@ Json _coupon({
   int? maxRedemptions,
   int? perCustomer,
   String status = 'ACTIVE',
+  String? ownStatus,
+  String? offerStatus,
 }) =>
     <String, dynamic>{
+      if (ownStatus != null) 'own_status': ownStatus,
+      if (offerStatus != null) 'offer_status': offerStatus,
       'id': id,
       'promotion_id': 'p-1',
       'promotion_code': 'WELCOME',
@@ -222,6 +227,84 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.posted.single, startsWith('PUT'));
+  });
+
+  testWidgets(
+      'a code under a paused offer is saved with its own status, not the one '
+      'it reads as (D-PRC-16)', (tester) async {
+    final _Api api = _Api();
+    await _openDialog(
+      tester,
+      api,
+      existing: PromotionCouponRecord.fromJson(_coupon(
+        id: 'c-1',
+        code: 'SAVE10',
+        status: 'INACTIVE',
+        ownStatus: 'ACTIVE',
+        offerStatus: 'INACTIVE',
+      )),
+    );
+
+    // The box is filled from what the code is set to, and says why the list
+    // reads it differently.
+    expect(find.text('Active'), findsOneWidget);
+    expect(find.textContaining('Off because its offer is paused'),
+        findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    // Sending `INACTIVE` back would switch the code off for good.
+    expect(api.sentBody?['status'], 'ACTIVE');
+  });
+
+  testWidgets('a response without own_status falls back to status',
+      (tester) async {
+    final _Api api = _Api();
+    await _openDialog(
+      tester,
+      api,
+      existing: PromotionCouponRecord.fromJson(
+          _coupon(id: 'c-1', code: 'SAVE10', status: 'DRAFT')),
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+    expect(api.sentBody?['status'], 'DRAFT');
+  });
+
+  testWidgets('the list shows the derived status and says why it differs',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PromotionPage(
+          api: _Api(
+            offers: <Json>[_promotion('p-1', 'WELCOME', 'Welcome')],
+            coupons: <Json>[
+              _coupon(
+                id: 'c-1',
+                code: 'SAVE10',
+                status: 'INACTIVE',
+                ownStatus: 'ACTIVE',
+                offerStatus: 'INACTIVE',
+              ),
+            ],
+          ),
+          permissions:
+              _permissions(const ['PROMOTION_VIEW', 'PROMOTION_MANAGE']),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Coupons'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Off because its offer is paused'),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('reading offers is not authority to mint a code', (tester) async {
