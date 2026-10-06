@@ -1,4 +1,5 @@
 import 'api_client.dart';
+import 'api_refusal.dart';
 
 /// What to put on screen when a save loses a race.
 ///
@@ -41,7 +42,7 @@ String saveFailureMessage(
 }) =>
     exception.isConflict
         ? concurrencyMessage(noun, changesKept: changesKept)
-        : exception.message;
+        : refusalMessage(exception);
 
 /// The version to send as a precondition, or null when there is none to send.
 ///
