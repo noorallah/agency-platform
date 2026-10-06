@@ -27,6 +27,7 @@ import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/pricing/promotion_dialog.dart';
 import 'package:agency_desktop/ui/pricing/promotion_page.dart';
 import 'package:agency_desktop/phase2/phase2_scope.dart';
+import 'package:agency_desktop/ui/reports/report_catalog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -992,5 +993,146 @@ void main() {
           valueText: 'SALES_QUOTATION')),
       'Document type is Quotation',
     );
+  });
+
+  group('the scheme budgets', () {
+    const PromotionRecord budgeted = PromotionRecord(
+      id: 'promo-1',
+      code: 'BUD',
+      name: 'Budgeted offer',
+      version: 2,
+      status: 'ACTIVE',
+      maxBenefitAmount: '5000.0000',
+      benefitAmountClaimed: '1200.0000',
+      remainingBenefitAmount: '3800.0000',
+      maxFreeQuantity: '300.0000',
+      freeQuantityClaimed: '40.0000',
+      remainingFreeQuantity: '260.0000',
+      actions: <PromotionActionRecord>[
+        PromotionActionRecord(
+            actionType: 'LINE_DISCOUNT_PERCENT', percent: '10'),
+      ],
+    );
+
+    testWidgets('both boxes are sent when filled', (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api, existing: _promotion());
+      expect(find.text('Budget (value)'), findsOneWidget);
+      expect(find.text('Budget (free units)'), findsOneWidget);
+      await tester.enterText(
+          find.byKey(const ValueKey('promotion-max-benefit')), '5000');
+      await tester.enterText(
+          find.byKey(const ValueKey('promotion-max-free-units')), '300');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.savedBody?['max_benefit_amount'], '5000');
+      expect(api.savedBody?['max_free_quantity'], '300');
+    });
+
+    testWidgets('a saved offer shows what is used and left, untouched sends '
+        'its figure', (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api, existing: budgeted);
+      expect(find.text('Used 1200, left 3800'), findsOneWidget);
+      expect(find.text('Used 40, left 260'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.savedBody?['max_benefit_amount'], '5000');
+      expect(api.savedBody?['max_free_quantity'], '300');
+    });
+
+    testWidgets('a budget that was set and is emptied is sent as null',
+        (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api, existing: budgeted);
+      await tester.enterText(
+          find.byKey(const ValueKey('promotion-max-benefit')), '');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.savedBody!.containsKey('max_benefit_amount'), isTrue);
+      expect(api.savedBody!['max_benefit_amount'], isNull);
+      expect(api.savedBody?['max_free_quantity'], '300');
+    });
+
+    testWidgets('an offer with no budget on file sends nothing when blank',
+        (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api, existing: _promotion());
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.savedBody!.containsKey('max_benefit_amount'), isFalse);
+      expect(api.savedBody!.containsKey('max_free_quantity'), isFalse);
+    });
+
+    testWidgets('a budget of zero is refused before it is sent',
+        (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api, existing: _promotion());
+      await tester.enterText(
+          find.byKey(const ValueKey('promotion-max-free-units')), '0');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.savedBody, isNull);
+      expect(find.text('A number above 0, or blank'), findsOneWidget);
+    });
+
+    testWidgets('the editor fits 1366x768 without overflow', (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api, existing: budgeted);
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the offer window reads what is used and left',
+        (tester) async {
+      await _pumpPage(
+        tester,
+        _PromotionApi(rows: <PromotionRecord>[budgeted]),
+        phase2: true,
+      );
+      await tester.tap(find.text('BUD').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('selection-view')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('promotion-budget-value')),
+          findsOneWidget);
+      expect(find.textContaining('1200.0000 used, 3800.0000 left'),
+          findsOneWidget);
+      expect(find.textContaining('40.0000 used, 260.0000 left'),
+          findsOneWidget);
+    });
+
+    test('the performance and claims reports name the free units and budgets',
+        () {
+      final Set<String> performance = reportCatalog
+          .firstWhere((report) => report.id == 'promotion-performance')
+          .columns
+          .map((column) => column.key)
+          .toSet();
+      expect(
+        performance,
+        containsAll(<String>[
+          'free_quantity',
+          'max_benefit_amount',
+          'remaining_benefit_amount',
+          'max_free_quantity',
+          'remaining_free_quantity',
+        ]),
+      );
+      final Set<String> claims = reportCatalog
+          .firstWhere((report) => report.id == 'promotion-redemptions')
+          .columns
+          .map((column) => column.key)
+          .toSet();
+      expect(claims, contains('free_quantity'));
+    });
   });
 }

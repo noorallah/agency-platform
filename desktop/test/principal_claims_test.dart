@@ -175,11 +175,13 @@ class _Api extends ApiClient {
           'period_from': body!['period_from'],
           'period_to': body['period_to'],
           'scheme_amount': '2000.00',
+          'free_goods_amount': '500.00',
           'expiry_amount': '1000.00',
           'breakage_amount': '0.00',
-          'total_amount': '3000.00',
+          'total_amount': '3500.00',
           'lines': [
             _line('SCHEME', 'INV-0042', '2000.00'),
+            _line('FREE_GOODS', 'DN-0009', '500.00'),
             _line('EXPIRY', 'BATCH-77', '1000.00'),
           ],
         },
@@ -250,6 +252,32 @@ Future<void> _pickDay(WidgetTester tester, String key, String day) async {
 }
 
 void main() {
+  testWidgets('a claim shows its free goods as a total and a group of lines',
+      (tester) async {
+    final Json claim = <String, dynamic>{
+      ..._claim(),
+      'free_goods_amount': '500.00',
+      'total_amount': '3500.00',
+      'lines': [
+        _line('SCHEME', 'INV-0042', '2000.00'),
+        _line('FREE_GOODS', 'DN-0009', '500.00'),
+        _line('EXPIRY', 'BATCH-77', '1000.00'),
+      ],
+    };
+    await _pump(tester, _Api(claims: [claim]));
+    await _select(tester, 'PC-c-1');
+
+    final Finder pane = find.byKey(const ValueKey('claim-details'));
+    expect(
+      find.descendant(of: pane, matching: find.text('Free goods')),
+      findsNWidgets(2),
+      reason: 'the total row and the group heading',
+    );
+    expect(find.textContaining('DN-0009 · Glucose 500g · × 10'),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the grid and the details pane read a claim', (tester) async {
     await _pump(tester, _Api(claims: [_claim()]));
     expect(find.text('PC-c-1'), findsOneWidget);
@@ -295,6 +323,12 @@ void main() {
     expect(api.previewBody, isNotNull);
     expect(find.byKey(const ValueKey('claim-preview-result')), findsOneWidget);
     expect(find.textContaining('INV-0042'), findsOneWidget);
+    // Free goods are their own total and their own group of lines: the
+    // delivery note, the product, the quantity and the value at cost.
+    expect(find.text('Free goods'), findsWidgets);
+    expect(find.text('500.00'), findsWidgets);
+    expect(find.textContaining('DN-0009 · Glucose 500g · × 10'),
+        findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('claim-raise')));
     await tester.pumpAndSettle();
@@ -308,7 +342,8 @@ void main() {
       'kinds',
     });
     expect(body['principal_id'], 'pr-1');
-    expect(body['kinds'], ['SCHEME', 'EXPIRY']);
+    // Free goods is offered with the rest and claimed by default.
+    expect(body['kinds'], ['SCHEME', 'FREE_GOODS', 'EXPIRY']);
     expect(api.previewBody!.keys.toSet(), body.keys.toSet());
   });
 
