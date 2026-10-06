@@ -714,8 +714,27 @@ offer's 2 free pieces came back off the note the bill read and printed "0 +
 (`free_returned_off_notes` in `app/sales_return/billing.py`) now comes off
 what the bill inherits, off the cap on a figure typed on the bill, and off
 the list of what a note has left to bill; a gift line whose goods all came
-back is no longer offered. A draft bill saved before the return keeps the
-figure it was saved with until it is saved again. Unlike a purchase return, **a line off the bill may bring free goods
+back is no longer offered.
+
+**The bills of a note state its free goods once between them, and a draft is
+asked again at approval** (D-PRC-69, 2026-10-06). Two part bills of one note
+each restated its whole free line -- "0 + 2 free" on both, 4 stated for 2
+given -- because only the charged share was read off the other bills. What
+other live bills of the line already state now comes off as well: a line
+that charges and gives free goods together is pro-rated as before, the last
+part taking the rest (D-PRC-4); **a gift line is stated whole on the first
+bill that names it** -- it is owed until an invoice line references it, and
+is offered once -- and a later bill that sends it again is refused by name
+("... are already stated on another bill (2 PIECE free) ... Leave the line
+off the bill."). A figure typed past what is left is refused with the
+figures. And a draft saved before free goods came back off its note is no
+longer approved as saved: approval asks the free figure again, as it asks
+the charged quantity (D-SELL-55), against what the note line gave free, less
+what came back off the note, less what bills that charged the customer
+already state -- "SI-… line 2: 1 PIECE of the 2 PIECE sent free came back
+before being billed, so 1 PIECE is left to state free where the bill states
+2 PIECE. Change the bill to what the customer kept." A bill already approved
+is not restated. Unlike a purchase return, **a line off the bill may bring free goods
 back as well as one off the note**: a counter firm never sees its notes, and
 the bill line carries the free quantity it inherited.
 

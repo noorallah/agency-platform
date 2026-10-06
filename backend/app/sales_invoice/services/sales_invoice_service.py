@@ -4244,6 +4244,21 @@ class SalesInvoiceService(TransactionalDocumentService):
                 # source line says whether a line of nothing charged is a gift
                 # (D-SELL-53: a bill of quantity 0 was stored, and could never
                 # be approved).
+                stated_free = self._already_invoiced_free(
+                    firm_id=firm_id, source_document_line_id=source_line.id
+                )
+                if spec.get("free_quantity") is None and stated_free > ZERO:
+                    # A gift line another bill has already stated (D-PRC-69).
+                    unit = unit_named(self._session, source_uom_id)
+                    raise ValidationError(
+                        f"Line {index}: the free goods of "
+                        f"{self._source_document_number(spec, source_line)} line "
+                        f"{self._source_line_number(source_line)} are already "
+                        f"stated on another bill "
+                        f"({plain_quantity(stated_free)}{unit} free), so nothing "
+                        "is left for this line to state. Leave the line off "
+                        "the bill."
+                    )
                 raise ValidationError(
                     f"Line {index} bills a quantity of 0 and supplies nothing "
                     "free. Type a quantity, or leave the line off the bill."
@@ -5613,6 +5628,89 @@ class SalesInvoiceService(TransactionalDocumentService):
                     f"{plain_quantity(position.left_to_bill)}{unit} is left "
                     "to bill. Change the bill to what the customer kept."
                 )
+        self._refuse_stating_free_goods_not_held(row, lines)
+
+    def _refuse_stating_free_goods_not_held(
+        self, row: SalesInvoice, lines: Sequence[SalesInvoiceLine]
+    ) -> None:
+        """Refuse to approve a bill stating free goods the customer no longer holds.
+
+        The free figure is asked again at approval the way the charged
+        quantity is (D-PRC-69): a draft saved before free goods came back off
+        its note was approved still stating them, "0 + 2 free" where one was
+        held. What may be stated is what the note line gave free, less what
+        completed returns brought back off the note, less what other bills
+        that charged the customer already state.
+        """
+        from app.sales_return.billing import free_returned_off_notes
+
+        free_lines = [line for line in lines if self._q(line.free_quantity) > ZERO]
+        if not free_lines:
+            return
+        note_line_ids = {line.source_document_line_id for line in free_lines}
+        given = {
+            line_id: self._q(quantity or ZERO)
+            for line_id, quantity in self._session.execute(
+                select(DeliveryNoteLine.id, DeliveryNoteLine.free_quantity).where(
+                    DeliveryNoteLine.id.in_(note_line_ids)
+                )
+            ).all()
+        }
+        back = free_returned_off_notes(self._session, note_line_ids)
+        stated = {
+            line_id: self._q(quantity or ZERO)
+            for line_id, quantity in self._session.execute(
+                select(
+                    SalesInvoiceLine.source_document_line_id,
+                    func.coalesce(func.sum(SalesInvoiceLine.free_quantity), ZERO),
+                )
+                .join(
+                    SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id
+                )
+                .where(
+                    SalesInvoice.firm_id == row.firm_id,
+                    SalesInvoice.id != row.id,
+                    SalesInvoice.is_deleted.is_(False),
+                    SalesInvoice.status.in_(
+                        (
+                            SalesInvoiceStatus.APPROVED.value,
+                            SalesInvoiceStatus.CLOSED.value,
+                        )
+                    ),
+                    SalesInvoiceLine.is_deleted.is_(False),
+                    SalesInvoiceLine.source_document_type
+                    == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+                    SalesInvoiceLine.source_document_line_id.in_(note_line_ids),
+                )
+                .group_by(SalesInvoiceLine.source_document_line_id)
+            ).all()
+        }
+        for line in free_lines:
+            source_id = line.source_document_line_id
+            if source_id not in given:
+                continue
+            sent = given[source_id]
+            came_back = self._q(back.get(source_id, ZERO))
+            elsewhere = stated.get(source_id, ZERO)
+            left = max(self._q(sent - came_back - elsewhere), ZERO)
+            if self._q(line.free_quantity) <= left:
+                continue
+            unit = unit_named(self._session, line.order_uom_id)
+            reason = (
+                f"{plain_quantity(came_back)}{unit} of the "
+                f"{plain_quantity(sent)}{unit} sent free came back before "
+                "being billed"
+                if came_back > ZERO
+                else f"{plain_quantity(elsewhere)}{unit} of the "
+                f"{plain_quantity(sent)}{unit} sent free are already stated "
+                "on another bill"
+            )
+            raise ValidationError(
+                f"{row.invoice_number} line {line.line_number}: {reason}, so "
+                f"{plain_quantity(left)}{unit} is left to state free where "
+                f"the bill states {plain_quantity(line.free_quantity)}{unit}. "
+                "Change the bill to what the customer kept."
+            )
 
     def _already_invoiced_quantity(
         self, *, firm_id: UUID, source_document_line_id: UUID
@@ -5776,6 +5874,13 @@ class SalesInvoiceService(TransactionalDocumentService):
             self._q(offered - self._free_returned_off_the_note(source_line.id)),
             ZERO,
         )
+        # And less what other live bills of the line already state: two part
+        # bills of one note each restated its whole free line, "0 + 2 free"
+        # on both for 2 given (D-PRC-69).
+        stated = self._already_invoiced_free(
+            firm_id=firm_id, source_document_line_id=source_line.id
+        )
+        left = max(self._q(offered - stated), ZERO)
         asked = spec.get("free_quantity")
         if asked is None:
             if offered <= ZERO:
@@ -5784,23 +5889,33 @@ class SalesInvoiceService(TransactionalDocumentService):
                 # The source line charged for nothing, so there is no share to
                 # pro-rate by: what it supplied free is the whole of what it
                 # supplied. Returning zero here dropped the gift off the bill
-                # entirely while the goods had already been dispatched.
-                return offered
+                # entirely while the goods had already been dispatched. It is
+                # stated once, on the first bill that names the line; a later
+                # bill has nothing of it left to state.
+                return left
             return self._q(
                 continued_free_goods(
                     offered,
                     before=already_invoiced,
                     part=invoice_quantity,
                     whole=source_quantity,
-                    already=self._already_invoiced_free(
-                        firm_id=firm_id, source_document_line_id=source_line.id
-                    ),
+                    already=stated,
                 )
             )
         claimed = self._q(Decimal(str(asked)))
         if claimed > offered:
             raise ValidationError(
                 "Free quantity exceeds what the source document supplied free."
+            )
+        if claimed > left:
+            unit = unit_named(self._session, self._source_uom_id(source_line))
+            raise ValidationError(
+                "Free quantity exceeds what the source document supplied free: "
+                f"{self._source_document_number(spec, source_line)} line "
+                f"{self._source_line_number(source_line)} gave "
+                f"{plain_quantity(offered)}{unit} free and other bills already "
+                f"state {plain_quantity(stated)}{unit}, so "
+                f"{plain_quantity(left)}{unit} is left to state."
             )
         return claimed
 

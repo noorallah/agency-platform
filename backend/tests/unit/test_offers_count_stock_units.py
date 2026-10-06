@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import select
 
+from app.core.exceptions import ValidationError
 from app.core.utils.pricing import resolve_supplier_free_goods
 from app.delivery_note.models import DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate
@@ -42,7 +43,7 @@ from app.purchase.services import PurchaseService
 from app.quotation.models import SalesQuotation, SalesQuotationLine
 from app.quotation.schemas import QuotationCreate, QuotationUpdate
 from app.quotation.services.quotation_service import QuotationService
-from app.sales_invoice.models import SalesInvoiceLine
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.schemas import SalesInvoiceCreate
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -1325,6 +1326,191 @@ def test_a_bill_states_the_free_goods_the_customer_still_holds() -> None:
         2: (D("0.0000"), D("1.0000")),
     }
     assert bill.total_free_quantity == D("1.0000")
+
+
+# ---- part bills and a waiting draft state the free goods once (D-PRC-69) ----
+#
+# The sixth pricing check (2026-10-06): a note of 2 BOX with 2 PIECE free,
+# billed in two parts that each sent the free line, read "0 + 2 free" on both
+# bills -- 4 stated for 2 given. And a draft bill saved before one free piece
+# came back off the note was approved still stating both.
+
+
+def _note_with_a_free_line(shop: _Offers) -> tuple[UUID, dict[int, UUID]]:
+    """Dispatch 2 BOX and the 2 PIECE the offer gives with them, as two lines."""
+    order = shop.order(sales_uom_id=shop.box)
+    shop.approve(order)
+    boxes, free = shop.lines(order)
+    notes = DeliveryNoteService(shop.session)
+    note = notes.create_note(
+        DeliveryNoteCreate.model_validate(
+            {
+                "sales_order_id": order.id,
+                "delivery_date": DAY,
+                "lines": [
+                    {
+                        "sales_order_line_id": boxes.id,
+                        "line_number": 1,
+                        "current_delivery_quantity": "2",
+                    },
+                    {
+                        "sales_order_line_id": free.id,
+                        "line_number": 2,
+                        "current_delivery_quantity": "0",
+                    },
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    notes.approve_note(note.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    notes.dispatch_note(note.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    shop.session.expire_all()
+    sent = {
+        row.line_number: row.id
+        for row in shop.session.scalars(
+            select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+        )
+    }
+    return note.id, sent
+
+
+def _bill_of(
+    shop: _Offers,
+    note_id: UUID,
+    sent: dict[int, UUID],
+    lines: dict[int, str],
+    *,
+    free: str | None = None,
+) -> SalesInvoice:
+    """Raise a draft bill of some of the note's lines, by line number."""
+    return SalesInvoiceService(shop.session).create_invoice(
+        SalesInvoiceCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "invoice_date": DAY,
+                "lines": [
+                    {
+                        "source_document_type": "DELIVERY_NOTE",
+                        "source_document_id": note_id,
+                        "source_document_line_id": sent[number],
+                        "line_number": position,
+                        "current_invoice_quantity": quantity,
+                        **(
+                            {}
+                            if free is None or number != 2
+                            else {"free_quantity": free}
+                        ),
+                    }
+                    for position, (number, quantity) in enumerate(lines.items(), 1)
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+
+def _free_stated(shop: _Offers, bill: SalesInvoice) -> Decimal:
+    """Return the free goods one bill states, over all its lines."""
+    shop.session.expire_all()
+    return sum(
+        (
+            row.free_quantity
+            for row in shop.session.scalars(
+                select(SalesInvoiceLine).where(
+                    SalesInvoiceLine.sales_invoice_id == bill.id
+                )
+            )
+        ),
+        D("0"),
+    )
+
+
+def _free_piece_back(shop: _Offers, note_id: UUID, sent: dict[int, UUID]) -> None:
+    """Bring one of the free pieces back off the note, and complete it."""
+    returns = SalesReturnService(shop.session)
+    back = returns.create_return(
+        SalesReturnCreate(
+            warehouse_id=shop.setup.warehouse.id,
+            return_date=DAY,
+            lines=[
+                SalesReturnLineWrite(
+                    source_document_type=SalesReturnSourceType.DELIVERY_NOTE,
+                    source_document_id=note_id,
+                    source_document_line_id=sent[2],
+                    line_number=1,
+                    current_return_quantity=D("1"),
+                    free_quantity=D("1"),
+                )
+            ],
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    returns.approve_return(back.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    returns.complete_return(back.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+
+
+def test_a_second_part_bill_does_not_state_the_free_line_again() -> None:
+    """Two bills of 1 BOX each: the free pieces are stated once, 2 for 2 given."""
+    shop = _Offers(TEN_PLUS_ONE)
+    note_id, sent = _note_with_a_free_line(shop)
+    first = _bill_of(shop, note_id, sent, {1: "1", 2: "0"})
+    assert _free_stated(shop, first) == D("2.0000")
+
+    with pytest.raises(ValidationError, match="already stated on another bill"):
+        _bill_of(shop, note_id, sent, {1: "1", 2: "0"})
+    shop.session.rollback()
+    second = _bill_of(shop, note_id, sent, {1: "1"})
+
+    assert _free_stated(shop, first) + _free_stated(shop, second) == D("2.0000")
+
+
+def test_free_goods_typed_on_a_second_bill_are_refused_past_what_is_left() -> None:
+    """The first bill states one of the two; a second may state the other."""
+    shop = _Offers(TEN_PLUS_ONE)
+    note_id, sent = _note_with_a_free_line(shop)
+    _bill_of(shop, note_id, sent, {1: "1", 2: "0"}, free="1")
+
+    with pytest.raises(ValidationError, match="other bills already state 1"):
+        _bill_of(shop, note_id, sent, {1: "1", 2: "0"}, free="2")
+    shop.session.rollback()
+    second = _bill_of(shop, note_id, sent, {1: "1", 2: "0"})
+
+    assert _free_stated(shop, second) == D("1.0000")
+
+
+def test_a_draft_bill_is_asked_its_free_goods_again_at_approval() -> None:
+    """Saved stating 2 free, one came back off the note, then approved."""
+    shop = _Offers(TEN_PLUS_ONE)
+    note_id, sent = _note_with_a_free_line(shop)
+    draft = _bill_of(shop, note_id, sent, {1: "2", 2: "0"})
+    assert _free_stated(shop, draft) == D("2.0000")
+    _free_piece_back(shop, note_id, sent)
+    invoices = SalesInvoiceService(shop.session)
+
+    with pytest.raises(ValidationError) as refusal:
+        invoices.approve_invoice(draft.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+
+    message = str(refusal.value)
+    assert f"{draft.invoice_number} line 2" in message
+    assert "sent free came back before being billed" in message
+    assert "is left to state free where the bill states 2" in message
+
+
+def test_a_bill_whose_free_goods_are_all_still_held_approves() -> None:
+    """Nothing came back and nobody else stated them: approval is unchanged."""
+    shop = _Offers(TEN_PLUS_ONE)
+    note_id, sent = _note_with_a_free_line(shop)
+    draft = _bill_of(shop, note_id, sent, {1: "2", 2: "0"})
+
+    approved = SalesInvoiceService(shop.session).approve_invoice(
+        draft.id, firm_scope=shop.firm_id, actor_id=shop.actor
+    )
+
+    assert approved.status == "APPROVED"
 
 
 # ---- supplier schemes ------------------------------------------------------
