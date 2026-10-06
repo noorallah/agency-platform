@@ -25,10 +25,12 @@ from app.loyalty.schemas import (
     LoyaltyExpiringRecord,
     LoyaltyMovementRecord,
     LoyaltyRedeem,
+    LoyaltyRedemptionReverse,
     LoyaltySettingsResponse,
     LoyaltySettingsWrite,
 )
 from app.loyalty.services import LoyaltyService
+from app.loyalty.services.redemption_reversal import RedemptionReversalService
 
 router = APIRouter(
     prefix="/api/v1/loyalty",
@@ -125,6 +127,35 @@ def redeem(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=service.describe([row])[0], message="Points redeemed.")
+
+
+@router.post(
+    "/redemptions/{entry_id}/reverse",
+    response_model=ApiResponse[LoyaltyEntryResponse],
+)
+def reverse_redemption(
+    entry_id: UUID,
+    payload: LoyaltyRedemptionReverse,
+    scope: LoyaltyManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[LoyaltyEntryResponse]:
+    """Put back the points one redemption spent, on a bill that stays.
+
+    For points keyed against the wrong bill. Takes `LOYALTY_MANAGE`, the
+    code the redemption itself takes: whoever may spend a customer's credit
+    on a bill may say it went on the wrong one, and no money moves either
+    way. Cancelling a bill needs no call here -- it puts back the points
+    spent on it by itself (D-PRC-6).
+    """
+    row = RedemptionReversalService(db).reverse(
+        entry_id,
+        firm_scope=scope.firm_id,
+        reason=payload.reason,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=LoyaltyService(db).describe([row])[0], message="Points put back."
+    )
 
 
 @router.post("/adjust", response_model=ApiResponse[LoyaltyEntryResponse])
