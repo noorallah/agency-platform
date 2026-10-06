@@ -19,8 +19,10 @@ The list itself needs no limit: a firm that must e-invoice wants to see every
 B2B document that has no IRN, whether or not the 30-day limit applies to it.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import and_, func, select
@@ -133,7 +135,8 @@ def pending(
     """
     from app.credit_note.models import CreditNote
     from app.customer_debit_note.models import CustomerDebitNote
-    from app.sales_return.models import SalesReturn, SalesReturnLine
+    from app.sales_return.billing import returns_crediting_bills
+    from app.sales_return.models import SalesReturn
     from app.tax.services.gst_compliance import GstComplianceService
 
     since = (
@@ -176,7 +179,9 @@ def pending(
             EInvoiceRegistration.customer_debit_note_id,
             CustomerDebitNote.status == "APPROVED",
         ),
-        # A completed return of billed goods is a credit note (D-TAX-2).
+        # A completed return of billed goods is a credit note (D-TAX-2). Which
+        # of them credit a bill is asked below, of the one function the
+        # print and the registration ask (D-PRC-89).
         (
             "SALES_RETURN",
             SalesReturn,
@@ -184,20 +189,12 @@ def pending(
             SalesReturn.return_date,
             SalesReturn.grand_total,
             EInvoiceRegistration.sales_return_id,
-            and_(
-                SalesReturn.status.in_(("COMPLETED", "CLOSED")),
-                SalesReturn.id.in_(
-                    select(SalesReturnLine.sales_return_id).where(
-                        SalesReturnLine.source_document_type == "SALES_INVOICE",
-                        SalesReturnLine.is_deleted.is_(False),
-                    )
-                ),
-            ),
+            SalesReturn.status.in_(("COMPLETED", "CLOSED")),
         ),
     )
     found: list[PendingDocument] = []
     for kind, model, number, on, amount, link, issued in kinds:
-        rows = session.execute(
+        rows: Sequence[Any] = session.execute(
             select(
                 model.id,
                 number,
@@ -222,6 +219,12 @@ def pending(
                 ),
             )
         ).all()
+        if kind == "SALES_RETURN":
+            # By either route: on a bill's own line, or off a delivery note
+            # and set against the bill that charged it. A return of goods no
+            # bill had charged credits no tax invoice and is not listed.
+            crediting = returns_crediting_bills(session, [row[0] for row in rows])
+            rows = [row for row in rows if row[0] in crediting]
         attempts = {
             getattr(row, link.key): row
             for row in session.scalars(

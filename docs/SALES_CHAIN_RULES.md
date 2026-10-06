@@ -418,6 +418,24 @@ for goods never billed -- and left the note billable in full.
   parts add up to the row and no total moves. The GST sales register's
   "against invoice" lists the same bills. A note whose bills do not account
   for all of it lists numbers and dates with no figures.
+- **Whether a return is a credit note against a tax invoice is one
+  question, and the route it was raised by does not answer it** (D-PRC-89,
+  2026-10-06). The e-invoice readers asked "does the return have a line
+  raised on a bill", so a completed return raised off a delivery note and
+  set against the bill that charged it printed as a valid credit note with
+  no IRN on a firm that must e-invoice, was missing from the documents
+  waiting to be registered, and was refused registration as crediting "no
+  tax invoice" -- while its own print and GSTR-1 named the invoice. The
+  print's IRN gate, `GET /einvoice/pending` and the registration (sandbox
+  and the offline export alike) now ask `returns_crediting_bills` in
+  `app/sales_return/billing.py`, which reads `bills_credited`. The portal
+  payload names every bill the return was set against, earliest first, in
+  `RefDtls.PrecDocDtls`, as a return raised on several bills' own lines
+  always did; it carries one item per return line, for the billed part of
+  it only, with the tax split into the heads of the earliest bill line it
+  credits. A return off a note no bill had charged credits nothing and
+  stays outside e-invoicing; one that has not completed has been set
+  against no bill yet and is refused as not completed.
 - **A refusal counts in the unit the line was typed in** (D-PRC-86,
   2026-10-06). The refusal for a bill line whose units are partly back
   answered thirteen pieces as "1.0833 BOX" and five left as "0.4167 BOX is
