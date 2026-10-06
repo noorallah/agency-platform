@@ -2389,9 +2389,10 @@ class GstReturnService:
     ) -> dict[UUID, tuple[UUID, UUID]]:
         """Return, per delivery note line, the bill and bill line that charged it.
 
-        The earliest bill that stands, where a line was billed in parts -- the
-        one a return's tax is reversed from (``_charged_line`` in the sales
-        return service).
+        The earliest bill that stands, where a line was billed in parts. A
+        return off such a note takes its units, and reverses tax, from every
+        bill that charged them (``BillLedger``, D-PRC-65); a credit row names
+        one original invoice, and this is the one it names.
         """
         if not note_line_ids:
             return {}

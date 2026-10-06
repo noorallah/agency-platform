@@ -197,7 +197,7 @@ rate-difference credit note of 472.00 and was then returned in full for
 
 - **A return credits what the bill line is still worth.** What the line
   charged for its goods, less the credit notes approved against it and what
-  earlier returns took, spread over the units still out (`still_worth`): 2
+  earlier returns took, spread over the units still out (`BillLedger`): 2
   boxes charged 2,400.00 and credited 400.00 come back at 1,000.00 each, and
   with one already back at 1,200.00 before a note of 600.00 the other is
   worth 600.00. The line is priced as before and only capped at that figure.
@@ -207,7 +207,7 @@ rate-difference credit note of 472.00 and was then returned in full for
   of 2,832.00 a return typed 1,500.00 a box credited 3,540.00, a line charge
   of 500.00 credited 3,422.00 and a header charge of 500.00 credited
   3,332.00. A line that states more than its bill line charged for those
-  units (`charged_for`: goods and the line's own charges) is **refused by
+  units (goods and the line's own charges) is **refused by
   name**, at save and again at completion: "Line 1: the return credits
   3000.00 before tax for goods that SI-… billed at 2400.00, and they are
   still worth 2400.00 on it. …". A price or charge typed **below** the
@@ -224,9 +224,27 @@ rate-difference credit note of 472.00 and was then returned in full for
   -- the journal, the customer's account, GSTR-1, the e-invoice, the print
   -- works its taxable value from `gross - discount - bill discount +
   charges`. No reader had to change and none can disagree.
-- **A return raised off the note is netted the same way**, against the bill
-  line that charged those goods (`charging_bill_line`, the earliest if the
-  note was billed in parts -- the line whose tax the return reverses).
+- **A return raised off the note is netted the same way, against every bill
+  line that charged those goods** (D-PRC-65, 2026-10-06). A note line billed
+  in parts has several: the units coming back are set against them
+  **earliest bill first, each for the units it billed that are still out**,
+  and are worth the sum of what those units are still worth on their own
+  bills. Each bill's own tax is reversed on its share, and the refusal above
+  and the check at completion follow the same split. Read on the earliest
+  bill alone, a credit note on the second of two bills of 1,416.00 was never
+  netted (472.00 over) and one on the first was netted twice (472.00 short).
+  Units of the note no bill has charged yet come back first and credit
+  nothing (D-SELL-55), as before.
+- **Nothing stores which bill a return off a note took its units from.** It
+  is worked out the same way every time from the bills, the credit notes
+  and the returns as they stand (`BillBook` in
+  `app/sales_return/billing.py`): units a return names on a bill line are
+  that line's; what returns off the note brought back fills the units left,
+  oldest return first, earliest bill first; and a return's value is set
+  against each bill up to what its units were still worth, the last bill
+  taking the rest. So a unit later named on the first bill's own line moves
+  a unit of an earlier return off the note onto the next bill, which is the
+  only place it can have come from.
 - **A credit note's cap counts what came back**: charged, less other live
   notes, less completed returns of the line. "A credit note cannot credit
   more than the line was charged: 1000.00 charged, 0.00 already
