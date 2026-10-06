@@ -382,8 +382,28 @@ for goods never billed -- and left the note billable in full.
   counts and `total_restock_quantity` are unchanged.
 - **A return on a note names the bill it credits** (D-SELL-75). Where a bill
   charged the note's line, the GST sales register and GSTR-1's CDNR read
-  that bill as the return's "against invoice" -- the earliest that stands,
-  the one its tax is reversed from.
+  that bill as the return's "against invoice".
+- **A credit note names every invoice it corrects, on paper and in the
+  return** (D-PRC-84, 2026-10-06). The printed credit note of a sales return
+  carried no bill number or date by either route, and GSTR-1 named only the
+  earliest bill of a note billed in parts though the return's units had been
+  set against several. One reader answers all three now -- `bills_credited`
+  in `app/sales_return/billing.py`: a line raised on a bill's own line names
+  that bill; a line off a delivery note names **the bills its stored
+  placements name** (`sales_return_bill_placements`), earliest first, each
+  with the value it took; a return completed before placements were kept
+  names the earliest bill that stands, as it always read. The print states
+  one "Against invoice" row a bill, number and date, then the delivery
+  notes the goods came back off; a return off a note that has not completed
+  has been set against no bill yet and names its note alone. In GSTR-1 a
+  note stays **one row** -- the portal files a note once, and an amendment
+  matches it on its number -- whose `against_invoice` lists every bill and
+  whose `against_invoices` gives each bill's number, date and the part of
+  the note's taxable value and tax set against it, split by the stored
+  placement values with the last bill taking what rounding left, so the
+  parts add up to the row and no total moves. The GST sales register's
+  "against invoice" lists the same bills. A note whose bills do not account
+  for all of it lists numbers and dates with no figures.
 
 ## A firm chooses which stages of a sale its people type
 

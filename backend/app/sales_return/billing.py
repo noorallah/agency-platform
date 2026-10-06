@@ -1631,3 +1631,144 @@ def goods_charged(charged: SalesInvoiceLine) -> Decimal:
         - Decimal(str(charged.bill_discount_amount))
         + Decimal(str(charged.charges_amount))
     ).quantize(_FOUR)
+
+
+@dataclass(frozen=True, slots=True)
+class CreditedBill:
+    """One bill a return line was credited against (D-PRC-84)."""
+
+    invoice_id: UUID
+    invoice_line_id: UUID
+    invoice_number: str
+    invoice_date: date
+    #: What the return line credited on this bill before tax, where a stored
+    #: placement says. None where nothing was split: the line names its bill,
+    #: or it completed before placements were kept, and the whole of what it
+    #: credited is this bill's.
+    taxable: Decimal | None = None
+
+
+def bills_credited(
+    session: Session,
+    lines: Sequence[SalesReturnLine],
+    *,
+    completed: bool = True,
+) -> dict[UUID, list[CreditedBill]]:
+    """Return, per return line, the bills it was credited against, in order.
+
+    A credit note refers to the invoice it corrects, and a return's readers
+    -- its print, GSTR-1's ``cdnr`` row and the GST sales register -- must
+    name the same ones:
+
+    * a line raised on a **bill's own line** names that bill;
+    * a line raised **off a delivery note** names every bill its billed units
+      were set against when it completed, from the stored placements
+      (``sales_return_bill_placements``, D-PRC-72), each with the value it
+      took, earliest bill first;
+    * such a line completed before placements were kept has none, and names
+      the earliest bill that stands of its note line, as it always read.
+
+    A line no bill charged -- all of it came back before billing -- names
+    none. Three statements for any number of lines, each asked in chunks.
+
+    Args:
+        session: The firm's session.
+        lines: The return lines to read for.
+        completed: False for a return that has not completed: a line off a
+            note has not been set against any bill yet, so it names none.
+
+    Returns:
+        The bills per return line id; a line that names none is absent.
+
+    """
+    found: dict[UUID, list[CreditedBill]] = defaultdict(list)
+    named = {
+        line.id: (line.source_document_id, line.source_document_line_id)
+        for line in lines
+        if line.source_document_type == "SALES_INVOICE"
+    }
+    bills: dict[UUID, tuple[str, date]] = {}
+    for group in chunks([invoice_id for invoice_id, _ in named.values()]):
+        for invoice_id, number, dated in session.execute(
+            select(
+                SalesInvoice.id, SalesInvoice.invoice_number, SalesInvoice.invoice_date
+            ).where(SalesInvoice.id.in_(group))
+        ).all():
+            bills[invoice_id] = (number, dated)
+    for line_id, (invoice_id, invoice_line_id) in named.items():
+        if invoice_id in bills:
+            number, dated = bills[invoice_id]
+            found[line_id].append(
+                CreditedBill(invoice_id, invoice_line_id, number, dated)
+            )
+    if not completed:
+        return dict(found)
+    off_notes = [line for line in lines if line.source_document_type == "DELIVERY_NOTE"]
+    for group in chunks([line.id for line in off_notes]):
+        for row in session.execute(
+            select(
+                SalesReturnBillPlacement.sales_return_line_id,
+                SalesReturnBillPlacement.sales_invoice_id,
+                SalesReturnBillPlacement.sales_invoice_line_id,
+                SalesInvoice.invoice_number,
+                SalesInvoice.invoice_date,
+                SalesReturnBillPlacement.taxable_amount,
+            )
+            .join(
+                SalesInvoice,
+                SalesInvoice.id == SalesReturnBillPlacement.sales_invoice_id,
+            )
+            .where(
+                SalesReturnBillPlacement.sales_return_line_id.in_(group),
+                SalesReturnBillPlacement.is_deleted.is_(False),
+            )
+            .order_by(
+                SalesInvoice.invoice_date,
+                SalesInvoice.invoice_number,
+                SalesReturnBillPlacement.id,
+            )
+        ).all():
+            placed = found[row[0]]
+            taxable = Decimal(str(row[5] or 0))
+            for index, earlier in enumerate(placed):
+                if earlier.invoice_id == row[1]:
+                    # Two lines of one bill charged the note line: one bill.
+                    placed[index] = replace(
+                        earlier, taxable=(earlier.taxable or ZERO) + taxable
+                    )
+                    break
+            else:
+                placed.append(CreditedBill(row[1], row[2], row[3], row[4], taxable))
+    # Completed before placements were kept, with something a bill charged.
+    by_note_line: dict[UUID, list[UUID]] = defaultdict(list)
+    for line in off_notes:
+        if line.id not in found and billed_share(line) > ZERO:
+            by_note_line[line.source_document_line_id].append(line.id)
+    seen: set[UUID] = set()
+    for group in chunks(list(by_note_line)):
+        for note_line_id, invoice_id, invoice_line_id, number, dated in session.execute(
+            select(
+                SalesInvoiceLine.source_document_line_id,
+                SalesInvoiceLine.sales_invoice_id,
+                SalesInvoiceLine.id,
+                SalesInvoice.invoice_number,
+                SalesInvoice.invoice_date,
+            )
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
+                SalesInvoiceLine.source_document_line_id.in_(group),
+                SalesInvoiceLine.is_deleted.is_(False),
+                SalesInvoice.status.in_(_CHARGED),
+                SalesInvoice.is_deleted.is_(False),
+            )
+            .order_by(SalesInvoice.invoice_date.asc(), SalesInvoice.invoice_number)
+        ).all():
+            if note_line_id in seen:
+                continue
+            seen.add(note_line_id)
+            for line_id in by_note_line[note_line_id]:
+                found[line_id].append(
+                    CreditedBill(invoice_id, invoice_line_id, number, dated)
+                )
+    return dict(found)

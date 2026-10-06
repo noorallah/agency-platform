@@ -75,7 +75,12 @@ from app.sales_invoice.models import (
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
-from app.sales_return.billing import billed_share, credits_a_bill
+from app.sales_return.billing import (
+    CreditedBill,
+    billed_share,
+    bills_credited,
+    credits_a_bill,
+)
 from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
 from app.tax.services.gst_buckets import (
     CESS,
@@ -134,6 +139,52 @@ def _filed(value: Decimal) -> float:
 
     """
     return float(quantize_ledger(value))
+
+
+#: An original invoice as a note refers to it: its number and its date.
+_Original = tuple[str, date]
+
+#: The figures of a note's row that are split over its original invoices.
+_SPLIT_FIGURES = (
+    "taxable_value",
+    "integrated_tax",
+    "central_tax",
+    "state_tax",
+    "cess",
+)
+
+
+def _over_bills(
+    bills: Sequence[CreditedBill], taxable: Decimal, buckets: GstBuckets
+) -> list[tuple[CreditedBill, Decimal, GstBuckets]]:
+    """Split one return line's credit over the bills it was set against.
+
+    In proportion to the value each stored placement took, the last bill
+    taking what is left, so the parts are the line's credit exactly. A line
+    on one bill, or one nothing stored splits, is that bill's whole.
+    """
+    if not bills:
+        return []
+    weights = [bill.taxable or ZERO for bill in bills]
+    whole = sum(weights, ZERO)
+    if len(bills) == 1 or whole <= ZERO:
+        return [(bills[0], taxable, buckets)]
+    parts: list[tuple[CreditedBill, Decimal, GstBuckets]] = []
+    left, left_tax = taxable, buckets
+    for bill, weight in zip(bills[:-1], weights[:-1], strict=True):
+        share = weight / whole
+        tax = GstBuckets(
+            cgst=buckets.cgst * share,
+            sgst=buckets.sgst * share,
+            igst=buckets.igst * share,
+            cess=buckets.cess * share,
+            rate=buckets.rate,
+        )
+        parts.append((bill, taxable * share, tax))
+        left -= taxable * share
+        left_tax = left_tax.plus(tax.negated())
+    parts.append((bills[-1], left, left_tax))
+    return parts
 
 
 #: Above this, an inter-state supply to an unregistered buyer is declared
@@ -367,6 +418,12 @@ class _Credit:
     items: list[
         tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets, UUID | None]
     ] = field(default_factory=list)
+    #: The taxable value and tax set against each original invoice, in the
+    #: order ``against_invoice_ids`` names them, where the document's credit
+    #: is split over several: a sales return off a delivery note billed in
+    #: parts, from its stored placements (D-PRC-84). Empty where nothing
+    #: splits it -- the whole credit is the one invoice's.
+    by_invoice: dict[UUID, tuple[Decimal, GstBuckets]] = field(default_factory=dict)
 
     @property
     def taxable(self) -> Decimal:
@@ -1897,13 +1954,13 @@ class GstReturnService:
         if not credits:
             return _CreditNotes()
         customers = self._customers([credit.customer_id for credit in credits])
-        large = self._b2cl_invoices(
-            [
-                invoice_id
-                for credit in credits
-                for invoice_id in credit.against_invoice_ids
-            ]
-        )
+        against = [
+            invoice_id
+            for credit in credits
+            for invoice_id in credit.against_invoice_ids
+        ]
+        large = self._b2cl_invoices(against)
+        originals = self._invoice_references(against)
 
         answer = _CreditNotes()
         products = self._products(
@@ -1974,6 +2031,10 @@ class GstReturnService:
                 "taxable_value": _filed(-credit.taxable if debit else credit.taxable),
                 **self._bucket_fields(stated),
             }
+            # One row a note, as the return files it and as an amendment
+            # matches it; the original invoices are listed inside it, each
+            # with the part of the note set against it (D-PRC-84).
+            row["against_invoices"] = self._against_invoices(credit, originals, row)
             if gstin:
                 answer.registered.append(
                     {"gstin": gstin, "name": getattr(customer, "name", ""), **row}
@@ -2274,31 +2335,21 @@ class GstReturnService:
         by_return: dict[UUID, list[SalesReturnLine]] = defaultdict(list)
         for line in lines:
             by_return[line.sales_return_id].append(line)
-        # A return raised on a delivery note credits the bill that charged
-        # the note's line, and names it: such a row read "against" nothing
-        # in the register and in CDNR though it credited a bill (D-SELL-75).
-        charged_by = self._bills_that_charged(
-            [
-                line.source_document_line_id
-                for line in lines
-                if line.source_document_type == "DELIVERY_NOTE"
-            ]
-        )
-
-        def credited(line: SalesReturnLine) -> tuple[UUID, UUID] | None:
-            """Return the bill, and its line, that one return line credits."""
-            if line.source_document_type == "SALES_INVOICE":
-                return line.source_document_id, line.source_document_line_id
-            return charged_by.get(line.source_document_line_id)
-
-        billed = self._invoice_numbers(
-            [found[0] for line in lines if (found := credited(line)) is not None]
-        )
+        # A return raised on a delivery note credits the bills that charged
+        # the note's line, and names them: such a row read "against" nothing
+        # in the register and in CDNR though it credited a bill (D-SELL-75),
+        # and then named only the earliest bill of a note billed in parts
+        # though its units were set against several (D-PRC-84). The bills
+        # are the ones the return's stored placements name, which its print
+        # names too (`bills_credited`).
+        credited = bills_credited(self._session, lines)
 
         answer: list[_Credit] = []
         for sales_return in returns:
             rates: dict[Decimal, _RateRow] = {}
             against: list[UUID] = []
+            numbers: dict[UUID, str] = {}
+            by_invoice: dict[UUID, tuple[Decimal, GstBuckets]] = {}
             ordered = sorted(
                 by_return.get(sales_return.id, []), key=lambda row: row.line_number
             )
@@ -2336,9 +2387,13 @@ class GstReturnService:
                 rates.setdefault(buckets.rate, _RateRow(rate=buckets.rate)).add(
                     taxable, buckets
                 )
-                bill = credited(line)
-                if bill is not None and bill[0] not in billed:
-                    bill = None
+                bills = credited.get(line.id, [])
+                for bill, part, tax in _over_bills(bills, taxable, buckets):
+                    if bill.invoice_id not in against:
+                        against.append(bill.invoice_id)
+                        numbers[bill.invoice_id] = bill.invoice_number
+                    held = by_invoice.get(bill.invoice_id, (ZERO, GstBuckets()))
+                    by_invoice[bill.invoice_id] = (held[0] + part, held[1].plus(tax))
                 # As the credit note states the line -- 7 PIECE for seven
                 # pieces off a line sold by the box, where the row stores
                 # 0.5833 of a box -- through the function its print reads
@@ -2355,16 +2410,17 @@ class GstReturnService:
                 items.append(
                     (
                         line.product_id,
-                        # The invoice line it returns, when it returns a bill.
-                        None if bill is None else bill[1],
+                        # The invoice line it returns, when it returns a bill:
+                        # the earliest, where its units were set against
+                        # several -- they are bills of one note line, and
+                        # the HSN summary nets under the code it was billed.
+                        bills[0].invoice_line_id if bills else None,
                         stated.quantity * share,
                         taxable,
                         buckets,
                         stated.uom_id,
                     )
                 )
-                if bill is not None and bill[0] not in against:
-                    against.append(bill[0])
             answer.append(
                 _Credit(
                     number=sales_return.return_number,
@@ -2373,48 +2429,86 @@ class GstReturnService:
                     reason=sales_return.return_reason,
                     against_invoice_ids=against,
                     against_invoice_number=(
-                        ", ".join(billed[invoice_id] for invoice_id in against)
+                        ", ".join(numbers[invoice_id] for invoice_id in against)
                         or (sales_return.reference_invoice_number or "")
                     ),
                     rates=rates,
                     document_type="SALES_RETURN",
                     items=items,
+                    by_invoice=by_invoice,
                 )
             )
         return answer
 
-    @over_chunks("note_line_ids")
-    def _bills_that_charged(
-        self, note_line_ids: list[UUID]
-    ) -> dict[UUID, tuple[UUID, UUID]]:
-        """Return, per delivery note line, the bill and bill line that charged it.
-
-        The earliest bill that stands, where a line was billed in parts. A
-        return off such a note takes its units, and reverses tax, from every
-        bill that charged them (``BillLedger``, D-PRC-65); a credit row names
-        one original invoice, and this is the one it names.
-        """
-        if not note_line_ids:
+    @over_chunks("invoice_ids")
+    def _invoice_references(self, invoice_ids: list[UUID]) -> dict[UUID, _Original]:
+        """Return the number and date of these invoices."""
+        if not invoice_ids:
             return {}
-        found: dict[UUID, tuple[UUID, UUID]] = {}
-        for note_line_id, invoice_id, line_id in self._session.execute(
-            select(
-                SalesInvoiceLine.source_document_line_id,
-                SalesInvoiceLine.sales_invoice_id,
-                SalesInvoiceLine.id,
-            )
-            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
-            .where(
-                SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
-                SalesInvoiceLine.source_document_line_id.in_(set(note_line_ids)),
-                SalesInvoiceLine.is_deleted.is_(False),
-                SalesInvoice.status.in_(("APPROVED", "CLOSED")),
-                SalesInvoice.is_deleted.is_(False),
-            )
-            .order_by(SalesInvoice.invoice_date.asc(), SalesInvoice.invoice_number)
-        ).all():
-            found.setdefault(note_line_id, (invoice_id, line_id))
-        return found
+        return {
+            invoice_id: (number, dated)
+            for invoice_id, number, dated in self._session.execute(
+                select(
+                    SalesInvoice.id,
+                    SalesInvoice.invoice_number,
+                    SalesInvoice.invoice_date,
+                ).where(SalesInvoice.id.in_(set(invoice_ids)))
+            ).all()
+        }
+
+    def _against_invoices(
+        self,
+        credit: _Credit,
+        originals: dict[UUID, _Original],
+        row: dict[str, object],
+    ) -> list[dict[str, object]]:
+        """List the original invoices of one note, each with its part of it.
+
+        The number and date of every invoice the note corrects, and the
+        taxable value and tax of the note set against it: the whole note
+        where it names one invoice, the stored split where a sales return
+        was set against several (``_Credit.by_invoice``). Each part is
+        rounded as the row is, and the last takes what the rounding left, so
+        **the parts add up to the row's own figures** and the return's totals
+        do not move.
+
+        A note whose invoices do not account for all of it -- a line that
+        names no bill beside one that does -- lists the numbers and dates
+        with no figures: nothing says which invoice the rest belongs to.
+        """
+        debit = credit.document_type == "DEBIT_NOTE"
+        parts = dict(credit.by_invoice)
+        if not parts and len(credit.against_invoice_ids) == 1:
+            parts = {credit.against_invoice_ids[0]: (credit.taxable, credit.buckets)}
+        covered = (
+            set(parts) == set(credit.against_invoice_ids)
+            and all(invoice_id in originals for invoice_id in parts)
+            and abs(sum((part for part, _ in parts.values()), ZERO) - credit.taxable)
+            < Decimal("0.005")
+        )
+        listed: list[dict[str, object]] = []
+        for invoice_id in credit.against_invoice_ids:
+            if invoice_id not in originals:
+                continue
+            number, dated = originals[invoice_id]
+            entry: dict[str, object] = {
+                "invoice_number": number,
+                "invoice_date": dated.isoformat(),
+            }
+            if covered:
+                taxable, buckets = parts[invoice_id]
+                entry["taxable_value"] = _filed(-taxable if debit else taxable)
+                entry.update(
+                    self._bucket_fields(buckets.negated() if debit else buckets)
+                )
+            listed.append(entry)
+        if covered and listed:
+            for name in _SPLIT_FIGURES:
+                rest = Decimal(str(row[name])) - sum(
+                    (Decimal(str(entry[name])) for entry in listed[:-1]), ZERO
+                )
+                listed[-1][name] = float(rest)
+        return listed
 
     @over_chunks("invoice_ids")
     def _invoice_numbers(self, invoice_ids: list[UUID]) -> dict[UUID, str]:
