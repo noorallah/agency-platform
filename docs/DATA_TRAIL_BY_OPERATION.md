@@ -2084,7 +2084,7 @@ The stock side is §10.6; this is the whole request.
 - **The cap:** returned + already returned (every return not CANCELLED,
   drafts included, **on the same source line**) ≤ what the source line
   charged. Refused, nothing written: "Return quantity exceeds what was
-  dispatched on the source document (5.0000 sent, 0.0000 already returned)."
+  dispatched on the source document (5 sent, 0 already returned)."
   Because the count is per source line, goods returned against the note are
   not counted against the invoice that billed them (D-SELL-7), and the source
   document's **status is never checked** — a draft note or a cancelled

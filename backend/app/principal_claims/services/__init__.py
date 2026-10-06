@@ -781,6 +781,13 @@ class PrincipalClaimService(TransactionalDocumentService):
             raise ValidationError("A cancelled claim takes no payment.")
         if data.received_on < row.claim_date:
             raise ValidationError("A payment cannot come before its claim.")
+        # On the firm's own day, as a commission payout is judged (D-PRC-9):
+        # a payment dated tomorrow was taken, and posted a journal for a day
+        # that had not happened.
+        if data.received_on > firm_today(self._session, firm_id):
+            raise ValidationError(
+                "A payment cannot be received on a day that has not happened yet."
+            )
         owed = self.outstanding(row)
         if data.amount > owed:
             raise ValidationError(

@@ -233,6 +233,17 @@ be entered"); it now sends back **seven pieces**, at their cost. Half a box
 typed as a box is refused where the line is saved. `docs/UOM_FRAMEWORK.md`,
 "Pieces that are not whole boxes", is the reference.
 
+**The same holds for pieces sent back before the bill** (D-PRC-54,
+2026-10-06). The return's share of the receipt's accrual was still worked
+from the stored 0.5833 of 2 boxes: Dr GRNI 419.98 / Cr Inventory 420.00 / Dr
+Purchase Price Variance 0.02, taken back when the other 17 were billed.
+`_split_against_billing` now values a line that is wholly unbilled through
+`exact_quantity`, as the bill does, so seven pieces take 420.00 off the
+accrual and the variance account is not touched on the way; and the return
+that finishes a receipt (`_settle_receipt_residual`) reads each earlier bill
+as that bill cleared it, from what it typed, so it does not pick up the
+bill's two paise with its own.
+
 **A bill of products typed with no order counts each line in the unit it
 names, else the product's buying unit**, because the order it raises does: a
 bill of 2 with no unit and no price, for that product, is 2 BOX at 720.00 and
@@ -429,7 +440,9 @@ many of those are free:
 - Free goods go back **off the goods receipt**, the document that says how
   many arrived; a line raised off a bill sends back bought units only. The
   refusal says how much is left: "... line 1 can still send back 10 bought and
-  2 free."
+  2 free." Where the source line names a unit the figure carries it -- "can
+  still send back 1.4167 BOX bought and 0 free" to somebody who typed seven
+  pieces (D-PRC-57).
 
 - **Every quantity beside it counts free goods too** (D-BUY-63). The line's
   `received_quantity` is bought plus free on the source line and its

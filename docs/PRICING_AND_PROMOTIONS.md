@@ -628,10 +628,16 @@ free unit coming back on its own while the charged ones stay sold. The
 response reads the same way: the total, and the free part of it. A line may
 bring back what its source line sent, charged and free, less what earlier
 live returns took of each, and the refusal says what is left: "Return quantity
-exceeds what was dispatched on the source document (4.0000 sent and 1.0000
-free, 0.0000 and 0.0000 already returned; line 1 can still bring back 4.0000
-charged and 1.0000 free)." A source line with no free goods keeps the wording
-it had. Unlike a purchase return, **a line off the bill may bring free goods
+exceeds what was dispatched on the source document (4 sent and 1 free, 0 and
+0 already returned; line 1 can still bring back 4 charged and 1 free)." A
+source line with no free goods keeps the wording it had. **Every figure is in
+the source line's unit, and the refusal names it** where the line names one
+(D-PRC-57, 2026-10-06): "(2 BOX sent, 0.5833 BOX already returned)" to
+somebody who typed seven pieces, where it read "2.0000 sent, 0.5833 already
+returned". Quantities in these messages are spelt by `plain_quantity`
+(`app/core/utils/quantities.py`) -- 4, not 4.0000; 0, not 0.0000 -- and the
+free units an offer has given are read at a quantity's four places
+(`at_quantity_scale`), where one read 1.00000000000000. Unlike a purchase return, **a line off the bill may bring free goods
 back as well as one off the note**: a counter firm never sees its notes, and
 the bill line carries the free quantity it inherited.
 
@@ -644,7 +650,7 @@ unit typed as a quantity of 1 went through on both. `free_goods_alone`
 (`app/core/utils/quantities.py`) restates such a line, on both returns' write
 models, as the shape above -- 1 coming back, 1 of it free -- so the services
 keep their one path and their caps: no more free units than the source line
-has left ("... can still bring back 4.0000 charged and 0.0000 free"), and
+has left ("... can still bring back 4 charged and 0 free"), and
 none off a line that gave none ("Line 1 brings back 1 free, and the source
 line sent nothing free. Type it as a quantity to credit it."). A line of 0
 with nothing free is refused on both as "Line 1 returns a quantity of 0 and
@@ -656,8 +662,8 @@ quantity behaves as before.
 (the twin of D-BUY-61). The charged cap already counted across the note line
 and the bill line that billed it (`_goods_behind`, D-SELL-7); the free cap
 does the same against the note line's `free_quantity`: "Free quantity exceeds
-what left free on DN-… (1.0000 sent free, 1.0000 already returned against it
-or the bill for it)."
+what left free on DN-… (1 sent free, 1 already returned against it or the
+bill for it)."
 
 Free units are priced, taxed and credited nothing -- a line of free goods
 alone posts no credit note and writes nothing to the customer's account --

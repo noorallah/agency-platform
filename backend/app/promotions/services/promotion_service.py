@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 from app.core.utils.dates import as_utc, utc_now
 from app.core.utils.money import quantize_ledger, quantize_money
 from app.core.utils.pricing import apportion
+from app.core.utils.quantities import at_quantity_scale, plain_quantity
 from app.products.models import Product
 from app.promotions.models import (
     Promotion,
@@ -1245,8 +1246,7 @@ class BudgetRoom:
 
 def _units(quantity: Decimal | None) -> str:
     """Spell a quantity without trailing zeroes: 500, not 500.0000."""
-    value = Decimal(str(quantity or 0)).normalize()
-    return f"{value:f}"
+    return plain_quantity(quantity)
 
 
 def budget_rooms(
@@ -1277,7 +1277,10 @@ def budget_rooms(
                 func.coalesce(func.sum(given.c.free_given), 0),
             ).group_by(given.c.version_group_id)
         ):
-            claimed[group] = (Decimal(str(amount)), Decimal(str(free)))
+            # At the four places a quantity holds: the sum comes back at
+            # the scale of quantity times factor, and one free unit read
+            # 1.00000000000000 (D-PRC-57).
+            claimed[group] = (Decimal(str(amount)), at_quantity_scale(free))
     rooms: dict[UUID, BudgetRoom] = {}
     for row in promotions:
         amount, free = claimed.get(row.version_group_id, (ZERO, ZERO))

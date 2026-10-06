@@ -33,6 +33,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import inherited_share
+from app.core.utils.quantities import plain_quantity
 from app.document_files.services import goods_receipt_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -1664,16 +1665,26 @@ class GoodsReceiptService(TransactionalDocumentService):
             # body flag switched this off and a body percentage widened it, so
             # 20 more came in against an order of 10 already received in full
             # (D-BUY-16).
-            if prev_received + self._q(line.current_receipt_quantity) > (
-                ordered_quantity
-            ):
-                raise ValidationError(
-                    "Goods receipt exceeds allowed quantity for PO line "
-                    f"{purchase_line.line_number}."
-                )
+            # The unit first: seven loose pieces against an order of 2 BOX
+            # are in the wrong unit before they are too many, and were told
+            # only that they "exceed" (D-PRC-57).
             purchase_uom_id, inventory_uom_id = self._line_units(
                 receipt, line, purchase_line
             )
+            if prev_received + self._q(line.current_receipt_quantity) > (
+                ordered_quantity
+            ):
+                unit_id = purchase_uom_id or inventory_uom_id
+                unit = self._session.get(Uom, unit_id) if unit_id else None
+                code = f" {unit.code}" if unit is not None else ""
+                raise ValidationError(
+                    "Goods receipt exceeds allowed quantity for PO line "
+                    f"{purchase_line.line_number}: "
+                    f"{plain_quantity(ordered_quantity)}{code} ordered, "
+                    f"{plain_quantity(prev_received)}{code} already received, "
+                    f"and this line receives "
+                    f"{plain_quantity(line.current_receipt_quantity)}{code}."
+                )
             conversion = self._conversion(
                 quantity=total_sellable,
                 purchase_uom_id=purchase_uom_id,

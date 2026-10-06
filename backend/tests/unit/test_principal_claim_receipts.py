@@ -11,12 +11,15 @@ it has already had, and a reversal is its payment's reference with ``-REV``.
 Every case runs on a request-shaped session.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
+import pytest
 from sqlalchemy import select
 
+from app.common.firm_metadata import firm_today
+from app.core.exceptions import ValidationError
 from app.finance.models import FirmControlAccount, JournalEntry
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.principal_claims.models import PrincipalClaim, PrincipalClaimReceipt
@@ -133,3 +136,30 @@ def test_a_reference_written_under_the_old_rule_is_left_and_stepped_over() -> No
     assert owed.reference(new) == f"CLAIM-{number}-PAY-2"
     assert owed.reversal_of(old) == f"CLAIM-{number}-PAY-20261006011831-REV"
     assert len(owed.reversal_of(old)) <= 50
+
+
+def test_a_payment_dated_tomorrow_is_refused() -> None:
+    """Dated on a day that has not happened, on the firm's own day; today is taken."""
+    owed = _Owed()
+    today = firm_today(owed.agency.session, owed.agency.firm_id)
+
+    def paid_on(day: date) -> PrincipalClaimReceipt:
+        """Record 10.00 received on a day."""
+        return owed.service.record_receipt(
+            owed.claim.id,
+            PrincipalClaimReceiptWrite(
+                received_on=day, amount=D("10"), money_account_id=owed.bank
+            ),
+            firm_id=owed.agency.firm_id,
+            actor_id=owed.agency.actor,
+        )
+
+    with pytest.raises(ValidationError) as refused:
+        paid_on(today + timedelta(days=1))
+    owed.agency.session.rollback()
+
+    assert str(refused.value.message) == (
+        "A payment cannot be received on a day that has not happened yet."
+    )
+    assert owed.agency.session.scalars(select(PrincipalClaimReceipt)).all() == []
+    assert paid_on(today).status == "POSTED"

@@ -237,8 +237,8 @@ def test_more_than_was_sent_is_refused_and_says_what_is_left() -> None:
 
     assert refused.value.message == (
         "Return quantity exceeds what was dispatched on the source document "
-        "(4.0000 sent and 1.0000 free, 0.0000 and 0.0000 already returned; "
-        "line 1 can still bring back 4.0000 charged and 1.0000 free)."
+        "(4 sent and 1 free, 0 and 0 already returned; line 1 can still "
+        "bring back 4 charged and 1 free)."
     )
 
 
@@ -255,9 +255,8 @@ def test_more_than_was_sent_is_refused_and_says_what_is_left() -> None:
             "2",
             "2",
             "Return quantity exceeds what was dispatched on the source "
-            "document (4.0000 sent and 1.0000 free, 0.0000 and 0.0000 "
-            "already returned; line 1 can still bring back 4.0000 charged "
-            "and 1.0000 free).",
+            "document (4 sent and 1 free, 0 and 0 already returned; line 1 "
+            "can still bring back 4 charged and 1 free).",
         ),
     ],
 )
@@ -294,7 +293,7 @@ def test_a_bill_with_no_free_goods_keeps_the_refusal_it_had() -> None:
 
     assert refused.value.message == (
         "Return quantity exceeds what was dispatched on the source document "
-        "(4.0000 sent, 0.0000 already returned)."
+        "(4 sent, 0 already returned)."
     )
 
 
@@ -322,7 +321,7 @@ def test_the_same_free_unit_does_not_come_back_by_both_documents(
 
     assert "Free quantity exceeds what left free on" in refused.value.message
     assert refused.value.message.endswith(
-        "(1.0000 sent free, 1.0000 already returned against it or the bill " "for it)."
+        "(1 sent free, 1 already returned against it or the bill for it)."
     )
     assert number is None or number in refused.value.message
 
@@ -388,6 +387,9 @@ def test_a_free_unit_an_offer_gave_and_took_back_is_not_counted_as_given() -> No
     _returned(agency, bill, "1", free="1")
 
     assert _free_claimed(agency, offer) == D("1.0000")
+    # At a quantity's four places, not the scale of quantity times factor
+    # the sum comes back at: it read 1.00000000000000 (D-PRC-57).
+    assert _free_claimed(agency, offer).as_tuple().exponent == -4
     # A free unit somebody typed is nobody's offer, and moves no budget.
     _returned(agency, typed, "1", free="1")
     assert _free_claimed(agency, offer) == D("1.0000")
@@ -499,7 +501,7 @@ def test_free_goods_alone_are_capped_at_what_is_still_out_free() -> None:
     plain = agency.bill(free="0")
 
     for source, words in (
-        (bill, "line 1 can still bring back 4.0000 charged and 0.0000 free"),
+        (bill, "line 1 can still bring back 4 charged and 0 free"),
         (
             plain,
             "Line 1 brings back 1 free, and the source line sent nothing free. "

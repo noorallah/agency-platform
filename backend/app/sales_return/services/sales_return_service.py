@@ -126,6 +126,7 @@ from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.uom.models import Uom
 from app.uom.services import UomService, assert_quantity_fits_unit
 
 ZERO = Decimal("0")
@@ -1527,6 +1528,7 @@ class SalesReturnService(TransactionalDocumentService):
                 already_returned=already_returned,
                 source_free=source_free,
                 already_free=already_free,
+                unit=self._unit_named(source_uom_id),
             )
             # Only charged goods are worth what was typed for them; with
             # free goods beside them the line is counted, credited and moved
@@ -1554,10 +1556,13 @@ class SalesReturnService(TransactionalDocumentService):
                 )
                 back = self._q(goods_back + in_this_return[goods.id])
                 if not row.allow_over_return and return_quantity + back > sent:
+                    unit = self._unit_named(source_uom_id)
                     raise ValidationError(
                         "Return quantity exceeds what left on "
-                        f"{self._source_document_number(goods)} ({sent} sent, "
-                        f"{back} already returned against it or the bill for it)."
+                        f"{self._source_document_number(goods)} "
+                        f"({plain_quantity(sent)}{unit} sent, "
+                        f"{plain_quantity(back)}{unit} already returned "
+                        "against it or the bill for it)."
                     )
                 in_this_return[goods.id] += return_quantity
                 # The free goods are the same goods by either route too: one
@@ -1566,11 +1571,13 @@ class SalesReturnService(TransactionalDocumentService):
                 free_sent = self._q(goods.free_quantity or ZERO)
                 free_back = self._q(goods_free_back + free_in_this_return[goods.id])
                 if free_quantity + free_back > free_sent:
+                    unit = self._unit_named(source_uom_id)
                     raise ValidationError(
                         "Free quantity exceeds what left free on "
-                        f"{self._source_document_number(goods)} ({free_sent} "
-                        f"sent free, {free_back} already returned against it "
-                        "or the bill for it)."
+                        f"{self._source_document_number(goods)} "
+                        f"({plain_quantity(free_sent)}{unit} sent free, "
+                        f"{plain_quantity(free_back)}{unit} already returned "
+                        "against it or the bill for it)."
                     )
                 free_in_this_return[goods.id] += free_quantity
             # The buckets are validated against the requested quantity, so they
@@ -2119,6 +2126,17 @@ class SalesReturnService(TransactionalDocumentService):
     def _source_type(self, value: object) -> str:
         return value.value if hasattr(value, "value") else str(value)
 
+    def _unit_named(self, uom_id: UUID | None) -> str:
+        """Return a unit's code with a space before it, or nothing.
+
+        For a refusal that counts: " BOX" after the figure where the source
+        line names a unit, and the bare figure where it names none.
+        """
+        if uom_id is None:
+            return ""
+        unit = self._session.get(Uom, uom_id)
+        return "" if unit is None else f" {unit.code}"
+
     def _typed_free(
         self, spec: dict[str, object], requested: Decimal, converted: Decimal
     ) -> Decimal | None:
@@ -2142,8 +2160,13 @@ class SalesReturnService(TransactionalDocumentService):
         already_returned: Decimal,
         source_free: Decimal,
         already_free: Decimal,
+        unit: str = "",
     ) -> tuple[Decimal, Decimal]:
         """Split what a line brings back into charged units and free ones.
+
+        ``unit`` names the unit every figure in a refusal is counted in --
+        " BOX", the source line's -- because "2.0000 sent, 0.5833 already
+        returned" says nothing to somebody who typed seven pieces (D-PRC-57).
 
         What the source document sent can come back, free goods included
         (D-PRC-8, the selling twin of D-BUY-56). The charged units are taken
@@ -2181,13 +2204,15 @@ class SalesReturnService(TransactionalDocumentService):
                     "a quantity to credit it."
                 )
         if charged > charged_left or free > free_left:
+            say = plain_quantity
             sent = (
-                f"{dispatched} sent, {already_returned} already returned"
+                f"{say(dispatched)}{unit} sent, "
+                f"{say(already_returned)}{unit} already returned"
                 if source_free <= ZERO
-                else f"{dispatched} sent and {source_free} free, "
-                f"{already_returned} and {already_free} already returned; "
-                f"line {line_number} can still bring back {charged_left} "
-                f"charged and {free_left} free"
+                else f"{say(dispatched)}{unit} sent and {say(source_free)} free, "
+                f"{say(already_returned)} and {say(already_free)} already "
+                f"returned; line {line_number} can still bring back "
+                f"{say(charged_left)}{unit} charged and {say(free_left)} free"
             )
             raise ValidationError(
                 "Return quantity exceeds what was dispatched on the source "
