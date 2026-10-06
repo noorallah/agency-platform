@@ -30,7 +30,7 @@ void main() {
     // -- Price list --------------------------------------------------------
     await flow.step('price list: new with a product price, save', () async {
       await openSetUp(tester, 'sales/price-lists');
-      await tapButtonStarting(tester, 'New price list');
+      await tapNew(tester);
       await typeLabelled(tester, 'Code', listCode);
       await typeLabelled(tester, 'Name', 'Flow list $stamp');
       await tapButtonStarting(tester, 'Add product');
@@ -62,7 +62,7 @@ void main() {
     // -- Offer with a budget ----------------------------------------------
     await flow.step('offer: new with a budget, save, reopen', () async {
       await openSetUp(tester, 'sales/promotions');
-      await tapButtonStarting(tester, 'New promotion');
+      await tapNew(tester);
       await typeLabelled(tester, 'Code', offerCode);
       await typeLabelled(tester, 'Name', 'Flow offer $stamp');
       await typeLabelled(tester, 'Percent', '5');
@@ -89,12 +89,16 @@ void main() {
       await tester.pump(const Duration(milliseconds: 60));
       await tester.tap(row.first);
       await pumpFor(tester, const Duration(seconds: 2));
-      if (!screenHas(tester, 'Budget')) {
-        flow.defect('offer: reopen', 'the offer view shows no Budget section');
-      } else if (!screenHas(tester, '5,000')) {
-        flow.defect('offer: reopen',
-            'the Budget section does not show 5,000: '
-            '${textOnScreen(tester).where((String t) => t.contains('udget')).join(' | ')}');
+      final List<String> budgetLines = textOnScreen(tester)
+          .where((String t) => t.startsWith('Value:'))
+          .toList();
+      if (budgetLines.isEmpty) {
+        flow.defect('offer: reopen', 'the offer view shows no Budget value line');
+      } else if (!budgetLines.first.contains('5000')) {
+        flow.defect('offer: reopen', 'budget line reads "${budgetLines.first}"');
+      } else if (budgetLines.first.contains('.0000')) {
+        flow.defect('offer: budget wording',
+            'the view prints raw server decimals: "${budgetLines.first}"');
       }
       await tapButton(tester, 'Close');
     });
@@ -103,13 +107,13 @@ void main() {
     await flow.step('coupon: new for the offer, save', () async {
       await tester.tap(find.text('Coupons').first);
       await pumpFor(tester, const Duration(seconds: 2));
-      await tapButtonStarting(tester, 'New coupon');
+      await tapNew(tester);
       await tester.tap(find.text('Offer').last);
       await pumpFor(tester, const Duration(milliseconds: 600));
       await tester.tap(find.textContaining(offerCode).last);
       await pumpFor(tester, const Duration(milliseconds: 600));
       await typeLabelled(tester, 'Code', couponCode);
-      await tapButton(tester, 'Save');
+      await tapButton(tester, 'Create');
       await pumpFor(tester, const Duration(seconds: 3));
       final dynamic rows =
           await server.get('/api/v1/promotions/coupons?page_size=100');
@@ -140,7 +144,7 @@ void main() {
     // -- Commission rule ---------------------------------------------------
     await flow.step('commission: new rule, save', () async {
       await openMenu(tester, 'sell', 'sales/commission');
-      await tapButton(tester, 'Add rule');
+      await tapNew(tester);
       await typeLabelled(tester, 'Rate', '3');
       await tapButton(tester, 'Save');
       await pumpFor(tester, const Duration(seconds: 3));

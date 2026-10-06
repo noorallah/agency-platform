@@ -156,8 +156,14 @@ Future<void> openMenu(WidgetTester tester, String area, String path) async {
 }
 
 /// Open a Settings card (a set-up list such as Price Lists).
-Future<void> openSetUp(WidgetTester tester, String path) async {
+Future<void> openSetUp(WidgetTester tester, String path,
+    {String section = 'Pricing'}) async {
+  await closeOpenEditor(tester);
   await tester.tap(find.byKey(const ValueKey<String>('menu-area-settings')));
+  final Finder tile = find.byKey(ValueKey<String>('setup-section-$section'));
+  await pumpUntil(tester, tile, waitingFor: 'settings section $section');
+  await tester.tap(tile);
+  await pumpFor(tester, const Duration(milliseconds: 500));
   final Finder card = find.byKey(ValueKey<String>('setup-card-$path'));
   await pumpUntil(tester, card, waitingFor: 'settings card $path');
   await tester.ensureVisible(card);
@@ -503,6 +509,17 @@ Future<void> saveEditor(WidgetTester tester, String key) async {
 /// Leave a document editor a failed step left open, so the next step starts
 /// from a list rather than from somebody else's form.
 Future<void> closeOpenEditor(WidgetTester tester) async {
+  for (int i = 0; i < 3; i++) {
+    final Finder dialog = find.byType(Dialog);
+    if (dialog.evaluate().isEmpty) break;
+    Finder out = find.descendant(of: dialog.last, matching: find.text('Cancel'));
+    if (out.evaluate().isEmpty) {
+      out = find.descendant(of: dialog.last, matching: find.text('Close'));
+    }
+    if (out.evaluate().isEmpty) break;
+    await tester.tap(out.first);
+    await pumpFor(tester, const Duration(milliseconds: 700));
+  }
   final Finder band = find.byKey(const ValueKey<String>('document-band-actions'));
   if (band.evaluate().isEmpty) return;
   final Finder cancel =
