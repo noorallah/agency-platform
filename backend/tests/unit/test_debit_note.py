@@ -300,10 +300,16 @@ def test_the_claim_is_capped_by_what_is_left_of_the_line() -> None:
     )
     assert line.claimable == Decimal("100.00")
 
-    with pytest.raises(ValidationError, match="more than is left"):
+    with pytest.raises(ValidationError) as refused:
         service.create_note(
             books.payload("100.01"), firm_id=books.firm.id, actor_id=books.actor_id
         )
+    # Money to the paisa: it read "1000.0000 billed, 600.0000 already
+    # claimed, 300.0000 already returned" (D-PRC-70).
+    assert str(refused.value) == (
+        "A debit note cannot claim more than is left of the bill line: "
+        "1000.00 billed, 600.00 already claimed, 300.00 already returned."
+    )
     books.session.rollback()
     assert books.note("100").total_amount == Decimal("118.00")
 

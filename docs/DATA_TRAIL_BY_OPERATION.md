@@ -1785,7 +1785,10 @@ In this order, all in one request:
 - **Refused:** more than the order line has left ("Line 1 delivers 6 where
   SO-… has 4 left to deliver of the 10 ordered: DN-… delivers the rest.
   Change the line to what is left." at save; the same sentence at approval,
-  D-PRC-62).
+  D-PRC-62). Where several lines of one note deliver the same order line
+  the figure is theirs together and all are named: "Lines 1 and 2 of DN-…
+  together deliver 12 where SO-… has 10 left to deliver of the 10 ordered."
+  (D-PRC-70).
 - **Cancel** (DRAFT or APPROVED only) writes the status, `cancel_reason`,
   lifecycle `CANCELLED`, audit `delivery_note.cancelled`. A DISPATCHED note
   cannot be cancelled and nothing reverses a dispatch (§10.10).

@@ -36,6 +36,7 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ApplicationError, ValidationError
+from app.core.exceptions.handlers import plain_validator_message
 from app.core.validation import validate_email, validate_phone
 
 ExistingRows = Literal["refuse", "update"]
@@ -626,7 +627,7 @@ def schema_issues(
         heading = field_headings.get(".".join(path)) or (
             field_headings.get(path[0]) if path else None
         )
-        message = str(detail["msg"]).removeprefix("Value error, ")
+        message = plain_validator_message(detail["msg"])
         issues.append(ImportIssue(row.number, code, heading, message + "."))
     return issues
 

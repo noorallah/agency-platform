@@ -899,8 +899,23 @@ class DeliveryNoteService(TransactionalDocumentService):
                 if others
                 else "Change this note's lines to what is left."
             )
+            # The figure is the note's for the order line, so every line of
+            # the note that delivers it is named: "Line 1 ... delivers 12"
+            # was said of a line of 6 beside another of 6 (D-PRC-70).
+            numbers = sorted(
+                item.line_number
+                for item in lines
+                if item.sales_order_line_id == source.id
+            )
+            subject = (
+                f"Line {numbers[0]}"
+                if len(numbers) == 1
+                else "Lines "
+                + ", ".join(str(number) for number in numbers[:-1])
+                + f" and {numbers[-1]}"
+            )
             raise ValidationError(
-                f"Line {line.line_number} of {row.delivery_note_number} "
+                f"{subject} of {row.delivery_note_number} "
                 + self._more_than_the_order_has_left(
                     asked=asked[source.id],
                     left=max(self._q(ordered - taken), ZERO),
@@ -910,6 +925,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     sales_uom_id=line.sales_uom_id,
                     inventory_uom_id=line.inventory_uom_id,
                     others=others,
+                    together=len(numbers) > 1,
                 )
                 + f" {advice}",
                 details={"field": "lines"},
@@ -926,6 +942,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         sales_uom_id: UUID | None,
         inventory_uom_id: UUID | None,
         others: Sequence[str],
+        together: bool = False,
     ) -> str:
         """Say what a note line asks of its order line and what is left of it.
 
@@ -949,6 +966,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             sales_uom_id: The unit the note line is in.
             inventory_uom_id: The unit the product's stock is kept in.
             others: The other notes counted against the order line.
+            together: True where ``asked`` is the sum of several lines of
+                the note, which then "together deliver" it.
 
         Returns:
             The sentence from "delivers" to its full stop.
@@ -977,8 +996,9 @@ class DeliveryNoteService(TransactionalDocumentService):
             else ""
         )
         asked_text, left_text, ordered_text = (plain_quantity(v) for v in figures)
+        verb = "together deliver" if together else "delivers"
         return (
-            f"delivers {asked_text}{code} where {order_number} has "
+            f"{verb} {asked_text}{code} where {order_number} has "
             f"{left_text}{code} left to deliver of the "
             f"{ordered_text}{code} ordered{free}{rest}."
         )

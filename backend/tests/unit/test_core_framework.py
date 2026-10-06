@@ -4,10 +4,14 @@ import asyncio
 import json
 from datetime import date
 from decimal import Decimal
+from typing import Annotated
 from uuid import uuid4
 
 import pytest
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 from starlette.responses import Response
 
 from app.core.config.settings import Settings
@@ -15,7 +19,10 @@ from app.core.context import RequestContext, reset_request_context, set_request_
 from app.core.enums import TokenType
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AuthorizationError, ValidationError
-from app.core.exceptions.handlers import application_error_handler
+from app.core.exceptions.handlers import (
+    application_error_handler,
+    validation_error_handler,
+)
 from app.core.filtering import Filter, FilterOperator
 from app.core.middleware import CoreRequestMiddleware
 from app.core.pagination import PaginationParams
@@ -33,6 +40,7 @@ from app.core.utils.dates import financial_year_label, utc_now
 from app.core.utils.json import json_dumps
 from app.core.utils.money import quantize_money
 from app.core.validation import (
+    NumberedOnce,
     validate_date_range,
     validate_email,
     validate_password_policy,
@@ -116,6 +124,47 @@ def test_application_errors_use_the_standardized_error_envelope() -> None:
     }
     assert payload["requestId"] == "request-id"
     assert "request_id" not in payload
+
+
+class _NumberedLine(BaseModel):
+    """One line of a request, as far as its number goes."""
+
+    line_number: int
+
+
+class _NumberedDocument(BaseModel):
+    """A request whose lines must each carry their own number."""
+
+    name: str
+    lines: Annotated[list[_NumberedLine], NumberedOnce]
+
+
+def test_a_validators_sentence_reaches_the_caller_without_the_librarys_label() -> None:
+    """D-PRC-70: it read "Value error, Lines 1 and 2 of the request are ..."."""
+    with pytest.raises(PydanticValidationError) as refused:
+        _NumberedDocument.model_validate(
+            {"lines": [{"line_number": 1}, {"line_number": 1}]}
+        )
+    request = Request({"type": "http", "method": "POST", "path": "/"})
+
+    response = asyncio.run(
+        validation_error_handler(
+            request, RequestValidationError(refused.value.errors())
+        )
+    )
+
+    assert response.status_code == 422
+    details = json.loads(bytes(response.body))["error"]["details"]
+    assert {(item["field"], item["message"], item["code"]) for item in details} == {
+        # Pydantic's own sentence is left as it is.
+        ("name", "Field required", "missing"),
+        (
+            "lines",
+            "Lines 1 and 2 of the request are both numbered 1. "
+            "Number each line once.",
+            "value_error",
+        ),
+    }
 
 
 def test_core_middleware_sets_trace_security_and_timing_headers() -> None:

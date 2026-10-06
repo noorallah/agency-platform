@@ -233,9 +233,10 @@ def test_a_note_over_the_cap_alone_is_not_told_to_cancel_another() -> None:
             note.id, firm_scope=drafts.firm_id, actor_id=drafts.actor
         )
 
+    # And the 12 is the two lines' together, not line 1's (D-PRC-70).
     assert str(refused.value) == (
-        f"Line 1 of {note.delivery_note_number} delivers 12 where "
-        f"{sale.order_number} has 10 left to deliver of the 10 ordered. "
+        f"Lines 1 and 2 of {note.delivery_note_number} together deliver 12 "
+        f"where {sale.order_number} has 10 left to deliver of the 10 ordered. "
         "Change this note's lines to what is left."
     )
 
