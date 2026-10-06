@@ -1201,4 +1201,74 @@ void main() {
     expect(find.text('From the order: 200.00'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  // D-PRC-35: a discount typed as an amount stays an amount.
+  Json typedAsAmountBill() => <String, dynamic>{
+        ...savedCounterBill(),
+        'bill_discount_percent': '2.5',
+        'bill_discount_amount': '25.00',
+        'bill_discount_source': 'typed',
+        'bill_discount_typed_as': 'amount',
+      };
+
+  testWidgets('a discount typed as an amount leaves the box blank and unsent',
+      (tester) async {
+    final _InvoiceApi api = counterApi()..existing = typedAsAmountBill();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+
+    expect(holdingText('2.5'), findsNothing);
+    expect(find.text('Typed as an amount: 25.00'), findsOneWidget);
+    expect(find.textContaining('replaces the amount'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.updated, isNotNull);
+    expect(api.updated!.containsKey('bill_discount_percent'), isFalse,
+        reason: 'refilling the rate would turn the amount into a rate');
+  });
+
+  testWidgets('a percentage typed over an amount discount replaces it',
+      (tester) async {
+    final _InvoiceApi api = counterApi()..existing = typedAsAmountBill();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    final Finder box = find.ancestor(
+      of: find.text('Discount on the whole bill %'),
+      matching: find.byType(Column),
+    );
+    await tester.enterText(
+      find.descendant(of: box.first, matching: find.byType(EditableText)),
+      '4',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.updated!['bill_discount_percent'], '4');
+  });
+
+  testWidgets('a discount typed as a percent still fills the box',
+      (tester) async {
+    final _InvoiceApi api = counterApi()
+      ..existing = <String, dynamic>{
+        ...typedAsAmountBill(),
+        'bill_discount_percent': '10',
+        'bill_discount_typed_as': 'percent',
+      };
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    expect(holdingText('10'), findsOneWidget);
+    expect(find.textContaining('Typed as an amount'), findsNothing);
+  });
+
+  testWidgets('the amount note is seen at 1366x768 without overflow',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _InvoiceApi api = counterApi()..existing = typedAsAmountBill();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+
+    expect(find.text('Typed as an amount: 25.00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
