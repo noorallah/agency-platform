@@ -51,6 +51,7 @@ from tests.unit.test_customer_management import (
     _principal,
     _request_like_session_factory,
 )
+from tests.unit.test_lines_in_another_unit import box_of_twelve
 from tests.unit.test_sales_chain_synthesis import _Firm, _request_session
 
 D = Decimal
@@ -106,9 +107,14 @@ class _Desk:
         price: str | None = "84",
         discount_percent: str | None = None,
         quantity: str = "2",
+        units: dict[str, object] | None = None,
         **header: object,
     ) -> UUID:
-        """Save a draft order of the product at a price, or at none typed."""
+        """Save a draft order of the product at a price, or at none typed.
+
+        ``units`` names what else the line says: its selling and stock
+        units, or its free goods.
+        """
         row = self.orders.create_order(
             SalesOrderCreate.model_validate(
                 {
@@ -127,6 +133,7 @@ class _Desk:
                                 if discount_percent is None
                                 else D(discount_percent)
                             ),
+                            **(units or {}),
                         )
                     ],
                 }
@@ -709,6 +716,79 @@ def test_what_a_note_line_types_is_read_against_its_order_line() -> None:
         D("200"),
         D("50.00"),
     )
+
+
+@pytest.mark.parametrize("stock_unit_named", [True, False])
+def test_half_the_price_of_a_box_is_refused_as_half_off(
+    stock_unit_named: bool,
+) -> None:
+    """D-PRC-24: 2 BOX of 12 at 600.00 a box, where a piece is 100.00.
+
+    A line in another unit than its stock was not judged on price at all, so
+    the sales manager approved it, delivered 24 pieces and billed 1,416.00.
+    """
+    desk = _Desk()
+    piece, box, _ = box_of_twelve(desk.session, desk.setup)
+    units = {"sales_uom_id": box} | (
+        {"inventory_uom_id": piece} if stock_unit_named else {}
+    )
+
+    cut = desk.order(price="600", units=units)
+    with pytest.raises(ValidationError) as refused:
+        desk.approve(cut, desk.manager)
+
+    assert str(refused.value.message) == (
+        "Line 1 is priced at 600.00 where the customer's price is 1200.00: "
+        "50.00% off in all, above your limit of 5.00%. It needs approval by "
+        "someone allowed at least 50.00%."
+    )
+    assert desk.approve(cut, desk.head) == "APPROVED"
+    # The box's own price, 5% under it, and no price typed are not refused.
+    for price in ("1200", "1140", None):
+        assert desk.approve(desk.order(price=price, units=units), desk.manager) == (
+            "APPROVED"
+        )
+    # A cut in the box's price and a typed discount are one reduction.
+    both = desk.order(price="1176", discount_percent="4", units=units)
+    with pytest.raises(ValidationError, match="with a typed discount besides: 5.92%"):
+        desk.approve(both, desk.manager)
+
+
+def test_a_counter_bill_by_the_box_at_half_price_is_refused() -> None:
+    """Stages off: the bill's own order is judged in boxes at its approval."""
+    desk = _Desk(counter=True)
+    _, box, _ = box_of_twelve(desk.session, desk.setup)
+    draft = desk.bills.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=desk.setup.customer.id,
+            invoice_date=DAY,
+            lines=[
+                SalesInvoiceLineWrite(
+                    product_id=desk.setup.product.id,
+                    line_number=1,
+                    current_invoice_quantity=D("2"),
+                    invoice_uom_id=box,
+                    unit_price=D("600"),
+                )
+            ],
+        ),
+        firm_id=desk.firm_id,
+        actor_id=desk.actor,
+    )
+
+    with pytest.raises(ValidationError, match=r"600.00 where .* 1200.00: 50.00% off"):
+        desk.bills.approve_invoice(
+            draft.id, firm_scope=desk.firm_id, actor_id=desk.manager
+        )
+
+
+def test_a_line_with_free_goods_is_still_judged_on_its_price() -> None:
+    """2 + 1 free at half price: the free unit does not hide the price cut."""
+    desk = _Desk()
+    cut = desk.order(price="42", units={"free_quantity": D("1")})
+
+    with pytest.raises(ValidationError, match=r"42.00 where .* 84.00: 50.00% off"):
+        desk.approve(cut, desk.manager)
 
 
 def _desk_and_office() -> tuple[Session, object, object, UUID]:
