@@ -1019,12 +1019,27 @@ It is judged where the discount limit already was: the approval of a sales
 order, and of a bill. A counter bill is judged against the ranking, like the
 order it raised; a bill of documents against **the price its order line
 agreed**, so a price cut typed on the note or on the bill is caught where it
-is billed. A quotation is not judged, as before. Two things it does not
-do. A line sold in another unit than its stock is kept in is judged on its
-typed discount alone, because the ranking's price carries no unit. And a
+is billed. A quotation is not judged, as before. One thing it does not do: a
 product with no selling price has no customer's price to cut. The price floor
 is unchanged and separate: it asks whether the net is below cost or the
 minimum, whoever approves.
+
+**A line sold by the box is judged as a box** (D-PRC-24, 2026-10-06). A line
+in another unit than its stock was left out of the price comparison, because
+the ranking's price carries no unit: 2 BOX of 12 at a typed 600.00 a box,
+where a piece is 100.00, was approved by a sales manager limited to 5%,
+delivered and billed 1,416.00. The customer's price for the line's unit is
+the ranking's price per stock unit times **the line's own conversion factor**
+-- the one its stock moves at -- so the box is 1,200.00, 600.00 is 50% off,
+and it is refused in the usual words: "Line 1 is priced at 600.00 where the
+customer's price is 1200.00: 50.00% off in all, above your limit of 5.00%. It
+needs approval by someone allowed at least 50.00%." A counter bill by the box
+is judged the same way through the order it raises. The same change judges a
+line that carries **free goods**: it was left out too, because the test for
+"another unit" was the stock quantity differing from the quantity charged.
+One case is still judged on its typed discount alone: a bill of a note typed
+in a different unit from the note line it bills (`conversion_factor` other
+than 1 on the bill line).
 
 **A delivery note is judged for what it types** (D-PRC-23, 2026-10-06). The
 third thing it did not do: a discount typed on a note reached the bill as
@@ -1139,6 +1154,42 @@ outranks the level because it is the same kind of tier rate made specific to
 the goods actually leaving. `LinePrice.source` says `BATCH_PTR` or `BATCH_PTS`;
 sales lines store no price source, so it is not recorded on the line. A
 missing rate falls through unchanged.
+
+**Every price in the ranking is per stock unit, and a line in another unit is
+given that price converted** (D-PRC-25, 2026-10-06). The product's selling
+price, a level's rate, a list's fixed rate and a batch's PTR or PTS are all
+kept in the unit the stock is, as the cost and the minimum price are. The fill
+handed them to the line as they stood: 2 BOX of a product at 100.00 a piece,
+12 to a box, with no price typed, was charged 100.00 a box -- 236.00 with tax
+for 24 pieces. A blank price is now filled through
+`UnitPriceResolver.price_in_unit`: the ranking is asked at the **stock
+quantity** the line stands for (so a list's quantity break for a fixed rate
+counts pieces; the break for a list's *discount* still counts the quantity as
+typed, which is not changed here), and one line unit is worth that price times the stock units it holds -- the
+factor of the rule `convert_quantity` uses for the line on the document's
+date, from the line's unit to the product's stock unit. The box is 1,200.00
+and the line 2,400.00 before tax. It is one function for the sales order and
+the quotation; a delivery note and a bill inherit the price of the line they
+continue, and a counter bill is priced by the order it raises, so all five
+agree. **A price somebody typed is the price of the unit on the line** and is
+never converted. No price list or level names a selling unit of its own, so
+there is no per-box price to prefer; a firm that sells a box for less than
+twelve pieces types the price, or gives the discount. A unit no rule converts
+to the stock unit is refused by name (below), on a quotation too: a box cannot
+be priced without knowing what it holds.
+
+**The buying side had the same hole and has the same answer.** A blank price
+on a purchase order line takes, last in its ranking, a dated revision or the
+product's `purchase_price`, both per stock unit, and took them unconverted for
+a line bought by the box. They, and a supplier price list's fixed rate, are
+now multiplied by the factor the line's quantity is converted at
+(`UomService.unit_factor`); 2 BOX at 60.00 a piece is 720.00 a box. A rate
+contract is per its own unit and the supplier's catalogue price per purchase
+unit, so neither is converted. One thing is left as it was: a purchase line
+converts only when it names **both** its units (`PurchaseService._conversion`
+reads the line, not the product), so a line naming BOX alone is still counted
+and priced at a factor of 1 -- consistently with itself, but not with the
+product. That is the buying twin of D-PRC-26 and is not fixed here.
 
 ## What the pricing check of 2026-10-06 tightened (D-PRC-10 to D-PRC-16)
 

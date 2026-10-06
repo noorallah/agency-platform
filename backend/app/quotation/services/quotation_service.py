@@ -1622,7 +1622,14 @@ class QuotationService(TransactionalDocumentService):
     def _priced_from_arrangements(
         self, row: SalesQuotation, lines: list[QuotationLineWrite]
     ) -> list[QuotationLineWrite]:
-        """Give each line with no price the customer's price (SEL-9, A89)."""
+        """Give each line with no price the customer's price (SEL-9, A89).
+
+        In the line's own unit, as an order does: a line quoted by the box
+        with no price typed is quoted the price of a box, not of one piece
+        (D-PRC-25). A quotation converts no quantity, but a box cannot be
+        priced without knowing what it holds, so a unit no rule converts to
+        the product's stock unit is refused here by name.
+        """
         if all(line.unit_price is not None for line in lines):
             return lines
         prices = UnitPriceResolver(
@@ -1638,7 +1645,12 @@ class QuotationService(TransactionalDocumentService):
                 if line.unit_price is not None
                 else line.model_copy(
                     update={
-                        "unit_price": prices.price(line.product_id, line.quantity).price
+                        "unit_price": prices.price_in_unit(
+                            line.product_id,
+                            line.quantity,
+                            uom_id=line.sales_uom_id,
+                            stock_uom_id=line.inventory_uom_id,
+                        ).price
                     }
                 )
             )

@@ -139,7 +139,7 @@ from app.trade_licences.services.licence_check import (
     LicenceDocument,
 )
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService, assert_quantity_fits_unit
+from app.uom.services import UomService, assert_quantity_fits_unit, stock_unit_of
 
 ZERO = Decimal("0")
 
@@ -2483,6 +2483,9 @@ class SalesOrderService(TransactionalDocumentService):
         # is what `header_discount_amount` did on a purchase order until
         # D-BUY-19 moved it onto the lines too.
         grosses: list[Decimal] = []
+        # The unit each product's stock is kept in, for the lines that name
+        # a selling unit (D-PRC-26).
+        stock_units: dict[UUID, UUID | None] = {}
         for item in lines:
             product = self._session.scalar(
                 select(Product).where(
@@ -2497,6 +2500,7 @@ class SalesOrderService(TransactionalDocumentService):
             # so none of them is a line inherited from a document already
             # agreed, and the refusal names what is actually being raised.
             assert_product_takes_new_lines(product, document=raised_as)
+            stock_units[product.id] = stock_unit_of(product)
             grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
 
         # Promotions are read once the grosses are known and before anything is
@@ -2592,10 +2596,21 @@ class SalesOrderService(TransactionalDocumentService):
                 free_promotion_id = benefits.free_promotion(index)
             else:
                 free_promotion_id = None
+            # A line that names a selling unit converts to the unit the
+            # product's stock is kept in, whatever stock unit it was sent --
+            # or none: 2 BOX with no stock unit named read 2 at a factor of 1
+            # while the reservation, which asks the product, held 24
+            # (D-PRC-26). A pair no rule converts is refused by
+            # `convert_quantity`, naming the product and both units.
+            inventory_uom_id = (
+                item.inventory_uom_id
+                if item.sales_uom_id is None
+                else stock_units.get(item.product_id) or item.inventory_uom_id
+            )
             conversion = self._conversion(
                 quantity=self._q(quantity + free_quantity),
                 sales_uom_id=item.sales_uom_id,
-                inventory_uom_id=item.inventory_uom_id,
+                inventory_uom_id=inventory_uom_id,
                 product_id=item.product_id,
                 order_date=row.order_date,
                 firm_id=row.firm_id,
@@ -2647,7 +2662,7 @@ class SalesOrderService(TransactionalDocumentService):
             line.available_stock = available_stock
             line.reserved_stock = reserved_stock
             line.sales_uom_id = item.sales_uom_id
-            line.inventory_uom_id = item.inventory_uom_id
+            line.inventory_uom_id = inventory_uom_id
             line.packaging_type_id = item.packaging_type_id
             # Stored as the rule gave it, not at the money scale: stock moves
             # at this factor, and 1/12 rounded to four places miscounts (D-CFG-1).
@@ -3234,6 +3249,11 @@ class SalesOrderService(TransactionalDocumentService):
         A line leaving from a known batch -- pinned, or chosen on the counter
         bill that raised the order -- is offered that batch's PTR or PTS by
         the customer's trade class (PG-14).
+
+        In the line's own unit: a line of 2 BOX is given the price of a box,
+        twelve pieces' worth, where it was given the price of one piece
+        (D-PRC-25). A price somebody typed is the price of the unit on the
+        line and is never converted.
         """
         if all(line.unit_price is not None for line in lines):
             return lines
@@ -3250,9 +3270,11 @@ class SalesOrderService(TransactionalDocumentService):
                 if line.unit_price is not None
                 else line.model_copy(
                     update={
-                        "unit_price": prices.price(
+                        "unit_price": prices.price_in_unit(
                             line.product_id,
                             line.quantity,
+                            uom_id=line.sales_uom_id,
+                            stock_uom_id=line.inventory_uom_id,
                             batch_id=line.pinned_batch_id
                             or (price_batches or {}).get(line.line_number),
                         ).price

@@ -2344,8 +2344,26 @@ class PurchaseService(TransactionalDocumentService):
                 None,
             )
             listed = catalogue.get(line.product_id)
+            # The stock units one of the line's units holds: the factor the
+            # line's quantity is about to be converted at (`_conversion`,
+            # which reads the same two units off the line). The product's
+            # purchase price, its dated revisions and a price list's rate are
+            # per stock unit, so a blank price on a line bought by the box is
+            # that price times the factor -- it took one piece's price for a
+            # box, the buying twin of D-PRC-25. A rate contract is per its
+            # own unit and the supplier's catalogue per purchase unit;
+            # neither is converted.
+            factor = self._uom.unit_factor(
+                product_id=line.product_id,
+                from_uom_id=line.purchase_uom_id,
+                to_uom_id=line.inventory_uom_id,
+                on_date=order.purchase_date,
+                firm_scope=order.firm_id,
+            )
 
-            def fallback(product_id: UUID = line.product_id) -> LinePrice:
+            def fallback(
+                product_id: UUID = line.product_id, factor: Decimal = factor
+            ) -> LinePrice:
                 """Return a dated revision's price, else the product's own."""
                 revised = price_in_force(
                     self._session,
@@ -2354,19 +2372,26 @@ class PurchaseService(TransactionalDocumentService):
                     on=order.purchase_date,
                 )
                 if revised is not None:
-                    return LinePrice(price=revised, source="PRICE_REVISION")
+                    return LinePrice(
+                        price=self._q(revised * factor), source="PRICE_REVISION"
+                    )
                 own = self._session.get(Product, product_id)
                 return LinePrice(
-                    price=Decimal(str(getattr(own, "purchase_price", 0) or 0)),
+                    price=self._q(
+                        Decimal(str(getattr(own, "purchase_price", 0) or 0)) * factor
+                    ),
                     source="PRODUCT",
                 )
 
+            list_rate = lists.price_for(line.product_id, line.ordered_quantity * factor)
             resolved = resolve_supplier_unit_price(
                 typed=line.unit_price,
                 contract_rate=(
                     Decimal(str(contract.rate)) if contract is not None else None
                 ),
-                list_rate=lists.price_for(line.product_id, line.ordered_quantity),
+                list_rate=(
+                    list_rate if list_rate is None else self._q(list_rate * factor)
+                ),
                 catalogue_rate=(
                     Decimal(str(listed.unit_price))
                     if listed is not None and listed.unit_price is not None
