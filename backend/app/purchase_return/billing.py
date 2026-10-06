@@ -84,6 +84,18 @@ def goods_billed(line: PurchaseInvoiceLine) -> Decimal:
     ).quantize(_FOUR)
 
 
+def charged_for(billed: PurchaseInvoiceLine, *, quantity: Decimal) -> Decimal:
+    """Return what a bill line charged for some of its units, before tax.
+
+    The goods and the line's own charges, by quantity: the most a return of
+    those units can state, whatever it has typed (D-PRC-71).
+    """
+    units = Decimal(str(billed.current_invoice_quantity))
+    if units <= ZERO or quantity <= ZERO:
+        return ZERO
+    return (goods_billed(billed) * min(quantity, units) / units).quantize(_FOUR)
+
+
 def charging_bill_lines(
     session: Session, receipt_line_ids: Iterable[UUID]
 ) -> dict[UUID, list[PurchaseInvoiceLine]]:
@@ -422,8 +434,11 @@ class BilledWorth:
     #: that part is still worth.
     parts: tuple[tuple[PurchaseInvoiceLine, Decimal, Decimal], ...]
     #: True where a bill line among them carries an approved debit note:
-    #: only then is there anything to net.
+    #: what the units are still worth is then less than they were billed at.
     claimed_against: bool
+    #: What the bills charged for those units, goods and the lines' own
+    #: charges, before anything was taken off them (D-PRC-71).
+    charged: Decimal = ZERO
 
     @property
     def quantity(self) -> Decimal:
@@ -486,9 +501,28 @@ class BillWorths:
             )
 
     def worth(
-        self, bill_lines: Sequence[PurchaseInvoiceLine], quantity: Decimal
+        self,
+        bill_lines: Sequence[PurchaseInvoiceLine],
+        quantity: Decimal,
+        *,
+        exact: Decimal | None = None,
     ) -> BilledWorth:
-        """Return what these billed units are still worth on their bills."""
+        """Return what these billed units are still worth on their bills.
+
+        Args:
+            bill_lines: The bill lines that charged the units, earliest first.
+            quantity: The billed units going back, as the line stores them.
+            exact: The same units before rounding, for a line typed in
+                another unit: seven pieces of a box at 720.00 are worth
+                420.00, and the 0.5833 of a box stored is worth 419.98.
+
+        Returns:
+            The bill lines the units fall on, with what they are worth.
+
+        """
+        scale = Decimal("1")
+        if exact is not None and quantity > ZERO:
+            scale = exact / quantity
         missing = [line for line in bill_lines if line.id not in self._claims]
         if missing:
             self._claims.update(
@@ -501,6 +535,7 @@ class BillWorths:
             for line in bill_lines
         }
         parts = []
+        charged = ZERO
         for line, part in place_on_bills(bill_lines, quantity, returned=returned):
             taken_quantity, taken_taxable = self._taken[line.id]
             parts.append(
@@ -510,17 +545,19 @@ class BillWorths:
                     still_worth(
                         line,
                         self._claims[line.id],
-                        quantity=part,
+                        quantity=part * scale,
                         taken_quantity=taken_quantity,
                         taken_taxable=taken_taxable,
                     ),
                 )
             )
+            charged += charged_for(line, quantity=part * scale)
         return BilledWorth(
             parts=tuple(parts),
             claimed_against=any(
                 self._claims[line.id].claimed_taxable > ZERO for line, _, _ in parts
             ),
+            charged=charged,
         )
 
     def take(self, worth: BilledWorth, taxable: Decimal) -> None:
@@ -543,6 +580,7 @@ __all__ = [
     "BilledWorth",
     "bill_line_claims",
     "billed_share",
+    "charged_for",
     "charging_bill_lines",
     "goods_billed",
     "place_on_bills",
