@@ -14,13 +14,18 @@ destroyed a vendor's addresses, so silence has to leave the rows alone.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.pagination import PaginationParams
 from app.customers.models import Customer
 from app.pricing.models import PriceList, PriceListItem
@@ -32,6 +37,9 @@ from app.pricing.schemas import (
 )
 from app.products.models import Product
 from app.sales.models.territory import SalesTerritoryNode
+
+#: The fields of a list that name who it is for.
+_PARTIES = ("customer_id", "territory_id", "vendor_id")
 
 
 class PriceListService:
@@ -107,6 +115,10 @@ class PriceListService:
     ) -> PriceList:
         """Create one price list and its rates."""
         self._assert_code_free(firm_scope, data.code)
+        self._check_parties(
+            data.model_dump(include=set(_PARTIES)), firm_scope=firm_scope
+        )
+        self._check_items(data, firm_scope=firm_scope)
         row = PriceList(
             firm_id=firm_scope,
             code=data.code,
@@ -159,6 +171,18 @@ class PriceListService:
         values = data.model_dump(exclude={"items"}, exclude_unset=True)
         if "code" in values and values["code"] != row.code:
             self._assert_code_free(firm_scope, str(values["code"]))
+        # Only a party that is changing: a list already naming a customer
+        # retired since can still be saved around it.
+        self._check_parties(
+            {
+                field: value
+                for field, value in values.items()
+                if field in _PARTIES and value != getattr(row, field)
+            },
+            firm_scope=firm_scope,
+        )
+        if "items" in data.model_fields_set:
+            self._check_items(data, firm_scope=firm_scope)
         for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
@@ -197,6 +221,73 @@ class PriceListService:
             before_data={"code": row.code},
         )
         self._session.commit()
+
+    def _check_parties(self, values: dict[str, object], *, firm_scope: UUID) -> None:
+        """Refuse a customer, territory or supplier that is not the firm's.
+
+        Asked before the write and by name. In a firm's own store another
+        firm's id fails the foreign key, which answered only that the request
+        conflicted with existing data; in the shared store it was accepted,
+        and the list then named a customer its firm cannot see (D-PRC-12).
+        """
+        from app.vendors.models import Vendor
+
+        masters: dict[str, tuple[type[Customer | SalesTerritoryNode | Vendor], str]]
+        masters = {
+            "customer_id": (Customer, "customer"),
+            "territory_id": (SalesTerritoryNode, "territory"),
+            "vendor_id": (Vendor, "supplier"),
+        }
+        for field, (model, label) in masters.items():
+            row_id = values.get(field)
+            if row_id is None:
+                continue
+            found = self._session.scalar(
+                select(model.id).where(
+                    model.id == row_id,
+                    model.firm_id == firm_scope,
+                    model.is_deleted.is_(False),
+                )
+            )
+            if found is None:
+                raise ValidationError(
+                    f"The {label} this price list names was not found in this firm."
+                )
+
+    def _check_items(self, data: PriceListWrite, *, firm_scope: UUID) -> None:
+        """Refuse a row naming a product not the firm's, or a break twice.
+
+        Both used to reach the database and come back as its error: a product
+        from elsewhere failed the foreign key, and two rows for one product
+        at one quantity failed `UQ_price_list_items_list_product_quantity`
+        (D-PRC-12). The rows are counted from one, as the screen lists them.
+        """
+        if not data.items:
+            return
+        codes: dict[UUID, str] = {
+            product_id: code
+            for product_id, code in self._session.execute(
+                select(Product.id, Product.code).where(
+                    Product.id.in_({item.product_id for item in data.items}),
+                    Product.firm_id == firm_scope,
+                    Product.is_deleted.is_(False),
+                )
+            )
+        }
+        seen: dict[tuple[UUID, Decimal], int] = {}
+        for number, item in enumerate(data.items, start=1):
+            if item.product_id not in codes:
+                raise ValidationError(
+                    f"Row {number}: the product was not found in this firm."
+                )
+            key = (item.product_id, item.min_quantity)
+            if key in seen:
+                raise ValidationError(
+                    f"Row {number}: {codes[item.product_id]} already has a rate "
+                    f"from a quantity of {item.min_quantity.normalize():f} on row "
+                    f"{seen[key]}. A product takes one rate at each quantity."
+                )
+            seen[key] = number
 
     def _replace_items(
         self,

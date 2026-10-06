@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SalesTargetSchema(BaseModel):
@@ -57,6 +57,21 @@ class SalesTargetStatus(StrEnum):
     INACTIVE = "INACTIVE"
 
 
+def _above_zero(value: Decimal | None) -> Decimal | None:
+    """Refuse a target of nothing.
+
+    A target of 0 is met by selling nothing at all, so it reads 100% achieved
+    from its first day and pays whatever bonus a commission rule hangs on the
+    target being met (D-PRC-20). A person with no target has no target row.
+    """
+    if value is not None and value <= 0:
+        raise ValueError(
+            "A target must be above zero. A target of nothing is always met, "
+            "and would pay its bonus on no sales at all."
+        )
+    return value
+
+
 class SalesTargetWrite(SalesTargetSchema):
     """Set one target."""
 
@@ -69,6 +84,12 @@ class SalesTargetWrite(SalesTargetSchema):
     target_amount: Decimal = Field(ge=0, max_digits=18, decimal_places=2)
     notes: str | None = None
     status: SalesTargetStatus = SalesTargetStatus.ACTIVE
+
+    @field_validator("target_amount")
+    @classmethod
+    def _target_is_above_zero(cls, value: Decimal | None) -> Decimal | None:
+        """Refuse a target of nothing (D-PRC-20)."""
+        return _above_zero(value)
 
     @model_validator(mode="after")
     def _period_is_ordered(self) -> "SalesTargetWrite":
@@ -111,6 +132,12 @@ class SalesTargetUpdate(SalesTargetSchema):
     )
     notes: str | None = None
     status: SalesTargetStatus | None = None
+
+    @field_validator("target_amount")
+    @classmethod
+    def _target_is_above_zero(cls, value: Decimal | None) -> Decimal | None:
+        """Refuse a target of nothing (D-PRC-20)."""
+        return _above_zero(value)
 
 
 class SalesTargetResponse(SalesTargetSchema):

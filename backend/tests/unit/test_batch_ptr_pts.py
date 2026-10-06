@@ -17,6 +17,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models.batch_serial import BatchRecord
+from app.batch_serial.schemas.batch_serial import BatchUpdate
+from app.batch_serial.services.batch_serial_service import (
+    BatchSerialService,
+    assert_trade_rates_within_mrp,
+)
 from app.business.models import (
     BusinessFeature,
     BusinessProfile,
@@ -193,6 +198,71 @@ def test_a_ptr_above_the_mrp_is_refused_at_receipt() -> None:
     later = _receipt(fixture, batch_number="B-4", pts=Decimal("121"))
     with pytest.raises(ValidationError, match="PTS 121.00 cannot exceed the MRP"):
         _complete(fixture, later)
+
+
+def test_a_pts_above_the_ptr_is_refused_wherever_a_rate_is_written() -> None:
+    """D-PRC-18: PTR 90 with PTS 95 was taken.
+
+    On the receipt's line, at completion against the batch's own PTR, and on
+    an edit of the batch -- with an MRP on file or without one.
+    """
+    refusal = "PTS 95.00 cannot exceed the PTR 90.00"
+    fixture = _pharma_receiver("PTR9")
+    with pytest.raises(ValidationError, match=refusal):
+        _receipt(
+            fixture,
+            batch_number="B-9",
+            mrp=Decimal("120"),
+            ptr=Decimal("90"),
+            pts=Decimal("95"),
+        )
+    with pytest.raises(ValidationError, match=refusal):
+        _receipt(fixture, batch_number="B-9", ptr=Decimal("90"), pts=Decimal("95"))
+    with pytest.raises(ValidationError, match=refusal):
+        assert_trade_rates_within_mrp(mrp=None, ptr=Decimal("90"), pts=Decimal("95"))
+
+    _complete(
+        fixture,
+        _receipt(
+            fixture,
+            batch_number="B-9",
+            mrp=Decimal("120"),
+            ptr=Decimal("90"),
+            pts=Decimal("80"),
+        ),
+    )
+    later = _receipt(fixture, batch_number="B-9", pts=Decimal("95"))
+    with pytest.raises(ValidationError, match=refusal):
+        _complete(fixture, later)
+    fixture.session.rollback()
+
+    batch = _batch(fixture, "B-9")
+    service = BatchSerialService(fixture.session)
+    with pytest.raises(ValidationError, match=refusal):
+        service.update_batch(
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            batch_id=batch.id,
+            data=BatchUpdate(pts=Decimal("95")),
+        )
+    with pytest.raises(ValidationError, match="PTS 80.00 cannot exceed the PTR 70.00"):
+        service.update_batch(
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            batch_id=batch.id,
+            data=BatchUpdate(ptr=Decimal("70")),
+        )
+    # Equal is in order: a firm may sell to both at one rate.
+    service.update_batch(
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        batch_id=batch.id,
+        data=BatchUpdate(pts=Decimal("90")),
+    )
+    assert (_batch(fixture, "B-9").ptr, _batch(fixture, "B-9").pts) == (
+        Decimal("90"),
+        Decimal("90"),
+    )
 
 
 def test_a_rate_without_a_batch_number_is_refused() -> None:

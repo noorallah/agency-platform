@@ -330,6 +330,13 @@ class ProductResponse(ProductSchema):
     selling_price: Decimal | None
     minimum_selling_price: Decimal | None = None
     mrp: Decimal | None
+    #: The three prices as they stand **today**, on the firm's own day: the
+    #: latest dated revision that names the price, or the price above where
+    #: none has started yet. The price above is the product's card; this is
+    #: what a document dated today takes (D-PRC-15).
+    purchase_price_in_force: Decimal | None = None
+    selling_price_in_force: Decimal | None = None
+    mrp_in_force: Decimal | None = None
     status: ProductStatus
     not_for_sale: bool = False
     shelf_life_days: int | None = None

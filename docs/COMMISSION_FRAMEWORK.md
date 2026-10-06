@@ -126,6 +126,26 @@ met the bill -- the settlement's for an allocation made with it, the bill's
 for an advance applied since -- and `net_sales.collected_net` reads it, so
 the report, the clawback re-read and the target achievement move together.
 
+## A target is above zero, and a payout says what state it is in
+
+**A target must be above zero** (D-PRC-20, 2026-10-06). `POST /sales-targets`
+took a `target_amount` of 0, and a target of nothing is met by selling
+nothing: it read 100% achieved from its first day and paid whatever
+`bonus_percentage` a rule hangs on the target being met. Refused on create
+and on an edit that names the amount: "A target must be above zero. A target
+of nothing is always met, and would pay its bonus on no sales at all."
+Somebody with no target has no target row, which reports `target_met: null`
+and earns no bonus.
+
+**Paying a payout that cannot be paid says why** (D-PRC-19, 2026-10-06). A
+second `POST .../pay` on a PAID payout answered "Only an approved payout can
+be paid. Approve it first...", which sends somebody looking for an approval
+that happened last week. Each state has its own answer: PAID, "This payout
+has already been paid on 06-10-2026. It cannot be paid a second time.";
+CANCELLED, "This payout was cancelled, and its entry reversed, so there is
+nothing to pay. Accrue the period again if it is still owed."; DRAFT keeps
+the sentence about approval.
+
 ## A commission payout is snapshotted, and it posts
 
 **A commission payout is snapshotted, and it posts.** `commission_payouts`

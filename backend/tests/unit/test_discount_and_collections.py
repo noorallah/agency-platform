@@ -328,6 +328,47 @@ def test_discount_by_salesman_and_by_product() -> None:
     ]
 
 
+def test_a_product_sold_with_no_discount_still_has_a_row() -> None:
+    """D-PRC-14: gross by product fell short of gross by customer.
+
+    Driven on SA: 5,141.33 by customer and by salesman, 4,941.33 by product.
+    The 200.00 was a product sold at no discount, left out of its report --
+    so the three did not describe the same sales.
+    """
+    firm = _Firm()
+    bill = firm.invoice(on=date(2026, 5, 3))
+    firm.line(bill, source="amount", discount="10", gross="300")
+    firm.line(bill, source="none", discount="0", gross="200", product=1)
+    # A customer given nothing at all is a row of the customer report too.
+    firm.line(
+        firm.invoice(on=date(2026, 5, 4), customer=1, salesman=False),
+        source="none",
+        discount="0",
+        gross="50",
+    )
+    window = (date(2026, 5, 1), date(2026, 5, 31))
+
+    by_product = get_discount_by_product(
+        report_scope(firm.id), firm.session, *window
+    ).data
+    assert [
+        (row.code, row.gross_amount, row.total_discount, row.discount_percent)
+        for row in by_product
+    ] == [
+        ("P0", Decimal("350.00"), Decimal("10.00"), Decimal("2.86")),
+        ("P1", Decimal("200.00"), Decimal("0.00"), Decimal("0.00")),
+    ]
+    totals = {
+        sum((row.gross_amount for row in read.data), Decimal("0"))
+        for read in (
+            get_discount_by_customer(report_scope(firm.id), firm.session, *window),
+            get_discount_by_salesman(report_scope(firm.id), firm.session, *window),
+            get_discount_by_product(report_scope(firm.id), firm.session, *window),
+        )
+    }
+    assert totals == {Decimal("550.00")}, "three readings of the same sales"
+
+
 def test_a_discount_page_costs_the_same_statements_at_any_length() -> None:
     firm = _Firm()
 

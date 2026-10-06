@@ -22,6 +22,13 @@ reaches it through the note's line. The bill's **share of a bill discount**
 is its own column: it is typed on the bill, or carried from the order where
 an offer may have set it, and the line does not say which.
 
+**Everything billed in the period has a row, discounted or not.** A product
+sold at full price reads a discount of nothing rather than being left out:
+with it left out the gross by product fell short of the gross by customer and
+by salesman by exactly what that product sold for, and the percentage beside
+it was of a smaller figure than the firm billed (D-PRC-14). The three
+dimensions add up to the same gross and the same discount.
+
 Grouped and paged in SQL; names are read once for the page.
 """
 
@@ -103,6 +110,10 @@ class DiscountReportService:
     ) -> list[DiscountRow]:
         """Return the discount given per ``dimension``, largest first.
 
+        Every customer, salesman or product billed in the window is a row,
+        one given no discount included, so each dimension's gross adds up to
+        what was billed.
+
         Raises:
             ValidationError: If ``dimension`` is not one of ``DIMENSIONS``.
 
@@ -176,7 +187,6 @@ class DiscountReportService:
                 *window.dated(SalesInvoice.invoice_date),
             )
             .group_by(key)
-            .having(total > 0)
             .order_by(total.desc(), case((key.is_(None), 1), else_=0), key)
         )
         if window.page is None:

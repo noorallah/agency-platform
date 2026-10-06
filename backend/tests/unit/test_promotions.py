@@ -23,7 +23,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch, Warehouse
 from app.core.database.base import Base
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.customers.models import Customer, CustomerGroup
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
@@ -2705,3 +2705,198 @@ def test_a_line_under_the_cap_is_untouched() -> None:
 
     assert result.lines[0].discount_amount == Decimal("100.00")
     assert not [d for d in result.decisions if "cap of" in d.reason]
+
+
+# ----------------------------------------------------------------------
+# D-PRC-10, 11, 12, 16: found by the pricing check of 2026-10-06
+# ----------------------------------------------------------------------
+
+
+def _request_session() -> Session:
+    """Open a session as a request does: one that does not flush on a read."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)()
+
+
+_TEN_OFF = [(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})]
+
+
+def test_the_offer_list_is_searched_by_code_as_well_as_name() -> None:
+    """D-PRC-11: WELCOME-NOV could not be found by typing NOV.
+
+    Two offers both named "Welcome"; the code is what tells them apart and
+    what the claims register prints, and the search matched the name alone.
+    """
+    session = _request_session()
+    firm = _firm(session)
+    for code in ("WELCOME-NOV", "WELCOME-DEC"):
+        _promotion(session, firm_id=firm.id, code=code, actions=_TEN_OFF).name = (
+            "Welcome"
+        )
+    session.commit()
+    service = PromotionCrudService(session)
+
+    def found(search: str) -> list[str]:
+        rows, total = service.list_promotions(
+            firm_scope=firm.id, page=1, page_size=20, search=search
+        )
+        assert total == len(rows), "the count is searched as the page is"
+        return [row.code for row in rows]
+
+    assert found("nov") == ["WELCOME-NOV"]
+    assert found("WELCOME-DEC") == ["WELCOME-DEC"]
+    assert found("welcome") == ["WELCOME-DEC", "WELCOME-NOV"]
+    assert found("easter") == []
+
+
+def test_an_edit_sent_to_a_replaced_revision_says_what_replaced_it() -> None:
+    """D-PRC-12: it answered only that the request conflicted with existing data.
+
+    Editing a published offer writes the next revision. The same edit sent
+    to the row it replaced asks for a revision number already taken, and the
+    database's refusal was all anybody was told.
+    """
+    session = _request_session()
+    firm = _firm(session)
+    first = _promotion(session, firm_id=firm.id, code="BULK5", actions=_TEN_OFF)
+    _supersede(session, first, code="BULK5")
+
+    with pytest.raises(ConflictError) as refusal:
+        _supersede(session, first, code="BULK5")
+
+    assert str(refusal.value) == (
+        "This is revision 1 of offer BULK5, and revision 2 has replaced it. "
+        "Open the current revision and edit that one."
+    )
+    assert session.scalar(select(func.count()).select_from(Promotion)) == 2
+
+
+def test_a_coupon_reads_as_its_offer_does() -> None:
+    """D-PRC-16: a code read ACTIVE under an offer that was switched off.
+
+    The status is derived on the read. An edit that keeps the offer running
+    leaves the code ACTIVE although the row it was minted against no longer
+    is; switching the offer off shows the code off, and writes nothing.
+    """
+    session = _request_session()
+    firm = _firm(session)
+    offer = _promotion(session, firm_id=firm.id, code="ONEOFF", actions=_TEN_OFF)
+    offer.requires_coupon = True
+    session.commit()
+    coupon = _coupon(session, firm_id=firm.id, promotion=offer, code="ONE1")
+    service = CouponService(session)
+    assert service.coupon_response(coupon).status == "ACTIVE"
+
+    _supersede(session, offer, code="ONEOFF")
+    edited = service.coupon_response(coupon)
+    assert (edited.status, edited.offer_status) == (
+        "ACTIVE",
+        "ACTIVE",
+    ), "the offer is its version group, not the row the code names"
+
+    live = session.scalar(
+        select(Promotion).where(
+            Promotion.version_group_id == offer.version_group_id,
+            Promotion.version_number == 2,
+        )
+    )
+    assert live is not None
+    PromotionCrudService(session).update_promotion(
+        live.id,
+        PromotionWrite(
+            code="ONEOFF",
+            name="One off",
+            status=PromotionStatus.INACTIVE,
+            requires_coupon=True,
+            conditions=[],
+            actions=[
+                PromotionActionWrite(
+                    sequence=1,
+                    action_type=PromotionActionType.LINE_DISCOUNT_PERCENT,
+                    percent=Decimal("10"),
+                )
+            ],
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+
+    shown = service.coupon_response(coupon)
+    assert shown.status == "INACTIVE"
+    assert (shown.own_status, shown.offer_status) == ("ACTIVE", "INACTIVE")
+    [listed] = service.coupon_responses(
+        service.list_coupons(firm_scope=firm.id, page=1, page_size=20)[0]
+    )
+    assert listed.status == "INACTIVE"
+    [reported] = PromotionReportService(session).coupon_report(firm_scope=firm.id)
+    assert reported.status == "INACTIVE"
+    session.refresh(coupon)
+    assert coupon.status == "ACTIVE", "derived on the read; nothing is written"
+
+
+def test_a_coupon_switched_off_stays_off_under_a_running_offer() -> None:
+    """The code's own setting still counts: only ACTIVE follows the offer."""
+    session = _request_session()
+    firm = _firm(session)
+    offer = _promotion(session, firm_id=firm.id, code="RUNNING", actions=_TEN_OFF)
+    coupon = _coupon(session, firm_id=firm.id, promotion=offer, code="PAUSED")
+    coupon.status = PromotionStatus.INACTIVE.value
+    session.commit()
+
+    shown = CouponService(session).coupon_response(coupon)
+
+    assert (shown.status, shown.own_status, shown.offer_status) == (
+        "INACTIVE",
+        "INACTIVE",
+        "ACTIVE",
+    )
+
+
+def test_a_free_goods_campaign_is_costed_in_units() -> None:
+    """D-PRC-10: every free-goods claim read as having cost nothing.
+
+    Goods given free take nothing off a bill, so `benefit_amount` is 0 for
+    them by design and the units are the figure. The coupon report carried
+    no units at all, and both reports sorted such a campaign level with one
+    nobody had claimed.
+    """
+    session = _request_session()
+    firm = _firm(session)
+    free = _promotion(session, firm_id=firm.id, code="FREE11")
+    unclaimed = _promotion(session, firm_id=firm.id, code="AAA-UNCLAIMED")
+    gift = _coupon(session, firm_id=firm.id, promotion=free, code="GIFT")
+    _coupon(session, firm_id=firm.id, promotion=unclaimed, code="AAA-UNUSED")
+    for units in ("3", "2"):
+        session.add(
+            PromotionRedemption(
+                firm_id=firm.id,
+                promotion_id=free.id,
+                coupon_id=gift.id,
+                document_type="SALES_ORDER",
+                document_id=uuid4(),
+                redeemed_on=date(2026, 8, 4),
+                benefit_amount=Decimal("0"),
+                free_quantity=Decimal(units),
+                status="CLAIMED",
+            )
+        )
+    session.commit()
+    reports = PromotionReportService(session)
+
+    coupons = reports.coupon_report(firm_scope=firm.id)
+    performance = reports.performance_report(firm_scope=firm.id)
+
+    assert [(row.code, row.free_quantity) for row in coupons] == [
+        ("GIFT", Decimal("5")),
+        ("AAA-UNUSED", Decimal("0")),
+    ], "the code that gave goods away is costed, and listed first"
+    assert coupons[0].benefit_amount == Decimal("0")
+    assert [(row.code, row.free_quantity) for row in performance] == [
+        ("FREE11", Decimal("5")),
+        ("AAA-UNCLAIMED", Decimal("0")),
+    ]

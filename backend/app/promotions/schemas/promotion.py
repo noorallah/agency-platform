@@ -617,7 +617,16 @@ class PromotionCouponResponse(PromotionSchema):
     promotion_code: str
     code: str
     description: str | None
+    #: What the code reads as, which follows its offer: a code left ACTIVE
+    #: under an offer that is switched off reads as the offer does, because
+    #: presenting it gives nothing. Derived on read, never stored.
     status: str
+    #: What the code itself is set to, and what an editor sends back. Sending
+    #: `status` back instead would switch the code off for good the first
+    #: time somebody saved it under a paused offer.
+    own_status: str = "ACTIVE"
+    #: The status of the offer's current revision.
+    offer_status: str = "ACTIVE"
     max_redemptions: int | None
     max_redemptions_per_customer: int | None
     effective_from: date | None
@@ -686,7 +695,11 @@ class PromotionRedemptionRecord(PromotionSchema):
     document_id: UUID
     document_number: str | None
     redeemed_on: date
+    #: The money the claim took off the document.
     benefit_amount: Decimal
+    #: The units it gave free. A free-goods offer is costed here and reads
+    #: zero above: goods given free are charged nothing, so they take nothing
+    #: off the bill, and no worth is stored for them on the claim.
     free_quantity: Decimal = Decimal("0")
     status: str
 
@@ -705,9 +718,14 @@ class PromotionCouponPerformanceRecord(PromotionSchema):
     code: str
     promotion_id: UUID
     promotion_code: str
+    #: Follows the offer, as the coupon list's does.
     status: str
     claimed_count: int
     customer_count: int
     benefit_amount: Decimal
+    #: The free units the code's claims gave. Goods given free take nothing
+    #: off a bill, so `benefit_amount` is zero for them and this is the only
+    #: figure a free-goods code has.
+    free_quantity: Decimal = Decimal("0")
     max_redemptions: int | None
     remaining_redemptions: int | None

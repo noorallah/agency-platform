@@ -13,12 +13,21 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from fastapi import Response
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from app.core.database.base import Base
 from app.core.exceptions import ConflictError
 from app.core.utils.pricing import resolve_unit_price
 from app.customers.models import Customer, CustomerGroup
+from app.pricing.api.price_levels_router import (
+    create_price_level,
+    delete_price_level,
+    list_price_levels,
+    update_price_level,
+)
 from app.pricing.models import PriceList, PriceListItem
 from app.pricing.schemas.price_level import (
     PriceLevelWrite,
@@ -29,6 +38,7 @@ from app.pricing.services.price_levels import PriceLevelService
 from app.pricing.services.unit_price import UnitPriceResolver
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from tests.unit.report_windows import report_scope
 from tests.unit.test_sales_order_module import (
     _branch,
     _customer,
@@ -176,3 +186,60 @@ def test_a_level_still_held_cannot_be_retired() -> None:
     assert dealer.code == "DEALER"
     with pytest.raises(ConflictError, match="Move them to another level"):
         levels.delete(dealer.id, firm_id=firm.id, actor_id=uuid4())  # type: ignore[attr-defined]
+
+
+def test_a_price_level_publishes_its_version_and_refuses_a_stale_one() -> None:
+    """D-PRC-13: `If-Match: "99"` was answered 200, and no route gave an ETag.
+
+    Driven through the route functions on a session that does not flush on a
+    read, as a request's does not.
+    """
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)()
+    scope = report_scope(uuid4())
+
+    answer = Response()
+    created = create_price_level(
+        PriceLevelWrite(code="dealer", name="Dealer"),
+        scope,
+        response=answer,
+        db=session,
+    ).data
+    assert created is not None
+    assert answer.headers["ETag"] == f'"{created.version}"'
+
+    with pytest.raises(ConflictError, match="changed since you loaded it"):
+        update_price_level(
+            created.id,
+            PriceLevelWrite(code="DEALER", name="Dealers"),
+            scope,
+            response=Response(),
+            expected_version=99,
+            db=session,
+        )
+
+    answer = Response()
+    updated = update_price_level(
+        created.id,
+        PriceLevelWrite(code="DEALER", name="Dealers"),
+        scope,
+        response=answer,
+        expected_version=created.version,
+        db=session,
+    ).data
+    assert updated is not None
+    assert (updated.name, updated.version) == ("Dealers", created.version + 1)
+    assert answer.headers["ETag"] == f'"{updated.version}"'
+    [listed] = list_price_levels(scope, db=session).data or []
+    assert listed.version == updated.version, "a list row carries what to send back"
+
+    with pytest.raises(ConflictError, match="changed since you loaded it"):
+        delete_price_level(
+            created.id, scope, expected_version=created.version, db=session
+        )
+    # Sending nothing is still taken: the precondition is opt-in.
+    delete_price_level(created.id, scope, expected_version=None, db=session)
+    assert list_price_levels(scope, db=session).data == []

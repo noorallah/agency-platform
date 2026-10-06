@@ -13,7 +13,8 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine
+import pytest
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -21,9 +22,12 @@ from sqlalchemy.pool import StaticPool
 # `all_models` -- so `create_all` below sees the whole schema without this
 # file listing it.
 from app.core.database.base import Base
+from app.core.exceptions import ValidationError
 from app.core.utils.pricing import resolve_line_discount
 from app.customers.models import Customer
 from app.pricing.models import PriceList, PriceListItem
+from app.pricing.schemas import PriceListWrite
+from app.pricing.services.price_list_crud import PriceListService
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
 
@@ -345,3 +349,122 @@ def test_no_list_falls_through_to_the_blanket_rate() -> None:
 
     assert result.amount == Decimal("50.00")
     assert result.source == "customer"
+
+
+# ----------------------------------------------------------------------
+# D-PRC-12: a price list says what clashed, before it writes
+# ----------------------------------------------------------------------
+
+
+def _request_session() -> Session:
+    """Open a session as a request does: one that does not flush on a read."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)()
+
+
+def _write(product_id: UUID, **changes: object) -> PriceListWrite:
+    """Describe a list of one rate, with whatever a test changes."""
+    return PriceListWrite.model_validate(
+        {
+            "code": "PL-1",
+            "name": "Dealers",
+            "effective_from": date(2026, 1, 1),
+            "items": [{"product_id": product_id, "discount_percent": "5"}],
+            **changes,
+        }
+    )
+
+
+def test_a_price_list_names_what_clashed_before_it_writes() -> None:
+    """D-PRC-12: each of these answered only that the request conflicted.
+
+    A product or a customer of another firm, and one product twice at one
+    quantity. The first two reached the foreign key -- and in a store two
+    firms share they did not even fail -- and the third the unique key.
+    """
+    session = _request_session()
+    firm_id, other_firm = uuid4(), uuid4()
+    product = _product(session, firm_id)
+    theirs = _product(session, other_firm, code="SKU-THEIRS")
+    their_customer = _customer(session, other_firm)
+    service = PriceListService(session)
+
+    def create(**changes: object) -> PriceList:
+        return service.create(
+            _write(product.id, **changes), firm_scope=firm_id, actor_id=uuid4()
+        )
+
+    with pytest.raises(ValidationError) as refusal:
+        create(
+            items=[
+                {"product_id": product.id, "discount_percent": "5"},
+                {"product_id": theirs.id, "discount_percent": "5"},
+            ]
+        )
+    assert str(refusal.value) == "Row 2: the product was not found in this firm."
+
+    with pytest.raises(ValidationError) as refusal:
+        create(customer_id=their_customer.id)
+    assert str(refusal.value) == (
+        "The customer this price list names was not found in this firm."
+    )
+
+    with pytest.raises(ValidationError) as refusal:
+        create(
+            items=[
+                {"product_id": product.id, "min_quantity": "10", "rate": "75"},
+                {"product_id": product.id, "min_quantity": "10.00", "rate": "70"},
+            ]
+        )
+    assert str(refusal.value) == (
+        "Row 2: SKU-1 already has a rate from a quantity of 10 on row 1. "
+        "A product takes one rate at each quantity."
+    )
+    assert session.scalar(select(func.count()).select_from(PriceList)) == 0
+    assert session.scalar(select(func.count()).select_from(PriceListItem)) == 0
+
+
+def test_an_edit_to_a_price_list_is_checked_as_a_new_one_is() -> None:
+    """The rows sent on an edit, and a party only where it is changing."""
+    session = _request_session()
+    firm_id, other_firm = uuid4(), uuid4()
+    product = _product(session, firm_id)
+    theirs = _product(session, other_firm, code="SKU-THEIRS")
+    their_customer = _customer(session, other_firm)
+    service = PriceListService(session)
+    stored = service.create(_write(product.id), firm_scope=firm_id, actor_id=uuid4())
+
+    with pytest.raises(ValidationError, match="Row 1: the product was not found"):
+        service.update(
+            stored.id,
+            _write(theirs.id),
+            firm_scope=firm_id,
+            actor_id=uuid4(),
+        )
+    with pytest.raises(ValidationError, match="The customer this price list names"):
+        service.update(
+            stored.id,
+            _write(product.id, customer_id=their_customer.id),
+            firm_scope=firm_id,
+            actor_id=uuid4(),
+        )
+
+    # Two breaks for one product are still a ladder, not a clash.
+    service.update(
+        stored.id,
+        _write(
+            product.id,
+            items=[
+                {"product_id": product.id, "min_quantity": "0", "rate": "80"},
+                {"product_id": product.id, "min_quantity": "10", "rate": "75"},
+            ],
+        ),
+        firm_scope=firm_id,
+        actor_id=uuid4(),
+    )
+    assert len(service.response(stored).items) == 2

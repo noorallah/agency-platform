@@ -12,7 +12,7 @@ be if the offer behind it was quietly rewritten.
 from collections.abc import Iterable
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
@@ -83,9 +83,13 @@ class PromotionCrudService:
             statement = statement.where(Promotion.status == status.value)
             count = count.where(Promotion.status == status.value)
         if search:
+            # The code as well as the name: the code is what a scheme
+            # circular prints and what the claims register lists, so it is
+            # what somebody types (D-PRC-11).
             token = f"%{search.strip()}%"
-            statement = statement.where(Promotion.name.ilike(token))
-            count = count.where(Promotion.name.ilike(token))
+            match = or_(Promotion.name.ilike(token), Promotion.code.ilike(token))
+            statement = statement.where(match)
+            count = count.where(match)
         rows = list(
             self._session.scalars(
                 statement.order_by(
@@ -244,6 +248,7 @@ class PromotionCrudService:
             self._session.commit()
             return row
 
+        self._assert_not_superseded(row)
         successor = Promotion(
             firm_id=firm_scope,
             code=row.code,
@@ -316,6 +321,28 @@ class PromotionCrudService:
             before_data={"code": row.code, "status": row.status},
         )
         self._session.commit()
+
+    def _assert_not_superseded(self, row: Promotion) -> None:
+        """Refuse an edit sent to a revision that has already been replaced.
+
+        Editing a published offer writes the next revision, and the number
+        after this one is taken once that has happened -- so the write
+        collided with `UQ_promotions_firm_code_version` and answered only that
+        the request conflicted with existing data (D-PRC-12). Asked here
+        instead, and of every row whether retired or not, because the key
+        counts a retired revision too.
+        """
+        latest = self._session.scalar(
+            select(func.max(Promotion.version_number)).where(
+                Promotion.firm_id == row.firm_id, Promotion.code == row.code
+            )
+        )
+        if latest is not None and latest > row.version_number:
+            raise ConflictError(
+                f"This is revision {row.version_number} of offer {row.code}, "
+                f"and revision {latest} has replaced it. Open the current "
+                "revision and edit that one."
+            )
 
     def _has_live_version(self, row: Promotion, *, firm_scope: UUID) -> bool:
         """Whether any version of this offer is still live."""
