@@ -43,6 +43,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLineTax,
 )
 from app.sales_invoice.services import SalesInvoiceService
+from app.uom.models import Uom
 
 # Fixtures here type their document numbers; see conftest (D-CFG-2).
 pytestmark = pytest.mark.typed_document_numbers
@@ -1440,3 +1441,27 @@ def test_the_print_route_offers_the_reference_copy() -> None:
     for route in (print_sales_invoice, print_credit_note, print_debit_note):
         parameter = inspect.signature(route).parameters["reference_copy"]
         assert parameter.default is False
+
+
+def test_a_bill_typed_in_another_unit_is_registered_as_the_bill_states_it() -> None:
+    """D-PRC-40: 120 PIECE of 10 BOX go to the portal as 120 at 8.333.
+
+    The row stores the line in its source line's unit -- 10 at 100.00 -- and
+    that is what was sent, beside a printed bill that says 120 pieces.
+    """
+    books = _Books(_session_factory()())
+    piece = Uom(code="PIECE", name="Piece", dimension="COUNT", status="ACTIVE")
+    books.session.add(piece)
+    books.session.flush()
+    books.line.invoice_uom_id = piece.id
+    books.line.entered_quantity = Decimal("120")
+    books.line.conversion_factor = Decimal("0.0833333333")
+    books.session.commit()
+
+    payload = EInvoicePayloadBuilder(books.session).build(
+        books.invoice, firm_id=books.firm.id
+    )
+
+    item = payload["ItemList"][0]
+    assert (item["Qty"], item["UnitPrice"]) == (120.0, 8.333)
+    assert (item["TotAmt"], item["AssAmt"]) == (1000.0, 1000.0)

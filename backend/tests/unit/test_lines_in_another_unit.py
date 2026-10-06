@@ -52,12 +52,18 @@ from app.quotation.services.quotation_service import QuotationService
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.schemas import SalesInvoiceCreate
 from app.sales_invoice.services import SalesInvoiceService
+from app.sales_invoice.services.invoice_print_service import (
+    SalesInvoicePrintService,
+)
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate
 from app.sales_order.services.sales_order_service import SalesOrderService
 from app.sales_return.models import SalesReturn, SalesReturnLine
 from app.sales_return.schemas import SalesReturnCreate
 from app.sales_return.services import SalesReturnService
+from app.sales_return.services.credit_note_print_service import (
+    CreditNotePrintService,
+)
 from app.uom.models import ConversionRule, Uom
 from tests.unit.test_purchase_management import _vendor
 from tests.unit.test_sales_chain_synthesis import _Firm, _request_session
@@ -900,3 +906,93 @@ def test_half_a_box_typed_as_a_box_is_refused_where_it_is_saved() -> None:
     assert str(on_the_return.value.message) == words
     assert shop.session.scalars(select(SalesInvoice)).all() == []
     assert shop.session.scalars(select(SalesReturn)).all() == []
+
+
+# ---- the unit printed (D-PRC-40) -------------------------------------------
+#
+# The third live check: a note of 2 BOX billed as 24 PIECE printed "2 | PIECE
+# | 1,200.00" on the tax invoice, and a box line billed in its own unit
+# printed no unit at all while its order and challan printed BOX.
+
+
+def _printed(shop: _Shop, bill: SalesInvoice) -> tuple[Decimal, str | None, Decimal]:
+    """Return the quantity, unit and rate the tax invoice prints for its line."""
+    document = SalesInvoicePrintService(shop.session)._document(
+        bill, firm_scope=shop.firm_id
+    )
+    [line] = document.lines
+    return D(str(line.quantity)), line.uom, D(str(line.rate))
+
+
+def test_a_bill_typed_in_pieces_prints_pieces_at_the_price_of_a_piece() -> None:
+    """24 PIECE of 2 BOX prints 24 PIECE at 100.00; 7 prints 7 at 100.00."""
+    shop = _Shop()
+    whole, _ = _bill(shop, _shipped(shop), "24", invoice_uom_id=shop.piece)
+    part, _ = _bill(shop, _shipped(shop), "7", invoice_uom_id=shop.piece)
+
+    assert _printed(shop, whole) == (D("24.0000"), "PIECE", D("100.0000"))
+    assert _printed(shop, part) == (D("7.0000"), "PIECE", D("100.0000"))
+
+
+def test_a_box_line_billed_in_its_own_unit_prints_box() -> None:
+    """2 with no unit named, of a note of 2 BOX, prints 2 BOX at 1,200.00."""
+    shop = _Shop()
+    bill, _ = _bill(shop, _shipped(shop), "2")
+
+    assert _printed(shop, bill) == (D("2.0000"), "BOX", D("1200.0000"))
+
+
+def test_a_bill_of_a_line_that_names_no_unit_prints_the_stock_unit() -> None:
+    """A counter bill of 3 with no unit anywhere prints 3 PIECE."""
+    shop = _Shop(counter=True)
+    bill = SalesInvoiceService(shop.session).create_invoice(
+        SalesInvoiceCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "invoice_date": DAY,
+                "lines": [
+                    {
+                        "product_id": shop.setup.product.id,
+                        "line_number": 1,
+                        "current_invoice_quantity": "3",
+                    }
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+    assert _printed(shop, bill) == (D("3.0000"), "PIECE", D("100.0000"))
+
+
+def test_a_line_typed_before_it_kept_what_was_typed_prints_its_stored_unit() -> None:
+    """An old row -- 2 stored, typed as PIECE, nothing kept -- prints 2 BOX."""
+    shop = _Shop()
+    bill, line = _bill(shop, _shipped(shop), "24", invoice_uom_id=shop.piece)
+    line.entered_quantity = None
+    shop.session.commit()
+
+    assert _printed(shop, bill) == (D("2.0000"), "BOX", D("1200.0000"))
+
+
+def test_a_credit_note_of_pieces_prints_pieces() -> None:
+    """7 PIECE back off a bill of 2 BOX prints 7 PIECE at 100.00; 1 prints BOX."""
+    shop = _Shop()
+    bill, billed = _bill(shop, _shipped(shop), "2")
+    source = ("SALES_INVOICE", bill.id, billed.id)
+
+    def printed(line: SalesReturnLine) -> tuple[Decimal, str | None, Decimal]:
+        """Return what the credit note prints for a return's one line."""
+        row = shop.session.get(SalesReturn, line.sales_return_id)
+        document = CreditNotePrintService(shop.session)._document(
+            row, firm_scope=shop.firm_id
+        )
+        [stated] = document.lines
+        return D(str(stated.quantity)), stated.uom, D(str(stated.rate))
+
+    pieces = _brought_back(shop, source, "7", return_uom_id=shop.piece)
+    box = _brought_back(shop, source, "1")
+
+    assert printed(pieces) == (D("7.0000"), "PIECE", D("100.0000"))
+    assert printed(box) == (D("1.0000"), "BOX", D("1200.0000"))

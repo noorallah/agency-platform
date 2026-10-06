@@ -92,7 +92,11 @@ class SalesOrderPrintService:
             ).all()
         )
         products = self._products(line.product_id for line in lines)
-        units = self._units(line.sales_uom_id for line in lines)
+        # A line that names no selling unit is counted in its stock unit,
+        # and prints that rather than no unit at all (D-PRC-40).
+        units = self._units(
+            line.sales_uom_id or line.inventory_uom_id for line in lines
+        )
 
         printed = [
             InvoiceLineBlock(
@@ -112,8 +116,8 @@ class SalesOrderPrintService:
                 quantity=line.quantity,
                 free_quantity=line.free_quantity,
                 uom=(
-                    units[line.sales_uom_id].code
-                    if line.sales_uom_id in units
+                    units[unit_id].code
+                    if (unit_id := line.sales_uom_id or line.inventory_uom_id) in units
                     else None
                 ),
                 rate=line.unit_price,

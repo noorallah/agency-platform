@@ -263,6 +263,7 @@ _LINE_COLUMNS = (
     SalesInvoiceLine.product_id,
     SalesInvoiceLine.hsn_sac,
     SalesInvoiceLine.current_invoice_quantity,
+    SalesInvoiceLine.entered_quantity,
     SalesInvoiceLine.tax_profile_id,
     SalesInvoiceLine.gross_amount,
     SalesInvoiceLine.discount_amount,
@@ -1721,7 +1722,14 @@ class GstReturnService:
                         ]
                     ),
                     self._billed(line.hsn_sac, products.get(line.product_id)),
-                    _decimal(line.current_invoice_quantity),
+                    # The quantity the bill states -- 24 for a bill typed
+                    # 24 PIECE of a note of 2 BOX -- which is what the
+                    # e-invoice of the same line reports (D-PRC-40).
+                    _decimal(
+                        line.current_invoice_quantity
+                        if line.entered_quantity is None
+                        else line.entered_quantity
+                    ),
                     self._kind(line, taxes.get(line.id, [])),
                 )
                 for line in sorted(

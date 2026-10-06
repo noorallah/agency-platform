@@ -298,6 +298,45 @@ stock in the typed unit beside a quantity in the source's.
 `tests/unit/test_lines_in_another_unit.py` and
 `tests/unit/test_purchase_lines_in_another_unit.py` drive all of it.
 
+### What a document states: quantity, unit and rate that belong together (D-PRC-40, 2026-10-06)
+
+A bill typed 24 PIECE of a note of 2 BOX printed **"2 | PIECE | 1,200.00"** on
+the tax invoice -- the stored quantity and price, which are the note line's,
+beside the unit the bill was typed in: two pieces for 1,200.00 each. And a
+box line billed in its own unit names no `invoice_uom_id`, so its tax invoice
+printed **no unit at all** while its order and its challan printed BOX.
+
+`stated_line` in `app/uom/services/uom_service.py` gives the three figures as
+one answer:
+
+- a line that **kept what was typed** (`entered_quantity`) is stated as
+  typed: 24 PIECE at 100.00, 7 PIECE at 100.00 -- the rate being the stored
+  price of a source unit times the line's factor;
+- any other line is stated **in the unit its quantity is in**, the source
+  line's: 2 BOX at 1,200.00. That includes a line typed in another unit
+  before lines kept what was typed -- the typed figure cannot be recovered
+  from four places, and 2 BOX is true of it.
+
+| Document | Quantity | Unit printed | Rate |
+| --- | --- | --- | --- |
+| Tax invoice, thermal bill (`stated_invoice_lines`) | as typed, else `current_invoice_quantity` | the typed unit, else the unit of the note or order line billed, read off that line; then `order_uom_id`; then the product's stock unit | of that unit |
+| Credit note of a sales return | as typed, else `current_return_quantity` | `return_uom_id` as typed, else `sales_uom_id` (the source line's) | of that unit |
+| Quotation, order confirmation, delivery challan | the line's own | `sales_uom_id`, else the line's `inventory_uom_id` | the line's own |
+| Purchase order | the line's own | `purchase_uom_id` | the line's own |
+| Financial credit and debit notes | the line's own | none: the line carries no unit | taxable over quantity |
+
+There is no printed purchase return and no printed proforma of its own.
+
+**The e-invoice and GSTR-1 say what the bill says.** Neither names a unit:
+the e-invoice payload sends no `Unit` (the portal's UQC codes are not this
+system's unit codes, and nothing maps them), and GSTR-1's HSN summary is
+keyed on the code and the rate. Both report a **quantity**, and both now
+report the one the bill states -- `Qty` 24 and `UnitPrice` 100.000 for the
+bill above, and 24 in the HSN summary -- where they reported the stored 2
+(at 1,200.00). For a box line billed by the box both report 2. The e-invoice
+reads `stated_invoice_lines`, the function the print reads, so the paper and
+the portal cannot state a line differently.
+
 `business_profile_uom_defaults` supplies the starting point for a firm's
 industry (base, inventory, purchase and sales units, plus the two fraction
 flags), with `firm_id` nullable so a platform default can be overridden per
