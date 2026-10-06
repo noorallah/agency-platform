@@ -470,9 +470,49 @@ whether its order line gives any. **The desktop's note editor still sends an
 explicit `0`** from a box that starts at 0, so the screen ships no free goods
 until it sends nothing for a blank box.
 
+**A principal is asked for what was passed on to a customer, not for what an
+order claimed** (D-PRC-27, 2026-10-06). A redemption is the order's: it is
+claimed at approval and its `benefit_amount` is what the offer took off the
+order. The claim read that figure, so with a 10% offer of which the principal
+bears half, an order of 4 at 100.00 claimed 20.00 from the principal whether
+it was never delivered, closed after half was delivered (10.00 passed on) or
+billed and returned in full. The scheme money on a claim is now read off the
+**approved bills dated in the claim's period**
+(`app/principal_claims/services/passed_on.py`): each bill line's share of its
+order line -- the part of the note line it billed times the part of the order
+line that note shipped -- of what the offer took off that order line (the line
+discount where the order line's `discount_source` is `promotion`, its share of
+the bill discount where the order's `bill_discount_source` is `promotion`, a
+waived delivery charge by value). That is the figure the bill line inherited
+(`continued_share`), taken from the order's own numbers so a discount somebody
+typed over downstream is not charged to the principal. **Less what came
+back**: a completed sales return of the bill line or of the note line it
+billed, and an approved credit note against it, take the same share of the
+discount back -- 1 of 4 returned leaves three quarters. Nothing billed,
+nothing claimed. Three things to know:
+
+- **The source is the redemption and the bill**, `scheme_bill_source`, a
+  fixed-namespace key like a rate difference's, so a line reads
+  `source_number` = the bill's number, `source_date` = the bill's date and
+  "Promotion P10 on order SO-...". Two part bills are two sources; a part
+  billed in a later month is claimed in that month's claim and in no other;
+  and the partial unique index on the lines refuses the same bill's discount
+  a second time.
+- **A claim already raised is not rewritten.** One raised before this rule
+  holds the redemption whole under its own id, and none of that redemption's
+  bills is claimed again while it stands.
+- **An order records one discount per line, not which offer gave how much of
+  it**, so where several offers took money off one order each redemption
+  takes the order's passed-on discount in proportion to its own benefit. With
+  one offer on the order that is the discount exactly.
+
+Returns and credit notes are netted as they stand when the claim is previewed
+or raised, whatever their date. `tests/unit/test_principal_claim_scheme_bills.py`
+is the guard.
+
 **Goods given free are claimed from the principal at what they cost**
-(2026-10-06). A claim (`app/principal_claims`) counted a scheme's redemptions
-at `benefit_amount`, and free goods are no part of that figure -- they take
+(2026-10-06). A claim (`app/principal_claims`) counted a scheme's money
+from its redemptions' `benefit_amount`, and free goods are no part of that figure -- they take
 nothing off a bill -- so a principal's "2 + 1" offer claimed nothing, and the
 "10 + 1" a salesman types was no source at all. Both now are, from one read of
 the period's **shipped** delivery note lines (`_free_goods`), valued from the
