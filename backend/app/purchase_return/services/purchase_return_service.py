@@ -76,6 +76,7 @@ from app.purchase_invoice.services.reverse_charge import (
     reverse_charge_share,
 )
 from app.purchase_invoice.services.rupees import bill_line_rupee_rates
+from app.purchase_return.billing import BillWorths, billed_share
 from app.purchase_return.models import (
     PurchaseReturn,
     PurchaseReturnAccountingEvent,
@@ -734,6 +735,9 @@ class PurchaseReturnService(TransactionalDocumentService):
         # accrual; only the rest is a debit note (D-BUY-26).
         grni_amount = self._split_against_billing(lines)
         self._session.flush()
+        # A debit note approved since the return was priced has taken some
+        # of what its bill was worth.
+        self._refuse_claim_past_the_bill(row, lines)
         # A return of goods bought in another currency is priced in it; what
         # the supplier is debited with and the tax reversed post in rupees at
         # the bill's own rate, as the bill posted them (D-BUY-41). The stock
@@ -978,6 +982,131 @@ class PurchaseReturnService(TransactionalDocumentService):
                 taken=taken,
             )
         return sum((Decimal(str(line.grni_amount)) for line in on_receipts), ZERO)
+
+    def _claim_past_the_bill(
+        self,
+        worths: BillWorths,
+        *,
+        source_type: str,
+        source_line: SourceLine,
+        quantity: Decimal,
+        taxable: Decimal,
+        unbilled_here: dict[UUID, Decimal],
+    ) -> Decimal:
+        """Return what comes off a line so it claims no more than its bill is worth.
+
+        Only the **billed** units of a line reverse a bill. A line raised off
+        a bill is billed whole; one raised off a goods receipt is set first
+        against what no bill has reached, as completion will set it
+        (`_split_against_billing`), and the rest is placed on the bills of
+        the receipt line, earliest first. Those units may claim what their
+        bill lines are still worth after approved debit notes and earlier
+        returns, and the whole line is valued at that rate per unit -- the
+        unbilled part claims nothing whatever it reads, and the debit note
+        part is the line's value by quantity (`return_billed_amounts`).
+
+        Nothing comes off where no debit note has been approved against the
+        bill, so such a return is priced exactly as it always was, and a
+        return before the bill exists is unchanged.
+
+        Args:
+            worths: The return's reading of its bills.
+            source_type: The kind of document the line sends back.
+            source_line: Its line.
+            quantity: The charged units going back, in the source's unit.
+            taxable: What the line would claim before tax.
+            unbilled_here: Per receipt line, the units earlier lines of this
+                return took from what was still to bill.
+
+        Returns:
+            The value to take off the line, zero where there is none.
+
+        """
+        bill_lines = worths.bill_lines(source_type, source_line.id)
+        if not bill_lines or quantity <= ZERO:
+            return ZERO
+        billed_quantity = quantity
+        if isinstance(source_line, GoodsReceiptLine):
+            position = receipt_line_billing(self._session, [source_line])[
+                source_line.id
+            ]
+            still_open = max(
+                position.left_to_bill - unbilled_here[source_line.id], ZERO
+            )
+            unbilled = min(quantity, still_open)
+            unbilled_here[source_line.id] += unbilled
+            billed_quantity = quantity - unbilled
+        if billed_quantity <= ZERO:
+            return ZERO
+        worth = worths.worth(bill_lines, billed_quantity)
+        billed_taxable = taxable * billed_quantity / quantity
+        over = ZERO
+        if worth.claimed_against and taxable > ZERO:
+            limit = self._q(worth.amount * quantity / billed_quantity)
+            if taxable > limit:
+                over = self._q(taxable - limit)
+                billed_taxable = worth.amount
+        worths.take(worth, billed_taxable)
+        return over
+
+    def _refuse_claim_past_the_bill(
+        self, row: PurchaseReturn, lines: Sequence[PurchaseReturnLine]
+    ) -> None:
+        """Refuse a return whose bill was claimed against after it was priced.
+
+        A return is priced when it is saved, on what its bill lines were
+        still worth that day. A debit note approved since has taken some of
+        that, and completing the return as priced would claim more from the
+        supplier than they billed (D-PRC-67). Asked here, where the claim
+        becomes real and the split against billing has just been decided,
+        under a lock on the bill lines -- the lock a debit note takes before
+        its own cap. Only a line whose bill carries an approved debit note
+        is refused: with none there is nothing to net.
+
+        Raises:
+            ValidationError: If a line claims more than its bill is worth.
+
+        """
+        worths = BillWorths(self._session, return_id=row.id)
+        ordered = sorted(lines, key=lambda item: item.line_number)
+        billed = {
+            line.id: worths.bill_lines(
+                line.source_document_type, line.source_document_line_id
+            )
+            for line in ordered
+        }
+        worths.hold(bill_line for named in billed.values() for bill_line in named)
+        for line in ordered:
+            share = billed_share(line)
+            quantity = self._q(line.current_return_quantity) * share
+            if not billed[line.id] or quantity <= ZERO:
+                continue
+            worth = worths.worth(billed[line.id], quantity)
+            claims = (
+                Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount))
+            ) * share
+            worths.take(worth, claims)
+            # Half a paisa of room: each return of a line is rounded on its
+            # own, and the ledger keeps two places.
+            if worth.claimed_against and claims > worth.amount + Decimal("0.005"):
+                off_a_bill = (
+                    line.source_document_type
+                    == PurchaseReturnSourceType.PURCHASE_INVOICE.value
+                )
+                named = (
+                    line.source_document_number
+                    if off_a_bill
+                    else f"The supplier's bill for {line.source_document_number}"
+                )
+                raise ValidationError(
+                    f"Line {line.line_number}: {named} has had a debit note "
+                    "approved since this return was saved, and these goods are "
+                    f"now worth {quantize_ledger(worth.amount)} before tax where "
+                    f"the return claims {quantize_ledger(claims)}. No more can "
+                    "be claimed from a supplier than they billed. Cancel this "
+                    "return and raise it again, and it will be priced on what "
+                    "the bill is still worth."
+                )
 
     def _settle_receipt_residual(
         self,
@@ -2122,6 +2251,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             PurchaseReturnLine.purchase_return_id == row.id
         ).delete(synchronize_session=False)
         totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
+        # What each line's bill is still worth, and what earlier lines of
+        # this return have taken of it (D-PRC-67).
+        worths = BillWorths(self._session, return_id=row.id)
+        unbilled_here: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line: SourceLine | None
@@ -2272,6 +2405,28 @@ class PurchaseReturnService(TransactionalDocumentService):
                     whole=source_quantity,
                 ),
                 self._q(gross_amount - discount_amount),
+            )
+            # A bill line a debit note has already claimed against is worth
+            # less than it billed, and that is what goes back with the
+            # goods: the note's value is spread over the units still held,
+            # so the returns of a line and its debit notes never add up to
+            # more than the supplier billed (D-PRC-67: a bill of 1,699.20
+            # with 472.00 claimed was then returned in full for 1,699.20).
+            # What comes off is kept with the line's share of the bill
+            # discount, which every reader of the line works its value from,
+            # and the tax below follows the reduced base.
+            bill_share = self._q(
+                bill_share
+                + self._claim_past_the_bill(
+                    worths,
+                    source_type=source_type,
+                    source_line=source_line,
+                    quantity=return_quantity,
+                    taxable=self._q(
+                        gross_amount - discount_amount - bill_share + charges_amount
+                    ),
+                    unbilled_here=unbilled_here,
+                )
             )
             tax_amount = self._tax_amount(
                 document_id=row.id,

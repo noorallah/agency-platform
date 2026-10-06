@@ -492,6 +492,64 @@ cancelled return gives its quantity back.
   such bills exist) has every completed receipt line of that order line behind
   it, counted together; once such a bill has been returned against, those
   receipt lines are held to the same total.
+
+**No more is claimed from a supplier than they billed: a purchase return and
+a debit note read each other** (D-PRC-67, 2026-10-06, the buying twin of
+D-SELL-88; `app/purchase_return/billing.py`). They did not -- a bill of
+1,699.20 took a price-difference debit note of 472.00 and was then returned
+in full for 1,699.20, off the bill or off the goods receipt: 2,171.20 claimed
+against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
+331.20 reversed where 259.20 was claimed.
+
+- **A return line is valued at what the bill line that charged its goods is
+  still worth.** What the line billed for its goods (gross, less both
+  discounts, plus its charges), less the debit notes approved against it and
+  what earlier returns took, spread over the units still held
+  (`still_worth`): 2 boxes billed 1,440.00 with 400.00 claimed go back at
+  520.00 each, 1,040.00 and 1,227.20 with tax. The line is priced as before
+  and only capped at that figure, so a return on a bill with no approved
+  debit note is unchanged, and so is a return before the bill exists. Tax is
+  worked on the reduced base.
+- **What comes off is kept in the return line's `bill_discount_amount`**,
+  beside its share of the bill discount: every reader of the line -- the
+  journal, the supplier's credit, GSTR-3B's reversal, the registers -- works
+  its value from `gross - discount - bill discount + charges`, so none had
+  to change and none can disagree.
+- **Only the billed units of a line reverse a bill.** A return off a goods
+  receipt is set first against what no bill has reached (D-BUY-26); that
+  part claims nothing. The rest is netted, and the whole line reads at the
+  rate per unit of the billed part, because the debit-note part of a line is
+  its value by quantity (`return_billed_amounts`).
+- **A receipt billed in parts is netted bill by bill.** A return off the
+  receipt names no bill line and nothing stored says which bill charged the
+  units going back, so it is decided the same way on every read
+  (`place_on_bills`): **the bills of the receipt line earliest first** (bill
+  date, then number), each for the units it billed that have not already
+  gone back. Earlier returns off the receipt are placed by that rule, in the
+  order they were raised, before the one being asked about, and a return's
+  value follows its units -- never more to one bill than it was still worth
+  while another has room. Billed 3 and 3 at 100.00 with 150.00 claimed on the
+  first bill, 4 back off the receipt claim 250.00: three units of the first
+  bill at the 150.00 left and one of the second at 100.00. This is the
+  placement for **value** only; which tax heads a receipt-route return
+  reverses is still shared over the bills by the quantity each billed
+  (`_billed_lines`, D-BUY-28).
+- **A debit note's cap counts what went back by either route**: billed, less
+  other live notes, less returns raised off the bill line (any not
+  cancelled) and completed returns raised off the receipt it billed. The
+  second was not counted, so a further debit note was approved after
+  everything on the bill had gone back off the receipt.
+- **Each is asked again where it becomes real**, under a lock on the bill
+  line, and the one that reaches the supplier second is refused by name: a
+  return priced before a debit note was approved does not complete ("...has
+  had a debit note approved since this return was saved, and these goods are
+  now worth 1040.00 before tax where the return claims 1440.00... Cancel
+  this return and raise it again"), and a note saved before the goods went
+  back is not approved.
+- A draft debit note takes nothing off a return: it has claimed nothing.
+- **Not changed:** what a bill still *owes* in Record Payment. A return
+  raised off the receipt does not come off its bill there; it stands as a
+  supplier credit to set against it, as before.
 - The quantities are compared as stored, in the source line's unit: a bill
   line and its receipt line share the purchase unit. A return typed in
   another unit (`return_uom_id`) is converted into it first, and the stock
