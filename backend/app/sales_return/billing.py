@@ -449,6 +449,12 @@ class NoteReturn:
     quantity: Decimal
     #: What those units credited, before tax.
     taxable: Decimal
+    #: What those units took off the customer's account: with their tax.
+    net: Decimal = ZERO
+    #: The billed units as they were typed, where that was another unit.
+    entered: Decimal | None = None
+    #: How many of the source line's unit one typed unit is.
+    factor: Decimal = ZERO
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,6 +471,12 @@ class BillShare:
     of_value: Decimal
     #: This share of the return line's billed units, as a fraction of them.
     of_units: Decimal
+    #: What this share took off the customer's account: with its tax.
+    net: Decimal = ZERO
+    #: This share of the units as typed, where that was another unit.
+    entered: Decimal | None = None
+    #: How many of the bill line's unit one typed unit is.
+    factor: Decimal = ZERO
 
 
 @dataclass(frozen=True, slots=True)
@@ -558,6 +570,8 @@ def _allocate(
         for (bill, took), part in zip(takes, parts, strict=True):
             bill.note_quantity += took
             bill.note_taxable += part
+            of_units = took / back.quantity
+            of_value = part / back.taxable if back.taxable > ZERO else of_units
             shares.append(
                 BillShare(
                     return_line_id=back.line_id,
@@ -566,12 +580,11 @@ def _allocate(
                     invoice_id=bill.invoice_id,
                     quantity=took,
                     taxable=part,
-                    of_value=(
-                        part / back.taxable
-                        if back.taxable > ZERO
-                        else took / back.quantity
-                    ),
-                    of_units=took / back.quantity,
+                    of_value=of_value,
+                    of_units=of_units,
+                    net=back.net * of_value,
+                    entered=None if back.entered is None else back.entered * of_units,
+                    factor=back.factor,
                 )
             )
     return shares
@@ -966,6 +979,8 @@ class BillBook:
                     SalesReturnLine.net_amount,
                     SalesReturnLine.tax_amount,
                     SalesReturnLine.line_number,
+                    SalesReturnLine.entered_quantity,
+                    SalesReturnLine.conversion_factor,
                     SalesReturn.completed_at,
                     SalesReturn.created_at,
                     SalesReturn.return_number,
@@ -982,11 +997,10 @@ class BillBook:
                 )
                 if billed <= ZERO:
                     continue
-                taxable = (
-                    (Decimal(str(row.net_amount)) - Decimal(str(row.tax_amount)))
-                    * billed
-                    / quantity
-                )
+                share = billed / quantity
+                net = Decimal(str(row.net_amount)) * share
+                taxable = net - Decimal(str(row.tax_amount)) * share
+                entered = row.entered_quantity
                 found.append(
                     (
                         (
@@ -997,13 +1011,95 @@ class BillBook:
                             row.line_number,
                         ),
                         row.source_document_line_id,
-                        NoteReturn(row.id, row.sales_return_id, billed, taxable),
+                        NoteReturn(
+                            row.id,
+                            row.sales_return_id,
+                            billed,
+                            taxable,
+                            net=net,
+                            entered=(
+                                None
+                                if entered is None
+                                else Decimal(str(entered)) * share
+                            ),
+                            factor=Decimal(str(row.conversion_factor or 0)),
+                        ),
                     )
                 )
         backs: dict[UUID, list[NoteReturn]] = defaultdict(list)
         for _order, note_line_id, back in sorted(found, key=lambda item: item[0]):
             backs[note_line_id].append(back)
         return backs
+
+
+def returns_off_notes_against(
+    session: Session,
+    *,
+    firm_id: UUID,
+    invoice_ids: Sequence[UUID] | None,
+    as_of: date | None = None,
+) -> list[BillShare]:
+    """Return what completed returns raised off delivery notes took off bills.
+
+    A return raised off a note after its bill exists credits the customer
+    and reverses the bill's tax, and names no bill: read only off returns
+    that name one, the bill went on reading wholly outstanding, its salesman
+    was paid on goods that had come back and the target counted them
+    (D-PRC-66). Each such return line is set against the bills that charged
+    its units by the split that priced it (``BillLedger``), so what a bill
+    still owes, ageing, targets and commission read the units and the value
+    on the bills they came from. A return off a note nobody has billed
+    counts against nothing: it credited nothing.
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        invoice_ids: The sales invoices to ask about -- no more than one
+            chunk of them -- or None for every invoice of the firm.
+        as_of: Count only returns and credit notes dated on or before this
+            day.
+
+    Returns:
+        One share per return line and bill line it took units from.
+
+    """
+    off_notes = (
+        select(SalesReturnLine.source_document_line_id)
+        .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+        .where(
+            SalesReturnLine.firm_id == firm_id,
+            SalesReturnLine.source_document_type == "DELIVERY_NOTE",
+            SalesReturnLine.is_deleted.is_(False),
+            SalesReturnLine.current_return_quantity > SalesReturnLine.unbilled_quantity,
+            SalesReturn.is_deleted.is_(False),
+            SalesReturn.status.in_(_COMPLETED),
+        )
+    )
+    if as_of is not None:
+        off_notes = off_notes.where(SalesReturn.return_date <= as_of)
+    if invoice_ids is None:
+        note_line_ids = session.scalars(off_notes.distinct()).all()
+    else:
+        if not invoice_ids:
+            return []
+        note_line_ids = session.scalars(
+            select(SalesInvoiceLine.source_document_line_id)
+            .where(
+                SalesInvoiceLine.sales_invoice_id.in_(invoice_ids),
+                SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
+                SalesInvoiceLine.is_deleted.is_(False),
+                SalesInvoiceLine.source_document_line_id.in_(off_notes),
+            )
+            .distinct()
+        ).all()
+    if not note_line_ids:
+        return []
+    book = BillBook(session, firm_id=firm_id, completed_only=True, as_of=as_of)
+    book.load(note_line_ids=note_line_ids)
+    wanted = None if invoice_ids is None else set(invoice_ids)
+    return [
+        share for share in book.shares() if wanted is None or share.invoice_id in wanted
+    ]
 
 
 def bill_line_credits(

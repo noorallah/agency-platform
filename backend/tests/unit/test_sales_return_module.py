@@ -75,7 +75,12 @@ from app.sales_return.schemas import (
     SalesReturnStatus,
 )
 from app.sales_return.services import SalesReturnService
-from app.settlements.services.settlement_service import credited_against
+from app.settlements.services.net_sales import invoiced_net
+from app.settlements.services.settlement_service import (
+    credited_against,
+    returned_units_against,
+    settled_against,
+)
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
 
@@ -2398,3 +2403,159 @@ def test_each_bills_own_tax_is_reversed_on_its_share() -> None:
         ("CGST", Decimal("18.0000")),
         ("SGST", Decimal("18.0000")),
     ]
+
+
+# ---- a return off the note counts against its bill (D-PRC-66) ---------------
+#
+# The sixth pricing check (2026-10-06): 7 of 24 pieces returned off the
+# delivery note after the bill existed. The customer's account and the journal
+# were right; the bill went on reading 2,832.00 outstanding, the sales target
+# counted the returned goods and the salesman was paid on them. Only a return
+# raised from the bill's own lines was read as having come off it.
+
+
+def _off_the_bill(setup: _Dispatch, invoice: SalesInvoice) -> Decimal:
+    """Return what returns and credit notes have taken off one bill."""
+    return credited_against(
+        setup.session, firm_id=setup.firm.id, invoice_ids=[invoice.id]
+    ).get(invoice.id, Decimal("0"))
+
+
+def test_goods_back_off_the_note_come_off_what_the_bill_owes() -> None:
+    """Two of four back off the note: the bill owes 200.00, not 400.00.
+
+    And the customer's account is credited once -- the bill's figure is read
+    off the return, it is not a second credit.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+
+    setup.completed(quantity=Decimal("2"))
+
+    assert _off_the_bill(setup, setup.invoice) == Decimal("200.00")
+    assert settled_against(
+        session, firm_id=setup.firm.id, invoice_ids=[setup.invoice.id]
+    ) == {setup.invoice.id: Decimal("200.00")}
+    # Asked of the whole firm, as the ageing asks, it is the same answer.
+    assert credited_against(session, firm_id=setup.firm.id, invoice_ids=None) == {
+        setup.invoice.id: Decimal("200.00")
+    }
+    [sale] = invoiced_net(
+        session,
+        firm_id=setup.firm.id,
+        from_date=date(2026, 8, 1),
+        to_date=date(2026, 8, 31),
+    )
+    assert sale.amount == Decimal("200.0000")
+    assert [credit.amount for credit in _credits(session)] == [Decimal("200.00")]
+    session.refresh(setup.customer)
+    assert Decimal(str(setup.customer.current_outstanding)) == Decimal("200.00")
+
+
+def test_the_units_back_off_the_note_are_counted_on_the_bill_line() -> None:
+    """What a per-unit commission stops paying on: the two that came back."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    line = _bill_line(session, setup.invoice)
+
+    setup.completed(quantity=Decimal("2"))
+
+    came_back = returned_units_against(
+        session, firm_id=setup.firm.id, invoice_ids=[setup.invoice.id]
+    )
+    assert [units.quantity for units in came_back[line.id]] == [Decimal("2.0000")]
+
+
+def test_goods_back_off_a_note_billed_in_parts_come_off_each_bill() -> None:
+    """Three of four back: the first bill's two and one of the second's."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+
+    _returned(setup, setup.payload(quantity=Decimal("3")))
+
+    assert _off_the_bill(setup, setup.invoice) == Decimal("200.00")
+    assert _off_the_bill(setup, second) == Decimal("100.00")
+    came_back = returned_units_against(
+        session, firm_id=setup.firm.id, invoice_ids=[setup.invoice.id, second.id]
+    )
+    assert {
+        line_id: sum(units.quantity for units in found)
+        for line_id, found in came_back.items()
+    } == {
+        _bill_line(session, setup.invoice).id: Decimal("2.0000"),
+        _bill_line(session, second).id: Decimal("1.0000"),
+    }
+
+
+def test_only_the_billed_part_of_a_return_off_the_note_comes_off_the_bill() -> None:
+    """Four delivered, three billed, two back: one was never charged."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("3"))
+
+    setup.completed(quantity=Decimal("2"))
+
+    assert _off_the_bill(setup, setup.invoice) == Decimal("100.00")
+    [units] = returned_units_against(
+        session, firm_id=setup.firm.id, invoice_ids=[setup.invoice.id]
+    )[_bill_line(session, setup.invoice).id]
+    assert units.quantity == Decimal("1.0000")
+
+
+def test_goods_back_before_any_bill_count_against_no_bill() -> None:
+    """Returned off a note nobody had billed, then the rest billed.
+
+    The return credited nothing, so the bill raised afterwards for the goods
+    the customer kept owes all of itself.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    setup.completed(quantity=Decimal("2"))
+    bill = SalesInvoiceService(session).approve_invoice(
+        setup.bill(Decimal("2")).id,
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert _off_the_bill(setup, bill) == Decimal("0")
+    assert (
+        returned_units_against(session, firm_id=setup.firm.id, invoice_ids=[bill.id])
+        == {}
+    )
+    assert _credits(session) == []
+
+
+def test_an_unpriced_note_is_measured_against_its_order_line() -> None:
+    """A note written before its lines carried a price: the order's is used.
+
+    Never billed, and the note line states no value. The order sold these at
+    100.00, so that is the most they can come back at (D-PRC-64).
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    setup.note_line.gross_amount = Decimal("0")
+    session.commit()
+    service = SalesReturnService(session)
+
+    with pytest.raises(ValidationError, match="sent at 200.00, and no bill"):
+        service.create_return(
+            _priced(setup.payload(quantity=Decimal("2")), unit_price=Decimal("125")),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    session.rollback()
+    row = service.create_return(
+        setup.payload(quantity=Decimal("2")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    assert row.subtotal == Decimal("200.0000")
+
+
+def test_a_draft_return_off_the_note_takes_nothing_off_the_bill() -> None:
+    """Nothing has been credited until the return completes."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+
+    _returned(setup, setup.payload(quantity=Decimal("2")), complete=False)
+
+    assert _off_the_bill(setup, setup.invoice) == Decimal("0")

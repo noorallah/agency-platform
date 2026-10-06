@@ -94,6 +94,20 @@ payout already accrued is not restated; a period paid on units that then
 came back is short on its next re-read, and the next accrual for that person
 carries the shortfall as a clawback (`CommissionPayoutService._recover`).
 
+**A return raised off the delivery note counts on the bill that charged
+those units** (D-PRC-66, 2026-10-06). Seven of 24 pieces returned off the
+note after the bill existed credited the customer 826.00 and took nothing
+off commission -- 0.00 where the same return off the bill took 35.00 off a
+5% rule and 17.50 off a 2.50-a-unit one -- nor off the sales target or what
+the bill read as owing, because only a return that names a bill was read.
+Both readers now add `returns_off_notes_against`
+(`app/sales_return/billing.py`): each completed return line off a note is
+set against the bill lines that charged its units, earliest bill first, by
+the split that priced it (`docs/SALES_CHAIN_RULES.md`, D-PRC-65). Only the
+billed part counts: what came back before any bill charged it credited
+nothing and nets nothing. The customer's account is not touched by this --
+it was already credited once, when the return completed.
+
 **Commission is earned on net sales -- tax and freight earn nothing.**
 Decided by Claude, industry standard, on the owner's instruction of
 2026-09-24: tax is collected for the government and freight is a

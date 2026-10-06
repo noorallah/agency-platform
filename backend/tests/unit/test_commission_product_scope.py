@@ -209,6 +209,52 @@ class _Books:
         )
         self.session.commit()
 
+    def returned_off_the_note(
+        self,
+        number: str,
+        product: Product,
+        quantity: str,
+        net: str,
+        *,
+        unbilled: str = "0",
+    ) -> None:
+        """Bring some of a line back through the delivery note it was billed from.
+
+        The bill's line is made one raised from a note line, and the return
+        names that note line and no bill -- what a return raised off the
+        delivery note after the bill exists looks like (D-PRC-66).
+        """
+        billed = self._billed(number, product)
+        billed.source_document_type = "DELIVERY_NOTE"
+        row = SalesReturn(
+            firm_id=self.firm.id,
+            customer_id=self.customer.id,
+            branch_id=self.branch_id,
+            warehouse_id=uuid4(),
+            return_number=f"SR-{uuid4().hex[:8]}",
+            return_date=WHEN,
+            status="COMPLETED",
+        )
+        self.session.add(row)
+        self.session.flush()
+        self.session.add(
+            SalesReturnLine(
+                sales_return_id=row.id,
+                firm_id=self.firm.id,
+                line_number=1,
+                source_document_type="DELIVERY_NOTE",
+                source_document_id=billed.source_document_id,
+                source_document_number="DN-1",
+                source_document_line_id=billed.source_document_line_id,
+                source_document_line_number=billed.source_document_line_number,
+                product_id=product.id,
+                current_return_quantity=Decimal(quantity),
+                unbilled_quantity=Decimal(unbilled),
+                net_amount=Decimal(net),
+            )
+        )
+        self.session.commit()
+
     def credited(self, number: str, product: Product, quantity: str, net: str) -> None:
         """Credit one line of a bill some money, with no goods coming back."""
         billed = self._billed(number, product)
@@ -395,6 +441,52 @@ def test_a_per_unit_rate_stops_paying_for_units_that_came_back() -> None:
     books.returned("SI-1", books.rice, "17", "1700.00")
 
     assert books.earned() == Decimal("0.00")
+
+
+def test_goods_back_off_the_delivery_note_come_off_commission_too() -> None:
+    """D-PRC-66: 7 of 24 back off the note took nothing off either rule.
+
+    The same return raised off the bill took 17.50 off a 2.50-a-unit rule
+    and 35.00 off a 5% one. A return raised off the delivery note after the
+    bill exists credits the customer just the same and names no bill, so
+    nobody who reads net sales saw it.
+    """
+    books = _Books(_session_factory()())
+    books.rule(
+        product=books.milk,
+        rate_type=CommissionRateTypeEnum.PER_UNIT,
+        per_unit_amount="2.5",
+    )
+    books.rule("5", product=books.rice)
+    books.invoice(
+        "SI-1", [(books.milk, "24", "2400.00"), (books.rice, "24", "2400.00")]
+    )
+    assert books.earned() == Decimal("180.00")
+
+    books.returned_off_the_note("SI-1", books.milk, "7", "700.00")
+    books.returned_off_the_note("SI-1", books.rice, "7", "700.00")
+
+    # 17 kept at 2.50, and 5% of the rice's share of what the bill is worth.
+    assert books.earned() == Decimal("42.50") + Decimal("85.00")
+
+
+def test_goods_back_before_any_bill_charged_them_take_nothing_off() -> None:
+    """What came back before billing credited nothing, so it nets nothing.
+
+    30 delivered, 6 back before the bill, 24 billed: the bill is for goods
+    the customer kept, and its salesman is paid on all 24.
+    """
+    books = _Books(_session_factory()())
+    books.rule(
+        product=books.milk,
+        rate_type=CommissionRateTypeEnum.PER_UNIT,
+        per_unit_amount="2.5",
+    )
+    books.invoice("SI-1", [(books.milk, "24", "2400.00")])
+
+    books.returned_off_the_note("SI-1", books.milk, "6", "600.00", unbilled="6")
+
+    assert books.earned() == Decimal("60.00")
 
 
 @pytest.mark.parametrize("status", ["DRAFT", "APPROVED", "CANCELLED"])
