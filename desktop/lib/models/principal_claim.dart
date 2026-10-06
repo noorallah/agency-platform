@@ -1,7 +1,7 @@
 import 'entities.dart';
 
-/// One line of a claim on a principal: a scheme, an expiry or a breakage
-/// (SEL-11), with the document it came from.
+/// One line of a claim on a principal: a scheme, free goods, an expiry or a
+/// breakage (SEL-11), with the document it came from.
 class PrincipalClaimLine {
   const PrincipalClaimLine({
     required this.kind,
@@ -16,7 +16,7 @@ class PrincipalClaimLine {
     this.amount = '0',
   });
 
-  /// `SCHEME`, `EXPIRY` or `BREAKAGE`.
+  /// `SCHEME`, `FREE_GOODS`, `EXPIRY` or `BREAKAGE`.
   final String kind;
   final int lineNumber;
   final String sourceId;
@@ -94,6 +94,7 @@ class PrincipalClaimPreview {
     this.periodFrom = '',
     this.periodTo = '',
     this.schemeAmount = '0',
+    this.freeGoodsAmount = '0',
     this.expiryAmount = '0',
     this.breakageAmount = '0',
     this.totalAmount = '0',
@@ -104,6 +105,9 @@ class PrincipalClaimPreview {
   final String periodFrom;
   final String periodTo;
   final String schemeAmount;
+
+  /// Free goods given on bills of the principal's products, at cost.
+  final String freeGoodsAmount;
   final String expiryAmount;
   final String breakageAmount;
   final String totalAmount;
@@ -114,6 +118,7 @@ class PrincipalClaimPreview {
         periodFrom: stringValue(json['period_from']),
         periodTo: stringValue(json['period_to']),
         schemeAmount: _amount(json['scheme_amount']),
+        freeGoodsAmount: _amount(json['free_goods_amount']),
         expiryAmount: _amount(json['expiry_amount']),
         breakageAmount: _amount(json['breakage_amount']),
         totalAmount: _amount(json['total_amount']),
@@ -134,6 +139,7 @@ class PrincipalClaim {
     this.periodFrom = '',
     this.periodTo = '',
     this.schemeAmount = '0',
+    this.freeGoodsAmount = '0',
     this.expiryAmount = '0',
     this.breakageAmount = '0',
     this.totalAmount = '0',
@@ -160,6 +166,9 @@ class PrincipalClaim {
   final String periodFrom;
   final String periodTo;
   final String schemeAmount;
+
+  /// Free goods given on bills of the principal's products, at cost.
+  final String freeGoodsAmount;
   final String expiryAmount;
   final String breakageAmount;
   final String totalAmount;
@@ -191,6 +200,7 @@ class PrincipalClaim {
         periodFrom: stringValue(json['period_from']),
         periodTo: stringValue(json['period_to']),
         schemeAmount: _amount(json['scheme_amount']),
+        freeGoodsAmount: _amount(json['free_goods_amount']),
         expiryAmount: _amount(json['expiry_amount']),
         breakageAmount: _amount(json['breakage_amount']),
         totalAmount: _amount(json['total_amount']),

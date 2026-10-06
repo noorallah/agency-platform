@@ -55,6 +55,10 @@ class _PromotionDialogState extends State<PromotionDialog> {
   final TextEditingController _maxRedemptions = TextEditingController();
   final TextEditingController _maxPerCustomer = TextEditingController();
 
+  /// The scheme's budget in money and in free units; blank is none.
+  final TextEditingController _maxBenefit = TextEditingController();
+  final TextEditingController _maxFreeUnits = TextEditingController();
+
   String _status = 'DRAFT';
   bool _allowStacking = true;
 
@@ -104,6 +108,8 @@ class _PromotionDialogState extends State<PromotionDialog> {
     _requiresCoupon = row.requiresCoupon;
     _maxRedemptions.text = row.maxRedemptions?.toString() ?? '';
     _maxPerCustomer.text = row.maxRedemptionsPerCustomer?.toString() ?? '';
+    _maxBenefit.text = _plain(row.maxBenefitAmount);
+    _maxFreeUnits.text = _plain(row.maxFreeQuantity);
     _actions = row.actions.isEmpty
         ? <_ActionDraft>[_ActionDraft()]
         : row.actions.map(_ActionDraft.from).toList();
@@ -178,6 +184,8 @@ class _PromotionDialogState extends State<PromotionDialog> {
     _to.dispose();
     _maxRedemptions.dispose();
     _maxPerCustomer.dispose();
+    _maxBenefit.dispose();
+    _maxFreeUnits.dispose();
     _principalShare.dispose();
     super.dispose();
   }
@@ -196,6 +204,19 @@ class _PromotionDialogState extends State<PromotionDialog> {
         'max_redemptions': int.tryParse(_maxRedemptions.text.trim()),
         'max_redemptions_per_customer':
             int.tryParse(_maxPerCustomer.text.trim()),
+        // A budget is sent where there is one, and as null where one that
+        // was set is emptied; an untouched blank says nothing, which on an
+        // edit keeps what the offer has.
+        ..._budgetField(
+          'max_benefit_amount',
+          _maxBenefit,
+          widget.existing?.maxBenefitAmount ?? '',
+        ),
+        ..._budgetField(
+          'max_free_quantity',
+          _maxFreeUnits,
+          widget.existing?.maxFreeQuantity ?? '',
+        ),
         // Sent every time, like the limits above: an update replaces the
         // offer, so leaving them out would drop the principal's funding.
         'principal_id': _principalId,
@@ -212,6 +233,38 @@ class _PromotionDialogState extends State<PromotionDialog> {
             _actions[index].toJson(index + 1),
         ],
       };
+
+  /// `4.5000` read back from the server as `4.5`, `200.0000` as `200`.
+  static String _plain(String value) {
+    if (value.isEmpty || !value.contains('.')) return value;
+    return value.replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  Map<String, dynamic> _budgetField(
+    String key,
+    TextEditingController box,
+    String stored,
+  ) {
+    final String typed = box.text.trim();
+    if (typed.isNotEmpty) return <String, dynamic>{key: typed};
+    return stored.isEmpty
+        ? const <String, dynamic>{}
+        : <String, dynamic>{key: null};
+  }
+
+  /// Blank is no budget; anything else must be a number above 0.
+  String? _optionalBudget(String? value) {
+    final String text = value?.trim() ?? '';
+    if (text.isEmpty) return null;
+    final double? parsed = double.tryParse(text);
+    return parsed == null || parsed <= 0 ? 'A number above 0, or blank' : null;
+  }
+
+  /// What a saved offer's budget has used and has left.
+  String _budgetHelper(String max, String used, String left) {
+    if (widget.existing == null || max.isEmpty) return 'Blank = no budget';
+    return 'Used ${_plain(used)}, left ${_plain(left)}';
+  }
 
   /// Blank is no limit; anything else must be a whole number of 1 or more.
   String? _optionalLimit(String? value) {
@@ -476,6 +529,46 @@ class _PromotionDialogState extends State<PromotionDialog> {
                         decoration: const InputDecoration(
                           labelText: 'Uses per customer',
                           helperText: 'Blank = no limit',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        key: const ValueKey('promotion-max-benefit'),
+                        validator: _optionalBudget,
+                        controller: _maxBenefit,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Budget (value)',
+                          helperText: _budgetHelper(
+                            widget.existing?.maxBenefitAmount ?? '',
+                            widget.existing?.benefitAmountClaimed ?? '',
+                            widget.existing?.remainingBenefitAmount ?? '',
+                          ),
+                          helperMaxLines: 2,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: TextFormField(
+                        key: const ValueKey('promotion-max-free-units'),
+                        validator: _optionalBudget,
+                        controller: _maxFreeUnits,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Budget (free units)',
+                          helperText: _budgetHelper(
+                            widget.existing?.maxFreeQuantity ?? '',
+                            widget.existing?.freeQuantityClaimed ?? '',
+                            widget.existing?.remainingFreeQuantity ?? '',
+                          ),
+                          helperMaxLines: 2,
                         ),
                       ),
                     ),

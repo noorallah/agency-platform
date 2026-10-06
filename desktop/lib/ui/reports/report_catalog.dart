@@ -245,6 +245,27 @@ const List<ReportDefinition> reportCatalog = [
     path: '/api/v1/promotions/reports/performance',
     permission: 'PROMOTION_VIEW',
     area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'code', label: 'Code'),
+      ReportColumn(key: 'name', label: 'Name'),
+      ReportColumn(key: 'status', label: 'Status'),
+      ReportColumn(key: 'claimed_count', label: 'Claimed', numeric: true),
+      ReportColumn(key: 'pending_count', label: 'Pending', numeric: true),
+      ReportColumn(key: 'reversed_count', label: 'Reversed', numeric: true),
+      ReportColumn(key: 'customer_count', label: 'Customers', numeric: true),
+      ReportColumn(key: 'benefit_amount', label: 'Benefit', numeric: true),
+      ReportColumn(key: 'free_quantity', label: 'Free units', numeric: true),
+      ReportColumn(key: 'max_redemptions', label: 'Limit', numeric: true),
+      ReportColumn(key: 'remaining_redemptions', label: 'Left', numeric: true),
+      ReportColumn(
+          key: 'max_benefit_amount', label: 'Budget (value)', numeric: true),
+      ReportColumn(
+          key: 'remaining_benefit_amount', label: 'Value left', numeric: true),
+      ReportColumn(
+          key: 'max_free_quantity', label: 'Budget (free)', numeric: true),
+      ReportColumn(
+          key: 'remaining_free_quantity', label: 'Free left', numeric: true),
+    ],
   ),
   ReportDefinition(
     id: 'promotion-redemptions',
@@ -254,6 +275,18 @@ const List<ReportDefinition> reportCatalog = [
     needsPeriod: true,
     permission: 'PROMOTION_VIEW',
     area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'promotion_code', label: 'Offer code'),
+      ReportColumn(key: 'promotion_name', label: 'Offer'),
+      ReportColumn(key: 'coupon_code', label: 'Coupon'),
+      ReportColumn(key: 'customer_name', label: 'Customer'),
+      ReportColumn(key: 'document_type', label: 'Document'),
+      ReportColumn(key: 'document_number', label: 'Number'),
+      ReportColumn(key: 'redeemed_on', label: 'On'),
+      ReportColumn(key: 'benefit_amount', label: 'Benefit', numeric: true),
+      ReportColumn(key: 'free_quantity', label: 'Free units', numeric: true),
+      ReportColumn(key: 'status', label: 'Status'),
+    ],
   ),
   ReportDefinition(
     id: 'promotion-coupons',

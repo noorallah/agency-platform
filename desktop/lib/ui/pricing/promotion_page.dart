@@ -739,6 +739,26 @@ class _PromotionPageState extends State<PromotionPage> {
                 style: theme.textTheme.bodySmall,
               ),
             ),
+          if (row.maxBenefitAmount.isNotEmpty ||
+              row.maxFreeQuantity.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text('Budget', style: theme.textTheme.titleSmall),
+            const SizedBox(height: AppSpacing.xs),
+            if (row.maxBenefitAmount.isNotEmpty)
+              Text(
+                'Value: ${row.benefitAmountClaimed} used, '
+                '${row.remainingBenefitAmount} left of ${row.maxBenefitAmount}',
+                key: const ValueKey('promotion-budget-value'),
+                style: theme.textTheme.bodySmall,
+              ),
+            if (row.maxFreeQuantity.isNotEmpty)
+              Text(
+                'Free units: ${row.freeQuantityClaimed} used, '
+                '${row.remainingFreeQuantity} left of ${row.maxFreeQuantity}',
+                key: const ValueKey('promotion-budget-free'),
+                style: theme.textTheme.bodySmall,
+              ),
+          ],
           const SizedBox(height: AppSpacing.md),
           Text(
             row.allowStacking
