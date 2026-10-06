@@ -912,6 +912,7 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
                           : line.description),
                       Text(
                         '${line.currentReturnQuantity} returned · '
+                        '${(double.tryParse(line.freeQuantity) ?? 0) > 0 ? '${line.freeQuantity} of them free · ' : ''}'
                         '${line.restockQuantity} sellable · '
                         'from ${line.sourceDocumentNumber} '
                         'line ${line.sourceDocumentLineNumber} · '

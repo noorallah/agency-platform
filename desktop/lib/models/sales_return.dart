@@ -36,6 +36,7 @@ class SalesReturnLine {
     required this.dispatchedQuantity,
     required this.alreadyReturnedQuantity,
     required this.currentReturnQuantity,
+    this.freeQuantity = '0',
     required this.restockQuantity,
     required this.damagedQuantity,
     required this.scrapQuantity,
@@ -63,6 +64,10 @@ class SalesReturnLine {
   final String dispatchedQuantity;
   final String alreadyReturnedQuantity;
   final String currentReturnQuantity;
+
+  /// The free goods among [currentReturnQuantity], credited nothing
+  /// (D-PRC-8).
+  final String freeQuantity;
 
   /// How much of it can be sold again. The rest came back damaged or as scrap:
   /// still owned and still worth what it cost, but not on the shelf.
@@ -106,6 +111,9 @@ class SalesReturnLine {
         dispatchedQuantity: stringValue(json['dispatched_quantity']),
         alreadyReturnedQuantity: stringValue(json['already_returned_quantity']),
         currentReturnQuantity: stringValue(json['current_return_quantity']),
+        freeQuantity: json['free_quantity'] == null
+            ? '0'
+            : stringValue(json['free_quantity']),
         restockQuantity: stringValue(json['restock_quantity']),
         damagedQuantity: stringValue(json['damaged_quantity']),
         scrapQuantity: stringValue(json['scrap_quantity']),
@@ -316,6 +324,7 @@ class ReturnableLine {
     required this.description,
     required this.quantity,
     required this.unitPrice,
+    this.freeQuantity = '0',
   });
 
   final String id;
@@ -323,9 +332,16 @@ class ReturnableLine {
   final String productId;
   final String description;
 
-  /// What this line sent the customer, which is the ceiling on the return.
+  /// What this line charged the customer for. With [freeQuantity] it is the
+  /// ceiling on the return: free goods can come back too (D-PRC-8).
   final String quantity;
   final String unitPrice;
+
+  /// What the line sent free beside [quantity]; '0' when nothing was.
+  final String freeQuantity;
+
+  /// Whether the source line shipped any free goods.
+  bool get shippedFree => (double.tryParse(freeQuantity) ?? 0) > 0;
 
   String get label {
     final String name = description.isEmpty ? 'Line $lineNumber' : description;
@@ -358,5 +374,8 @@ class ReturnableLine {
             : _productLabel(json),
         quantity: stringValue(json[quantityKey]),
         unitPrice: stringValue(json['unit_price']),
+        freeQuantity: json['free_quantity'] == null
+            ? '0'
+            : stringValue(json['free_quantity']),
       );
 }

@@ -742,6 +742,19 @@ const List<ReportDefinition> reportCatalog = [
     needsPeriod: true,
     permission: 'SALES_VIEW',
     area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Product code'),
+      ReportColumn(key: 'product_name', label: 'Product'),
+      ReportColumn(
+          key: 'return_quantity', label: 'Returned quantity', numeric: true),
+      ReportColumn(key: 'free_quantity', label: 'Free units', numeric: true),
+      ReportColumn(
+          key: 'restock_quantity', label: 'Back on shelf', numeric: true),
+      ReportColumn(key: 'return_amount', label: 'Credited', numeric: true),
+      ReportColumn(
+          key: 'unbilled_quantity', label: 'Before billing', numeric: true),
+      ReportColumn(key: 'return_count', label: 'Returns', numeric: true),
+    ],
   ),
   ReportDefinition(
     id: 'sales-return-reconciliation',

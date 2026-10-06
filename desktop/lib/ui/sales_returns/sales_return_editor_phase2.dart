@@ -10,6 +10,10 @@ class _ReturnLineDraft {
   String damaged = '0';
   String scrap = '0';
 
+  /// How many of what comes back are free goods; blank lets the server take
+  /// the charged units first.
+  String free = '';
+
   /// What the line may name, read the first time the line is looked at.
   ReturnableSerials serials = ReturnableSerials.untracked;
   bool serialsRead = false;
@@ -19,6 +23,12 @@ class _ReturnLineDraft {
   double get damagedQuantity => double.tryParse(damaged.trim()) ?? 0;
   double get scrapQuantity => double.tryParse(scrap.trim()) ?? 0;
   double get sent => double.tryParse(line.quantity) ?? 0;
+  double get sentFree => double.tryParse(line.freeQuantity) ?? 0;
+  double get freeQuantity => double.tryParse(free.trim()) ?? 0;
+
+  /// Everything the line may bring back: the charged units and the free ones
+  /// it sent.
+  double get mayReturn => sent + sentFree;
   double get restock => returned - damagedQuantity - scrapQuantity;
 }
 
@@ -35,6 +45,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
     DocumentColumn('Product', 0),
     DocumentColumn('Sent', 64, numeric: true),
     DocumentColumn('Returning', 80, numeric: true),
+    DocumentColumn('Of which free', 96, numeric: true),
     DocumentColumn('Damaged', 70, numeric: true),
     DocumentColumn('Scrap', 60, numeric: true),
     DocumentColumn('To shelf', 68, numeric: true),
@@ -181,8 +192,16 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
       final String name = draft.line.description.isEmpty
           ? 'Line ${draft.line.lineNumber}'
           : draft.line.description;
-      if (draft.returned > draft.sent) {
-        problem = '$name: only ${_quantity(draft.sent)} went out.';
+      if (draft.returned > draft.mayReturn) {
+        problem = draft.line.shippedFree
+            ? '$name: only ${_quantity(draft.sent)} charged and '
+                '${_quantity(draft.sentFree)} free went out.'
+            : '$name: only ${_quantity(draft.sent)} went out.';
+      } else if (draft.line.shippedFree &&
+          draft.freeQuantity > draft.sentFree) {
+        problem = '$name: only ${_quantity(draft.sentFree)} free went out.';
+      } else if (draft.freeQuantity > draft.returned) {
+        problem = '$name: the free goods are more than came back.';
       } else if (draft.restock < 0) {
         problem = '$name: damaged and scrap are more than came back.';
       } else if (!pricing && draft.serials.serialTracked) {
@@ -213,6 +232,11 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
             'source_document_line_id': sending[i].line.id,
             'line_number': i + 1,
             'current_return_quantity': sending[i].quantity.trim(),
+            // Blank is not sent: the server then takes the charged units
+            // first. Only a line that shipped free goods can say otherwise.
+            if (sending[i].line.shippedFree &&
+                sending[i].free.trim().isNotEmpty)
+              'free_quantity': sending[i].free.trim(),
             'damaged_quantity': sending[i].damaged.trim().isEmpty
                 ? '0'
                 : sending[i].damaged.trim(),
@@ -470,9 +494,26 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
           index: index,
           name: 'returning',
           value: draft.quantity,
-          over: draft.returned > draft.sent,
+          over: draft.returned > draft.mayReturn,
           onChanged: (value) => draft.quantity = value,
         ),
+        if (draft.line.shippedFree)
+          Tooltip(
+            message: 'Sent ${_quantity(draft.sent)} charged and '
+                '${_quantity(draft.sentFree)} free. Blank takes the charged '
+                'units first; free units are credited nothing.',
+            child: _cellBox(
+              context,
+              index: index,
+              name: 'free',
+              value: draft.free,
+              over: draft.freeQuantity > draft.sentFree ||
+                  draft.freeQuantity > draft.returned,
+              onChanged: (value) => draft.free = value,
+            ),
+          )
+        else
+          Text('', style: quiet),
         _cellBox(
           context,
           index: index,
@@ -566,6 +607,9 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
         'Line ${draft.line.lineNumber} · ${draft.line.description}',
       ),
       DocumentSidePair('Went out', documentQuantity(draft.line.quantity)),
+      if (draft.line.shippedFree)
+        DocumentSidePair(
+            'Went out free', documentQuantity(draft.line.freeQuantity)),
       DocumentSidePair('Coming back', _quantity(draft.returned)),
       DocumentSidePair(
         draft.restock < 0 ? 'More than came back by' : 'Back on the shelf',

@@ -41,6 +41,7 @@ SalesReturn _return({
   String grandTotal = '460.2000',
   String journalId = 'jrnl-1',
   String cancelReason = '',
+  String? free,
 }) =>
     SalesReturn.fromJson({
       'id': id,
@@ -74,6 +75,7 @@ SalesReturn _return({
           'dispatched_quantity': '12.0000',
           'already_returned_quantity': '0.0000',
           'current_return_quantity': returned,
+          if (free != null) 'free_quantity': free,
           'restock_quantity': restocked,
           'damaged_quantity': '1.0000',
           'scrap_quantity': '0.0000',
@@ -298,6 +300,22 @@ void main() {
         find.textContaining('nothing to post — this return is worth nothing'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('a line that brought free goods back says how many (D-PRC-8)',
+        (tester) async {
+      await _pump(tester, _ReturnApi(rows: [_return(free: '1.0000')]));
+      await tester.tap(find.text('SR-2026-2027-000001  ·  2026-08-14'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('1.0000 of them free'), findsOneWidget);
+    });
+
+    testWidgets('a line with no free goods does not mention them',
+        (tester) async {
+      await _pump(tester, _ReturnApi(rows: [_return(free: '0.0000')]));
+      await tester.tap(find.text('SR-2026-2027-000001  ·  2026-08-14'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('of them free'), findsNothing);
     });
 
     testWidgets('a line says what is still returnable', (tester) async {
