@@ -39,6 +39,14 @@ or a rate above a hundred is refused, which only `goods_receipt` did before.
 An invoice **inherits from the line it bills** rather than re-reading the
 customer, so an edit to the master in August cannot rewrite a price agreed in
 March; a rate inherits as itself, an amount is pro-rated by the share billed.
+**The buying chain follows the same rule at every hop** since D-PRC-93
+(2026-10-06): a goods receipt line that types no discount takes its order
+line's, a supplier bill line its receipt line's, a purchase return line its
+receipt or bill line's -- `inherited_line_discount`, with an amount sliced at
+the paisa (`continued_amount`) so the parts post exactly the source figure.
+Only the rate was read before, and a receipt took nothing at all unless the
+client repeated the discount. `docs/PURCHASE_FRAMEWORK.md`, *Each document
+inherits the discount of the line it continues*.
 
 ## A promotion's identity is its `version_group_id`
 
@@ -581,7 +589,9 @@ be **stored and taxed**, not derived at print time: `header_discount_amount`
 on a purchase order was subtracted *after* tax, so it reduced no taxable value
 and tax was paid on money never charged. D-BUY-19 (2026-09-30) put it on the
 lines the same way, and a purchase receipt, bill and return line inherit their
-share pro-rated by quantity (`inherited_share`). And the rounding residual goes to the
+share pro-rated by quantity (`inherited_share` on a return; `continued_amount`
+on a receipt and a bill, sliced at the paisa so the parts of a line sum to its
+share, D-PRC-93). And the rounding residual goes to the
 **largest** line so the shares sum exactly to the figure they split; a
 document whose lines do not add up to its own total is one no reconciliation
 can accept. A conversion carries the *deal* and re-splits it, because copying

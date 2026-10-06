@@ -38,7 +38,8 @@ from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
     LineDiscount,
-    inherited_share,
+    continued_amount,
+    inherited_line_discount,
     resolve_line_discount,
 )
 from app.core.utils.quantities import plain_quantity
@@ -2586,14 +2587,22 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     otherwise=gross_amount,
                 )
             line_discount = self._line_discount(
-                spec=spec, source_line=source_line, gross=gross_amount
+                spec=spec,
+                source_line=source_line,
+                gross=gross_amount,
+                before=already_invoiced,
+                part=invoice_quantity,
+                whole=source_quantity,
             )
             discount_amount = line_discount.amount
             # The source line's share of the order's whole-order discount, for
             # the part of it billed here, comes off before tax (D-BUY-19).
+            # Sliced at the paisa like the line's own amount (D-PRC-93), so
+            # the bills of a receipt line take its share between them.
             bill_share = min(
-                inherited_share(
-                    getattr(source_line, "bill_discount_amount", ZERO) or ZERO,
+                continued_amount(
+                    self._q(getattr(source_line, "bill_discount_amount", ZERO) or ZERO),
+                    before=already_invoiced,
                     part=invoice_quantity,
                     whole=source_quantity,
                 ),
@@ -3500,23 +3509,53 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         spec: dict[str, object],
         source_line: object,
         gross: Decimal,
+        before: Decimal,
+        part: Decimal,
+        whole: Decimal,
     ) -> LineDiscount:
         """Return the discount for one line.
 
-        What the line itself says wins; where it says nothing, the **rate** on
-        the source line carries over. A rate is inherited and an absolute
-        amount is not, because a rate does not care about quantity: this
-        document may cover part of the source line, and copying a whole-line
-        amount onto a part of it would discount more than was ever agreed.
+        What the line itself says wins; where it says nothing, the source
+        line's discount carries over: **a rate as itself, an amount by the
+        share billed** (`inherited_line_discount`). Copying a whole-line
+        amount onto a part of it would discount more than was ever agreed, so
+        each bill takes the slice between where the earlier bills of the
+        line stopped and where it stops, and the bill that completes the line
+        takes the rounding.
+
+        Only the rate was inherited until D-PRC-93, and a goods receipt keeps
+        no rate for a discount typed as an amount: 144.00 off a receipt of 24
+        reached neither of its bills, which charged 1,699.20 for goods
+        received at 1,529.28 and sent the 144.00 to purchase price variance.
 
         The percentage was stored and never applied before this: the tax base
         and the subtotal were both computed from the amount alone, so a line
         carrying `10` was billed at full price.
+
+        Args:
+            spec: The line as typed.
+            source_line: The receipt or order line it bills.
+            gross: What the bill line is worth before discount.
+            before: The source line's quantity other bills already took.
+            part: The source line's quantity this line bills.
+            whole: The source line's quantity.
+
         """
         percent = spec.get("discount_percent")
         amount = spec.get("discount_amount")
         if percent is None and amount is None:
-            percent = getattr(source_line, "discount_percent", None) or None
+            percent, amount = inherited_line_discount(
+                percent=getattr(source_line, "discount_percent", None),
+                amount=getattr(source_line, "discount_amount", None),
+                gross=getattr(source_line, "gross_amount", None),
+                before=before,
+                part=part,
+                whole=whole,
+            )
+            if amount is not None:
+                # Never above what this part is worth, at a price typed
+                # below the source line's.
+                amount = min(amount, self._q(gross))
         return resolve_line_discount(
             gross=gross,
             percent=None if percent is None else Decimal(str(percent)),

@@ -377,19 +377,13 @@ class PurchaseChainService:
     ) -> GoodsReceiptLineWrite:
         """Receive one order line, carrying the deal the order already struck.
 
-        A discount stated as an amount on the order is for the whole ordered
-        quantity, so receiving part of it takes the matching share.
+        The line says nothing about a discount, so the receipt inherits the
+        order line's as a receipt a person types does
+        (`GoodsReceiptService._line_discount`): a rate as itself, an amount
+        by the share received, the part that completes the line taking the
+        rounding. It used to state the share itself, each part rounded alone.
         """
         quantity = bill_line.current_invoice_quantity
-        discount_amount = order_line.discount_amount
-        if (
-            discount_amount > ZERO
-            and order_line.ordered_quantity > ZERO
-            and quantity != order_line.ordered_quantity
-        ):
-            discount_amount = (
-                discount_amount * quantity / order_line.ordered_quantity
-            ).quantize(_QUANTUM)
         return GoodsReceiptLineWrite(
             purchase_order_line_id=order_line.id,
             line_number=order_line.line_number,
@@ -397,8 +391,6 @@ class PurchaseChainService:
             current_receipt_quantity=quantity,
             free_quantity=free,
             unit_price=order_line.unit_price,
-            discount_percent=order_line.discount_percent,
-            discount_amount=discount_amount,
             tax_profile_id=order_line.tax_profile_id,
             purchase_uom_id=order_line.purchase_uom_id,
             inventory_uom_id=order_line.inventory_uom_id,

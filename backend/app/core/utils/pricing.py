@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.core.exceptions import ValidationError
-from app.core.utils.money import quantize_money
+from app.core.utils.money import quantize_ledger, quantize_money
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
@@ -479,6 +479,97 @@ def continued_share(
     return quantize_money(
         quantize_money(amount * stop / whole) - quantize_money(amount * start / whole)
     )
+
+
+def continued_amount(
+    amount: Decimal, *, before: Decimal | None, part: Decimal, whole: Decimal
+) -> Decimal:
+    """Return the slice of a source line's amount one buying line takes.
+
+    `continued_share` for the buying chain, **cut at the paisa**. The ledger
+    posts each receipt and each bill rounded to two places, so slices kept
+    to four -- 33.3333, 33.3334, 33.3333 of 100.00 over three parts of 480.00
+    -- post 446.67 three times: 1,340.01 for an order of 1,340.00. Cut at the
+    paisa the parts are 33.33, 33.34 and 33.33 and post what the order says
+    (D-PRC-93). The part that reaches the end of the line takes the figure
+    itself less what the earlier parts took, so nothing is lost where the
+    figure was typed finer than a paisa.
+
+    Args:
+        amount: The source line's figure, for its whole quantity.
+        before: The quantity of the source line already continued, or None
+            for a line that is not one of a sequence (a return), which takes
+            the plain share of the figure.
+        part: The quantity this line continues.
+        whole: The source line's quantity the figure was given on.
+
+    Returns:
+        This line's slice; zero where there is nothing to continue.
+
+    """
+    if amount <= ZERO or part <= ZERO or whole <= ZERO:
+        return ZERO
+
+    def upto(quantity: Decimal) -> Decimal:
+        """Return what the line gives up to a quantity of it."""
+        if quantity >= whole:
+            return quantize_money(amount)
+        return quantize_ledger(amount * quantity / whole)
+
+    if before is None:
+        return upto(part)
+    start = min(max(before, ZERO), whole)
+    return quantize_money(upto(start + part) - upto(start))
+
+
+def inherited_line_discount(
+    *,
+    percent: Decimal | None,
+    amount: Decimal | None,
+    gross: Decimal | None,
+    part: Decimal,
+    whole: Decimal,
+    before: Decimal | None = None,
+) -> tuple[Decimal | None, Decimal | None]:
+    """Return the line discount a line inherits from the line it continues.
+
+    For a line that says nothing about its own discount. **A rate is
+    inherited as itself and an amount pro-rated by the share continued.**
+    Only the rate used to be read, and a goods receipt keeps no rate for a
+    discount typed as an amount: 144.00 off a receipt of 24 reached none of
+    its bills, which charged 1,699.20 for goods ordered and received at
+    1,529.28 and sent 144.00 to purchase price variance (D-PRC-93).
+
+    The source line is read as a rate where its rate reproduces its amount
+    exactly -- an order's 144.00 off 1,440.00 is recorded as 10% and is the
+    same deal either way -- and as an amount everywhere else: a rate of
+    nothing beside an amount, or a rate rounded to four places that no longer
+    multiplies back to the figure agreed (100.00 off 333.00 is 30.03%).
+
+    Args:
+        percent: The source line's discount rate.
+        amount: The source line's discount amount, for its whole quantity.
+        gross: The source line's value before discount.
+        part: The quantity of the source line this line continues.
+        whole: The source line's quantity the amount was given on.
+        before: The quantity of the source line already continued by earlier
+            lines. Given, the amount is sliced (`continued_amount`) so the
+            parts sum to the source figure and the last takes the rounding;
+            left out, it is the plain share, for a line that is not one of a
+            sequence -- a return.
+
+    Returns:
+        The rate and the amount to resolve the line with: one of them, or
+        neither where the source line gave no discount.
+
+    """
+    rate = quantize_money(percent)
+    figure = quantize_money(amount)
+    if figure <= ZERO:
+        return (rate if rate > ZERO else None), None
+    if rate > ZERO and quantize_money(quantize_money(gross) * rate / HUNDRED) == figure:
+        return rate, None
+    return None, continued_amount(figure, before=before, part=part, whole=whole)
 
 
 def continued_free_goods(
