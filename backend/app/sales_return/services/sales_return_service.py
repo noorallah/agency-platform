@@ -86,10 +86,13 @@ from app.sales_invoice.models import (
 )
 from app.sales_invoice.schemas import SalesInvoiceStatus
 from app.sales_return.billing import (
+    bill_line_credits,
     billed_share,
     billed_tax_by_component,
+    charging_bill_line,
     note_line_billing,
     return_billed_amounts,
+    still_worth,
     unbilled_quantities,
 )
 from app.sales_return.models import (
@@ -803,6 +806,9 @@ class SalesReturnService(TransactionalDocumentService):
         lines = self._lines_of(row.id)
         if not lines:
             raise ValidationError("Sales return must contain at least one line.")
+        # A credit note approved since the return was priced has taken some
+        # of what its bill was worth.
+        self._refuse_credit_past_the_bill(row, lines)
         movement_ids: list[UUID] = []
         services = stockless_products(
             self._session, (line.product_id for line in lines)
@@ -1454,6 +1460,11 @@ class SalesReturnService(TransactionalDocumentService):
             SalesReturnLine.sales_return_id == row.id
         ).delete(synchronize_session=False)
         totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
+        # Per bill line, the units and the value earlier lines of this return
+        # have already taken back (D-SELL-88).
+        credited_here: dict[UUID, tuple[Decimal, Decimal]] = defaultdict(
+            lambda: (ZERO, ZERO)
+        )
         in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         free_in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         for index, spec in enumerate(line_specs, start=1):
@@ -1624,11 +1635,42 @@ class SalesReturnService(TransactionalDocumentService):
             taxable = self._q(
                 gross_amount - discount_amount - bill_share + charges_amount
             )
+            charged = self._charged_line(source_line)
+            # A bill line already credited by a credit note is worth less
+            # than it charged, and that is what comes back with the goods:
+            # the note's value is spread over the units still out, so the
+            # returns of a line and its credit notes never add up to more
+            # than the customer was billed (D-SELL-88: a bill of 2,832.00
+            # credited 472.00 was then returned in full for 2,832.00). What
+            # comes off is kept with the line's share of the bill discount,
+            # which is what every reader of the line works its value from.
+            if charged is not None:
+                taken_quantity, taken_taxable = credited_here[charged.id]
+                credits = bill_line_credits(
+                    self._session,
+                    charged,
+                    completed_only=False,
+                    exclude_return_id=row.id,
+                )
+                if credits.credited_taxable > ZERO and taxable > ZERO:
+                    left = still_worth(
+                        charged,
+                        credits,
+                        quantity=return_quantity,
+                        taken_quantity=taken_quantity,
+                        taken_taxable=taken_taxable,
+                    )
+                    if taxable > left:
+                        bill_share = self._q(bill_share + taxable - left)
+                        taxable = left
+                credited_here[charged.id] = (
+                    taken_quantity + return_quantity,
+                    taken_taxable + taxable,
+                )
             # A return reverses the tax the bill charged, at the rate and in
             # the components it was charged -- never what today's rules would
             # charge (D-SELL-21). Only goods no bill has charged yet are taxed
             # by the rules, because there is nothing charged to reverse.
-            charged = self._charged_line(source_line)
             if charged is not None:
                 tax_profile_id = charged.tax_profile_id
                 line_tax = self._charged_tax(charged, taxable=taxable)
@@ -2400,20 +2442,73 @@ class SalesReturnService(TransactionalDocumentService):
         """
         if isinstance(source_line, SalesInvoiceLine):
             return source_line
-        return self._session.scalar(
-            select(SalesInvoiceLine)
-            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
-            .where(
-                SalesInvoiceLine.source_document_type
-                == SalesReturnSourceType.DELIVERY_NOTE.value,
-                SalesInvoiceLine.source_document_line_id == source_line.id,
-                SalesInvoiceLine.is_deleted.is_(False),
-                SalesInvoice.status.in_(_RETURNABLE_INVOICE_STATES),
-                SalesInvoice.is_deleted.is_(False),
-            )
-            .order_by(SalesInvoice.invoice_date.asc(), SalesInvoice.invoice_number)
-            .limit(1)
+        return charging_bill_line(self._session, source_line.id)
+
+    def _hold_bill_line(self, charged: SalesInvoiceLine) -> None:
+        """Take the bill line before reading what is left of it to credit.
+
+        What a line is still worth is a sum over credit notes and other
+        returns, which no row version guards. A credit note takes the same
+        lock before its own cap, so the two wait for each other.
+        """
+        self._session.execute(
+            select(SalesInvoiceLine.id)
+            .where(SalesInvoiceLine.id == charged.id)
+            .with_for_update()
         )
+
+    def _refuse_credit_past_the_bill(
+        self, row: SalesReturn, lines: Sequence[SalesReturnLine]
+    ) -> None:
+        """Refuse a return whose bill was credited after it was priced.
+
+        A return is priced when it is saved, on what its bill line was still
+        worth that day. A credit note approved since has taken some of that,
+        and completing the return as priced would credit the customer more
+        than the bill charged (D-SELL-88). Only a line whose bill carries an
+        approved credit note is asked: with none there is nothing to net.
+        """
+        taken: dict[UUID, tuple[Decimal, Decimal]] = defaultdict(lambda: (ZERO, ZERO))
+        for line in sorted(lines, key=lambda item: item.line_number):
+            charged = self._charged_line(
+                self._source_line(
+                    line.source_document_type, line.source_document_line_id
+                )
+            )
+            if charged is None:
+                continue
+            self._hold_bill_line(charged)
+            credits = bill_line_credits(
+                self._session,
+                charged,
+                completed_only=False,
+                exclude_return_id=row.id,
+            )
+            quantity = self._q(line.current_return_quantity)
+            worth = self._q(line.net_amount - line.tax_amount)
+            taken_quantity, taken_taxable = taken[charged.id]
+            taken[charged.id] = (taken_quantity + quantity, taken_taxable + worth)
+            if credits.credited_taxable <= ZERO:
+                continue
+            left = still_worth(
+                charged,
+                credits,
+                quantity=quantity,
+                taken_quantity=taken_quantity,
+                taken_taxable=taken_taxable,
+            )
+            # Half a paisa of room: each return of a line is rounded on its
+            # own, and the ledger keeps two places.
+            if worth > left + Decimal("0.005"):
+                raise ValidationError(
+                    f"Line {line.line_number}: {line.source_document_number} "
+                    "has been credited since this return was saved, and these "
+                    f"goods are now worth {quantize_ledger(left)} before tax "
+                    f"where the return credits {quantize_ledger(worth)}. A "
+                    "customer cannot be credited more than they were billed. "
+                    "Cancel this return and raise it again, and it will be "
+                    "priced on what the bill is still worth."
+                )
 
     def _charged_tax(
         self, charged: SalesInvoiceLine, *, taxable: Decimal

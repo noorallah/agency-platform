@@ -43,6 +43,7 @@ from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.products.models import Product
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_return.models import SalesReturn, SalesReturnLine
 
 # Fixtures here type their document numbers; see conftest (D-CFG-2).
 pytestmark = pytest.mark.typed_document_numbers
@@ -851,3 +852,78 @@ def test_a_cancelled_note_is_reversed_on_the_day_it_is_cancelled() -> None:
     ).one()
     assert undo.reference_number == f"{note.credit_note_number}-REV"
     assert undo.remarks is not None
+
+
+# ---- goods that already came back (D-SELL-88) -------------------------------
+
+
+def _goods_back(books: _Books, quantity: str, *, status: str = "COMPLETED") -> None:
+    """Record a return of some of the ten, off the bill's own line."""
+    taxable = Decimal(quantity) * Decimal("100")
+    tax = taxable * Decimal("18") / Decimal("100")
+    row = SalesReturn(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        branch_id=books.branch.id,
+        warehouse_id=uuid4(),
+        return_number=f"SR-{uuid4().hex[:8]}",
+        return_date=WHEN,
+        status=status,
+    )
+    books.session.add(row)
+    books.session.flush()
+    books.session.add(
+        SalesReturnLine(
+            sales_return_id=row.id,
+            firm_id=books.firm.id,
+            line_number=1,
+            source_document_type="SALES_INVOICE",
+            source_document_id=books.invoice.id,
+            source_document_number=books.invoice.invoice_number,
+            source_document_line_id=books.line.id,
+            source_document_line_number=1,
+            product_id=books.product.id,
+            current_return_quantity=Decimal(quantity),
+            gross_amount=taxable,
+            tax_amount=tax,
+            net_amount=taxable + tax,
+        )
+    )
+    books.session.commit()
+
+
+def test_the_cap_counts_goods_that_already_came_back() -> None:
+    """Six of the ten came back for 600.00, so 400.00 is left to credit.
+
+    A credit note for more credits the customer for goods they were already
+    credited for when they returned them.
+    """
+    books = _Books(_session_factory()())
+    _goods_back(books, "6")
+
+    with pytest.raises(ValidationError, match="600.0000 already returned"):
+        books.note("401")
+    books.session.rollback()
+
+    assert books.note("400").taxable_amount == Decimal("400.00")
+
+
+@pytest.mark.parametrize("status", ["DRAFT", "APPROVED", "CANCELLED"])
+def test_a_return_that_has_credited_nothing_takes_no_room(status: str) -> None:
+    """Only goods that have come back have credited the customer."""
+    books = _Books(_session_factory()())
+    _goods_back(books, "6", status=status)
+
+    assert books.note("1000").taxable_amount == Decimal("1000.00")
+
+
+def test_a_note_saved_before_the_goods_came_back_is_refused_at_approval() -> None:
+    """The room it was saved against has since been returned."""
+    books = _Books(_session_factory()())
+    note = books.note("600")
+    _goods_back(books, "6")
+
+    with pytest.raises(ValidationError, match="already returned"):
+        CreditNoteService(books.session).approve_note(
+            note.id, firm_scope=books.firm.id, actor_id=books.actor_id
+        )

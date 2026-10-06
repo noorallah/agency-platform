@@ -2091,6 +2091,13 @@ The stock side is §10.6; this is the whole request.
   invoice can be returned against (D-SELL-6).
 - **The tax is worked out again** at the return date through the
   `SALES_RETURN` rules, not copied from what the invoice charged (D-SELL-21).
+- **After a credit note the line is worth less** (D-SELL-88): where approved
+  credit notes name the bill line that charged these goods, the return line
+  is capped at what that line is still worth for the units coming back, and
+  what comes off is added to its `bill_discount_amount` -- a bill of four at
+  100.00 credited 80.00 comes back as `gross_amount` 400.00,
+  `bill_discount_amount` 80.00, tax on 320.00. A return priced before such a
+  note was approved is refused at completion.
 - **Edit a draft:** lines, sources, attachments and notes **physically
   deleted** and re-inserted (line taxes by cascade); lifecycle `UPDATED`;
   audit `sales_return.updated`.
@@ -2159,8 +2166,10 @@ The stock side is §10.6; this is the whole request.
 - **The cap**, read under a lock on the invoice line: credited + already
   credited by live credit notes ≤ what the line was charged. Refused, nothing
   written: "A credit note cannot credit more than the line was charged:
-  409.5000 charged, 50.0000 already credited." Returns are not netted against
-  it.
+  409.5000 charged, 50.0000 already credited." **Completed returns of the
+  line are netted against it too** (D-SELL-88): "..., 600.0000 already
+  returned." The cap is asked again at approval, so a note saved before the
+  goods came back is refused there.
 - **Approve:** journal (`source_module` `credit_note`, reference the CN
   number, dated the note's date) **Dr 4100 Sales Returns 50.00 / Dr 2200
   Output Tax 9.00 / Cr 1100 Trade Receivables 59.00**; receivable row

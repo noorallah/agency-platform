@@ -189,6 +189,40 @@ note sent free by either route, back into stock at cost.
 `docs/PRICING_AND_PROMOTIONS.md`, "Free goods can come back, credited
 nothing", is the reference.
 
+**A customer is never credited more than they were billed: a return and a
+credit note read each other** (D-SELL-88, 2026-10-06;
+`app/sales_return/billing.py`). They did not -- a bill of 2,832.00 took a
+rate-difference credit note of 472.00 and was then returned in full for
+2,832.00, 3,304.00 credited against 2,832.00.
+
+- **A return credits what the bill line is still worth.** What the line
+  charged for its goods, less the credit notes approved against it and what
+  earlier returns took, spread over the units still out (`still_worth`): 2
+  boxes charged 2,400.00 and credited 400.00 come back at 1,000.00 each, and
+  with one already back at 1,200.00 before a note of 600.00 the other is
+  worth 600.00. The line is priced as before and only capped at that figure,
+  so a return on a bill with no credit note is unchanged. Tax follows the
+  reduced base, at the rate the bill charged.
+- **What comes off is kept in the return line's `bill_discount_amount`**,
+  beside its share of the bill discount, because every reader of the line
+  -- the journal, the customer's account, GSTR-1, the e-invoice, the print
+  -- works its taxable value from `gross - discount - bill discount +
+  charges`. No reader had to change and none can disagree.
+- **A return raised off the note is netted the same way**, against the bill
+  line that charged those goods (`charging_bill_line`, the earliest if the
+  note was billed in parts -- the line whose tax the return reverses).
+- **A credit note's cap counts what came back**: charged, less other live
+  notes, less completed returns of the line. "A credit note cannot credit
+  more than the line was charged: 1000.0000 charged, 0.0000 already
+  credited, 600.0000 already returned."
+- **Each is asked again where it becomes real**, under a lock on the bill
+  line, and the one that reaches the customer second is refused by name: a
+  return priced before a credit note was approved does not complete ("...has
+  been credited since this return was saved... Cancel this return and raise
+  it again"), and a note saved before the goods came back is not approved.
+- A draft credit note takes nothing off a return, and a return that has not
+  completed takes no room from a credit note: neither has credited anything.
+
 **A sales return against a delivery note nobody was billed for moves stock
 and cost only** (D-SELL-55, the selling twin of D-BUY-26; `app/sales_return/billing.py`).
 No row goes on the customer's account, no output tax is reversed and nothing

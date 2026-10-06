@@ -49,6 +49,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.services.output_tax import credited_tax_by_component
+from app.sales_return.billing import bill_line_credits
 from app.tax.services.gst_time_limits import credit_note_time_limit_warning
 
 HUNDRED = Decimal("100")
@@ -385,6 +386,7 @@ class CreditNoteService(TransactionalDocumentService):
             raise ValidationError("Only a draft credit note can be approved.")
         if row.total_amount <= ZERO:
             raise ValidationError("A credit note for nothing cannot be approved.")
+        self._assert_lines_still_have_room(row)
         before = self._snapshot(row)
         entry = self._posting.post_credit_note_document(
             firm_id=firm_scope,
@@ -649,17 +651,8 @@ class CreditNoteService(TransactionalDocumentService):
             # room on this line and both take it.
             self._hold_line(source.id)
             charged = self._charged_taxable(source)
-            already = self._already_credited(
-                firm_id=note.firm_id,
-                invoice_line_id=source.id,
-                excluding_note_id=note.id,
-            )
             asked = quantize_money(item.taxable_amount)
-            if asked > charged - already:
-                raise ValidationError(
-                    "A credit note cannot credit more than the line was "
-                    f"charged: {charged} charged, {already} already credited."
-                )
+            self._assert_line_has_room(note, source, asked)
             rate = self._tax_rate(source, charged)
             tax = quantize_money(asked * rate / HUNDRED)
             self._session.add(
@@ -686,6 +679,55 @@ class CreditNoteService(TransactionalDocumentService):
         note.tax_amount = quantize_money(tax_total)
         note.total_amount = quantize_money(taxable_total + tax_total)
         self._session.flush()
+
+    def _assert_line_has_room(
+        self, note: CreditNote, source: SalesInvoiceLine, asked: Decimal
+    ) -> None:
+        """Refuse a credit for more than is left of what a line was charged.
+
+        What is left is what the line charged, less what other live credit
+        notes took **and less what came back**: goods returned off the line
+        have already been credited, and a credit note for their value as
+        well credits the customer twice (D-SELL-88). The wording is unchanged
+        where nothing was returned.
+
+        Raises:
+            ValidationError: If the line has less room than is asked.
+
+        """
+        charged = self._charged_taxable(source)
+        already = self._already_credited(
+            firm_id=note.firm_id,
+            invoice_line_id=source.id,
+            excluding_note_id=note.id,
+        )
+        returned = bill_line_credits(
+            self._session, source, completed_only=True
+        ).returned_taxable
+        if asked <= charged - already - returned:
+            return
+        came_back = "" if returned <= ZERO else f", {returned} already returned"
+        raise ValidationError(
+            "A credit note cannot credit more than the line was "
+            f"charged: {charged} charged, {already} already credited{came_back}."
+        )
+
+    def _assert_lines_still_have_room(self, note: CreditNote) -> None:
+        """Ask the cap again at approval, where the credit becomes real.
+
+        The cap is read when the note is saved. Goods that came back between
+        then and approval have credited the customer since, so a note saved
+        with room may have none left; the one that reaches the customer
+        second is refused by name.
+        """
+        for line in self.lines_of(note):
+            source = self._session.get(SalesInvoiceLine, line.sales_invoice_line_id)
+            if source is None:
+                continue
+            self._hold_line(source.id)
+            self._assert_line_has_room(
+                note, source, quantize_money(line.taxable_amount)
+            )
 
     def _hold_line(self, invoice_line_id: UUID) -> None:
         """Take the invoice line before reading what is left of it.
@@ -752,13 +794,10 @@ class CreditNoteService(TransactionalDocumentService):
     ) -> Decimal:
         """Return what other live credit notes have already taken off a line.
 
-        Counted across credit notes only. A sales return also credits the
-        customer, and is deliberately **not** netted off here: a return may
-        have sourced from a delivery note rather than from the invoice, so
-        there is no reliable way to map it back to the invoice line, and a cap
-        that silently under-counts is worse than one that says what it covers.
-        A firm crediting the same value twice through two instruments is
-        making a decision, not tripping over a missing guard.
+        Counted across credit notes only; what sales returns took off the
+        line is read beside it, in `_assert_line_has_room`. A draft note
+        counts as well as an approved one, so two drafts cannot both be
+        written against the same room.
         """
         total = self._session.scalar(
             select(func.coalesce(func.sum(CreditNoteLine.taxable_amount), ZERO))
