@@ -393,6 +393,39 @@ class CustomerOpeningBillService:
             self._session, firm_id=firm_id, bill_ids=[row.id]
         ).get(row.id, ZERO)
         if received > ZERO:
+            # A credit set against the bill is not a receipt, and reversing
+            # receipts does not free the bill of it: name it, and say what
+            # does (D-PRC-92).
+            from app.settlements.services.customer_credits import (
+                OPENING_BILL,
+                credit_applied_to_bills,
+                credit_numbers_against,
+            )
+
+            credited = credit_applied_to_bills(
+                self._session,
+                firm_id=firm_id,
+                bill_ids=[row.id],
+                target_type=OPENING_BILL,
+            ).get(row.id, ZERO)
+            if credited > ZERO:
+                sources = ", ".join(
+                    credit_numbers_against(
+                        self._session, firm_id=firm_id, bill_id=row.id
+                    )
+                )
+                taken = received - credited
+                raise ValidationError(
+                    f"{row.bill_number} cannot be cancelled while it has "
+                    f"{credited} of credit applied from {sources}. Reverse "
+                    "that application first"
+                    + (
+                        f", and the receipts for the other {taken} received "
+                        "against it."
+                        if taken > ZERO
+                        else "."
+                    )
+                )
             raise ValidationError(
                 f"{received} has been received against {row.bill_number}. "
                 "Reverse those receipts before cancelling it."

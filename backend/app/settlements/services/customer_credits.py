@@ -35,6 +35,17 @@ be applied as well.
 Should the source's own bill owe more again once its credit is used -- the
 receipt that paid it reversed -- the part used goes back on that bill
 (``drawn_back_onto_bills``), as it does for a supplier.
+
+**An advance its source no longer gives goes back on the source's own bill.**
+A credit held as an advance is only credit while its bill stays settled past
+its total. When the bill owes again, the part still on the customer's account
+is no longer money held for them: it is part of what the bill does not owe.
+``absorb_credit_no_longer_given`` takes it off both of the customer's
+figures -- one ``ADVANCE_APPLY`` row referenced ``customer_credit_absorbed``
+to the source -- whenever a receipt, a refund or an application is reversed,
+so the account goes on agreeing with the bills in whichever order those
+happen (D-PRC-88). Cancelling the source undoes those rows first, as it
+withdraws its applications.
 """
 
 from collections.abc import Sequence
@@ -45,7 +56,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import firm_day_after, firm_today
@@ -80,6 +91,9 @@ REVERSED = "REVERSED"
 
 #: What the receivable row an application writes is referenced as.
 REFERENCE_TYPE = "customer_credit_application"
+#: What the receivable row is referenced as that takes a source's advance
+#: back onto its own bill; its ``reference_id`` is the source.
+ABSORBED = "customer_credit_absorbed"
 
 
 @dataclass(frozen=True)
@@ -134,6 +148,9 @@ class CustomerCredit:
     #: of that its applications and refunds have since moved.
     advance_given: Decimal = ZERO
     advance_used: Decimal = ZERO
+    #: How much of that advance went back on the source's own bill, because
+    #: the bill came to owe again (``absorb_credit_no_longer_given``).
+    advance_absorbed: Decimal = ZERO
     uses: list[CustomerCreditUse] = field(default_factory=list)
 
     @property
@@ -155,9 +172,16 @@ class CustomerCredit:
         The rest already came off what the customer owes, when the source
         posted, and can only be set against a bill.
         """
-        return max(
-            min(self.advance_given - self.advance_used, self.available_amount), ZERO
-        )
+        return max(min(self.advance_on_account, self.available_amount), ZERO)
+
+    @property
+    def advance_on_account(self) -> Decimal:
+        """Return what its posting put on the account that nothing has moved.
+
+        More than ``held_amount`` once the source gives less credit than it
+        did: the difference is no longer the customer's to hold.
+        """
+        return max(self.advance_given - self.advance_used - self.advance_absorbed, ZERO)
 
 
 def _live() -> tuple[Any, ...]:
@@ -165,6 +189,28 @@ def _live() -> tuple[Any, ...]:
     return (
         CustomerCreditApplication.is_deleted.is_(False),
         CustomerCreditApplication.status == POSTED,
+    )
+
+
+def _standing_absorptions() -> tuple[Any, ...]:
+    """Match the receivable rows that took an advance back onto its bill.
+
+    The ones that stand: cancelling the source reverses them, and a reversed
+    row has a ``reversal`` row naming it.
+    """
+    undone = aliased(CustomerReceivableTransaction)
+    return (
+        CustomerReceivableTransaction.reference_type == ABSORBED,
+        CustomerReceivableTransaction.transaction_type
+        == CustomerReceivableTransactionType.ADVANCE_APPLY.value,
+        CustomerReceivableTransaction.is_deleted.is_(False),
+        ~select(undone.id)
+        .where(
+            undone.reference_type == "reversal",
+            undone.reference_id == CustomerReceivableTransaction.id,
+            undone.is_deleted.is_(False),
+        )
+        .exists(),
     )
 
 
@@ -569,6 +615,7 @@ def _work(
 
     rows: list[CustomerCreditApplication] = []
     given: dict[UUID, Decimal] = {}
+    absorbed: dict[UUID, Decimal] = {}
     for group in chunks(ids):
         rows.extend(
             session.scalars(
@@ -603,6 +650,18 @@ def _work(
             .group_by(CustomerReceivableTransaction.reference_id)
         ).all():
             given[source_id] = quantize_ledger(Decimal(str(advance)))
+        for source_id, advance in session.execute(
+            select(
+                CustomerReceivableTransaction.reference_id,
+                func.coalesce(func.sum(CustomerReceivableTransaction.advance_delta), 0),
+            )
+            .where(
+                CustomerReceivableTransaction.reference_id.in_(group),
+                *_standing_absorptions(),
+            )
+            .group_by(CustomerReceivableTransaction.reference_id)
+        ).all():
+            absorbed[source_id] = quantize_ledger(-Decimal(str(advance)))
     numbers = _target_numbers(session, rows)
     credits: dict[UUID, CustomerCredit] = {
         source.id: CustomerCredit(
@@ -613,6 +672,7 @@ def _work(
             customer_id=source.customer_id,
             credit_amount=spilled.get(source.id, ZERO),
             advance_given=given.get(source.id, ZERO),
+            advance_absorbed=absorbed.get(source.id, ZERO),
         )
         for source in sources.values()
     }
@@ -652,8 +712,7 @@ def customer_credits(
     One entry per completed return and approved credit note that gives any
     credit or has had any used. Money already handed back with no source
     named -- a refund recorded before credits were tracked -- is taken off
-    the oldest credits held on account first: the customer cannot be holding
-    more as credit than the account says they hold.
+    the credits it paid back (``_standing_credits``).
 
     Args:
         session: The firm's store.
@@ -664,10 +723,43 @@ def customer_credits(
         The credits, applied or not.
 
     """
-    credits, _ = _work(session, firm_id=firm_id, customer_id=customer_id)
-    credits = [
-        credit for credit in credits if credit.credit_amount > ZERO or credit.uses
+    return [
+        credit
+        for credit in _standing_credits(
+            session, firm_id=firm_id, customer_id=customer_id
+        )
+        if credit.credit_amount > ZERO or credit.uses
     ]
+
+
+def _standing_credits(
+    session: Session, *, firm_id: UUID, customer_id: UUID
+) -> list[CustomerCredit]:
+    """Return every standing source of one customer, a credit of nothing too.
+
+    With the money handed back before credits were tracked taken off them: a
+    refund that names no credit, by any row, paid back the credits held on
+    account when it was made, oldest first (``_untracked_refunds``). And
+    whatever the records then say, the customer cannot be holding more as
+    credit than the account says they hold, so any excess is taken off the
+    oldest credits too.
+
+    The second rule alone used to carry both, and it only bites while the
+    account holds nothing else: 500.00 received on account afterwards read
+    as 500.00 of a credit paid back long ago being available again, and
+    applying it spent the receipt's money (D-PRC-91).
+    """
+    credits, _ = _work(session, firm_id=firm_id, customer_id=customer_id)
+    if not any(credit.advance_on_account > ZERO for credit in credits):
+        return credits
+    paid_back = _untracked_refunds(
+        session, firm_id=firm_id, customer_id=customer_id, credits=credits
+    )
+    for credit in credits:
+        taken = min(paid_back.get(credit.source_id, ZERO), credit.advance_on_account)
+        if taken > ZERO:
+            credit.refunded_amount += taken
+            credit.advance_used += taken
     held = sum((credit.held_amount for credit in credits), ZERO)
     if held > ZERO:
         on_account = quantize_ledger(
@@ -691,6 +783,126 @@ def customer_credits(
             credit.advance_used += taken
             gone -= taken
     return credits
+
+
+def _untracked_refunds(
+    session: Session,
+    *,
+    firm_id: UUID,
+    customer_id: UUID,
+    credits: Sequence[CustomerCredit],
+) -> dict[UUID, Decimal]:
+    """Return what refunds that name no credit paid back of each source.
+
+    A refund draws on the credits held on account, oldest first, and says so
+    in rows (``draw_refund_on_credits``). One recorded before those rows
+    were kept says nothing, and what it paid back can only be told from when
+    it happened: the customer's account moves are walked in the order they
+    were made, keeping what each source's advance stood at, and a refund
+    with no row takes what the credits were holding **at that moment**.
+    Money that reached the account afterwards -- a receipt on account, most
+    of all -- is not in it, so it cannot make a credit paid back look held
+    again; and a refund made before a credit existed took none of it.
+
+    Two statements, whatever the customer holds: their applications, and
+    the account rows that move a credit's advance or hand money back.
+
+    Returns:
+        The amount per source, for those with any.
+
+    """
+    kinds = CustomerReceivableTransactionType
+    account = CustomerReceivableTransaction
+    applied: dict[UUID, UUID] = {}
+    draws: dict[UUID, list[tuple[UUID, Decimal]]] = {}
+    for row_id, source_id, target_type, target_id, advance in session.execute(
+        select(
+            CustomerCreditApplication.id,
+            CustomerCreditApplication.source_id,
+            CustomerCreditApplication.target_type,
+            CustomerCreditApplication.target_id,
+            CustomerCreditApplication.advance_amount,
+        ).where(
+            CustomerCreditApplication.firm_id == firm_id,
+            CustomerCreditApplication.customer_id == customer_id,
+            CustomerCreditApplication.is_deleted.is_(False),
+        )
+    ).all():
+        applied[row_id] = source_id
+        if target_type == REFUND:
+            draws.setdefault(target_id, []).append(
+                (source_id, quantize_ledger(Decimal(str(advance or 0))))
+            )
+    moves = session.execute(
+        select(
+            account.id,
+            account.transaction_type,
+            account.advance_delta,
+            account.reference_type,
+            account.reference_id,
+            account.created_at,
+        ).where(
+            account.firm_id == firm_id,
+            account.customer_id == customer_id,
+            account.is_deleted.is_(False),
+            or_(
+                account.transaction_type.in_(
+                    (kinds.REFUND.value, kinds.REVERSAL.value)
+                ),
+                account.reference_type.in_(
+                    (SALES_RETURN, CREDIT_NOTE, REFERENCE_TYPE, ABSORBED)
+                ),
+            ),
+        )
+    ).all()
+    # Rows of one request share an instant, and within one what puts money
+    # on the account comes before what takes it off.
+    ordered = sorted(
+        moves, key=lambda move: (move[5], Decimal(str(move[2] or 0)) < ZERO)
+    )
+    oldest_first = [credit.source_id for credit in credits]
+    holding: dict[UUID, Decimal] = {}
+    paid_back: dict[UUID, Decimal] = {}
+    #: What each row did, so its reversal undoes exactly that: the source,
+    #: what it moved, and whether it was a refund naming nothing.
+    did: dict[UUID, list[tuple[UUID, Decimal, bool]]] = {}
+    for row_id, kind, delta, reference_type, reference_id, _at in ordered:
+        moved = quantize_ledger(Decimal(str(delta or 0)))
+        if kind == kinds.REVERSAL.value:
+            for source_id, amount, unnamed in did.pop(reference_id, []):
+                holding[source_id] = holding.get(source_id, ZERO) - amount
+                if unnamed:
+                    paid_back[source_id] = paid_back.get(source_id, ZERO) + amount
+            continue
+        effects: list[tuple[UUID, Decimal, bool]] = []
+        if kind == kinds.REFUND.value:
+            named = draws.get(reference_id) if reference_id is not None else None
+            if named:
+                effects = [(source_id, -amount, False) for source_id, amount in named]
+            else:
+                left = -moved
+                for source_id in oldest_first:
+                    taken = min(left, max(holding.get(source_id, ZERO), ZERO))
+                    if taken <= ZERO:
+                        continue
+                    effects.append((source_id, -taken, True))
+                    paid_back[source_id] = paid_back.get(source_id, ZERO) + taken
+                    left -= taken
+        elif reference_type == REFERENCE_TYPE:
+            source_id = applied.get(reference_id) if reference_id else None
+            if source_id is not None:
+                effects = [(source_id, moved, False)]
+        elif reference_id is not None and (
+            reference_type == ABSORBED or kind == kinds.CREDIT_NOTE.value
+        ):
+            effects = [(reference_id, moved, False)]
+        for source_id, amount, _unnamed in effects:
+            holding[source_id] = holding.get(source_id, ZERO) + amount
+        if effects:
+            did[row_id] = effects
+    return {
+        source_id: amount for source_id, amount in paid_back.items() if amount > ZERO
+    }
 
 
 @whole_past_a_chunk("invoice_ids")
@@ -1129,7 +1341,105 @@ def reverse_customer_credit_application(
         action="customer_credit.reversed",
     )
     session.flush()
+    # The advance is back by what the application moved. Where the source's
+    # own bill has come to owe again since -- its receipt reversed -- that
+    # advance is no longer credit, and goes back on that bill (D-PRC-88).
+    absorb_credit_no_longer_given(
+        session, firm_id=firm_id, customer_id=row.customer_id, actor_id=actor_id
+    )
     return row
+
+
+def absorb_credit_no_longer_given(
+    session: Session,
+    *,
+    firm_id: UUID,
+    customer_id: UUID,
+    actor_id: UUID,
+    on: date | None = None,
+) -> Decimal:
+    """Take back onto its own bill an advance its source no longer gives.
+
+    A return on a paid bill leaves its value on the customer's account as an
+    advance, and that advance is credit only while the bill stays settled
+    past its total. When the bill owes again -- the receipt that paid it was
+    reversed -- what a bill owes already reads the return as coming off it
+    (``credited_against``), so the same money stood on the account twice:
+    owed on no bill, and held from no source. With the bills paid as they
+    read the customer owed 826.00 and held 826.00, and the 826.00 could be
+    paid out in cash (D-PRC-88).
+
+    Called once a receipt, a refund or an application has been reversed:
+    each of those can leave a source holding more on the account than it
+    gives. The excess comes off what the customer owes and off what they
+    hold, by one ``ADVANCE_APPLY`` row referenced to the source
+    (``ABSORBED``). No journal: receivables did not move. Should the bill be
+    settled past its total again nothing is put back -- money arriving then
+    makes its own advance. Cancelling the source reverses the rows
+    (``withdraw_credit_applications``). Does not commit.
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        customer_id: The customer whose credits to settle up.
+        actor_id: The user whose action left them unsettled.
+        on: The day it happened; blank is the firm's today.
+
+    Returns:
+        How much went back on bills.
+
+    """
+    # Imported here: the customer service imports settlement-adjacent models.
+    from app.customers.services.customer_service import CustomerService
+
+    customer = _locked_customer(session, firm_id=firm_id, customer_id=customer_id)
+    day = on or firm_today(session, firm_id)
+    absorbed = ZERO
+    for credit in _standing_credits(session, firm_id=firm_id, customer_id=customer_id):
+        excess = min(
+            credit.advance_on_account - credit.held_amount,
+            # Never more than the account holds or is owed: the rest of it
+            # has been paid back, or covered by something else.
+            quantize_ledger(Decimal(str(customer.unapplied_advance_balance))),
+            quantize_ledger(Decimal(str(customer.current_outstanding))),
+        )
+        if excess <= ZERO:
+            continue
+        CustomerService(session).post_receivable_transaction(
+            customer_id,
+            CustomerReceivableTransactionCreate(
+                transaction_type=CustomerReceivableTransactionType.ADVANCE_APPLY,
+                amount=excess,
+                transaction_date=max(day, credit.source_date),
+                reference_type=ABSORBED,
+                reference_id=credit.source_id,
+                reference_number=credit.source_number,
+                remarks=(
+                    f"{credit.source_number} comes off its own bill again: the "
+                    "bill owes, so this is no longer held on account."
+                ),
+            ),
+            firm_scope=firm_id,
+            actor_id=actor_id,
+            commit=False,
+        )
+        record_audit(
+            session,
+            action="customer_credit.absorbed",
+            entity_type="customer",
+            entity_id=customer_id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "source": credit.source_type,
+                "source_number": credit.source_number,
+                "amount": str(excess),
+            },
+        )
+        absorbed += excess
+    if absorbed > ZERO:
+        session.flush()
+    return absorbed
 
 
 def withdraw_credit_applications(
@@ -1173,6 +1483,27 @@ def withdraw_credit_applications(
             actor_id=actor_id,
             reason=reason,
             action="customer_credit.withdrawn",
+        )
+    # And what went back on its own bill when that bill came to owe again
+    # (``absorb_credit_no_longer_given``): the source's own row put that
+    # advance on the account, and can only be undone with it there.
+    from app.customers.services.customer_service import CustomerService
+
+    for absorbed_id in session.scalars(
+        select(CustomerReceivableTransaction.id)
+        .where(
+            CustomerReceivableTransaction.firm_id == firm_id,
+            CustomerReceivableTransaction.reference_id == source_id,
+            *_standing_absorptions(),
+        )
+        .order_by(CustomerReceivableTransaction.created_at.desc())
+    ).all():
+        CustomerService(session).reverse_receivable_transaction(
+            absorbed_id,
+            firm_scope=firm_id,
+            actor_id=actor_id,
+            remarks=reason,
+            commit=False,
         )
     session.flush()
     return len(rows)
