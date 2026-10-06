@@ -5,7 +5,21 @@ model has to agree on, so the buying and the selling return cannot read the
 same line differently.
 """
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
+
+_FOUR_PLACES = Decimal("0.0001")
+
+
+def at_quantity_scale(value: Decimal | int | str | None) -> Decimal:
+    """Return a quantity at the four places every quantity column holds.
+
+    A quantity summed in SQL across a product of two columns comes back at
+    the product's scale: one free unit an offer gave read
+    ``1.00000000000000`` in its report and its budget, being 1.0000 times a
+    ten-place factor (D-PRC-57).
+    """
+    number = Decimal(str(value if value is not None else 0))
+    return number.quantize(_FOUR_PLACES, rounding=ROUND_HALF_UP)
 
 
 def plain_quantity(value: Decimal | int | str | None) -> str:

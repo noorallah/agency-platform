@@ -1232,7 +1232,7 @@ def test_goods_back_through_the_bill_are_not_returned_again_through_the_note() -
         _against_the_bill(setup, "3"), firm_id=setup.firm.id, actor_id=setup.actor_id
     )
 
-    with pytest.raises(ValidationError, match="3.0000 already returned"):
+    with pytest.raises(ValidationError, match="3 already returned"):
         service.create_return(
             setup.payload(quantity=Decimal("2")),
             firm_id=setup.firm.id,

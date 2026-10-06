@@ -32,6 +32,7 @@ from app.commission.schemas import (
 )
 from app.commission.services.commission_service import CommissionService
 from app.core.exceptions import ValidationError
+from app.core.utils.quantities import at_quantity_scale, plain_quantity
 from app.delivery_note.models import DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
@@ -1397,3 +1398,55 @@ def test_the_hsn_summary_never_adds_pieces_to_boxes() -> None:
         ("PIECE", D("24.0000"), D("2400.00")),
     ]
     assert sum((taxable for _, _, taxable in rows), D("0")) == D("4800.00")
+
+
+# ---- refusals that say what they count in (D-PRC-57) -----------------------
+
+
+def test_a_return_refused_for_its_quantity_names_the_unit_it_counts_in() -> None:
+    """Seven pieces back of 2 BOX, then 2 BOX more: "2 BOX sent, 0.5833 BOX".
+
+    It read "(2.0000 sent, 0.5833 already returned)" to somebody who had
+    typed pieces.
+    """
+    shop = _Shop()
+    bill, billed = _bill(shop, _shipped(shop), "2")
+    source = ("SALES_INVOICE", bill.id, billed.id)
+    _brought_back(shop, source, "7", return_uom_id=shop.piece)
+
+    with pytest.raises(ValidationError) as refused:
+        _brought_back(shop, source, "2")
+    shop.session.rollback()
+
+    assert str(refused.value.message) == (
+        "Return quantity exceeds what was dispatched on the source document "
+        "(2 BOX sent, 0.5833 BOX already returned)."
+    )
+
+
+@pytest.mark.parametrize(
+    ("stored", "said"),
+    [
+        ("0", "0"),
+        ("0.0000", "0"),
+        ("0E-14", "0"),
+        ("1.00000000000000", "1"),
+        ("0.5833", "0.5833"),
+        ("1200.0000", "1200"),
+        (None, "0"),
+    ],
+)
+def test_a_quantity_in_a_message_is_spelt_one_way(
+    stored: str | None, said: str
+) -> None:
+    """A nothing read 0, 0.0000 and 1.00000000000000 by the column it came off."""
+    assert plain_quantity(None if stored is None else D(stored)) == said
+
+
+def test_a_quantity_summed_across_a_factor_is_read_at_four_places() -> None:
+    """One free unit times a ten-place factor read 1.00000000000000."""
+    read = at_quantity_scale(D("1.00000000000000"))
+
+    assert (read, read.as_tuple().exponent) == (D("1.0000"), -4)
+    assert at_quantity_scale(None) == D("0.0000")
+    assert at_quantity_scale("0.58335") == D("0.5834")

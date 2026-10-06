@@ -37,6 +37,7 @@ from app.core.utils.pricing import (
     inherited_share,
     resolve_line_discount,
 )
+from app.core.utils.quantities import plain_quantity
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -112,9 +113,11 @@ from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.uom.models import Uom
 from app.uom.services import (
     UomService,
     assert_quantity_fits_unit,
+    exact_quantity,
 )
 from app.vendors.models import Vendor
 
@@ -941,8 +944,20 @@ class PurchaseReturnService(TransactionalDocumentService):
             taken[source_id] += unbilled
             line.unbilled_quantity = unbilled
             if position.accepted > ZERO:
+                # Valued from what was typed where the line kept it: seven
+                # pieces of a box at 720.00 are 420.00, and the 0.5833 of a
+                # box the cap counts is 419.98 -- two paise that went to
+                # price variance and came back when the rest was billed
+                # (D-PRC-54, the return's half of D-PRC-37). Only where the
+                # whole line is unbilled: a part of it is a part of the
+                # stored figure.
+                share = unbilled
+                if unbilled == self._q(Decimal(str(line.current_return_quantity))):
+                    share = exact_quantity(
+                        unbilled, line.entered_quantity, line.conversion_factor
+                    )
                 line.grni_amount = quantize_ledger(
-                    costs.get(source_id, ZERO) * unbilled / position.accepted
+                    costs.get(source_id, ZERO) * share / position.accepted
                 )
         for receipt_id in receipt_ids:
             self._settle_receipt_residual(
@@ -994,11 +1009,13 @@ class PurchaseReturnService(TransactionalDocumentService):
             sum((costs.get(line_id, ZERO) for line_id in receipt_line_ids), ZERO)
         )
         bills: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
-        for bill_id, line_id, quantity in self._session.execute(
+        for bill_id, line_id, stored, entered, factor in self._session.execute(
             select(
                 PurchaseInvoiceLine.purchase_invoice_id,
                 PurchaseInvoiceLine.source_document_line_id,
                 PurchaseInvoiceLine.current_invoice_quantity,
+                PurchaseInvoiceLine.entered_quantity,
+                PurchaseInvoiceLine.conversion_factor,
             )
             .join(
                 PurchaseInvoice,
@@ -1015,9 +1032,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         ).all():
             accepted = positions[line_id].accepted
             if accepted > ZERO:
-                bills[bill_id] += (
-                    costs.get(line_id, ZERO) * Decimal(str(quantity)) / accepted
-                )
+                # As the bill cleared it: from what it typed (D-PRC-37), or
+                # this return would take the bill's rounding with its own.
+                quantity = exact_quantity(stored, entered, factor)
+                bills[bill_id] += costs.get(line_id, ZERO) * quantity / accepted
         cleared = sum((quantize_ledger(share) for share in bills.values()), ZERO)
         cleared += sum(
             (positions[line_id].returned_cost for line_id in receipt_line_ids), ZERO
@@ -2213,6 +2231,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                     source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value
                 ),
                 by_another_route=by_another_route,
+                unit=self._unit_named(source_uom_id),
             )
             # Only charged goods are worth what was typed for them; with
             # free goods beside them the line is counted, costed and moved
@@ -2942,6 +2961,13 @@ class PurchaseReturnService(TransactionalDocumentService):
             return ZERO
         return self._q(getattr(source_line, "free_quantity", ZERO) or ZERO)
 
+    def _unit_named(self, uom_id: UUID | None) -> str:
+        """Return a unit's code with a space before it, or nothing."""
+        if uom_id is None:
+            return ""
+        unit = self._session.get(Uom, uom_id)
+        return "" if unit is None else f" {unit.code}"
+
     def _typed_free(
         self, spec: dict[str, object], requested: Decimal, converted: Decimal
     ) -> Decimal | None:
@@ -2965,6 +2991,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         free_left: Decimal,
         off_a_receipt: bool,
         by_another_route: Decimal = ZERO,
+        unit: str = "",
     ) -> tuple[Decimal, Decimal]:
         """Split what a line sends back into charged units and free ones.
 
@@ -2973,6 +3000,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         free, unless the line says how many are free -- a damaged free carton
         returned on its own. The charged part is what is priced and credited;
         the free part is credited nothing.
+
+        ``unit`` names the unit the refusal counts in -- " BOX", the source
+        line's -- because "can still send back 1.4167 bought" says nothing
+        to somebody who typed seven pieces (D-PRC-57).
 
         ``by_another_route`` is what has already gone back of the same goods
         against the other document -- the bill for a receipt line, the receipt
@@ -3001,11 +3032,11 @@ class PurchaseReturnService(TransactionalDocumentService):
             charged = self._q(total - free)
         if charged > charged_left or free > free_left:
             left = (
-                f"{charged_left.normalize():f} bought and "
-                f"{free_left.normalize():f} free"
+                f"{plain_quantity(charged_left)}{unit} bought and "
+                f"{plain_quantity(free_left)} free"
                 if off_a_receipt
-                else f"{charged_left.normalize():f}; free goods go back off the "
-                "goods receipt that brought them in"
+                else f"{plain_quantity(charged_left)}{unit}; free goods go back "
+                "off the goods receipt that brought them in"
             )
             elsewhere = ""
             if by_another_route > ZERO:
@@ -3016,7 +3047,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                     "bill for it"
                 )
                 elsewhere = (
-                    f" {by_another_route.normalize():f} of these goods have "
+                    f" {plain_quantity(by_another_route)}{unit} of these goods have "
                     f"already gone back against {against}."
                 )
             raise ValidationError(

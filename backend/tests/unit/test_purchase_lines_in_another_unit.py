@@ -472,7 +472,7 @@ def test_twelve_pieces_sent_back_off_a_box_line_are_one_box() -> None:
     assert buyer.movement(line.inventory_transaction_id)[0] == D("12.0000")
     assert buyer.stock() == D("12.0000")
     # 36 pieces is three boxes, and two came in.
-    with pytest.raises(ValidationError, match="can still send back 1 bought"):
+    with pytest.raises(ValidationError, match="can still send back 1 BOX bought"):
         buyer.send_back(
             "GOODS_RECEIPT",
             receipt.id,
@@ -925,3 +925,74 @@ def test_the_hsn_summary_counts_what_was_typed_in_the_unit_it_names() -> None:
     [left] = register.hsn_summary(buyer.firm_id)
     assert (left.unit, left.quantity) == ("PIECE", D("2.0000"))
     assert left.taxable_value == D("120.00")
+
+
+def test_loose_pieces_sent_back_before_the_bill_clear_what_the_pieces_cost() -> None:
+    """D-PRC-54: 7 PIECE back off an unbilled receipt of 2 BOX take off 420.00.
+
+    The accrual's share was worked from 0.5833 of 2 boxes -- 419.98 -- so two
+    paise went to price variance, and came back when the other 17 were billed.
+    """
+    buyer = _Buyer()
+    receipt = buyer.receive(buyer.order(**buyer.named("c")))
+
+    buyer.send_back(
+        "GOODS_RECEIPT",
+        receipt.id,
+        buyer.receipt_line(receipt).id,
+        quantity="7",
+        return_uom_id=buyer.piece,
+    )
+
+    assert buyer.books() == (D("1020.00"), D("-1020.00"), D("0"))
+    assert _variance(buyer) == D("0")
+
+    buyer.bill(receipt, "17", invoice_uom_id=buyer.piece)
+
+    assert buyer.books() == (D("1020.00"), D("0"), D("-1020.00"))
+    assert _variance(buyer) == D("0")
+
+
+def test_the_return_that_finishes_a_receipt_billed_in_pieces_leaves_no_paisa() -> None:
+    """7 PIECE billed, then the other 17 sent back unbilled: nothing is left."""
+    buyer = _Buyer()
+    receipt = buyer.receive(buyer.order(**buyer.named("c")))
+    buyer.bill(receipt, "7", invoice_uom_id=buyer.piece)
+
+    buyer.send_back(
+        "GOODS_RECEIPT",
+        receipt.id,
+        buyer.receipt_line(receipt).id,
+        quantity="17",
+        return_uom_id=buyer.piece,
+    )
+
+    assert buyer.books() == (D("420.00"), D("0"), D("-420.00"))
+    assert _variance(buyer) == D("0")
+
+
+def test_a_receipt_refused_for_its_quantity_or_its_unit_says_which_unit() -> None:
+    """D-PRC-57: 7 PIECE of 2 BOX are in the wrong unit; 3 are 3 BOX of 2 BOX.
+
+    Seven loose pieces were told only that they "exceed allowed quantity",
+    being seven against two, and three boxes were told the same with no unit
+    and no figure.
+    """
+    buyer = _Buyer()
+    order = buyer.order(**buyer.named("c"))
+
+    with pytest.raises(ValidationError) as pieces:
+        buyer.receive(order, "7", purchase_uom_id=buyer.piece)
+    buyer.session.rollback()
+    with pytest.raises(ValidationError) as boxes:
+        buyer.receive(order, "3")
+    buyer.session.rollback()
+
+    assert str(pieces.value.message) == (
+        f"Line 1 is received in PIECE where {order.po_number} orders it in BOX. "
+        "Receive it in the order's unit."
+    )
+    assert str(boxes.value.message) == (
+        "Goods receipt exceeds allowed quantity for PO line 1: 2 BOX ordered, "
+        "0 BOX already received, and this line receives 3 BOX."
+    )

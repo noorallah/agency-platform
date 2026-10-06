@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.money import ZERO
+from app.core.utils.quantities import at_quantity_scale
 from app.customers.models import Customer
 from app.promotions.models import (
     Promotion,
@@ -101,7 +102,9 @@ class PromotionReportService:
                 benefit[owner] = benefit.get(owner, ZERO) + Decimal(
                     str(claim.benefit_given)
                 )
-                free[owner] = free.get(owner, ZERO) + Decimal(str(claim.free_given))
+                free[owner] = free.get(owner, ZERO) + at_quantity_scale(
+                    claim.free_given
+                )
                 if claim.customer_id is not None:
                     customers.setdefault(owner, set()).add(claim.customer_id)
             elif claim.status == PENDING:
@@ -196,7 +199,7 @@ class PromotionReportService:
         given = {
             claim.id: (
                 Decimal(str(claim.benefit_given)),
-                Decimal(str(claim.free_given)),
+                at_quantity_scale(claim.free_given),
             )
             for claim in self._session.execute(
                 claims_given(
@@ -286,8 +289,8 @@ class PromotionReportService:
             benefit[claim.coupon_id] = benefit.get(claim.coupon_id, ZERO) + Decimal(
                 str(claim.benefit_given)
             )
-            free[claim.coupon_id] = free.get(claim.coupon_id, ZERO) + Decimal(
-                str(claim.free_given)
+            free[claim.coupon_id] = free.get(claim.coupon_id, ZERO) + at_quantity_scale(
+                claim.free_given
             )
             if claim.customer_id is not None:
                 customers.setdefault(claim.coupon_id, set()).add(claim.customer_id)

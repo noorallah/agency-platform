@@ -45,6 +45,7 @@ from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.core.pagination.reports import ReportRows, ReportWindow
 from app.core.utils.chunks import over_chunks
+from app.core.utils.quantities import at_quantity_scale
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNoteLine
 from app.products.models import Product
@@ -279,7 +280,7 @@ class DiscountReportService:
                 claims=int(claims),
                 customers=int(customers),
                 benefit_amount=_money(amount),
-                free_quantity=Decimal(str(units or 0)),
+                free_quantity=at_quantity_scale(units),
             )
             for group, claims, customers, amount, units in rows
         ]
