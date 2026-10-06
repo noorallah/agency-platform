@@ -926,4 +926,40 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  group('the offer reports', () {
+    ReportDefinition report(String id) =>
+        reportCatalog.singleWhere((report) => report.id == id);
+
+    test('the claims report shows what was given and what was claimed', () {
+      // The first two are net of what was released or returned (#1258), the
+      // other two what the document claimed when it was approved.
+      final Map<String, ReportColumn> columns = {
+        for (final ReportColumn column
+            in report('promotion-redemptions').columns)
+          column.key: column,
+      };
+      expect(columns['benefit_amount']!.label, 'Given');
+      expect(columns['free_quantity']!.label, 'Free units given');
+      expect(columns['claimed_benefit_amount']!.label, 'Claimed at approval');
+      expect(columns['claimed_free_quantity']!.label, 'Free units claimed');
+      for (final String key in [
+        'benefit_amount',
+        'free_quantity',
+        'claimed_benefit_amount',
+        'claimed_free_quantity',
+      ]) {
+        expect(columns[key]!.numeric, isTrue, reason: key);
+      }
+    });
+
+    test('discount given by offer shows the free units too', () {
+      final List<ReportColumn> columns =
+          report('discount-by-promotion').columns;
+      expect(columns.map((column) => column.key),
+          containsAll(['benefit_amount', 'free_quantity']));
+      expect(columns.singleWhere((c) => c.key == 'free_quantity').label,
+          'Free units given');
+    });
+  });
 }
