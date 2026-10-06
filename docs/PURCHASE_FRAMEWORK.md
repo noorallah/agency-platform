@@ -591,6 +591,27 @@ against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
     date order by the same rule, and restates nothing: a return that
     over-claimed before the fix keeps its value and is counted in full
     against the bill it lands on.
+- **A bill is held from cancelling by the returns set against it, not only
+  the ones that name it** (D-PRC-80, 2026-10-06, the buying twin of
+  D-PRC-77; `returns_resting_on` in `app/purchase_return/billing.py`). The
+  guard read the returns whose source document is the bill, so on a receipt
+  of 2 billed 1 and 1 a unit back off the **receipt** (placed on the first
+  bill, 849.60) left the first bill free to cancel: the kept unit's bill
+  then read nothing owed, the supplier's credit could be spent on it, and
+  with both units back and the second bill cancelled the supplier stood
+  849.60 in debit with 129.60 of input tax reversed twice. Three kinds of
+  return now hold a bill: a live one raised off its own line; a completed
+  one whose units were **placed** on it, whichever document it names; and
+  one not yet completed whose units would be placed on it as the bills
+  stand, by the same placing that prices it. The refusal is the bill's own:
+  "PI-… cannot be cancelled while it has purchase return PR-…. Reverse or
+  cancel those first." A return that took nothing of the bill does not hold
+  it: one that went back before any bill reached its goods, one placed on
+  the receipt's other bills, and any return off the receipt where the bill
+  is a draft. Nothing else can take a bill line from under a placement: a
+  bill's lines are editable only while it is a draft, which no return is
+  placed on; there is no route back from approved to draft; and cancelling
+  a debit note only gives a line worth back.
 - **A debit note's cap counts what went back by either route**: billed, less
   other live notes, less returns raised off the bill line (any not
   cancelled) and completed returns raised off the receipt it billed. The
