@@ -3349,8 +3349,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                 batch_ids=[batch_id for batch_id, drawn in allocation if drawn > ZERO],
                 paid=Decimal(str(line.net_amount))
                 - Decimal(str(line.freight_amount or 0)),
-                charged=Decimal(str(line.current_delivery_quantity or 0))
-                * Decimal(str(line.conversion_factor or 1)),
+                quantity=Decimal(str(line.current_delivery_quantity or 0)),
+                stock_units_per_unit=line.conversion_factor,
             )
             batch_notes.extend(
                 self._judge_batches(

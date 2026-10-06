@@ -1962,6 +1962,16 @@ class SalesInvoiceService(TransactionalDocumentService):
         picks = DeliveryNoteService(self._session).batch_picks(
             [line.source_document_line_id for line in lines]
         )
+        # A bill line is counted and priced in its note line's unit, whatever
+        # unit it was typed in, so the stock units one of it holds are the
+        # note line's. The bill's own `conversion_factor` is the typed unit
+        # against the note's -- a twelfth for pieces billed against a box --
+        # and multiplying by it compared a box's price with a piece's MRP, or
+        # divided it by twelve again: the goods had shipped and no bill of
+        # them could be approved (D-PRC-36).
+        stock_units = self._stock_units_per_note_unit(
+            [line.source_document_line_id for line in lines]
+        )
         for line in sorted(lines, key=lambda item: item.line_number):
             # The same judge the order and the note ask (D-PRC-7), so the
             # three cannot word it or work it out differently.
@@ -1975,9 +1985,31 @@ class SalesInvoiceService(TransactionalDocumentService):
                 ],
                 paid=Decimal(str(line.net_amount))
                 - Decimal(str(line.freight_amount or 0)),
-                charged=Decimal(str(line.current_invoice_quantity or 0))
-                * Decimal(str(line.conversion_factor or 1)),
+                quantity=Decimal(str(line.current_invoice_quantity or 0)),
+                stock_units_per_unit=stock_units.get(line.source_document_line_id),
             )
+
+    def _stock_units_per_note_unit(
+        self, note_line_ids: Sequence[UUID]
+    ) -> dict[UUID, Decimal]:
+        """Return, per delivery note line, the stock units one of its unit holds.
+
+        The factor the note line converted at when it shipped -- 12 for a
+        line delivered by the box of twelve, one for a line in the stock
+        unit -- read in one statement for the bill.
+        """
+        if not note_line_ids:
+            return {}
+        return {
+            line_id: Decimal(str(factor or 1))
+            for line_id, factor in self._session.execute(
+                select(DeliveryNoteLine.id, DeliveryNoteLine.conversion_factor).where(
+                    DeliveryNoteLine.id.in_(note_line_ids)
+                )
+            )
+            .tuples()
+            .all()
+        }
 
     # ---- a draft counter bill is raised again when its edit changes it -----
 
