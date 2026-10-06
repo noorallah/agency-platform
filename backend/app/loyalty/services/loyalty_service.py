@@ -1128,6 +1128,19 @@ class LoyaltyService:
             ),
             ZERO,
         )
+        # A redemption since undone (D-PRC-6) is a REDEEMED row with its
+        # signs turned: its points leave the spending, so the batches it
+        # used hold them again, on their own dates.
+        pool -= sum(
+            (
+                Decimal(str(row.points))
+                for row in entries
+                if row.kind == LoyaltyEntryKind.REDEEMED.value
+                and Decimal(str(row.points)) > ZERO
+            ),
+            ZERO,
+        )
+        pool = max(pool, ZERO)
         left: list[tuple[LoyaltyEntry, Decimal]] = []
         for batch in batches:
             held = Decimal(str(batch.points)) - taken.get(batch.id, ZERO)

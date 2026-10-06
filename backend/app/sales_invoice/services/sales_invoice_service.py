@@ -83,6 +83,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import StockLedgerEntry
 from app.loyalty.services import LoyaltyService
+from app.loyalty.services.redemption_reversal import RedemptionReversalService
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.products.services.free_issue import assert_not_sold_at_a_price
@@ -2838,7 +2839,6 @@ class SalesInvoiceService(TransactionalDocumentService):
             EWayBillStatus,
             RegistrationStatus,
         )
-        from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
         from app.sales_return.models import (
             SalesReturn,
             SalesReturnLine,
@@ -2940,15 +2940,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         if returns:
             blockers.append("sales return " + ", ".join(returns))
-        spent = self._session.scalar(
-            select(func.count(LoyaltyEntry.id)).where(
-                LoyaltyEntry.sales_invoice_id == row.id,
-                LoyaltyEntry.kind == LoyaltyEntryKind.REDEEMED.value,
-                LoyaltyEntry.is_deleted.is_(False),
-            )
-        )
-        if spent:
-            blockers.append("loyalty points spent on it")
+        # Points spent on the bill are not a blocker (D-PRC-6): nothing could
+        # reverse one, so such a bill could never be cancelled. They are not
+        # money that changed hands, and `cancel_invoice` puts them back.
         registered = self._session.scalar(
             select(func.count(EInvoiceRegistration.id)).where(
                 EInvoiceRegistration.sales_invoice_id == row.id,
@@ -3018,6 +3012,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             # booking the lot as a sales return would not be.
             reversed_on = self._reverse_invoice_posting(
                 row, firm_scope=firm_scope, actor_id=actor_id
+            )
+            # Points spent on the bill come back first (D-PRC-6): each
+            # redemption's journal mirrored and the customer's balance put
+            # back by its own row, before the bill itself comes off it below.
+            RedemptionReversalService(self._session).stage_for_cancelled_bill(
+                row, firm_id=firm_scope, actor_id=actor_id
             )
             # The points the bill earned go with it, and their accrual with
             # them; kept, they could be spent from a sale that never happened

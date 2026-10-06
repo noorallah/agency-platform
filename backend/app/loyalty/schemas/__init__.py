@@ -9,6 +9,7 @@ from app.loyalty.schemas.loyalty import (
     LoyaltyExpiringRecord,
     LoyaltyMovementRecord,
     LoyaltyRedeem,
+    LoyaltyRedemptionReverse,
     LoyaltySettingsResponse,
     LoyaltySettingsWrite,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "LoyaltyExpiringRecord",
     "LoyaltyMovementRecord",
     "LoyaltyRedeem",
+    "LoyaltyRedemptionReverse",
     "LoyaltySettingsResponse",
     "LoyaltySettingsWrite",
 ]

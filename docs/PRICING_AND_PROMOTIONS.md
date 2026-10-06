@@ -591,6 +591,44 @@ cost released, and a share already spent settled another bill, which the
 cancellation does not undo. `unspent_batches` attributes a reversal to its
 batch as it does an expiry, rather than pooling it with spends.
 
+**A redemption can be undone, and cancelling a bill undoes the ones on it**
+(D-PRC-6, 2026-10-06). A bill of 118.00 with 10 points spent on it answered
+422 to its cancellation -- "...cannot be cancelled while it has loyalty points
+spent on it. Reverse or cancel those first." -- and no route reversed a
+redemption, so nobody could ever cancel it. The rule was copied from money: a
+receipt on a bill is reversed by a person first, deliberately, because cash
+changed hands and somebody has to say what became of it. **Points are not
+money that changed hands**, and there is no receipt screen to reverse them
+on, so `cancel_invoice` puts them back itself, in its own transaction, before
+it takes the bill off the customer's account
+(`RedemptionReversalService.stage_for_cancelled_bill` in
+`app/loyalty/services/redemption_reversal.py`). A bill that also has a receipt
+is still refused for the receipt, and nothing is touched. A redemption keyed
+against the wrong bill is undone on a bill that stays by
+`POST /api/v1/loyalty/redemptions/{entry_id}/reverse` with a `reason`, on
+`LOYALTY_MANAGE` -- the code the redemption itself takes.
+
+**A redemption undone is a second `REDEEMED` row with its signs turned**,
+naming the first in `reverses_id`: the points positive, the amount negative.
+What a bill owes is everywhere the sum of its `REDEEMED` amounts and a balance
+is the sum of points, so every reader nets it without being told, and a
+statement as of a day between the two still reads the bill as settled. Three
+things go back together, each by the record of what was done: the journal is
+mirrored (`Dr Accounts Receivable / Cr Loyalty Payable`) as
+`LOY-RED-<bill>-REV`, or `LOY-RED-<bill>-2-REV` for a second redemption, so
+two never share a reference; the customer's balance goes back by the deltas
+stored on the `LOYALTY` row the redemption wrote; and the points return to
+the batches -- the redemption leaves the spending `unspent_batches` allocates
+oldest first, so each batch holds again what it held, on its own expiry date
+and at its own value. **A batch that has since lapsed stays lapsed**: the
+share returned to a batch already past its date is written off there and
+then as `EXPIRED` with its cost released, exactly as the sweep would have
+done had the points never been spent, and what such a batch held before is
+left to the sweep. It is undone once ("Those points were already put back, on
+2026-10-06."), and the row that puts points back cannot itself be reversed --
+the way to spend them again is to redeem them.
+`tests/unit/test_loyalty_redemption_reversal.py` is the guard.
+
 **A point keeps the value it was credited at.** Every credit -- points
 earned on a bill and points given by hand -- is a batch carrying its own
 value per point (`amount / points`, stored when it was credited).

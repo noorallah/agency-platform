@@ -109,6 +109,12 @@ class LoyaltyRedeem(LoyaltySchema):
     points: Decimal = Field(gt=0, max_digits=18)
 
 
+class LoyaltyRedemptionReverse(LoyaltySchema):
+    """Put back the points one redemption spent, saying why (D-PRC-6)."""
+
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class LoyaltyAdjust(LoyaltySchema):
     """Correct a balance by hand, saying why."""
 
