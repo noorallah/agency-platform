@@ -27,11 +27,11 @@ void main() {
       await chooseIn(tester, 'purchase-order-vendor', 'Principal supplier');
       await chooseInKeyed(
           tester, 'purchase-order-line-product-', 'Detergent');
-      await typeIn(tester, 'purchase-order-line-0', 1, '10');
+      await typeInKeyed(tester, 'purchase-order-qty-', '10');
       await pumpFor(tester, const Duration(seconds: 3));
       await saveEditor(tester, 'purchase-order-save');
       await pumpFor(tester, const Duration(seconds: 3));
-      order = await server.newest('purchase-orders');
+      order = await server.newest('purchases');
       final String? fault = order == null
           ? 'nothing was saved'
           : arithmeticFault(order!, quantity: 10);
@@ -52,20 +52,31 @@ void main() {
         await selectRow(tester, docNumber(order!));
         await tapButton(tester, 'Edit');
         await pumpFor(tester, const Duration(seconds: 3));
-        await typeIn(tester, 'purchase-order-line-0', 1, '12');
+        await typeInKeyed(tester, 'purchase-order-qty-', '12');
         await pumpFor(tester, const Duration(seconds: 3));
         await saveEditor(tester, 'purchase-order-save');
         await pumpFor(tester, const Duration(seconds: 3));
-        order = await server.one('purchase-orders', '${order!['id']}');
+        order = await server.one('purchases', '${order!['id']}');
         final String? fault = arithmeticFault(order!, quantity: 12);
         if (fault != null) throw StateError(fault);
+      });
+      await flow.step('order: submit for approval', () async {
+        await selectRow(tester, docNumber(order!));
+        await tapButton(tester, 'Submit');
+        await confirmIfAsked(tester);
+        await pumpFor(tester, const Duration(seconds: 3));
+        order = await server.one('purchases', '${order!['id']}');
+        if ('${order!['status']}' == 'DRAFT') {
+          throw StateError('still DRAFT after Submit; the screen said '
+              '"${noticeText(tester)}"');
+        }
       });
       await flow.step('order: approve', () async {
         await selectRow(tester, docNumber(order!));
         await tapButton(tester, 'Approve');
         await confirmIfAsked(tester);
         await pumpFor(tester, const Duration(seconds: 3));
-        order = await server.one('purchase-orders', '${order!['id']}');
+        order = await server.one('purchases', '${order!['id']}');
         if ('${order!['status']}' != 'APPROVED') {
           throw StateError('status is ${order!['status']} after Approve');
         }
@@ -113,7 +124,21 @@ void main() {
       await flow.step('bill: new off the receipt, save', () async {
         await openMenu(tester, 'buy', 'purchaseInvoices');
         await tapNew(tester);
-        await chooseIn(tester, 'purchase-invoice-order', docNumber(order!));
+        await chooseIn(
+            tester, 'purchase-invoice-receipt-supplier', 'Principal supplier');
+        await tester.enterText(
+            find.byWidgetPredicate((Widget w) =>
+                w is TextField && w.decoration?.hintText == 'as printed'),
+            'SUP-${DateTime.now().millisecondsSinceEpoch}');
+        await pumpFor(tester, const Duration(milliseconds: 300));
+        await tapKey(tester, 'purchase-invoice-choose-receipts');
+        await pumpFor(tester, const Duration(seconds: 2));
+        await tester.tap(find
+            .descendant(
+                of: find.byType(Dialog), matching: find.byType(Checkbox))
+            .first);
+        await pumpFor(tester, const Duration(milliseconds: 500));
+        await confirmIfAsked(tester);
         await pumpFor(tester, const Duration(seconds: 3));
         await saveEditor(tester, 'purchase-invoice-save');
         await pumpFor(tester, const Duration(seconds: 3));

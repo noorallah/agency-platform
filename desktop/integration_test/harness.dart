@@ -400,7 +400,9 @@ String? arithmeticFault(Json doc, {double? quantity}) {
   }
   final dynamic lines = doc['lines'];
   if (quantity != null && lines is List && lines.isNotEmpty) {
-    final double got = num2((lines.first as Json)['quantity']);
+    final Json first = lines.first as Json;
+    final double got =
+        num2(first['quantity'] ?? first['ordered_quantity']);
     if (got != quantity) faults.add('line 1 quantity is $got, typed $quantity');
   }
   return faults.isEmpty ? null : faults.join('; ');
@@ -423,6 +425,7 @@ String docNumber(Json doc) {
     'quotation_number',
     'order_number',
     'delivery_note_number',
+    'grn_number',
     'invoice_number',
     'receipt_number',
     'goods_receipt_number',
