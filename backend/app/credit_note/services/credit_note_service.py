@@ -706,10 +706,18 @@ class CreditNoteService(TransactionalDocumentService):
         ).returned_taxable
         if asked <= charged - already - returned:
             return
-        came_back = "" if returned <= ZERO else f", {returned} already returned"
+        # Money, said as money: "0.0000 charged, 0.0000 already credited"
+        # counted rupees to four places, and said it of a free line that was
+        # never charged anything (D-PRC-62).
+        if charged <= ZERO:
+            raise ValidationError(
+                f"Invoice line {source.line_number} was charged nothing, so "
+                "there is nothing on it to credit."
+            )
+        came_back = "" if returned <= ZERO else f", {returned:.2f} already returned"
         raise ValidationError(
-            "A credit note cannot credit more than the line was "
-            f"charged: {charged} charged, {already} already credited{came_back}."
+            "A credit note cannot credit more than the line was charged: "
+            f"{charged:.2f} charged, {already:.2f} already credited{came_back}."
         )
 
     def _assert_lines_still_have_room(self, note: CreditNote) -> None:

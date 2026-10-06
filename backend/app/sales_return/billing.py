@@ -258,6 +258,44 @@ def returned_unbilled(
     }
 
 
+def free_returned_off_notes(
+    session: Session, note_line_ids: Iterable[UUID]
+) -> dict[UUID, Decimal]:
+    """Return the free goods that came back, per delivery note line.
+
+    What completed returns raised **against the note line** state as free
+    (``sales_return_lines.free_quantity``), in the note line's unit. A bill
+    raised afterwards states the free goods the customer still holds: the
+    charged quantity is netted by ``returned_unbilled`` and the free one was
+    not, so a bill printed "0 + 2 free" after one of the two had come back
+    (D-PRC-61). A return raised against a bill names the bill's line, which
+    had already stated those goods, and is not counted here.
+    """
+    ids = list(set(note_line_ids))
+    if not ids:
+        return {}
+    return {
+        line_id: Decimal(str(quantity))
+        for line_id, quantity in session.execute(
+            select(
+                SalesReturnLine.source_document_line_id,
+                func.coalesce(func.sum(SalesReturnLine.free_quantity), 0),
+            )
+            .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+            .where(
+                SalesReturnLine.source_document_type == "DELIVERY_NOTE",
+                SalesReturnLine.source_document_line_id.in_(ids),
+                SalesReturnLine.is_deleted.is_(False),
+                SalesReturnLine.free_quantity > 0,
+                SalesReturn.is_deleted.is_(False),
+                SalesReturn.status.in_(_COMPLETED),
+            )
+            .group_by(SalesReturnLine.source_document_line_id)
+        ).all()
+        if Decimal(str(quantity)) > ZERO
+    }
+
+
 def note_line_billing(
     session: Session,
     note_line_ids: Iterable[UUID],

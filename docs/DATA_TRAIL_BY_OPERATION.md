@@ -1782,8 +1782,10 @@ In this order, all in one request:
 - **Approve:** `status` APPROVED, `approved_at`; lifecycle `APPROVED`; audit
   `delivery_note.approved` (no data beyond the request id). **Moves
   nothing** — TC-SELL-009's "an approved note moves nothing".
-- **Refused:** more than the order line has left ("Delivery quantity exceeds
-  allowed quantity for the order line.").
+- **Refused:** more than the order line has left ("Line 1 delivers 6 where
+  SO-… has 4 left to deliver of the 10 ordered: DN-… delivers the rest.
+  Change the line to what is left." at save; the same sentence at approval,
+  D-PRC-62).
 - **Cancel** (DRAFT or APPROVED only) writes the status, `cancel_reason`,
   lifecycle `CANCELLED`, audit `delivery_note.cancelled`. A DISPATCHED note
   cannot be cancelled and nothing reverses a dispatch (§10.10).
@@ -2166,8 +2168,8 @@ The stock side is §10.6; this is the whole request.
 - **The cap**, read under a lock on the invoice line: credited + already
   credited by live credit notes ≤ what the line was charged. Refused, nothing
   written: "A credit note cannot credit more than the line was charged:
-  409.5000 charged, 50.0000 already credited." **Completed returns of the
-  line are netted against it too** (D-SELL-88): "..., 600.0000 already
+  409.50 charged, 50.00 already credited." **Completed returns of the
+  line are netted against it too** (D-SELL-88): "..., 600.00 already
   returned." The cap is asked again at approval, so a note saved before the
   goods came back is refused there.
 - **Approve:** journal (`source_module` `credit_note`, reference the CN

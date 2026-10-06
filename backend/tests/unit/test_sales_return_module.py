@@ -1520,7 +1520,11 @@ def test_goods_back_before_billing_credit_nothing_and_reverse_no_tax() -> None:
     assert line is not None and line.unbilled_quantity == Decimal("3.0000")
     # And the note has one left to bill, not four.
     assert _left_to_bill(setup) == Decimal("1.0000")
-    with pytest.raises(ValidationError, match="came back before being billed"):
+    with pytest.raises(
+        ValidationError,
+        # Counted plainly: "3.0000 of the 4.0000 delivered" (D-PRC-62).
+        match="3 of the 4 delivered came back before being billed, so 1 is left",
+    ):
         setup.bill(Decimal("4"))
     session.rollback()
     assert setup.bill(Decimal("1")).grand_total == Decimal("100.0000")

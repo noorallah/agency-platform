@@ -21,9 +21,13 @@ import pytest
 
 from app.core.exceptions import ValidationError
 from app.delivery_note.models import DeliveryNote
-from app.delivery_note.schemas import DeliveryNoteLineResponse, DeliveryNoteResponse
+from app.delivery_note.schemas import (
+    DeliveryNoteCreate,
+    DeliveryNoteLineResponse,
+    DeliveryNoteResponse,
+)
 from app.sales_order.models import SalesOrder
-from tests.unit.test_order_bill_discount_reaches_the_bill import _Trade
+from tests.unit.test_order_bill_discount_reaches_the_bill import DAY, _Trade
 
 D = Decimal
 
@@ -90,7 +94,7 @@ def test_a_draft_reads_what_is_left_after_another_note_is_approved() -> None:
         D("6.0000"),
     )
     # The cap behind the figure was always right.
-    with pytest.raises(ValidationError, match="exceeds allowed quantity"):
+    with pytest.raises(ValidationError, match="has 4 left to deliver of the 10"):
         drafts.note(drafts.sale, "5", ship=False)
 
 
@@ -198,3 +202,54 @@ def test_a_cancelled_note_gives_the_draft_its_quantity_back() -> None:
     )
 
     assert drafts.figures(drafts.four) == (D("0"), D("6.0000"), D("6.0000"), D("0"))
+
+
+def test_a_note_over_the_cap_alone_is_not_told_to_cancel_another() -> None:
+    """D-PRC-62: lines of 6 and 6 of 10 were told to "cancel the other note"."""
+    drafts = _Trade()
+    sale = drafts.order("10")
+    source = drafts.order_line(sale).id
+    note = drafts.notes.create_note(
+        DeliveryNoteCreate.model_validate(
+            {
+                "sales_order_id": sale.id,
+                "delivery_date": DAY,
+                "lines": [
+                    {
+                        "sales_order_line_id": source,
+                        "line_number": number,
+                        "current_delivery_quantity": "6",
+                    }
+                    for number in (1, 2)
+                ],
+            }
+        ),
+        firm_id=drafts.firm_id,
+        actor_id=drafts.actor,
+    )
+
+    with pytest.raises(ValidationError) as refused:
+        drafts.notes.approve_note(
+            note.id, firm_scope=drafts.firm_id, actor_id=drafts.actor
+        )
+
+    assert str(refused.value) == (
+        f"Line 1 of {note.delivery_note_number} delivers 12 where "
+        f"{sale.order_number} has 10 left to deliver of the 10 ordered. "
+        "Change this note's lines to what is left."
+    )
+
+
+def test_a_note_saved_over_what_is_left_is_told_the_line_and_what_is_left() -> None:
+    """It said "Delivery quantity exceeds allowed quantity for the order line."."""
+    drafts = _Drafts()
+    drafts.approve(drafts.six)
+
+    with pytest.raises(ValidationError) as refused:
+        drafts.note(drafts.sale, "6", ship=False)
+
+    assert str(refused.value) == (
+        f"Line 1 delivers 6 where {drafts.sale.order_number} has 4 left to "
+        f"deliver of the 10 ordered: {drafts.six.delivery_note_number} delivers "
+        "the rest. Change the line to what is left."
+    )

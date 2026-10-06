@@ -204,6 +204,18 @@ def missing_conversion_message(
     )
 
 
+def unit_named(session: Session, uom_id: UUID | None) -> str:
+    """Return a unit's code with a space before it, or nothing.
+
+    For a refusal that counts: " BOX" after the figure where the line names
+    a unit, and the bare figure where it names none (D-PRC-57, D-PRC-62).
+    """
+    if uom_id is None:
+        return ""
+    unit = session.get(Uom, uom_id)
+    return "" if unit is None else f" {unit.code}"
+
+
 def stock_unit_of(product: Product | None, fallback: UUID | None = None) -> UUID | None:
     """Return the unit a product's stock is kept in.
 

@@ -658,8 +658,15 @@ def test_a_bill_in_pieces_bills_a_receipt_of_boxes_up_to_what_came_in() -> None:
     buyer = _Buyer()
     receipt = buyer.receive(buyer.order(**buyer.named("c")))
 
-    with pytest.raises(ValidationError, match="exceeds the available source"):
+    # In the receipt line's unit, named: it read "2.0833 where 2.0000 is
+    # left" to somebody who typed 25 PIECE (D-PRC-62).
+    with pytest.raises(ValidationError) as refused:
         buyer.bill(receipt, "25", invoice_uom_id=buyer.piece)
+    assert str(refused.value) == (
+        "Invoice quantity exceeds the available source quantity: line 1 bills "
+        "2.0833 BOX where 2 BOX is left to bill (2 BOX received, 0 BOX on "
+        "other bills, 0 BOX returned before billing)."
+    )
     buyer.session.rollback()
     bill = buyer.bill(receipt, "24", invoice_uom_id=buyer.piece)
 

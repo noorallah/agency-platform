@@ -658,7 +658,33 @@ somebody who typed seven pieces, where it read "2.0000 sent, 0.5833 already
 returned". Quantities in these messages are spelt by `plain_quantity`
 (`app/core/utils/quantities.py`) -- 4, not 4.0000; 0, not 0.0000 -- and the
 free units an offer has given are read at a quantity's four places
-(`at_quantity_scale`), where one read 1.00000000000000. Unlike a purchase return, **a line off the bill may bring free goods
+(`at_quantity_scale`), where one read 1.00000000000000. The same spelling
+and the unit (`unit_named` in `app/uom/services`) reached four more refusals
+on 2026-10-06 (D-PRC-62): a supplier's bill for more than is left -- "line 1
+bills 1.5 BOX where 1.4167 BOX is left to bill (2 BOX received, 0 BOX on
+other bills, 0.5833 BOX returned before billing)" -- at save and at
+approval; a sales bill after a return off the note, "1 BOX of the 2 BOX
+delivered came back before being billed, so 1 BOX is left to bill."; a
+credit note's cap, which is money and is said to the paisa ("409.50 charged,
+50.00 already credited", and "Invoice line 2 was charged nothing, so
+there is nothing on it to credit." for a free line); and a delivery note for
+more than its order line has left, which now says the same sentence at save
+as at approval -- "Line 1 delivers 3 BOX where SO-1 has 1 BOX left to
+deliver of the 4 BOX ordered: DN-1 delivers the rest." -- in **the note
+line's own unit** wherever the figures are whole in it, and tells a note
+whose own lines exceed the order to change its lines rather than to "cancel
+the other note" when there is none.
+
+**A bill states the free goods the customer still holds** (D-PRC-61,
+2026-10-06). The charged quantity of a note line was already netted by what
+came back before billing; its free quantity was not, so after one of an
+offer's 2 free pieces came back off the note the bill read and printed "0 +
+2 free". What completed returns raised against the note line state as free
+(`free_returned_off_notes` in `app/sales_return/billing.py`) now comes off
+what the bill inherits, off the cap on a figure typed on the bill, and off
+the list of what a note has left to bill; a gift line whose goods all came
+back is no longer offered. A draft bill saved before the return keeps the
+figure it was saved with until it is saved again. Unlike a purchase return, **a line off the bill may bring free goods
 back as well as one off the note**: a counter firm never sees its notes, and
 the bill line carries the free quantity it inherited.
 

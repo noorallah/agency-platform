@@ -47,6 +47,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
+from app.core.utils.quantities import plain_quantity
 from app.customers.gst_registration import effective_type, sez_tax_warning
 from app.customers.models import Customer
 from app.customers.schemas import (
@@ -179,6 +180,7 @@ from app.uom.services import (
     assert_quantity_fits_unit,
     exact_quantity,
     stock_unit_of,
+    unit_named,
 )
 
 ZERO = Decimal("0")
@@ -4179,10 +4181,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                 came_back > ZERO
                 and invoice_quantity + already_invoiced + came_back > source_quantity
             ):
+                unit = unit_named(self._session, source_uom_id)
+                left = max(source_quantity - already_invoiced - came_back, ZERO)
                 raise ValidationError(
-                    f"Line {index}: {came_back} of the {source_quantity} "
-                    "delivered came back before being billed, so "
-                    f"{max(source_quantity - already_invoiced - came_back, ZERO)} "
+                    f"Line {index}: {plain_quantity(came_back)}{unit} of the "
+                    f"{plain_quantity(source_quantity)}{unit} delivered came "
+                    f"back before being billed, so {plain_quantity(left)}{unit} "
                     "is left to bill."
                 )
             unit_price = self._invoice_unit_price(spec=spec, source_line=source_line)
@@ -5500,6 +5504,11 @@ class SalesInvoiceService(TransactionalDocumentService):
         remaining = self._q(
             source_quantity - already - self._returned_before_billing(line_id)
         )
+        # And less the free goods that came back, so the bill is offered
+        # what the customer still holds (D-PRC-61).
+        free_quantity = max(
+            self._q(free_quantity - self._free_returned_off_the_note(line_id)), ZERO
+        )
         if remaining <= ZERO:
             gift_only = source_quantity <= ZERO < free_quantity
             if not gift_only or self._already_invoiced(
@@ -5552,6 +5561,21 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
         )
 
+    def _free_returned_off_the_note(self, source_document_line_id: UUID) -> Decimal:
+        """Return the free goods completed returns brought back off a note line.
+
+        In the note line's unit, as a return line states them. Nothing for a
+        line no return names -- an order line among them.
+        """
+        # Imported here: the return module imports this one's models.
+        from app.sales_return.billing import free_returned_off_notes
+
+        return self._q(
+            free_returned_off_notes(self._session, [source_document_line_id]).get(
+                source_document_line_id, ZERO
+            )
+        )
+
     def _refuse_billing_returned_goods(self, row: SalesInvoice) -> None:
         """Refuse to approve a bill for goods that came back while it waited.
 
@@ -5580,11 +5604,13 @@ class SalesInvoiceService(TransactionalDocumentService):
             if position is None or position.returned_unbilled <= ZERO:
                 continue
             if self._q(line.current_invoice_quantity) > position.left_to_bill:
+                unit = unit_named(self._session, line.order_uom_id)
                 raise ValidationError(
                     f"{row.invoice_number} line {line.line_number}: "
-                    f"{self._q(position.returned_unbilled)} of the "
-                    f"{self._q(position.delivered)} delivered came back before "
-                    f"being billed, so {self._q(position.left_to_bill)} is left "
+                    f"{plain_quantity(position.returned_unbilled)}{unit} of the "
+                    f"{plain_quantity(position.delivered)}{unit} delivered came "
+                    "back before being billed, so "
+                    f"{plain_quantity(position.left_to_bill)}{unit} is left "
                     "to bill. Change the bill to what the customer kept."
                 )
 
@@ -5741,6 +5767,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         """
         offered = self._q(
             Decimal(str(getattr(source_line, "free_quantity", ZERO) or ZERO))
+        )
+        # Less the free goods that came back off the note: the charged
+        # quantity is netted the same way, and a bill that said "0 + 2 free"
+        # after one of the two had come back stated goods the customer no
+        # longer held (D-PRC-61).
+        offered = max(
+            self._q(offered - self._free_returned_off_the_note(source_line.id)),
+            ZERO,
         )
         asked = spec.get("free_quantity")
         if asked is None:
