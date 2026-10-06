@@ -16,8 +16,8 @@ from uuid import UUID
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, lazyload, load_only
 
-from app.batch_serial.models import BatchRecord
 from app.batch_serial.schemas import PickedSerial
+from app.batch_serial.services.mrp_ceiling import refuse_above_batch_mrp
 from app.batch_serial.services.serial_trail_service import SerialTrailService
 from app.business.gating import assert_feature_fields
 from app.business.models.framework import AttributeEntityType
@@ -1954,41 +1954,22 @@ class SalesInvoiceService(TransactionalDocumentService):
         picks = DeliveryNoteService(self._session).batch_picks(
             [line.source_document_line_id for line in lines]
         )
-        batch_ids = {pick.batch_id for found in picks.values() for pick in found}
-        if not batch_ids:
-            return
-        mrps = {
-            batch.id: batch.mrp
-            for batch in self._session.scalars(
-                select(BatchRecord).where(BatchRecord.id.in_(batch_ids))
-            )
-        }
         for line in sorted(lines, key=lambda item: item.line_number):
-            found = picks.get(line.source_document_line_id, [])
-            if not found:
-                continue
-            product = self._session.get(Product, line.product_id)
-            fallback = getattr(product, "mrp", None)
-            ceilings = [
-                Decimal(str(mrp))
-                for mrp in (mrps.get(pick.batch_id) or fallback for pick in found)
-                if mrp is not None and Decimal(str(mrp)) > ZERO
-            ]
-            charged = Decimal(str(line.current_invoice_quantity or 0)) * Decimal(
-                str(line.conversion_factor or 1)
+            # The same judge the order and the note ask (D-PRC-7), so the
+            # three cannot word it or work it out differently.
+            refuse_above_batch_mrp(
+                self._session,
+                line_number=line.line_number,
+                product_id=line.product_id,
+                batch_ids=[
+                    pick.batch_id
+                    for pick in picks.get(line.source_document_line_id, [])
+                ],
+                paid=Decimal(str(line.net_amount))
+                - Decimal(str(line.freight_amount or 0)),
+                charged=Decimal(str(line.current_invoice_quantity or 0))
+                * Decimal(str(line.conversion_factor or 1)),
             )
-            if not ceilings or charged <= ZERO:
-                continue
-            paid = Decimal(str(line.net_amount)) - Decimal(
-                str(line.freight_amount or 0)
-            )
-            rate = (paid / charged).quantize(Decimal("0.01"))
-            ceiling = min(ceilings)
-            if rate > ceiling:
-                raise ValidationError(
-                    f"Line {line.line_number}: charges {rate} a unit with tax, "
-                    f"above the MRP of {ceiling} printed on the batch it ships."
-                )
 
     # ---- a draft counter bill is raised again when its edit changes it -----
 

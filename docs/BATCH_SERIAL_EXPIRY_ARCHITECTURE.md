@@ -610,6 +610,33 @@ the batches its note line takes, the product's MRP standing in for a batch with
 none; above it is refused naming the line, the rate and the MRP. The challan
 and the tax invoice print one row per batch with its expiry and **MRP**.
 
+**And it is refused where the price is struck, not three documents later
+(D-PRC-7, 2026-10-06).** The bill is the last document of a sale: an order of
+one, pinned to a batch printed 120.00, at 130 (145.60 with tax) was saved and
+approved, its note was dispatched, and only then was the bill refused, with
+the goods already out. The judge is one function now,
+`refuse_above_batch_mrp` in `app/batch_serial/services/mrp_ceiling.py`, with
+the one wording -- "Line 1: charges 145.60 a unit with tax, above the MRP of
+120.00 printed on the batch it ships." -- asked at every point a price meets a
+known batch:
+
+- a **sales order line saved with a pinned batch** (create and edit);
+- a **counter bill at save**, through the order it raises -- a line drawn from
+  one batch is pinned to it, and one drawn from several is held to the lowest
+  of them by `SalesChainService._refuse_above_chosen_mrp`;
+- a **delivery note at dispatch**, once each line knows the batches it draws
+  from -- chosen by a person, carried by a serial, or allocated earliest
+  expiry first -- and before any stock moves, so nothing has left when it is
+  refused;
+- the **bill at approval**, as before, which still catches an MRP corrected
+  downward after the goods left.
+
+**An order line with no pin is not judged when it is saved.** No batch is known
+yet, and guessing the one the allocator will choose later would refuse an
+order for a batch it may never ship; such a line is judged at dispatch. A
+note that chooses its batches is likewise judged at dispatch, not when the
+draft is saved. Free goods charge nothing and are not counted.
+
 **Price from batch** (`batch_sale_settings.price_from_batch`, off): where a
 line's batch is chosen, the screen fills its rate from the batch's selling
 price, ahead of the price list. The server takes the rate it is sent, as for

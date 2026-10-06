@@ -15,6 +15,7 @@ from sqlalchemy import func, not_, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.batch_serial.models import BatchRecord
+from app.batch_serial.services.mrp_ceiling import refuse_above_batch_mrp
 from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields
 from app.business.models.framework import AttributeEntityType
@@ -2568,6 +2569,17 @@ class SalesOrderService(TransactionalDocumentService):
                 product_id=item.product_id,
                 firm_id=row.firm_id,
                 line_number=item.line_number,
+            )
+            # Where the price is first struck against a known batch, not
+            # three documents later with the goods already out (D-PRC-7). A
+            # line with no pin names no batch yet and is judged at dispatch.
+            refuse_above_batch_mrp(
+                self._session,
+                line_number=item.line_number,
+                product_id=item.product_id,
+                batch_ids=[line.pinned_batch_id],
+                paid=net - freight_share,
+                charged=line.base_quantity,
             )
             line.remarks = item.remarks
             line.updated_by = actor_id

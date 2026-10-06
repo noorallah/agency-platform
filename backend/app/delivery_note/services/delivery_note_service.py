@@ -27,6 +27,7 @@ from app.batch_serial.services.batch_sale_policy import (
     describe_batches,
 )
 from app.batch_serial.services.batch_serial_service import BatchSerialService
+from app.batch_serial.services.mrp_ceiling import refuse_above_batch_mrp
 from app.batch_serial.services.serial_trail_service import (
     DELIVERY_NOTE,
     LineRef,
@@ -3166,6 +3167,20 @@ class DeliveryNoteService(TransactionalDocumentService):
                 shares = self._trail.deal(
                     picks, [allocated for _, allocated in allocation]
                 )
+            # Every line now knows the batches it leaves from, and nothing
+            # has moved yet: a price above the MRP printed on one of them is
+            # refused here rather than on the bill, after the goods have
+            # gone (D-PRC-7).
+            refuse_above_batch_mrp(
+                self._session,
+                line_number=line.line_number,
+                product_id=line.product_id,
+                batch_ids=[batch_id for batch_id, drawn in allocation if drawn > ZERO],
+                paid=Decimal(str(line.net_amount))
+                - Decimal(str(line.freight_amount or 0)),
+                charged=Decimal(str(line.current_delivery_quantity or 0))
+                * Decimal(str(line.conversion_factor or 1)),
+            )
             batch_notes.extend(
                 self._judge_batches(
                     row,
