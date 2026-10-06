@@ -54,6 +54,7 @@ from app.promotions.schemas import (
     PromotionLineOutcome,
     PromotionStatus,
 )
+from app.promotions.services.offer_use import claims_given
 from app.promotions.services.references import live_row_ids
 
 ZERO = Decimal("0")
@@ -164,8 +165,9 @@ class PromotionService:
             """Apply one offer to the document; True when evaluation must stop.
 
             None when the offer was not applied after all: what it would give
-            this document is more than its budget has left. Everything it
-            did is undone, so the document is priced as if it had not matched.
+            this document is more than its budget has left, or it gave the
+            document nothing. Everything it did is undone, so the document is
+            priced as if it had not matched.
             """
             nonlocal bill_discount, freight_waived
             before_each = [state.discount for state in states]
@@ -190,6 +192,27 @@ class PromotionService:
                 before_free, ZERO
             )
             free_given += sum((gift.quantity for gift in gifts[before_gifts:]), ZERO)
+            if worth <= ZERO and free_given <= ZERO:
+                # It matched and gave nothing: its free goods were typed over
+                # by hand, its gift is not a product any more, there was no
+                # delivery charge to waive. An offer that gave nothing is not
+                # applied, so no claim is staged and no "one per customer" is
+                # used up for it (D-PRC-32).
+                decisions.append(
+                    self._decision(
+                        promotion,
+                        False,
+                        (
+                            "A free quantity was typed on the line this offer "
+                            "matched, so the offer's own was not given and "
+                            "nothing is claimed."
+                            if any(state.free_typed for state in matched_lines)
+                            else "This offer gave nothing on this document, so "
+                            "nothing is claimed."
+                        ),
+                    )
+                )
+                return None
             overrun = room[promotion.id].overrun(worth, free_given)
             if overrun is not None:
                 # Whole or not at all, as approval refuses it: part of a
@@ -1099,8 +1122,8 @@ class BudgetRoom:
     One answer for pricing and for approval, so the two cannot disagree about
     whether a document fits. Counted from CLAIMED redemptions across the
     offer's version group, as the number of claims is: a draft has taken
-    nothing, a cancelled document gave its part back, and an edit does not
-    refill a budget.
+    nothing, a cancelled document gave its part back, an order closed short
+    gave back what it never delivered, and an edit does not refill a budget.
     """
 
     max_amount: Decimal | None
@@ -1173,30 +1196,28 @@ def budget_rooms(
     """Return what each offer's budget has left, keyed by promotion id.
 
     One statement for the whole list, never one per offer: a page of offers
-    asks once. What was claimed is counted whether or not there is a budget,
+    asks once. What was given is counted whether or not there is a budget,
     because "how much has this offer given" is worth showing either way.
+
+    Summed from `claims_given`, the one statement every reader of an offer's
+    use shares: what each claim took, less what an order closed short gave
+    back (D-PRC-28), less the free units a completed return brought back
+    (D-PRC-8).
     """
     budgeted = {row.version_group_id for row in promotions}
     claimed: dict[UUID, tuple[Decimal, Decimal]] = {}
     if budgeted:
+        given = claims_given(
+            firm_id, PromotionRedemption.status == "CLAIMED", groups=budgeted
+        ).subquery()
         for group, amount, free in session.execute(
             select(
-                Promotion.version_group_id,
-                func.coalesce(func.sum(PromotionRedemption.benefit_amount), 0),
-                func.coalesce(func.sum(PromotionRedemption.free_quantity), 0),
-            )
-            .join(Promotion, Promotion.id == PromotionRedemption.promotion_id)
-            .where(
-                PromotionRedemption.firm_id == firm_id,
-                Promotion.firm_id == firm_id,
-                Promotion.version_group_id.in_(budgeted),
-                PromotionRedemption.status == "CLAIMED",
-                PromotionRedemption.is_deleted.is_(False),
-            )
-            .group_by(Promotion.version_group_id)
+                given.c.version_group_id,
+                func.coalesce(func.sum(given.c.benefit_given), 0),
+                func.coalesce(func.sum(given.c.free_given), 0),
+            ).group_by(given.c.version_group_id)
         ):
             claimed[group] = (Decimal(str(amount)), Decimal(str(free)))
-    came_back = _free_units_returned(session, budgeted, firm_id=firm_id)
     rooms: dict[UUID, BudgetRoom] = {}
     for row in promotions:
         amount, free = claimed.get(row.version_group_id, (ZERO, ZERO))
@@ -1204,52 +1225,9 @@ def budget_rooms(
             max_amount=row.max_benefit_amount,
             amount_claimed=amount,
             max_free=row.max_free_quantity,
-            # A free unit that came back was not given after all (D-PRC-8).
-            free_claimed=max(free - came_back.get(row.version_group_id, ZERO), ZERO),
+            free_claimed=free,
         )
     return rooms
-
-
-def _free_units_returned(
-    session: Session, groups: set[UUID], *, firm_id: UUID
-) -> dict[UUID, Decimal]:
-    """Return the free units each offer gave that a completed return brought back.
-
-    Free goods could never come back on a sales return, so a free-unit budget
-    only ever filled. Now that they can (D-PRC-8), a unit an offer gave --
-    the order line names the offer in `free_promotion_id` -- and the customer
-    returned is a unit the scheme still has to give. One grouped statement
-    for the whole list, asked whatever the offers gave, so a page of offers
-    costs the same two reads however long it is.
-    """
-    if not groups:
-        return {}
-    # Imported here: these modules' services import the promotion engine.
-    from app.delivery_note.models import DeliveryNoteLine
-    from app.sales_order.models import SalesOrderLine
-    from app.sales_return.free_goods import free_goods_returned
-    from app.sales_return.models import SalesReturn, SalesReturnLine
-
-    return {
-        group: Decimal(str(units))
-        for group, units in session.execute(
-            free_goods_returned(
-                Promotion.version_group_id,
-                func.coalesce(func.sum(SalesReturnLine.free_quantity), 0),
-            )
-            .join(
-                SalesOrderLine,
-                SalesOrderLine.id == DeliveryNoteLine.sales_order_line_id,
-            )
-            .join(Promotion, Promotion.id == SalesOrderLine.free_promotion_id)
-            .where(
-                SalesReturn.firm_id == firm_id,
-                Promotion.firm_id == firm_id,
-                Promotion.version_group_id.in_(groups),
-            )
-            .group_by(Promotion.version_group_id)
-        )
-    }
 
 
 def budget_room(session: Session, promotion: Promotion, *, firm_id: UUID) -> BudgetRoom:

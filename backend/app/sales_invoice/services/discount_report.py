@@ -49,6 +49,7 @@ from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNoteLine
 from app.products.models import Product
 from app.promotions.models import Promotion, PromotionRedemption
+from app.promotions.services.offer_use import claims_given
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrderLine
 
@@ -91,6 +92,8 @@ class PromotionDiscountRow:
     claims: int
     customers: int
     benefit_amount: Decimal
+    #: The free units the offer's claims gave over the period.
+    free_quantity: Decimal = Decimal("0")
 
 
 def _money(value: object) -> Decimal:
@@ -243,26 +246,28 @@ class DiscountReportService:
         Read from the claims recorded at approval, by the day they were
         claimed; a reversed claim is not counted. Grouped by the offer's
         ``version_group_id``, so an offer edited mid-period is one row, named
-        as its latest version.
+        as its latest version. What each claim gave -- in money and in free
+        units, after a short close and after returns -- is `claims_given`'s
+        figure, the one the offer's budgets and its other reports read.
         """
-        benefit = func.coalesce(func.sum(PromotionRedemption.benefit_amount), 0)
+        given = claims_given(
+            firm_id,
+            PromotionRedemption.status == "CLAIMED",
+            *window.dated(PromotionRedemption.redeemed_on),
+        ).subquery()
+        benefit = func.coalesce(func.sum(given.c.benefit_given), 0)
+        free = func.coalesce(func.sum(given.c.free_given), 0)
         rows = list(
             self._session.execute(
                 select(
-                    Promotion.version_group_id,
-                    func.count(PromotionRedemption.id),
-                    func.count(func.distinct(PromotionRedemption.customer_id)),
+                    given.c.version_group_id,
+                    func.count(given.c.id),
+                    func.count(func.distinct(given.c.customer_id)),
                     benefit,
+                    free,
                 )
-                .join(Promotion, Promotion.id == PromotionRedemption.promotion_id)
-                .where(
-                    PromotionRedemption.firm_id == firm_id,
-                    PromotionRedemption.is_deleted.is_(False),
-                    PromotionRedemption.status == "CLAIMED",
-                    *window.dated(PromotionRedemption.redeemed_on),
-                )
-                .group_by(Promotion.version_group_id)
-                .order_by(benefit.desc(), Promotion.version_group_id)
+                .group_by(given.c.version_group_id)
+                .order_by(benefit.desc(), free.desc(), given.c.version_group_id)
             ).all()
         )
         named = _offer_names(self._session, group_ids=[row[0] for row in rows])
@@ -274,8 +279,9 @@ class DiscountReportService:
                 claims=int(claims),
                 customers=int(customers),
                 benefit_amount=_money(amount),
+                free_quantity=Decimal(str(units or 0)),
             )
-            for group, claims, customers, amount in rows
+            for group, claims, customers, amount, units in rows
         ]
 
     def _names(
