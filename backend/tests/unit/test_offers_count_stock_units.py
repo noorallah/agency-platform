@@ -41,6 +41,9 @@ from app.purchase.services import PurchaseService
 from app.quotation.models import SalesQuotation, SalesQuotationLine
 from app.quotation.schemas import QuotationCreate, QuotationUpdate
 from app.quotation.services.quotation_service import QuotationService
+from app.sales_invoice.models import SalesInvoiceLine
+from app.sales_invoice.schemas import SalesInvoiceCreate
+from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderUpdate
 from app.sales_return.schemas import (
@@ -971,6 +974,101 @@ def test_a_short_close_keeps_the_free_boxes_shipped_as_stock_units() -> None:
         D("24.0000"),
     )
     assert _free_given(shop) == D("24.0000")
+
+
+def test_a_bill_states_the_free_goods_the_customer_still_holds() -> None:
+    """D-PRC-61: one of 2 free pieces came back, and the bill said "0 + 2 free"."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = shop.order(sales_uom_id=shop.box)
+    shop.approve(order)
+    boxes, free = shop.lines(order)
+    notes = DeliveryNoteService(shop.session)
+    note = notes.create_note(
+        DeliveryNoteCreate.model_validate(
+            {
+                "sales_order_id": order.id,
+                "delivery_date": DAY,
+                "lines": [
+                    {
+                        "sales_order_line_id": boxes.id,
+                        "line_number": 1,
+                        "current_delivery_quantity": "2",
+                    },
+                    {
+                        "sales_order_line_id": free.id,
+                        "line_number": 2,
+                        "current_delivery_quantity": "0",
+                    },
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    notes.approve_note(note.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    notes.dispatch_note(note.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    shop.session.expire_all()
+    sent = {
+        row.line_number: row.id
+        for row in shop.session.scalars(
+            select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+        )
+    }
+    returns = SalesReturnService(shop.session)
+    back = returns.create_return(
+        SalesReturnCreate(
+            warehouse_id=shop.setup.warehouse.id,
+            return_date=DAY,
+            lines=[
+                SalesReturnLineWrite(
+                    source_document_type=SalesReturnSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=sent[2],
+                    line_number=1,
+                    current_return_quantity=D("1"),
+                    free_quantity=D("1"),
+                )
+            ],
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    returns.approve_return(back.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    returns.complete_return(back.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+
+    bill = SalesInvoiceService(shop.session).create_invoice(
+        SalesInvoiceCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "invoice_date": DAY,
+                "lines": [
+                    {
+                        "source_document_type": "DELIVERY_NOTE",
+                        "source_document_id": note.id,
+                        "source_document_line_id": sent[number],
+                        "line_number": number,
+                        "current_invoice_quantity": quantity,
+                    }
+                    for number, quantity in ((1, "2"), (2, "0"))
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+    shop.session.expire_all()
+    billed = {
+        row.line_number: (row.current_invoice_quantity, row.free_quantity)
+        for row in shop.session.scalars(
+            select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == bill.id)
+        )
+    }
+    assert billed == {
+        1: (D("2.0000"), D("0.0000")),
+        2: (D("0.0000"), D("1.0000")),
+    }
+    assert bill.total_free_quantity == D("1.0000")
 
 
 # ---- supplier schemes ------------------------------------------------------

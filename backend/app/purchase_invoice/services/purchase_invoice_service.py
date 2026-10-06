@@ -41,6 +41,7 @@ from app.core.utils.pricing import (
     inherited_share,
     resolve_line_discount,
 )
+from app.core.utils.quantities import plain_quantity
 from app.document_files.services import purchase_invoice_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -130,6 +131,7 @@ from app.uom.services import (
     UomService,
     assert_quantity_fits_unit,
     exact_quantity,
+    unit_named,
 )
 from app.vendors.models import Vendor
 
@@ -2532,11 +2534,17 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 > source_quantity - returned_unbilled
             ):
                 left = max(source_quantity - returned_unbilled - already_invoiced, ZERO)
+                # In the source line's unit, and saying so: "bills 1.5000
+                # where 1.4167 is left" told somebody who had typed 18 PIECE
+                # against a receipt in boxes nothing (D-PRC-62).
+                unit = unit_named(self._session, source_uom_id)
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity: "
-                    f"line {index} bills {invoice_quantity} where {left} is left "
-                    f"to bill ({source_quantity} received, {already_invoiced} "
-                    f"on other bills, {returned_unbilled} returned before "
+                    f"line {index} bills {plain_quantity(invoice_quantity)}{unit} "
+                    f"where {plain_quantity(left)}{unit} is left to bill "
+                    f"({plain_quantity(source_quantity)}{unit} received, "
+                    f"{plain_quantity(already_invoiced)}{unit} on other bills, "
+                    f"{plain_quantity(returned_unbilled)}{unit} returned before "
                     "billing)."
                 )
             # What the line says wins; where it says nothing, the receipt's or
@@ -3052,13 +3060,20 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             position = positions[line.id]
             if quantities[line.id] <= self._q(position.left_to_bill):
                 continue
+            # Counted in the receipt line's unit, which is what the cap
+            # counts in, and said so: "1.5000 where 1.4167 is left" told
+            # somebody who typed 18 PIECE nothing (D-PRC-62).
+            unit = unit_named(
+                self._session, line.purchase_uom_id or line.inventory_uom_id
+            )
             refused.append(
                 f"{numbers.get(line.goods_receipt_id, 'the receipt')} line "
-                f"{line.line_number} bills {quantities[line.id]} where "
-                f"{self._q(position.left_to_bill)} is left to bill "
-                f"({self._q(position.accepted)} received, "
-                f"{self._q(position.billed)} billed, "
-                f"{self._q(position.returned_unbilled)} returned before billing)"
+                f"{line.line_number} bills {plain_quantity(quantities[line.id])}"
+                f"{unit} where {plain_quantity(position.left_to_bill)}{unit} is "
+                f"left to bill ({plain_quantity(position.accepted)}{unit} "
+                f"received, {plain_quantity(position.billed)}{unit} billed, "
+                f"{plain_quantity(position.returned_unbilled)}{unit} returned "
+                "before billing)"
             )
         if refused:
             raise ValidationError(

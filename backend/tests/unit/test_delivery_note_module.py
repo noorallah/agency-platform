@@ -1312,7 +1312,9 @@ def test_a_note_cannot_ship_more_than_the_order() -> None:
         actor_id=actor_id,
     )
 
-    with pytest.raises(ValidationError, match="exceeds allowed quantity"):
+    with pytest.raises(
+        ValidationError, match="has 0 left to deliver of the 10 ordered"
+    ):
         _dispatch(
             session,
             firm=firm,

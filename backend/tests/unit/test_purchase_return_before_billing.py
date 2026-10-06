@@ -320,7 +320,14 @@ def test_a_return_before_billing_reverses_grni_and_takes_no_tax() -> None:
     assert _left_to_bill(fixture, receipt) == (D("4"), D("472.00"))
 
     # The bill may bill what is left, and not one more.
-    with pytest.raises(ValidationError, match="4.0000 is left to bill"):
+    # Counted plainly: it read "6.0000 where 4.0000 is left" (D-PRC-62).
+    with pytest.raises(
+        ValidationError,
+        match=(
+            r"line 1 bills 6 where 4 is left to bill "
+            r"\(6 received, 0 on other bills, 2 returned before billing\)"
+        ),
+    ):
         _bill(fixture, receipt, "6", number="SUP-6", approve=False)
     session.rollback()
     _bill(fixture, receipt, "4", number="SUP-4")

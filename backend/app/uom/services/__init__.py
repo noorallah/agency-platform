@@ -10,6 +10,7 @@ from app.uom.services.uom_service import (
     round_by_rule,
     stated_line,
     stock_unit_of,
+    unit_named,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "round_by_rule",
     "stated_line",
     "stock_unit_of",
+    "unit_named",
 ]

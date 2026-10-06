@@ -64,6 +64,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
+from app.core.utils.quantities import plain_quantity
 from app.core.utils.report_labels import UNASSIGNED
 from app.customers.models import Customer
 from app.customers.services.ship_to import resolve_ship_to
@@ -139,7 +140,12 @@ from app.trade_licences.services.licence_check import (
 )
 from app.uom.models import Uom
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService, assert_quantity_fits_unit, stock_unit_of
+from app.uom.services import (
+    UomService,
+    assert_quantity_fits_unit,
+    stock_unit_of,
+    unit_named,
+)
 
 ZERO = Decimal("0")
 
@@ -874,10 +880,6 @@ class DeliveryNoteService(TransactionalDocumentService):
         for line in lines:
             asked[line.sales_order_line_id] += self._q(line.delivered_quantity)
 
-        def figure(value: Decimal) -> str:
-            """Return a quantity without its trailing zeros."""
-            return f"{value.normalize():f}"
-
         for line in lines:
             source = order_lines.get(line.sales_order_line_id)
             if source is None:
@@ -886,30 +888,100 @@ class DeliveryNoteService(TransactionalDocumentService):
             taken = before.get(source.id, ZERO)
             if taken + asked[source.id] <= ordered:
                 continue
-            left = max(self._q(ordered - taken), ZERO)
-            unit_id = line.inventory_uom_id or line.sales_uom_id
-            unit = None if unit_id is None else self._session.get(Uom, unit_id)
-            code = f" {unit.code}" if unit is not None else ""
             others = self._other_notes_of(
                 source.id, firm_id=row.firm_id, exclude_note_id=row.id
             )
-            free = (
-                ", free goods included" if self._q(source.free_quantity) > ZERO else ""
-            )
-            rest = (
-                f": {', '.join(others)} deliver{'s' if len(others) == 1 else ''} "
-                "the rest"
+            # "Cancel the other note first" was said to a single note whose
+            # own two lines added to 12 against 10 (D-PRC-62).
+            advice = (
+                "Cancel this note and raise one for what is left, or cancel "
+                f"the other note{'' if len(others) == 1 else 's'} first."
                 if others
-                else ""
+                else "Change this note's lines to what is left."
             )
             raise ValidationError(
-                f"Line {line.line_number} of {row.delivery_note_number} delivers "
-                f"{figure(asked[source.id])}{code} where {order.order_number} has "
-                f"{figure(left)}{code} left to deliver of the "
-                f"{figure(ordered)}{code} ordered{free}{rest}. Cancel this note "
-                "and raise one for what is left, or cancel the other note first.",
+                f"Line {line.line_number} of {row.delivery_note_number} "
+                + self._more_than_the_order_has_left(
+                    asked=asked[source.id],
+                    left=max(self._q(ordered - taken), ZERO),
+                    source=source,
+                    order_number=order.order_number,
+                    factor=line.conversion_factor,
+                    sales_uom_id=line.sales_uom_id,
+                    inventory_uom_id=line.inventory_uom_id,
+                    others=others,
+                )
+                + f" {advice}",
                 details={"field": "lines"},
             )
+
+    def _more_than_the_order_has_left(
+        self,
+        *,
+        asked: Decimal,
+        left: Decimal,
+        source: SalesOrderLine,
+        order_number: str,
+        factor: Decimal | None,
+        sales_uom_id: UUID | None,
+        inventory_uom_id: UUID | None,
+        others: Sequence[str],
+    ) -> str:
+        """Say what a note line asks of its order line and what is left of it.
+
+        One sentence for the cap at save and the cap at approval: "delivers
+        3 BOX where SO-1 has 1 BOX left to deliver of the 4 BOX ordered:
+        DN-2 delivers the rest." The save said only "Delivery quantity
+        exceeds allowed quantity for the order line." (D-PRC-62).
+
+        The cap counts stock units, and the sentence speaks **the note
+        line's own unit** wherever the three figures are whole in it at
+        four places -- a note of 3 BOX was told "36 PIECE where 12 PIECE
+        are left". Where they are not (free pieces beside boxes), it stays
+        in the stock unit, which is exact.
+
+        Args:
+            asked: What the note asks of the order line, in stock units.
+            left: What other counted notes leave of it, in stock units.
+            source: The order line.
+            order_number: The order's number.
+            factor: Stock units to one of the note line's unit.
+            sales_uom_id: The unit the note line is in.
+            inventory_uom_id: The unit the product's stock is kept in.
+            others: The other notes counted against the order line.
+
+        Returns:
+            The sentence from "delivers" to its full stop.
+
+        """
+        figures = [asked, left, self._q(source.reservable_quantity)]
+        unit_id = inventory_uom_id or sales_uom_id
+        per_unit = Decimal(str(factor or 0))
+        if (
+            sales_uom_id is not None
+            and sales_uom_id != inventory_uom_id
+            and per_unit > ZERO
+        ):
+            in_line_unit = [self._q(value / per_unit) for value in figures]
+            if all(
+                self._q(counted * per_unit) == self._q(value)
+                for counted, value in zip(in_line_unit, figures, strict=True)
+            ):
+                figures, unit_id = in_line_unit, sales_uom_id
+        code = unit_named(self._session, unit_id)
+        free = ", free goods included" if self._q(source.free_quantity) > ZERO else ""
+        rest = (
+            f": {', '.join(others)} deliver{'s' if len(others) == 1 else ''} "
+            "the rest"
+            if others
+            else ""
+        )
+        asked_text, left_text, ordered_text = (plain_quantity(v) for v in figures)
+        return (
+            f"delivers {asked_text}{code} where {order_number} has "
+            f"{left_text}{code} left to deliver of the "
+            f"{ordered_text}{code} ordered{free}{rest}."
+        )
 
     def _line_units(
         self,
@@ -2649,8 +2721,26 @@ class DeliveryNoteService(TransactionalDocumentService):
             # in full (D-SELL-31). A tolerance, if a firm wants one, is the
             # firm's setting to make, not the note's.
             if previous_delivered + delivered_qty > ordered_qty:
+                order = self._session.get(SalesOrder, row.sales_order_id)
+                others = self._other_notes_of(
+                    source_line.id, firm_id=row.firm_id, exclude_note_id=row.id
+                )
                 raise ValidationError(
-                    "Delivery quantity exceeds allowed quantity for the order line."
+                    f"Line {item.line_number} "
+                    + self._more_than_the_order_has_left(
+                        asked=delivered_qty,
+                        left=max(self._q(ordered_qty - previous_delivered), ZERO),
+                        source=source_line,
+                        order_number=(
+                            "the order" if order is None else order.order_number
+                        ),
+                        factor=Decimal(str(conversion["factor"])),
+                        sales_uom_id=sales_uom_id,
+                        inventory_uom_id=inventory_uom_id,
+                        others=others,
+                    )
+                    + " Change the line to what is left.",
+                    details={"field": "lines"},
                 )
             remaining_qty = self._q(ordered_qty - previous_delivered - delivered_qty)
             short_qty = self._q(remaining_qty if remaining_qty > ZERO else ZERO)

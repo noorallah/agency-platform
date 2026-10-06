@@ -1503,3 +1503,36 @@ def test_a_quantity_summed_across_a_factor_is_read_at_four_places() -> None:
     assert (read, read.as_tuple().exponent) == (D("1.0000"), -4)
     assert at_quantity_scale(None) == D("0.0000")
     assert at_quantity_scale("0.58335") == D("0.5834")
+
+
+def test_a_note_in_boxes_over_the_cap_is_counted_in_boxes() -> None:
+    """D-PRC-62: 3 BOX against 1 left read "36 PIECE where 12 PIECE" are left."""
+    shop = _Shop()
+    order = shop.order(quantity="4", sales_uom_id=shop.box)
+    shop.orders.approve_order(order.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    notes = DeliveryNoteService(shop.session)
+    first = notes.get_note(
+        _note_of(shop, order, "3", sales_uom_id=shop.box), firm_scope=shop.firm_id
+    )
+    second = notes.get_note(
+        _note_of(shop, order, "3", sales_uom_id=shop.box), firm_scope=shop.firm_id
+    )
+    notes.approve_note(first.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+
+    with pytest.raises(ValidationError) as at_approval:
+        notes.approve_note(second.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    assert str(at_approval.value) == (
+        f"Line 1 of {second.delivery_note_number} delivers 3 BOX where "
+        f"{order.order_number} has 1 BOX left to deliver of the 4 BOX ordered: "
+        f"{first.delivery_note_number} delivers the rest. Cancel this note and "
+        "raise one for what is left, or cancel the other note first."
+    )
+    shop.session.rollback()
+    # And where the note is saved, in the same words and the same unit.
+    with pytest.raises(ValidationError) as at_save:
+        _note_of(shop, order, "2", sales_uom_id=shop.box)
+    assert str(at_save.value) == (
+        f"Line 1 delivers 2 BOX where {order.order_number} has 1 BOX left to "
+        f"deliver of the 4 BOX ordered: {first.delivery_note_number} delivers "
+        "the rest. Change the line to what is left."
+    )

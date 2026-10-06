@@ -213,8 +213,8 @@ rate-difference credit note of 472.00 and was then returned in full for
   note was billed in parts -- the line whose tax the return reverses).
 - **A credit note's cap counts what came back**: charged, less other live
   notes, less completed returns of the line. "A credit note cannot credit
-  more than the line was charged: 1000.0000 charged, 0.0000 already
-  credited, 600.0000 already returned."
+  more than the line was charged: 1000.00 charged, 0.00 already
+  credited, 600.00 already returned."
 - **Each is asked again where it becomes real**, under a lock on the bill
   line, and the one that reaches the customer second is refused by name: a
   return priced before a credit note was approved does not complete ("...has

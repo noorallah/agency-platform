@@ -2447,7 +2447,7 @@ promotion, or the customer's standing rate).
   2. Raise again on the same line with **400**.
 - **Expect**
   - Step 1: the row reads `59.00 (tax 9.00)` — 18%, the rate that line was charged. "CN-… — approved. The credit and the tax are on the ledger." Outstanding down **59**.
-  - Step 2: refused: "A credit note cannot credit more than the line was charged: 409.5000 charged, 50.0000 already credited."
+  - Step 2: refused: "A credit note cannot credit more than the line was charged: 409.50 charged, 50.00 already credited."
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.17 — `credit_note_lines.tax_rate_percent` 18.0000; approval posts Dr 4100 50.00 / Dr 2220 4.50 / Dr 2230 4.50 / Cr 1100 59.00 and a receivable row `CREDIT_NOTE` with no reference type, and writes no lifecycle event (D-SELL-23). The refused 400 writes nothing.
 - **Loyalty (D-SELL-47, 2026-10-05):** approving takes back about **1.18** of the bill's 9.66 points (59.00 of 483.21); cancelling the note gives them back.
 - **Leaves:** an approved credit note.

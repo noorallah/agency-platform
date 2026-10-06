@@ -369,8 +369,15 @@ def test_a_line_cannot_be_credited_beyond_what_it_was_charged() -> None:
     """Crediting more than was charged is money the firm never took."""
     books = _Books(_session_factory()())
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as refused:
         books.note("1001")
+
+    # Money, to the paisa: it read "1000.0000 charged, 0.0000 already
+    # credited" (D-PRC-62).
+    assert str(refused.value) == (
+        "A credit note cannot credit more than the line was charged: "
+        "1000.00 charged, 0.00 already credited."
+    )
 
 
 def test_the_cap_counts_what_other_credit_notes_already_took() -> None:
@@ -382,7 +389,7 @@ def test_the_cap_counts_what_other_credit_notes_already_took() -> None:
     books = _Books(_session_factory()())
     books.note("600")
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="1000.00 charged, 600.00 already"):
         books.note("600")
 
 
@@ -901,7 +908,7 @@ def test_the_cap_counts_goods_that_already_came_back() -> None:
     books = _Books(_session_factory()())
     _goods_back(books, "6")
 
-    with pytest.raises(ValidationError, match="600.0000 already returned"):
+    with pytest.raises(ValidationError, match="600.00 already returned"):
         books.note("401")
     books.session.rollback()
 
