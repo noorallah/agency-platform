@@ -1065,6 +1065,18 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         DocumentField(
           label: 'Discount on the whole bill %',
           width: 190,
+          below: _billDiscountInherited
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _inheritedBillDiscountNote(context)!,
+                    Text(
+                      _billDiscountHelper,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                )
+              : null,
           child: TextFormField(
             controller: _billDiscount,
             keyboardType: TextInputType.number,

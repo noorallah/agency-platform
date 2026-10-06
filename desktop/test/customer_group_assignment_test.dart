@@ -1,3 +1,4 @@
+import 'package:agency_desktop/core/api/api_client.dart';
 // A customer can be put in a group from the form.
 //
 // The customer-group tier is the last rung of the discount resolver, and the
@@ -118,5 +119,49 @@ void main() {
 
     expect(saved!.containsKey('customer_group_id'), isTrue);
     expect(saved['customer_group_id'], isNull);
+  });
+
+  testWidgets('a refused segment change shows the message and keeps the typing',
+      (tester) async {
+    // The server decides whether the segment entered or left carries a
+    // discount or a price level, so the form lets the change through and
+    // shows the refusal; the dialog stays open with everything typed.
+    tester.view.physicalSize = const Size(1700, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CustomerWorkspaceDialog(
+          mode: CustomerDialogMode.edit,
+          customer: Customer.fromJson(_customerJson(groupId: 'grp-retail')),
+          loadPlaces: (level, {parentId = ''}) async => const [],
+          loadGroups: () async => _groups(),
+          onSave: (payload) async => throw const ApiException(
+            'Moving a customer into a segment that carries a discount needs '
+            'the manage customer settings permission.',
+            statusCode: 403,
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Display name'),
+      'Typed and kept',
+    );
+    await tester.tap(find.text('Financial'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Retailer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Wholesaler').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('carries a discount'), findsOneWidget);
+    expect(find.byType(CustomerWorkspaceDialog), findsOneWidget);
+    await tester.tap(find.text('General'));
+    await tester.pumpAndSettle();
+    expect(find.text('Typed and kept'), findsOneWidget);
   });
 }

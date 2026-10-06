@@ -36,6 +36,7 @@ String _words(String status) => status.isEmpty
 
 const List<(String, String)> _kinds = [
   ('SCHEME', 'Schemes'),
+  ('FREE_GOODS', 'Free goods'),
   ('EXPIRY', 'Expired stock'),
   ('BREAKAGE', 'Breakage'),
 ];
@@ -443,6 +444,7 @@ class _PrincipalClaimsPageState extends State<PrincipalClaimsPage> {
           ),
           const SizedBox(height: AppSpacing.md),
           _amountRow('Schemes', claim.schemeAmount),
+          _amountRow('Free goods', claim.freeGoodsAmount),
           _amountRow('Expired stock', claim.expiryAmount),
           _amountRow('Breakage', claim.breakageAmount),
           const Divider(),
@@ -732,6 +734,7 @@ class _NewPrincipalClaimDialogState extends State<NewPrincipalClaimDialog>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         row('Schemes', preview.schemeAmount),
+        row('Free goods', preview.freeGoodsAmount),
         row('Expired stock', preview.expiryAmount),
         row('Breakage', preview.breakageAmount),
         const Divider(),

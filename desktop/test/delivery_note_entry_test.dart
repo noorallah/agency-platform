@@ -358,4 +358,95 @@ void main() {
     expect(line['current_delivery_quantity'], '6');
     expect(line['warehouse_id'], 'wh-1');
   });
+
+  group('free goods (D-PRC-4)', () {
+    Json orderWithFree() {
+      final Json order = _order();
+      (order['lines'] as List<dynamic>).first['free_quantity'] = '2';
+      return order;
+    }
+
+    Finder freeBox() => find.ancestor(
+          of: find.text('Free'),
+          matching: find.byType(TextFormField),
+        );
+
+    testWidgets('the box starts blank and a blank box sends no free_quantity', (
+      tester,
+    ) async {
+      final _DeliveryApi api = _DeliveryApi();
+      await _openEditor(tester, api, order: orderWithFree());
+
+      expect(tester.widget<TextFormField>(freeBox()).initialValue, '');
+      expect(find.textContaining("Blank ships the order's free goods"),
+          findsOneWidget);
+      await tester.tap(find.text('Save Delivery Note'));
+      await tester.pumpAndSettle();
+
+      final Json line = (api.sent!['lines'] as List<dynamic>).single as Json;
+      expect(line.containsKey('free_quantity'), isFalse);
+    });
+
+    for (final String typed in ['0', '2']) {
+      testWidgets('a typed $typed is sent', (tester) async {
+        final _DeliveryApi api = _DeliveryApi();
+        await _openEditor(tester, api, order: orderWithFree());
+        await tester.enterText(freeBox(), typed);
+        await tester.pump();
+        await tester.tap(find.text('Save Delivery Note'));
+        await tester.pumpAndSettle();
+
+        final Json line = (api.sent!['lines'] as List<dynamic>).single as Json;
+        expect(line['free_quantity'], typed);
+      });
+    }
+
+    testWidgets('phase 2 sends nothing for a blank free cell and says what '
+        'the order gives', (tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _DeliveryApi api = _DeliveryApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Phase2Scope(
+              child: DeliveryNoteEditorDialog(
+                api: api,
+                salesOrders: [orderWithFree()],
+                warehouses: [
+                  WarehouseRecord.fromJson({
+                    'id': 'wh-1',
+                    'code': 'MAIN',
+                    'name': 'Main Warehouse',
+                  }),
+                ],
+                products: [
+                  Product.fromJson({
+                    'id': 'prod-1',
+                    'code': 'SKU-1',
+                    'name': 'Amoxicillin 500mg',
+                  }),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('delivery-note-order')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('SO-2026-000001').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Free on the order'), findsOneWidget);
+      expect(find.textContaining("blank ships the order's free goods"),
+          findsOneWidget);
+      expect(tester.takeException(), isNull, reason: 'no overflow at 1366x768');
+
+      await tester.tap(find.byKey(const ValueKey('delivery-note-save')));
+      await tester.pumpAndSettle();
+      final Json blank = (api.sent!['lines'] as List<dynamic>).single as Json;
+      expect(blank.containsKey('free_quantity'), isFalse);
+    });
+  });
 }

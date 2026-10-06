@@ -41,6 +41,8 @@ class _LineDraft {
     String discountAmount = '',
     this.lastRate = '',
     this.lastSource = '',
+    this.freePromotionId,
+    this.offerFree = '',
   })  : quantity = TextEditingController(text: quantity),
         unitPrice = TextEditingController(text: unitPrice),
         free = TextEditingController(text: free),
@@ -54,6 +56,19 @@ class _LineDraft {
   /// Goods thrown in with this line. Charged for at nothing, so it never
   /// enters the line's value -- but stock moves for it, and the order says so.
   final TextEditingController free;
+
+  /// The offer that gave this saved line its free goods, and how many it
+  /// gave; null where somebody typed them (`free_promotion_id`). The box
+  /// stays blank for an offer's goods: sending the figure back would make
+  /// them typed, which escapes the offer's free-unit budget and is claimed
+  /// from the principal in full. Typing a figure in the box still replaces
+  /// the offer's, and 0 refuses it.
+  final String? freePromotionId;
+  final String offerFree;
+
+  /// Whether the free goods shown are an offer's, not typed.
+  bool get freeFromOffer =>
+      freePromotionId != null && free.text.trim().isEmpty;
 
   /// The rate the stored line was priced at, and where it came from, when
   /// it was resolved rather than typed: said under the blank box.
@@ -536,7 +551,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           unitPrice: _rateIncludesTax && enteredRate.isNotEmpty
               ? enteredRate
               : stringValue(line['unit_price']),
-          free: _positiveOrBlank(line['free_quantity']),
+          // An offer's free goods are not echoed back as a figure (D-PRC-5).
+          free: _blankToNull(stringValue(line['free_promotion_id'])) == null
+              ? _positiveOrBlank(line['free_quantity'])
+              : '',
+          freePromotionId: _blankToNull(stringValue(line['free_promotion_id'])),
+          offerFree: _positiveOrBlank(line['free_quantity']),
           // A typed rate is echoed **including a zero**, because the document
           // is the record of what was agreed. A rate the server resolved is
           // priced afresh: re-sending it as typed froze a ladder at its first
@@ -1131,9 +1151,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                 child: TextFormField(
                   controller: line.free,
                   enabled: !_locked,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Free',
-                    helperText: 'Blank takes the offer; 0 refuses it.',
+                    helperText: line.freeFromOffer
+                        ? 'The offer gives ${line.offerFree}. Blank keeps '
+                            'it; 0 refuses it.'
+                        : 'Blank takes the offer; 0 refuses it.',
                     helperMaxLines: 2,
                   ),
                   keyboardType: TextInputType.number,

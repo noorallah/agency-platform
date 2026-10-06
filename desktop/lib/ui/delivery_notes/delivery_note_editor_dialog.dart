@@ -96,7 +96,8 @@ class DeliveryDraftLine {
     required this.inventoryUomId,
     required this.taxProfileId,
     required this.deliveryQuantity,
-    this.freeQuantity = '0',
+    this.freeQuantity = '',
+    this.orderFreeQuantity = '',
     this.damagedQuantity = '0',
     this.warehouseId = '',
     this.remarks = '',
@@ -117,7 +118,19 @@ class DeliveryDraftLine {
   final String taxProfileId;
 
   String deliveryQuantity;
+
+  /// Blank says nothing, and the server then ships the order line's free
+  /// goods in proportion to what is shipped; a typed number is taken as
+  /// typed and a typed 0 ships none (D-PRC-4).
   String freeQuantity;
+
+  /// The free goods the order line carries in all, for the helper text. The
+  /// order's response does not say how many are already shipped.
+  final String orderFreeQuantity;
+
+  /// Whether the order line gives free goods a blank box would ship.
+  bool get ordersFreeGoods => (double.tryParse(orderFreeQuantity) ?? 0) > 0;
+
   String damagedQuantity;
   String warehouseId;
   String remarks;
@@ -147,6 +160,9 @@ class DeliveryDraftLine {
         salesUomId != inventoryUomId) {
       return null;
     }
+    // A blank box ships the order's free goods, in a number the editor does
+    // not work out, so it cannot say how many units leave.
+    if (freeQuantity.trim().isEmpty && ordersFreeGoods) return null;
     final double total = (double.tryParse(deliveryQuantity) ?? 0) +
         (double.tryParse(freeQuantity) ?? 0);
     return total == total.roundToDouble() ? total.toInt() : null;
@@ -176,8 +192,9 @@ class DeliveryDraftLine {
         'current_delivery_quantity': deliveryQuantity.trim().isEmpty
             ? '0'
             : deliveryQuantity.trim(),
-        'free_quantity':
-            freeQuantity.trim().isEmpty ? '0' : freeQuantity.trim(),
+        // Blank sends nothing, so the server ships the order's free goods.
+        if (freeQuantity.trim().isNotEmpty)
+          'free_quantity': freeQuantity.trim(),
         'damaged_quantity':
             damagedQuantity.trim().isEmpty ? '0' : damagedQuantity.trim(),
         'unit_price': unitPrice.isEmpty ? '0' : unitPrice,
@@ -196,6 +213,12 @@ class DeliveryDraftLine {
           ],
       };
 }
+
+/// What the Free box says a blank does, for the line.
+String freeBoxHelper(DeliveryDraftLine line) => line.ordersFreeGoods
+    ? "Blank ships the order's free goods (${_trim(double.tryParse(line.orderFreeQuantity) ?? 0)} "
+        'on the order); 0 ships none'
+    : 'Blank ships any free goods the order gives; 0 ships none';
 
 /// Raise a delivery note against a sales order.
 ///
@@ -537,6 +560,7 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       inventoryUomId: stringValue(line['inventory_uom_id']),
       taxProfileId: stringValue(line['tax_profile_id']),
       deliveryQuantity: '0',
+      orderFreeQuantity: stringValue(line['free_quantity']),
       warehouseId: stringValue(line['warehouse_id']).isNotEmpty
           ? stringValue(line['warehouse_id'])
           : defaultWarehouse,
@@ -882,7 +906,8 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
                         'Free',
                         line.freeQuantity,
                         (value) => line.freeQuantity = value,
-                        width: 110,
+                        width: 170,
+                        helper: freeBoxHelper(line),
                       ),
                       _lineField(
                         'Damaged',
@@ -1050,12 +1075,17 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
     String value,
     ValueChanged<String> onChanged, {
     required double width,
+    String? helper,
   }) =>
       SizedBox(
         width: width,
         child: TextFormField(
           initialValue: value,
-          decoration: InputDecoration(labelText: label),
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: helper,
+            helperMaxLines: 3,
+          ),
           onChanged: (next) => setState(() => onChanged(next)),
         ),
       );

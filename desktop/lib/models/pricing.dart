@@ -247,6 +247,12 @@ class PromotionRecord {
     this.requiresCoupon = false,
     this.maxRedemptions,
     this.maxRedemptionsPerCustomer,
+    this.maxBenefitAmount = '',
+    this.remainingBenefitAmount = '',
+    this.benefitAmountClaimed = '',
+    this.maxFreeQuantity = '',
+    this.remainingFreeQuantity = '',
+    this.freeQuantityClaimed = '',
     this.effectiveFrom = '',
     this.effectiveTo = '',
     this.versionNumber = 1,
@@ -278,6 +284,16 @@ class PromotionRecord {
   /// Null is no limit, which is a different answer from zero.
   final int? maxRedemptions;
   final int? maxRedemptionsPerCustomer;
+
+  /// The scheme's budget in money and in free units, over every revision of
+  /// the offer, with what has been claimed and what is left. Empty is no
+  /// budget (the `remaining_*` figures are null with it).
+  final String maxBenefitAmount;
+  final String remainingBenefitAmount;
+  final String benefitAmountClaimed;
+  final String maxFreeQuantity;
+  final String remainingFreeQuantity;
+  final String freeQuantityClaimed;
   final String effectiveFrom;
   final String effectiveTo;
 
@@ -304,6 +320,12 @@ class PromotionRecord {
         maxRedemptions: (json['max_redemptions'] as num?)?.toInt(),
         maxRedemptionsPerCustomer:
             (json['max_redemptions_per_customer'] as num?)?.toInt(),
+        maxBenefitAmount: stringValue(json['max_benefit_amount']),
+        remainingBenefitAmount: stringValue(json['remaining_benefit_amount']),
+        benefitAmountClaimed: stringValue(json['benefit_amount_claimed']),
+        maxFreeQuantity: stringValue(json['max_free_quantity']),
+        remainingFreeQuantity: stringValue(json['remaining_free_quantity']),
+        freeQuantityClaimed: stringValue(json['free_quantity_claimed']),
         effectiveFrom: stringValue(json['effective_from']),
         effectiveTo: stringValue(json['effective_to']),
         versionNumber: (json['version_number'] as num?)?.toInt() ?? 1,

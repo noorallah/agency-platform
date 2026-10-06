@@ -805,7 +805,12 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
           line.quantity,
           validator: (value) => _positive(value, 'quantity'),
         ),
-        _cellBox(context, line.free, validator: _quantityOrBlank),
+        _cellBox(
+          context,
+          line.free,
+          validator: _quantityOrBlank,
+          hint: line.freeFromOffer ? line.offerFree : null,
+        ),
         Text(product?.unit ?? '', style: text),
         _cellBox(
           context,
@@ -995,7 +1000,17 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                 : 'from ${discountSourceWords(source)}',
       ),
       // D-SELL-41: silence takes the offer's free goods, a typed zero refuses.
-      const DocumentSideNote('Free: blank takes the offer; 0 refuses it.'),
+      DocumentSideNote(
+        line.freeFromOffer
+            ? 'Free: the offer gives ${line.offerFree}; blank keeps it, '
+                '0 refuses it.'
+            : 'Free: blank takes the offer; 0 refuses it.',
+      ),
+      if (line.freeFromOffer)
+        DocumentSidePair(
+          'Free goods (from the offer)',
+          '${line.offerFree} ${product?.unit ?? ''}',
+        ),
       if ((double.tryParse(line.free.text.trim()) ?? 0) > 0)
         DocumentSidePair(
             'Free goods', '${line.free.text.trim()} ${product?.unit ?? ''}'),
