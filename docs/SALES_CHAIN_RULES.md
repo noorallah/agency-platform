@@ -219,6 +219,19 @@ rate-difference credit note of 472.00 and was then returned in full for
   those documents already state. A credit note carries no header charge.
   Freight is not among them: it is inside each bill line's taxable value
   and does not come back with the goods.
+- **A return's header figures come off the bill as well as the account**
+  (D-PRC-74, 2026-10-06). `additional_charges` and `round_off` credit the
+  customer and are in no line, so `credited_against` -- which summed the
+  lines -- left them on the bill: one of 2,932.00 returned in full with its
+  100.00 of charges given back read 100.00 outstanding for ever, aged, and
+  took a receipt nobody owed. `header_credits_against`
+  (`app/sales_return/billing.py`) sets them against the bills the return's
+  goods were charged on -- the bill a line names, and the bills a line off
+  a note was placed on -- **in proportion to the header charges those bills
+  made**, since those are what is being given back; a round-off alone, in
+  proportion to what the lines took off each. A return whose goods no bill
+  had charged credited nothing and counts against nothing. Nothing is
+  posted: the customer's account moved once, when the return completed.
 - **What comes off is kept in the return line's `bill_discount_amount`**,
   beside its share of the bill discount, because every reader of the line
   -- the journal, the customer's account, GSTR-1, the e-invoice, the print

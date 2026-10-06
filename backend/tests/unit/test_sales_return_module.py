@@ -2676,6 +2676,154 @@ def test_the_migration_places_a_completed_return_where_it_read(noted: str) -> No
     assert session.scalar(select(func.count(SalesReturnBillPlacement.id))) == 3
 
 
+# ---- a return's header charge comes off its bill (D-PRC-74) -----------------
+#
+# The seventh pricing check (2026-10-06): a bill of 2,932.00 with 100.00 of
+# additional charges, returned in full with 60.00 and 40.00 of them given
+# back. The customer's account read 0.00; the bill read 100.00 outstanding,
+# aged, and took a receipt nobody owed -- only the return's lines were read
+# off it. Here the bill is four at 100.00.
+
+
+def _charged(setup: _Dispatch, bill: SalesInvoice, charges: str) -> None:
+    """Record that a bill charged this much on its header, in its total too."""
+    bill.additional_charges = Decimal(charges)
+    bill.grand_total = Decimal(str(bill.grand_total)) + Decimal(charges)
+    setup.note.additional_charges = Decimal(charges)
+    setup.session.commit()
+
+
+def _with_header(payload: SalesReturnCreate, **header: str) -> SalesReturnCreate:
+    """Put additional charges or a round-off on a return."""
+    return payload.model_copy(
+        update={name: Decimal(value) for name, value in header.items()}
+    )
+
+
+def _owed_on(setup: _Dispatch, bill: SalesInvoice) -> Decimal:
+    """Return what a bill still owes, as Record Receipt reads it."""
+    setup.session.refresh(bill)
+    return Decimal(str(bill.grand_total)) - settled_against(
+        setup.session, firm_id=setup.firm.id, invoice_ids=[bill.id]
+    ).get(bill.id, Decimal("0"))
+
+
+def test_header_charges_a_return_gives_back_come_off_the_bill() -> None:
+    """500.00 billed, 260.00 and 240.00 back: the bill owes nothing.
+
+    And the customer's account moved once for each return -- the bill's
+    figure is read off the returns, it is not another credit.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _charged(setup, setup.invoice, "100")
+
+    _returned(
+        setup, _with_header(_against_the_bill(setup, "2"), additional_charges="60")
+    )
+    assert _off_the_bill(setup, setup.invoice) == Decimal("260.00")
+    assert _owed_on(setup, setup.invoice) == Decimal("240.00")
+    _returned(
+        setup, _with_header(_against_the_bill(setup, "2"), additional_charges="40")
+    )
+
+    assert _off_the_bill(setup, setup.invoice) == Decimal("500.00")
+    assert _owed_on(setup, setup.invoice) == Decimal("0.00")
+    # Asked of the whole firm, as the ageing asks, it is the same answer.
+    assert credited_against(session, firm_id=setup.firm.id, invoice_ids=None) == {
+        setup.invoice.id: Decimal("500.00")
+    }
+    assert sorted(credit.amount for credit in _credits(session)) == [
+        Decimal("240.00"),
+        Decimal("260.00"),
+    ]
+    session.refresh(setup.customer)
+    assert Decimal(str(setup.customer.current_outstanding)) == Decimal("0.00")
+
+
+def test_a_round_off_on_a_return_comes_off_the_bill_too() -> None:
+    """Two back, rounded down by 0.25: 199.75 credited, 199.75 off the bill."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+
+    _returned(setup, _with_header(_against_the_bill(setup, "2"), round_off="-0.25"))
+
+    assert [credit.amount for credit in _credits(session)] == [Decimal("199.75")]
+    assert _off_the_bill(setup, setup.invoice) == Decimal("199.75")
+
+
+def test_header_charges_off_a_note_go_to_the_bill_that_charged_them() -> None:
+    """Two bills of a note, the first charging 100.00: all of it is the first's."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _charged(setup, setup.invoice, "100")
+
+    _returned(
+        setup,
+        _with_header(setup.payload(quantity=Decimal("4")), additional_charges="100"),
+    )
+
+    assert _off_the_bill(setup, setup.invoice) == Decimal("300.00")
+    assert _off_the_bill(setup, second) == Decimal("200.00")
+    assert (_owed_on(setup, setup.invoice), _owed_on(setup, second)) == (
+        Decimal("0.00"),
+        Decimal("0.00"),
+    )
+    assert [credit.amount for credit in _credits(session)] == [Decimal("500.00")]
+
+
+def test_header_charges_are_shared_by_what_each_bill_charged() -> None:
+    """Bills charging 60.00 and 30.00, and 45.00 given back: 30.00 and 15.00."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _charged(setup, setup.invoice, "60")
+    _charged(setup, second, "30")
+    setup.note.additional_charges = Decimal("90")
+    session.commit()
+
+    _returned(
+        setup,
+        _with_header(setup.payload(quantity=Decimal("4")), additional_charges="45"),
+    )
+
+    assert _off_the_bill(setup, setup.invoice) == Decimal("230.00")
+    assert _off_the_bill(setup, second) == Decimal("215.00")
+
+
+def test_a_header_charge_on_goods_nobody_billed_comes_off_no_bill() -> None:
+    """Back before billing with charges on the return: nothing was credited."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    _completed_with_header(setup, quantity="2", charges="50", round_off="0")
+    bill = SalesInvoiceService(session).approve_invoice(
+        setup.bill(Decimal("2")).id,
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert _off_the_bill(setup, bill) == Decimal("0")
+    assert _credits(session) == []
+
+
+def test_a_header_charge_counts_only_once_the_return_completes() -> None:
+    """A draft has credited nothing, and a cancelled return gives it back."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _charged(setup, setup.invoice, "100")
+    payload = _with_header(_against_the_bill(setup, "2"), additional_charges="60")
+
+    row = _returned(setup, payload, complete=False)
+    assert _off_the_bill(setup, setup.invoice) == Decimal("0")
+    service = SalesReturnService(session)
+    service.complete_return(row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    assert _off_the_bill(setup, setup.invoice) == Decimal("260.00")
+    service.cancel_return(
+        row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id, reason="Mistake"
+    )
+
+    assert _off_the_bill(setup, setup.invoice) == Decimal("0")
+
+
 def test_each_bills_own_tax_is_reversed_on_its_share() -> None:
     """The first bill charged 18% and the second none: 36.00 back, not 72.00.
 

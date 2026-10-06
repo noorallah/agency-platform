@@ -22,7 +22,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Row, Select, case, func, select
+from sqlalchemy import ColumnElement, Row, Select, case, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.selectable import ScalarSelect
 
@@ -514,6 +514,8 @@ class BillShare:
     entered: Decimal | None = None
     #: How many of the bill line's unit one typed unit is.
     factor: Decimal = ZERO
+    #: Whether this is a placement as stored, not one worked out on the read.
+    placed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1281,6 +1283,7 @@ def returns_off_notes_against(
                 else Decimal(str(row.entered_quantity))
             ),
             factor=Decimal(str(row.conversion_factor or 0)),
+            placed=True,
         )
         for row in session.execute(stored).all()
     ]
@@ -1321,6 +1324,192 @@ def returns_off_notes_against(
         share for share in book.shares() if wanted is None or share.invoice_id in wanted
     )
     return answer
+
+
+def _split_header(
+    amount: Decimal, bills: Sequence[tuple[UUID, Decimal, Decimal]]
+) -> dict[UUID, Decimal]:
+    """Split a return's header credit over the bills it gave it back to.
+
+    Args:
+        amount: The return's ``additional_charges`` and ``round_off``.
+        bills: The bills its goods were charged on, earliest first, each
+            with the header charges it made and what the return's lines
+            took off it.
+
+    Returns:
+        Each bill's part. In proportion to the header charges the bills
+        made, because those are what is being given back; where none made
+        any -- a round-off alone -- in proportion to what the lines took
+        off each. The last bill takes what rounding left.
+
+    """
+    if not bills:
+        return {}
+    weights = [max(charge, ZERO) for _bill, charge, _net in bills]
+    if sum(weights, ZERO) <= ZERO:
+        weights = [max(net, ZERO) for _bill, _charge, net in bills]
+    whole = sum(weights, ZERO)
+    parts: dict[UUID, Decimal] = {}
+    rest = amount
+    for position, (bill_id, _charge, _net) in enumerate(bills):
+        if position == len(bills) - 1:
+            part = rest
+        elif whole > ZERO:
+            part = (amount * weights[position] / whole).quantize(_FOUR)
+        else:
+            part = ZERO
+        parts[bill_id] = part
+        rest -= part
+    return parts
+
+
+def header_credits_against(
+    session: Session,
+    *,
+    firm_id: UUID,
+    invoice_ids: Sequence[UUID] | None,
+    as_of: date | None = None,
+    worked_out: Sequence[BillShare] = (),
+) -> dict[UUID, Decimal]:
+    """Return what completed returns' header figures took off each bill.
+
+    A return's ``additional_charges`` -- and its ``round_off`` -- credit the
+    customer with no line behind them: they are in the return's total, the
+    journal and the customer's account, and in no line. Read off the lines
+    alone, a bill of 2,932.00 returned in full with its 100.00 of charges
+    given back went on reading 100.00 outstanding, aged, and took a receipt
+    nobody owed (D-PRC-74).
+
+    They are set against the bills the return's goods were charged on -- the
+    bill a line names, and the bills a line off a note was **placed** on
+    (``sales_return_bill_placements``), so the answer does not move -- in
+    proportion to the header charges those bills made (``_split_header``).
+    A return whose goods no bill had charged credited nothing, and counts
+    against nothing. Nothing is posted here: the customer's account moved
+    once, when the return completed.
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        invoice_ids: The sales invoices to ask about -- no more than one
+            chunk of them -- or None for every invoice of the firm.
+        as_of: Count only returns dated on or before this day.
+        worked_out: The shares of completed returns off notes that have no
+            stored placement, as ``returns_off_notes_against`` gave them.
+
+    Returns:
+        The amount per invoice, for those with any.
+
+    """
+    if invoice_ids is not None and not invoice_ids:
+        return {}
+    header = SalesReturn.additional_charges + SalesReturn.round_off
+    headed = select(SalesReturn.id, header).where(
+        SalesReturn.firm_id == firm_id,
+        SalesReturn.is_deleted.is_(False),
+        SalesReturn.status.in_(_COMPLETED),
+        header != 0,
+    )
+    if as_of is not None:
+        headed = headed.where(SalesReturn.return_date <= as_of)
+    loose: dict[UUID, dict[UUID, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+    for share in worked_out:
+        if share.return_id is not None:
+            loose[share.return_id][share.invoice_id] += share.net
+    amounts: dict[UUID, Decimal] = {}
+    if invoice_ids is None:
+        found = session.execute(headed).all()
+    else:
+        named = select(SalesReturnLine.sales_return_id).where(
+            SalesReturnLine.firm_id == firm_id,
+            SalesReturnLine.source_document_type == "SALES_INVOICE",
+            SalesReturnLine.source_document_id.in_(invoice_ids),
+            SalesReturnLine.is_deleted.is_(False),
+        )
+        placed = select(SalesReturnBillPlacement.sales_return_id).where(
+            SalesReturnBillPlacement.firm_id == firm_id,
+            SalesReturnBillPlacement.sales_invoice_id.in_(invoice_ids),
+            SalesReturnBillPlacement.is_deleted.is_(False),
+        )
+        found = list(
+            session.execute(
+                headed.where(or_(SalesReturn.id.in_(named), SalesReturn.id.in_(placed)))
+            ).all()
+        )
+        for part in chunks(list(loose)):
+            found.extend(session.execute(headed.where(SalesReturn.id.in_(part))).all())
+    for return_id, amount in found:
+        amounts[return_id] = Decimal(str(amount or 0))
+    if not amounts:
+        return {}
+    # What each of those returns' lines took off each bill.
+    took: dict[UUID, dict[UUID, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+    for part in chunks(list(amounts)):
+        for return_id, invoice_id, net in session.execute(
+            select(
+                SalesReturnLine.sales_return_id,
+                SalesReturnLine.source_document_id,
+                func.coalesce(func.sum(SalesReturnLine.net_amount), 0),
+            )
+            .where(
+                SalesReturnLine.sales_return_id.in_(part),
+                SalesReturnLine.source_document_type == "SALES_INVOICE",
+                SalesReturnLine.is_deleted.is_(False),
+            )
+            .group_by(
+                SalesReturnLine.sales_return_id, SalesReturnLine.source_document_id
+            )
+        ).all():
+            took[return_id][invoice_id] += Decimal(str(net or 0))
+        for return_id, invoice_id, net in session.execute(
+            select(
+                SalesReturnBillPlacement.sales_return_id,
+                SalesReturnBillPlacement.sales_invoice_id,
+                func.coalesce(func.sum(SalesReturnBillPlacement.net_amount), 0),
+            )
+            .where(
+                SalesReturnBillPlacement.sales_return_id.in_(part),
+                SalesReturnBillPlacement.is_deleted.is_(False),
+            )
+            .group_by(
+                SalesReturnBillPlacement.sales_return_id,
+                SalesReturnBillPlacement.sales_invoice_id,
+            )
+        ).all():
+            took[return_id][invoice_id] += Decimal(str(net or 0))
+    for return_id, by_bill in loose.items():
+        if return_id in amounts:
+            for invoice_id, net in by_bill.items():
+                took[return_id][invoice_id] += net
+    bills: dict[UUID, tuple[tuple[Any, ...], Decimal]] = {}
+    for part in chunks(list({bill for by_bill in took.values() for bill in by_bill})):
+        for row in session.execute(
+            select(
+                SalesInvoice.id,
+                SalesInvoice.invoice_date,
+                SalesInvoice.invoice_number,
+                SalesInvoice.additional_charges,
+            ).where(SalesInvoice.id.in_(part))
+        ).all():
+            bills[row.id] = (
+                (str(row.invoice_date), row.invoice_number),
+                Decimal(str(row.additional_charges or 0)),
+            )
+    wanted = None if invoice_ids is None else set(invoice_ids)
+    answer: dict[UUID, Decimal] = defaultdict(Decimal)
+    for return_id, amount in amounts.items():
+        on = sorted(
+            (bill for bill in took.get(return_id, {}) if bill in bills),
+            key=lambda bill: bills[bill][0],
+        )
+        split = _split_header(
+            amount, [(bill, bills[bill][1], took[return_id][bill]) for bill in on]
+        )
+        for invoice_id, part_amount in split.items():
+            if wanted is None or invoice_id in wanted:
+                answer[invoice_id] += part_amount
+    return dict(answer)
 
 
 def bill_line_credits(
