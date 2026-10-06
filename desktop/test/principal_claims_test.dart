@@ -463,4 +463,367 @@ void main() {
     expect(find.byKey(const ValueKey('selection-print-statement')),
         findsOneWidget);
   });
+
+  testWidgets('a negative line and what is carried forward are shown',
+      (tester) async {
+    final _Api api = _AdjustedApi();
+    await _pump(tester, api);
+    await tester.tap(find.byKey(const ValueKey('toolbar-new')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('claim-principal')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Hindustan Foods').last);
+    await tester.pumpAndSettle();
+    await _pickDay(tester, 'claim-from', '1');
+    await _pickDay(tester, 'claim-to', '28');
+    await tester.tap(find.byKey(const ValueKey('claim-preview')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('-30.00'), findsWidgets,
+        reason: 'the scheme total and the line that came back');
+    expect(find.textContaining('Came back after claim PC-9 : bill INV-0042'),
+        findsOneWidget);
+    expect(find.text('Carried to the next claim: 40.00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a price cut claim shows its rate difference, batch and rates',
+      (tester) async {
+    final Json claim = <String, dynamic>{
+      ..._claim(),
+      'scheme_amount': '0.00',
+      'expiry_amount': '0.00',
+      'rate_difference_amount': '150.00',
+      'total_amount': '150.00',
+      'period_from': '2026-10-01',
+      'period_to': '2026-10-01',
+      'lines': [_cutLine('p-1', 'b-1', 'B7', '10', '100.0000', '90.0000')],
+    };
+    await _pump(tester, _Api(claims: [claim]));
+    await _select(tester, 'PC-c-1');
+    final Finder pane = find.byKey(const ValueKey('claim-details'));
+    expect(find.descendant(of: pane, matching: find.text('150.00')),
+        findsWidgets);
+    expect(find.descendant(of: pane, matching: find.text('Rate difference')),
+        findsNWidgets(2),
+        reason: 'the amount row and the group heading');
+    expect(find.textContaining('Batch B7'), findsOneWidget);
+    expect(find.textContaining('Old rate 100.00 → new rate 90.00'),
+        findsOneWidget);
+    expect(find.textContaining('price cut from 2026-10-01'), findsOneWidget);
+  });
+
+  testWidgets('a price cut is proposed, corrected, recalculated and raised',
+      (tester) async {
+    final _CutApi api = _CutApi();
+    await _pump(tester, api);
+    await _openCut(tester);
+
+    // Nothing is asked until the principal and the day are chosen.
+    await tester.tap(find.byKey(const ValueKey('pc-preview')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pc-problem')), findsOneWidget);
+    expect(api.previews, isEmpty);
+
+    await _fillCut(tester);
+    await tester.tap(find.byKey(const ValueKey('pc-preview')));
+    await tester.pumpAndSettle();
+
+    // The first call asks for the proposal: no period, no lines.
+    expect(api.previews, hasLength(1));
+    expect(api.previews.single.keys.toSet(),
+        {'principal_id', 'kinds', 'effective_date', 'claim_date'});
+    expect(api.previews.single['kinds'], ['RATE_DIFFERENCE']);
+    expect(api.previews.single['effective_date'], matches(r'^\d{4}-\d\d-01$'));
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('pc-stock-p-1-b-1')))
+            .data,
+        '10');
+    expect(tester.widget<Text>(find.byKey(const ValueKey('pc-total'))).data,
+        '250.00');
+
+    // Correct one rate, take one row off.
+    await tester.enterText(find.byKey(const ValueKey('pc-new-p-1-b-1')), '95');
+    await tester.tap(find.byKey(const ValueKey('pc-remove-p-1-b-2')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pc-stale')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('pc-recalculate')));
+    await tester.pumpAndSettle();
+
+    final Json again = api.previews.last;
+    expect(again.keys.toSet(), {
+      'principal_id',
+      'kinds',
+      'effective_date',
+      'claim_date',
+      'rate_lines',
+    });
+    expect(again['rate_lines'], [
+      {
+        'product_id': 'p-1',
+        'batch_id': 'b-1',
+        'old_rate': null,
+        'new_rate': '95',
+      },
+      {
+        'product_id': 'p-2',
+        'batch_id': null,
+        'old_rate': null,
+        'new_rate': null,
+      },
+    ]);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('pc-total'))).data,
+        '150.00');
+    // The correction survives the server's answer.
+    expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('pc-new-p-1-b-1')))
+            .controller!
+            .text,
+        '95');
+
+    await tester.tap(find.byKey(const ValueKey('pc-raise')));
+    await tester.pumpAndSettle();
+    final Json raised = api.raiseBody!;
+    expect(raised.keys.toSet(), again.keys.toSet());
+    expect(raised['rate_lines'], again['rate_lines']);
+    expect(raised.containsKey('period_from'), isFalse);
+    expect(raised.containsKey('period_to'), isFalse);
+  });
+
+  testWidgets('a refusal on recalculating is shown and keeps the grid',
+      (tester) async {
+    final _CutApi api = _CutApi();
+    await _pump(tester, api);
+    await _openCut(tester);
+    await _fillCut(tester);
+    await tester.tap(find.byKey(const ValueKey('pc-preview')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('pc-new-p-1-b-1')), '999');
+    api.refuse = 'Item RICE: the new rate is not below the old rate.';
+    await tester.tap(find.byKey(const ValueKey('pc-recalculate')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Item RICE: the new rate is not below the old rate.'),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('pc-remove-p-1-b-2')), findsOneWidget);
+    expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('pc-new-p-1-b-1')))
+            .controller!
+            .text,
+        '999');
+  });
+
+  testWidgets('an empty proposal says so, and a product can be added by hand',
+      (tester) async {
+    final _CutApi api = _CutApi()..empty = true;
+    await _pump(tester, api);
+    await _openCut(tester);
+    await _fillCut(tester);
+    await tester.tap(find.byKey(const ValueKey('pc-preview')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('No price drop is recorded'), findsOneWidget);
+    expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('pc-raise')))
+            .onPressed,
+        isNull);
+
+    await tester.enterText(find.byKey(const ValueKey('pc-add-product')), 'ri');
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('RICE · Basmati').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('pc-add-old')), '120');
+    await tester.enterText(find.byKey(const ValueKey('pc-add-new')), '110');
+    await tester.tap(find.byKey(const ValueKey('pc-add')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('pc-recalculate')));
+    await tester.pumpAndSettle();
+
+    expect(api.previews.last['rate_lines'], [
+      {
+        'product_id': 'p-1',
+        'batch_id': null,
+        'old_rate': '120',
+        'new_rate': '110',
+      },
+    ]);
+  });
+
+  testWidgets('the price cut dialog does not overflow at 1366x768',
+      (tester) async {
+    final _CutApi api = _CutApi();
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: PrincipalClaimsPage(
+          api: api,
+          preferences: _preferences(),
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await _openCut(tester);
+    await _fillCut(tester);
+    await tester.tap(find.byKey(const ValueKey('pc-preview')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pc-total')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+}
+
+Json _cutLine(String product, String? batch, String? batchNumber, String qty,
+        String oldRate, String newRate) =>
+    <String, dynamic>{
+      'line_number': 1,
+      'kind': 'RATE_DIFFERENCE',
+      'source_id': 'src-$product',
+      'source_number': product == 'p-1' ? 'RICE' : 'OIL',
+      'source_date': '2026-10-01',
+      'product_id': product,
+      'product_name': product == 'p-1' ? 'Basmati rice' : 'Sunflower oil',
+      'quantity': qty,
+      'batch_id': batch,
+      'batch_number': batchNumber,
+      'old_rate': oldRate,
+      'new_rate': newRate,
+      'description': 'Rates from the price revision of 2026-10-01',
+      'amount':
+          ((double.parse(oldRate) - double.parse(newRate)) * double.parse(qty))
+              .toStringAsFixed(2),
+    };
+
+Future<void> _openCut(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('claim-new-price-cut')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _fillCut(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('pc-principal')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Hindustan Foods').last);
+  await tester.pumpAndSettle();
+  await _pickDay(tester, 'pc-effective', '1');
+}
+
+/// A server that proposes three rows, and recalculates from the lines sent.
+class _CutApi extends _Api {
+  final List<Json> previews = <Json>[];
+  String? refuse;
+  bool empty = false;
+
+  @override
+  Future<Json> request(
+    String method,
+    String path, {
+    Json? body,
+    Map<String, String>? query,
+    bool authenticated = true,
+    bool retrying = false,
+    int? expectedVersion,
+  }) async {
+    if (method == 'GET' && path == '/api/v1/products') {
+      return <String, dynamic>{
+        'data': [
+          {'id': 'p-1', 'code': 'RICE', 'name': 'Basmati rice'},
+        ],
+        'pagination': {'total_records': 1},
+      };
+    }
+    if (method == 'POST' && path == '/api/v1/principal-claims/preview') {
+      previews.add(body!);
+      if (refuse != null) throw ApiException(refuse!, statusCode: 422);
+      final List<dynamic>? sent = body['rate_lines'] as List<dynamic>?;
+      final List<Json> lines;
+      if (sent == null) {
+        lines = empty
+            ? <Json>[]
+            : [
+                _cutLine('p-1', 'b-1', 'B7', '10', '100.0000', '90.0000'),
+                _cutLine('p-1', 'b-2', 'B8', '5', '100.0000', '90.0000'),
+                _cutLine('p-2', null, null, '20', '50.0000', '45.0000'),
+              ];
+      } else {
+        lines = [
+          for (final dynamic raw in sent)
+            _cutLine(
+              (raw as Map)['product_id'] as String,
+              raw['batch_id'] as String?,
+              raw['batch_id'] == null ? null : 'B7',
+              '10',
+              (raw['old_rate'] ?? '100.0000') as String,
+              (raw['new_rate'] ?? '90.0000') as String,
+            ),
+        ];
+      }
+      final double total = [
+        for (final Json l in lines) double.parse(l['amount'] as String),
+      ].fold(0, (a, b) => a + b);
+      return <String, dynamic>{
+        'data': {
+          'principal_id': 'pr-1',
+          'period_from': body['effective_date'],
+          'period_to': body['effective_date'],
+          'scheme_amount': '0.00',
+          'free_goods_amount': '0.00',
+          'expiry_amount': '0.00',
+          'breakage_amount': '0.00',
+          'rate_difference_amount': total.toStringAsFixed(2),
+          'total_amount': total.toStringAsFixed(2),
+          'lines': lines,
+        },
+      };
+    }
+    if (method == 'POST' && path == '/api/v1/principal-claims') {
+      raiseBody = body;
+      return <String, dynamic>{'data': _claim()};
+    }
+    return super.request(method, path, body: body, query: query);
+  }
+}
+
+/// A period preview with a line that came back after an earlier claim.
+class _AdjustedApi extends _Api {
+  @override
+  Future<Json> request(
+    String method,
+    String path, {
+    Json? body,
+    Map<String, String>? query,
+    bool authenticated = true,
+    bool retrying = false,
+    int? expectedVersion,
+  }) async {
+    if (method == 'POST' && path == '/api/v1/principal-claims/preview') {
+      return <String, dynamic>{
+        'data': {
+          'principal_id': 'pr-1',
+          'period_from': body!['period_from'],
+          'period_to': body['period_to'],
+          'scheme_amount': '-30.00',
+          'free_goods_amount': '0.00',
+          'expiry_amount': '0.00',
+          'breakage_amount': '0.00',
+          'rate_difference_amount': '0.00',
+          'total_amount': '0.00',
+          'adjustments_carried_forward': '40.00',
+          'lines': [
+            <String, dynamic>{
+              ..._line('SCHEME', 'INV-0042', '-30.00'),
+              'description': 'Came back after claim PC-9 : bill INV-0042',
+              'adjusts_claim_number': 'PC-9',
+            },
+          ],
+        },
+      };
+    }
+    return super.request(method, path, body: body, query: query);
+  }
 }

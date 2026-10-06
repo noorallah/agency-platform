@@ -14,9 +14,14 @@ class PrincipalClaimLine {
     this.quantity = '',
     this.description = '',
     this.amount = '0',
+    this.batchId = '',
+    this.batchNumber = '',
+    this.oldRate = '',
+    this.newRate = '',
+    this.adjustsClaimNumber = '',
   });
 
-  /// `SCHEME`, `FREE_GOODS`, `EXPIRY` or `BREAKAGE`.
+  /// `SCHEME`, `FREE_GOODS`, `EXPIRY`, `BREAKAGE` or `RATE_DIFFERENCE`.
   final String kind;
   final int lineNumber;
   final String sourceId;
@@ -26,7 +31,20 @@ class PrincipalClaimLine {
   final String productName;
   final String quantity;
   final String description;
+
+  /// Negative on an adjustment: what an earlier claim held that came back.
   final String amount;
+
+  /// Rate difference only: the batch (empty when the product has none) and
+  /// the purchase rate per stock unit before and after the cut. `quantity`
+  /// is then the stock on hand at the close of the day before.
+  final String batchId;
+  final String batchNumber;
+  final String oldRate;
+  final String newRate;
+
+  /// On an adjustment, the claim whose line it takes back from.
+  final String adjustsClaimNumber;
 
   factory PrincipalClaimLine.fromJson(Json json) => PrincipalClaimLine(
         kind: stringValue(json['kind']),
@@ -39,6 +57,11 @@ class PrincipalClaimLine {
         quantity: stringValue(json['quantity']),
         description: stringValue(json['description']),
         amount: _amount(json['amount']),
+        batchId: stringValue(json['batch_id']),
+        batchNumber: stringValue(json['batch_number']),
+        oldRate: stringValue(json['old_rate']),
+        newRate: stringValue(json['new_rate']),
+        adjustsClaimNumber: stringValue(json['adjusts_claim_number']),
       );
 }
 
@@ -97,7 +120,9 @@ class PrincipalClaimPreview {
     this.freeGoodsAmount = '0',
     this.expiryAmount = '0',
     this.breakageAmount = '0',
+    this.rateDifferenceAmount = '0',
     this.totalAmount = '0',
+    this.adjustmentsCarriedForward = '0',
     this.lines = const <PrincipalClaimLine>[],
   });
 
@@ -110,8 +135,17 @@ class PrincipalClaimPreview {
   final String freeGoodsAmount;
   final String expiryAmount;
   final String breakageAmount;
+
+  /// A price cut on the stock in hand: (old rate - new rate) x quantity.
+  final String rateDifferenceAmount;
   final String totalAmount;
+
+  /// What came back after earlier claims and could not come off this one,
+  /// because a claim is never negative: it comes off the next.
+  final String adjustmentsCarriedForward;
   final List<PrincipalClaimLine> lines;
+
+  double get carriedForward => double.tryParse(adjustmentsCarriedForward) ?? 0;
 
   factory PrincipalClaimPreview.fromJson(Json json) => PrincipalClaimPreview(
         principalId: stringValue(json['principal_id']),
@@ -121,7 +155,9 @@ class PrincipalClaimPreview {
         freeGoodsAmount: _amount(json['free_goods_amount']),
         expiryAmount: _amount(json['expiry_amount']),
         breakageAmount: _amount(json['breakage_amount']),
+        rateDifferenceAmount: _amount(json['rate_difference_amount']),
         totalAmount: _amount(json['total_amount']),
+        adjustmentsCarriedForward: _amount(json['adjustments_carried_forward']),
         lines: _lines(json['lines']),
       );
 }
@@ -142,6 +178,7 @@ class PrincipalClaim {
     this.freeGoodsAmount = '0',
     this.expiryAmount = '0',
     this.breakageAmount = '0',
+    this.rateDifferenceAmount = '0',
     this.totalAmount = '0',
     this.settledByCreditNote = '0',
     this.settledByPayment = '0',
@@ -171,6 +208,9 @@ class PrincipalClaim {
   final String freeGoodsAmount;
   final String expiryAmount;
   final String breakageAmount;
+
+  /// A price cut on the stock in hand: (old rate - new rate) x quantity.
+  final String rateDifferenceAmount;
   final String totalAmount;
   final String settledByCreditNote;
   final String settledByPayment;
@@ -203,6 +243,7 @@ class PrincipalClaim {
         freeGoodsAmount: _amount(json['free_goods_amount']),
         expiryAmount: _amount(json['expiry_amount']),
         breakageAmount: _amount(json['breakage_amount']),
+        rateDifferenceAmount: _amount(json['rate_difference_amount']),
         totalAmount: _amount(json['total_amount']),
         settledByCreditNote: _amount(json['settled_by_credit_note']),
         settledByPayment: _amount(json['settled_by_payment']),
