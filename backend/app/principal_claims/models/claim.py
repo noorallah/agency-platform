@@ -113,13 +113,17 @@ class PrincipalClaimLine(BaseEntity):
     #: ``SCHEME``, ``FREE_GOODS``, ``EXPIRY``, ``BREAKAGE`` or
     #: ``RATE_DIFFERENCE``.
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
-    #: The redemption, delivery note line, stock movement or sales return
-    #: line claimed. No foreign key: four tables, named by ``kind`` -- a
-    #: scheme's line is a redemption for its money and a delivery note line
-    #: for its free goods. A rate difference has no row to name: its source
-    #: is a key made of the principal, the product, the batch and the day the
-    #: cut took effect (``rate_difference_source``), so the same stock is
-    #: claimed once for one cut.
+    #: The delivery note line, stock movement or sales return line claimed.
+    #: No foreign key: several tables, named by ``kind`` -- a scheme's line
+    #: is a delivery note line for its free goods, and for its money a key
+    #: made of the redemption and the bill that passed the discount on
+    #: (``scheme_bill_source``), so each bill's discount is claimed once and
+    #: a part billed later is its own source. A scheme line raised before
+    #: 2026-10-06 names the redemption itself, and holds all of it. A rate
+    #: difference has no row to name either: its source is a key made of the
+    #: principal, the product, the batch and the day the cut took effect
+    #: (``rate_difference_source``), so the same stock is claimed once for
+    #: one cut.
     source_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
     source_number: Mapped[str] = mapped_column(String(80), nullable=False)
     source_date: Mapped[date] = mapped_column(Date, nullable=False)

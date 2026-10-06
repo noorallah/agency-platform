@@ -1,8 +1,9 @@
 """Claims to the principal (SEL-11, decision A128).
 
 The firm holds ten units at 100 of a product whose brand belongs to the
-principal ACME, which is also its supplier. In August a customer redeemed
-ACME's scheme for 200 (ACME bears 50%), one unit expired on the shelf (100),
+principal ACME, which is also its supplier. In August a customer was billed
+an order ACME's scheme took 200 off (ACME bears 50%), one unit expired on the
+shelf (100),
 and a customer returned two units broken out of four, credited at 150 each
 before tax. The claim is 100 + 100 + 300 = 500; it books Dr claims
 receivable 500, Cr promotional expense 100 and inventory adjustment 400.
@@ -32,6 +33,8 @@ from app.principal_claims.services import (
 )
 from app.products.models.brand import Brand, Principal
 from app.promotions.models import Promotion, PromotionRedemption
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_return.models import SalesReturn, SalesReturnLine
 from tests.unit.test_purchase_chain_synthesis import _Firm
 
@@ -75,12 +78,64 @@ def firm() -> _Firm:
     )
     session.add(scheme)
     session.flush()
+    # The order the scheme took 200 off, billed whole on the 5th: a claim
+    # reads what the bills passed on, never the order's claim alone.
+    order = SalesOrder(
+        firm_id=built.firm.id,
+        customer_id=uuid4(),
+        branch_id=built.branch.id,
+        warehouse_id=built.warehouse.id,
+        order_number="SO-77",
+        order_date=date(2026, 8, 5),
+        status="APPROVED",
+    )
+    sale = SalesInvoice(
+        firm_id=built.firm.id,
+        customer_id=order.customer_id,
+        branch_id=built.branch.id,
+        invoice_number="SI-77",
+        invoice_date=date(2026, 8, 5),
+        status="APPROVED",
+    )
+    session.add_all([order, sale])
+    session.flush()
+    ordered = SalesOrderLine(
+        sales_order_id=order.id,
+        firm_id=built.firm.id,
+        line_number=1,
+        product_id=built.product.id,
+        quantity=D("2"),
+        unit_price=D("1000"),
+        gross_amount=D("2000"),
+        discount_amount=D("200"),
+        discount_source="promotion",
+    )
+    session.add(ordered)
+    session.flush()
+    session.add(
+        SalesInvoiceLine(
+            sales_invoice_id=sale.id,
+            firm_id=built.firm.id,
+            line_number=1,
+            source_document_type="SALES_ORDER",
+            source_document_id=order.id,
+            source_document_number=order.order_number,
+            source_document_line_id=ordered.id,
+            source_document_line_number=1,
+            product_id=built.product.id,
+            delivered_quantity=D("2"),
+            current_invoice_quantity=D("2"),
+            unit_price=D("1000"),
+            gross_amount=D("2000"),
+            discount_amount=D("200"),
+        )
+    )
     session.add(
         PromotionRedemption(
             firm_id=built.firm.id,
             promotion_id=scheme.id,
             document_type="SALES_ORDER",
-            document_id=uuid4(),
+            document_id=order.id,
             document_number="SO-77",
             redeemed_on=date(2026, 8, 5),
             benefit_amount=D("200"),
