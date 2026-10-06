@@ -164,9 +164,17 @@ class _SettlementsPageState extends State<SettlementsPage> {
             : difference > 0
                 ? ' Exchange loss ₹${difference.toStringAsFixed(2)}.'
                 : ' Exchange gain ₹${(-difference).toStringAsFixed(2)}.';
+    // Money applied to no bill is held as an advance by design; the dialog
+    // said so before saving and the notice says it again (D-UI-16).
+    final double held = double.tryParse(saved.unallocatedAmount) ?? 0;
+    final String advance = widget.direction.allocates && held > 0.005
+        ? ' ${held.toStringAsFixed(2)} is held as an advance, not applied to '
+            'any ${widget.direction.isCustomer ? 'invoice' : 'bill'}.'
+        : '';
     NotificationService.show(
       context,
-      '${saved.settlementNumber} recorded and posted to the ledger.$exchange',
+      '${saved.settlementNumber} recorded and posted to the ledger.$advance'
+      '$exchange',
       kind: AppNotificationKind.success,
     );
   }
