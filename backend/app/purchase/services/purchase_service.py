@@ -111,7 +111,7 @@ from app.trade_licences.services.licence_check import (
     LicenceDocument,
 )
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService, assert_quantity_fits_unit
+from app.uom.services import UomService, assert_quantity_fits_unit, buying_units_of
 from app.vendors.models import Vendor
 from app.vendors.services.order_quantities import quantity_hints
 
@@ -2120,10 +2120,19 @@ class PurchaseService(TransactionalDocumentService):
         shares = apportion(header_discount, taxables)
         for idx, line in enumerate(data.lines, start=1):
             product = self._active_product(order.firm_id, line.product_id)
+            # The unit the line is bought in -- the one it names, else the
+            # product's buying unit -- converts to the unit the product's
+            # stock is kept in, whatever stock unit the line was sent or
+            # none. The line converted only when it was sent both, while the
+            # row below stored the product's units either way: 2 BOX naming
+            # the box alone, or naming nothing, read a factor of 1 and a
+            # base quantity of 2 beside units that said 24 pieces -- the
+            # buying twin of D-PRC-26.
+            purchase_uom_id, inventory_uom_id = self._line_units(product, line)
             conversion = self._conversion(
                 quantity=line.ordered_quantity + (line.free_quantity or ZERO),
-                purchase_uom_id=line.purchase_uom_id,
-                inventory_uom_id=line.inventory_uom_id,
+                purchase_uom_id=purchase_uom_id,
+                inventory_uom_id=inventory_uom_id,
                 product_id=product.id,
                 purchase_date=order.purchase_date,
                 firm_id=order.firm_id,
@@ -2164,8 +2173,8 @@ class PurchaseService(TransactionalDocumentService):
                 product_id=product.id,
                 description=line.description or product.name,
                 vendor_product_code=line.vendor_product_code,
-                purchase_uom_id=line.purchase_uom_id or product.purchase_uom_id,
-                inventory_uom_id=line.inventory_uom_id or product.inventory_uom_id,
+                purchase_uom_id=purchase_uom_id,
+                inventory_uom_id=inventory_uom_id,
                 conversion_factor=conversion["factor"],
                 conversion_version=conversion["version"],
                 ordered_quantity=self._q(line.ordered_quantity),
@@ -2334,7 +2343,7 @@ class PurchaseService(TransactionalDocumentService):
             product = self._session.get(Product, line.product_id)
             # A contract's rate is per its own unit; a line in another unit is
             # not priced from it, so a drawn quantity never needs converting.
-            unit = line.purchase_uom_id or getattr(product, "purchase_uom_id", None)
+            unit, stock_unit = self._line_units(product, line)
             contract = next(
                 (
                     candidate
@@ -2346,7 +2355,7 @@ class PurchaseService(TransactionalDocumentService):
             listed = catalogue.get(line.product_id)
             # The stock units one of the line's units holds: the factor the
             # line's quantity is about to be converted at (`_conversion`,
-            # which reads the same two units off the line). The product's
+            # which is given the same two units, `_line_units`). The product's
             # purchase price, its dated revisions and a price list's rate are
             # per stock unit, so a blank price on a line bought by the box is
             # that price times the factor -- it took one piece's price for a
@@ -2355,8 +2364,8 @@ class PurchaseService(TransactionalDocumentService):
             # neither is converted.
             factor = self._uom.unit_factor(
                 product_id=line.product_id,
-                from_uom_id=line.purchase_uom_id,
-                to_uom_id=line.inventory_uom_id,
+                from_uom_id=unit,
+                to_uom_id=stock_unit,
                 on_date=order.purchase_date,
                 firm_scope=order.firm_id,
             )
@@ -2756,6 +2765,24 @@ class PurchaseService(TransactionalDocumentService):
             line_number=line_number,
         )
         return self._q(simulation.total_tax_amount)
+
+    @staticmethod
+    def _line_units(
+        product: Product | None, line: PurchaseLineWrite
+    ) -> tuple[UUID | None, UUID | None]:
+        """Return the unit a line is bought in and the unit its stock is in.
+
+        The unit the line names, else the product's buying unit; and for a
+        line with either, the product's stock unit (`buying_units_of`). The
+        price fill and the quantity both read this, so a blank price is
+        converted at the factor the quantity is.
+        """
+        return buying_units_of(
+            product,
+            unit=line.purchase_uom_id
+            or (product.purchase_uom_id if product is not None else None),
+            stock_unit=line.inventory_uom_id,
+        )
 
     def _conversion(
         self,

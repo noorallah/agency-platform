@@ -99,8 +99,14 @@ from app.trade_licences.services.licence_check import (
     LicenceCheckService,
     LicenceDocument,
 )
+from app.uom.models import Uom
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService, assert_quantity_fits_unit
+from app.uom.services import (
+    UomService,
+    assert_quantity_fits_unit,
+    buying_units_of,
+    stock_unit_of,
+)
 from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
@@ -643,11 +649,18 @@ class GoodsReceiptService(TransactionalDocumentService):
         return row
 
     def _receipt_unit_cost(self, line: GoodsReceiptLine) -> Decimal:
-        """Return what one received unit actually cost.
+        """Return what one received unit actually cost, in the line's unit.
 
         Free quantity is received but not paid for, so the line's net value is
         spread across everything that lands on the shelf. Charging the invoice
         price to free goods would overstate the stock value.
+
+        Per unit **of the line** -- a box, on a line received by the box --
+        and never handed to the stock ledger as a cost per stock unit: the
+        ledger counts pieces, so 2 BOX at 720.00 valued 24 pieces at 720.00
+        each, 17,280.00 of stock and of goods received not invoiced for
+        goods bought for 1,440.00. `record_goods_receipt` takes it as
+        ``entered_unit_cost`` and converts it with the quantity.
 
         Args:
             line: The receipt line being posted.
@@ -1658,11 +1671,13 @@ class GoodsReceiptService(TransactionalDocumentService):
                     "Goods receipt exceeds allowed quantity for PO line "
                     f"{purchase_line.line_number}."
                 )
+            purchase_uom_id, inventory_uom_id = self._line_units(
+                receipt, line, purchase_line
+            )
             conversion = self._conversion(
                 quantity=total_sellable,
-                purchase_uom_id=line.purchase_uom_id or purchase_line.purchase_uom_id,
-                inventory_uom_id=line.inventory_uom_id
-                or purchase_line.inventory_uom_id,
+                purchase_uom_id=purchase_uom_id,
+                inventory_uom_id=inventory_uom_id,
                 product_id=purchase_line.product_id,
                 receipt_date=receipt.receipt_date,
                 firm_id=firm_id,
@@ -1743,9 +1758,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 damaged_quantity=self._q(line.damaged_quantity),
                 free_quantity=self._q(line.free_quantity),
                 packaging_type_id=line.packaging_type_id,
-                purchase_uom_id=line.purchase_uom_id or purchase_line.purchase_uom_id,
-                inventory_uom_id=line.inventory_uom_id
-                or purchase_line.inventory_uom_id,
+                purchase_uom_id=purchase_uom_id,
+                inventory_uom_id=inventory_uom_id,
                 conversion_factor=conversion["factor"],
                 conversion_version=conversion["version"],
                 warehouse_id=line.warehouse_id or receipt.warehouse_id,
@@ -1834,6 +1848,55 @@ class GoodsReceiptService(TransactionalDocumentService):
         # _recalculate_totals runs immediately after every caller of this method
         # and recomputed all three with a *different* formula, so anything
         # written here was dead and only served to suggest two answers existed.
+
+    def _line_units(
+        self,
+        receipt: GoodsReceipt,
+        line: GoodsReceiptLineWrite,
+        purchase_line: PurchaseOrderLine,
+    ) -> tuple[UUID | None, UUID | None]:
+        """Return the unit a receipt line counts in and its stock unit.
+
+        The order line's unit, and the unit the product's stock is kept in
+        (`buying_units_of`) whatever stock unit the line or the order line
+        carries. **A receipt line is counted in its order line's unit.** What
+        the order is owed, what the line may still take in, what is left to
+        bill and what may go back are all read off the two quantities side
+        by side, so a line received in another unit would be capped and
+        tallied as though it were not: 2 BOX received against 24 PIECE
+        ordered put 24 on the shelf and left the order 2 of 24 received, at
+        two pieces' price.
+
+        Raises:
+            ValidationError: The line names a unit other than the one its
+                order line is in, naming both.
+
+        """
+        product = self._session.get(Product, purchase_line.product_id)
+        ordered_in = purchase_line.purchase_uom_id or stock_unit_of(
+            product, purchase_line.inventory_uom_id
+        )
+        typed = line.purchase_uom_id
+        if typed is not None and ordered_in is not None and typed != ordered_in:
+            order = self._session.get(PurchaseOrder, receipt.purchase_order_id)
+
+            def code(uom_id: UUID) -> str:
+                """Return a unit's code."""
+                unit = self._session.get(Uom, uom_id)
+                return unit.code if unit is not None else "another unit"
+
+            raise ValidationError(
+                f"Line {line.line_number} is received in {code(typed)} where "
+                f"{order.po_number if order is not None else 'the order'} "
+                f"orders it in {code(ordered_in)}. Receive it in the order's "
+                "unit.",
+                details={"field": "lines"},
+            )
+        return buying_units_of(
+            product,
+            unit=typed or purchase_line.purchase_uom_id,
+            stock_unit=line.inventory_uom_id or purchase_line.inventory_uom_id,
+        )
 
     def _replace_attachments(
         self,
@@ -1971,7 +2034,10 @@ class GoodsReceiptService(TransactionalDocumentService):
                 reference_number=receipt.grn_number,
                 transaction_date=receipt.receipt_date,
                 total_quantity=self._q(line.accepted_quantity + line.free_quantity),
-                unit_cost=self._receipt_unit_cost(line) * rupees_per_unit,
+                # What one received unit cost, in the unit the line is in:
+                # the movement divides it by the factor the quantity moves
+                # at, so a box at 720.00 puts twelve pieces in at 60.00.
+                entered_unit_cost=self._receipt_unit_cost(line) * rupees_per_unit,
                 blocked_quantity=self._q(line.rejected_quantity),
                 damaged_quantity=self._q(line.damaged_quantity),
                 entered_quantity=self._q(

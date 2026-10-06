@@ -24,6 +24,7 @@ control wherever a person raises the order; here nobody would ever see the
 order, and the bill's approval is the decision.
 """
 
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -50,6 +51,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSourceType,
     PurchaseInvoiceSourceWrite,
 )
+from app.uom.services import UomService, buying_units_of
 
 ZERO = Decimal("0")
 _QUANTUM = Decimal("0.0001")
@@ -113,7 +115,9 @@ class PurchaseChainService:
             branch_id=data.branch_id or settings.default_branch_id,
             configured_warehouse_id=settings.default_warehouse_id,
         )
-        prices = self._purchase_prices({self._product_of(line) for line in data.lines})
+        prices = self._purchase_prices(
+            data.lines, firm_id=firm_id, on=data.invoice_date
+        )
         orders = PurchaseService(self._session)
         order = orders.stage_order(
             PurchaseOrderCreate(
@@ -135,7 +139,7 @@ class PurchaseChainService:
                         unit_price=(
                             line.unit_price
                             if line.unit_price is not None
-                            else prices.get(self._product_of(line), ZERO)
+                            else prices[index]
                         ),
                         discount_percent=line.discount_percent or ZERO,
                         discount_amount=line.discount_amount or ZERO,
@@ -146,7 +150,7 @@ class PurchaseChainService:
                         storage_node_id=line.storage_node_id,
                         remarks=line.remarks,
                     )
-                    for line in data.lines
+                    for index, line in enumerate(data.lines)
                 ],
             ),
             firm_id=firm_id,
@@ -353,14 +357,52 @@ class PurchaseChainService:
             ).all()
         )
 
-    def _purchase_prices(self, product_ids: set[UUID]) -> dict[UUID, Decimal]:
-        """Return each product's standing purchase price, for a line with none."""
-        return {
-            product.id: product.purchase_price or ZERO
+    def _purchase_prices(
+        self, lines: list[PurchaseInvoiceLineWrite], *, firm_id: UUID, on: date
+    ) -> list[Decimal]:
+        """Return the price each line starts at if it names none, in order.
+
+        The product's standing purchase price **in the unit the line is
+        billed in**. That price is per stock unit, and the order raised
+        behind the bill counts the line in the unit it names, else the
+        product's buying unit: a bill of 2 with no price, for a product
+        bought by the box of 12 at 60.00 a piece, was charged 60.00 a box --
+        120.00 for 24 pieces. It is 720.00 a box, at the factor the order
+        line converts with.
+        """
+        products = {
+            product.id: product
             for product in self._session.scalars(
-                select(Product).where(Product.id.in_(product_ids))
+                select(Product).where(
+                    Product.id.in_({self._product_of(line) for line in lines})
+                )
             ).all()
         }
+        units = UomService(self._session)
+        prices: list[Decimal] = []
+        for line in lines:
+            product = products.get(self._product_of(line))
+            if product is None or line.unit_price is not None:
+                prices.append(ZERO)
+                continue
+            unit, stock_unit = buying_units_of(
+                product,
+                unit=line.invoice_uom_id
+                or line.purchase_uom_id
+                or product.purchase_uom_id,
+                stock_unit=None,
+            )
+            factor = units.unit_factor(
+                product_id=product.id,
+                from_uom_id=unit,
+                to_uom_id=stock_unit,
+                on_date=on,
+                firm_scope=firm_id,
+            )
+            prices.append(
+                ((product.purchase_price or ZERO) * factor).quantize(_QUANTUM)
+            )
+        return prices
 
     @staticmethod
     def _product_of(line: PurchaseInvoiceLineWrite) -> UUID:

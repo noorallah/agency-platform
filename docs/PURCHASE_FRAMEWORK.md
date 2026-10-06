@@ -195,6 +195,37 @@ A rate contract line and a supplier's quoted line need a rate above 0.
 
 **A bill line that names no unit takes its source line's** (D-BUY-49).
 
+**A line bought by the box is counted, costed and returned as a box**
+(2026-10-06; `docs/UOM_FRAMEWORK.md` has the rule and the defect). A product
+kept in pieces, 12 to a box, bought as 2 BOX at 720.00:
+
+| Step | Reads |
+| --- | --- |
+| Order line | BOX, stock unit PIECE, factor 12, base quantity 24 -- whether the line named BOX and PIECE, BOX alone, or nothing and the product's buying unit is BOX. A blank price is 720.00 (60.00 a piece times 12). |
+| Goods receipt | 2 BOX accepted; **24 pieces into stock at 60.00**, 1,440.00. Dr Inventory 1,440.00 / Cr Goods received not invoiced 1,440.00. |
+| Supplier bill | 2 BOX at 720.00, 1,440.00. Clears the accrual exactly; no price variance. |
+| Return of 1 | 1 BOX, 720.00 back from the supplier; **12 pieces leave** at the moving average. |
+
+Before this the receipt valued those 24 pieces at 720.00 each -- 17,280.00 --
+whichever way the line named its units, and the bill credited the 15,840.00
+difference to purchase price variance. Stock already received is not
+restated. A buying unit no rule converts to the stock unit is refused where
+the order is saved: "SKU-001: no active conversion rule converts CARTON to
+PIECE. Add one under Units -> Conversion Rules, or enter the quantity in
+PIECE." A receipt line is counted in its order line's unit and one naming
+another is refused: "Line 1 is received in BOX where PO-2026-2027-000004
+orders it in PIECE. Receive it in the order's unit." A bill or return line
+typed in another unit is stored in its source line's unit, converted by the
+rule for the pair or else through the stock unit.
+
+**A bill of products typed with no order counts each line in the unit it
+names, else the product's buying unit**, because the order it raises does: a
+bill of 2 with no unit and no price, for that product, is 2 BOX at 720.00 and
+brings in 24 pieces at 60.00. It was charged 60.00 a box -- 120.00 for 24
+pieces. An order line stored before the fix keeps the factor and base
+quantity it was stored with until it is saved again; its receipt converts by
+the units on the row, as it always did.
+
 **A purchase requisition is numbered `PRQ-`**, not the purchase return's `PR-`
 (D-BUY-46, migration `20261005_0327` for stores that had already raised one;
 numbers already issued stay as issued). For the same reason a rate contract is
@@ -424,7 +455,9 @@ cancelled return gives its quantity back.
   it, counted together; once such a bill has been returned against, those
   receipt lines are held to the same total.
 - The quantities are compared as stored, in the source line's unit: a bill
-  line and its receipt line share the purchase unit.
+  line and its receipt line share the purchase unit. A return typed in
+  another unit (`return_uom_id`) is converted into it first, and the stock
+  leaves in the source line's unit too -- 1 BOX is 12 pieces off the shelf.
 
 **A file of returns is taken whole or not at all** (D-BUY-62).
 `POST /purchase-returns/import` stages every record with the checks a single
@@ -502,7 +535,7 @@ had cleared.
 | `vendors` | who is being bought from | a purchase order requires a vendor |
 | `products` | what is bought, and its batch/expiry rules | `require_batch_on_receipt` decides whether a receipt can complete |
 | `branches` | branch, warehouse and storage node | stock posts to the warehouse the line names |
-| `uom` | `convert_quantity` per line | purchase UOM → inventory UOM; a factor of 1 short-circuits |
+| `uom` | `convert_quantity` per line (`buying_units_of` picks the two units; `quantity_between` for a bill or return line in another unit than its source) | buying unit → the product's stock unit; a factor of 1 only when the two are the same or the line has no buying unit |
 | `tax` | `TaxRuleService.simulate` per line | this **is** the tax calculation, not a preview; it must never commit |
 | `batch_serial` | batch, lot, serial and expiry | a batch number on a receipt line resolves to a real batch |
 | `inventory` | the stock ledger and stock rows | receipts post here; returns and cancellations reverse here |
@@ -839,7 +872,8 @@ optional other product given free, a period, and either one supplier or none
   of rows.
 - **Downstream.** The receipt and the bill raised from the line inherit its
   free goods. Free goods add units and no value: the receipt's cost per unit
-  is the line's value before tax over accepted plus free.
+  is the line's value before tax over accepted plus free -- per unit of the
+  line, divided by the line's conversion factor on its way into stock.
 - **On the desktop** (PR #1134). Buy > All Buy screens > Documents > *Supplier
   schemes*; on the phase 2 purchase order the side panel says "Scheme 10+2
   applied" for each line a scheme filled.
