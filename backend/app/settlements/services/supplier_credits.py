@@ -53,10 +53,10 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.utils.chunks import over_chunks
+from app.core.utils.chunks import chunks, over_chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
-from app.finance.currency import rupee_rate_sql
+from app.finance.currency import rupee_rate, rupee_rate_sql
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.purchase_invoice.models import PurchaseInvoice
 from app.settlements.models import (
@@ -241,6 +241,14 @@ def _all_credits(
             .group_by(PurchaseReturnLine.purchase_return_id)
         ).all()
     }
+    # Its header figures came off the bills its lines name as well
+    # (D-PRC-83), so they are not credit beside those bills.
+    for header in return_header_parts(
+        session, firm_id=firm_id, vendor_id=vendor_id, source_ids=source_ids
+    ):
+        billed[header.purchase_return_id] = (
+            billed.get(header.purchase_return_id, ZERO) + header.amount
+        )
     applied: dict[UUID, Decimal] = {}
     applied_to: dict[UUID, list[str]] = {}
     source = _source_column()
@@ -342,6 +350,248 @@ def _bill_rupees() -> "ColumnElement[Any]":
     return rupee_rate_sql(PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate)
 
 
+@dataclass(frozen=True)
+class HeaderPart:
+    """What one return's header figures took off one supplier bill."""
+
+    purchase_return_id: UUID
+    vendor_id: UUID
+    purchase_invoice_id: UUID
+    #: In rupees at the bill's own rate, or in the bill's currency if asked.
+    amount: Decimal
+
+
+def _split_header(
+    amount: Decimal, bills: Sequence[tuple[UUID, Decimal, Decimal]]
+) -> dict[UUID, Decimal]:
+    """Split a return's header claim over the bills it claims it back from.
+
+    In proportion to the header charges the bills made, because those are
+    what is being claimed back; where none made any -- a round-off alone --
+    in proportion to what the return's lines took off each. To the paisa,
+    the last bill taking what rounding left, so the parts add up to the
+    claim. The selling side's rule (``app/sales_return/billing.py``).
+
+    Args:
+        amount: The return's ``additional_charges`` and ``round_off``.
+        bills: The bills its goods were charged on, earliest first, each
+            with the header charges it made and what the lines took off it.
+
+    """
+    weights = [max(charge, ZERO) for _bill, charge, _took in bills]
+    if sum(weights, ZERO) <= ZERO:
+        weights = [max(took, ZERO) for _bill, _charge, took in bills]
+    whole = sum(weights, ZERO)
+    parts: dict[UUID, Decimal] = {}
+    rest = amount
+    for position, (bill_id, _charge, _took) in enumerate(bills):
+        if position == len(bills) - 1:
+            part = rest
+        elif whole > ZERO:
+            part = quantize_ledger(amount * weights[position] / whole)
+        else:
+            part = ZERO
+        parts[bill_id] = part
+        rest -= part
+    return parts
+
+
+def return_header_parts(
+    session: Session,
+    *,
+    firm_id: UUID,
+    source_ids: Sequence[UUID] | None = None,
+    invoice_ids: Sequence[UUID] | None = None,
+    vendor_id: UUID | None = None,
+    as_of: date | None = None,
+    in_currency: bool = False,
+) -> list[HeaderPart]:
+    """Return what completed returns' header figures took off supplier bills.
+
+    A return's ``additional_charges`` -- and its ``round_off`` -- are claimed
+    from the supplier with no line behind them: they are in the return's
+    total and in the payables debit its journal posted, and in no line. A
+    bill counted only the lines returned off it, so a bill of 1,799.20
+    returned in full with its 100.00 of charges claimed back went on reading
+    100.00 outstanding beside a supplier credit of 100.00, took a payment
+    nobody owed and stayed in the ageing (D-PRC-83, the buying twin of
+    D-PRC-74).
+
+    They are set against the bills the return's goods were charged on, in
+    proportion to the header charges those bills made (``_split_header``):
+    the bill a line names, and for a line raised off a goods receipt the
+    bills it was **placed** on when it completed
+    (``purchase_return_bill_placements``), so the split does not move. Only
+    the part that falls on a bill a line **names** comes off that bill here,
+    because only a line raised off a bill comes off it (D-BUY-6); the part
+    belonging to a receipt line's bills stays supplier credit with that
+    line's value, and a return with no line off a bill gives all of it as
+    credit, as before. Nothing is posted: payables moved once, when the
+    return completed, and every reader that takes these off a bill takes
+    the same off the return's credit.
+
+    Args:
+        session: The firm's store.
+        firm_id: The firm.
+        source_ids: Only these returns, where given.
+        invoice_ids: Only what falls on these bills, where given -- no more
+            than one chunk of them.
+        vendor_id: Only this vendor's returns, where given.
+        as_of: Only returns dated on or before this day, where given.
+        in_currency: Answer in the bill's own currency, not in rupees.
+
+    Returns:
+        One part per return and named bill that has any. One statement where
+        no return carries a header figure, four where some do.
+
+    """
+    # Imported here: the return module imports settlement-adjacent models.
+    from app.purchase_invoice.models import PurchaseInvoiceLine
+    from app.purchase_return.models import (
+        PurchaseReturn,
+        PurchaseReturnBillPlacement,
+        PurchaseReturnLine,
+    )
+
+    if (source_ids is not None and not source_ids) or (
+        invoice_ids is not None and not invoice_ids
+    ):
+        return []
+    header = PurchaseReturn.additional_charges + PurchaseReturn.round_off
+    headed = select(PurchaseReturn.id, PurchaseReturn.vendor_id, header).where(
+        PurchaseReturn.firm_id == firm_id,
+        PurchaseReturn.is_deleted.is_(False),
+        PurchaseReturn.status.in_(CREDITING_RETURN_STATES),
+        header != 0,
+    )
+    if vendor_id is not None:
+        headed = headed.where(PurchaseReturn.vendor_id == vendor_id)
+    if as_of is not None:
+        headed = headed.where(PurchaseReturn.return_date <= as_of)
+    if source_ids is not None:
+        headed = headed.where(PurchaseReturn.id.in_(source_ids))
+    if invoice_ids is not None:
+        headed = headed.where(
+            PurchaseReturn.id.in_(
+                select(PurchaseReturnLine.purchase_return_id).where(
+                    PurchaseReturnLine.firm_id == firm_id,
+                    PurchaseReturnLine.source_document_type == "PURCHASE_INVOICE",
+                    PurchaseReturnLine.source_document_id.in_(invoice_ids),
+                    PurchaseReturnLine.is_deleted.is_(False),
+                )
+            )
+        )
+    amounts = {
+        return_id: (vendor, Decimal(str(amount or 0)))
+        for return_id, vendor, amount in session.execute(headed).all()
+    }
+    if not amounts:
+        return []
+    # What each return's lines took off each bill: by name for a line raised
+    # off a bill, as placed for one raised off a goods receipt.
+    named: dict[UUID, dict[UUID, Decimal]] = {}
+    placed: dict[UUID, dict[UUID, Decimal]] = {}
+    for part in chunks(list(amounts)):
+        for return_id, bill_id, net in session.execute(
+            select(
+                PurchaseReturnLine.purchase_return_id,
+                PurchaseReturnLine.source_document_id,
+                func.coalesce(func.sum(PurchaseReturnLine.net_amount), 0),
+            )
+            .where(
+                PurchaseReturnLine.purchase_return_id.in_(part),
+                PurchaseReturnLine.source_document_type == "PURCHASE_INVOICE",
+                PurchaseReturnLine.is_deleted.is_(False),
+            )
+            .group_by(
+                PurchaseReturnLine.purchase_return_id,
+                PurchaseReturnLine.source_document_id,
+            )
+        ).all():
+            named.setdefault(return_id, {})[bill_id] = Decimal(str(net or 0))
+        for return_id, bill_id, taxable in session.execute(
+            select(
+                PurchaseReturnBillPlacement.purchase_return_id,
+                PurchaseInvoiceLine.purchase_invoice_id,
+                func.coalesce(func.sum(PurchaseReturnBillPlacement.taxable_amount), 0),
+            )
+            .join(
+                PurchaseReturnLine,
+                PurchaseReturnLine.id
+                == PurchaseReturnBillPlacement.purchase_return_line_id,
+            )
+            .join(
+                PurchaseInvoiceLine,
+                PurchaseInvoiceLine.id
+                == PurchaseReturnBillPlacement.purchase_invoice_line_id,
+            )
+            .where(
+                PurchaseReturnBillPlacement.purchase_return_id.in_(part),
+                PurchaseReturnBillPlacement.is_deleted.is_(False),
+                PurchaseReturnLine.source_document_type == "GOODS_RECEIPT",
+            )
+            .group_by(
+                PurchaseReturnBillPlacement.purchase_return_id,
+                PurchaseInvoiceLine.purchase_invoice_id,
+            )
+        ).all():
+            placed.setdefault(return_id, {})[bill_id] = Decimal(str(taxable or 0))
+    bill_ids = {bill for by_bill in named.values() for bill in by_bill} | {
+        bill for by_bill in placed.values() for bill in by_bill
+    }
+    bills: dict[UUID, tuple[tuple[str, str], Decimal, Decimal]] = {}
+    for part in chunks(sorted(bill_ids, key=str)):
+        for row in session.execute(
+            select(
+                PurchaseInvoice.id,
+                PurchaseInvoice.invoice_date,
+                PurchaseInvoice.invoice_number,
+                PurchaseInvoice.additional_charges,
+                PurchaseInvoice.currency_code,
+                PurchaseInvoice.exchange_rate,
+            ).where(PurchaseInvoice.id.in_(part))
+        ).all():
+            bills[row.id] = (
+                (str(row.invoice_date), row.invoice_number),
+                Decimal(str(row.additional_charges or 0)),
+                (
+                    Decimal("1")
+                    if in_currency
+                    else rupee_rate(row.currency_code, row.exchange_rate)
+                ),
+            )
+    wanted = None if invoice_ids is None else set(invoice_ids)
+    answer: list[HeaderPart] = []
+    for return_id, (vendor, amount) in amounts.items():
+        off_bills = named.get(return_id, {})
+        if not off_bills:
+            # No line off a bill: the whole return is supplier credit.
+            continue
+        took = dict(placed.get(return_id, {}))
+        for bill_id, net in off_bills.items():
+            took[bill_id] = took.get(bill_id, ZERO) + net
+        on = sorted((bill for bill in took if bill in bills), key=lambda b: bills[b][0])
+        split = _split_header(
+            amount, [(bill, bills[bill][1], took[bill]) for bill in on]
+        )
+        for bill_id, part_amount in split.items():
+            if bill_id not in off_bills:
+                continue
+            if wanted is not None and bill_id not in wanted:
+                continue
+            rupees = quantize_ledger(part_amount * bills[bill_id][2])
+            if rupees != ZERO:
+                answer.append(
+                    HeaderPart(
+                        purchase_return_id=return_id,
+                        vendor_id=vendor,
+                        purchase_invoice_id=bill_id,
+                        amount=rupees,
+                    )
+                )
+    return answer
+
+
 def _bill_parts(
     session: Session,
     *,
@@ -413,8 +663,23 @@ def _bill_parts(
             PurchaseReturnLine.source_document_id.in_(invoice_ids)
         )
         notes = notes.where(DebitNote.purchase_invoice_id.in_(invoice_ids))
+    # With the lines, the header figures the return claimed back from that
+    # bill (D-PRC-83): both came off it.
+    headers: dict[tuple[UUID, UUID], Decimal] = {}
+    for header in return_header_parts(
+        session, firm_id=firm_id, source_ids=source_ids, invoice_ids=invoice_ids
+    ):
+        key = (header.purchase_return_id, header.purchase_invoice_id)
+        headers[key] = headers.get(key, ZERO) + header.amount
     parts: list[tuple[date, str, UUID, UUID, Decimal]] = [
-        (on, number, return_id, bill_id, quantize_ledger(Decimal(str(amount))))
+        (
+            on,
+            number,
+            return_id,
+            bill_id,
+            quantize_ledger(Decimal(str(amount)))
+            + headers.get((return_id, bill_id), ZERO),
+        )
         for return_id, bill_id, amount, on, number in session.execute(statement).all()
     ]
     # Counted as the bill counts it: each part rounded to the ledger, summed.

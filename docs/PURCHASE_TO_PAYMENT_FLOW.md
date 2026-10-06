@@ -846,7 +846,9 @@ payables belonging to nobody (D-FIN-19).
 It is now a **supplier credit**, the payable twin of a customer's advance:
 
 - what a return gives is derived -- its ledger total less what its bill-sourced
-  lines took off their bills -- and listed by `GET
+  lines took off their bills, and less the header charges and round-off it
+  claimed back from those bills, which come off them too (D-PRC-83,
+  2026-10-06) -- and listed by `GET
   /api/v1/payments/supplier-credits?vendor_id=` (`app/settlements/services/supplier_credits.py`);
 - `POST /api/v1/payments/supplier-credits/{return_id}/apply` sets part of it
   against one of the supplier's approved bills, recorded in
