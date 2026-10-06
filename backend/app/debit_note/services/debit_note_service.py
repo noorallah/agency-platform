@@ -427,6 +427,7 @@ class DebitNoteService(TransactionalDocumentService):
         if row.total_amount <= ZERO:
             raise ValidationError("A debit note for nothing cannot be approved.")
         invoice = self._claimable_invoice(row.purchase_invoice_id, firm_id=firm_scope)
+        self._assert_lines_still_have_room(row)
         self._refuse_more_than_billed(row, invoice)
         before = self._snapshot(row)
         # A note against a bill in another currency is typed in it and posts
@@ -737,30 +738,8 @@ class DebitNoteService(TransactionalDocumentService):
                     "A debit note line must name a line of the bill it claims "
                     "against."
                 )
-            # Held before the cap is read: the cap is a sum over other
-            # documents' lines, which no row version protects.
-            self._session.execute(
-                select(PurchaseInvoiceLine.id)
-                .where(PurchaseInvoiceLine.id == source.id)
-                .with_for_update()
-            )
-            billed = self._billed_taxable(source)
-            claimed = self._claimed_by_line(
-                firm_id=note.firm_id,
-                line_ids=[source.id],
-                excluding_note_id=note.id,
-            ).get(source.id, ZERO)
-            returned = self._returned_by_line(
-                firm_id=note.firm_id, line_ids=[source.id]
-            ).get(source.id, ZERO)
             asked = quantize_money(item.taxable_amount)
-            left = billed - claimed - returned
-            if asked > left:
-                raise ValidationError(
-                    "A debit note cannot claim more than is left of the bill "
-                    f"line: {billed} billed, {claimed} already claimed, "
-                    f"{returned} already returned."
-                )
+            billed = self._assert_line_has_room(note, source, asked)
             rate = self._tax_rate(source, billed)
             tax = quantize_money(asked * rate / HUNDRED)
             self._session.add(
@@ -787,6 +766,70 @@ class DebitNoteService(TransactionalDocumentService):
         note.tax_amount = quantize_money(tax_total)
         note.total_amount = quantize_money(taxable_total + tax_total)
         self._session.flush()
+
+    def _assert_line_has_room(
+        self, note: DebitNote, source: PurchaseInvoiceLine, asked: Decimal
+    ) -> Decimal:
+        """Refuse a claim for more than is left of what a bill line billed.
+
+        What is left is what the line billed, less what other live debit
+        notes claim **and less what went back**: goods returned have already
+        been claimed from the supplier, and a debit note for their value as
+        well claims it twice. That counts a return raised off the bill line
+        and one raised off the goods receipt it billed (D-PRC-67) -- the
+        second names no bill line and was not counted, so a further debit
+        note was approved after everything on the bill had gone back.
+
+        The bill line is held before the cap is read: the cap is a sum over
+        other documents' lines, which no row version protects, and a return
+        completing takes the same lock.
+
+        Returns:
+            What the line billed, before tax.
+
+        Raises:
+            ValidationError: If the line has less room than is asked.
+
+        """
+        self._session.execute(
+            select(PurchaseInvoiceLine.id)
+            .where(PurchaseInvoiceLine.id == source.id)
+            .with_for_update()
+        )
+        billed = self._billed_taxable(source)
+        claimed = self._claimed_by_line(
+            firm_id=note.firm_id,
+            line_ids=[source.id],
+            excluding_note_id=note.id,
+        ).get(source.id, ZERO)
+        returned = self._returned_by_line(
+            firm_id=note.firm_id, line_ids=[source.id]
+        ).get(source.id, ZERO)
+        if asked > billed - claimed - returned:
+            raise ValidationError(
+                "A debit note cannot claim more than is left of the bill "
+                f"line: {billed} billed, {claimed} already claimed, "
+                f"{returned} already returned."
+            )
+        return billed
+
+    def _assert_lines_still_have_room(self, note: DebitNote) -> None:
+        """Ask the cap again at approval, where the claim becomes real.
+
+        The cap is read when the note is saved. Goods that went back between
+        then and approval have been claimed from the supplier since, so a
+        note saved with room may have none left; the one that reaches the
+        supplier second is refused by name.
+        """
+        for line in self.lines_of(note):
+            source = self._session.get(
+                PurchaseInvoiceLine, line.purchase_invoice_line_id
+            )
+            if source is None:
+                continue
+            self._assert_line_has_room(
+                note, source, quantize_money(line.taxable_amount)
+            )
 
     @staticmethod
     def _billed_taxable(source: PurchaseInvoiceLine) -> Decimal:
@@ -851,44 +894,36 @@ class DebitNoteService(TransactionalDocumentService):
     def _returned_by_line(
         self, *, firm_id: UUID, line_ids: Sequence[UUID]
     ) -> dict[UUID, Decimal]:
-        """Sum the taxable value live purchase returns sent back off each line.
+        """Sum the taxable value purchase returns sent back off each bill line.
 
-        Only a return raised from the bill's own lines names a bill line. Any
-        return not cancelled counts -- a draft return is still a claim on the
-        same value, and counting it late would let both be raised in full.
+        By either route (`bill_line_claims`). A return raised **off the bill
+        line** counts while it is not cancelled -- a draft is still a claim
+        on the same value, and counting it late would let both be raised in
+        full. A return raised **off the goods receipt** the line billed
+        counts once it has completed: until then how much of it reverses a
+        bill, and how much went back before billing, is not decided. It is
+        placed on the receipt line's bills earliest first.
         """
         # Imported here: the return module imports settlement-adjacent models.
-        from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+        from app.purchase_return.billing import COMPLETED, LIVE, bill_line_claims
 
         if not line_ids:
             return {}
+        sources = self._session.scalars(
+            select(PurchaseInvoiceLine).where(
+                PurchaseInvoiceLine.firm_id == firm_id,
+                PurchaseInvoiceLine.id.in_(list(line_ids)),
+            )
+        ).all()
         return {
-            line_id: quantize_money(Decimal(str(total)))
-            for line_id, total in self._session.execute(
-                select(
-                    PurchaseReturnLine.source_document_line_id,
-                    func.coalesce(
-                        func.sum(
-                            PurchaseReturnLine.net_amount
-                            - PurchaseReturnLine.tax_amount
-                        ),
-                        0,
-                    ),
-                )
-                .join(
-                    PurchaseReturn,
-                    PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
-                )
-                .where(
-                    PurchaseReturnLine.firm_id == firm_id,
-                    PurchaseReturnLine.source_document_type == "PURCHASE_INVOICE",
-                    PurchaseReturnLine.source_document_line_id.in_(list(line_ids)),
-                    PurchaseReturnLine.is_deleted.is_(False),
-                    PurchaseReturn.is_deleted.is_(False),
-                    PurchaseReturn.status != "CANCELLED",
-                )
-                .group_by(PurchaseReturnLine.source_document_line_id)
-            ).all()
+            line_id: quantize_money(claims.returned_taxable)
+            for line_id, claims in bill_line_claims(
+                self._session,
+                sources,
+                bill_returns=LIVE,
+                receipt_returns=COMPLETED,
+            ).items()
+            if claims.returned_taxable > ZERO
         }
 
     # ---- responses -----------------------------------------------------

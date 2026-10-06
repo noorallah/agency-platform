@@ -22,6 +22,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ValidationError
+from app.debit_note.schemas import (
+    DebitNoteCreate,
+    DebitNoteLineWrite,
+    DebitNoteReasonEnum,
+)
+from app.debit_note.services import DebitNoteService
 from app.finance.models import JournalEntry
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.goods_receipt.services import GoodsReceiptService
@@ -519,3 +525,254 @@ def test_a_bill_or_a_return_of_nothing_is_refused_where_it_is_saved() -> None:
     )
     fixture.session.rollback()
     assert fixture.session.scalars(select(PurchaseReturnLine)).all() == []
+
+
+# ---- a return after a debit note (D-PRC-67) ---------------------------------
+#
+# A supplier bill of 1,699.20 took a price-difference debit note of 472.00 and
+# was then returned in full for 1,699.20: 2,171.20 claimed against a bill of
+# 1,699.20, Trade Payables 472.00 in debit. The buying twin of D-SELL-88.
+
+INPUT_CGST = "1320"
+
+
+def _bill_line(fixture: _Fixture, bill: PurchaseInvoice) -> PurchaseInvoiceLine:
+    """Return the bill's single line."""
+    return fixture.session.scalars(
+        select(PurchaseInvoiceLine).where(
+            PurchaseInvoiceLine.purchase_invoice_id == bill.id
+        )
+    ).one()
+
+
+def _debit_note(
+    fixture: _Fixture, bill: PurchaseInvoice, taxable: str, *, approve: bool = True
+) -> UUID:
+    """Claim ``taxable`` before tax against the bill's line, as a price difference."""
+    notes = DebitNoteService(fixture.session)
+    note = notes.create_note(
+        DebitNoteCreate(
+            purchase_invoice_id=bill.id,
+            debit_note_date=date(2026, 8, 7),
+            reason=DebitNoteReasonEnum.PRICE_DIFFERENCE,
+            lines=[
+                DebitNoteLineWrite(
+                    purchase_invoice_line_id=_bill_line(fixture, bill).id,
+                    line_number=1,
+                    taxable_amount=D(taxable),
+                )
+            ],
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    fixture.session.commit()
+    if approve:
+        _approve_note(fixture, note.id)
+    return note.id
+
+
+def _approve_note(fixture: _Fixture, note_id: UUID) -> None:
+    """Approve the debit note."""
+    DebitNoteService(fixture.session).approve_note(
+        note_id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    fixture.session.commit()
+
+
+def _raise_return(
+    fixture: _Fixture,
+    quantity: str,
+    *,
+    receipt: GoodsReceipt | None = None,
+    bill: PurchaseInvoice | None = None,
+) -> UUID:
+    """Save and approve a return of ``quantity`` off the receipt or off the bill."""
+    if bill is not None:
+        kind = PurchaseReturnSourceType.PURCHASE_INVOICE
+        document_id, line_id = bill.id, _bill_line(fixture, bill).id
+    else:
+        assert receipt is not None
+        kind = PurchaseReturnSourceType.GOODS_RECEIPT
+        document_id, line_id = receipt.id, _receipt_line(fixture, receipt).id
+    returns = PurchaseReturnService(fixture.session)
+    sent = returns.create_return(
+        PurchaseReturnCreate(
+            return_date=date(2026, 8, 8),
+            warehouse_id=fixture.warehouse.id,
+            source_documents=[
+                {"source_document_type": kind, "source_document_id": document_id}
+            ],
+            lines=[
+                PurchaseReturnLineWrite(
+                    source_document_type=kind,
+                    source_document_id=document_id,
+                    source_document_line_id=line_id,
+                    line_number=1,
+                    current_return_quantity=D(quantity),
+                    unit_price=D("100"),
+                    warehouse_id=fixture.warehouse.id,
+                )
+            ],
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    returns.approve_return(
+        sent.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    fixture.session.commit()
+    return sent.id
+
+
+def _complete(fixture: _Fixture, return_id: UUID) -> None:
+    """Complete the return."""
+    PurchaseReturnService(fixture.session).complete_return(
+        return_id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    fixture.session.commit()
+
+
+def _claimed(session: Session, return_id: UUID) -> tuple[D, D]:
+    """Return what the return's one line claims before tax, and its tax."""
+    line = session.scalars(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == return_id
+        )
+    ).one()
+    return D(str(line.net_amount - line.tax_amount)), D(str(line.tax_amount))
+
+
+def _room(fixture: _Fixture, bill: PurchaseInvoice) -> tuple[D, D, D]:
+    """Return a bill line's claimed, returned and still claimable, before tax."""
+    [line] = DebitNoteService(fixture.session).claimable_lines(
+        bill.id, firm_id=fixture.firm.id
+    )
+    return line.already_claimed, line.already_returned, line.claimable
+
+
+@pytest.mark.parametrize("off", ["bill", "receipt"])
+def test_a_return_after_a_debit_note_claims_what_the_bill_is_still_worth(
+    off: str,
+) -> None:
+    """2 billed 236.00, 94.40 claimed by a note, both sent back: 141.60, not 236.00."""
+    fixture, receipt = _received(f"DN67{off[0]}", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+    session = fixture.session
+    _debit_note(fixture, bill, "80")
+    assert _net(session, fixture.firm.id, TRADE_PAYABLES) == D("-141.60")
+
+    return_id = (
+        _raise_return(fixture, "2", bill=bill)
+        if off == "bill"
+        else _raise_return(fixture, "2", receipt=receipt)
+    )
+    assert _claimed(session, return_id) == (D("120.0000"), D("21.6000"))
+    _complete(fixture, return_id)
+
+    legs = _journal(session, return_id)
+    assert legs[TRADE_PAYABLES] == (D("141.60"), D("0.00"))
+    assert legs[INPUT_CGST] == (D("0.00"), D("10.80"))
+    # The supplier is owed nothing and owes nothing; every paisa of input
+    # credit the bill took has come off once.
+    assert _net(session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+    assert _net(session, fixture.firm.id, INPUT_CGST) == D("0.00")
+    assert _room(fixture, bill) == (D("80.0000"), D("120.0000"), D("0.0000"))
+    # And nothing more can be claimed against the line by a note.
+    with pytest.raises(ValidationError, match="more than is left of the bill line"):
+        _debit_note(fixture, bill, "10", approve=False)
+
+
+def test_the_units_of_a_bill_line_share_what_a_debit_note_left() -> None:
+    """One of the two back at 60.00, then the other at the 60.00 that is left."""
+    fixture, receipt = _received("DN67S", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+    _debit_note(fixture, bill, "80")
+
+    first = _raise_return(fixture, "1", bill=bill)
+    _complete(fixture, first)
+    second = _raise_return(fixture, "1", receipt=receipt)
+    _complete(fixture, second)
+
+    assert _claimed(fixture.session, first) == (D("60.0000"), D("10.8000"))
+    assert _claimed(fixture.session, second) == (D("60.0000"), D("10.8000"))
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+
+
+def test_a_return_priced_before_a_debit_note_does_not_complete_past_the_bill() -> None:
+    """Saved at 200.00, then 80.00 is claimed by a note: completing is refused."""
+    fixture, receipt = _received("DN67P", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+    return_id = _raise_return(fixture, "2", receipt=receipt)
+    assert _claimed(fixture.session, return_id) == (D("200.0000"), D("36.0000"))
+    # The return has not completed, so the note has the whole line to claim on.
+    _debit_note(fixture, bill, "80")
+
+    with pytest.raises(ValidationError) as refusal:
+        _complete(fixture, return_id)
+    assert (
+        "has had a debit note approved since this return was saved, and these "
+        "goods are now worth 120.00 before tax where the return claims 200.00"
+    ) in str(refusal.value.message)
+    fixture.session.rollback()
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("-141.60")
+
+
+def test_a_debit_note_saved_before_the_goods_went_back_is_not_approved() -> None:
+    """A draft note of 80.00, then both units go back off the receipt for 200.00."""
+    fixture, receipt = _received("DN67A", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+    note_id = _debit_note(fixture, bill, "80", approve=False)
+    # A draft note has claimed nothing, so the return is priced in full.
+    return_id = _raise_return(fixture, "2", receipt=receipt)
+    _complete(fixture, return_id)
+    assert _claimed(fixture.session, return_id) == (D("200.0000"), D("36.0000"))
+
+    with pytest.raises(ValidationError, match="more than is left of the bill line"):
+        _approve_note(fixture, note_id)
+    fixture.session.rollback()
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+
+
+def test_a_return_off_a_receipt_billed_in_parts_is_netted_bill_by_bill() -> None:
+    """Billed 3 and 3; 150.00 claimed on the first bill; 4 back off the receipt.
+
+    The bills are taken earliest first: 3 units of the first, worth the
+    150.00 the note left, and 1 of the second at its full 100.00.
+    """
+    fixture, receipt = _received("DN67B")
+    first = _bill(fixture, receipt, "3", number="SUP-A")
+    second = _bill(fixture, receipt, "3", number="SUP-B")
+    _debit_note(fixture, first, "150")
+
+    return_id = _raise_return(fixture, "4", receipt=receipt)
+    assert _claimed(fixture.session, return_id) == (D("250.0000"), D("45.0000"))
+    _complete(fixture, return_id)
+
+    assert _room(fixture, first) == (D("150.0000"), D("150.0000"), D("0.0000"))
+    assert _room(fixture, second) == (D("0.0000"), D("100.0000"), D("200.0000"))
+    # 708.00 billed, less 177.00 by the note, less 295.00 returned.
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("-236.00")
+    # The two still held, both on the second bill, are worth all of what is left.
+    rest = _raise_return(fixture, "2", receipt=receipt)
+    assert _claimed(fixture.session, rest) == (D("200.0000"), D("36.0000"))
+
+
+def test_only_the_billed_part_of_a_return_is_netted_by_a_debit_note() -> None:
+    """6 received, 3 billed with 150.00 claimed, 4 back: 3 off GRNI, 1 at 50.00."""
+    fixture, receipt = _received("DN67U")
+    bill = _bill(fixture, receipt, "3", number="SUP-3")
+    _debit_note(fixture, bill, "150")
+    session = fixture.session
+
+    return_id = _raise_return(fixture, "4", receipt=receipt)
+    _complete(fixture, return_id)
+
+    assert _split(session, return_id) == (D("3"), D("300"))
+    legs = _journal(session, return_id)
+    assert legs[GRNI] == (D("300.00"), D("0.00"))
+    assert legs[TRADE_PAYABLES] == (D("59.00"), D("0.00"))
+    assert legs[INPUT_CGST] == (D("0.00"), D("4.50"))
+    # 354.00 billed, less 177.00 by the note, less 59.00 for the unit returned.
+    assert _net(session, fixture.firm.id, TRADE_PAYABLES) == D("-118.00")
+    assert _room(fixture, bill) == (D("150.0000"), D("50.0000"), D("100.0000"))
