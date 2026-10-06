@@ -39,6 +39,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
+from app.core.validation.payloads import stage_records
 from app.customers.models import Customer, CustomerGroup
 from app.customers.services.trading_status import (
     assert_customer_takes_new_documents,
@@ -1455,6 +1456,29 @@ class QuotationService(TransactionalDocumentService):
                 product_id=item.product_id,
                 firm_id=row.firm_id,
             )
+            # The free figure too. A quarter of a box typed free was saved
+            # and printed "2 + 0.25 free BOX", and the quotation could then
+            # never become an order, which counts the two together and
+            # refused 2.25 BOX (D-PRC-87).
+            free_goods = self._q(
+                benefits.free_quantity(index)
+                if item.free_quantity is None
+                else item.free_quantity
+            )
+            if free_goods > ZERO:
+                try:
+                    assert_quantity_fits_unit(
+                        self._session,
+                        quantity=free_goods,
+                        uom_id=item.sales_uom_id or item.inventory_uom_id,
+                        product_id=item.product_id,
+                        firm_id=row.firm_id,
+                    )
+                except ValidationError as refusal:
+                    raise ValidationError(
+                        f"Line {item.line_number}, free quantity: {refusal.message}",
+                        details={"field": "lines"},
+                    ) from refusal
             gross = grosses[index]
             discount = line_discount.amount
             bill_share = shares[index]
@@ -1491,11 +1515,7 @@ class QuotationService(TransactionalDocumentService):
             line.quantity = quantity
             # An offer's free goods apply where the line said nothing; an
             # explicit zero refuses them, as on the order (D-SELL-41).
-            line.free_quantity = self._q(
-                benefits.free_quantity(index)
-                if item.free_quantity is None
-                else item.free_quantity
-            )
+            line.free_quantity = free_goods
             # Whose they are, as the order records it: the offer's where the
             # engine gave them, nobody's where a person typed the figure.
             if index >= asked:
@@ -1819,16 +1839,17 @@ class QuotationService(TransactionalDocumentService):
         """Create a validated batch of quotations in one transaction.
 
         The whole batch lands or none of it does, so a file that is refused
-        can be corrected and sent again as it stands.
+        can be corrected and sent again as it stands. A record the service
+        refuses is named: "Record 2 of 2: ... Nothing was imported."
+        (D-PRC-85).
         """
-        try:
-            rows = [
-                self._stage_quotation(record, firm_id=firm_scope, actor_id=actor_id)
-                for record in data.records
-            ]
-        except Exception:
-            self._session.rollback()
-            raise
+        rows = stage_records(
+            data.records,
+            lambda record: self._stage_quotation(
+                record, firm_id=firm_scope, actor_id=actor_id
+            ),
+            rollback=self._session.rollback,
+        )
         self._session.commit()
         return rows
 

@@ -18,7 +18,7 @@ import pytest
 
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import ValidationError
-from app.core.validation.payloads import parse_payload
+from app.core.validation.payloads import parse_payload, stage_records
 from app.sales_order.api.router import import_sales_orders
 from app.sales_order.schemas import SalesOrderImportRequest
 
@@ -180,3 +180,72 @@ def test_the_guard_sees_a_hand_validation() -> None:
         (1, "OrderImportRequest.model_validate_json"),
         (2, "OrderCreate.model_validate"),
     ]
+
+
+# ---- D-PRC-85: a record the *service* refuses is named too ------------------
+
+#: The selling imports, by service file and method.
+_SELLING_IMPORTS = {
+    "sales_order/services/sales_order_service.py": "import_orders",
+    "quotation/services/quotation_service.py": "import_quotations",
+    "delivery_note/services/delivery_note_service.py": "import_notes",
+    "sales_invoice/services/sales_invoice_service.py": "import_invoices",
+    "sales_return/services/sales_return_service.py": "import_returns",
+}
+
+
+def test_a_record_the_service_refuses_is_named_and_everything_is_undone() -> None:
+    """The second of three is refused: named, rolled back, the third not tried."""
+    undone: list[str] = []
+    tried: list[int] = []
+
+    def stage(record: int) -> int:
+        """Refuse the second record as a single save would."""
+        tried.append(record)
+        if record == 2:
+            raise ValidationError("Line 1: no stock.", details={"field": "lines"})
+        return record * 10
+
+    with pytest.raises(ValidationError) as refused:
+        stage_records([1, 2, 3], stage, rollback=lambda: undone.append("rollback"))
+
+    assert refused.value.message == (
+        "Record 2 of 3: Line 1: no stock. Nothing was imported."
+    )
+    assert str(refused.value) == refused.value.message
+    assert refused.value.details == {"field": "lines"}
+    assert (tried, undone) == ([1, 2], ["rollback"])
+    assert stage_records([1, 3], stage, rollback=lambda: None) == [10, 30]
+
+
+def test_a_failure_that_is_no_refusal_is_undone_and_left_as_it_is() -> None:
+    """A fault is rolled back and raised unchanged: it is nobody's record."""
+    undone: list[str] = []
+
+    def stage(record: int) -> int:
+        """Fail as a fault would."""
+        raise RuntimeError("the database went away")
+
+    with pytest.raises(RuntimeError, match="the database went away"):
+        stage_records([1], stage, rollback=lambda: undone.append("rollback"))
+
+    assert undone == ["rollback"]
+
+
+@pytest.mark.parametrize(("path", "method"), sorted(_SELLING_IMPORTS.items()))
+def test_every_selling_import_names_the_record_it_refuses(
+    path: str, method: str
+) -> None:
+    """Each stages its records through `stage_records`, never a bare loop."""
+    tree = ast.parse((_APP / path).read_text(encoding="utf-8"))
+    (found,) = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == method
+    ]
+    calls = {
+        node.func.id
+        for node in ast.walk(found)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "stage_records" in calls, f"{path}::{method}"

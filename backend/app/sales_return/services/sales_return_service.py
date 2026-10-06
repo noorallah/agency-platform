@@ -51,7 +51,8 @@ from app.core.utils.chunks import CHUNK_SIZE
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
-from app.core.utils.quantities import plain_quantity
+from app.core.utils.quantities import counted_in, plain_quantity
+from app.core.validation.payloads import stage_records
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
@@ -132,7 +133,7 @@ from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import Uom
-from app.uom.services import UomService, assert_quantity_fits_unit
+from app.uom.services import UomService, assert_quantity_fits_unit, stock_unit_of
 
 ZERO = Decimal("0")
 
@@ -246,6 +247,19 @@ class _ReturnLineTax:
 
     total: Decimal
     components: list[_ReturnTaxComponent]
+
+
+@dataclass(frozen=True)
+class _TypedIn:
+    """The unit a return line was typed in, where it is not its source's.
+
+    ``factor`` is how many of the source line's unit one typed unit is --
+    a twelfth, for a piece off a line billed by the box of twelve.
+    """
+
+    uom_id: UUID | None
+    factor: Decimal
+    on_date: date
 
 
 @dataclass(frozen=True)
@@ -1712,6 +1726,11 @@ class SalesReturnService(TransactionalDocumentService):
                 exact=exact_units,
                 unbilled=unbilled,
                 line_number=index,
+                typed=(
+                    None
+                    if typed.entered is None
+                    else _TypedIn(return_uom_id, typed.factor, return_date)
+                ),
             )
             if on_bills is not None:
                 if taxable > ZERO:
@@ -2599,11 +2618,13 @@ class SalesReturnService(TransactionalDocumentService):
         exact: Decimal | None,
         unbilled: Decimal,
         line_number: int,
+        typed: _TypedIn | None = None,
     ) -> _OnBills | None:
         """Set a return line's units against the bills that charged them.
 
         None where no bill has charged any of them: a line of no charged
-        quantity, or goods off a note nobody has billed yet.
+        quantity, or goods off a note nobody has billed yet. ``typed`` is
+        the unit the line was typed in, for a refusal to speak.
 
         Raises:
             ValidationError: The line names a bill line whose units have
@@ -2617,7 +2638,11 @@ class SalesReturnService(TransactionalDocumentService):
             ledger = book.of_bill_line(source_line.id)
             if ledger is not None:
                 self._refuse_units_already_back(
-                    ledger, source_line, quantity=quantity, line_number=line_number
+                    ledger,
+                    source_line,
+                    quantity=quantity,
+                    line_number=line_number,
+                    typed=typed,
                 )
             part = (
                 None
@@ -2647,6 +2672,7 @@ class SalesReturnService(TransactionalDocumentService):
         *,
         quantity: Decimal,
         line_number: int,
+        typed: _TypedIn | None = None,
     ) -> None:
         """Refuse a line naming more of a bill line than is still out on it.
 
@@ -2661,7 +2687,12 @@ class SalesReturnService(TransactionalDocumentService):
         billed, room = ledger.named_room(charged.id)
         if quantity <= room + _UNIT_DUST:
             return
-        unit = self._unit_named(self._source_uom_id(charged))
+        (billed, back, room, quantity), unit_id = self._in_the_unit_typed(
+            charged,
+            [billed, max(billed - room, ZERO), room, quantity],
+            typed=typed,
+        )
+        unit = self._unit_named(unit_id)
         note = (
             charged.source_document_number
             if charged.source_document_type == "DELIVERY_NOTE"
@@ -2670,7 +2701,7 @@ class SalesReturnService(TransactionalDocumentService):
         raise ValidationError(
             f"Line {line_number}: {self._source_document_number(charged)} line "
             f"{charged.line_number} billed {plain_quantity(billed)}{unit}, and "
-            f"{plain_quantity(max(billed - room, ZERO))}{unit} of that has "
+            f"{plain_quantity(back)}{unit} of that has "
             "already come back and been credited on it, so "
             f"{plain_quantity(room)}{unit} is left to return against this "
             f"bill where the return brings back {plain_quantity(quantity)}"
@@ -2678,6 +2709,47 @@ class SalesReturnService(TransactionalDocumentService):
             "instead, and the goods are credited on the bill that still "
             "carries them."
         )
+
+    def _in_the_unit_typed(
+        self,
+        charged: SalesInvoiceLine,
+        figures: list[Decimal],
+        *,
+        typed: _TypedIn | None,
+    ) -> tuple[list[Decimal], UUID | None]:
+        """Return a refusal's figures in the unit the return line was typed in.
+
+        The caps count in the bill line's unit, and a refusal that spoke it
+        answered thirteen pieces as "1.0833 BOX" and five pieces left as
+        "0.4167 BOX is left" (D-PRC-86). The sentence speaks **the unit the
+        return line was typed in** where every figure is whole in it at four
+        places (`counted_in`, the rule a delivery note's cap follows), else
+        the unit the product's stock is kept in, which is exact, else the
+        bill line's own as the figures stand. A line typed in the bill
+        line's unit already speaks it.
+        """
+        own = self._source_uom_id(charged)
+        if typed is None or typed.uom_id is None or typed.uom_id == own:
+            return figures, own
+        counted = counted_in(figures, typed.factor)
+        if counted is not None:
+            return counted, typed.uom_id
+        stock = stock_unit_of(self._session.get(Product, charged.product_id))
+        if stock is None or stock in (own, typed.uom_id):
+            return figures, own
+        try:
+            per_stock = self._uom.continued_quantity(
+                product_id=charged.product_id,
+                quantity=Decimal("1"),
+                from_uom_id=stock,
+                to_uom_id=own,
+                on_date=typed.on_date,
+                firm_scope=charged.firm_id,
+            ).factor
+        except ValidationError:
+            return figures, own
+        counted = counted_in(figures, per_stock)
+        return (figures, own) if counted is None else (counted, stock)
 
     def _place_on_bills(
         self,
@@ -2987,6 +3059,15 @@ class SalesReturnService(TransactionalDocumentService):
                 ),
                 unbilled=unbilled.get(line.id, ZERO),
                 line_number=line.line_number,
+                typed=(
+                    None
+                    if entered is None
+                    else _TypedIn(
+                        line.return_uom_id,
+                        Decimal(str(line.conversion_factor)),
+                        row.return_date,
+                    )
+                ),
             )
             if on_bills is None:
                 continue
@@ -3229,15 +3310,18 @@ class SalesReturnService(TransactionalDocumentService):
         correct it and try again -- and a refused record leaves its own header
         flushed on the session, so without the rollback the caller inherits
         half a document as well as the committed ones.
+
+        A record the service refuses is named, as the purchase side names it
+        and as a record the schema refuses is: "Record 2 of 2: Line 1: ...
+        Nothing was imported." (D-PRC-85).
         """
-        try:
-            rows = [
-                self._stage_return(record, firm_id=firm_scope, actor_id=actor_id)
-                for record in data.records
-            ]
-        except Exception:
-            self._session.rollback()
-            raise
+        rows = stage_records(
+            data.records,
+            lambda record: self._stage_return(
+                record, firm_id=firm_scope, actor_id=actor_id
+            ),
+            rollback=self._session.rollback,
+        )
         self._session.commit()
         return rows
 

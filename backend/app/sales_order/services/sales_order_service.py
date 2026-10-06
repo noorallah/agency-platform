@@ -44,6 +44,7 @@ from app.core.utils.pricing import (
     resolve_line_discount,
 )
 from app.core.utils.report_labels import UNASSIGNED
+from app.core.validation.payloads import stage_records
 from app.customers.models import Customer, CustomerGroup
 from app.customers.schemas import CreditStatus
 from app.customers.services import CreditAssessment, CreditControlService
@@ -2178,11 +2179,17 @@ class SalesOrderService(TransactionalDocumentService):
         duplicates, which is the shape that made the branch and warehouse
         imports impossible to complete. Staging and committing once is what the
         docstring always claimed.
+
+        A record the service refuses is named: "Record 2 of 2: ... Nothing
+        was imported." (D-PRC-85).
         """
-        rows = [
-            self.stage_order(record, firm_id=firm_scope, actor_id=actor_id)
-            for record in data.records
-        ]
+        rows = stage_records(
+            data.records,
+            lambda record: self.stage_order(
+                record, firm_id=firm_scope, actor_id=actor_id
+            ),
+            rollback=self._session.rollback,
+        )
         self._session.commit()
         return rows
 

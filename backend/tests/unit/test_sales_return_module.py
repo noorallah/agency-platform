@@ -1027,7 +1027,7 @@ def test_a_refused_batch_leaves_nothing_behind() -> None:
     setup = _Dispatch(session)
     service = SalesReturnService(session)
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as refused:
         service.import_returns(
             SalesReturnImportRequest(
                 records=[
@@ -1041,6 +1041,24 @@ def test_a_refused_batch_leaves_nothing_behind() -> None:
 
     assert session.query(SalesReturn).count() == 0
     assert session.query(SalesReturnLine).count() == 0
+    # D-PRC-85: the refusal says which record of the file it is about, in
+    # the single save's own words -- and counts the first record's two, which
+    # were staged before it.
+    with pytest.raises(ValidationError) as alone:
+        service.create_return(
+            setup.payload(quantity=Decimal("9")),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    session.rollback()
+    said = str(alone.value.message)
+    assert "(4 sent, 0 already returned)" in said
+    assert str(refused.value.message) == (
+        "Record 2 of 2: "
+        + said.replace("0 already returned", "2 already returned")
+        + " Nothing was imported."
+    )
+    assert str(refused.value) == refused.value.message
 
 
 def test_the_export_names_every_return_it_lists() -> None:
