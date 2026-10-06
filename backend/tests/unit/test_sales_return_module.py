@@ -2211,3 +2211,190 @@ def test_goods_no_bill_has_charged_come_back_at_the_notes_price_at_most() -> Non
         actor_id=setup.actor_id,
     )
     assert row.subtotal == Decimal("200.0000")
+
+
+# ---- a note billed in parts (D-PRC-65) --------------------------------------
+#
+# The sixth pricing check (2026-10-06): one delivery note billed as two bills
+# of 1,416.00. A return raised off the note was priced on the earliest bill
+# alone, so a credit note on the second bill was never netted (472.00 over)
+# and one on the first was netted twice (472.00 short). Here the note of four
+# at 100.00 is billed as two bills of two.
+
+
+def _billed_in_two(session: Session) -> tuple[_Dispatch, SalesInvoice]:
+    """Bill the note of four as two bills of two; return the second too."""
+    setup = _Dispatch(session, billed=Decimal("2"))
+    second = SalesInvoiceService(session).approve_invoice(
+        setup.bill(Decimal("2")).id,
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    return setup, second
+
+
+def _bill_line(session: Session, invoice: SalesInvoice) -> SalesInvoiceLine:
+    """Return the one line of a bill."""
+    return session.scalars(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+    ).one()
+
+
+def _credit_note_on(
+    setup: _Dispatch, invoice: SalesInvoice, taxable: str, *, approve: bool = True
+) -> CreditNote:
+    """Credit one bill's line some value with no goods coming back."""
+    service = CreditNoteService(setup.session)
+    note = service.create_note(
+        CreditNoteCreate(
+            sales_invoice_id=invoice.id,
+            credit_note_date=date(2026, 8, 5),
+            reason=CreditNoteReasonEnum.RATE_DIFFERENCE,
+            lines=[
+                CreditNoteLineWrite(
+                    sales_invoice_line_id=_bill_line(setup.session, invoice).id,
+                    line_number=1,
+                    quantity=Decimal("1"),
+                    taxable_amount=Decimal(taxable),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    if approve:
+        service.approve_note(note.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    setup.session.commit()
+    return note
+
+
+def _on_the_line_of(
+    setup: _Dispatch, invoice: SalesInvoice, quantity: str
+) -> SalesReturnCreate:
+    """Describe a return of some units through one bill's own line."""
+    payload = setup.payload(quantity=Decimal(quantity))
+    payload.lines[0].source_document_type = SalesReturnSourceType.SALES_INVOICE
+    payload.lines[0].source_document_id = invoice.id
+    payload.lines[0].source_document_line_id = _bill_line(setup.session, invoice).id
+    return payload
+
+
+def test_a_credit_note_on_the_second_bill_is_netted_off_the_note_too() -> None:
+    """80.00 credited on the later bill, then all four back off the note.
+
+    Read on the earliest bill alone the return was 400.00: 480.00 credited
+    against 400.00 billed.
+    """
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _credit_note_on(setup, second, "80")
+
+    row = _returned(setup, setup.payload(quantity=Decimal("4")))
+
+    assert row.subtotal == Decimal("320.0000")
+    assert [credit.amount for credit in _credits(session)] == [Decimal("320.00")]
+
+
+def test_a_credit_note_on_the_first_bill_is_netted_once() -> None:
+    """80.00 credited on the earlier bill comes off its two units alone.
+
+    Spread over all four as if the first bill had charged them, it took
+    160.00 off: the customer returned everything and still owed 80.00.
+    """
+    session = _session_factory()()
+    setup, _second = _billed_in_two(session)
+    _credit_note_on(setup, setup.invoice, "80")
+
+    row = _returned(setup, setup.payload(quantity=Decimal("4")))
+
+    assert row.subtotal == Decimal("320.0000")
+
+
+def test_units_off_the_note_fill_the_earliest_bill_first() -> None:
+    """Three back off the note: the first bill's two, and one of the second's.
+
+    So the first bill has nothing left to credit and the second has one unit
+    worth 100.00 -- a credit note is capped by exactly that on each.
+    """
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _returned(setup, setup.payload(quantity=Decimal("3")))
+
+    with pytest.raises(ValidationError, match="200.00 already returned"):
+        _credit_note_on(setup, setup.invoice, "10")
+    session.rollback()
+    with pytest.raises(ValidationError, match="100.00 already returned"):
+        _credit_note_on(setup, second, "150")
+    session.rollback()
+    _credit_note_on(setup, second, "100")
+
+    last = _returned(setup, setup.payload(quantity=Decimal("1")))
+    assert last.subtotal == Decimal("0.0000")
+
+
+def test_a_note_billed_in_parts_is_asked_again_of_every_bill_at_completion() -> None:
+    """A credit note on the later bill, approved after the return was priced."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    row = _returned(setup, setup.payload(quantity=Decimal("4")), complete=False)
+    _credit_note_on(setup, second, "80")
+
+    with pytest.raises(ValidationError, match="credited since this return was saved"):
+        SalesReturnService(session).complete_return(
+            row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+
+
+def test_units_named_on_a_bill_are_that_bills_whatever_came_off_the_note() -> None:
+    """Two back off the note, then one named on the first bill's own line.
+
+    The two off the note are then one of each bill's, so the unit named on
+    the first bill is worth its 100.00 and the last one, on the second, its
+    own: 400.00 in all for the four.
+    """
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _returned(setup, setup.payload(quantity=Decimal("2")))
+
+    named = _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    last = _returned(setup, _on_the_line_of(setup, second, "1"))
+
+    assert (named.subtotal, last.subtotal) == (
+        Decimal("100.0000"),
+        Decimal("100.0000"),
+    )
+    assert sum(credit.amount for credit in _credits(session)) == Decimal("400.00")
+
+
+def test_each_bills_own_tax_is_reversed_on_its_share() -> None:
+    """The first bill charged 18% and the second none: 36.00 back, not 72.00.
+
+    All four off the note: the first bill's two reverse its CGST and SGST,
+    the second bill's two reverse nothing.
+    """
+    session = _session_factory()()
+    setup, _second = _billed_in_two(session)
+    line = _bill_line(session, setup.invoice)
+    line.tax_amount = Decimal("36")
+    for sequence, code in enumerate(("CGST", "SGST"), start=1):
+        session.add(
+            SalesInvoiceLineTax(
+                sales_invoice_line_id=line.id,
+                firm_id=setup.firm.id,
+                sequence=sequence,
+                component_code=code,
+                component_label=f"{code} 9%",
+                percentage=Decimal("9"),
+                base_amount=Decimal("200"),
+                amount=Decimal("18"),
+            )
+        )
+    session.commit()
+
+    row = _returned(setup, setup.payload(quantity=Decimal("4")))
+
+    assert (row.subtotal, row.tax_total) == (Decimal("400.0000"), Decimal("36.0000"))
+    assert _components(session, row) == [
+        ("CGST", Decimal("18.0000")),
+        ("SGST", Decimal("18.0000")),
+    ]
