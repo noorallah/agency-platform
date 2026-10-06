@@ -24,6 +24,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ValidationError
+from app.debit_note.models import DebitNote
 from app.debit_note.schemas import (
     DebitNoteCreate,
     DebitNoteLineWrite,
@@ -42,6 +43,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSourceType,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_return.billing import bill_line_claims
 from app.purchase_return.models import (
     PurchaseReturn,
     PurchaseReturnBillPlacement,
@@ -716,10 +718,17 @@ def test_a_return_priced_before_a_debit_note_does_not_complete_past_the_bill() -
 
     with pytest.raises(ValidationError) as refusal:
         _complete(fixture, return_id)
-    assert (
-        "has had a debit note approved since this return was saved, and these "
-        "goods are now worth 120.00 before tax where the return claims 200.00"
-    ) in str(refusal.value.message)
+    note_number = fixture.session.scalars(select(DebitNote.debit_note_number)).one()
+    assert str(refusal.value.message) == (
+        f"Line 1: these goods are now worth 120.00 before tax on "
+        f"{bill.invoice_number} where the return claims 200.00. Standing "
+        f"against the supplier's bills for them now: debit note {note_number} "
+        f"for 80.00 on {bill.invoice_number}. The return was priced when it "
+        "was saved, and one of those has been approved, completed or raised "
+        "ahead of it since. No more can be claimed from a supplier than they "
+        "billed. Cancel this return and raise it again, and it will be priced "
+        "on what the bill is still worth."
+    )
     fixture.session.rollback()
     assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("-141.60")
 
@@ -1420,3 +1429,179 @@ def test_a_return_that_took_nothing_of_a_bill_does_not_hold_it() -> None:
     _cancel_bill(fixture, billed)
     assert _bill_status(fixture, draft) == "CANCELLED"
     assert _bill_status(fixture, billed) == "CANCELLED"
+
+
+# Returns open at once are placed in one order, whoever asks (D-PRC-81).
+
+
+@pytest.mark.parametrize("first_done", ["receipt", "bill"])
+def test_two_returns_open_by_two_routes_complete_in_either_order(
+    first_done: str,
+) -> None:
+    """Two bills of 100.00, 40.00 claimed on the second, both units open.
+
+    A unit off the receipt (the first bill's, 100.00) and a unit on the
+    first bill's own line (which spills to the second, 60.00), both saved
+    before either completes. Completed receipt first, the first was refused
+    for a debit note nobody had approved, came to 60.00 when raised again,
+    and the second completed at 60.00: 160.00 claimed against 200.00 with
+    every unit back.
+    """
+    fixture, receipt, bills = _parts(f"O81{first_done[0]}", 2, 1)
+    session = fixture.session
+    off_receipt = _raise_return(fixture, "1", receipt=receipt)
+    on_the_bill = _raise_return(fixture, "1", bill=bills[0])
+    assert _claimed(session, off_receipt) == (D("100.0000"), D("18.0000"))
+    assert _claimed(session, on_the_bill) == (D("60.0000"), D("10.8000"))
+
+    order = [off_receipt, on_the_bill]
+    for return_id in order if first_done == "receipt" else reversed(order):
+        _complete(fixture, return_id)
+
+    # Each completed at what it was saved at, on the bill it was priced on.
+    assert _claimed(session, off_receipt) == (D("100.0000"), D("18.0000"))
+    assert _claimed(session, on_the_bill) == (D("60.0000"), D("10.8000"))
+    lines = [_bill_line(fixture, bill).id for bill in bills]
+    placed = {
+        row.purchase_return_id: (
+            row.purchase_invoice_line_id,
+            D(str(row.taxable_amount)).quantize(D("0.01")),
+        )
+        for row in session.scalars(select(PurchaseReturnBillPlacement)).all()
+    }
+    assert placed == {
+        off_receipt: (lines[0], D("100.00")),
+        on_the_bill: (lines[1], D("60.00")),
+    }
+    assert _net(session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+    assert _net(session, fixture.firm.id, INPUT_CGST) == D("0.00")
+    assert _net(session, fixture.firm.id, INPUT_SGST) == D("0.00")
+    assert all(room == D("0.0000") for _, _, room in _rooms(fixture, bills))
+
+
+def test_a_draft_saved_again_keeps_its_place_ahead_of_a_later_return() -> None:
+    """The earlier of two open returns is priced the same whenever it is asked."""
+    fixture, receipt, bills = _parts("O81P", 2, 1)
+    off_receipt = _raise_return(fixture, "1", receipt=receipt)
+    on_the_bill = _raise_return(fixture, "1", bill=bills[0])
+    line = _bill_line(fixture, bills[0])
+    row = fixture.session.get(PurchaseReturn, off_receipt)
+    assert row is not None
+
+    # Asked for the earlier return, the later one is not ahead of it.
+    claims = bill_line_claims(
+        fixture.session,
+        [line],
+        exclude_return_id=off_receipt,
+        ahead_of=(row.return_date, row.return_number),
+    )[line.id]
+    assert claims.returned_quantity == D("0.0000")
+    # Asked for the later one, the earlier holds the first bill's unit.
+    later = fixture.session.get(PurchaseReturn, on_the_bill)
+    assert later is not None
+    claims = bill_line_claims(
+        fixture.session,
+        [line],
+        exclude_return_id=on_the_bill,
+        ahead_of=(later.return_date, later.return_number),
+    )[line.id]
+    assert (claims.returned_quantity, claims.returned_taxable) == (
+        D("1.0000"),
+        D("100.0000"),
+    )
+
+
+def test_the_refusal_at_completion_names_what_moved_ahead() -> None:
+    """A return dated earlier completes onto the bill an open return was priced on.
+
+    The open return then falls on the second bill, where a debit note left
+    60.00: the refusal names the return that took the first bill and the
+    note on the second, and blames neither for being "approved since".
+    """
+    fixture, receipt, bills = _parts("O81N", 2, 1)
+    waiting = _raise_return(fixture, "1", bill=bills[0])
+    assert _claimed(fixture.session, waiting)[0] == D("100.0000")
+    # Dated the day before, so it stands ahead of the open return.
+    ahead = _send_back(fixture, receipt, "1")
+    note_number = fixture.session.scalars(select(DebitNote.debit_note_number)).one()
+
+    with pytest.raises(ValidationError) as refusal:
+        _complete(fixture, waiting)
+    assert str(refusal.value.message) == (
+        f"Line 1: these goods are now worth 60.00 before tax on "
+        f"{bills[1].invoice_number} where the return claims 100.00. Standing "
+        f"against the supplier's bills for them now: debit note {note_number} "
+        f"for 40.00 on {bills[1].invoice_number}; purchase return "
+        f"{_return_number(fixture, ahead)} for 100.00 on "
+        f"{bills[0].invoice_number}. The return was priced when it was saved, "
+        "and one of those has been approved, completed or raised ahead of it "
+        "since. No more can be claimed from a supplier than they billed. "
+        "Cancel this return and raise it again, and it will be priced on what "
+        "the bill is still worth."
+    )
+    fixture.session.rollback()
+
+
+def test_a_return_cut_to_a_bill_does_not_complete_once_it_is_worth_more() -> None:
+    """The return ahead is cancelled and raised again behind the one it moved.
+
+    The return on the first bill's line was cut to the 60.00 the second
+    bill had left. With the first cancelled it falls on its own line, worth
+    100.00; completing it at 60.00 left 40.00 nothing could claim.
+    """
+    fixture, receipt, bills = _parts("O81U", 2, 1)
+    session = fixture.session
+    off_receipt = _raise_return(fixture, "1", receipt=receipt)
+    on_the_bill = _raise_return(fixture, "1", bill=bills[0])
+    _cancel(fixture, off_receipt)
+    again = _raise_return(fixture, "1", receipt=receipt)
+    assert _claimed(session, again)[0] == D("60.0000")
+    _complete(fixture, again)
+
+    with pytest.raises(ValidationError) as refusal:
+        _complete(fixture, on_the_bill)
+    assert str(refusal.value.message) == (
+        f"Line 1: these goods are now worth 100.00 before tax on "
+        f"{bills[0].invoice_number} where the return claims 60.00, the figure "
+        "it was cut to when it was saved. What stood against the supplier's "
+        "bill then no longer does: a return or a debit note was cancelled, or "
+        "the goods now come off another bill. Cancel this return and raise it "
+        "again, and it will claim what the goods are worth now."
+    )
+    session.rollback()
+
+    _cancel(fixture, on_the_bill)
+    raised = _back(fixture, receipt, bills, "0")
+    assert _claimed(session, raised)[0] == D("100.0000")
+    assert _net(session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+    assert _net(session, fixture.firm.id, INPUT_CGST) == D("0.00")
+
+
+def test_a_price_typed_under_the_bill_still_completes_as_typed() -> None:
+    """A deduction is not a cut: 80.00 a unit on a bill at 100.00 completes."""
+    fixture, receipt = _received("O81D", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+    return_id = _typed_return(fixture, "2", bill=bill, price="80")
+    _complete(fixture, return_id)
+    assert _claimed(fixture.session, return_id)[0] == D("160.0000")
+
+
+def test_an_open_return_of_an_unbilled_unit_takes_nothing_of_the_bill() -> None:
+    """4 received, 2 billed, 1 open off the receipt: the bill's 2 are whole.
+
+    The open return will be set against what no bill has reached when it
+    completes. Counted against the bill, both of the bill's units went back
+    off its own line for 100.00, and the bill could not be cancelled.
+    """
+    fixture, receipt = _received("O81B", "4")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+    waiting = _raise_return(fixture, "1", receipt=receipt)
+
+    both = _raise_return(fixture, "2", bill=bill)
+    assert _claimed(fixture.session, both) == (D("200.0000"), D("36.0000"))
+    _cancel(fixture, both)
+
+    _cancel_bill(fixture, bill)
+    assert _bill_status(fixture, bill) == "CANCELLED"
+    _complete(fixture, waiting)
+    assert _split(fixture.session, waiting)[0] == D("1.0000")

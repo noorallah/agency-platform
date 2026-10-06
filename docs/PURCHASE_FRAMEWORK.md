@@ -580,6 +580,37 @@ against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
     never derives it again; cancelling the return removes them;
   - a return **not yet completed** is still derived, on top of the stored
     rows, in the order raised (date, number, line), by either route;
+  - **that order is one order, whichever return asks** (D-PRC-81,
+    2026-10-06). The return being priced or completed takes its own place
+    in it: after the open returns raised before it, ahead of those raised
+    after (`ahead_of` on `bill_line_claims`). It used to be placed after
+    *every* other open return, so each of two open returns took the other
+    to be ahead of it. On two bills of 849.60 with a debit note of 472.00
+    on the second, a unit off the receipt (849.60, the first bill's) and
+    then a unit on the first bill's own line (377.60, spilled to the
+    second) were both saved; completing the first was refused for "a debit
+    note approved since" that nobody had approved, it came to 377.60 raised
+    again, and the other completed at 377.60: 1,227.20 claimed against
+    1,699.20 with every unit back and 72.00 of input tax not reversed. Now
+    each completes at what it was saved at, in either order, unless
+    something real changed: a debit note approved, another return
+    completed onto its bill, or a return dated before it raised since;
+  - **an open return off a receipt is taken to fall first on what no bill
+    has reached**, as its completion will set it (D-BUY-26). Counted as
+    billed whole, an open return of an unbilled unit took a unit of the
+    bill: on 4 received and 2 billed, both of the bill's units then went
+    back off its own line for the price of one;
+  - **a line cut to a bill's worth does not complete once it is worth
+    more.** The cut is kept in the line's `bill_discount_amount`; where
+    what stood against the bill has gone since (the return ahead of it
+    cancelled, a debit note cancelled) or its units now fall on another
+    bill, completing it as cut would claim less than was billed for goods
+    that have all gone back, with nothing left to claim the rest. Refused:
+    "Line 1: these goods are now worth 100.00 before tax on PI-… where the
+    return claims 60.00, the figure it was cut to when it was saved. …
+    Cancel this return and raise it again, and it will claim what the goods
+    are worth now." A price typed **below** the bill's is not a cut and
+    completes as typed;
   - **a return raised off a bill line takes that line's units first, and
     the rest from the other bills of the same receipt line**, earliest
     first (`placing_order`). The goods are the receipt's whichever bill is
@@ -603,7 +634,8 @@ against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
   return now hold a bill: a live one raised off its own line; a completed
   one whose units were **placed** on it, whichever document it names; and
   one not yet completed whose units would be placed on it as the bills
-  stand, by the same placing that prices it. The refusal is the bill's own:
+  stand, by the same placing that prices it (so an open return of a unit
+  no bill has reached holds no bill). The refusal is the bill's own:
   "PI-… cannot be cancelled while it has purchase return PR-…. Reverse or
   cancel those first." A return that took nothing of the bill does not hold
   it: one that went back before any bill reached its goods, one placed on
@@ -619,11 +651,19 @@ against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
   everything on the bill had gone back off the receipt.
 - **Each is asked again where it becomes real**, under a lock on the bill
   line, and the one that reaches the supplier second is refused by name: a
-  return priced before a debit note was approved does not complete ("...has
-  had a debit note approved since this return was saved, and these goods are
-  now worth 1040.00 before tax where the return claims 1440.00... Cancel
-  this return and raise it again"), and a note saved before the goods went
-  back is not approved.
+  return priced before a debit note was approved does not complete, and a
+  note saved before the goods went back is not approved. **The return's
+  refusal names what stands against its bills** (`standing_against`,
+  D-PRC-81): the approved debit notes, the completed returns placed on
+  them and the open returns raised before it -- "Line 1: these goods are
+  now worth 1040.00 before tax on PI-… where the return claims 1440.00.
+  Standing against the supplier's bills for them now: debit note DBN-… for
+  400.00 on PI-…. The return was priced when it was saved, and one of those
+  has been approved, completed or raised ahead of it since. … Cancel this
+  return and raise it again". It used to blame "a debit note approved
+  since this return was saved" whenever a note stood on the bill at all.
+  With nothing standing against the bills the return itself states more
+  than they charged, and the D-PRC-71 wording is used.
 - A draft debit note takes nothing off a return: it has claimed nothing.
 - **Not changed:** what a bill still *owes* in Record Payment. A return
   raised off the receipt does not come off its bill there; it stands as a

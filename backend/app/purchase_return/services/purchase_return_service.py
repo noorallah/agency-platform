@@ -77,7 +77,12 @@ from app.purchase_invoice.services.reverse_charge import (
     reverse_charge_share,
 )
 from app.purchase_invoice.services.rupees import bill_line_rupee_rates
-from app.purchase_return.billing import BilledWorth, BillWorths, billed_share
+from app.purchase_return.billing import (
+    BilledWorth,
+    BillWorths,
+    billed_share,
+    standing_against,
+)
 from app.purchase_return.models import (
     PurchaseReturn,
     PurchaseReturnAccountingEvent,
@@ -1236,7 +1241,11 @@ class PurchaseReturnService(TransactionalDocumentService):
             ValidationError: If a line claims more than its bill is worth.
 
         """
-        worths = BillWorths(self._session, return_id=row.id)
+        worths = BillWorths(
+            self._session,
+            return_id=row.id,
+            raised=(row.return_date, row.return_number),
+        )
         ordered = sorted(lines, key=lambda item: item.line_number)
         billed = {
             line.id: worths.placing(
@@ -1264,6 +1273,9 @@ class PurchaseReturnService(TransactionalDocumentService):
             claims = taxable * share
             placed = worths.take(worth, claims)
             if claims <= worth.amount + _ROUNDING_ROOM:
+                self._refuse_priced_under_the_bill(
+                    line, worth, claims=claims, share=share, quantity=stored
+                )
                 placements.extend(
                     PurchaseReturnBillPlacement(
                         purchase_return_id=row.id,
@@ -1278,34 +1290,10 @@ class PurchaseReturnService(TransactionalDocumentService):
                     for bill_line, part, value in placed
                 )
                 continue
-            if not worth.claimed_against:
-                raise ValidationError(
-                    self._claims_more_than_billed(
-                        line.line_number,
-                        asked=claims,
-                        billed_at=worth.charged,
-                        left=min(worth.amount, worth.charged),
-                        document=self._bill_numbers(worth),
-                        completing=True,
-                    )
-                )
-            off_a_bill = (
-                line.source_document_type
-                == PurchaseReturnSourceType.PURCHASE_INVOICE.value
-            )
-            named = (
-                line.source_document_number
-                if off_a_bill
-                else f"The supplier's bill for {line.source_document_number}"
-            )
             raise ValidationError(
-                f"Line {line.line_number}: {named} has had a debit note "
-                "approved since this return was saved, and these goods are "
-                f"now worth {quantize_ledger(worth.amount)} before tax where "
-                f"the return claims {quantize_ledger(claims)}. No more can "
-                "be claimed from a supplier than they billed. Cancel this "
-                "return and raise it again, and it will be priced on what "
-                "the bill is still worth."
+                self._no_longer_fits_its_bill(
+                    row, line, worth, claims=claims, bill_lines=billed[line.id]
+                )
             )
         # A completion tried again after a refusal starts from nothing.
         self._session.execute(
@@ -1315,6 +1303,135 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
         self._session.add_all(placements)
         self._session.flush()
+
+    def _no_longer_fits_its_bill(
+        self,
+        row: PurchaseReturn,
+        line: PurchaseReturnLine,
+        worth: BilledWorth,
+        *,
+        claims: Decimal,
+        bill_lines: Sequence[PurchaseInvoiceLine],
+    ) -> str:
+        """Word the refusal of a return whose bill is worth less than it claims.
+
+        It names what stands against the bills its units come off -- the
+        approved debit notes, the completed returns placed on them and the
+        open returns raised before this one -- because one of those is what
+        changed since the return was priced (D-PRC-81). The refusal used to
+        say "has had a debit note approved since this return was saved"
+        whenever a debit note stood on the bill at all, including where the
+        note was older than the return and another return had moved it.
+        With nothing standing against them the return itself states more
+        than the bill charged, which is `_claims_more_than_billed`.
+        """
+        standing = standing_against(
+            self._session,
+            bill_lines,
+            exclude_return_id=row.id,
+            ahead_of=(row.return_date, row.return_number),
+        )
+        if not standing:
+            return self._claims_more_than_billed(
+                line.line_number,
+                asked=claims,
+                billed_at=worth.charged,
+                left=min(worth.amount, worth.charged),
+                document=self._bill_numbers(worth),
+                completing=True,
+            )
+        bill_numbers = dict(
+            self._session.execute(
+                select(PurchaseInvoice.id, PurchaseInvoice.invoice_number).where(
+                    PurchaseInvoice.id.in_(
+                        {item.purchase_invoice_id for item in standing}
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        named = "; ".join(
+            f"{item.kind} {item.number} for {quantize_ledger(item.taxable)} "
+            f"on {bill_numbers.get(item.purchase_invoice_id, 'the bill')}"
+            for item in standing
+        )
+        return (
+            f"Line {line.line_number}: these goods are now worth "
+            f"{quantize_ledger(worth.amount)} before tax on "
+            f"{self._bill_numbers(worth)} where the return claims "
+            f"{quantize_ledger(claims)}. Standing against the supplier's "
+            f"bills for them now: {named}. The return was priced when it was "
+            "saved, and one of those has been approved, completed or raised "
+            "ahead of it since. No more can be claimed from a supplier than "
+            "they billed. Cancel this return and raise it again, and it will "
+            "be priced on what the bill is still worth."
+        )
+
+    def _refuse_priced_under_the_bill(
+        self,
+        line: PurchaseReturnLine,
+        worth: BilledWorth,
+        *,
+        claims: Decimal,
+        share: Decimal,
+        quantity: Decimal,
+    ) -> None:
+        """Refuse a line that was cut to a bill's worth and is now worth more.
+
+        A line is cut when it is saved to what its bill was then worth, and
+        the cut is kept in its ``bill_discount_amount``. Where what stood
+        against the bill has gone since -- a return ahead of it cancelled,
+        a debit note cancelled -- or its units now fall on another bill,
+        completing it as cut claims less than the supplier billed for goods
+        that have all gone back, and nothing else can ever claim the rest
+        (D-PRC-81: 1,227.20 claimed against 1,699.20). Only a line that was
+        cut is asked: a price typed below the bill's is a deduction and
+        stands.
+
+        Raises:
+            ValidationError: If the line would claim more, priced today.
+
+        """
+        source: GoodsReceiptLine | PurchaseInvoiceLine | None
+        if line.source_document_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
+            source = self._session.get(GoodsReceiptLine, line.source_document_line_id)
+            if source is None:
+                return
+            whole = Decimal(str(source.accepted_quantity))
+        else:
+            source = self._session.get(
+                PurchaseInvoiceLine, line.source_document_line_id
+            )
+            if source is None:
+                return
+            whole = Decimal(str(source.current_invoice_quantity))
+        before_bill = self._q(
+            Decimal(str(line.gross_amount)) - Decimal(str(line.discount_amount))
+        )
+        inherited = min(
+            inherited_share(
+                getattr(source, "bill_discount_amount", ZERO) or ZERO,
+                part=quantity,
+                whole=self._q(whole),
+            ),
+            before_bill,
+        )
+        # What the line stated before anything was cut from it.
+        uncut = self._q(before_bill - inherited + Decimal(str(line.charges_amount)))
+        would_claim = min(worth.amount, uncut * share)
+        if would_claim <= claims + _ROUNDING_ROOM:
+            return
+        raise ValidationError(
+            f"Line {line.line_number}: these goods are now worth "
+            f"{quantize_ledger(would_claim)} before tax on "
+            f"{self._bill_numbers(worth)} where the return claims "
+            f"{quantize_ledger(claims)}, the figure it was cut to when it "
+            "was saved. What stood against the supplier's bill then no "
+            "longer does: a return or a debit note was cancelled, or the "
+            "goods now come off another bill. Cancel this return and raise "
+            "it again, and it will claim what the goods are worth now."
+        )
 
     def _refuse_past_the_receipt(
         self, line: PurchaseReturnLine, *, quantity: Decimal, exact: Decimal
@@ -2606,7 +2723,13 @@ class PurchaseReturnService(TransactionalDocumentService):
         totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
         # What each line's bill is still worth, and what earlier lines of
         # this return have taken of it (D-PRC-67).
-        worths = BillWorths(self._session, return_id=row.id)
+        # The return takes its own place among the open ones: after those
+        # raised before it, ahead of those raised after (D-PRC-81).
+        worths = BillWorths(
+            self._session,
+            return_id=row.id,
+            raised=(return_date, row.return_number),
+        )
         unbilled_here: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
