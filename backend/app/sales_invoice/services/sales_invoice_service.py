@@ -4016,6 +4016,8 @@ class SalesInvoiceService(TransactionalDocumentService):
                 gross=gross_amount,
                 invoice_quantity=invoice_quantity,
                 source_quantity=source_quantity,
+                unit_price=unit_price,
+                already_invoiced=already_invoiced,
             )
             free_quantity = self._invoice_free_quantity(
                 spec=spec,
@@ -5523,6 +5525,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         gross: Decimal,
         invoice_quantity: Decimal,
         source_quantity: Decimal,
+        unit_price: Decimal,
+        already_invoiced: Decimal,
     ) -> LineDiscount:
         """Return the discount for one invoice line.
 
@@ -5532,26 +5536,41 @@ class SalesInvoiceService(TransactionalDocumentService):
         an edit to the customer master in August. It is the same reasoning that
         stops this module re-deriving territory and salesman.
 
-        A percentage inherits cleanly across a partial invoice, because a rate
-        does not care about quantity. An absolute amount is pro-rated by the
-        share being billed -- and across several partial invoices that can
-        leave a residual of a fraction of a paisa, which nothing trues up. At
-        four decimal places that is under a paisa per line, and a percentage
-        has no residual at all.
+        At the source line's own price the bill takes **its slice of that
+        line's amount** (`continued_share`), between where the earlier bills
+        stopped (``already_invoiced``) and where this one stops, so the part
+        bills of a line sum to its discount exactly and the bill that
+        completes it takes what the rounding left -- as a note does of its
+        order line (D-PRC-22). Billed at another price, the source line's
+        rate is inherited as itself.
         """
         percent = spec.get("discount_percent")
         amount = spec.get("discount_amount")
         inherited = False
         if percent is None and amount is None:
             inherited_percent = getattr(source_line, "discount_percent", None)
-            inherited_amount = getattr(source_line, "discount_amount", None)
-            if inherited_percent:
+            agreed = self._q(
+                Decimal(str(getattr(source_line, "discount_amount", None) or ZERO))
+            )
+            same_price = unit_price == self._q(
+                Decimal(str(getattr(source_line, "unit_price", None) or ZERO))
+            )
+            if agreed > ZERO and source_quantity > ZERO and same_price:
+                amount = min(
+                    continued_share(
+                        agreed,
+                        before=already_invoiced,
+                        part=invoice_quantity,
+                        whole=source_quantity,
+                    ),
+                    gross,
+                )
+                inherited = True
+            elif inherited_percent:
                 percent = inherited_percent
                 inherited = True
-            elif inherited_amount and source_quantity > ZERO:
-                amount = self._q(
-                    Decimal(str(inherited_amount)) * invoice_quantity / source_quantity
-                )
+            elif agreed > ZERO and source_quantity > ZERO:
+                amount = self._q(agreed * invoice_quantity / source_quantity)
                 inherited = True
         resolved = resolve_line_discount(
             gross=gross,
