@@ -12,8 +12,10 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
+from app.core.utils.quantities import free_goods_alone
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 #: One serial number as typed; the service trims it and compares without case.
@@ -85,7 +87,9 @@ class PurchaseReturnLineWrite(PurchaseReturnSchema):
     source_document_id: UUID
     source_document_line_id: UUID
     line_number: int = Field(ge=1)
-    #: Everything going back on this line, free goods included.
+    #: Everything going back on this line, free goods included. Zero beside a
+    #: ``free_quantity`` is the other way of typing free goods alone -- "0
+    #: bought, 1 free" -- and is read as that many, all free (D-PRC-51).
     current_return_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
     #: How many of ``current_return_quantity`` are free goods (D-BUY-56).
     #: Blank takes the charged units first and counts as free only what goes
@@ -136,6 +140,18 @@ class PurchaseReturnLineWrite(PurchaseReturnSchema):
     #: returned, each in stock and received from this supplier. Absent (or
     #: null) keeps what the line already names; an empty list clears it.
     serial_numbers: list[SerialText] | None = Field(default=None, max_length=10000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _free_goods_alone(cls, data: object) -> object:
+        """Read "0 bought, n free" as n going back, all of them free.
+
+        The free units of a line that was all free -- a supplier scheme's own
+        line -- were refused as "a quantity of 0" when typed that way, and
+        went back only when typed as a quantity (D-PRC-51). What may still go
+        back free is the service's cap; 0 with nothing free is its refusal.
+        """
+        return free_goods_alone(data, quantity_field="current_return_quantity")
 
 
 class PurchaseReturnCreate(PurchaseReturnSchema):

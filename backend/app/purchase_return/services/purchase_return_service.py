@@ -298,15 +298,18 @@ class PurchaseReturnService(TransactionalDocumentService):
         return row
 
     def _refuse_empty_return_lines(self, data: PurchaseReturnCreate) -> None:
-        """Refuse a return line that sends nothing back, where saved (D-BUY-53)."""
+        """Refuse a return line that sends nothing back, where saved (D-BUY-53).
+
+        Free goods alone are goods going back (D-PRC-51): the line is refused
+        only when it names no quantity and nothing free, and says so.
+        """
         self._refuse_lines_for_nothing(
             (
-                (line.line_number, line.current_return_quantity, None)
+                (line.line_number, line.current_return_quantity, line.free_quantity)
                 for line in data.lines
             ),
             does="returns",
             document="return",
-            free_goods=False,
         )
 
     def preview_return(

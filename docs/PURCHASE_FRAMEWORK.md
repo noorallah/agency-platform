@@ -415,7 +415,17 @@ many of those are free:
   receipt spread what was paid over every unit it brought in, free ones too.
   Sending back the whole delivery therefore leaves no variance; sending back
   only the free units takes their carried cost to purchase price variance.
-- A line of free goods alone (ordered 0, free 2) is returnable.
+- A line of free goods alone (ordered 0, free 2) is returnable, typed either
+  way: `current_return_quantity` 1 with `free_quantity` 1, or -- as the line
+  itself reads -- 0 with `free_quantity` 1, which was refused as "a quantity
+  of 0" until D-PRC-51 and is now read as the first. Either way the unit
+  leaves stock at its carried cost, **Dr Purchase Price Variance / Cr
+  Inventory** (one of thirteen pieces bought for 1,200.00 posts 92.31), and
+  nothing is claimed from the supplier: the line is worth 0.00, no payable
+  moves, no accrual moves and the return carries no debit note value. Price
+  variance is the account because the goods came in at nil cost and took a
+  share of what the paid ones cost; sending them back gives that share up.
+  `test_free_units_typed_as_nothing_bought_go_back_as_free` pins it.
 - Free goods go back **off the goods receipt**, the document that says how
   many arrived; a line raised off a bill sends back bought units only. The
   refusal says how much is left: "... line 1 can still send back 10 bought and

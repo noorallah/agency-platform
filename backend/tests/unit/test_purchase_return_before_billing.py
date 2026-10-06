@@ -507,8 +507,8 @@ def test_a_bill_or_a_return_of_nothing_is_refused_where_it_is_saved() -> None:
     with pytest.raises(ValidationError) as refusal:
         _send_back(fixture, receipt, "0")
     assert str(refusal.value.message) == (
-        "Line 1 returns a quantity of 0. Type a quantity, or leave the line "
-        "off the return."
+        "Line 1 returns a quantity of 0 and nothing free. Type a quantity, or "
+        "leave the line off the return."
     )
     fixture.session.rollback()
     assert fixture.session.scalars(select(PurchaseReturnLine)).all() == []
