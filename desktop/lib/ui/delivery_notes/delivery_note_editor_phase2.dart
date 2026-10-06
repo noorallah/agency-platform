@@ -642,6 +642,12 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
         bold: true,
         tone: delivering > line.deliverable ? scheme.error : null,
       ),
+      if (line.ordersFreeGoods)
+        DocumentSidePair(
+          'Free on the order',
+          documentQuantity(line.orderFreeQuantity),
+        ),
+      DocumentSideNote(freeBoxHelper(line).toLowerCase()),
       if (line.outstanding <= 0)
         const DocumentSideNote('this line has been delivered in full')
       else if (line.reserved <= 0)

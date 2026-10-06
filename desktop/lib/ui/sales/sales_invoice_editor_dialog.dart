@@ -114,6 +114,15 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// lines name documents, because those were priced when they were raised.
   final TextEditingController _coupon = TextEditingController();
   final TextEditingController _billDiscount = TextEditingController();
+
+  /// Whether the saved bill's discount is the share agreed on the order it
+  /// continues (`bill_discount_source` is `inherited`, D-PRC-1) rather than
+  /// one somebody typed on the bill. The box stays blank for it, so a save
+  /// says nothing and the inheritance stands; a figure typed replaces it, 0
+  /// included.
+  bool _billDiscountInherited = false;
+  String _inheritedBillDiscountAmount = '';
+  double _inheritedBillDiscountPercent = 0;
   final TextEditingController _freight = TextEditingController();
 
   /// Money taken at the counter as the bill is made (phase 2). Recorded as a
@@ -537,7 +546,15 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     }
     final double bill =
         double.tryParse('${invoice['bill_discount_percent'] ?? 0}') ?? 0;
-    if (bill > 0) _billDiscount.text = '${invoice['bill_discount_percent']}';
+    _billDiscountInherited =
+        '${invoice['bill_discount_source']}' == 'inherited';
+    if (_billDiscountInherited) {
+      _inheritedBillDiscountAmount =
+          '${invoice['bill_discount_amount'] ?? ''}';
+      _inheritedBillDiscountPercent = bill;
+    } else if (bill > 0) {
+      _billDiscount.text = '${invoice['bill_discount_percent']}';
+    }
     _reference.text = '${invoice['reference_number'] ?? ''}';
     final double received =
         double.tryParse('${invoice['received_now_amount'] ?? 0}') ?? 0;
@@ -865,6 +882,22 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       double.tryParse(_quantities[line.sourceDocumentLineId]?.text.trim() ?? '') ??
       0;
 
+  /// What the bill-discount box says a blank does.
+  String get _billDiscountHelper => _billDiscountInherited
+      ? "Typing a figure replaces the order's; 0 removes it."
+      : 'Comes off what the lines discounted to, and the tax falls with it.';
+
+  /// The discount the bill took from its order, read-only beside the box.
+  Widget? _inheritedBillDiscountNote(BuildContext context) {
+    if (!_billDiscountInherited) return null;
+    final double amount = double.tryParse(_inheritedBillDiscountAmount) ?? 0;
+    return Text(
+      'From the order: ${amount.toStringAsFixed(2)}',
+      key: const ValueKey<String>('bill-discount-inherited'),
+      style: Theme.of(context).textTheme.bodySmall,
+    );
+  }
+
   /// What the invoice comes to before tax, after both discounts.
   double get _beforeTax {
     double lines = 0;
@@ -876,7 +909,10 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         lines += gross * (1 - rate / 100);
       }
     }
-    final double bill = double.tryParse(_billDiscount.text.trim()) ?? 0;
+    final String typed = _billDiscount.text.trim();
+    final double bill = typed.isEmpty && _billDiscountInherited
+        ? _inheritedBillDiscountPercent
+        : double.tryParse(typed) ?? 0;
     return bill <= 0 ? lines : lines * (1 - bill / 100);
   }
 
@@ -968,7 +1004,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       // there is no discount on it, and an empty string is a schema error.
       if (_billDiscount.text.trim().isNotEmpty)
         'bill_discount_percent': _billDiscount.text.trim()
-      else if (_editing && !_drafting)
+      else if (_editing && !_drafting && !_billDiscountInherited)
         'bill_discount_percent': null,
       // Freight is not filled from a saved bill, so a blank box there says
       // nothing and the bill keeps what it has.
@@ -1363,6 +1399,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _reference.clear();
       _coupon.clear();
       _billDiscount.clear();
+      _billDiscountInherited = false;
       _freight.clear();
       _receivedNow.clear();
       _receivedRef.clear();
@@ -1817,16 +1854,17 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
               const SizedBox(height: AppSpacing.md),
               TextFormField(
                 controller: _billDiscount,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Discount on the whole bill %',
-                  helperText: 'Comes off what the lines discounted to, and '
-                      'the tax falls with it.',
+                  helperText: _billDiscountHelper,
                   helperMaxLines: 2,
                 ),
                 keyboardType: TextInputType.number,
                 validator: _percentage,
                 onChanged: (_) => setState(() {}),
               ),
+              if (_inheritedBillDiscountNote(context) case final Widget note)
+                note,
               TextFormField(
                 controller: _freight,
                 decoration: const InputDecoration(
@@ -1989,16 +2027,17 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
                 const SizedBox(height: AppSpacing.md),
                 TextFormField(
                   controller: _billDiscount,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Discount on the whole bill %',
-                    helperText: 'Comes off what the lines discounted to, and '
-                        'the tax falls with it.',
+                    helperText: _billDiscountHelper,
                     helperMaxLines: 2,
                   ),
                   keyboardType: TextInputType.number,
                   validator: _percentage,
                   onChanged: (_) => setState(() {}),
                 ),
+                if (_inheritedBillDiscountNote(context) case final Widget note)
+                  note,
                 TextFormField(
                   controller: _reference,
                   decoration: const InputDecoration(

@@ -1117,4 +1117,88 @@ void main() {
     expect(api.created, isNull);
     expect(api.updated, isNull);
   });
+
+  // D-PRC-1: a bill continuing an order inherits its bill discount.
+  Json inheritedBill() => <String, dynamic>{
+        ...savedCounterBill(),
+        'bill_discount_percent': '10',
+        'bill_discount_amount': '200',
+        'bill_discount_source': 'inherited',
+      };
+
+  Finder holdingText(String text) => find.byWidgetPredicate(
+        (Widget widget) =>
+            widget is EditableText && widget.controller.text == text,
+      );
+
+  testWidgets('an inherited bill discount leaves the box blank and is shown',
+      (tester) async {
+    final _InvoiceApi api = counterApi()..existing = inheritedBill();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+
+    expect(holdingText('10'), findsNothing);
+    expect(find.text('From the order: 200.00'), findsOneWidget);
+    expect(find.textContaining('replaces the order'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.updated, isNotNull);
+    expect(api.updated!.containsKey('bill_discount_percent'), isFalse,
+        reason: 'silence leaves the inheritance standing');
+  });
+
+  testWidgets('a figure typed over an inherited discount replaces it',
+      (tester) async {
+    final _InvoiceApi api = counterApi()..existing = inheritedBill();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    final Finder box = find.ancestor(
+      of: find.text('Discount on the whole bill %'),
+      matching: find.byType(Column),
+    );
+    await tester.enterText(
+      find.descendant(of: box.first, matching: find.byType(EditableText)),
+      '0',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.updated!['bill_discount_percent'], '0');
+  });
+
+  testWidgets('a typed bill discount fills the box, and emptied sends null',
+      (tester) async {
+    final _InvoiceApi api = counterApi()
+      ..existing = <String, dynamic>{
+        ...savedCounterBill(),
+        'bill_discount_percent': '10',
+        'bill_discount_amount': '20',
+        'bill_discount_source': 'typed',
+      };
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    expect(holdingText('10'), findsOneWidget);
+    expect(find.textContaining('From the order'), findsNothing);
+
+    await tester.enterText(holdingText('10'), '');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.updated!.containsKey('bill_discount_percent'), isTrue);
+    expect(api.updated!['bill_discount_percent'], isNull);
+  });
+
+  testWidgets('the inherited discount is seen at 1366x768 without overflow',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _InvoiceApi api = counterApi()..existing = inheritedBill();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+
+    expect(find.text('From the order: 200.00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
