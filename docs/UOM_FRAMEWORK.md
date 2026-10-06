@@ -337,6 +337,39 @@ bill above, and 24 in the HSN summary -- where they reported the stored 2
 reads `stated_invoice_lines`, the function the print reads, so the paper and
 the portal cannot state a line differently.
 
+### Either unit field of a sales bill line names the unit (D-PRC-44, 2026-10-06)
+
+A sales bill line can name a unit in two fields: `invoice_uom_id`, the unit it
+is billed in, and `order_uom_id`, the unit of the line it bills. Only the
+first was read. A counter bill line naming `order_uom_id` BOX and nothing else
+was sold as pieces -- 2 at 100.00, 236.00 with tax, two pieces off the shelf
+-- and came back with no unit: the unit asked for was dropped without a word.
+
+**A line that names a unit by either field means that unit**, resolved once
+in `app/sales_invoice/services/line_units.py`, and a pair that cannot both be
+true is refused rather than one of the two being ignored:
+
+- **A line typed straight onto a bill** has no line behind it, so the two
+  fields say the same thing: the unit is whichever is named, and it goes to
+  the order the bill raises as its `sales_uom_id`, where `stock_unit_of`
+  converts it like any order line by the box. Two different units are
+  refused: "Line 1 names two units: BOX as the unit it is ordered in and
+  PIECE as the unit it is billed in. A line typed straight onto a bill is
+  sold in one unit; name that unit once."
+- **A line billing a note or an order**: `invoice_uom_id` is the unit typed;
+  `order_uom_id` beside it must then be true of the line billed, or it is
+  refused -- "Line 1 says the line it bills is in PIECE, and
+  DN-2026-2027-000001 line 1 is in BOX. Leave the ordered unit off, or send
+  BOX; the unit the line is billed in is the other field." Named alone,
+  `order_uom_id` is the unit the line is in and is converted like any typed
+  unit: 24 naming PIECE that way bill a note of 2 BOX, where they were read
+  as 24 boxes and refused as more than was shipped.
+
+The row stores what is true of it whatever the request sent: `order_uom_id`
+is the unit its quantity is in (the line billed), and `invoice_uom_id` the
+unit it was typed in. A unit typed against a line that names none is
+converted into the product's stock unit, never taken as the same thing.
+
 `business_profile_uom_defaults` supplies the starting point for a firm's
 industry (base, inventory, purchase and sales units, plus the two fraction
 flags), with `firm_id` nullable so a platform default can be overridden per

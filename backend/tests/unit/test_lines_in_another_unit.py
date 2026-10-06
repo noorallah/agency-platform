@@ -996,3 +996,143 @@ def test_a_credit_note_of_pieces_prints_pieces() -> None:
 
     assert printed(pieces) == (D("7.0000"), "PIECE", D("100.0000"))
     assert printed(box) == (D("1.0000"), "BOX", D("1200.0000"))
+
+
+# ---- either unit field names the unit (D-PRC-44) ---------------------------
+#
+# The third live check: a counter bill line naming `order_uom_id` BOX and no
+# `invoice_uom_id` was read as pieces -- 2 at 100.00, two pieces off the
+# shelf, and the line came back with no unit.
+
+
+def _counter_bill(shop: _Shop, **line: object) -> SalesInvoice:
+    """Type a bill of 2 of the product straight in, with what the line names."""
+    return SalesInvoiceService(shop.session).create_invoice(
+        SalesInvoiceCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "invoice_date": DAY,
+                "lines": [
+                    {
+                        "product_id": shop.setup.product.id,
+                        "line_number": 1,
+                        "current_invoice_quantity": "2",
+                    }
+                    | line
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+
+@pytest.mark.parametrize("fields", ["order", "invoice", "both"])
+def test_a_counter_bill_line_means_the_unit_either_field_names(fields: str) -> None:
+    """2 naming BOX by `order_uom_id`, `invoice_uom_id` or both are 2 boxes."""
+    shop = _Shop(counter=True)
+    named = {
+        "order": {"order_uom_id": shop.box},
+        "invoice": {"invoice_uom_id": shop.box},
+        "both": {"order_uom_id": shop.box, "invoice_uom_id": shop.box},
+    }[fields]
+
+    bill = _counter_bill(shop, **named)
+
+    shop.session.expire_all()
+    billed = shop.session.scalars(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == bill.id)
+    ).one()
+    assert (billed.unit_price, billed.gross_amount) == (D("1200.0000"), D("2400.0000"))
+    assert billed.order_uom_id == shop.box
+    hidden = shop.session.scalars(select(SalesOrderLine)).one()
+    assert (hidden.sales_uom_id, hidden.base_quantity) == (shop.box, D("24.0000"))
+    assert shop.reserved() == D("24.0000")
+    assert _printed(shop, bill) == (D("2.0000"), "BOX", D("1200.0000"))
+
+
+def test_a_counter_bill_line_naming_two_units_is_refused_in_words() -> None:
+    """BOX to order in and PIECE to bill in: neither is quietly dropped."""
+    shop = _Shop(counter=True)
+
+    with pytest.raises(ValidationError) as refused:
+        _counter_bill(shop, order_uom_id=shop.box, invoice_uom_id=shop.piece)
+    shop.session.rollback()
+
+    assert str(refused.value.message) == (
+        "Line 1 names two units: BOX as the unit it is ordered in and PIECE as "
+        "the unit it is billed in. A line typed straight onto a bill is sold "
+        "in one unit; name that unit once."
+    )
+    assert shop.session.scalars(select(SalesInvoice)).all() == []
+    assert shop.session.scalars(select(SalesOrder)).all() == []
+
+
+def _draft_of(shop: _Shop, note_line: DeliveryNoteLine, **line: object) -> SalesInvoice:
+    """Save a draft bill of 24 of a note line, with what the line names."""
+    return SalesInvoiceService(shop.session).create_invoice(
+        SalesInvoiceCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "invoice_date": DAY,
+                "lines": [
+                    {
+                        "source_document_type": "DELIVERY_NOTE",
+                        "source_document_id": note_line.delivery_note_id,
+                        "source_document_line_id": note_line.id,
+                        "line_number": 1,
+                        "current_invoice_quantity": "24",
+                    }
+                    | line
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+
+@pytest.mark.parametrize("fields", ["order", "pair"])
+def test_a_bill_of_a_note_means_the_unit_either_field_names(fields: str) -> None:
+    """24 naming PIECE by `order_uom_id` alone bill the 2 BOX, as the pair does.
+
+    Named by `order_uom_id` alone it was read as 24 boxes and refused as more
+    than was shipped.
+    """
+    shop = _Shop()
+    note_line = _shipped(shop)
+    named = {
+        "order": {"order_uom_id": shop.piece},
+        "pair": {"order_uom_id": shop.box, "invoice_uom_id": shop.piece},
+    }[fields]
+
+    bill = _draft_of(shop, note_line, **named)
+
+    shop.session.expire_all()
+    billed = shop.session.scalars(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == bill.id)
+    ).one()
+    assert (billed.current_invoice_quantity, billed.entered_quantity) == (
+        D("2.0000"),
+        D("24.0000"),
+    )
+    assert (billed.order_uom_id, billed.invoice_uom_id) == (shop.box, shop.piece)
+    assert billed.gross_amount == D("2400.0000")
+
+
+def test_an_ordered_unit_that_is_not_the_notes_is_refused_in_words() -> None:
+    """Billed in PIECE and said to bill a line in PIECE, of a note in BOX."""
+    shop = _Shop()
+    note_line = _shipped(shop)
+
+    with pytest.raises(ValidationError) as refused:
+        _draft_of(shop, note_line, order_uom_id=shop.piece, invoice_uom_id=shop.piece)
+    shop.session.rollback()
+
+    message = str(refused.value.message)
+    assert message.startswith("Line 1 says the line it bills is in PIECE, and DN-")
+    assert message.endswith(
+        " line 1 is in BOX. Leave the ordered unit off, or send BOX; the unit "
+        "the line is billed in is the other field."
+    )
+    assert shop.session.scalars(select(SalesInvoice)).all() == []
