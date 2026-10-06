@@ -46,6 +46,7 @@ from app.sales_return.models import (
     SalesReturnLineTax,
 )
 from app.uom.models import Uom
+from app.uom.services import stated_line
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "SALES_RETURN"
@@ -171,7 +172,22 @@ class CreditNotePrintService:
             ).all()
         )
         products = self._products(line.product_id for line in lines)
-        units = self._units(line.return_uom_id for line in lines)
+        # Each line as it is stated: quantity, unit and rate that belong
+        # together -- as typed where the line kept what was typed, else in
+        # the unit its quantity is in, the source line's (D-PRC-40).
+        stated = {
+            line.id: stated_line(
+                quantity=line.current_return_quantity,
+                free_quantity=line.free_quantity,
+                unit_price=line.unit_price,
+                source_uom_id=line.sales_uom_id,
+                typed_uom_id=line.return_uom_id,
+                entered_quantity=line.entered_quantity,
+                conversion_factor=line.conversion_factor,
+            )
+            for line in lines
+        }
+        units = self._units(item.uom_id for item in stated.values())
         taxes = self._taxes(line.id for line in lines)
 
         printed = [
@@ -189,13 +205,13 @@ class CreditNotePrintService:
                     if line.product_id in products
                     else None
                 ),
-                quantity=line.current_return_quantity,
+                quantity=stated[line.id].quantity,
                 uom=(
-                    units[line.return_uom_id].code
-                    if line.return_uom_id in units
+                    units[unit_id].code
+                    if (unit_id := stated[line.id].uom_id) in units
                     else None
                 ),
-                rate=line.unit_price,
+                rate=stated[line.id].rate,
                 discount=line.discount_amount,
                 taxable=line.gross_amount
                 - line.discount_amount
