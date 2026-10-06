@@ -252,6 +252,41 @@ void main() {
       expect(api.requested.last, second.path);
     });
 
+    testWidgets('the sales HSN summary shows the unit beside the code (D-PRC-50)',
+        (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'hsn_code': '3306',
+          'description': 'Paste',
+          'unit': 'CARTON',
+          'rate': 18,
+          'quantity': 4,
+          'taxable_value': 100,
+        },
+      ]);
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ReportsWorkspace(
+            api: api,
+            permissions: _permissionsFor(const ['REPORT_VIEW']),
+            hasActiveFirm: true,
+            tabId: 'financial',
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('HSN summary of sales'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(api.requested.last, endsWith('sales-invoices/reports/hsn-summary'));
+      expect(find.text('Unit'), findsOneWidget);
+      expect(find.text('CARTON'), findsOneWidget);
+    });
+
     testWidgets('the financial tab shows financial reports', (tester) async {
       final _ReportApi api = _ReportApi();
       await _pump(tester, api, tabId: 'financial');

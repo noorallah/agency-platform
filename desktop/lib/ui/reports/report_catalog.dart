@@ -641,7 +641,7 @@ const List<ReportDefinition> reportCatalog = [
   ReportDefinition(
     id: 'hsn-sales-summary',
     label: 'HSN summary of sales',
-    description: 'Outward supplies by HSN code and rate, net of credit '
+    description: 'Outward supplies by HSN code, unit and rate, net of credit '
         'notes and returns: quantity, taxable value and tax by head.',
     path: '/api/v1/sales-invoices/reports/hsn-summary',
     permission: 'SALES_VIEW',
@@ -649,6 +649,7 @@ const List<ReportDefinition> reportCatalog = [
     needsPeriod: true,
     columns: [
       ReportColumn(key: 'hsn_code', label: 'HSN'),
+      ReportColumn(key: 'unit', label: 'Unit'),
       ReportColumn(key: 'description', label: 'Description'),
       ReportColumn(key: 'rate', label: 'Rate %', numeric: true),
       ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
