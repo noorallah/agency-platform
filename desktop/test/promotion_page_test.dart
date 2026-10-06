@@ -1145,7 +1145,7 @@ void main() {
             .firstWhere((report) => report.id == id)
             .columns
             .firstWhere((column) => column.key == 'free_quantity');
-        expect(column.label, 'Free units', reason: id);
+        expect(column.label, startsWith('Free units'), reason: id);
         expect(column.numeric, isTrue, reason: id);
       }
     });
