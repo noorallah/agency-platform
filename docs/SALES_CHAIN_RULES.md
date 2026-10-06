@@ -200,9 +200,25 @@ rate-difference credit note of 472.00 and was then returned in full for
   earlier returns took, spread over the units still out (`still_worth`): 2
   boxes charged 2,400.00 and credited 400.00 come back at 1,000.00 each, and
   with one already back at 1,200.00 before a note of 600.00 the other is
-  worth 600.00. The line is priced as before and only capped at that figure,
-  so a return on a bill with no credit note is unchanged. Tax follows the
-  reduced base, at the rate the bill charged.
+  worth 600.00. The line is priced as before and only capped at that figure.
+  Tax follows the reduced base, at the rate the bill charged.
+- **The cap runs on every return, credit note or none** (D-PRC-64,
+  2026-10-06). It was only reached once a credit note existed, so on a bill
+  of 2,832.00 a return typed 1,500.00 a box credited 3,540.00, a line charge
+  of 500.00 credited 3,422.00 and a header charge of 500.00 credited
+  3,332.00. A line that states more than its bill line charged for those
+  units (`charged_for`: goods and the line's own charges) is **refused by
+  name**, at save and again at completion: "Line 1: the return credits
+  3000.00 before tax for goods that SI-… billed at 2400.00, and they are
+  still worth 2400.00 on it. …". A price or charge typed **below** the
+  bill's stands -- that is how a restocking deduction is taken. Goods no
+  bill has charged yet are measured against what the note sent them at.
+- **A return's `additional_charges` give back only what the bill charged
+  the same way**: the `additional_charges` of the bills these goods were
+  charged on (their note where none has), less what other live returns of
+  those documents already state. A credit note carries no header charge.
+  Freight is not among them: it is inside each bill line's taxable value
+  and does not come back with the goods.
 - **What comes off is kept in the return line's `bill_discount_amount`**,
   beside its share of the bill discount, because every reader of the line
   -- the journal, the customer's account, GSTR-1, the e-invoice, the print

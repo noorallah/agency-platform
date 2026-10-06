@@ -1688,10 +1688,24 @@ def _request_session() -> Session:
     return sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)()
 
 
+def _charge_on_the_header(setup: _Dispatch, charges: str) -> None:
+    """Record that the note and its bill charged this much on their headers.
+
+    A return gives back only header charges its source made (D-PRC-64), so a
+    test about a return carrying some needs a source that charged them.
+    """
+    setup.note.additional_charges = Decimal(charges)
+    invoice = getattr(setup, "invoice", None)
+    if invoice is not None:
+        invoice.additional_charges = Decimal(charges)
+    setup.session.commit()
+
+
 def _completed_with_header(
     setup: _Dispatch, *, quantity: str, charges: str, round_off: str
 ) -> tuple[SalesReturnService, SalesReturn]:
     """Complete a return that carries charges and rounding on its header."""
+    _charge_on_the_header(setup, charges)
     service = SalesReturnService(setup.session)
     row = service.create_return(
         setup.payload(quantity=Decimal(quantity)).model_copy(
@@ -1788,6 +1802,7 @@ def test_the_summary_values_a_return_the_same_at_every_step_of_its_life() -> Non
     """
     session = _request_session()
     setup = _Dispatch(session, billed=Decimal("0"))
+    _charge_on_the_header(setup, "50")
     service = SalesReturnService(session)
     firm = setup.firm.id
     row = service.create_return(
@@ -2027,3 +2042,172 @@ def test_a_return_priced_before_a_credit_note_does_not_complete() -> None:
         SalesReturnService(session).complete_return(
             row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
         )
+
+
+# ---- a return priced above its bill (D-PRC-64) ------------------------------
+#
+# The sixth pricing check (2026-10-06): on a bill of 2,832.00 with no credit
+# note, a return typed 1,500.00 a box credited 3,540.00, a line charge of
+# 500.00 credited 3,422.00 and a header charge of 500.00 credited 3,332.00.
+# The cap of D-SELL-88 only ran once a credit note existed. Here the bill is
+# four at 100.00.
+
+
+def _priced(payload: SalesReturnCreate, **typed: Decimal) -> SalesReturnCreate:
+    """Type a price or a charge on the one line of a return."""
+    for name, value in typed.items():
+        setattr(payload.lines[0], name, value)
+    return payload
+
+
+def test_a_price_typed_above_the_bill_is_refused_by_name() -> None:
+    """125.00 a unit against a bill at 100.00, with no credit note at all."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+
+    with pytest.raises(ValidationError) as refusal:
+        service.create_return(
+            _priced(_against_the_bill(setup, "4"), unit_price=Decimal("125")),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+
+    message = str(refusal.value)
+    assert "Line 1: the return credits 500.00" in message
+    assert f"{setup.invoice.invoice_number} billed at 400.00" in message
+    assert "still worth 400.00" in message
+
+
+def test_a_charge_typed_on_a_line_the_bill_never_charged_is_refused() -> None:
+    """The goods at the bill's price and 50.00 of charges on top of them."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+
+    with pytest.raises(ValidationError, match="credits 250.00 .* billed at 200.00"):
+        SalesReturnService(session).create_return(
+            _priced(_against_the_bill(setup, "2"), charges_amount=Decimal("50")),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+
+
+def test_a_price_above_the_bill_is_refused_through_the_note_too() -> None:
+    """The same goods by the other door are worth the same bill."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+
+    with pytest.raises(ValidationError, match="credits 250.00 .* billed at 200.00"):
+        SalesReturnService(session).create_return(
+            _priced(setup.payload(quantity=Decimal("2")), unit_price=Decimal("125")),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+
+
+def test_a_price_typed_below_the_bill_stands() -> None:
+    """A restocking deduction: 90.00 credited for a unit billed at 100.00."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+
+    row = _returned(
+        setup, _priced(_against_the_bill(setup, "4"), unit_price=Decimal("90"))
+    )
+
+    assert row.subtotal == Decimal("360.0000")
+    assert [credit.amount for credit in _credits(session)] == [Decimal("360.00")]
+
+
+def test_header_charges_the_bill_never_made_are_refused() -> None:
+    """50.00 of additional charges on a return of a bill that charged none."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+
+    with pytest.raises(ValidationError) as refusal:
+        SalesReturnService(session).create_return(
+            _against_the_bill(setup, "4").model_copy(
+                update={"additional_charges": Decimal("50")}
+            ),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+
+    message = str(refusal.value)
+    assert "credits 50.00 of additional charges" in message
+    assert f"{setup.invoice.invoice_number} charged 0.00" in message
+
+
+def test_header_charges_come_back_once_and_no_more() -> None:
+    """The bill charged 50.00: 30.00 back, then 20.00 is all that is left."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _charge_on_the_header(setup, "50")
+    service = SalesReturnService(session)
+    service.create_return(
+        _against_the_bill(setup, "1").model_copy(
+            update={"additional_charges": Decimal("30")}
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    with pytest.raises(
+        ValidationError, match="charged 50.00 of them, 30.00 already given back"
+    ):
+        service.create_return(
+            _against_the_bill(setup, "1").model_copy(
+                update={"additional_charges": Decimal("30")}
+            ),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    session.rollback()
+    row = service.create_return(
+        _against_the_bill(setup, "1").model_copy(
+            update={"additional_charges": Decimal("20")}
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    assert row.grand_total == Decimal("120.0000")
+
+
+def test_a_return_saved_above_its_bill_does_not_complete() -> None:
+    """One saved before the cap ran on every line is asked again."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    row = _returned(setup, _against_the_bill(setup, "4"), complete=False)
+    line = session.scalars(
+        select(SalesReturnLine).where(SalesReturnLine.sales_return_id == row.id)
+    ).one()
+    # As a return written before this fix kept it: 125.00 a unit.
+    line.unit_price = Decimal("125")
+    line.gross_amount = Decimal("500")
+    line.net_amount = Decimal("500")
+    session.commit()
+
+    with pytest.raises(ValidationError, match="credits 500.00 .* billed at 400.00"):
+        SalesReturnService(session).complete_return(
+            row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+
+
+def test_goods_no_bill_has_charged_come_back_at_the_notes_price_at_most() -> None:
+    """Never billed: the note sent them at 100.00, and 125.00 is refused."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    service = SalesReturnService(session)
+
+    with pytest.raises(ValidationError, match="sent at 200.00, and no bill"):
+        service.create_return(
+            _priced(setup.payload(quantity=Decimal("2")), unit_price=Decimal("125")),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    session.rollback()
+    row = service.create_return(
+        setup.payload(quantity=Decimal("2")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    assert row.subtotal == Decimal("200.0000")

@@ -2100,6 +2100,12 @@ The stock side is §10.6; this is the whole request.
   100.00 credited 80.00 comes back as `gross_amount` 400.00,
   `bill_discount_amount` 80.00, tax on 320.00. A return priced before such a
   note was approved is refused at completion.
+- **A line never states more than its bill line charged** (D-PRC-64): a
+  typed `unit_price`, `charges_amount` or discount that takes the line above
+  what the bill charged for those units is refused, nothing written, at save
+  and at completion; below it stands. `additional_charges` on the return are
+  refused above the `additional_charges` of the bills its goods were charged
+  on, less what other live returns of them state.
 - **Edit a draft:** lines, sources, attachments and notes **physically
   deleted** and re-inserted (line taxes by cascade); lifecycle `UPDATED`;
   audit `sales_return.updated`.
