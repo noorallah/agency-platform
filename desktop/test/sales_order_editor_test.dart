@@ -1199,4 +1199,42 @@ void main() {
     expect(api.created?['lines'][0]['quantity'], '5');
     expect(saved, isTrue);
   });
+
+  // D-UI-17: Save with no customer and no product has to say what is missing.
+  testWidgets('phase 2: Save with no customer or product names what is missing',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _OrderApi api = _api();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () => Navigator.of(context).push<bool>(
+              MaterialPageRoute<bool>(
+                builder: (_) => Scaffold(
+                  body: Phase2Scope(
+                    child: SalesOrderEditorDialog(
+                      api: api,
+                      today: DateTime(2026, 8, 14),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.created, isNull);
+    expect(find.byType(SalesOrderEditorDialog), findsOneWidget);
+    expect(find.textContaining('Choose the customer'), findsOneWidget);
+  });
 }

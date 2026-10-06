@@ -133,9 +133,12 @@ class _CouponDialogState extends State<CouponDialog> {
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = error.isConflict
-            ? concurrencyMessage('coupon', changesKept: true)
-            : error.message;
+        _error = saveFailureMessage(
+          error,
+          'coupon',
+          changesKept: true,
+          isNew: _isNew,
+        );
         _saving = false;
       });
     }

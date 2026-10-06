@@ -1104,9 +1104,9 @@ void main() {
 
       expect(find.byKey(const ValueKey('promotion-budget-value')),
           findsOneWidget);
-      expect(find.textContaining('1200.0000 used, 3800.0000 left'),
+      expect(find.textContaining('1,200.00 used, 3,800.00 left of 5,000.00'),
           findsOneWidget);
-      expect(find.textContaining('40.0000 used, 260.0000 left'),
+      expect(find.textContaining('40 used, 260 left of 300'),
           findsOneWidget);
     });
 

@@ -1,4 +1,5 @@
 import 'api_client.dart';
+import 'api_refusal.dart';
 
 /// What to put on screen when a save loses a race.
 ///
@@ -31,6 +32,10 @@ String concurrencyMessage(String noun, {required bool changesKept}) =>
 
 /// The message for a failed save, whatever the cause.
 ///
+/// [isNew] is true for a create. A new record has no version to lose a race
+/// on, so a 409 there is the server refusing a clash -- a code that already
+/// exists -- and its own sentence is the answer, not "somebody else saved".
+///
 /// One helper rather than a conditional at every call site: a screen that
 /// forgets the conflict branch shows the server's sentence, which reads as
 /// though the edit were merely refused and gives no hint about the typing.
@@ -38,10 +43,11 @@ String saveFailureMessage(
   ApiException exception,
   String noun, {
   required bool changesKept,
+  bool isNew = false,
 }) =>
-    exception.isConflict
+    exception.isConflict && !isNew
         ? concurrencyMessage(noun, changesKept: changesKept)
-        : exception.message;
+        : refusalMessage(exception);
 
 /// The version to send as a precondition, or null when there is none to send.
 ///

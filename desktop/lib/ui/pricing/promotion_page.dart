@@ -8,6 +8,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
+import '../../phase2/document_page.dart' show documentMoney, documentQuantity;
 import '../../core/dialogs/app_dialogs.dart';
 import '../workspace/desktop_framework.dart';
 import 'coupon_batch_dialog.dart';
@@ -746,15 +747,17 @@ class _PromotionPageState extends State<PromotionPage> {
             const SizedBox(height: AppSpacing.xs),
             if (row.maxBenefitAmount.isNotEmpty)
               Text(
-                'Value: ${row.benefitAmountClaimed} used, '
-                '${row.remainingBenefitAmount} left of ${row.maxBenefitAmount}',
+                'Value: ${documentMoney(row.benefitAmountClaimed)} used, '
+                '${documentMoney(row.remainingBenefitAmount)} left of '
+                '${documentMoney(row.maxBenefitAmount)}',
                 key: const ValueKey('promotion-budget-value'),
                 style: theme.textTheme.bodySmall,
               ),
             if (row.maxFreeQuantity.isNotEmpty)
               Text(
-                'Free units: ${row.freeQuantityClaimed} used, '
-                '${row.remainingFreeQuantity} left of ${row.maxFreeQuantity}',
+                'Free units: ${documentQuantity(row.freeQuantityClaimed)} used, '
+                '${documentQuantity(row.remainingFreeQuantity)} left of '
+                '${documentQuantity(row.maxFreeQuantity)}',
                 key: const ValueKey('promotion-budget-free'),
                 style: theme.textTheme.bodySmall,
               ),

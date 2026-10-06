@@ -1335,6 +1335,7 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
           error,
           'commission rate',
           changesKept: true,
+          isNew: widget.rule == null,
         );
         _saving = false;
       });

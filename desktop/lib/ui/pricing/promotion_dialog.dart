@@ -382,7 +382,12 @@ class _PromotionDialogState extends State<PromotionDialog> {
       setState(() {
         // The dialog stays open, so the typing survives a refusal and the
         // message says so.
-        _error = saveFailureMessage(error, 'promotion', changesKept: true);
+        _error = saveFailureMessage(
+          error,
+          'promotion',
+          changesKept: true,
+          isNew: widget.existing == null,
+        );
         _saving = false;
       });
     }

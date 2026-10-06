@@ -11528,7 +11528,7 @@ class ApiClient {
         );
       }
       return payload;
-    } on SocketException {
+    } on IOException {
       throw const ApiException('Cannot reach the API server.');
     } on TimeoutException {
       throw const ApiException('The API request timed out.');
@@ -11591,7 +11591,7 @@ class ApiClient {
       return text;
     } on TimeoutException {
       throw const ApiException('The server did not respond in time.');
-    } on SocketException {
+    } on IOException {
       throw const ApiException(
         'Unable to connect to the server. Check the API address.',
       );
@@ -11875,7 +11875,7 @@ class ApiClient {
       return bytes;
     } on TimeoutException {
       throw const ApiException('The server did not respond in time.');
-    } on SocketException {
+    } on IOException {
       throw const ApiException(
         'Unable to connect to the server. Check the API address.',
       );
@@ -11993,7 +11993,7 @@ class ApiClient {
         );
       }
       return payload;
-    } on SocketException {
+    } on IOException {
       throw const ApiException('Cannot reach the API server.');
     } on TimeoutException {
       throw const ApiException('The API request timed out.');

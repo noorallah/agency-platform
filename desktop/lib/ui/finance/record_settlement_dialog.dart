@@ -1310,7 +1310,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                 : unapplied.abs() < 0.005
                     ? 'All of it applied'
                     : unapplied > 0
-                        ? '${unapplied.toStringAsFixed(2)} left on account'
+                        ? '${unapplied.toStringAsFixed(2)} will be held as an '
+                            'advance, not applied to any '
+                            '${widget.direction.isCustomer ? 'invoice' : 'bill'}'
                         : '${(-unapplied).toStringAsFixed(2)} more applied than '
                             'was $_noun',
             style: Theme.of(context).textTheme.bodyMedium,
