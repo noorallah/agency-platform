@@ -96,6 +96,9 @@ class LoyaltyBalance(LoyaltySchema):
     #: Points that will lapse within ninety days, so a customer can be told
     #: before rather than after.
     expiring_soon: Decimal
+    #: Points past their date that the sweep has not yet written off. Not in
+    #: `points`, and not spendable (D-PRC-3).
+    lapsed_points: Decimal = Decimal("0")
 
 
 class LoyaltyRedeem(LoyaltySchema):
@@ -137,6 +140,11 @@ class LoyaltyBalanceRecord(LoyaltySchema):
     customer_name: str
     points: Decimal
     amount: Decimal
+    #: Past their date and awaiting the sweep: out of `points` and `amount`,
+    #: and still in Loyalty Payable until it runs, so `amount` plus
+    #: `lapsed_amount` is what the account holds (D-PRC-3).
+    lapsed_points: Decimal = Decimal("0")
+    lapsed_amount: Decimal = Decimal("0")
 
 
 class LoyaltyMovementRecord(LoyaltySchema):

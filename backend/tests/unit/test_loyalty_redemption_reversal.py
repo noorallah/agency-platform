@@ -383,7 +383,9 @@ def test_a_batch_that_has_since_lapsed_stays_lapsed() -> None:
     assert (lapsed.points, lapsed.reverses_id) == (Decimal("-30.0000"), batch.id)
     release = till.session.get(JournalEntry, lapsed.journal_entry_id)
     assert release is not None and release.status == JournalStatus.POSTED.value
-    assert till.points() == Decimal("20.0000")
+    # The twenty never spent are still on the batch for the sweep to take,
+    # and out of the balance already: a lapsed point is not held (D-PRC-3).
+    assert till.points() == Decimal("0.0000")
     assert till.left() == {batch.id: Decimal("20.0000")}
     # Redeemed 30 (Dr), put back 30 (Cr), lapsed 30 (Dr): thirty less is owed
     # in points than before, which is the thirty nobody can claim.

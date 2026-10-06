@@ -16,6 +16,7 @@ The subcommands are the things an installed copy actually does::
     agency-server backup
     agency-server check
     agency-server messaging-run-once
+    agency-server loyalty-expire
     agency-server set-branding --file branding.json
     agency-server --version
 
@@ -252,6 +253,55 @@ def _messaging_run_once(args: argparse.Namespace) -> int:
     return 1 if report.errors else 0
 
 
+def _loyalty_expire(args: argparse.Namespace) -> int:
+    """Lapse loyalty points that have run out of time, in every firm.
+
+    The sweep ``POST /api/v1/loyalty/expire`` runs for one firm, over every
+    firm's own store, for an operator or whatever schedules it: nothing ran
+    it, so a firm that never pressed the button never released the cost of a
+    lapsed point (D-PRC-3). Prints one line per firm and exits non-zero when
+    a firm's store could not be reached.
+    """
+    from app.core.database.engine import DatabaseManager
+    from app.core.tenancy import (
+        FirmConnectionResolver,
+        FirmRegistryTenantResolver,
+        FirmSchemaResolver,
+        MultiTenantDatabaseProvider,
+    )
+    from app.loyalty.services.expiry_sweep import sweep_every_firm
+    from app.messaging.services.runtime import live_firm_ids, store_opener
+
+    settings = Settings()
+    platform = DatabaseManager.from_settings(settings)
+    provider = MultiTenantDatabaseProvider(
+        platform,
+        FirmConnectionResolver(platform, settings.tenancy.connection_profiles),
+        FirmSchemaResolver(),
+    )
+    resolver = FirmRegistryTenantResolver(
+        platform,
+        shared_database_name=settings.tenancy.shared_database_name,
+        shared_schema_name=settings.tenancy.shared_schema_name,
+    )
+    try:
+        report = sweep_every_firm(
+            live_firm_ids(platform), store_opener(resolver, provider)
+        )
+    finally:
+        provider.dispose()
+        platform.dispose()
+    for firm_id, lapsed in report.lapsed.items():
+        print(f"firm {firm_id}: {lapsed} batches lapsed")
+    print(
+        f"loyalty: {sum(report.lapsed.values())} batches lapsed in "
+        f"{len(report.lapsed)} firms, {len(report.errors)} not reached"
+    )
+    for error in report.errors:
+        print(f"error:{error}", file=sys.stderr)
+    return 1 if report.errors else 0
+
+
 def _set_branding(args: argparse.Namespace) -> int:
     """Save the agency's branding typed on the installer's Branding page.
 
@@ -451,6 +501,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send queued messages and reminders for every firm, once.",
     )
     messaging.set_defaults(handler=_messaging_run_once)
+
+    loyalty = subcommands.add_parser(
+        "loyalty-expire",
+        help="Lapse loyalty points that have run out of time, in every firm.",
+    )
+    loyalty.set_defaults(handler=_loyalty_expire)
 
     branding = subcommands.add_parser(
         "set-branding",

@@ -579,6 +579,39 @@ them, against 49 earnings that had all posted. A lapse now posts
 `expire` takes an `actor_id` because a journal with no author is one nobody
 can ask about.
 
+**A lapsed point is not spent, swept or not** (D-PRC-3, 2026-10-06). The
+sweep was the only thing that took a batch out of the balance, and the only
+caller of the sweep was `POST /api/v1/loyalty/expire`, so a firm that never
+pressed it never expired a point: 70 of 70.8 points nine days past their date
+settled 70.00 of a bill. A batch is good **through** its expiry date and
+lapsed from the day after on the firm's own day (`firm_today`) -- the line
+the sweep and the expiring report already drew -- and now the balance, the
+balances report and a redemption draw it too. `GET /loyalty/{customer}`
+answers `points`, `amount` and `redeemable` without what has lapsed, with
+`lapsed_points` beside them, and the balances report carries `lapsed_points`
+and `lapsed_amount` so that `amount + lapsed_amount` is still what Loyalty
+Payable holds until the sweep runs. **Redeeming stages the lapse first**, for
+that customer's overdue batches, in the same transaction and with the same
+`Dr Loyalty Payable / Cr Loyalty Expense`, so the ledger is right the moment
+anybody spends; asking for more than is left answers "That customer holds
+2.3600 points, not 70.0000. 70.8000 more ran out of time on 2026-09-27 and
+can no longer be spent." and writes nothing. The expiring report still lists
+a batch awaiting the sweep: its cost is still owed, and the row is the notice.
+
+**So that the cost does not wait on somebody remembering**, the sweep is a
+subcommand of the shipped binary, `agency-server loyalty-expire`
+(`sweep_every_firm` in `app/loyalty/services/expiry_sweep.py`): every live
+firm from the registry, each in its own store, one line per firm, non-zero
+when a store could not be reached. Nothing schedules it; that is the
+operator's to arrange, as the retention purge is. Its lapses carry the nil
+actor an unattended reservation lapse carries.
+
+**Oldest first is the day, then the order written** (PRCQ-21). The ledger was
+walked by `earned_on` and then by id, and an id is random, so two batches
+credited the same day were spent in either order: 70 points cost 129.47 where
+the older batch first cost 80.53. `created_at` breaks the tie now, in the
+allocation and in the balances report alike.
+
 **Cancelling a bill takes back what is left of the points it earned.**
 `cancel_invoice` reversed the invoice's journal and never touched the
 ledger, so a cancelled sale's points could still be spent and `Loyalty

@@ -59,6 +59,17 @@ _BATCH_KINDS = frozenset(
 )
 
 
+#: Oldest batch first: the day it was credited, then the order it was
+#: written in. The id alone used to break a tie, and it is random, so two
+#: batches credited the same day were spent in either order -- 70 points
+#: cost 129.47 where the older batch first would have cost 80.53 (PRCQ-21).
+_OLDEST_FIRST = (
+    LoyaltyEntry.earned_on.asc(),
+    LoyaltyEntry.created_at.asc(),
+    LoyaltyEntry.id.asc(),
+)
+
+
 class LoyaltyService:
     """Maintain a firm's scheme and every customer's credit under it."""
 
@@ -160,6 +171,12 @@ class LoyaltyService:
         to the screen, so a client cannot offer a redemption the service would
         refuse.
 
+        **Less what has run out of time**, whether or not the sweep has
+        written it off yet (D-PRC-3): a batch past its date is worth nothing
+        at the counter, so it is not in the points, not in their worth and
+        not in what a redemption is checked against. It is reported beside
+        them as `lapsed_points` until the sweep takes it.
+
         Args:
             customer_id: The customer to read.
             firm_scope: The owning firm.
@@ -174,24 +191,26 @@ class LoyaltyService:
         """
         customer = self._customer(customer_id, firm_scope=firm_scope)
         settings = self.settings_for(firm_scope)
-        points = self._points_of(customer_id, firm_scope=firm_scope)
-        worth = self._held_worth(
-            self.unspent_batches(customer_id, firm_scope=firm_scope),
-            current=self._current_rate(firm_scope),
+        today = firm_today(self._session, firm_scope)
+        live, lapsed = self._live_and_lapsed(
+            self.unspent_batches(customer_id, firm_scope=firm_scope), today=today
         )
+        gone = sum((remaining for _, remaining in lapsed), ZERO)
+        points = quantize_money(
+            self._points_of(customer_id, firm_scope=firm_scope) - gone
+        )
+        worth = self._held_worth(live, current=self._current_rate(firm_scope))
         floor = 0 if settings is None else settings.minimum_redemption_points
-        horizon = firm_today(self._session, firm_scope) + timedelta(
-            days=EXPIRING_SOON_DAYS
-        )
-        expiring = self._session.scalar(
-            select(func.coalesce(func.sum(LoyaltyEntry.points), 0)).where(
-                LoyaltyEntry.firm_id == firm_scope,
-                LoyaltyEntry.customer_id == customer_id,
-                LoyaltyEntry.is_deleted.is_(False),
-                LoyaltyEntry.points > ZERO,
-                LoyaltyEntry.expires_on.is_not(None),
-                LoyaltyEntry.expires_on <= horizon,
-            )
+        horizon = today + timedelta(days=EXPIRING_SOON_DAYS)
+        # What is left of the batches still alive, not what they were earned
+        # at: a batch already spent, or already lapsed, is not about to lapse.
+        expiring = sum(
+            (
+                remaining
+                for batch, remaining in live
+                if batch.expires_on is not None and batch.expires_on <= horizon
+            ),
+            ZERO,
         )
         return LoyaltyBalance(
             customer_id=customer.id,
@@ -204,7 +223,8 @@ class LoyaltyService:
                 and points >= Decimal(floor)
                 and points > ZERO
             ),
-            expiring_soon=quantize_money(Decimal(str(expiring or 0))),
+            expiring_soon=quantize_money(expiring),
+            lapsed_points=quantize_money(gone),
         )
 
     def entries(
@@ -790,9 +810,31 @@ class LoyaltyService:
         # Held before the balance is read, or two redemptions both see the
         # same points and both spend them.
         self._hold_customer(invoice.customer_id, firm_scope=firm_scope)
+        # What has run out of time goes first, in this transaction: a batch
+        # past its date was spent like any other until somebody ran the
+        # sweep, and nothing ran it (D-PRC-3). Its cost is released as the
+        # sweep releases it, so the ledger is right the moment anybody
+        # spends; a refusal below rolls it back with everything else, and
+        # the balance leaves lapsed points out either way.
+        gone = self._expire_for(
+            invoice.customer_id,
+            firm_scope=firm_scope,
+            today=firm_today(self._session, firm_scope),
+            actor_id=actor_id,
+        )
         held = self._points_of(invoice.customer_id, firm_scope=firm_scope)
         if asked > held:
-            raise ValidationError(f"That customer holds {held} points, not {asked}.")
+            lapsed = quantize_money(sum((points for _, points in gone), ZERO))
+            raise ValidationError(
+                f"That customer holds {held} points, not {asked}."
+                + (
+                    f" {lapsed} more ran out of time on "
+                    f"{max(batch.expires_on for batch, _ in gone if batch.expires_on)}"
+                    " and can no longer be spent."
+                    if gone
+                    else ""
+                )
+            )
         if held < Decimal(settings.minimum_redemption_points):
             raise ValidationError(
                 f"At least {settings.minimum_redemption_points} points are "
@@ -1029,8 +1071,10 @@ class LoyaltyService:
         for customer_id in self._customers_with_lapsing_points(
             firm_scope=firm_scope, today=today
         ):
-            lapsed += self._expire_for(
-                customer_id, firm_scope=firm_scope, today=today, actor_id=actor_id
+            lapsed += len(
+                self._expire_for(
+                    customer_id, firm_scope=firm_scope, today=today, actor_id=actor_id
+                )
             )
         if lapsed:
             self._session.commit()
@@ -1087,10 +1131,33 @@ class LoyaltyService:
                     LoyaltyEntry.customer_id == customer_id,
                     LoyaltyEntry.is_deleted.is_(False),
                 )
-                .order_by(LoyaltyEntry.earned_on.asc(), LoyaltyEntry.id.asc())
+                .order_by(*_OLDEST_FIRST)
             ).all()
         )
         return self._allocate(entries)
+
+    @staticmethod
+    def _live_and_lapsed(
+        batches: list[tuple[LoyaltyEntry, Decimal]], *, today: date
+    ) -> tuple[list[tuple[LoyaltyEntry, Decimal]], list[tuple[LoyaltyEntry, Decimal]]]:
+        """Split what is left of each batch by whether it can still be spent.
+
+        A batch is good **through** its expiry date and lapsed from the day
+        after, on the firm's own day -- the line the sweep and the expiring
+        report already draw (`expires_on < today`), so the balance, a
+        redemption, the report and the sweep cannot disagree about a batch.
+        """
+        live = [
+            (batch, remaining)
+            for batch, remaining in batches
+            if batch.expires_on is None or batch.expires_on >= today
+        ]
+        lapsed = [
+            (batch, remaining)
+            for batch, remaining in batches
+            if batch.expires_on is not None and batch.expires_on < today
+        ]
+        return live, lapsed
 
     @staticmethod
     def _allocate(entries: list[LoyaltyEntry]) -> list[tuple[LoyaltyEntry, Decimal]]:
@@ -1226,14 +1293,16 @@ class LoyaltyService:
 
     def _expire_for(
         self, customer_id: UUID, *, firm_scope: UUID, today: date, actor_id: UUID
-    ) -> int:
-        """Lapse one customer's unspent, out-of-date batches."""
-        lapsed = 0
-        for batch, remaining in self.unspent_batches(
-            customer_id, firm_scope=firm_scope
-        ):
-            if batch.expires_on is None or batch.expires_on >= today:
-                continue
+    ) -> list[tuple[LoyaltyEntry, Decimal]]:
+        """Lapse one customer's unspent, out-of-date batches; return them.
+
+        Staged and flushed, never committed: the sweep commits once for the
+        firm, and a redemption commits it with the points it spends.
+        """
+        _, lapsed = self._live_and_lapsed(
+            self.unspent_batches(customer_id, firm_scope=firm_scope), today=today
+        )
+        for batch, remaining in lapsed:
             self._lapse(
                 batch,
                 remaining,
@@ -1241,7 +1310,6 @@ class LoyaltyService:
                 today=today,
                 actor_id=actor_id,
             )
-            lapsed += 1
         return lapsed
 
     def _lapse(
@@ -1528,18 +1596,26 @@ class LoyaltyService:
                 LoyaltyEntry.firm_id == firm_scope,
                 LoyaltyEntry.is_deleted.is_(False),
             )
-            .order_by(LoyaltyEntry.earned_on.asc(), LoyaltyEntry.id.asc())
+            .order_by(*_OLDEST_FIRST)
         ).all():
             ledgers.setdefault(row.customer_id, []).append(row)
-        totals: dict[UUID, tuple[Decimal, Decimal]] = {}
+        today = firm_today(self._session, firm_scope)
+        totals: dict[UUID, tuple[Decimal, Decimal, Decimal, Decimal]] = {}
         for customer_id, entries in ledgers.items():
+            # What can be spent, as the customer's own balance says it; what
+            # ran out of time and awaits the sweep is beside it, because
+            # Loyalty Payable still carries its cost until the sweep runs.
+            live, lapsed = self._live_and_lapsed(self._allocate(entries), today=today)
+            gone = quantize_money(sum((remaining for _, remaining in lapsed), ZERO))
             held = quantize_money(
-                sum((Decimal(str(row.points)) for row in entries), ZERO)
+                sum((Decimal(str(row.points)) for row in entries), ZERO) - gone
             )
-            if held > ZERO:
+            if held > ZERO or gone > ZERO:
                 totals[customer_id] = (
                     held,
-                    self._held_worth(self._allocate(entries), current=rate),
+                    self._held_worth(live, current=rate),
+                    gone,
+                    self._held_worth(lapsed, current=rate),
                 )
         names = self._customer_names(set(totals))
         return [
@@ -1548,8 +1624,10 @@ class LoyaltyService:
                 customer_name=names.get(customer_id, str(customer_id)),
                 points=held,
                 amount=worth,
+                lapsed_points=gone,
+                lapsed_amount=gone_worth,
             )
-            for customer_id, (held, worth) in sorted(
+            for customer_id, (held, worth, gone, gone_worth) in sorted(
                 totals.items(), key=lambda i: -i[1][0]
             )
         ]
@@ -1612,10 +1690,11 @@ class LoyaltyService:
         somebody fixed one of them.
 
         A batch already past its date and not yet swept is **kept**, with
-        `awaiting_sweep` true and a negative `days_remaining`: its points are
-        still spendable and still counted in the balance, so hiding the row
-        would understate what the firm owes and say nothing about the sweep
-        being overdue. The row is the notice that it has not run (D-RPT-19).
+        `awaiting_sweep` true and a negative `days_remaining`. Its points can
+        no longer be spent and are out of the balance (D-PRC-3), but their
+        cost is still in Loyalty Payable until the sweep releases it, so
+        hiding the row would say nothing about the sweep being overdue. The
+        row is the notice that it has not run (D-RPT-19).
 
         Args:
             firm_scope: The owning firm.
