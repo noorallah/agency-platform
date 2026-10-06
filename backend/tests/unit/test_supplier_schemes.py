@@ -54,7 +54,11 @@ from app.supplier_schemes.models import SupplierScheme
 from app.supplier_schemes.schemas import SupplierSchemeCreate, SupplierSchemeUpdate
 from app.supplier_schemes.services import SupplierSchemeService
 from app.vendors.models import Vendor
-from tests.unit.test_purchase_chain_synthesis import _Firm
+from tests.unit.test_purchase_chain_synthesis import (
+    _Firm,
+    _order_with_free,
+    _part_bill,
+)
 
 D = Decimal
 # The firm's own day, not the UTC one (D-CFG-25): every firm here is in India.
@@ -878,3 +882,26 @@ def test_the_list_costs_the_same_at_any_length(firm: _Firm) -> None:
     small = _page_statements(firm, 3)
     large = _page_statements(firm, 9)
     assert large <= small, f"{small} statements at 3 rows, {large} at 12"
+
+
+def test_scheme_free_goods_come_in_once_over_part_bills_with_receipts_off(
+    firm: _Firm,
+) -> None:
+    # D-PRC-90: buy 12 get 1 on an order of 24, billed 12 and 12 with the
+    # receipt stage off, put 4 free on the shelf: each part took both.
+    _scheme(firm, buy="12", free="1", valid_from=date(2026, 8, 1), valid_to=None)
+    firm.stages(order=True, receipt=False)
+    order, (line,) = _order_with_free(
+        firm,
+        {"product_id": firm.product.id, "ordered_quantity": "24", "unit_price": "60"},
+    )
+    assert line.free_quantity == D("2")
+
+    first = _part_bill(firm, order, (line, "12", {}))
+    assert (first.total_free_quantity, firm.stock()) == (D("1"), D("13"))
+    second = _part_bill(firm, order, (line, "12", {}))
+    assert (second.total_free_quantity, firm.stock()) == (D("1"), D("26"))
+    free_lines = firm.session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.free_quantity > 0)
+    ).all()
+    assert {row.scheme_name for row in free_lines} == {line.scheme_name}

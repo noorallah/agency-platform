@@ -33,6 +33,8 @@ from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.pricing import continued_free_goods
+from app.core.utils.quantities import plain_quantity
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.goods_receipt.schemas import GoodsReceiptCreate, GoodsReceiptLineWrite
 from app.goods_receipt.services.goods_receipt_service import GoodsReceiptService
@@ -247,17 +249,37 @@ class PurchaseChainService:
         discount -- so the two documents cannot disagree about what was agreed,
         and the batch and dates off the bill line, which is the only place a
         one-person firm types them.
+
+        **The free goods come in once** (D-PRC-90). Each receipt took the
+        bill line's free figure or, where the bill said nothing, the order
+        line's whole one: an order of 24 with 2 free, billed 12 and 12, put 4
+        free units on the shelf. A part brings the share that goes with it,
+        in whole units, and the part that completes the line brings what is
+        left (`continued_free_goods`, the rule a delivery note ships by); a
+        figure typed on the bill stands up to what the order line still has
+        to give.
         """
-        receipt = GoodsReceiptService(self._session).stage_receipt(
+        receipts = GoodsReceiptService(self._session)
+        taken = receipts.taken_by_receipts(order.id, firm_id=firm_id)
+        receipt_lines_in: list[GoodsReceiptLineWrite] = []
+        for order_line, bill_line in pairs:
+            before, already = taken.get(order_line.id, (ZERO, ZERO))
+            free = self._free_goods(
+                order, order_line, bill_line, before=before, already=already
+            )
+            # Two bill lines of one order line share what it has to give.
+            taken[order_line.id] = (
+                before + bill_line.current_invoice_quantity,
+                already + free,
+            )
+            receipt_lines_in.append(self._receipt_line(order_line, bill_line, free))
+        receipt = receipts.stage_receipt(
             GoodsReceiptCreate(
                 purchase_order_id=order.id,
                 receipt_date=data.invoice_date,
                 invoice_reference=data.supplier_invoice_number,
                 remarks=data.remarks,
-                lines=[
-                    self._receipt_line(order_line, bill_line)
-                    for order_line, bill_line in pairs
-                ],
+                lines=receipt_lines_in,
             ),
             firm_id=firm_id,
             actor_id=actor_id,
@@ -299,8 +321,59 @@ class PurchaseChainService:
         )
 
     @staticmethod
+    def _free_goods(
+        order: PurchaseOrder,
+        order_line: PurchaseOrderLine,
+        bill_line: PurchaseInvoiceLineWrite,
+        *,
+        before: Decimal,
+        already: Decimal,
+    ) -> Decimal:
+        """Return the free goods one bill line's receipt brings in.
+
+        Silence takes the order line's free goods by the share billed; a
+        line that charges for nothing (a scheme's free line, a gift) gives
+        what is left of it whole to the first bill that names it.
+
+        Args:
+            order: The order billed, for the refusal's wording.
+            order_line: The order line the bill line continues.
+            bill_line: The bill line as typed.
+            before: The charged quantity the line's other receipts hold.
+            already: The free goods those receipts took.
+
+        Raises:
+            ValidationError: If the bill types more free goods than the order
+                line has left to give.
+
+        """
+        offered = order_line.free_quantity
+        typed = bill_line.free_quantity
+        if typed is None:
+            return continued_free_goods(
+                offered,
+                before=before,
+                part=bill_line.current_invoice_quantity,
+                whole=order_line.ordered_quantity,
+                already=already,
+            )
+        left = max(offered - already, ZERO)
+        if typed > left:
+            raise ValidationError(
+                f"Line {bill_line.line_number} brings in "
+                f"{plain_quantity(typed)} free, and line "
+                f"{order_line.line_number} of {order.po_number} has "
+                f"{plain_quantity(left)} left to give: "
+                f"{plain_quantity(offered)} free on the order, "
+                f"{plain_quantity(already)} already received."
+            )
+        return typed
+
+    @staticmethod
     def _receipt_line(
-        order_line: PurchaseOrderLine, bill_line: PurchaseInvoiceLineWrite
+        order_line: PurchaseOrderLine,
+        bill_line: PurchaseInvoiceLineWrite,
+        free: Decimal,
     ) -> GoodsReceiptLineWrite:
         """Receive one order line, carrying the deal the order already struck.
 
@@ -317,11 +390,6 @@ class PurchaseChainService:
             discount_amount = (
                 discount_amount * quantity / order_line.ordered_quantity
             ).quantize(_QUANTUM)
-        free = (
-            bill_line.free_quantity
-            if bill_line.free_quantity is not None
-            else order_line.free_quantity
-        )
         return GoodsReceiptLineWrite(
             purchase_order_line_id=order_line.id,
             line_number=order_line.line_number,

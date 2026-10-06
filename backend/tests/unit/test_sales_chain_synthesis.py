@@ -2015,3 +2015,89 @@ def test_an_arrangement_nobody_typed_is_resolved_again_when_the_bill_grows() -> 
 
     session.refresh(invoice)
     assert invoice.grand_total == Decimal("360.0000")
+
+
+@pytest.mark.parametrize(
+    ("parts", "free"),
+    [
+        (("12", "12"), ("1", "1")),
+        (("8", "16"), ("0", "2")),
+        (("8", "8", "8"), ("0", "1", "1")),
+    ],
+)
+def test_part_bills_of_an_order_ship_its_free_goods_once(
+    parts: tuple[str, ...], free: tuple[str, ...]
+) -> None:
+    """The selling twin of D-PRC-90: 24 + 2 free billed in parts ships 26.
+
+    With the note stage off each part bill raises its own delivery note; the
+    notes ship the order line's free goods between them, in whole units, the
+    one that completes the line taking what is left -- never the whole free
+    figure on each part.
+    """
+    session = _request_session()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=True, delivery_note=False)
+    actor = uuid4()
+    orders = SalesOrderService(session)
+    order = orders.stage_order(
+        SalesOrderCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=setup.product.id,
+                    quantity=Decimal("24"),
+                    free_quantity=Decimal("2"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    orders.stage_approval(order.id, firm_scope=setup.firm.id, actor_id=actor)
+    session.commit()
+    order_line = session.scalar(select(SalesOrderLine))
+    assert order_line is not None
+    service = SalesInvoiceService(session)
+    left = Decimal("100")
+
+    for quantity, expected in zip(parts, free, strict=True):
+        invoice = service.create_invoice(
+            SalesInvoiceCreate(
+                customer_id=setup.customer.id,
+                invoice_date=date(2026, 8, 4),
+                lines=[
+                    SalesInvoiceLineWrite(
+                        source_document_type="SALES_ORDER",
+                        source_document_id=order.id,
+                        source_document_line_id=order_line.id,
+                        line_number=1,
+                        current_invoice_quantity=Decimal(quantity),
+                    )
+                ],
+            ),
+            firm_id=setup.firm.id,
+            actor_id=actor,
+        )
+        service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+        left -= Decimal(quantity) + Decimal(expected)
+        session.expire_all()
+        billed = session.scalars(
+            select(SalesInvoiceLine).where(
+                SalesInvoiceLine.sales_invoice_id == invoice.id
+            )
+        ).one()
+        assert billed.free_quantity == Decimal(expected)
+        on_hand = session.scalars(select(InventoryRecord)).one().current_quantity
+        assert on_hand == left
+
+    assert left == Decimal("74")
+    assert sum(
+        (line.free_quantity for line in session.scalars(select(DeliveryNoteLine))),
+        Decimal("0"),
+    ) == Decimal("2")
