@@ -117,6 +117,7 @@ from app.sales_order.schemas import (
     SalesOrderSummary,
 )
 from app.sales_order.services.discount_limit import (
+    DiscountedLine,
     DiscountLimitService,
     order_discounts,
 )
@@ -822,17 +823,7 @@ class SalesOrderService(TransactionalDocumentService):
         # chain approves an order nobody typed: its bill is judged instead.
         discount_details = (
             DiscountLimitService(self._session).enforce(
-                firm_scope,
-                actor_id,
-                order_discounts(
-                    self._session.scalars(
-                        select(SalesOrderLine).where(
-                            SalesOrderLine.sales_order_id == row.id,
-                            SalesOrderLine.is_deleted.is_(False),
-                        )
-                    ).all(),
-                    bill_discount_source=row.bill_discount_source,
-                ),
+                firm_scope, actor_id, lambda: self._judged_discounts(row)
             )
             if check_licences
             else None
@@ -3052,6 +3043,30 @@ class SalesOrderService(TransactionalDocumentService):
             actor_id=actor_id,
             document_id=document_id,
             line_number=line_number,
+        )
+
+    def _judged_discounts(self, row: SalesOrder) -> list[DiscountedLine]:
+        """Return what each line of the order had typed off it.
+
+        A typed discount, a typed bill discount's share, and a price typed
+        below the one the customer would otherwise pay (D-PRC-2).
+        """
+        lines = self._session.scalars(
+            select(SalesOrderLine).where(
+                SalesOrderLine.sales_order_id == row.id,
+                SalesOrderLine.is_deleted.is_(False),
+            )
+        ).all()
+        return order_discounts(
+            lines,
+            bill_discount_source=row.bill_discount_source,
+            customer_prices=DiscountLimitService(self._session).customer_prices(
+                lines,
+                firm_id=row.firm_id,
+                customer_id=row.customer_id,
+                territory_id=row.territory_id,
+                on=row.order_date,
+            ),
         )
 
     def _typed_rates_before_tax(

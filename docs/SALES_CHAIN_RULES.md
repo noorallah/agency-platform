@@ -324,6 +324,14 @@ raised rather than authorising it. Of 147 invoices in the seeded stores, none
 carried the flag and all were billed off delivery notes, so nothing needed
 migrating.
 
+**A limit on one box is a limit the next box lifts** (D-PRC-2, 2026-10-06).
+The approver's discount limit judged the discount typed and not the price
+typed, so the person it bound sold at half price with the discount at nothing;
+and the price level on the customer was theirs to change. A control has to
+judge the outcome -- what the line charges against what the customer would
+otherwise pay -- and whoever it binds must not hold the setting that moves the
+yardstick. `PRICING_AND_PROMOTIONS.md` has the rule.
+
 ## A sales order's status follows its deliveries
 
 **A sales order's status follows its deliveries as of 2026-08-23**, the way a

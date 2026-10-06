@@ -114,6 +114,7 @@ class CustomerService:
         self._assert_may_set_standing_discount(
             [data], allowed=may_set_standing_discount
         )
+        self._assert_may_set_price_terms([data], allowed=may_set_standing_discount)
         data = self._held_for_approval(data, firm_id=firm_id, may_approve=may_approve)
         try:
             customer = self.stage_create(data, firm_id=firm_id, actor_id=actor_id)
@@ -141,6 +142,7 @@ class CustomerService:
         self._assert_may_set_standing_discount(
             records, allowed=may_set_standing_discount
         )
+        self._assert_may_set_price_terms(records, allowed=may_set_standing_discount)
         records = [
             self._held_for_approval(data, firm_id=firm_id, may_approve=may_approve)
             for data in records
@@ -375,6 +377,9 @@ class CustomerService:
             customer, values, allowed=may_change_credit_limit
         )
         self._assert_may_change_standing_discount(
+            customer, values, allowed=may_change_standing_discount
+        )
+        self._assert_may_change_price_terms(
             customer, values, allowed=may_change_standing_discount
         )
         self._assert_may_change_money_terms(
@@ -997,6 +1002,81 @@ class CustomerService:
                 "Changing a customer's standing discount needs the manage "
                 "customer settings permission (CUSTOMER_MANAGE_SETTINGS)."
             )
+
+    def _segment_prices(self, group_id: object) -> bool:
+        """Say whether a segment gives its customers a discount or a price."""
+        if not isinstance(group_id, UUID):
+            return False
+        group = self._session.get(CustomerGroup, group_id)
+        return group is not None and (
+            group.default_discount_percent > 0 or group.price_level_id is not None
+        )
+
+    def _assert_may_change_price_terms(
+        self, customer: Customer, values: dict[str, object], *, allowed: bool
+    ) -> None:
+        """Refuse a change to the price a customer buys at by another door.
+
+        A price level is the customer's price list, and a segment that carries
+        a discount or a level gives both to everybody in it. Either moved the
+        price exactly as the standing discount does, and rode on
+        ``CUSTOMER_UPDATE``: a sales manager held to a 5% discount limit could
+        put the customer on a cheaper level and sell at it within the limit
+        (D-PRC-2). Both answer to ``CUSTOMER_MANAGE_SETTINGS`` now, down as
+        well as up. A form resending the stored value is not a change, and a
+        segment that carries neither is a classification anybody who edits
+        customers may set.
+        """
+        if allowed:
+            return
+        if (
+            "price_level_id" in values
+            and values["price_level_id"] != customer.price_level_id
+        ):
+            raise AuthorizationError(
+                "Changing a customer's price level needs the manage customer "
+                "settings permission (CUSTOMER_MANAGE_SETTINGS)."
+            )
+        if "customer_group_id" not in values:
+            return
+        sent = values["customer_group_id"]
+        if sent != customer.customer_group_id and (
+            self._segment_prices(sent)
+            or self._segment_prices(customer.customer_group_id)
+        ):
+            raise AuthorizationError(
+                "Moving a customer into or out of a segment that carries a "
+                "discount or a price level needs the manage customer settings "
+                "permission (CUSTOMER_MANAGE_SETTINGS)."
+            )
+
+    def _assert_may_set_price_terms(
+        self, records: list[CustomerCreate], *, allowed: bool
+    ) -> None:
+        """Refuse a new customer that starts on a price of its own.
+
+        The create and import twin of `_assert_may_change_price_terms`: a
+        price level, or a segment that carries a discount or a level. Blank,
+        and a segment that carries neither, are never refused.
+        """
+        if allowed:
+            return
+        for data in records:
+            if data.price_level_id is not None:
+                raise AuthorizationError(
+                    f"{data.code or data.name}: giving a customer a price "
+                    "level needs the manage customer settings permission "
+                    "(CUSTOMER_MANAGE_SETTINGS). Leave it blank, or ask "
+                    "somebody who holds it."
+                )
+            if self._segment_prices(data.customer_group_id):
+                raise AuthorizationError(
+                    f"{data.code or data.name}: putting a customer in a "
+                    "segment that carries a discount or a price level needs "
+                    "the manage customer settings permission "
+                    "(CUSTOMER_MANAGE_SETTINGS). Leave it blank, or ask "
+                    "somebody who holds it."
+                )
 
     @staticmethod
     def _assert_may_change_money_terms(
