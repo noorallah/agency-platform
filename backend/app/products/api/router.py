@@ -76,6 +76,7 @@ from app.products.services.price_revisions import (
     PriceRevisionResponse,
     PriceRevisionService,
     PriceRevisionWrite,
+    prices_in_force_today,
 )
 from app.products.services.product_import import template_csv, template_workbook
 from app.products.services.product_service import PRODUCT_DUTIES
@@ -761,9 +762,15 @@ def _response(
     db: Session,
     attributes: list[ProductAttributeResponse] | None = None,
     stock: dict[UUID, tuple[Decimal, bool]] | None = None,
+    revised: dict[UUID, dict[str, Decimal]] | None = None,
 ) -> ProductResponse:
-    """Build one product response with its attributes and its stock."""
+    """Build one product response with its attributes, stock and prices."""
     payload = ProductResponse.model_validate(row).model_dump(mode="python")
+    in_force = (
+        prices_in_force_today(db, row.firm_id, [row.id]) if revised is None else revised
+    ).get(row.id, {})
+    for field in ("purchase_price", "selling_price", "mrp"):
+        payload[f"{field}_in_force"] = in_force.get(field, payload[field])
     payload["attributes"] = (
         ProductService(db).attribute_responses(row)
         if attributes is None
@@ -776,6 +783,7 @@ def _response(
         payload["stock_on_hand"], payload["low_stock"] = held
     if not can_view_cost:
         payload["purchase_price"] = None
+        payload["purchase_price_in_force"] = None
     return ProductResponse.model_validate(payload)
 
 
@@ -786,6 +794,11 @@ def _responses(
     service = ProductService(db)
     attributes = service.attribute_responses_for_many(rows)
     stock = service.stock_for_many(rows)
+    revised = (
+        prices_in_force_today(db, rows[0].firm_id, [row.id for row in rows])
+        if rows
+        else {}
+    )
     return [
         _response(
             row,
@@ -793,6 +806,7 @@ def _responses(
             db=db,
             attributes=attributes.get(row.id, []),
             stock=stock,
+            revised=revised,
         )
         for row in rows
     ]

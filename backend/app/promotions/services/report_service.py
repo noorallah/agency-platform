@@ -36,6 +36,7 @@ from app.promotions.schemas import (
     PromotionRedemptionRecord,
     PromotionStatus,
 )
+from app.promotions.services.coupon_crud import offer_statuses, shown_status
 from app.promotions.services.redemption_service import CLAIMED, PENDING, REVERSED
 
 
@@ -143,7 +144,17 @@ class PromotionReportService:
             )
             for group, current in latest.items()
         ]
-        return sorted(records, key=lambda record: (-record.benefit_amount, record.code))
+        # Costliest first, and by the units given where no money was: a
+        # free-goods campaign takes nothing off a bill, so on money alone
+        # every one of them sorted as though it had cost nothing (D-PRC-10).
+        return sorted(
+            records,
+            key=lambda record: (
+                -record.benefit_amount,
+                -record.free_quantity,
+                record.code,
+            ),
+        )
 
     def redemption_report(
         self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
@@ -224,8 +235,11 @@ class PromotionReportService:
             return []
         promotions = {version.id: version for version in self._promotions(firm_scope)}
 
+        offers = offer_statuses(self._session, coupons)
+
         claimed: dict[UUID, int] = {}
         benefit: dict[UUID, Decimal] = {}
+        free: dict[UUID, Decimal] = {}
         customers: dict[UUID, set[UUID]] = {}
         for claim in self._redemptions(firm_scope):
             if claim.coupon_id is None or claim.status != CLAIMED:
@@ -233,6 +247,9 @@ class PromotionReportService:
             claimed[claim.coupon_id] = claimed.get(claim.coupon_id, 0) + 1
             benefit[claim.coupon_id] = benefit.get(claim.coupon_id, ZERO) + Decimal(
                 str(claim.benefit_amount)
+            )
+            free[claim.coupon_id] = free.get(claim.coupon_id, ZERO) + Decimal(
+                str(claim.free_quantity)
             )
             if claim.customer_id is not None:
                 customers.setdefault(claim.coupon_id, set()).add(claim.customer_id)
@@ -243,10 +260,11 @@ class PromotionReportService:
                 code=coupon.code,
                 promotion_id=coupon.promotion_id,
                 promotion_code=getattr(promotions.get(coupon.promotion_id), "code", ""),
-                status=coupon.status,
+                status=shown_status(coupon.status, offers[coupon.id]),
                 claimed_count=claimed.get(coupon.id, 0),
                 customer_count=len(customers.get(coupon.id, ())),
                 benefit_amount=benefit.get(coupon.id, ZERO),
+                free_quantity=free.get(coupon.id, ZERO),
                 max_redemptions=coupon.max_redemptions,
                 remaining_redemptions=(
                     None
@@ -256,7 +274,14 @@ class PromotionReportService:
             )
             for coupon in coupons
         ]
-        return sorted(records, key=lambda record: (-record.benefit_amount, record.code))
+        return sorted(
+            records,
+            key=lambda record: (
+                -record.benefit_amount,
+                -record.free_quantity,
+                record.code,
+            ),
+        )
 
     def _promotions(self, firm_scope: UUID) -> list[Promotion]:
         """Every version of every offer this firm has declared.

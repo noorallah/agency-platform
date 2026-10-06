@@ -170,7 +170,7 @@ def list_coupons(
         search=search,
     )
     return PaginatedResponse(
-        data=[service.coupon_response(row) for row in rows],
+        data=service.coupon_responses(rows),
         pagination=params.metadata(total),
     )
 

@@ -709,6 +709,20 @@ class CommissionPayoutService:
         """
         row = self.get_payout(payout_id, firm_id=firm_id)
         assert_version(row.version, expected_version)
+        # Each state its own answer: telling somebody to approve a payout
+        # that was paid last week sends them looking for a button that is
+        # not there (D-PRC-19).
+        if row.status == CommissionPayoutStatus.PAID.value:
+            paid = "" if row.paid_on is None else f" on {row.paid_on:%d-%m-%Y}"
+            raise ValidationError(
+                f"This payout has already been paid{paid}. It cannot be paid "
+                "a second time."
+            )
+        if row.status == CommissionPayoutStatus.CANCELLED.value:
+            raise ValidationError(
+                "This payout was cancelled, and its entry reversed, so there "
+                "is nothing to pay. Accrue the period again if it is still owed."
+            )
         if row.status != CommissionPayoutStatus.APPROVED.value:
             raise ValidationError(
                 "Only an approved payout can be paid. Approve it first, which "
