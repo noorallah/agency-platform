@@ -112,10 +112,12 @@ class GstSalesRegisterRow:
 
 @dataclass
 class HsnSalesRow:
-    """The outward supplies of one HSN code at one rate, net of credits."""
+    """The outward supplies of one HSN code, unit and rate, net of credits."""
 
     hsn_code: str
     description: str
+    #: The unit ``quantity`` counts: pieces are never added to boxes (D-PRC-50).
+    unit: str
     rate: Decimal
     quantity: Decimal
     taxable_value: Decimal
@@ -534,7 +536,7 @@ class GstSalesRegisterService:
         reader = self._returns
         first = window.from_date or date.min
         last = window.to_date or date.max
-        hsn: dict[tuple[str, str], dict[str, object]] = {}
+        hsn: dict[tuple[str, str, str], dict[str, object]] = {}
         for _, _, lines in reader._invoices(
             firm_scope=firm_id, from_date=first, to_date=last
         ):
@@ -553,7 +555,12 @@ class GstSalesRegisterService:
             reader._fold_hsn(hsn, product, -quantity, -taxable, buckets.negated())
         rows = []
         for folded in sorted(
-            hsn.values(), key=lambda item: (str(item["hsn"]), float(str(item["rate"])))
+            hsn.values(),
+            key=lambda item: (
+                str(item["hsn"]),
+                str(item["unit"]),
+                float(str(item["rate"])),
+            ),
         ):
             filed = reader._filed_row(folded)
             heads = [
@@ -564,6 +571,7 @@ class GstSalesRegisterService:
                 HsnSalesRow(
                     hsn_code=str(filed["hsn"]),
                     description=str(filed["description"] or ""),
+                    unit=str(filed["unit"] or ""),
                     rate=Decimal(str(filed["rate"])),
                     quantity=Decimal(str(filed["quantity"])),
                     taxable_value=Decimal(str(filed["taxable_value"])),

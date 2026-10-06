@@ -340,10 +340,16 @@ def _vendors(session: Session, ids: set[UUID]) -> dict[UUID, tuple[str, str | No
 def _return_part(
     line: PurchaseReturnLine, share: Decimal
 ) -> tuple[Decimal, Decimal, Decimal]:
-    """Return the billed part of a return line: quantity, taxable value, tax."""
+    """Return the billed part of a return line: quantity, taxable value, tax.
+
+    The quantity is the one typed where the line kept it -- 7 for seven
+    pieces of a line bought by the box, which the HSN summary files under
+    the typed unit -- and not the 0.5833 of a box the row stores (D-PRC-50).
+    """
     tax = Decimal(str(line.tax_amount))
+    typed = line.entered_quantity
     return (
-        Decimal(str(line.current_return_quantity)) * share,
+        Decimal(str(line.current_return_quantity if typed is None else typed)) * share,
         (Decimal(str(line.net_amount)) - tax) * share,
         tax * share,
     )
@@ -744,7 +750,13 @@ class GstPurchaseRegisterService:
                 func.coalesce(Product.hsn_sac, ""),
                 Product.name,
                 func.coalesce(Uom.code, ""),
-                PurchaseInvoiceLine.current_invoice_quantity,
+                # What was typed, where the bill was typed in another unit
+                # than the line it bills: the row is filed under the typed
+                # unit, and 7 PIECE read "0.5833 PIECE" (D-PRC-50).
+                func.coalesce(
+                    PurchaseInvoiceLine.entered_quantity,
+                    PurchaseInvoiceLine.current_invoice_quantity,
+                ),
                 PurchaseInvoiceLine.net_amount,
                 PurchaseInvoiceLine.tax_amount,
                 PurchaseInvoice.currency_code,

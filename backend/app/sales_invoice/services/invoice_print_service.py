@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.core.exceptions import ResourceNotFoundError
+from app.core.utils.chunks import chunks
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.document_framework.services.print_support import (
     customer_party,
@@ -191,6 +192,40 @@ def _shipped_as_typed(
     return _as_typed_at_the_counter(ship_to, invoice)
 
 
+def source_line_units(
+    session: Session, sources: Sequence[tuple[str | None, UUID | None]]
+) -> dict[UUID, UUID | None]:
+    """Return the unit of each note or order line a bill line continues.
+
+    Keyed by the source line: its selling unit, else its stock unit. Each
+    entry of ``sources`` is a bill line's ``source_document_type`` and
+    ``source_document_line_id``. Asked in chunks, because GSTR-1's HSN
+    summary asks it of a whole period's lines (D-PRC-50).
+    """
+    note_ids = [line_id for kind, line_id in sources if kind == "DELIVERY_NOTE"]
+    order_ids = [line_id for kind, line_id in sources if kind != "DELIVERY_NOTE"]
+    source_units: dict[UUID, UUID | None] = {}
+    for part in chunks([line_id for line_id in note_ids if line_id is not None]):
+        for line_id, unit, stock in session.execute(
+            select(
+                DeliveryNoteLine.id,
+                DeliveryNoteLine.sales_uom_id,
+                DeliveryNoteLine.inventory_uom_id,
+            ).where(DeliveryNoteLine.id.in_(part))
+        ).all():
+            source_units[line_id] = unit or stock
+    for part in chunks([line_id for line_id in order_ids if line_id is not None]):
+        for line_id, unit, stock in session.execute(
+            select(
+                SalesOrderLine.id,
+                SalesOrderLine.sales_uom_id,
+                SalesOrderLine.inventory_uom_id,
+            ).where(SalesOrderLine.id.in_(part))
+        ).all():
+            source_units[line_id] = unit or stock
+    return source_units
+
+
 def stated_invoice_lines(
     session: Session,
     lines: Sequence[SalesInvoiceLine],
@@ -208,35 +243,10 @@ def stated_invoice_lines(
     answers for a line whose source is gone, and the product's stock unit
     for a line that names none anywhere.
     """
-    note_ids = [
-        line.source_document_line_id
-        for line in lines
-        if line.source_document_type == "DELIVERY_NOTE"
-    ]
-    order_ids = [
-        line.source_document_line_id
-        for line in lines
-        if line.source_document_type != "DELIVERY_NOTE"
-    ]
-    source_units: dict[UUID, UUID | None] = {}
-    if note_ids:
-        for line_id, unit, stock in session.execute(
-            select(
-                DeliveryNoteLine.id,
-                DeliveryNoteLine.sales_uom_id,
-                DeliveryNoteLine.inventory_uom_id,
-            ).where(DeliveryNoteLine.id.in_(note_ids))
-        ).all():
-            source_units[line_id] = unit or stock
-    if order_ids:
-        for line_id, unit, stock in session.execute(
-            select(
-                SalesOrderLine.id,
-                SalesOrderLine.sales_uom_id,
-                SalesOrderLine.inventory_uom_id,
-            ).where(SalesOrderLine.id.in_(order_ids))
-        ).all():
-            source_units[line_id] = unit or stock
+    source_units = source_line_units(
+        session,
+        [(line.source_document_type, line.source_document_line_id) for line in lines],
+    )
     if products is None:
         products = {
             product.id: product

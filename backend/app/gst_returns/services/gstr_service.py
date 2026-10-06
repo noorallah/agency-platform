@@ -87,6 +87,8 @@ from app.tax.services.gst_buckets import (
     settle_to_ledger,
     split_components,
 )
+from app.uom.models import Uom
+from app.uom.services import stated_line
 
 if TYPE_CHECKING:
     from app.customer_debit_note.models import CustomerDebitNote
@@ -264,6 +266,10 @@ _LINE_COLUMNS = (
     SalesInvoiceLine.hsn_sac,
     SalesInvoiceLine.current_invoice_quantity,
     SalesInvoiceLine.entered_quantity,
+    SalesInvoiceLine.invoice_uom_id,
+    SalesInvoiceLine.order_uom_id,
+    SalesInvoiceLine.source_document_type,
+    SalesInvoiceLine.source_document_line_id,
     SalesInvoiceLine.tax_profile_id,
     SalesInvoiceLine.gross_amount,
     SalesInvoiceLine.discount_amount,
@@ -299,10 +305,18 @@ class _Billed:
     The code is the one the invoice line was billed under (D-CMP-22), read off
     the line, and the product's own only for a line written before lines kept
     one -- so correcting a product does not rewrite a month already filed.
+
+    ``unit`` is the code of the unit the line's quantity is stated in, which
+    the summary is keyed on beside the code and the rate: 24 PIECE, 2 BOX and
+    7 PIECE of one code read 33 of nothing in particular (D-PRC-50).
+    ``stock_uom_id`` is the product's own unit, the last answer for a line
+    that names none anywhere.
     """
 
     hsn_sac: str | None
     name: str
+    unit: str = ""
+    stock_uom_id: UUID | None = None
 
 
 @dataclass(slots=True)
@@ -348,10 +362,11 @@ class _Credit:
     document_type: str
     #: Each line as the HSN summary nets it: product, the invoice line it
     #: credits (whose billed code it nets under, D-CMP-22), quantity, taxable
-    #: value and tax (D-CMP-17).
-    items: list[tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets]] = field(
-        default_factory=list
-    )
+    #: value and tax (D-CMP-17), and the unit that quantity is stated in --
+    #: None where the document names none, which reads the invoice line's.
+    items: list[
+        tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets, UUID | None]
+    ] = field(default_factory=list)
 
     @property
     def taxable(self) -> Decimal:
@@ -469,7 +484,7 @@ class GstReturnService:
         b2cl: list[dict[str, object]] = []
         exports: list[dict[str, object]] = []
         b2cs: dict[tuple[str, str], _RateRow] = {}
-        hsn: dict[tuple[str, str], dict[str, object]] = {}
+        hsn: dict[tuple[str, str, str], dict[str, object]] = {}
         unplaced: list[str] = []
         nil: dict[str, dict[str, Decimal]] = {}
 
@@ -607,7 +622,10 @@ class GstReturnService:
             "cdnur": credits.unregistered_large,
             "hsn": [
                 self._filed_row(row)
-                for row in sorted(hsn.values(), key=lambda item: str(item["hsn"]))
+                for row in sorted(
+                    hsn.values(),
+                    key=lambda item: (str(item["hsn"]), str(item["unit"])),
+                )
             ],
             "nil_exempt": [
                 {
@@ -1697,6 +1715,7 @@ class GstReturnService:
             if with_products
             else {}
         )
+        units = self._stated_units(lines, products) if with_products else {}
         customers = self._customers(list({invoice.customer_id for invoice in invoices}))
         by_invoice: dict[UUID, list[Row[Any]]] = defaultdict(list)
         for line in lines:
@@ -1721,7 +1740,11 @@ class GstReturnService:
                             for component in taxes.get(line.id, [])
                         ]
                     ),
-                    self._billed(line.hsn_sac, products.get(line.product_id)),
+                    self._billed(
+                        line.hsn_sac,
+                        products.get(line.product_id),
+                        units.get(line.id, ""),
+                    ),
                     # The quantity the bill states -- 24 for a bill typed
                     # 24 PIECE of a note of 2 BOX -- which is what the
                     # e-invoice of the same line reports (D-PRC-40).
@@ -1887,17 +1910,24 @@ class GstReturnService:
             [
                 product_id
                 for credit in credits
-                for product_id, _, _, _, _ in credit.items
+                for product_id, _, _, _, _, _ in credit.items
                 if product_id is not None
             ]
         )
-        billed_codes = self._billed_codes(
-            [
-                line_id
-                for credit in credits
-                for _, line_id, _, _, _ in credit.items
-                if line_id is not None
-            ]
+        billed_lines = [
+            line_id
+            for credit in credits
+            for _, line_id, _, _, _, _ in credit.items
+            if line_id is not None
+        ]
+        billed_codes = self._billed_codes(billed_lines)
+        # A line is netted in the unit it states -- 7 PIECE off a bill typed
+        # 24 PIECE leaves 17 -- and one that names none (a financial note)
+        # in the unit of the invoice line it credits (D-PRC-50).
+        billed_units = self._billed_units(billed_lines, products)
+        own_units = self._unit_codes(
+            [unit for credit in credits for *_, unit in credit.items]
+            + [product.stock_uom_id for product in products.values()]
         )
         for credit in credits:
             answer.hsn.extend(
@@ -1906,6 +1936,9 @@ class GstReturnService:
                         self._billed(
                             billed_codes.get(line_id) if line_id else None,
                             products.get(product_id),
+                            (own_units.get(unit, "") if unit else "")
+                            or (billed_units.get(line_id, "") if line_id else "")
+                            or self._stock_unit(products.get(product_id), own_units),
                         )
                         if product_id is not None
                         else None
@@ -1914,7 +1947,14 @@ class GstReturnService:
                     taxable,
                     buckets,
                 )
-                for product_id, line_id, quantity, taxable, buckets in credit.items
+                for (
+                    product_id,
+                    line_id,
+                    quantity,
+                    taxable,
+                    buckets,
+                    unit,
+                ) in credit.items
             )
             customer = customers.get(credit.customer_id)
             gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
@@ -2150,12 +2190,15 @@ class GstReturnService:
             ]
         )
         rates: dict[Decimal, _RateRow] = {}
-        items: list[tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets]] = []
+        items: list[
+            tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets, UUID | None]
+        ] = []
         for (product_id, source, quantity, line_taxable, rate, _), buckets in zip(
             parts, settled, strict=True
         ):
             rates.setdefault(rate, _RateRow(rate=rate)).add(line_taxable, buckets)
-            items.append((product_id, source, quantity, line_taxable, buckets))
+            # A note's line carries no unit: it reads its invoice line's.
+            items.append((product_id, source, quantity, line_taxable, buckets, None))
         return _Credit(
             number=number,
             issued_on=issued_on,
@@ -2279,7 +2322,9 @@ class GstReturnService:
                 ]
             )
             items: list[
-                tuple[UUID | None, UUID | None, Decimal, Decimal, GstBuckets]
+                tuple[
+                    UUID | None, UUID | None, Decimal, Decimal, GstBuckets, UUID | None
+                ]
             ] = []
             for line, buckets in zip(ordered, settled, strict=True):
                 # What the line credited before tax: `net_amount` carries the
@@ -2294,14 +2339,28 @@ class GstReturnService:
                 bill = credited(line)
                 if bill is not None and bill[0] not in billed:
                     bill = None
+                # As the credit note states the line -- 7 PIECE for seven
+                # pieces off a line sold by the box, where the row stores
+                # 0.5833 of a box -- through the function its print reads
+                # (D-PRC-50).
+                stated = stated_line(
+                    quantity=line.current_return_quantity,
+                    free_quantity=line.free_quantity,
+                    unit_price=line.unit_price,
+                    source_uom_id=line.sales_uom_id,
+                    typed_uom_id=line.return_uom_id,
+                    entered_quantity=line.entered_quantity,
+                    conversion_factor=line.conversion_factor,
+                )
                 items.append(
                     (
                         line.product_id,
                         # The invoice line it returns, when it returns a bill.
                         None if bill is None else bill[1],
-                        Decimal(str(line.current_return_quantity)) * share,
+                        stated.quantity * share,
                         taxable,
                         buckets,
+                        stated.uom_id,
                     )
                 )
                 if bill is not None and bill[0] not in against:
@@ -2534,14 +2593,106 @@ class GstReturnService:
         }
 
     @staticmethod
-    def _billed(code: str | None, product: _Billed | None) -> _Billed | None:
-        """Return one line's code as billed, falling back to the product's."""
+    def _billed(
+        code: str | None, product: _Billed | None, unit: str = ""
+    ) -> _Billed | None:
+        """Return one line's code as billed, falling back to the product's.
+
+        ``unit`` is the code of the unit the line's quantity is stated in.
+        """
         if product is None and not code:
             return None
         return _Billed(
             hsn_sac=code or (product.hsn_sac if product is not None else None),
             name=product.name if product is not None else "",
+            unit=unit,
         )
+
+    @staticmethod
+    def _stock_unit(product: _Billed | None, codes: dict[UUID, str]) -> str:
+        """Return the code of a product's own unit, or nothing."""
+        if product is None or product.stock_uom_id is None:
+            return ""
+        return codes.get(product.stock_uom_id, "")
+
+    def _stated_units(
+        self, lines: Sequence[Row[Any]], products: dict[UUID, _Billed]
+    ) -> dict[UUID, str]:
+        """Return the code of the unit each invoice line's quantity is stated in.
+
+        The printed bill's own answer (``stated_invoice_lines``, D-PRC-40):
+        the unit typed where the line kept what was typed, else the unit of
+        the note or order line it bills, then the line's own, then the
+        product's stock unit. Read for the HSN summary only, which is keyed
+        on it: a quantity is a quantity *of* something, and pieces added to
+        boxes are neither (D-PRC-50).
+        """
+        # Imported here: that package's own services import this module.
+        from app.sales_invoice.services.invoice_print_service import (
+            source_line_units,
+        )
+
+        typed = {
+            line.id: line.invoice_uom_id
+            for line in lines
+            if line.entered_quantity is not None and line.invoice_uom_id is not None
+        }
+        sources = source_line_units(
+            self._session,
+            [
+                (line.source_document_type, line.source_document_line_id)
+                for line in lines
+                if line.id not in typed
+            ],
+        )
+        stated: dict[UUID, UUID | None] = {
+            line.id: typed.get(line.id)
+            or sources.get(line.source_document_line_id)
+            or line.order_uom_id
+            or line.invoice_uom_id
+            or getattr(products.get(line.product_id), "stock_uom_id", None)
+            for line in lines
+        }
+        codes = self._unit_codes(list(stated.values()))
+        return {
+            line_id: codes.get(unit, "") if unit else ""
+            for line_id, unit in stated.items()
+        }
+
+    def _billed_units(
+        self, line_ids: list[UUID], products: dict[UUID, _Billed]
+    ) -> dict[UUID, str]:
+        """Return the unit code each of these invoice lines states, by line."""
+        if not line_ids:
+            return {}
+        rows = [
+            row
+            for part in chunks(list(set(line_ids)))
+            for row in self._session.execute(
+                select(
+                    SalesInvoiceLine.id,
+                    SalesInvoiceLine.product_id,
+                    SalesInvoiceLine.entered_quantity,
+                    SalesInvoiceLine.invoice_uom_id,
+                    SalesInvoiceLine.order_uom_id,
+                    SalesInvoiceLine.source_document_type,
+                    SalesInvoiceLine.source_document_line_id,
+                ).where(SalesInvoiceLine.id.in_(part))
+            ).all()
+        ]
+        return self._stated_units(rows, products)
+
+    def _unit_codes(self, unit_ids: Sequence[UUID | None]) -> dict[UUID, str]:
+        """Return the code of each unit named: a firm has a handful."""
+        wanted = {unit for unit in unit_ids if unit is not None}
+        if not wanted:
+            return {}
+        return {
+            unit_id: code
+            for unit_id, code in self._session.execute(
+                select(Uom.id, Uom.code).where(Uom.id.in_(wanted))
+            ).all()
+        }
 
     def _billed_codes(self, line_ids: list[UUID]) -> dict[UUID, str]:
         """Return the code each invoice line was billed under, where it kept one."""
@@ -2560,7 +2711,7 @@ class GstReturnService:
 
     def _fold_hsn(
         self,
-        hsn: dict[tuple[str, str], dict[str, object]],
+        hsn: dict[tuple[str, str, str], dict[str, object]],
         product: _Billed | None,
         quantity: Decimal,
         taxable: Decimal,
@@ -2571,14 +2722,23 @@ class GstReturnService:
         A product with no HSN is folded under a blank code rather than
         dropped: the summary has to add up to the supplies above it, and a
         missing code is a master to fix, not a supply to hide.
+
+        **One row per code, unit and rate** -- Table 12's own shape (HSN,
+        UQC, rate) -- so a quantity is only ever added to quantities of the
+        same unit: 24 PIECE, 2 BOX and 7 PIECE of one code read 33 on one
+        row (D-PRC-50). ``unit`` is this firm's unit code, not a portal UQC:
+        nothing maps one to the other yet. The values and the tax are the
+        same rupees whichever row they sit on, so no total above moves.
         """
         code = (getattr(product, "hsn_sac", None) or "").strip()
-        key = (code, str(buckets.rate))
+        unit = getattr(product, "unit", "") or ""
+        key = (code, unit, str(buckets.rate))
         row = hsn.setdefault(
             key,
             {
                 "hsn": code,
                 "description": getattr(product, "name", ""),
+                "unit": unit,
                 "rate": float(buckets.rate),
                 "quantity": 0.0,
                 "taxable_value": 0.0,
@@ -2734,11 +2894,19 @@ class GstReturnService:
         if not ids:
             return {}
         return {
-            row.id: _Billed(hsn_sac=row.hsn_sac, name=row.name)
+            row.id: _Billed(
+                hsn_sac=row.hsn_sac,
+                name=row.name,
+                stock_uom_id=row.base_uom_id or row.inventory_uom_id,
+            )
             for row in self._session.execute(
-                select(Product.id, Product.hsn_sac, Product.name).where(
-                    Product.id.in_(ids)
-                )
+                select(
+                    Product.id,
+                    Product.hsn_sac,
+                    Product.name,
+                    Product.base_uom_id,
+                    Product.inventory_uom_id,
+                ).where(Product.id.in_(ids))
             ).all()
         }
 
