@@ -188,7 +188,7 @@ the subprocess, was the actual problem, and it must not come back.
 
 **2. There is now one entry point, `backend/app/cli.py`.** Everything an
 installed copy does is a subcommand of it — `serve`, `create-database`,
-`migrate-all`, `firm-count`, `purge-retention`, `backup`, `messaging-run-once`, `set-branding`, `where`, `check`, `quick-check`, `--version` — so there is one thing
+`migrate-all`, `firm-count`, `purge-retention`, `backup`, `messaging-run-once`, `loyalty-expire`, `set-branding`, `where`, `check`, `quick-check`, `--version` — so there is one thing
 to compile rather than seventeen scripts. `install.ps1` used to hold a Python
 program in a here-string and pipe it into the interpreter on stdin, which
 cannot work where there is no interpreter; that program is now

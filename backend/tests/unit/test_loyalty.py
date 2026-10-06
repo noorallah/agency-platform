@@ -636,13 +636,25 @@ def test_expiry_takes_only_the_unspent_part_of_a_batch() -> None:
     books = _Books(_session_factory()())
     books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
     books.spend("60", on=date(2026, 6, 15))
-    assert books.points() == Decimal("40.0000")
-
-    LoyaltyService(books.session).expire(
-        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 8, 1)
+    service = LoyaltyService(books.session)
+    # Past its date, the forty are out of the balance before any sweep
+    # (D-PRC-3) and named as awaiting it.
+    before = service.balance(books.customer.id, firm_scope=books.firm.id)
+    assert (before.points, before.lapsed_points) == (
+        Decimal("0.0000"),
+        Decimal("40.0000"),
     )
 
-    assert books.points() == Decimal("0.0000")
+    service.expire(firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 8, 1))
+
+    after = service.balance(books.customer.id, firm_scope=books.firm.id)
+    assert (after.points, after.lapsed_points) == (Decimal("0.0000"), Decimal("0"))
+    taken = books.session.scalars(
+        select(LoyaltyEntry.points).where(
+            LoyaltyEntry.kind == LoyaltyEntryKind.EXPIRED.value
+        )
+    ).all()
+    assert taken == [Decimal("-40.0000")]
 
 
 def test_a_spend_consumes_the_batch_closest_to_lapsing() -> None:
@@ -756,10 +768,10 @@ def test_a_batch_already_spent_is_not_warned_about() -> None:
 def test_a_batch_past_its_date_and_unswept_says_so() -> None:
     """D-RPT-19: it was listed with a negative `days_remaining` and no reason.
 
-    The points are still spendable and still in the balance until the sweep
-    runs, so dropping the row would understate what the firm owes and say
-    nothing about the sweep being overdue. The row stays and carries
-    `awaiting_sweep`, which is what explains the negative number beside it.
+    The points can no longer be spent and are out of the balance (D-PRC-3),
+    but their cost is still owed until the sweep releases it, so dropping the
+    row would say nothing about the sweep being overdue. The row stays and
+    carries `awaiting_sweep`, which explains the negative number beside it.
     """
     books = _Books(_session_factory()())
     books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
@@ -774,7 +786,7 @@ def test_a_batch_past_its_date_and_unswept_says_so() -> None:
     assert lapsed.days_remaining < 0
     assert (standing.points, standing.awaiting_sweep) == (Decimal("50.0000"), False)
     assert standing.days_remaining == 30
-    assert books.points() == Decimal("150.0000"), "still held until the sweep runs"
+    assert books.points() == Decimal("50.0000"), "lapsed points are not held"
 
 
 def test_balances_leave_out_a_customer_holding_nothing() -> None:
