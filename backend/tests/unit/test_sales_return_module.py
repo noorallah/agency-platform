@@ -6,13 +6,15 @@ about the other two books -- what the shelf holds and what the ledger says it
 is worth -- because those are the ones that were silently wrong.
 """
 
+import importlib.util
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, inspect, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -66,7 +68,12 @@ from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
 from app.sales_return.billing import billed_part, credits_a_bill
-from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
+from app.sales_return.models import (
+    SalesReturn,
+    SalesReturnBillPlacement,
+    SalesReturnLine,
+    SalesReturnLineTax,
+)
 from app.sales_return.schemas import (
     SalesReturnCreate,
     SalesReturnImportRequest,
@@ -2350,18 +2357,22 @@ def test_a_note_billed_in_parts_is_asked_again_of_every_bill_at_completion() -> 
         )
 
 
-def test_units_named_on_a_bill_are_that_bills_whatever_came_off_the_note() -> None:
-    """Two back off the note, then one named on the first bill's own line.
+def test_a_return_off_the_note_that_waits_gives_way_to_a_named_unit() -> None:
+    """A return off the note that has not completed gives way to a named unit.
 
-    The two off the note are then one of each bill's, so the unit named on
-    the first bill is worth its 100.00 and the last one, on the second, its
-    own: 400.00 in all for the four.
+    Two off the note, approved and no more: nothing has been credited, so
+    its split is not settled. One named on the first bill's own line takes
+    that bill's unit, and the waiting return is then worth one unit of each
+    bill -- 400.00 in all for the four once the last comes back too.
     """
     session = _session_factory()()
     setup, second = _billed_in_two(session)
-    _returned(setup, setup.payload(quantity=Decimal("2")))
+    waiting = _returned(setup, setup.payload(quantity=Decimal("2")), complete=False)
 
     named = _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    SalesReturnService(session).complete_return(
+        waiting.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
     last = _returned(setup, _on_the_line_of(setup, second, "1"))
 
     assert (named.subtotal, last.subtotal) == (
@@ -2369,6 +2380,300 @@ def test_units_named_on_a_bill_are_that_bills_whatever_came_off_the_note() -> No
         Decimal("100.0000"),
     )
     assert sum(credit.amount for credit in _credits(session)) == Decimal("400.00")
+    assert _placed(session, waiting) == [
+        (setup.invoice.id, Decimal("1.0000"), Decimal("100.0000")),
+        (second.id, Decimal("1.0000"), Decimal("100.0000")),
+    ]
+
+
+# ---- a completed return stays on the bill it was set against (D-PRC-72) -----
+#
+# The seventh pricing check (2026-10-06): two bills of 1,416.00, a credit note
+# of 472.00 on the second, one box back off the note and then one box named
+# on the first bill's own line. The split of the return off the note was
+# worked out afresh on every read, so the named box pushed it onto the second
+# bill -- where its value did not fit -- and was itself priced at the first
+# bill's full worth: 3,304.00 credited against 2,832.00, and 472.00 short
+# with the note on the first bill. The split is written down at completion
+# now. Here the note of four at 100.00 is billed as two bills of two.
+
+
+def _placed(session: Session, row: SalesReturn) -> list[tuple[UUID, Decimal, Decimal]]:
+    """Return the bill, units and value of each placement a return wrote."""
+    found = session.scalars(
+        select(SalesReturnBillPlacement).where(
+            SalesReturnBillPlacement.sales_return_id == row.id,
+            SalesReturnBillPlacement.is_deleted.is_(False),
+        )
+    ).all()
+    dated = {
+        bill.id: (bill.invoice_date, bill.invoice_number)
+        for bill in session.scalars(select(SalesInvoice)).all()
+    }
+    return [
+        (item.sales_invoice_id, item.quantity, item.taxable_amount)
+        for item in sorted(found, key=lambda item: dated[item.sales_invoice_id])
+    ]
+
+
+def _credited_in_all(setup: _Dispatch, *bills: SalesInvoice) -> Decimal:
+    """Return what returns and credit notes took off these bills together."""
+    return sum((_off_the_bill(setup, bill) for bill in bills), Decimal("0"))
+
+
+@pytest.mark.parametrize("noted", ["second", "first"])
+def test_units_back_off_the_note_do_not_come_back_again_on_the_bills_line(
+    noted: str,
+) -> None:
+    """Two off the note took the first bill's two; they are not its again.
+
+    With 80.00 credited on the second bill the two named on the first were
+    priced at its full 200.00 -- 480.00 against bills of 400.00 -- and with
+    it on the first, 320.00. Refused by name now, and the same goods off the
+    note are credited on the bill that still carries them: 400.00 either way.
+    """
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _credit_note_on(setup, second if noted == "second" else setup.invoice, "80")
+    first = _returned(setup, setup.payload(quantity=Decimal("2")))
+    on_the_first = Decimal("200.0000") if noted == "second" else Decimal("120.0000")
+    assert _placed(session, first) == [
+        (setup.invoice.id, Decimal("2.0000"), on_the_first)
+    ]
+
+    with pytest.raises(ValidationError) as refusal:
+        _returned(setup, _on_the_line_of(setup, setup.invoice, "2"))
+    session.rollback()
+
+    message = str(refusal.value)
+    assert f"{setup.invoice.invoice_number} line 1 billed 2" in message
+    assert "2 of that has already come back" in message
+    assert f"Raise the return off {setup.note.delivery_note_number}" in message
+    rest = _returned(setup, setup.payload(quantity=Decimal("2")))
+    assert rest.subtotal == Decimal("400") - Decimal("80") - on_the_first
+    assert _placed(session, first) == [
+        (setup.invoice.id, Decimal("2.0000"), on_the_first)
+    ]
+    assert _off_the_bill(setup, setup.invoice) == Decimal("200.00")
+    assert _off_the_bill(setup, second) == Decimal("200.00")
+
+
+def test_the_other_bills_own_line_takes_the_units_still_out() -> None:
+    """Two off the note, then the second bill's two by name: 400.00 in all."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _credit_note_on(setup, second, "80")
+    _returned(setup, setup.payload(quantity=Decimal("2")))
+
+    named = _returned(setup, _on_the_line_of(setup, second, "2"))
+
+    assert named.subtotal == Decimal("120.0000")
+    assert _credited_in_all(setup, setup.invoice, second) == Decimal("400.00")
+
+
+def test_a_bills_own_line_first_and_the_note_second() -> None:
+    """Named on the first bill, then the rest off the note: the second's."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _credit_note_on(setup, setup.invoice, "80")
+
+    named = _returned(setup, _on_the_line_of(setup, setup.invoice, "2"))
+    rest = _returned(setup, setup.payload(quantity=Decimal("2")))
+
+    assert (named.subtotal, rest.subtotal) == (
+        Decimal("120.0000"),
+        Decimal("200.0000"),
+    )
+    assert _placed(session, rest) == [
+        (second.id, Decimal("2.0000"), Decimal("200.0000"))
+    ]
+    assert _credited_in_all(setup, setup.invoice, second) == Decimal("400.00")
+
+
+def test_one_unit_off_the_note_leaves_the_bills_other_unit_to_be_named() -> None:
+    """One of the first bill's two came back off the note; one is still out."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    first = _returned(setup, setup.payload(quantity=Decimal("1")))
+
+    named = _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    with pytest.raises(ValidationError, match="0 is left to return against this bill"):
+        _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    session.rollback()
+    rest = _returned(setup, setup.payload(quantity=Decimal("2")))
+
+    assert named.subtotal == Decimal("100.0000")
+    assert _placed(session, first) == [
+        (setup.invoice.id, Decimal("1.0000"), Decimal("100.0000"))
+    ]
+    assert _placed(session, rest) == [
+        (second.id, Decimal("2.0000"), Decimal("200.0000"))
+    ]
+    came_back = returned_units_against(
+        session, firm_id=setup.firm.id, invoice_ids=[setup.invoice.id, second.id]
+    )
+    assert {
+        line_id: sum(units.quantity for units in found)
+        for line_id, found in came_back.items()
+    } == {
+        _bill_line(session, setup.invoice).id: Decimal("2.0000"),
+        _bill_line(session, second).id: Decimal("2.0000"),
+    }
+
+
+@pytest.mark.parametrize("noted", [0, 1, 2])
+def test_three_bills_are_each_credited_what_they_charged(noted: int) -> None:
+    """Bills of one, one and two, with 40.00 credited on each in turn.
+
+    One off the note, one named on the third bill, then the last two off the
+    note: every bill is credited exactly what it charged, whichever carries
+    the credit note.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("1"))
+    invoices = SalesInvoiceService(session)
+    bills = [setup.invoice] + [
+        invoices.approve_invoice(
+            setup.bill(Decimal(quantity)).id,
+            firm_scope=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+        for quantity in ("1", "2")
+    ]
+    _credit_note_on(setup, bills[noted], "40")
+
+    first = _returned(setup, setup.payload(quantity=Decimal("1")))
+    named = _returned(setup, _on_the_line_of(setup, bills[2], "1"))
+    rest = _returned(setup, setup.payload(quantity=Decimal("2")))
+
+    assert first.subtotal + named.subtotal + rest.subtotal == Decimal("360.0000")
+    assert [_off_the_bill(setup, bill) for bill in bills] == [
+        Decimal("100.00"),
+        Decimal("100.00"),
+        Decimal("200.00"),
+    ]
+    assert [bill for bill, _units, _value in _placed(session, rest)] == [
+        bills[1].id,
+        bills[2].id,
+    ]
+
+
+def test_a_cancelled_return_gives_its_units_back_to_the_bill() -> None:
+    """Two off the note, cancelled: the first bill's two can be named again."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    first = _returned(setup, setup.payload(quantity=Decimal("2")))
+    SalesReturnService(session).cancel_return(
+        first.id, firm_scope=setup.firm.id, actor_id=setup.actor_id, reason="Mistake"
+    )
+    assert _placed(session, first) == []
+    assert _off_the_bill(setup, setup.invoice) == Decimal("0")
+
+    named = _returned(setup, _on_the_line_of(setup, setup.invoice, "2"))
+    rest = _returned(setup, setup.payload(quantity=Decimal("2")))
+
+    assert (named.subtotal, rest.subtotal) == (
+        Decimal("200.0000"),
+        Decimal("200.0000"),
+    )
+    assert _off_the_bill(setup, setup.invoice) == Decimal("200.00")
+    assert _off_the_bill(setup, second) == Decimal("200.00")
+
+
+def test_a_bill_dated_earlier_does_not_take_a_completed_returns_units() -> None:
+    """A return set against a bill stays there when an earlier bill appears.
+
+    Two of four billed. Two come back before billing and credit nothing; one
+    more comes back and is the bill's. The first return is cancelled, and
+    the two units it freed are billed on a bill **dated before** the first.
+    Worked out afresh, the completed return moved onto that earlier bill.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("2"))
+    unbilled = _returned(setup, setup.payload(quantity=Decimal("2")))
+    kept = _returned(setup, setup.payload(quantity=Decimal("1")))
+    SalesReturnService(session).cancel_return(
+        unbilled.id, firm_scope=setup.firm.id, actor_id=setup.actor_id, reason="Kept"
+    )
+    earlier = setup.bill(Decimal("2"))
+    earlier.invoice_date = date(2026, 8, 3)
+    session.commit()
+    earlier = SalesInvoiceService(session).approve_invoice(
+        earlier.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+    _credit_note_on(setup, earlier, "40")
+
+    rest = _returned(setup, setup.payload(quantity=Decimal("3")))
+
+    assert _placed(session, kept) == [
+        (setup.invoice.id, Decimal("1.0000"), Decimal("100.0000"))
+    ]
+    assert _placed(session, rest) == [
+        (earlier.id, Decimal("2.0000"), Decimal("160.0000")),
+        (setup.invoice.id, Decimal("1.0000"), Decimal("100.0000")),
+    ]
+    assert _off_the_bill(setup, setup.invoice) == Decimal("200.00")
+    assert _off_the_bill(setup, earlier) == Decimal("200.00")
+
+
+def test_a_completed_return_with_nothing_written_is_still_worked_out() -> None:
+    """One that completed before the split was written down reads as it did."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    row = _returned(setup, setup.payload(quantity=Decimal("3")))
+    session.query(SalesReturnBillPlacement).delete()
+    session.commit()
+
+    assert _placed(session, row) == []
+    assert _off_the_bill(setup, setup.invoice) == Decimal("200.00")
+    assert _off_the_bill(setup, second) == Decimal("100.00")
+
+
+def _backfill_0346(session: Session) -> None:
+    """Run the backfill of ``20261006_0346`` over the session's store."""
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "20261006_0346_sales_return_bill_placements.py"
+    )
+    spec = importlib.util.spec_from_file_location("_placements_0346", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    bind = session.connection()
+    module._backfill(bind, inspect(bind))
+    session.commit()
+
+
+@pytest.mark.parametrize("noted", ["second", "first"])
+def test_the_migration_places_a_completed_return_where_it_read(noted: str) -> None:
+    """Returns completed before the split was kept are given the one they read.
+
+    Two named on the first bill, three off the note in two returns, and a
+    credit note: the backfill writes exactly what completion writes now, so
+    every bill reads after it what it read before. Run again, it adds
+    nothing.
+    """
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _credit_note_on(setup, second if noted == "second" else setup.invoice, "40")
+    _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    rows = [
+        _returned(setup, setup.payload(quantity=Decimal("2"))),
+        _returned(setup, setup.payload(quantity=Decimal("1"))),
+    ]
+    written = [_placed(session, row) for row in rows]
+    assert [len(found) for found in written] == [2, 1]
+    session.query(SalesReturnBillPlacement).delete()
+    session.commit()
+
+    _backfill_0346(session)
+
+    assert [_placed(session, row) for row in rows] == written
+    assert _credited_in_all(setup, setup.invoice, second) == Decimal("400.00")
+    _backfill_0346(session)
+    assert session.scalar(select(func.count(SalesReturnBillPlacement.id))) == 3
 
 
 def test_each_bills_own_tax_is_reversed_on_its_share() -> None:

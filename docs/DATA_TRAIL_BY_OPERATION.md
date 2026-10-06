@@ -2126,6 +2126,12 @@ The stock side is §10.6; this is the whole request.
     Sold 120.00**, at the movement's value;
   - receivable row `CREDIT_NOTE`, `reference_type` `SALES_RETURN`, 193.28 —
     Outstanding 823.93 → 630.65 in `fx_t0916h2j3_s`;
+  - for a line raised off a **delivery note**, one
+    `sales_return_bill_placements` row per bill line its billed units were
+    set against (`sales_invoice_id`, `sales_invoice_line_id`, `quantity`,
+    `taxable_amount`, `net_amount`) -- written once and read as stored ever
+    after (D-PRC-72); a line raised on a bill's own line writes none, and
+    neither do units no bill had charged;
   - `sales_returns.status` COMPLETED, `completed_at`, `journal_entry_id`,
     `cost_journal_entry_id`; lifecycle `COMPLETED`;
   - **audit — seven rows, one request** (confirmed):
@@ -2136,8 +2142,8 @@ The stock side is §10.6; this is the whole request.
   original's date — D-STK-9), `SR-…-REV` and `SR-…-COST-REV` (both dated the
   first of the period — D-BUY-4), the originals REVERSED, a receivable
   `REVERSAL` by the stored deltas, `inventory_transaction_id`,
-  `journal_entry_id` and `cost_journal_entry_id` cleared, `cancel_reason`;
-  nine audit rows. Confirmed on WHOLE01 SR-2026-2027-000004.
+  `journal_entry_id` and `cost_journal_entry_id` cleared, `cancel_reason`,
+  its `sales_return_bill_placements` marked deleted; nine audit rows. Confirmed on WHOLE01 SR-2026-2027-000004.
 - **Close** only from COMPLETED ("Only completed sales returns can be
   closed.") — the Buying defect does not recur here. Delete: DRAFT only, soft,
   audit `sales_return.deleted`.
