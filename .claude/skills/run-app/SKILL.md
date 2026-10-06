@@ -8,7 +8,7 @@ description: Launch and drive this platform for real — the FastAPI backend and
 Two processes: the FastAPI backend (all business logic) and the Flutter
 Windows client (REST only, no database). The backend is where every
 behavioural change lives and is fully drivable with `curl`. The desktop
-client can be launched and inspected but **cannot be clicked** — see
+client can be launched, inspected and clicked through `integration_test` — see
 [Driving the desktop](#driving-the-desktop).
 
 Everything below was verified on 2026-08-10 against the seeded local
@@ -146,11 +146,26 @@ for l in data.splitlines():
 A freshly launched client sits on `LoginScreen`. A tree of a few hundred
 widgets and no exception in `run.log` means the app is alive and drawing.
 
-There is **no click automation**. Flutter on Windows has no Playwright
-equivalent, and `flutter_driver` is not wired up in this repo. To exercise
-a screen you either add a widget test under `desktop/test/` (fast, and
-where the existing coverage lives) or add `flutter_driver` and write a
-driver. Do not claim a screen was verified by clicking when it was not.
+**Clicking works through `integration_test`** (added 2026-10-07; before
+that this section said the desktop could not be clicked). A flow under
+`desktop/integration_test/` starts the real phase 2 app, signs in through the
+real sign-in screen and drives real controls against a running backend:
+
+```bash
+cd desktop
+bash integration_test/run.sh sign_in_flow_test.dart            # backend on 8000
+bash integration_test/run.sh sign_in_flow_test.dart http://127.0.0.1:8010
+```
+
+`run.sh` gives the app a scratch `APPDATA` and a file-backed sign-in
+(`--dart-define=SESSION_STORE=file`), so a person's preferences and saved
+sign-in are never touched and every run starts signed out; it stops the copy it
+started and prints the result lines. The first build takes about two minutes
+and wants more than 3 GB free. `harness.dart` holds `startAndSignIn`,
+`pumpUntil` (never `pumpAndSettle` against a live server) and `textOnScreen`,
+which is how a flow says what it was looking at, since screenshots are blank.
+A flow proves a screen's main path; figures and edge cases stay with the HTTP
+checks. Do not claim a screen was verified by clicking unless its flow ran.
 
 ## Cleanup
 
@@ -180,5 +195,5 @@ powershell -Command "Get-CimInstance Win32_Process -Filter \"name='python.exe'\"
 
 - **Backend change** → drive the endpoint with `curl`, read the body, and
   say what it returned. This is a full verification.
-- **Desktop change** → the widget test is the verification; launching adds
-  that the app builds, boots and renders. Say which of the two you did.
+- **Desktop change** → the widget test covers the screen on its own; a click
+  flow covers it against the real server. Say which of the two you ran.

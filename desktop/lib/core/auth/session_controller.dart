@@ -33,7 +33,7 @@ class SessionController extends ChangeNotifier {
     ReportQueue? reportQueue,
     bool Function()? isPlatformAdmin,
   })  : _isPlatformAdmin = isPlatformAdmin ?? _neverAPlatformAdmin,
-        _tokenStore = tokenStore ?? MigratingRefreshTokenStore(),
+        _tokenStore = tokenStore ?? defaultRefreshTokenStore(),
         _reportQueue = reportQueue ?? ReportQueue(),
         _preferences = preferences ?? DesktopPreferencesService(),
         _baseUrl = baseUrl,
