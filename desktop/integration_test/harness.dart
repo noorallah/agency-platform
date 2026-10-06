@@ -21,6 +21,11 @@ List<String> textOnScreen(WidgetTester tester) => <String>[
       for (final Text text in tester.widgetList<Text>(find.byType(Text)))
         if ((text.data ?? text.textSpan?.toPlainText() ?? '').trim().isNotEmpty)
           (text.data ?? text.textSpan!.toPlainText()).trim(),
+      // Notifications are SelectableText, which is not a Text.
+      for (final SelectableText text
+          in tester.widgetList<SelectableText>(find.byType(SelectableText)))
+        if ((text.data ?? text.textSpan?.toPlainText() ?? '').trim().isNotEmpty)
+          (text.data ?? text.textSpan!.toPlainText()).trim(),
     ];
 
 /// Pump real frames until [finder] matches, or fail naming what was on screen.
@@ -95,13 +100,27 @@ class FlowLog {
   int passed = 0;
   int skipped = 0;
 
+  /// What the screen showed in the step running now; a step sets it so the
+  /// result line says what was seen, not only that nothing threw.
+  String? saw;
+
+  /// A finding that is an observation, not a failure.
+  void info(String label, String detail) {
+    // ignore: avoid_print
+    print('FLOW: INFO [$name] $label :: ${detail.replaceAll('\n', ' | ')}');
+  }
+
   /// Run [body] as one named step; a thrown error is recorded, not rethrown.
+  /// A label that starts with a case id (`SC-SO-014 ...`) is what
+  /// `docs/qa/tools/stamp_screen_results.py` files the result under.
   Future<bool> step(String label, Future<void> Function() body) async {
+    saw = null;
     try {
       await body();
       passed++;
       // ignore: avoid_print
-      print('FLOW: PASS [$name] $label');
+      print('FLOW: PASS [$name] $label'
+          '${saw == null ? '' : ' :: ${saw!.replaceAll('\n', ' | ')}'}');
       return true;
     } catch (error) {
       final String text = '$error'.replaceAll('\n', ' | ');
@@ -280,6 +299,9 @@ Future<String> waitForNotice(WidgetTester tester,
     for (final Text t in tester.widgetList<Text>(
         find.descendant(of: bar, matching: find.byType(Text))))
       t.data ?? '',
+    for (final SelectableText t in tester.widgetList<SelectableText>(
+        find.descendant(of: bar, matching: find.byType(SelectableText))))
+      t.data ?? '',
   ].join(' ');
 }
 
@@ -387,6 +409,33 @@ class Server {
   Future<dynamic> write(String method, String path, Json body) async =>
       (await _send(_client, method, path,
           body: body, token: _token, firm: firmId))['data'];
+
+  /// The total a list reports in its pagination block.
+  Future<int> total(String path) async {
+    final Json body = await _send(_client, 'GET',
+        '$path${path.contains('?') ? '&' : '?'}page_size=1',
+        token: _token, firm: firmId);
+    final dynamic pagination = body['pagination'];
+    if (pagination is Map && pagination['total_records'] != null) {
+      return (pagination['total_records'] as num).toInt();
+    }
+    return (body['data'] as List<dynamic>).length;
+  }
+
+  /// A write that may be refused: returns the status and body instead of
+  /// throwing (a 409 or 403 is what a case is looking for).
+  Future<({int status, String text})> attempt(
+      String method, String path, Json? body) async {
+    final HttpClientRequest request =
+        await _client.openUrl(method, Uri.parse('$_base$path'));
+    request.headers.contentType = ContentType.json;
+    request.headers.set('Authorization', 'Bearer $_token');
+    request.headers.set('X-Firm-ID', firmId);
+    if (body != null) request.write(jsonEncode(body));
+    final HttpClientResponse response = await request.close();
+    final String text = await utf8.decoder.bind(response).join();
+    return (status: response.statusCode, text: text);
+  }
 
   /// One record read back whole.
   Future<Json> one(String collection, String id) async =>
@@ -549,10 +598,15 @@ Future<void> closeOpenEditor(WidgetTester tester) async {
 }
 
 /// What a snackbar or an open dialog on screen is saying right now.
-String noticeText(WidgetTester tester) => <String>[
-      for (final Text t in tester.widgetList<Text>(find.descendant(
-          of: find.byWidgetPredicate(
-              (Widget w) => w is SnackBar || w is Dialog),
-          matching: find.byType(Text))))
-        t.data ?? '',
-    ].where((String t) => t.isNotEmpty).join(' | ');
+String noticeText(WidgetTester tester) {
+  final Finder holder = find.byWidgetPredicate(
+      (Widget w) => w is SnackBar || w is Dialog);
+  return <String>[
+    for (final Text t in tester
+        .widgetList<Text>(find.descendant(of: holder, matching: find.byType(Text))))
+      t.data ?? '',
+    for (final SelectableText t in tester.widgetList<SelectableText>(
+        find.descendant(of: holder, matching: find.byType(SelectableText))))
+      t.data ?? t.textSpan?.toPlainText() ?? '',
+  ].where((String t) => t.isNotEmpty).join(' | ');
+}

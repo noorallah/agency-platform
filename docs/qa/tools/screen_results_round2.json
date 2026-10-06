@@ -1,0 +1,293 @@
+{
+ "SC-SO-001": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "columns present; cards: Draft, Approved, Cancelled, Closed, Draft, Draft"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-006": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "quantity 5 saved, total 472.0"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-007": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status APPROVED, on hold true, notice \"SO-2026-2027-000070 is on hold.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-008": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status APPROVED, on hold false, notice \"SO-2026-2027-000070 released.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-011": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"SO-2026-2027-000075 cancelled. Its stock is released.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-013": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "bulk selection checkboxes not reached in two attempts"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SO-017": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Check the fields marked below.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-018": {
+  "fail": 1,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "note: :: editor after the customer is chosen: S( | Sales Orders | New sales order | New sales order | Draft | Enter next field  \u00b7  Ctrl+Enter new line  \u00b7  Ctrl+S save | Cancel | Save & approve | Save draft | Customer (type code, name or phone) | Anand Agencies t10069cwy \u2014 T10069CWY-C02 | Vijaya Stores t10069cwy \u2014 T10069CWY-C01 | bal 0.00 | Order date | auto | 07-10-2026 | Wanted by | \u2014 | Place of supply | auto | \u2014 | Salesman | Nobody | Branch \u00b7 ships from | auto | HO | MAIN | Rate includes GST | Before tax | Customer's reference | their PO number | Our reference | Coupon | Payment terms | e.g. 30 days net | Credit days | blank takes the customer's 0 days | # | Product (code, name or barcode) | HSN | Qty | Free | Unit | Rate | Disc % | Disc amt | Taxable | GST | Amount | 1 | 80.00 | 80.00 | 2     + add a product (Ctrl+Enter) | Discount on the whole order % | Or an amount off the whole order | Delivery charge | Remarks | Totals follow as the lines are priced. | Taxable  80.00 | CGST  0.00 | SGST  0.00 | Total  80.00 | LINE 1 \u00b7 DETERGENT 1KG T10069CWY | Rate | 80.00 | from: Price list | Discount | \u2013 | blank takes any arrangement on file | Free: blank takes the offer; 0 refuses it.",
+   "refused: Bad state: N2: the editor closed; N3: 1 record(s) saved [open=false, saved=1, said=\"Order drafted. Approve it to commit the stock and the credit. | 2026-10-06 (entered 2026-10-07 01:21) | 2026-10-06 (entered 2026-10-07 01:19)\"]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-019": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Check the fields marked below. | Enter the quantity.\"",
+   "note: :: quantity box now reads \"Detergent 1kg t10069cwy  T10069CWY-DET / 0 /  / 80.00 /  / \"",
+   "open=true, saved=0, said=\"Enter next field  \u00b7  Ctrl+Enter new line  \u00b7  Ctrl+S save | Check the fields marked below. | Before tax\""
+  ],
+  "pass": 3,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-020": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status after Approve: APPROVED, screen says \"\"; Approve of a success is silent by design, and 500 units against the stock on hand were accepted without a word"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-021": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "date picker opened; the screen cannot be given a date before the order date (first selectable day is the order date)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-022": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "no customer with a credit limit in the fixture firm; needs a customer made for it (CC section)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SO-023": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "Edit is absent on an Approved order"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-024": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "screen says \"Only draft sales orders can be approved.\"; status APPROVED"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-025": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"SO-2026-2027-000074 cannot be cancelled while delivery note DN-26-27-000019 stands against it. Cancel those first, or close the order to stop what is still to come.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-026": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "needs a delivery note editor session on a held order; done in the DN file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SO-027": {
+  "fail": 1,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "Bad state: N1: the dialog closed and nothing said a reason is needed"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-028": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "needs an offer with a total-uses cap of 1; built in the OF section"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SO-029": {
+  "fail": 1,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "Esc did nothing: the editor stayed open and asked nothing (the Cancel button is judged in the next step)",
+   "Bad state: the Cancel button closed an editor holding a customer and a quantity without asking"
+  ],
+  "pass": 1,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-030": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "{New Order: absent, + New: enabled, Edit: enabled, Approve: absent, Hold: absent, Release: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-SO-031": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "Cancel is absent"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-SO-032": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "credit settings PUT 403, sales stages PUT 403 (HTTP level; the settings screens not opened)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsmgr"
+ },
+ "SC-SO-033": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "{+ New: absent, New Order: absent, Edit: absent, Approve: absent, Hold: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-SO-034": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "note: :: the storekeeper (INVENTORY_MANAGER) is refused the order list with 403 and is not offered Delivery Notes; 01_ROLES R06 lists no Sell screen for it, so the hand over to the warehouse cannot happen on screen",
+   "warehouse list answered 403, holds the order: false"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-035": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status CANCELLED, on hold true, screen says \"SO-2026-2027-000076 cancelled. Its stock is released.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-036": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "row reads: SO-2026-2027-000078 | Vijaya Stores t10069cwy | 2026-10-07 02:03 | Approved | 94.40"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ }
+}
