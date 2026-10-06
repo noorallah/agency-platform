@@ -1142,6 +1142,41 @@ credited and lowering it left a residue there for good). Goodwill given
 before goodwill was booked at all (D-SELL-19) carries no value and is still
 spent at the rate of the day.
 
+**The parts taken from a batch sum to what was accrued for it, and the
+report reads the ledger's money** (D-PRC-42, 2026-10-06; the paisa round 1
+of the pricing check could not place). A bill earned 8.4960 points booked at
+8.50 and a quarter of it came back: the take-back was -2.1240 points for
+2.13, so the books held 6.37 for what was left, while the balances report
+valued the 6.3720 points left at their rate and rounded again -- 6.38, and
+Loyalty Payable a paisa under the report. Two rules, both in `BatchState`
+(`app/loyalty/services/loyalty_service.py`):
+
+- **What a batch is still worth is what it was booked at, less what the
+  ledger's entries took from it** -- never points times a rate rounded
+  afresh. The lapses and take-backs that name the batch are read off the
+  ledger (`taken_cost`); spending, which names no batch and is allocated
+  oldest first, is worked for the batch as one figure (`spent_cost`). The
+  customer's balance, the balances report (`amount`, `lapsed_amount`) and
+  the expiring report all read `cost_left`, so `amount + lapsed_amount` is
+  the sum of the ledger's own amounts and is what Loyalty Payable holds.
+- **A movement takes the batch's own cost for its points.** A lapse or a
+  take-back (a return, a credit note, a cancelled bill) of part of a batch
+  is `quantize_ledger` of its share; the one that **empties the batch takes
+  everything it has left**: a bill returned in thirds releases 2.83, 2.83
+  and 2.84 where three rounded thirds released 8.49 of 8.50. A redemption or
+  an adjustment takes what the batch's spending comes to after it less what
+  it came to before, so three redemptions of a third are 2.83, 2.84 and
+  2.83 -- each part a cumulative share rounded once, the last the residual.
+
+Rows written before this keep their amounts; because the take-backs are read
+off the ledger, a batch that already carries the old paisa reads right from
+the first report after this. Two edges stay a rounding apart: a redemption
+put back out of order (an earlier one undone while a later one stands), and
+goodwill given before goodwill was booked. And
+`tests/unit/test_loyalty_payable_equals_the_report.py` walks one batch
+through a part return, a part redemption and a lapse and checks the account
+against the report at each step.
+
 ## Freight is the bill discount's mirror image, and it has to reach the line
 
 **Freight is the bill discount's mirror image, and it has to reach the
