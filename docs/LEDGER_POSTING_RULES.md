@@ -1314,6 +1314,42 @@ on the B2CS row) with note type **D**, the HSN summary takes its value and no
 units, and GSTR-3B adds it to 3.1(a) and reports it as `debit_notes_added`
 beside `credit_notes_deducted`.
 
+## A principal's price cut credits purchase price variance, and revalues nothing
+
+2026-10-06. A rate difference claim (`app/principal_claims`, kind
+`RATE_DIFFERENCE`) is what a principal owes on the stock the firm held when
+its lower rate took effect. `post_principal_claim` books it with the claim's
+other kinds, under the one reference `CLAIM-<number>`:
+
+| | Dr | Cr |
+| --- | --- | --- |
+| At raise | Claims receivable (`PRINCIPAL_CLAIM_RECEIVABLE`) | Purchase price variance (`PURCHASE_PRICE_VARIANCE`) |
+| Payment | Cash or bank | Claims receivable |
+| Cancel | the raise, mirrored (`CLAIM-<number>-REV`) | |
+
+**The stock is not revalued.** No stock movement is written, the moving
+average stays where the purchases put it, and the goods go on leaving at the
+dearer cost. The credit is what makes that whole: it lands in the purchase
+price variance account, which sits with the cost of sales, so the margin the
+cut took from the later sales comes back in the same part of the profit and
+loss. A purchase rebate reduces the cost of purchase (AS 2), and with the
+goods already costed this is where that reduction can go without rewriting
+the ledger of what they cost. It is not supplier incentive income, which is
+other income for a gift, and not inventory adjustment, which is for stock
+that was lost. No control purpose was added: every firm maps this one from
+its opening chart, and the claim refuses to post where it is unmapped.
+
+**The leg faces a counterparty, so it is valued from the document**: old rate
+less new rate, times the quantity on hand at the close of the day before,
+each line rounded to the paisa and the lines summed. The quantity comes from
+the movements; the value does not.
+
+**No tax is posted.** The claim is a demand, not a tax document. A principal
+that settles by a financial credit note or by paying leaves tax alone; one
+that issues a GST credit note (section 34) reduces the firm's input credit by
+the tax on it, and that happens where the note is booked as a supplier credit
+note -- never on the claim.
+
 ## `app/settlements` is money in and money out
 
 **`app/settlements` is money in and money out**, and it is one document for both directions: a receipt from a customer and a payment to a vendor differ only in signs. It posts to the general ledger through `DocumentPostingService.post_settlement`, and `settlements.journal_entry_id` is NOT NULL because the defect it exists to close is a settlement that never reached the ledger. ****A customer's opening balance posts** `Dr Accounts Receivable / Cr Opening Balance Equity` as of 2026-08-15, and is refused outright when the firm has no chart of accounts or open period -- a balance nobody can book is one the firm should not be told it has recorded. Revising one or deleting the customer mirrors the entry, traced through `customer_receivable_transactions.journal_entry_id`. `CustomerService.post_receivable_transaction` still moves a customer balance without writing a journal** -- it is the older, lower-level path and the two books drift by every rupee recorded through it, so record money through `/api/v1/receipts` and `/api/v1/payments` instead. What an invoice still owes is derived from `settlement_allocations`, never stored on the invoice. A settlement is reversed rather than edited or deleted: a mirror journal cancels it, the allocations stop clearing invoices but still record what they had cleared, and `CustomerService.reverse_receivable_transaction` puts the customer's balances back by the **deltas stored on the original row** -- never recomputed, because a receipt of 500 against an outstanding 300 splits into 300 of balance and 200 of advance and only that row remembers the split. **A receipt whose advance has since been applied wrote more than one row** -- its own and an `ADVANCE_APPLY` per application -- and the reversal undoes every one of them, the applications first (D-SELL-8, 2026-09-19): taking "the" row picked one at random, so a bounced cheque that had been applied was refused as overtaken or left the customer's balance out of step with 1100.
