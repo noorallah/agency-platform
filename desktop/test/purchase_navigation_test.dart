@@ -13,6 +13,7 @@
 // it five again on 2026-10-01 (backlog 66): a real screen, not a preset. Debit
 // Notes made it six: a document of its own, not a preset.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -209,6 +210,24 @@ PermissionService _permissions() => PermissionService()
     'PURCHASE_UPDATE',
   ]));
 
+/// Holds the first lookup back until the test lets it go.
+class _GatedApi extends _RecordingApi {
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<PagedResult<Vendor>> vendors({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    VendorQuery filters = const VendorQuery(),
+  }) async {
+    await gate.future;
+    return const PagedResult<Vendor>(items: <Vendor>[], total: 0);
+  }
+}
+
 Future<_RecordingApi> _openOrders(
   WidgetTester tester, {
   PurchaseOrderView initialView = PurchaseOrderView.all,
@@ -400,6 +419,36 @@ void main() {
 
       expect(find.byType(SegmentedButton<PurchaseOrderView>), findsNothing);
     });
+  });
+
+  // D-UI-25: leaving the page while its lookups were being read threw "State
+  // no longer has a context" from the list read that followed them.
+  testWidgets('a page left while it loads throws nothing', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final Directory temp =
+        Directory.systemTemp.createTempSync('purchase-left-while-loading');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final _GatedApi api = _GatedApi();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PurchaseManagementPage(
+          api: api,
+          preferences: DesktopPreferencesService(directory: temp),
+          permissions: _permissions(),
+          hasActiveFirm: true,
+          section: PurchaseSection.purchaseOrders,
+        ),
+      ),
+    ));
+    await tester.pump();
+    // Away to another screen, then the lookups come back.
+    await tester.pumpWidget(const MaterialApp(home: Scaffold()));
+    api.gate.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(api.requests, isEmpty, reason: 'no list is read for a gone page');
   });
 
   group('what is not built stays not built', () {

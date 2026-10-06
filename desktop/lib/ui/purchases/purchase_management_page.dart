@@ -281,6 +281,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       return;
     }
     await _loadLookups();
+    // The page may have been left while the lookups were read: `_load` reads
+    // the context first, which a disposed state refuses (D-UI-25).
+    if (!mounted) return;
     await _load();
   }
 
@@ -410,6 +413,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     // Read before any await: whether to pick the first row (phase 1 only).
     // Phase 2 (option C, owner 2026-09-27): nothing is picked for the user --
     // the selection bar opens when somebody clicks a row, and stays with it.
+    if (!mounted) return;
     final bool pickFirst =
         context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
     if (!widget.hasActiveFirm || !_canView) {
