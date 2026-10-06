@@ -12,6 +12,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -45,6 +46,7 @@ from app.quotation.schemas import (
     QuotationLineWrite,
     QuotationListFilters,
     QuotationStatus,
+    QuotationUpdate,
 )
 from app.quotation.services import QuotationService
 from app.sales.models import territory as _sales_models  # noqa: F401
@@ -1681,3 +1683,30 @@ def test_a_quotation_is_priced_with_its_coupon_and_hands_it_to_the_order() -> No
     )
     assert order.coupon_code == "SAVE10"
     assert order.grand_total == Decimal("360.0000")
+
+
+@pytest.mark.parametrize("schema", [QuotationCreate, QuotationUpdate])
+def test_a_quotation_with_two_lines_at_one_number_is_refused_by_name(
+    schema: type[QuotationCreate],
+) -> None:
+    """D-PRC-60: it reached the unique key and came back as a bare 409."""
+    body = {
+        "customer_id": uuid4(),
+        "branch_id": uuid4(),
+        "warehouse_id": uuid4(),
+        "quotation_date": date(2026, 8, 4),
+        "valid_until": date(2026, 8, 31),
+        "lines": [
+            {"line_number": 1, "product_id": uuid4(), "quantity": "2"},
+            {"line_number": 2, "product_id": uuid4(), "quantity": "1"},
+            {"line_number": 1, "product_id": uuid4(), "quantity": "3"},
+        ],
+    }
+
+    with pytest.raises(PydanticValidationError) as refused:
+        schema.model_validate(body)
+
+    assert (
+        "Lines 1 and 3 of the request are both numbered 1. Number each line once."
+        in str(refused.value)
+    )

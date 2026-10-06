@@ -3,8 +3,9 @@
 import re
 from collections.abc import Iterable
 from datetime import date
+from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 
 from app.core.exceptions import BusinessRuleError, ValidationError
 
@@ -46,6 +47,55 @@ def refuse_explicit_nulls(model: BaseModel, *, nullable: Iterable[str] = ()) -> 
             f"{', '.join(refused)} cannot be null. Omit a field to leave it "
             "unchanged."
         )
+
+
+class _NumberedLine(Protocol):
+    """A document line as a request carries it: it says which line it is."""
+
+    @property
+    def line_number(self) -> int:
+        """Return the number the line was sent at."""
+
+
+def lines_numbered_once[Line: _NumberedLine](lines: list[Line]) -> list[Line]:
+    """Refuse a document whose request numbers two lines alike (D-PRC-60).
+
+    A document's lines are reconciled on their line number, so two lines
+    sent at one number are one row to the save: the second was written over
+    the first, the first product was gone without a word, and the header
+    kept the total of both -- 413.00 over a single line of 177.00, which
+    then approved. On a new document the same request reached the unique
+    key and came back as a bare 409 "conflicts with existing data".
+
+    Used through ``NumberedOnce`` on a write schema's ``lines``, so the
+    ``ValueError`` becomes a 422 that names both lines, on create and on
+    update alike.
+
+    Args:
+        lines: The request's lines, in the order sent.
+
+    Returns:
+        The same lines.
+
+    Raises:
+        ValueError: Naming the first two lines that share a number, by
+            their position in the request.
+
+    """
+    first: dict[int, int] = {}
+    for position, line in enumerate(lines, 1):
+        earlier = first.setdefault(line.line_number, position)
+        if earlier != position:
+            raise ValueError(
+                f"Lines {earlier} and {position} of the request are both "
+                f"numbered {line.line_number}. Number each line once."
+            )
+    return lines
+
+
+#: Put on a write schema's ``lines``:
+#: ``lines: Annotated[list[LineWrite], NumberedOnce] = Field(...)``.
+NumberedOnce = AfterValidator(lines_numbered_once)
 
 
 def validate_email(value: str) -> str:

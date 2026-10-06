@@ -3,12 +3,14 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.batch_serial.schemas import PickedSerial
 from app.core.utils.quantities import free_goods_alone
+from app.core.validation import NumberedOnce
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -213,7 +215,10 @@ class SalesReturnCreate(SalesReturnSchema):
     source_documents: list[SalesReturnSourceWrite] = Field(
         default_factory=list, max_length=100
     )
-    lines: list[SalesReturnLineWrite] = Field(min_length=1, max_length=1000)
+    #: Each line numbered once (D-PRC-60).
+    lines: Annotated[list[SalesReturnLineWrite], NumberedOnce] = Field(
+        min_length=1, max_length=1000
+    )
     attachments: list[SalesReturnAttachmentWrite] = Field(
         default_factory=list, max_length=500
     )

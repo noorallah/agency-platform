@@ -4,12 +4,13 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.core.validation import NumberedOnce
 from app.sales.schemas.document_preview import DocumentPreviewLine
 from app.settlements.schemas import SettlementMethodEnum, SettlementModeEnum
 
@@ -195,7 +196,10 @@ class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
     source_documents: list[PurchaseInvoiceSourceWrite] = Field(
         default_factory=list, max_length=100
     )
-    lines: list[PurchaseInvoiceLineWrite] = Field(min_length=1, max_length=1000)
+    #: Each line numbered once (D-PRC-60).
+    lines: Annotated[list[PurchaseInvoiceLineWrite], NumberedOnce] = Field(
+        min_length=1, max_length=1000
+    )
     attachments: list[PurchaseInvoiceAttachmentWrite] = Field(
         default_factory=list, max_length=500
     )

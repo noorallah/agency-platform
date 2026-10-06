@@ -15,6 +15,8 @@ from pydantic import (
     field_validator,
 )
 
+from app.core.validation import NumberedOnce
+
 #: One serial number as typed; the service trims it and compares without case.
 SerialText = Annotated[str, StringConstraints(max_length=200)]
 
@@ -140,7 +142,10 @@ class GoodsReceiptCreate(GoodsReceiptSchema):
     eway_bill_date: date | None = None
     invoice_reference: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
-    lines: list[GoodsReceiptLineWrite] = Field(min_length=1, max_length=1000)
+    #: Each line numbered once (D-PRC-60).
+    lines: Annotated[list[GoodsReceiptLineWrite], NumberedOnce] = Field(
+        min_length=1, max_length=1000
+    )
     attachments: list[GoodsReceiptAttachmentWrite] = Field(
         default_factory=list, max_length=500
     )

@@ -3,13 +3,14 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.batch_serial.schemas import PickedSerial
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.core.validation import NumberedOnce
 from app.delivery_note.schemas.delivery_note import DeliveryNoteBatchPick
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
@@ -386,7 +387,10 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     #: update, absent leaves the bill's charges alone and an empty list
     #: clears them.
     charges: list[SalesInvoiceChargeWrite] | None = Field(default=None, max_length=10)
-    lines: list[SalesInvoiceLineWrite] = Field(min_length=1, max_length=1000)
+    #: Each line numbered once (D-PRC-60).
+    lines: Annotated[list[SalesInvoiceLineWrite], NumberedOnce] = Field(
+        min_length=1, max_length=1000
+    )
     attachments: list[SalesInvoiceAttachmentWrite] = Field(
         default_factory=list, max_length=500
     )
