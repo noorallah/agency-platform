@@ -840,11 +840,18 @@ class SalesReturnService(TransactionalDocumentService):
                 product_id=line.product_id,
                 reference_number=row.return_number,
                 transaction_date=row.return_date,
-                return_quantity=line.current_return_quantity,
+                # What arrives on the shelf: the charged units and the free
+                # ones coming back beside them (D-PRC-8), at the cost the
+                # product is carried at.
+                return_quantity=self._q(
+                    line.current_return_quantity + line.free_quantity
+                ),
                 restock_quantity=line.restock_quantity,
                 damaged_quantity=line.damaged_quantity,
                 scrap_quantity=line.scrap_quantity,
-                entered_quantity=line.current_return_quantity,
+                entered_quantity=self._q(
+                    line.current_return_quantity + line.free_quantity
+                ),
                 entered_uom_id=line.return_uom_id or line.sales_uom_id,
                 conversion_version=line.conversion_version,
                 remarks=line.remarks or row.remarks,
@@ -1438,6 +1445,7 @@ class SalesReturnService(TransactionalDocumentService):
         ).delete(synchronize_session=False)
         totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
         in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        free_in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line = self._source_line(
@@ -1486,32 +1494,37 @@ class SalesReturnService(TransactionalDocumentService):
                 )
                 return_quantity = self._q(conversion.converted_quantity)
                 conversion_factor = self._q(conversion.conversion_factor)
-            already_returned = self._already_returned_quantity(
+            already_returned, already_free = self._already_returned(
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
                 exclude_return_id=row.id,
             )
+            # Everything on the line, in the source line's unit: the buckets
+            # below are parts of all of it, free goods included.
+            total_quantity = return_quantity
             # No request can lift this cap: a body flag the caller sets was
             # all it took to credit 50 against a note for 5 (D-SELL-29).
-            if return_quantity + already_returned > dispatched:
-                raise ValidationError(
-                    "Return quantity exceeds what was dispatched on the source "
-                    f"document ({dispatched} sent, {already_returned} already "
-                    "returned)."
-                )
+            # What was sent can come back, charged and free (D-PRC-8).
+            return_quantity, free_quantity = self._split_free_goods(
+                index,
+                total=total_quantity,
+                typed_free=self._typed_free(spec, requested, total_quantity),
+                dispatched=dispatched,
+                already_returned=already_returned,
+                source_free=self._q(getattr(source_line, "free_quantity", ZERO) or 0),
+                already_free=already_free,
+            )
             # A bill's line and the note line it billed are the same goods, so
             # what comes back through either route counts against what left.
             goods = self._goods_behind(source_line)
             if goods is not None:
                 sent = self._q(goods.current_delivery_quantity)
-                back = self._q(
-                    self._goods_already_returned(
-                        firm_id=firm_id,
-                        note_line_id=goods.id,
-                        exclude_return_id=row.id,
-                    )
-                    + in_this_return[goods.id]
+                goods_back, goods_free_back = self._goods_already_returned(
+                    firm_id=firm_id,
+                    note_line_id=goods.id,
+                    exclude_return_id=row.id,
                 )
+                back = self._q(goods_back + in_this_return[goods.id])
                 if not row.allow_over_return and return_quantity + back > sent:
                     raise ValidationError(
                         "Return quantity exceeds what left on "
@@ -1519,14 +1532,27 @@ class SalesReturnService(TransactionalDocumentService):
                         f"{back} already returned against it or the bill for it)."
                     )
                 in_this_return[goods.id] += return_quantity
+                # The free goods are the same goods by either route too: one
+                # free unit must not come back off the note and again off the
+                # bill that printed it (the twin of D-BUY-61).
+                free_sent = self._q(goods.free_quantity or ZERO)
+                free_back = self._q(goods_free_back + free_in_this_return[goods.id])
+                if free_quantity + free_back > free_sent:
+                    raise ValidationError(
+                        "Free quantity exceeds what left free on "
+                        f"{self._source_document_number(goods)} ({free_sent} "
+                        f"sent free, {free_back} already returned against it "
+                        "or the bill for it)."
+                    )
+                free_in_this_return[goods.id] += free_quantity
             # The buckets are validated against the requested quantity, so they
             # are converted with it rather than re-derived: a line entered in
             # cases and returned in pieces must not have its damaged count
             # silently stay in the other unit.
-            scale = return_quantity / requested if requested != ZERO else Decimal("1")
+            scale = total_quantity / requested if requested != ZERO else Decimal("1")
             damaged = self._q(_decimal(spec.get("damaged_quantity")) * scale)
             scrap = self._q(_decimal(spec.get("scrap_quantity")) * scale)
-            restock = self._q(return_quantity - damaged - scrap)
+            restock = self._q(total_quantity - damaged - scrap)
             unit_price = self._q(
                 _decimal(spec["unit_price"])
                 if spec.get("unit_price") is not None
@@ -1603,6 +1629,7 @@ class SalesReturnService(TransactionalDocumentService):
                 dispatched_quantity=dispatched,
                 already_returned_quantity=already_returned,
                 current_return_quantity=return_quantity,
+                free_quantity=free_quantity,
                 restock_quantity=restock,
                 damaged_quantity=damaged,
                 scrap_quantity=scrap,
@@ -1672,7 +1699,7 @@ class SalesReturnService(TransactionalDocumentService):
                 )
             totals["total_source_quantity"] += dispatched
             totals["total_already_returned_quantity"] += already_returned
-            totals["total_current_return_quantity"] += return_quantity
+            totals["total_current_return_quantity"] += return_quantity + free_quantity
             totals["total_restock_quantity"] += restock
             totals["line_discount_total"] += discount_amount
             # The taxable base: gross less discount, before tax and charges,
@@ -2012,21 +2039,93 @@ class SalesReturnService(TransactionalDocumentService):
     def _source_type(self, value: object) -> str:
         return value.value if hasattr(value, "value") else str(value)
 
-    def _already_returned_quantity(
+    def _typed_free(
+        self, spec: dict[str, object], requested: Decimal, converted: Decimal
+    ) -> Decimal | None:
+        """Return the free quantity the line typed, in the source line's unit."""
+        typed = spec.get("free_quantity")
+        if typed is None:
+            return None
+        free = self._q(_decimal(typed))
+        if requested > ZERO and converted != requested:
+            # Typed in the return's unit, like the quantity it is part of.
+            free = self._q(free * converted / requested)
+        return free
+
+    def _split_free_goods(
+        self,
+        line_number: int,
+        *,
+        total: Decimal,
+        typed_free: Decimal | None,
+        dispatched: Decimal,
+        already_returned: Decimal,
+        source_free: Decimal,
+        already_free: Decimal,
+    ) -> tuple[Decimal, Decimal]:
+        """Split what a line brings back into charged units and free ones.
+
+        What the source document sent can come back, free goods included
+        (D-PRC-8, the selling twin of D-BUY-56). The charged units are taken
+        first, and only what comes back beyond them is free, unless the line
+        says how many are free -- the thirteenth unit of "buy 12 get 1"
+        coming back on its own. The charged part is what is priced, taxed and
+        credited; the free part is credited nothing.
+
+        Returns:
+            The charged quantity and the free quantity.
+
+        Raises:
+            ValidationError: If the line brings back more charged units, or
+                more free ones, than the source line has left.
+
+        """
+        charged_left = max(self._q(dispatched - already_returned), ZERO)
+        free_left = max(self._q(source_free - already_free), ZERO)
+        if typed_free is None:
+            charged = min(total, charged_left)
+            free = self._q(total - charged)
+        else:
+            if typed_free > total:
+                raise ValidationError(
+                    f"Line {line_number}: the free quantity is part of the "
+                    "return quantity and cannot exceed it."
+                )
+            free = typed_free
+            charged = self._q(total - free)
+        if charged > charged_left or free > free_left:
+            sent = (
+                f"{dispatched} sent, {already_returned} already returned"
+                if source_free <= ZERO
+                else f"{dispatched} sent and {source_free} free, "
+                f"{already_returned} and {already_free} already returned; "
+                f"line {line_number} can still bring back {charged_left} "
+                f"charged and {free_left} free"
+            )
+            raise ValidationError(
+                "Return quantity exceeds what was dispatched on the source "
+                f"document ({sent})."
+            )
+        return charged, free
+
+    def _already_returned(
         self,
         *,
         firm_id: UUID,
         source_document_line_id: UUID,
         exclude_return_id: UUID | None = None,
-    ) -> Decimal:
-        """How much of this source line has already gone back.
+    ) -> tuple[Decimal, Decimal]:
+        """How much of this source line has already gone back: charged, free.
 
         A return being edited excludes its own lines: they are about to be
         replaced, and counting them would make the second save of an unchanged
         document fail as an over-return.
         """
         statement = (
-            select(func.coalesce(func.sum(SalesReturnLine.current_return_quantity), 0))
+            select(
+                func.coalesce(func.sum(SalesReturnLine.current_return_quantity), 0),
+                func.coalesce(func.sum(SalesReturnLine.free_quantity), 0),
+            )
             .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
             .where(
                 SalesReturn.firm_id == firm_id,
@@ -2038,7 +2137,8 @@ class SalesReturnService(TransactionalDocumentService):
         )
         if exclude_return_id is not None:
             statement = statement.where(SalesReturn.id != exclude_return_id)
-        return self._q(self._session.scalar(statement) or ZERO)
+        charged, free = self._session.execute(statement).one()
+        return self._q(charged or ZERO), self._q(free or ZERO)
 
     def _goods_behind(self, source_line: SourceLine) -> DeliveryNoteLine | None:
         """Return the note line whose goods a return line would bring back.
@@ -2058,8 +2158,10 @@ class SalesReturnService(TransactionalDocumentService):
         firm_id: UUID,
         note_line_id: UUID,
         exclude_return_id: UUID | None = None,
-    ) -> Decimal:
+    ) -> tuple[Decimal, Decimal]:
         """Sum what came back of one note line's goods, by either route.
+
+        Charged units and free ones, in that order.
 
         `_already_returned_quantity` counts one source line, so the same goods
         could come back once against the note and again against the bill that
@@ -2073,7 +2175,10 @@ class SalesReturnService(TransactionalDocumentService):
             SalesInvoiceLine.is_deleted.is_(False),
         )
         statement = (
-            select(func.coalesce(func.sum(SalesReturnLine.current_return_quantity), 0))
+            select(
+                func.coalesce(func.sum(SalesReturnLine.current_return_quantity), 0),
+                func.coalesce(func.sum(SalesReturnLine.free_quantity), 0),
+            )
             .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
             .where(
                 SalesReturn.firm_id == firm_id,
@@ -2096,7 +2201,8 @@ class SalesReturnService(TransactionalDocumentService):
         )
         if exclude_return_id is not None:
             statement = statement.where(SalesReturn.id != exclude_return_id)
-        return self._q(self._session.scalar(statement) or ZERO)
+        charged, free = self._session.execute(statement).one()
+        return self._q(charged or ZERO), self._q(free or ZERO)
 
     def _resolve_return_batch(self, line: SalesReturnLine) -> UUID | None:
         """Resolve the batch these goods are going back into.
@@ -2524,7 +2630,16 @@ class SalesReturnService(TransactionalDocumentService):
             lines=[
                 SalesReturnLineResponse.model_validate(
                     line, from_attributes=True
-                ).model_copy(update={"serials": serials.get(line.id, [])})
+                ).model_copy(
+                    update={
+                        "serials": serials.get(line.id, []),
+                        # Everything that comes back, as it was typed: the
+                        # charged units and the free ones (D-PRC-8).
+                        "current_return_quantity": self._q(
+                            line.current_return_quantity + line.free_quantity
+                        ),
+                    }
+                )
                 for line in lines
             ],
             sources=[
@@ -2669,12 +2784,18 @@ class SalesReturnService(TransactionalDocumentService):
         """Total returned quantity and value per product."""
         lines = self._report_lines(firm_scope=firm_scope, window=window)
         quantities: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        free: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         restocked: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         amounts: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         before_billing: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
         for line, _ in lines:
-            quantities[line.product_id] += line.current_return_quantity
+            # Free goods are quantity with no value (D-PRC-8): they count
+            # here and add nothing to the amount below.
+            quantities[line.product_id] += (
+                line.current_return_quantity + line.free_quantity
+            )
+            free[line.product_id] += line.free_quantity
             restocked[line.product_id] += line.restock_quantity
             # The billed part is what was credited (D-SELL-74); the rest came
             # back as quantity alone.
@@ -2705,6 +2826,7 @@ class SalesReturnService(TransactionalDocumentService):
                     else str(product_id)
                 ),
                 return_quantity=self._q(quantity),
+                free_quantity=self._q(free[product_id]),
                 restock_quantity=self._q(restocked[product_id]),
                 return_amount=self._q(amounts[product_id]),
                 unbilled_quantity=self._q(before_billing[product_id]),

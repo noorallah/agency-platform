@@ -222,6 +222,15 @@ class SalesReturnLine(BaseEntity):
     current_return_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Free goods coming back **beside** ``current_return_quantity`` (D-PRC-8,
+    #: the selling twin of D-BUY-56). The note shipped them at no charge, so
+    #: they are priced at nothing and credit the customer nothing:
+    #: ``current_return_quantity`` stays the charged units, which every price,
+    #: tax, billing and credit figure is worked on. The stock that arrives is
+    #: the two together, at the cost it is carried at.
+    free_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     #: The part of ``current_return_quantity`` that came back before any bill
     #: charged for it, decided when the return completes (D-SELL-55). That
     #: part moves stock and cost only -- no credit to the customer, no output

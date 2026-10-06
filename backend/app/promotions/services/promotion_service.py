@@ -1196,6 +1196,7 @@ def budget_rooms(
             .group_by(Promotion.version_group_id)
         ):
             claimed[group] = (Decimal(str(amount)), Decimal(str(free)))
+    came_back = _free_units_returned(session, budgeted, firm_id=firm_id)
     rooms: dict[UUID, BudgetRoom] = {}
     for row in promotions:
         amount, free = claimed.get(row.version_group_id, (ZERO, ZERO))
@@ -1203,9 +1204,52 @@ def budget_rooms(
             max_amount=row.max_benefit_amount,
             amount_claimed=amount,
             max_free=row.max_free_quantity,
-            free_claimed=free,
+            # A free unit that came back was not given after all (D-PRC-8).
+            free_claimed=max(free - came_back.get(row.version_group_id, ZERO), ZERO),
         )
     return rooms
+
+
+def _free_units_returned(
+    session: Session, groups: set[UUID], *, firm_id: UUID
+) -> dict[UUID, Decimal]:
+    """Return the free units each offer gave that a completed return brought back.
+
+    Free goods could never come back on a sales return, so a free-unit budget
+    only ever filled. Now that they can (D-PRC-8), a unit an offer gave --
+    the order line names the offer in `free_promotion_id` -- and the customer
+    returned is a unit the scheme still has to give. One grouped statement
+    for the whole list, asked whatever the offers gave, so a page of offers
+    costs the same two reads however long it is.
+    """
+    if not groups:
+        return {}
+    # Imported here: these modules' services import the promotion engine.
+    from app.delivery_note.models import DeliveryNoteLine
+    from app.sales_order.models import SalesOrderLine
+    from app.sales_return.free_goods import free_goods_returned
+    from app.sales_return.models import SalesReturn, SalesReturnLine
+
+    return {
+        group: Decimal(str(units))
+        for group, units in session.execute(
+            free_goods_returned(
+                Promotion.version_group_id,
+                func.coalesce(func.sum(SalesReturnLine.free_quantity), 0),
+            )
+            .join(
+                SalesOrderLine,
+                SalesOrderLine.id == DeliveryNoteLine.sales_order_line_id,
+            )
+            .join(Promotion, Promotion.id == SalesOrderLine.free_promotion_id)
+            .where(
+                SalesReturn.firm_id == firm_id,
+                Promotion.firm_id == firm_id,
+                Promotion.version_group_id.in_(groups),
+            )
+            .group_by(Promotion.version_group_id)
+        )
+    }
 
 
 def budget_room(session: Session, promotion: Promotion, *, firm_id: UUID) -> BudgetRoom:

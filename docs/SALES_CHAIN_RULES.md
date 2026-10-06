@@ -173,6 +173,12 @@ new order was raised from the request and had none for the bill to inherit.
 
 ## Goods back before billing credit nothing
 
+**Free goods come back on a sales return beside the charged units, credited
+nothing** (D-PRC-8): `sales_return_lines.free_quantity`, capped at what the
+note sent free by either route, back into stock at cost.
+`docs/PRICING_AND_PROMOTIONS.md`, "Free goods can come back, credited
+nothing", is the reference.
+
 **A sales return against a delivery note nobody was billed for moves stock
 and cost only** (D-SELL-55, the selling twin of D-BUY-26; `app/sales_return/billing.py`).
 No row goes on the customer's account, no output tax is reversed and nothing
