@@ -135,6 +135,9 @@ from app.sales_invoice.schemas import (
     SalesInvoiceSummary,
     SalesInvoiceTenderResponse,
 )
+from app.sales_invoice.services.line_units import (
+    unit_of_a_line_billing_a_document,
+)
 from app.sales_invoice.services.output_tax import invoice_tax_by_component
 from app.sales_invoice.services.sales_chain_service import (
     SalesChainService,
@@ -175,6 +178,7 @@ from app.uom.services import (
     UomService,
     assert_quantity_fits_unit,
     exact_quantity,
+    stock_unit_of,
 )
 
 ZERO = Decimal("0")
@@ -289,6 +293,9 @@ class _PricedInvoiceLine:
     #: source line's (D-PRC-37); None otherwise.
     entered_quantity: Decimal | None
     source_uom_id: UUID | None
+    #: The unit the line was typed in, where it names another than the line
+    #: it bills by either unit field (D-PRC-44); None otherwise.
+    typed_uom_id: UUID | None
     unit_price: Decimal
     charges_amount: Decimal
     gross_amount: Decimal
@@ -2548,7 +2555,10 @@ class SalesInvoiceService(TransactionalDocumentService):
                     tax_profile_id=line.tax_profile_id or note_line.tax_profile_id,
                     packaging_type_id=line.packaging_type_id
                     or note_line.packaging_type_id,
-                    invoice_uom_id=line.invoice_uom_id or note_line.sales_uom_id,
+                    # Whichever field names a unit, else the note's own.
+                    invoice_uom_id=line.invoice_uom_id
+                    or line.order_uom_id
+                    or note_line.sales_uom_id,
                     warehouse_id=line.warehouse_id or note_line.warehouse_id,
                     storage_node_id=line.storage_node_id or note_line.storage_node_id,
                     remarks=line.remarks,
@@ -4074,7 +4084,27 @@ class SalesInvoiceService(TransactionalDocumentService):
             requested_quantity = self._q(Decimal(str(spec["current_invoice_quantity"])))
             source_quantity = self._source_quantity(spec, source_line)
             source_uom_id = self._source_uom_id(source_line)
-            invoice_uom_id = spec.get("invoice_uom_id")
+            # Either unit field names the unit the line is typed in; one that
+            # contradicts the line being billed is refused, not dropped
+            # (D-PRC-44).
+            invoice_uom_id = unit_of_a_line_billing_a_document(
+                self._session,
+                line_number=index,
+                order_uom_id=_optional_uuid(spec.get("order_uom_id")),
+                invoice_uom_id=_optional_uuid(spec.get("invoice_uom_id")),
+                source_uom_id=source_uom_id,
+                source_label=(
+                    f"{self._source_document_number(spec, source_line)} line "
+                    f"{self._source_line_number(source_line)}"
+                ),
+            )
+            if invoice_uom_id is not None and source_uom_id is None:
+                # The line billed names no unit, so it is counted in the
+                # product's stock unit: a unit typed against it is converted
+                # into that, never taken as the same thing.
+                source_uom_id = stock_unit_of(
+                    self._session.get(Product, self._product_id(source_line))
+                )
             assert_quantity_fits_unit(
                 self._session,
                 quantity=requested_quantity,
@@ -4099,7 +4129,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             typed = self._uom.continued_quantity(
                 product_id=self._product_id(source_line),
                 quantity=requested_quantity,
-                from_uom_id=_optional_uuid(invoice_uom_id),
+                from_uom_id=invoice_uom_id,
                 to_uom_id=source_uom_id,
                 on_date=invoice_date,
                 firm_scope=firm_id,
@@ -4198,6 +4228,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     conversion_factor=conversion_factor,
                     entered_quantity=typed.entered,
                     source_uom_id=source_uom_id,
+                    typed_uom_id=None if typed.entered is None else invoice_uom_id,
                     unit_price=unit_price,
                     charges_amount=charges_amount,
                     gross_amount=gross_amount,
@@ -4350,8 +4381,10 @@ class SalesInvoiceService(TransactionalDocumentService):
                 tax_amount=tax_amount,
                 net_amount=net_amount,
                 packaging_type_id=spec.get("packaging_type_id"),
-                order_uom_id=spec.get("order_uom_id") or source_uom_id,
-                invoice_uom_id=spec.get("invoice_uom_id"),
+                # The unit the quantity is stored in: the line billed.
+                order_uom_id=source_uom_id or spec.get("order_uom_id"),
+                # The unit it was typed in, whichever field named it.
+                invoice_uom_id=spec.get("invoice_uom_id") or item.typed_uom_id,
                 conversion_factor=conversion_factor,
                 entered_quantity=item.entered_quantity,
                 conversion_version=spec.get("conversion_version"),

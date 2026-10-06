@@ -40,6 +40,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceSourceType,
     SalesInvoiceSourceWrite,
 )
+from app.sales_invoice.services.line_units import unit_of_a_bare_line
 from app.sales_order.models import SalesOrder, SalesOrderLine, SalesWorkflowSettings
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services.sales_order_service import SalesOrderService
@@ -185,7 +186,15 @@ class SalesChainService:
                         # None lets the order's offers give free goods; a
                         # typed zero refuses them (D-SELL-41).
                         free_quantity=line.free_quantity,
-                        sales_uom_id=line.invoice_uom_id,
+                        # Whichever field names the unit: a line naming
+                        # only `order_uom_id` BOX was sold as pieces
+                        # (D-PRC-44).
+                        sales_uom_id=unit_of_a_bare_line(
+                            self._session,
+                            line_number=line.line_number,
+                            order_uom_id=line.order_uom_id,
+                            invoice_uom_id=line.invoice_uom_id,
+                        ),
                         packaging_type_id=line.packaging_type_id,
                         unit_price=line.unit_price,
                         discount_percent=line.discount_percent,
