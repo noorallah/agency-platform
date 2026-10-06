@@ -683,6 +683,74 @@ void main() {
       expect(api.updated!.containsKey('freight_amount'), isFalse);
     });
 
+    Json offerFreeDraft() => _draft()
+      ..['lines'] = <Json>[
+        <String, dynamic>{
+          'line_number': 1,
+          'product_id': 'p1',
+          'quantity': '3',
+          'free_quantity': '1',
+          'free_promotion_id': 'promo-1',
+          'unit_price': '95',
+          'discount_percent': '0',
+          'discount_source': 'percent',
+          'discount_amount': '0',
+        },
+      ];
+
+    testWidgets("an offer's free goods are not sent back as a figure",
+        (tester) async {
+      final _OrderApi api = _api()..existing = offerFreeDraft();
+      await _pump(tester, api, orderId: 'so-1');
+
+      expect(
+        tester
+            .widget<TextFormField>(find.widgetWithText(TextFormField, 'Free'))
+            .controller!
+            .text,
+        '',
+      );
+      expect(find.textContaining('The offer gives 1'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+
+      expect(_firstLine(api.updated!).containsKey('free_quantity'), isFalse);
+    });
+
+    testWidgets('free goods typed by a person are sent as before',
+        (tester) async {
+      final _OrderApi api = _api()
+        ..existing = (_draft()
+          ..['lines'] = <Json>[
+            <String, dynamic>{
+              'line_number': 1,
+              'product_id': 'p1',
+              'quantity': '3',
+              'free_quantity': '2',
+              'free_promotion_id': null,
+              'unit_price': '95',
+              'discount_percent': '0',
+              'discount_source': 'percent',
+              'discount_amount': '0',
+            },
+          ]);
+      await _pump(tester, api, orderId: 'so-1');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+      expect(_firstLine(api.updated!)['free_quantity'], '2');
+    });
+
+    testWidgets("a figure typed over an offer's free goods is sent",
+        (tester) async {
+      final _OrderApi api = _api()..existing = offerFreeDraft();
+      await _pump(tester, api, orderId: 'so-1');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Free'), '0');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+      expect(_firstLine(api.updated!)['free_quantity'], '0');
+    });
+
     testWidgets('a correction carries the version it read as the precondition',
         (tester) async {
       final _OrderApi api = _api()..existing = _draft(version: 6);
@@ -923,6 +991,35 @@ void main() {
       expect(line['unit_price'], '112.1');
       expect(line['discount_amount'], '11.8');
       expect(line.containsKey('discount_percent'), isFalse);
+    });
+
+    testWidgets("phase 2 shows an offer's free goods and sends no figure",
+        (tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      final _OrderApi api = _api();
+      api.existing = _draft()
+        ..['lines'] = <Json>[
+          <String, dynamic>{
+            'line_number': 1,
+            'product_id': 'p1',
+            'quantity': '3',
+            'free_quantity': '1',
+            'free_promotion_id': 'promo-1',
+            'unit_price': '95',
+            'discount_percent': '0',
+            'discount_source': 'percent',
+            'discount_amount': '0',
+          },
+        ];
+      await pumpPhase2(tester, api, orderId: 'so-1');
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'no overflow at 1366x768');
+      expect(find.text('Free goods (from the offer)'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pumpAndSettle();
+      expect(_firstLine(api.updated!).containsKey('free_quantity'), isFalse);
     });
   });
 
