@@ -1,0 +1,789 @@
+{
+ "SC-CM-002": {
+  "fail": 0,
+  "file": "pricing_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-CP-001": {
+  "fail": 0,
+  "file": "pricing_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-DN-001": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "columns present"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-002": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-DN-003": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-DN-004": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-DN-013": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "note: :: quantity-related text on screen after Save: Stock | Delivery Notes | New delivery note | New delivery note | Save delivery note | Line 1 delivers 99999 where SO-2026-2027-000107 has 1 left to deliver of the 1 ordered. Change the line to what is left. | Delivery date | Reserved",
+   "open=true, saved=0, said=\"Seventy nine lakh ninety nine thousand nine hundred twenty only | Value at the order's rates, before tax  79,99,920.00\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-014": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "stock cannot be set to 5 without moving the firm; on hand is 82 and approved orders reserve more than that (see SCRQ findings on over-reservation)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-015": {
+  "fail": 1,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "note: :: server approved list has SO-2026-2027-000112; the box offers SO-2026-2027-000107  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000106  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000105  07-10-2026  Vijaya Stores t10069cwy first",
+   "an order approved after Delivery Notes was opened (SO-2026-2027-000112) is not in the order box (known SCRQ-27)",
+   "approved order offered=true, draft order offered=false; an order approved after the page opened offered=false"
+  ],
+  "pass": 1,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-016": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "the date box offers no future date in two attempts"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-017": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter a delivery quantity on at least one line. A line with nothing reserved cannot be dispatched until the order is approved. | Zero only | Value at the order's rates, before tax  0.00\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-018": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Edit is absent on an Approved note (the editor only creates; no Edit exists for a note in any status)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-019": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Dispatch is absent on a Draft note"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-020": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "needs a billed dispatched note; chain done in the SB file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-021": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "note status APPROVED; said \"SO-2026-2027-000113 is on hold and cannot be dispatched (\"dispatch test\"). Release it first.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-022": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "no carrier master record in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-023": {
+  "fail": 1,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Bad state: Cancel closed an editor holding a typed quantity without asking"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-024": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "buttons {+ New: absent, Approve: absent, Dispatch: absent, Cancel: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-DN-025": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Delivery Notes offered: false; menu areas sell, buy, stock, masters; list answers 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-DN-026": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "stages PUT answered 403 (HTTP level)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsmgr"
+ },
+ "SC-DN-029": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "the delivery note editor only creates; a saved note cannot be opened for change on screen, so there is no second session to race"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-030": {
+  "fail": 1,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Bad state: N1: Dispatch of a note another user had already dispatched said nothing after the dialog was confirmed"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-002": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-OF-002": {
+  "fail": 0,
+  "file": "pricing_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-OF-012": {
+  "fail": 0,
+  "file": "pricing_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PB-002": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PB-003": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PC-005": {
+  "fail": 0,
+  "file": "pricing_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PL-002": {
+  "fail": 0,
+  "file": "pricing_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PL-003": {
+  "fail": 0,
+  "file": "pricing_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PO-002": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PO-003": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PO-004": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PO-005": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PR-002": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PR-003": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-PY-002": {
+  "fail": 0,
+  "file": "buying_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-QT-002": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-QT-003": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-QT-005": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-QT-006": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-QT-007": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-QT-008": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-RC-002": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-SB-002": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-SB-003": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-SO-001": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "columns present; cards: Draft, Approved, Cancelled, Closed, Draft, Draft"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-002": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-SO-003": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-SO-005": {
+  "fail": 0,
+  "file": "pricing_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-SO-006": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "quantity 5 saved, total 472.0"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-007": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status APPROVED, on hold true, notice \"SO-2026-2027-000070 is on hold.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-008": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status APPROVED, on hold false, notice \"SO-2026-2027-000070 released.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-011": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"SO-2026-2027-000075 cancelled. Its stock is released.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-013": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "bulk selection checkboxes not reached in two attempts"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SO-017": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Check the fields marked below.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-018": {
+  "fail": 1,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "note: :: editor after the customer is chosen: S( | Sales Orders | New sales order | New sales order | Draft | Enter next field  \u00b7  Ctrl+Enter new line  \u00b7  Ctrl+S save | Cancel | Save & approve | Save draft | Customer (type code, name or phone) | Anand Agencies t10069cwy \u2014 T10069CWY-C02 | Vijaya Stores t10069cwy \u2014 T10069CWY-C01 | bal 0.00 | Order date | auto | 07-10-2026 | Wanted by | \u2014 | Place of supply | auto | \u2014 | Salesman | Nobody | Branch \u00b7 ships from | auto | HO | MAIN | Rate includes GST | Before tax | Customer's reference | their PO number | Our reference | Coupon | Payment terms | e.g. 30 days net | Credit days | blank takes the customer's 0 days | # | Product (code, name or barcode) | HSN | Qty | Free | Unit | Rate | Disc % | Disc amt | Taxable | GST | Amount | 1 | 80.00 | 80.00 | 2     + add a product (Ctrl+Enter) | Discount on the whole order % | Or an amount off the whole order | Delivery charge | Remarks | Totals follow as the lines are priced. | Taxable  80.00 | CGST  0.00 | SGST  0.00 | Total  80.00 | LINE 1 \u00b7 DETERGENT 1KG T10069CWY | Rate | 80.00 | from: Price list | Discount | \u2013 | blank takes any arrangement on file | Free: blank takes the offer; 0 refuses it.",
+   "refused: Bad state: N2: the editor closed; N3: 1 record(s) saved [open=false, saved=1, said=\"Order drafted. Approve it to commit the stock and the credit. | 2026-10-06 (entered 2026-10-07 01:21) | 2026-10-06 (entered 2026-10-07 01:19)\"]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-019": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Check the fields marked below. | Enter the quantity.\"",
+   "note: :: quantity box now reads \"Detergent 1kg t10069cwy  T10069CWY-DET / 0 /  / 80.00 /  / \"",
+   "open=true, saved=0, said=\"Enter next field  \u00b7  Ctrl+Enter new line  \u00b7  Ctrl+S save | Check the fields marked below. | Before tax\""
+  ],
+  "pass": 3,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-020": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status after Approve: APPROVED, screen says \"\"; Approve of a success is silent by design, and 500 units against the stock on hand were accepted without a word"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-021": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "date picker opened; the screen cannot be given a date before the order date (first selectable day is the order date)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-022": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "no customer with a credit limit in the fixture firm; needs a customer made for it (CC section)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SO-023": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "Edit is absent on an Approved order"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-024": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "screen says \"Only draft sales orders can be approved.\"; status APPROVED"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-025": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"SO-2026-2027-000074 cannot be cancelled while delivery note DN-26-27-000019 stands against it. Cancel those first, or close the order to stop what is still to come.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-026": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "needs a delivery note editor session on a held order; done in the DN file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SO-027": {
+  "fail": 1,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "Bad state: N1: the dialog closed and nothing said a reason is needed"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-028": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "needs an offer with a total-uses cap of 1; built in the OF section"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SO-029": {
+  "fail": 1,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "Esc did nothing: the editor stayed open and asked nothing (the Cancel button is judged in the next step)",
+   "Bad state: the Cancel button closed an editor holding a customer and a quantity without asking"
+  ],
+  "pass": 1,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-030": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "{New Order: absent, + New: enabled, Edit: enabled, Approve: absent, Hold: absent, Release: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-SO-031": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "Cancel is absent"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-SO-032": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "credit settings PUT 403, sales stages PUT 403 (HTTP level; the settings screens not opened)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsmgr"
+ },
+ "SC-SO-033": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "{+ New: absent, New Order: absent, Edit: absent, Approve: absent, Hold: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-SO-034": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "note: :: the storekeeper (INVENTORY_MANAGER) is refused the order list with 403 and is not offered Delivery Notes; 01_ROLES R06 lists no Sell screen for it, so the hand over to the warehouse cannot happen on screen",
+   "warehouse list answered 403, holds the order: false"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-035": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "status CANCELLED, on hold true, screen says \"SO-2026-2027-000076 cancelled. Its stock is released.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SO-036": {
+  "fail": 0,
+  "file": "sc_so_test.dart",
+  "notes": [
+   "row reads: SO-2026-2027-000078 | Vijaya Stores t10069cwy | 2026-10-07 02:03 | Approved | 94.40"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-002": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ },
+ "SC-SR-003": {
+  "fail": 0,
+  "file": "selling_flow_test.dart",
+  "notes": [],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": ""
+ }
+}

@@ -28,7 +28,7 @@ void main() {
     final String couponCode = 'FLCP$stamp';
 
     // -- Price list --------------------------------------------------------
-    await flow.step('price list: new with a product price, save', () async {
+    await flow.step('SC-PL-002 SC-PL-003 price list: new with a product price, save', () async {
       await openSetUp(tester, 'sales/price-lists');
       await tapNew(tester);
       await typeLabelled(tester, 'Code', listCode);
@@ -60,7 +60,7 @@ void main() {
     });
 
     // -- Offer with a budget ----------------------------------------------
-    await flow.step('offer: new with a budget, save, reopen', () async {
+    await flow.step('SC-OF-002 offer: new with a budget, save, reopen', () async {
       await openSetUp(tester, 'sales/promotions');
       await tapNew(tester);
       await typeLabelled(tester, 'Code', offerCode);
@@ -104,7 +104,7 @@ void main() {
     });
 
     // -- Coupon ------------------------------------------------------------
-    await flow.step('coupon: new for the offer, save', () async {
+    await flow.step('SC-CP-001 coupon: new for the offer, save', () async {
       await tester.tap(find.text('Coupons').first);
       await pumpFor(tester, const Duration(seconds: 2));
       await tapNew(tester);
@@ -142,7 +142,7 @@ void main() {
     });
 
     // -- Commission rule ---------------------------------------------------
-    await flow.step('commission: new rule, save', () async {
+    await flow.step('SC-CM-002 commission: new rule, save', () async {
       await openMenu(tester, 'sell', 'sales/commission');
       await tapNew(tester);
       await typeLabelled(tester, 'Rate', '3');
@@ -157,7 +157,7 @@ void main() {
     });
 
     // -- Principal claim ---------------------------------------------------
-    await flow.step('principal claim: open, price cut claim preview',
+    await flow.step('SC-PC-005 principal claim: open, price cut claim preview',
         () async {
       await openMenu(tester, 'buy', 'purchases/principal-claims');
       await tapKey(tester, 'claim-new-price-cut');
@@ -183,7 +183,7 @@ void main() {
     });
 
     // -- An order that picks the offer up ----------------------------------
-    await flow.step('order: picks up the offer, shows its discount', () async {
+    await flow.step('SC-SO-005 SC-OF-012 order: picks up the offer, shows its discount', () async {
       await openMenu(tester, 'sell', 'salesOrders');
       await tapNew(tester);
       await chooseIn(tester, 'sales-order-customer', 'Vijaya Stores');

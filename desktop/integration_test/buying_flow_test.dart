@@ -21,7 +21,7 @@ void main() {
 
     // -- Purchase order ----------------------------------------------------
     Json? order;
-    final bool ordered = await flow.step('order: new, line, save', () async {
+    final bool ordered = await flow.step('SC-PO-002 order: new, line, save', () async {
       await openMenu(tester, 'buy', 'purchases/purchase-orders');
       await tapNew(tester);
       await chooseIn(tester, 'purchase-order-vendor', 'Principal supplier');
@@ -48,7 +48,7 @@ void main() {
               'saved grand total $grand is not on the list screen');
         }
       });
-      await flow.step('order: reopen, change quantity, save', () async {
+      await flow.step('SC-PO-003 order: reopen, change quantity, save', () async {
         await selectRow(tester, docNumber(order!));
         await tapButton(tester, 'Edit');
         await pumpFor(tester, const Duration(seconds: 3));
@@ -60,7 +60,7 @@ void main() {
         final String? fault = arithmeticFault(order!, quantity: 12);
         if (fault != null) throw StateError(fault);
       });
-      await flow.step('order: submit for approval', () async {
+      await flow.step('SC-PO-004 order: submit for approval', () async {
         await selectRow(tester, docNumber(order!));
         await tapButton(tester, 'Submit');
         await confirmIfAsked(tester);
@@ -71,7 +71,7 @@ void main() {
               '"${noticeText(tester)}"');
         }
       });
-      await flow.step('order: approve', () async {
+      await flow.step('SC-PO-005 order: approve', () async {
         await selectRow(tester, docNumber(order!));
         await tapButton(tester, 'Approve');
         await confirmIfAsked(tester);
@@ -90,7 +90,7 @@ void main() {
     // -- Goods receipt -----------------------------------------------------
     Json? receipt;
     if (order != null && '${order!['status']}' == 'APPROVED') {
-      await flow.step('receipt: new off the order, complete', () async {
+      await flow.step('SC-GR-002 receipt: new off the order, complete', () async {
         await openMenu(tester, 'buy', 'goodsReceipts/receipts');
         await tapNew(tester);
         await chooseIn(tester, 'goods-receipt-order', docNumber(order!));
@@ -121,7 +121,7 @@ void main() {
     // -- Purchase invoice --------------------------------------------------
     Json? bill;
     if (receipt != null) {
-      await flow.step('bill: new off the receipt, save', () async {
+      await flow.step('SC-PB-002 bill: new off the receipt, save', () async {
         await openMenu(tester, 'buy', 'purchaseInvoices');
         await tapNew(tester);
         await chooseIn(
@@ -154,7 +154,7 @@ void main() {
         }
       });
       if (bill != null) {
-        await flow.step('bill: approve', () async {
+        await flow.step('SC-PB-003 bill: approve', () async {
           await selectRow(tester, docNumber(bill!));
           await tapButton(tester, 'Approve');
           await confirmIfAsked(tester);
@@ -171,7 +171,7 @@ void main() {
 
     // -- Payment -----------------------------------------------------------
     if (bill != null) {
-      await flow.step('payment: record against the bill', () async {
+      await flow.step('SC-PY-002 payment: record against the bill', () async {
         await openMenu(tester, 'buy', 'accounting/payments');
         await tapNew(tester);
         await typeLabelled(tester, 'Paid to', 'Principal');
@@ -202,7 +202,7 @@ void main() {
 
     // -- Purchase return ---------------------------------------------------
     if (receipt != null) {
-      await flow.step('return: new off the receipt, save, approve', () async {
+      await flow.step('SC-PR-002 SC-PR-003 return: new off the receipt, save, approve', () async {
         await openMenu(tester, 'buy', 'purchaseReturns');
         await tapNew(tester);
         await chooseIn(tester, 'purchase-return-receipt', docNumber(receipt!));
