@@ -703,3 +703,32 @@ def test_a_supplier_lists_discount_break_counts_the_pieces_in_a_box() -> None:
 
     assert (two.discount_percent, two.discount_amount) == (D("5.0000"), D("72.0000"))
     assert (one.discount_percent, one.discount_amount) == (D("2.0000"), D("14.4000"))
+
+
+def test_a_price_typed_on_a_bill_or_return_in_pieces_is_the_price_of_a_piece() -> None:
+    """60.00 a piece on 24 PIECE is 720.00 a box on the 2 BOX it is stored as."""
+    buyer = _Buyer()
+    receipt = buyer.receive(buyer.order(**buyer.named("c")))
+
+    bill = buyer.bill(receipt, "24", invoice_uom_id=buyer.piece, unit_price="60")
+
+    line = buyer.bill_line(bill)
+    assert (line.current_invoice_quantity, line.unit_price) == (
+        D("2.0000"),
+        D("720.0000"),
+    )
+    assert bill.grand_total == D("1440.0000")
+    sent = buyer.send_back(
+        "PURCHASE_INVOICE",
+        bill.id,
+        line.id,
+        quantity="12",
+        return_uom_id=buyer.piece,
+        unit_price="60",
+    )
+    back = buyer.return_line(sent)
+    assert (back.current_return_quantity, back.unit_price, back.gross_amount) == (
+        D("1.0000"),
+        D("720.0000"),
+        D("720.0000"),
+    )

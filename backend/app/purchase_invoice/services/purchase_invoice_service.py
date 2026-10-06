@@ -126,7 +126,11 @@ from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
-from app.uom.services import UomService, assert_quantity_fits_unit
+from app.uom.services import (
+    UomService,
+    assert_quantity_fits_unit,
+    price_per_source_unit,
+)
 from app.vendors.models import Vendor
 
 if TYPE_CHECKING:
@@ -2544,6 +2548,15 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             stated_price = spec.get("unit_price")
             if stated_price is None:
                 stated_price = getattr(source_line, "unit_price", None) or ZERO
+            else:
+                # Typed for the unit the line was typed in; the line is
+                # stored in the source line's, so the price is restated with
+                # the quantity (60.00 a piece is 720.00 a box).
+                stated_price = price_per_source_unit(
+                    Decimal(str(stated_price)),
+                    typed_quantity=requested_quantity,
+                    source_quantity=invoice_quantity,
+                )
             unit_price = self._q(Decimal(str(stated_price)))
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(invoice_quantity * unit_price)

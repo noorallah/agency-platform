@@ -805,6 +805,20 @@ reason this survived was that every test billed from a sales order, where
 the field is plain `quantity`, so the delivery-note path had no coverage at
 all. Found by reading a rendered bill rather than the code.
 
+**The cap is compared in the unit of the line being billed, whatever unit the
+bill is typed in** (2026-10-06). A bill line naming another unit
+(`invoice_uom_id`) is converted into its source line's unit first --
+`UomService.quantity_between`: the rule for the pair, else through the
+product's stock unit -- so a note of 2 BOX of 12 is billed as 24 PIECE and
+refused at 25, "Invoice quantity exceeds the available source quantity." It
+needed a piece-to-box rule before, which a firm seldom writes, and was
+refused for the want of one. **A price typed on such a line is the price of
+the unit typed** and is restated with the quantity: 24 PIECE at 100.00 is
+stored as 2 at 1,200.00 and billed 2,400.00, where the typed 100.00 was
+multiplied by the converted 2 and billed 200.00. The same holds for a
+supplier's bill and a purchase return typed in another unit than the line
+they continue.
+
 ## `FREE_PRODUCT` emits a line rather than setting a field
 
 **`FREE_PRODUCT` gives something the document never mentioned, so the engine
@@ -1175,9 +1189,16 @@ needs approval by someone allowed at least 50.00%." A counter bill by the box
 is judged the same way through the order it raises. The same change judges a
 line that carries **free goods**: it was left out too, because the test for
 "another unit" was the stock quantity differing from the quantity charged.
-One case is still judged on its typed discount alone: a bill of a note typed
-in a different unit from the note line it bills (`conversion_factor` other
-than 1 on the bill line).
+**A bill typed in another unit than the note line it bills is judged like
+any other line** (2026-10-06). It was left out on `conversion_factor` other
+than 1 and judged on its typed discount alone, so 24 PIECE at 50.00 against a
+note of 2 BOX agreed at 1,200.00 a box -- half price, with no discount typed
+-- was approved by somebody limited to 5%. Such a line is stored in the unit
+of the line it bills, quantity and price both (`docs/UOM_FRAMEWORK.md`): 2 at
+600.00 a box. So the agreed price is already the price of the unit the line
+is in, and it is refused in the usual words, "Line 1 is priced at 600.00
+where the customer's price is 1200.00: 50.00% off in all, above your limit of
+5.00%."
 
 **A delivery note is judged for what it types** (D-PRC-23, 2026-10-06). The
 third thing it did not do: a discount typed on a note reached the bill as

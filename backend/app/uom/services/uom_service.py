@@ -221,6 +221,25 @@ def stock_unit_of(product: Product | None, fallback: UUID | None = None) -> UUID
     return fallback
 
 
+def price_per_source_unit(
+    price: Decimal, *, typed_quantity: Decimal, source_quantity: Decimal
+) -> Decimal:
+    """Return a price typed for one unit as the price of one source-line unit.
+
+    A bill or return line typed in another unit than the line it continues
+    is stored in that line's unit: 24 PIECE of a note of 2 BOX is stored as
+    2. **A price somebody types is the price of the unit they typed**, so it
+    is restated with the quantity -- 100.00 a piece is 1,200.00 a box --
+    and the line is worth what was typed. Multiplied as it stood, 24 PIECE
+    at 100.00 was billed 200.00. ``typed_quantity`` over ``source_quantity``
+    is the source units' worth of typed units, taken from the two quantities
+    rather than from a factor so 24 over 2 is exactly 12.
+    """
+    if source_quantity <= 0 or typed_quantity == source_quantity:
+        return price
+    return price * typed_quantity / source_quantity
+
+
 def buying_units_of(
     product: Product | None, *, unit: UUID | None, stock_unit: UUID | None
 ) -> tuple[UUID | None, UUID | None]:

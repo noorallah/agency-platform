@@ -216,7 +216,9 @@ PIECE." A receipt line is counted in its order line's unit and one naming
 another is refused: "Line 1 is received in BOX where PO-2026-2027-000004
 orders it in PIECE. Receive it in the order's unit." A bill or return line
 typed in another unit is stored in its source line's unit, converted by the
-rule for the pair or else through the stock unit.
+rule for the pair or else through the stock unit; a price typed on it is the
+price of the unit typed and is restated with the quantity (24 PIECE at 60.00
+is stored as 2 BOX at 720.00).
 
 **A bill of products typed with no order counts each line in the unit it
 names, else the product's buying unit**, because the order it raises does: a
