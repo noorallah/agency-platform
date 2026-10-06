@@ -886,6 +886,19 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     return _buildPayload();
   }
 
+  /// What a save with nothing marked on screen is missing, said in words:
+  /// the pickers carry no red mark of their own, so "check the fields marked
+  /// below" pointed at nothing (D-UI-17).
+  String? _missing() {
+    if (_customerId == null) return 'Choose the customer.';
+    if (_branchId == null || _warehouseId == null) {
+      return 'Choose the branch and the warehouse the goods ship from.';
+    }
+    final int blank = _lines.indexWhere((_LineDraft l) => l.productId == null);
+    if (blank >= 0) return 'Choose a product on line ${blank + 1}.';
+    return null;
+  }
+
   Json? _buildPayload() {
     if (_customerId == null || _branchId == null || _warehouseId == null) {
       return null;
@@ -1004,7 +1017,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     }
     final Json? payload = _payload();
     if (payload == null) {
-      setState(() => _error = 'Check the fields marked below.');
+      setState(() => _error = _missing() ?? 'Check the fields marked below.');
       return null;
     }
     setState(() {
