@@ -2965,11 +2965,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             EWayBillStatus,
             RegistrationStatus,
         )
-        from app.sales_return.models import (
-            SalesReturn,
-            SalesReturnLine,
-            SalesReturnSource,
-        )
+        from app.sales_return.models import SalesReturn, SalesReturnSource
         from app.settlements.models import Settlement, SettlementAllocation
 
         blockers: list[str] = []
@@ -3038,32 +3034,27 @@ class SalesInvoiceService(TransactionalDocumentService):
         ).all()
         # Goods this bill charged for can also come back against the note it
         # billed, and cancelling then takes the whole bill off the customer on
-        # top of the credit that return gave (D-SELL-7).
-        billed_note_lines = select(SalesInvoiceLine.source_document_line_id).where(
-            SalesInvoiceLine.sales_invoice_id == row.id,
-            SalesInvoiceLine.source_document_type
-            == SalesInvoiceSourceType.DELIVERY_NOTE.value,
-            SalesInvoiceLine.is_deleted.is_(False),
+        # top of the credit that return gave (D-SELL-7). Only the returns
+        # that took units of **this** bill: every return of the note used to
+        # count, so a draft bill -- which has charged nobody -- could not be
+        # withdrawn once anything had come back off its note, and went on
+        # holding the note's units (D-PRC-77).
+        from app.sales_return.billing import returns_resting_on
+
+        off_the_note = returns_resting_on(
+            self._session, firm_id=row.firm_id, invoice_id=row.id
         )
-        returns = sorted(
-            set(returns)
-            | set(
-                self._session.scalars(
-                    select(SalesReturn.return_number)
-                    .join(
-                        SalesReturnLine,
-                        SalesReturnLine.sales_return_id == SalesReturn.id,
-                    )
-                    .where(
-                        SalesReturnLine.source_document_type == "DELIVERY_NOTE",
-                        SalesReturnLine.source_document_line_id.in_(billed_note_lines),
-                        SalesReturnLine.is_deleted.is_(False),
-                        SalesReturn.status != "CANCELLED",
-                        SalesReturn.is_deleted.is_(False),
-                    )
-                ).all()
+        if off_the_note:
+            returns = sorted(
+                set(returns)
+                | set(
+                    self._session.scalars(
+                        select(SalesReturn.return_number).where(
+                            SalesReturn.id.in_(off_the_note)
+                        )
+                    ).all()
+                )
             )
-        )
         if returns:
             blockers.append("sales return " + ", ".join(returns))
         # Points spent on the bill are not a blocker (D-PRC-6): nothing could

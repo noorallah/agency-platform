@@ -278,6 +278,20 @@ rate-difference credit note of 472.00 and was then returned in full for
   credited there. A credit note for goods never exceeds the units its
   invoice billed -- ERPNext refuses the same return against the original
   invoice.
+- **A bill is held from cancelling only by the returns that took its
+  units** (D-PRC-77, 2026-10-06; `returns_resting_on` in
+  `app/sales_return/billing.py`). A return raised on the bill's own lines,
+  whatever its status; a completed return off the note that was placed on
+  this bill; and a return off the note that has not completed, where its
+  units would be set against this bill as the bills stand. Cancelling such
+  a bill would take the whole of it off the customer on top of the credit
+  the return gave (D-SELL-7). The guard used to count **every** return of
+  the note, so a draft bill -- which has charged nobody -- could not be
+  withdrawn once anything had come back off its note ("cannot be cancelled
+  while it has sales return SR-..."), went on holding the note's units, and
+  a fresh bill of what was left was refused. A return that came back before
+  the bill existed, or that was placed on the note's other bills, holds
+  nothing; nothing off the note holds a draft.
 - **Cancelling a completed return removes its placement**, so the units are
   the bill's again. A bill dated earlier than the one a return was set
   against, approved afterwards, does not take that return's units; the next

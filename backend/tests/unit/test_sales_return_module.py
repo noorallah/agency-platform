@@ -1279,6 +1279,103 @@ def test_a_bill_whose_goods_came_back_through_the_note_cannot_be_cancelled() -> 
         )
 
 
+# ---- cancelling a bill of a note that has a return (D-PRC-77) ---------------
+#
+# The seventh pricing check (2026-10-06): a draft bill of a note, one box
+# returned off the note, and the draft could not be cancelled -- "cannot be
+# cancelled while it has sales return SR-..." -- so it went on holding the
+# note's units and a fresh bill of what was left was refused. The guard asked
+# whether the note had any return, not whether one had taken units of this
+# bill.
+
+
+def _cancelled(setup: _Dispatch, bill: SalesInvoice) -> SalesInvoice:
+    """Cancel a bill."""
+    return SalesInvoiceService(setup.session).cancel_invoice(
+        bill.id,
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+        reason="Raised in error.",
+    )
+
+
+def test_a_draft_bill_is_cancelled_whatever_came_back_off_its_note() -> None:
+    """One back off the note under a draft bill of all four.
+
+    The draft has charged nobody, so the return credited nothing and nothing
+    rests on the bill. Cancelled, it stops holding the note's units and the
+    three the customer kept can be billed.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session, approve_bill=False)
+    setup.completed(quantity=Decimal("1"))
+    assert _credits(session) == []
+
+    assert _cancelled(setup, setup.invoice).status == "CANCELLED"
+
+    fresh = SalesInvoiceService(session).approve_invoice(
+        setup.bill(Decimal("3")).id,
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    assert fresh.status == "APPROVED"
+
+
+def test_a_draft_bill_saved_after_a_return_off_the_note_is_cancelled() -> None:
+    """Two back before any bill, then a draft of the two left: withdrawn."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    setup.completed(quantity=Decimal("2"))
+    draft = setup.bill(Decimal("2"))
+
+    assert _cancelled(setup, draft).status == "CANCELLED"
+
+
+def test_a_bill_approved_after_a_return_off_the_note_is_cancelled() -> None:
+    """The return came back before the bill existed and took nothing off it."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("0"))
+    setup.completed(quantity=Decimal("2"))
+    bill = SalesInvoiceService(session).approve_invoice(
+        setup.bill(Decimal("2")).id,
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert _cancelled(setup, bill).status == "CANCELLED"
+
+
+def test_only_the_bill_a_return_off_the_note_was_set_against_is_held() -> None:
+    """Two bills of a note; two back off it are the first bill's.
+
+    The first cannot be cancelled -- the customer would be credited for the
+    return and the whole bill besides (D-SELL-7) -- and the second, which
+    the return took nothing off, can.
+    """
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    row = _returned(setup, setup.payload(quantity=Decimal("2")))
+
+    with pytest.raises(ValidationError) as refusal:
+        _cancelled(setup, setup.invoice)
+    session.rollback()
+    assert f"sales return {row.return_number}" in str(refusal.value)
+
+    assert _cancelled(setup, second).status == "CANCELLED"
+
+
+def test_a_return_named_on_a_bill_still_holds_it() -> None:
+    """A return raised on the bill's own line, even a draft, is the bill's."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    row = SalesReturnService(session).create_return(
+        _against_the_bill(setup, "1"), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    with pytest.raises(ValidationError, match=row.return_number):
+        _cancelled(setup, setup.invoice)
+
+
 def _charge_gst(setup: _Dispatch) -> SalesInvoiceLine:
     """Record that the bill charged 18% GST on its line, as CGST and SGST.
 
