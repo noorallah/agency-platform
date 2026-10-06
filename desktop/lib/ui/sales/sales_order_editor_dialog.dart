@@ -14,6 +14,7 @@ import '../../models/entities.dart';
 import '../../models/firm_member.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
+import '../../models/uom_packaging.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
@@ -213,6 +214,17 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
 
   final List<_LineDraft> _lines = <_LineDraft>[];
 
+  /// Lines the offers' engine added -- nothing sold, goods given, carrying
+  /// `free_promotion_id` (D-PRC-39). They are the server's: shown, never
+  /// edited, and never sent back, because a line sent back is a line a
+  /// person typed, which escapes the offer's free-unit budget. The server
+  /// adds them again from the offer on every save.
+  final List<Json> _offerFreeLines = <Json>[];
+
+  /// Unit codes by id, read once for the offers' free lines.
+  final Map<String, String> _unitCodes = <String, String>{};
+  bool _unitsAsked = false;
+
   List<Customer> _customers = const [];
   List<Product> _products = const [];
   List<BranchRecord> _branches = const [];
@@ -292,6 +304,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
             await widget.api.previewSalesOrder(draft);
         if (!mounted || serial != _previewSerial) return;
         setState(() => _preview = priced);
+        _ensureUnitCodes();
       } on ApiException {
         // A half-typed order the server refuses: keep the last figures.
       }
@@ -445,6 +458,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       });
       // After the order, so a correction opens with its stored values.
       unawaited(_customFields.start());
+      _ensureUnitCodes();
       // Phase 2 prices what was loaded straight away.
       _schedulePreview();
     } on ApiException catch (error) {
@@ -535,8 +549,13 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
 
     final List<dynamic> lines =
         order['lines'] is List ? order['lines'] as List : const [];
+    _offerFreeLines.clear();
     for (final dynamic raw in lines) {
       final Json line = Map<String, dynamic>.from(raw as Map);
+      if (_isOfferFreeLine(line)) {
+        _offerFreeLines.add(line);
+        continue;
+      }
       // Typed with GST in the rate: the boxes read what was typed, which the
       // server derives the stored pre-tax figures from.
       final String enteredRate = stringValue(line['entered_rate']);
@@ -581,6 +600,57 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   }
 
   String? _blankToNull(String value) => value.isEmpty ? null : value;
+
+  /// A line the engine added for an offer: sells nothing and names the
+  /// offer that gave it. A line somebody typed has no `free_promotion_id`.
+  bool _isOfferFreeLine(Map<dynamic, dynamic> line) =>
+      stringValue(line['free_promotion_id']).isNotEmpty &&
+      (double.tryParse(stringValue(line['quantity'])) ?? 0) == 0;
+
+  /// The offers' free lines to show: as the last pricing returned them, else
+  /// as the order was read.
+  List<Json> get _offerFreeShown {
+    final Json? order = _preview?.order;
+    if (order == null) return _offerFreeLines;
+    return <Json>[
+      for (final dynamic raw in order['lines'] as List? ?? const <dynamic>[])
+        if (raw is Map && _isOfferFreeLine(raw)) Map<String, dynamic>.from(raw),
+    ];
+  }
+
+  /// "Free with CODE: 2 PIECE" for one of the offers' free lines.
+  String _offerFreeWords(Json line) {
+    final String named = stringValue(line['description']);
+    final String unit = _unitCodes[stringValue(line['sales_uom_id'])] ??
+        _product(stringValue(line['product_id']))?.unit ??
+        '';
+    final String quantity = documentQuantity(stringValue(line['free_quantity']));
+    return '${named.isEmpty ? 'Free with the offer' : named}: $quantity'
+        '${unit.isEmpty ? '' : ' $unit'}';
+  }
+
+  /// Read the unit names once, only when an offer's free line names a unit.
+  void _ensureUnitCodes() {
+    if (_unitsAsked) return;
+    if (!_offerFreeShown
+        .any((line) => stringValue(line['sales_uom_id']).isNotEmpty)) {
+      return;
+    }
+    _unitsAsked = true;
+    unawaited(() async {
+      try {
+        final List<UomRecord> units = await widget.api.uoms();
+        if (!mounted) return;
+        setState(() {
+          for (final UomRecord unit in units) {
+            _unitCodes[unit.id] = unit.code;
+          }
+        });
+      } on ApiException {
+        // The product's own unit is shown instead.
+      }
+    }());
+  }
 
   /// The chosen customer's addresses, empty until a customer is chosen.
   List<CustomerAddress> get _customerAddresses {
@@ -1480,6 +1550,14 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
               const SizedBox(height: AppSpacing.md),
               for (int index = 0; index < _lines.length; index += 1)
                 _lineEditor(index),
+              for (final Json free in _offerFreeShown)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(
+                    '${_offerFreeWords(free)}  (given by the offer)',
+                    key: const ValueKey('sales-order-offer-free-note'),
+                  ),
+                ),
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
