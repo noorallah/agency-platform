@@ -6,7 +6,9 @@ happen afterwards that make what was *given* less than that:
 
 * the order is closed short, and the part never delivered is released
   (``released_benefit_amount``, ``released_free_quantity``; D-PRC-28);
-* free goods the offer gave come back on a completed sales return (D-PRC-8).
+* free goods the offer gave come back on a completed sales return (D-PRC-8);
+* goods sold under the offer come back, or their bill is credited, and the
+  discount on them was not given after all (D-PRC-45).
 
 Five readers state an offer's use -- the offer itself and its budgets
 (`budget_rooms`), the performance report, the redemptions report, the coupon
@@ -19,6 +21,13 @@ likes and can never net differently from its neighbour.
 Free units come back to the claim that gave them: the order line names the
 offer (``free_promotion_id``) and the claim names the order, so a return is
 netted from that order's claim on that offer and from no other.
+
+Money comes back by the share of the order's discount that its bills passed
+on and completed returns or approved credit notes then took back
+(`bill_discounts.discount_came_back`) -- the statement a claim on a principal
+reads, so an offer's budget, its reports and the principal's claim all say
+what the customer kept. A sale approved and not yet billed has had nothing
+come back, so its claim stands whole, as it did.
 """
 
 from __future__ import annotations
@@ -68,9 +77,10 @@ def claims_given(
 
     Columns: ``id``, ``promotion_id``, ``version_group_id``, ``coupon_id``,
     ``customer_id``, ``status``, ``redeemed_on``, ``benefit_given`` (claimed
-    less released) and ``free_given`` (claimed less released less returned,
-    never below zero). Every status is returned; a caller counting an
-    offer's use filters on CLAIMED.
+    less released less the share returned or credited, never below zero) and
+    ``free_given`` (claimed less released less returned, never below zero).
+    Every status is returned; a caller counting an offer's use filters on
+    CLAIMED.
 
     Args:
         firm_id: The firm whose claims to read.
@@ -85,6 +95,7 @@ def claims_given(
     """
     # Imported here: these modules' services import the promotion engine.
     from app.delivery_note.models import DeliveryNoteLine
+    from app.promotions.services.bill_discounts import discount_came_back
     from app.sales_order.models import SalesOrderLine
     from app.sales_return.free_goods import free_goods_returned
     from app.sales_return.models import SalesReturn, SalesReturnLine
@@ -120,6 +131,32 @@ def claims_given(
         - PromotionRedemption.released_free_quantity
         - func.coalesce(returned.c.units, 0)
     )
+    claimed_orders = (
+        select(PromotionRedemption.document_id)
+        .join(Promotion, Promotion.id == PromotionRedemption.promotion_id)
+        .where(
+            PromotionRedemption.firm_id == firm_id,
+            PromotionRedemption.is_deleted.is_(False),
+            PromotionRedemption.document_type == "SALES_ORDER",
+            PromotionRedemption.status == "CLAIMED",
+            PromotionRedemption.benefit_amount > 0,
+        )
+    )
+    if groups is not None:
+        claimed_orders = claimed_orders.where(Promotion.version_group_id.in_(groups))
+    money_back = discount_came_back(
+        firm_id, SalesOrderLine.sales_order_id.in_(claimed_orders)
+    ).subquery("money_returned")
+    # Rounded where it is worked, so two readers summing the same claims
+    # cannot part by a fraction of a paisa.
+    money_left = (
+        PromotionRedemption.benefit_amount
+        - PromotionRedemption.released_benefit_amount
+        - func.round(
+            PromotionRedemption.benefit_amount * func.coalesce(money_back.c.share, 0),
+            4,
+        )
+    )
     statement = (
         select(
             PromotionRedemption.id.label("id"),
@@ -129,10 +166,7 @@ def claims_given(
             PromotionRedemption.customer_id.label("customer_id"),
             PromotionRedemption.status.label("status"),
             PromotionRedemption.redeemed_on.label("redeemed_on"),
-            (
-                PromotionRedemption.benefit_amount
-                - PromotionRedemption.released_benefit_amount
-            ).label("benefit_given"),
+            case((money_left > 0, money_left), else_=0).label("benefit_given"),
             case((free_left > 0, free_left), else_=0).label("free_given"),
         )
         .join(Promotion, Promotion.id == PromotionRedemption.promotion_id)
@@ -141,6 +175,13 @@ def claims_given(
             and_(
                 returned.c.order_id == PromotionRedemption.document_id,
                 returned.c.promotion_id == PromotionRedemption.promotion_id,
+            ),
+        )
+        .outerjoin(
+            money_back,
+            and_(
+                money_back.c.order_id == PromotionRedemption.document_id,
+                PromotionRedemption.document_type == "SALES_ORDER",
             ),
         )
         .where(
