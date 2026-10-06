@@ -38,7 +38,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.debit_note.models import DebitNote, DebitNoteLine, DebitNoteStatus
@@ -181,7 +181,8 @@ def _pending_returns(
     source_line_ids: Sequence[UUID],
     states: Sequence[str],
     exclude_return_id: UUID | None,
-) -> list[tuple[tuple[date, str, int, str], PurchaseReturnLine]]:
+    ahead_of: tuple[date, str] | None = None,
+) -> list[tuple[tuple[date, str, int, str], PurchaseReturnLine, bool]]:
     """Return the lines still to be placed, each with its place in line.
 
     A completed return is read from its stored placements, so what is asked
@@ -190,6 +191,21 @@ def _pending_returns(
     completing through the service (sample data does), counted as it always
     was. The key orders the lines as they were raised: by the return's
     date, its number, then the line's.
+
+    Args:
+        session: The firm's session.
+        source_type: The kind of document the lines were raised off.
+        source_line_ids: Its lines.
+        states: The states in which a return counts.
+        exclude_return_id: The return being priced or completed.
+        ahead_of: That return's own date and number. Of the returns not yet
+            completed, only those raised **before** it are given: the ones
+            raised after it are placed after it, and say nothing about what
+            it is worth (D-PRC-81).
+
+    Returns:
+        Each line with its key and whether its return has completed.
+
     """
     if not states or not source_line_ids:
         return []
@@ -204,7 +220,10 @@ def _pending_returns(
     )
     statement = (
         select(
-            PurchaseReturnLine, PurchaseReturn.return_date, PurchaseReturn.return_number
+            PurchaseReturnLine,
+            PurchaseReturn.return_date,
+            PurchaseReturn.return_number,
+            PurchaseReturn.status,
         )
         .join(
             PurchaseReturn,
@@ -221,10 +240,46 @@ def _pending_returns(
     )
     if exclude_return_id is not None:
         statement = statement.where(PurchaseReturn.id != exclude_return_id)
+    if ahead_of is not None:
+        raised_on, number = ahead_of
+        statement = statement.where(
+            or_(
+                PurchaseReturn.status.in_(COMPLETED),
+                PurchaseReturn.return_date < raised_on,
+                and_(
+                    PurchaseReturn.return_date == raised_on,
+                    PurchaseReturn.return_number < number,
+                ),
+            )
+        )
     return [
-        ((raised_on, number, line.line_number, str(line.id)), line)
-        for line, raised_on, number in session.execute(statement).all()
+        (
+            (raised_on, number, line.line_number, str(line.id)),
+            line,
+            status in COMPLETED,
+        )
+        for line, raised_on, number, status in session.execute(statement).all()
     ]
+
+
+def _left_to_bill(
+    session: Session, receipt_line_ids: Iterable[UUID]
+) -> dict[UUID, Decimal]:
+    """Return what no bill has reached yet on some goods receipt lines."""
+    # Imported here: the receipt's billing reads this module's models.
+    from app.goods_receipt.billing import receipt_line_billing
+    from app.goods_receipt.models import GoodsReceiptLine
+
+    ids = list(set(receipt_line_ids))
+    if not ids:
+        return {}
+    lines = session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.id.in_(ids))
+    ).all()
+    return {
+        line_id: position.left_to_bill
+        for line_id, position in receipt_line_billing(session, lines).items()
+    }
 
 
 def _placed(
@@ -286,6 +341,7 @@ def bill_line_claims(
     bill_returns: Sequence[str] = LIVE,
     receipt_returns: Sequence[str] = LIVE,
     exclude_return_id: UUID | None = None,
+    ahead_of: tuple[date, str] | None = None,
 ) -> dict[UUID, BillLineClaims]:
     """Return what returns and debit notes have already taken off bill lines.
 
@@ -296,7 +352,16 @@ def bill_line_claims(
     order they were raised: one off a bill line on that
     line first, one off a goods receipt line on the bills of that line
     earliest first (see the module's note). Only the billed part of a return
-    counts.
+    counts: a return off a receipt that has not completed is set first
+    against what no bill has reached, as its completion will set it.
+
+    **One order, whichever return asks** (D-PRC-81). The return being priced
+    or completed takes its own place in that order -- after the open returns
+    raised before it, ahead of the ones raised after. It used to be placed
+    after *every* other open return, so each of two open returns took the
+    other to be ahead of it: both were valued on the second bill, the first
+    bill's units were claimed by neither, and the one completed first was
+    refused for a debit note nobody had approved.
 
     Args:
         session: The firm's session.
@@ -310,6 +375,9 @@ def bill_line_claims(
             completes, how much of it reverses a bill is not yet decided.
         exclude_return_id: A return being priced or completed, whose own
             lines are not "already".
+        ahead_of: That return's date and number: of the open returns, only
+            those raised before it count. None counts every one, which is
+            what a debit note and a bill's cancel ask.
 
     Returns:
         One entry per bill line given, by its id.
@@ -324,6 +392,7 @@ def bill_line_claims(
         bill_returns=bill_returns,
         receipt_returns=receipt_returns,
         exclude_return_id=exclude_return_id,
+        ahead_of=ahead_of,
     )
     return {
         line_id: BillLineClaims(
@@ -342,11 +411,12 @@ def _derive(
     bill_returns: Sequence[str],
     receipt_returns: Sequence[str],
     exclude_return_id: UUID | None,
+    ahead_of: tuple[date, str] | None = None,
 ) -> tuple[
     dict[UUID, Decimal],
     dict[UUID, Decimal],
     dict[UUID, Decimal],
-    list[tuple[UUID, PurchaseInvoiceLine]],
+    list[tuple[UUID, PurchaseInvoiceLine, Decimal, Decimal]],
 ]:
     """Work out what stands against some bill lines, and whose it is.
 
@@ -357,7 +427,8 @@ def _derive(
     Returns:
         Units and value returned per bill line, what debit notes claimed
         per bill line, and -- for the returns placed here and not read from
-        stored rows -- each return with a bill line its units fell on.
+        stored rows -- each return with a bill line its units fell on, the
+        units and what they claim there.
 
     """
     # Placing a receipt's returns needs every bill of the receipt line, not
@@ -389,17 +460,38 @@ def _derive(
         source_line_ids=list(every),
         states=bill_returns,
         exclude_return_id=exclude_return_id,
+        ahead_of=ahead_of,
     ) + _pending_returns(
         session,
         source_type=_RECEIPT,
         source_line_ids=list(families),
         states=receipt_returns,
         exclude_return_id=exclude_return_id,
+        ahead_of=ahead_of,
     )
-    fell: list[tuple[UUID, PurchaseInvoiceLine]] = []
-    for _, back in sorted(waiting, key=lambda item: item[0]):
+    # A return off a receipt that has not completed has no split yet: its
+    # completion will set it first against what no bill has reached
+    # (D-BUY-26), so that is where it is taken to fall here. Counted as
+    # billed whole, an open return of an unbilled unit took a unit of the
+    # bill, and a return of that bill's own line was valued a unit short.
+    unbilled_left = _left_to_bill(
+        session,
+        (
+            back.source_document_line_id
+            for _, back, completed in waiting
+            if not completed and back.source_document_type == _RECEIPT
+        ),
+    )
+    fell: list[tuple[UUID, PurchaseInvoiceLine, Decimal, Decimal]] = []
+    for _, back, completed in sorted(waiting, key=lambda item: item[0]):
         share = billed_share(back)
-        units = Decimal(str(back.current_return_quantity)) * share
+        returned = Decimal(str(back.current_return_quantity))
+        if not completed and back.source_document_type == _RECEIPT and returned > ZERO:
+            still_open = unbilled_left.get(back.source_document_line_id, ZERO)
+            unbilled = min(returned, max(still_open, ZERO))
+            unbilled_left[back.source_document_line_id] = still_open - unbilled
+            share = (returned - unbilled) / returned
+        units = returned * share
         if units <= ZERO:
             continue
         worth = (Decimal(str(back.net_amount)) - Decimal(str(back.tax_amount))) * share
@@ -445,8 +537,114 @@ def _derive(
         for (line, part), value in zip(placed, shares, strict=True):
             quantity[line.id] += part
             taxable[line.id] += value
-            fell.append((back.purchase_return_id, line))
+            fell.append((back.purchase_return_id, line, part, value))
     return quantity, taxable, claimed, fell
+
+
+@dataclass(frozen=True, slots=True)
+class Standing:
+    """One document that stands against a supplier bill line."""
+
+    #: "debit note" or "purchase return".
+    kind: str
+    number: str
+    purchase_invoice_id: UUID
+    #: What it claims on the bill line, before tax.
+    taxable: Decimal
+
+
+def standing_against(
+    session: Session,
+    bill_lines: Iterable[PurchaseInvoiceLine],
+    *,
+    exclude_return_id: UUID,
+    ahead_of: tuple[date, str],
+) -> list[Standing]:
+    """Name what stands against some bill lines ahead of one return.
+
+    For the refusal of a return that no longer fits its bill (D-PRC-81):
+    the approved debit notes on those lines, the completed returns placed on
+    them, and the open returns raised before this one that would be placed
+    on them -- exactly what `bill_line_claims` counted against it. One of
+    them is what changed since the return was priced.
+    """
+    asked = {line.id: line for line in bill_lines}
+    if not asked:
+        return []
+    totals: dict[tuple[str, str, UUID], Decimal] = defaultdict(lambda: ZERO)
+    for number, line_id, value in session.execute(
+        select(
+            DebitNote.debit_note_number,
+            DebitNoteLine.purchase_invoice_line_id,
+            func.coalesce(func.sum(DebitNoteLine.taxable_amount), 0),
+        )
+        .join(DebitNote, DebitNote.id == DebitNoteLine.debit_note_id)
+        .where(
+            DebitNoteLine.purchase_invoice_line_id.in_(list(asked)),
+            DebitNoteLine.is_deleted.is_(False),
+            DebitNote.is_deleted.is_(False),
+            DebitNote.status == DebitNoteStatus.APPROVED.value,
+        )
+        .group_by(DebitNote.debit_note_number, DebitNoteLine.purchase_invoice_line_id)
+    ).all():
+        bill_id = asked[line_id].purchase_invoice_id
+        totals[("debit note", number, bill_id)] += Decimal(str(value))
+    for number, line_id, value in session.execute(
+        select(
+            PurchaseReturn.return_number,
+            PurchaseReturnBillPlacement.purchase_invoice_line_id,
+            func.coalesce(func.sum(PurchaseReturnBillPlacement.taxable_amount), 0),
+        )
+        .join(
+            PurchaseReturn,
+            PurchaseReturn.id == PurchaseReturnBillPlacement.purchase_return_id,
+        )
+        .where(
+            PurchaseReturnBillPlacement.purchase_invoice_line_id.in_(list(asked)),
+            PurchaseReturnBillPlacement.is_deleted.is_(False),
+            PurchaseReturn.is_deleted.is_(False),
+            PurchaseReturn.status.in_(COMPLETED),
+            PurchaseReturn.id != exclude_return_id,
+        )
+        .group_by(
+            PurchaseReturn.return_number,
+            PurchaseReturnBillPlacement.purchase_invoice_line_id,
+        )
+    ).all():
+        bill_id = asked[line_id].purchase_invoice_id
+        totals[("purchase return", number, bill_id)] += Decimal(str(value))
+    *_, fell = _derive(
+        session,
+        asked,
+        bill_returns=LIVE,
+        receipt_returns=LIVE,
+        exclude_return_id=exclude_return_id,
+        ahead_of=ahead_of,
+    )
+    open_ones = {return_id for return_id, line, _, _ in fell if line.id in asked}
+    numbers = (
+        dict(
+            session.execute(
+                select(PurchaseReturn.id, PurchaseReturn.return_number).where(
+                    PurchaseReturn.id.in_(open_ones)
+                )
+            )
+            .tuples()
+            .all()
+        )
+        if open_ones
+        else {}
+    )
+    for return_id, line, _, value in fell:
+        if line.id in asked:
+            key = ("purchase return", numbers[return_id], line.purchase_invoice_id)
+            totals[key] += value
+    return [
+        Standing(kind=kind, number=number, purchase_invoice_id=bill_id, taxable=value)
+        for (kind, number, bill_id), value in sorted(
+            totals.items(), key=lambda item: (item[0][0], item[0][1], str(item[0][2]))
+        )
+    ]
 
 
 def returns_resting_on(session: Session, *, invoice_id: UUID) -> set[UUID]:
@@ -522,7 +720,9 @@ def returns_resting_on(session: Session, *, invoice_id: UUID) -> set[UUID]:
         exclude_return_id=None,
     )
     resting |= {
-        return_id for return_id, line in fell if line.purchase_invoice_id == invoice_id
+        return_id
+        for return_id, line, _, _ in fell
+        if line.purchase_invoice_id == invoice_id
     }
     return resting
 
@@ -673,10 +873,22 @@ class BillWorths:
     line's goods share what is left of it.
     """
 
-    def __init__(self, session: Session, *, return_id: UUID) -> None:
-        """Bind the session and the return whose own lines are not "already"."""
+    def __init__(
+        self,
+        session: Session,
+        *,
+        return_id: UUID,
+        raised: tuple[date, str] | None = None,
+    ) -> None:
+        """Bind the session and the return whose own lines are not "already".
+
+        ``raised`` is the return's date and number, its place among the
+        returns not yet completed: only those raised before it are counted
+        ahead of it (D-PRC-81).
+        """
         self._session = session
         self._return_id = return_id
+        self._raised = raised
         self._claims: dict[UUID, BillLineClaims] = {}
         self._taken: dict[UUID, tuple[Decimal, Decimal]] = defaultdict(
             lambda: (ZERO, ZERO)
@@ -761,7 +973,10 @@ class BillWorths:
         if missing:
             self._claims.update(
                 bill_line_claims(
-                    self._session, missing, exclude_return_id=self._return_id
+                    self._session,
+                    missing,
+                    exclude_return_id=self._return_id,
+                    ahead_of=self._raised,
                 )
             )
         returned = {
@@ -830,6 +1045,7 @@ __all__ = [
     "BillLineClaims",
     "BillWorths",
     "BilledWorth",
+    "Standing",
     "bill_line_claims",
     "billed_share",
     "charged_for",
@@ -839,5 +1055,6 @@ __all__ = [
     "placing_order",
     "returns_resting_on",
     "share_out",
+    "standing_against",
     "still_worth",
 ]

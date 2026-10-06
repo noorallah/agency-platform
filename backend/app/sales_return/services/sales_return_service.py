@@ -3005,11 +3005,17 @@ class SalesReturnService(TransactionalDocumentService):
                             document=self._bill_numbers(on_bills),
                         )
                     )
+                # Not "has been credited since": the credit note may be older
+                # than the return, and what moved it a return naming the
+                # bill's own line, which a return off the note gives way to
+                # (the selling side of D-PRC-81).
                 raise ValidationError(
-                    f"Line {line.line_number}: {line.source_document_number} "
-                    "has been credited since this return was saved, and these "
-                    f"goods are now worth {quantize_ledger(left)} before tax "
-                    f"where the return credits {quantize_ledger(worth)}. A "
+                    f"Line {line.line_number}: these goods are now worth "
+                    f"{quantize_ledger(left)} before tax on "
+                    f"{self._bill_numbers(on_bills)} where the return credits "
+                    f"{quantize_ledger(worth)}. Since this return was saved a "
+                    "credit note has been approved against the bill, or "
+                    "another return has taken the units it was priced on. A "
                     "customer cannot be credited more than they were billed. "
                     "Cancel this return and raise it again, and it will be "
                     "priced on what the bill is still worth."

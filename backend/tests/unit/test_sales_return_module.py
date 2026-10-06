@@ -2156,10 +2156,19 @@ def test_a_return_priced_before_a_credit_note_does_not_complete() -> None:
     row = _returned(setup, _against_the_bill(setup, "4"), complete=False)
     _credit_note(setup, "80")
 
-    with pytest.raises(ValidationError, match="credited since this return was saved"):
+    with pytest.raises(ValidationError) as refusal:
         SalesReturnService(session).complete_return(
             row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
         )
+    assert str(refusal.value.message) == (
+        f"Line 1: these goods are now worth 320.00 before tax on "
+        f"{setup.invoice.invoice_number} where the return credits 400.00. "
+        "Since this return was saved a credit note has been approved against "
+        "the bill, or another return has taken the units it was priced on. A "
+        "customer cannot be credited more than they were billed. Cancel this "
+        "return and raise it again, and it will be priced on what the bill is "
+        "still worth."
+    )
 
 
 # ---- a return priced above its bill (D-PRC-64) ------------------------------
@@ -2457,10 +2466,66 @@ def test_a_note_billed_in_parts_is_asked_again_of_every_bill_at_completion() -> 
     row = _returned(setup, setup.payload(quantity=Decimal("4")), complete=False)
     _credit_note_on(setup, second, "80")
 
-    with pytest.raises(ValidationError, match="credited since this return was saved"):
+    with pytest.raises(ValidationError, match="a credit note has been approved"):
         SalesReturnService(session).complete_return(
             row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
         )
+
+
+@pytest.mark.parametrize("first_done", ["note", "bill"])
+def test_two_returns_open_by_two_routes_never_credit_past_or_short_of_the_bills(
+    first_done: str,
+) -> None:
+    """The selling side of D-PRC-81: both routes saved before either completes.
+
+    Two bills of two at 100.00, 80.00 credited on the second. Two off the
+    note are saved at the first bill's 200.00; two named on the first bill's
+    own line are then saved at the same 200.00, because a return off the
+    note that has not completed gives way to a named unit. Whichever is
+    completed first, the named return completes as saved and the one off the
+    note is refused -- it is the second bill's now, worth 120.00 -- and
+    comes to 120.00 raised again: 400.00 against bills of 400.00, never the
+    160.00 short the buying side came to.
+    """
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    _credit_note_on(setup, second, "80")
+    service = SalesReturnService(session)
+    off_note = _returned(setup, setup.payload(quantity=Decimal("2")), complete=False)
+    named = _returned(setup, _on_the_line_of(setup, setup.invoice, "2"), complete=False)
+    assert (off_note.subtotal, named.subtotal) == (
+        Decimal("200.0000"),
+        Decimal("200.0000"),
+    )
+
+    def _complete_named() -> None:
+        service.complete_return(
+            named.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+
+    if first_done == "bill":
+        _complete_named()
+    with pytest.raises(ValidationError) as refusal:
+        service.complete_return(
+            off_note.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+    session.rollback()
+    assert (
+        f"these goods are now worth 120.00 before tax on {second.invoice_number} "
+        "where the return credits 200.00"
+    ) in str(refusal.value.message)
+    assert "has been credited since" not in str(refusal.value.message)
+    if first_done == "note":
+        _complete_named()
+
+    service.cancel_return(
+        off_note.id, firm_scope=setup.firm.id, actor_id=setup.actor_id, reason="Again"
+    )
+    again = _returned(setup, setup.payload(quantity=Decimal("2")))
+    assert again.subtotal == Decimal("120.0000")
+    assert _credited_in_all(setup, setup.invoice, second) == Decimal("400.00")
+    assert _off_the_bill(setup, setup.invoice) == Decimal("200.00")
+    assert _off_the_bill(setup, second) == Decimal("200.00")
 
 
 def test_a_return_off_the_note_that_waits_gives_way_to_a_named_unit() -> None:

@@ -318,9 +318,23 @@ rate-difference credit note of 472.00 and was then returned in full for
   credited, 600.00 already returned."
 - **Each is asked again where it becomes real**, under a lock on the bill
   line, and the one that reaches the customer second is refused by name: a
-  return priced before a credit note was approved does not complete ("...has
-  been credited since this return was saved... Cancel this return and raise
-  it again"), and a note saved before the goods came back is not approved.
+  return priced before a credit note was approved does not complete ("Line
+  1: these goods are now worth 320.00 before tax on SI-… where the return
+  credits 400.00. Since this return was saved a credit note has been
+  approved against the bill, or another return has taken the units it was
+  priced on. … Cancel this return and raise it again"), and a note saved
+  before the goods came back is not approved. The refusal used to say the
+  note "has been credited since this return was saved" whenever a credit
+  note stood on the bill at all, including where the note was older than
+  the return and what moved it was a return naming the bill's own line
+  (2026-10-06, the selling side of D-PRC-81).
+- **Two returns open at once by the two routes credit the bills exactly,
+  in either order of completion** (checked for D-PRC-81, 2026-10-06). A
+  return off the note that has not completed gives way to units named on a
+  bill's own line, so the named return completes as saved and the one off
+  the note is refused at completion and comes to what the next bill is
+  worth when raised again. The buying side placed each of two open returns
+  behind the other and came out short; this side never did.
 - A draft credit note takes nothing off a return, and a return that has not
   completed takes no room from a credit note: neither has credited anything.
 
