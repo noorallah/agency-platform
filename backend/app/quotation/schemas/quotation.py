@@ -248,6 +248,9 @@ class QuotationLineResponse(QuotationSchema):
     free_quantity: Decimal
     #: The offer that gave the free quantity; null where it was typed.
     free_promotion_id: UUID | None = None
+    #: True where "0 free" was typed on the line, which refuses an offer's
+    #: free goods here and on the order the quotation becomes (D-PRC-68).
+    free_goods_refused: bool = False
     sales_uom_id: UUID | None
     inventory_uom_id: UUID | None
     packaging_type_id: UUID | None

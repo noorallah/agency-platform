@@ -214,6 +214,14 @@ class SalesQuotationLine(BaseEntity):
     #: is handed over as typed (D-PRC-58). A bare id with no foreign key, as
     #: on the order line.
     free_promotion_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: True where "0 free" was **typed** on the line: no free goods here,
+    #: offer or not. `free_quantity` cannot say it -- it is 0 as well where
+    #: nothing was said and no offer gave anything -- and the order this
+    #: becomes has to be told which, or a customer quoted nothing free is
+    #: given the offer's goods at conversion (D-PRC-68).
+    free_goods_refused: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     sales_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT")
     )

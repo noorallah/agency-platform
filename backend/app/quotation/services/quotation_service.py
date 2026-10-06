@@ -808,18 +808,7 @@ class QuotationService(TransactionalDocumentService):
                         product_id=line.product_id,
                         description=line.description,
                         quantity=line.quantity,
-                        # Zero on the quotation is "none given", which the
-                        # order must read as silence and ask the offers again,
-                        # not as a refusal of them (D-SELL-41).
-                        # So is a figure an offer put there: the order works
-                        # the offer out afresh, names it and claims it, inside
-                        # its budget. Only a typed figure is handed over as
-                        # typed (D-PRC-58).
-                        free_quantity=(
-                            None
-                            if line.free_promotion_id is not None
-                            else line.free_quantity or None
-                        ),
+                        free_quantity=self._free_goods_for_the_order(line),
                         sales_uom_id=line.sales_uom_id,
                         inventory_uom_id=line.inventory_uom_id,
                         packaging_type_id=line.packaging_type_id,
@@ -1110,6 +1099,30 @@ class QuotationService(TransactionalDocumentService):
             )
         except ValidationError:
             return Decimal("1")
+
+    @staticmethod
+    def _free_goods_for_the_order(line: SalesQuotationLine) -> Decimal | None:
+        """Return what a quoted line tells its order about free goods.
+
+        None and 0 are different answers, on the order as on the quotation:
+
+        * a figure an offer put there is **silence** -- the order works the
+          offer out afresh, names it and claims it, inside its budget
+          (D-PRC-58);
+        * a zero where nothing was said is silence too, "none given" rather
+          than a refusal, so the order asks the offers again (D-SELL-41);
+        * a figure a person typed is handed over as typed -- and so is the
+          **"0 free" a person typed**, which refused the offer on the
+          quotation and refuses it on the order. It was handed over as
+          silence, from when a quotation could not tell the two zeros apart:
+          a customer quoted nothing free was given the offer's 2 and the
+          order claimed them (D-PRC-68).
+        """
+        if line.free_promotion_id is not None:
+            return None
+        if line.free_quantity > ZERO:
+            return line.free_quantity
+        return ZERO if line.free_goods_refused else None
 
     @staticmethod
     def _gift_lines(
@@ -1483,6 +1496,13 @@ class QuotationService(TransactionalDocumentService):
                 line.free_promotion_id = benefits.free_promotion(index)
             else:
                 line.free_promotion_id = None
+            # A zero that was said, kept apart from a zero nobody said, so
+            # the order this becomes is refused the offer too (D-PRC-68).
+            line.free_goods_refused = (
+                index < asked
+                and item.free_quantity is not None
+                and line.free_quantity == ZERO
+            )
             line.sales_uom_id = item.sales_uom_id
             line.inventory_uom_id = item.inventory_uom_id
             line.packaging_type_id = item.packaging_type_id

@@ -16,7 +16,8 @@ Every case runs on a request-shaped session (autoflush off).
 """
 
 from decimal import Decimal
-from uuid import UUID
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -46,6 +47,7 @@ from app.sales_invoice.schemas import SalesInvoiceCreate
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderUpdate
+from app.sales_order.services.offer_echoes import echoes_of_what_an_offer_gave
 from app.sales_return.schemas import (
     SalesReturnCreate,
     SalesReturnLineWrite,
@@ -756,6 +758,201 @@ def test_a_free_line_typed_at_another_figure_is_not_the_moved_echo() -> None:
     )
 
 
+# ---- two lines of one product, sent back in another order (D-PRC-63) --------
+
+
+def _order_of_pieces(shop: _Offers, *quantities: str) -> SalesOrder:
+    """Save a draft with one line of the product, in pieces, per quantity."""
+    return shop.orders.create_order(
+        SalesOrderCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "branch_id": shop.setup.branch.id,
+                "warehouse_id": shop.setup.warehouse.id,
+                "order_date": DAY,
+                "lines": [
+                    {
+                        "line_number": number,
+                        "product_id": shop.setup.product.id,
+                        "quantity": quantity,
+                        "sales_uom_id": shop.piece,
+                    }
+                    for number, quantity in enumerate(quantities, 1)
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+
+def _in_the_order(
+    shop: _Offers, order: SalesOrder, *positions: int
+) -> list[dict[str, object]]:
+    """Return the read with its lines in these positions, renumbered from 1."""
+    read = _as_read(shop, order)
+    return [
+        read[position - 1] | {"line_number": number}
+        for number, position in enumerate(positions, 1)
+    ]
+
+
+def test_two_lines_of_one_product_swapped_keep_their_offer() -> None:
+    """D-PRC-63: 24 with 2 free and 36 with 3, echoed the other way round."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = _order_of_pieces(shop, "24", "36")
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("24.0000"), D("2.0000"), shop.offer.id),
+            (D("36.0000"), D("3.0000"), shop.offer.id),
+        ],
+        D("5.0000"),
+    )
+
+    _save_again(shop, order, _in_the_order(shop, order, 2, 1))
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("36.0000"), D("3.0000"), shop.offer.id),
+            (D("24.0000"), D("2.0000"), shop.offer.id),
+        ],
+        D("5.0000"),
+    )
+
+
+def test_a_swapped_echo_cannot_get_round_the_offers_budget() -> None:
+    """A budget of 5 gave 10: both swapped figures stood as typed."""
+    shop = _Offers(TEN_PLUS_ONE)
+    shop.offer.max_free_quantity = D("5")
+    shop.session.commit()
+    control = _order_of_pieces(shop, "24", "36")
+    second = _order_of_pieces(shop, "24", "36")
+    swapped = _in_the_order(shop, second, 2, 1)
+    assert [line["free_quantity"] for line in swapped] == [D("3.0000"), D("2.0000")]
+    shop.approve(control)
+
+    _save_again(shop, second, swapped)
+
+    assert _free_line_and_claim(shop, second) == (
+        [(D("36.0000"), D("0.0000"), None), (D("24.0000"), D("0.0000"), None)],
+        None,
+    )
+    shop.approve(second)
+    room = budget_rooms(shop.session, [shop.offer], firm_id=shop.firm_id)[shop.offer.id]
+    assert (room.free_claimed, room.free_left) == (D("5.0000"), D("0.0000"))
+
+
+def test_a_swap_with_one_quantity_changed_works_the_offer_out_afresh() -> None:
+    """36 with 3 moved up; the other line is now 30 under the offer's "2"."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = _order_of_pieces(shop, "24", "36")
+    lines = _in_the_order(shop, order, 2, 1)
+    lines[1]["quantity"] = "30"
+
+    _save_again(shop, order, lines)
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("36.0000"), D("3.0000"), shop.offer.id),
+            (D("30.0000"), D("3.0000"), shop.offer.id),
+        ],
+        D("6.0000"),
+    )
+
+
+def test_three_lines_of_one_product_rotated_keep_their_offer() -> None:
+    """24, 36 and 48 sent back as 48, 24 and 36: no line is at its number."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = _order_of_pieces(shop, "24", "36", "48")
+
+    _save_again(shop, order, _in_the_order(shop, order, 3, 1, 2))
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("48.0000"), D("4.0000"), shop.offer.id),
+            (D("24.0000"), D("2.0000"), shop.offer.id),
+            (D("36.0000"), D("3.0000"), shop.offer.id),
+        ],
+        D("9.0000"),
+    )
+
+
+def test_one_of_two_lines_of_a_product_deleted_keeps_the_others_offer() -> None:
+    """36 with 3 arrives at line 1, where the stored line says 24 with 2."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = _order_of_pieces(shop, "24", "36")
+
+    _save_again(shop, order, _in_the_order(shop, order, 2))
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("36.0000"), D("3.0000"), shop.offer.id)],
+        D("3.0000"),
+    )
+
+
+def test_a_figure_typed_beside_the_line_it_equals_stands_as_typed() -> None:
+    """3 typed on the line of 24 while the line of 36 comes back as read."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = _order_of_pieces(shop, "24", "36")
+    lines = _as_read(shop, order)
+    lines[0]["free_quantity"] = "3"
+
+    _save_again(shop, order, lines)
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("24.0000"), D("3.0000"), None),
+            (D("36.0000"), D("3.0000"), shop.offer.id),
+        ],
+        D("3.0000"),
+    )
+
+
+def test_a_figure_that_may_be_another_lines_echo_goes_to_the_offer() -> None:
+    """The line of 36 is gone and "3" sits on 24: in doubt, worked out afresh.
+
+    It may be a 3 somebody typed or the deleted line's figure carried over;
+    the stored order cannot say. The offer's answer for 24 is 2, named and
+    claimed, which is never more than the offer allows.
+    """
+    shop = _Offers(TEN_PLUS_ONE)
+    order = _order_of_pieces(shop, "24", "36")
+    lines = _as_read(shop, order)[:1]
+    lines[0]["free_quantity"] = "3"
+
+    _save_again(shop, order, lines)
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("24.0000"), D("2.0000"), shop.offer.id)],
+        D("2.0000"),
+    )
+
+
+def test_a_line_a_person_typed_takes_its_own_echo_before_an_offers() -> None:
+    """Two stored lines of 12 with 1 free, one typed: its echo is not the offer's."""
+    product, offer = uuid4(), uuid4()
+
+    def line(number: int, giver: UUID | None) -> SimpleNamespace:
+        """Return a line of 12 with 1 free at this number."""
+        return SimpleNamespace(
+            line_number=number,
+            product_id=product,
+            quantity=D("12"),
+            free_quantity=D("1"),
+            free_promotion_id=giver,
+            sales_uom_id=None,
+        )
+
+    stored = [line(1, None), line(2, offer)]
+
+    assert echoes_of_what_an_offer_gave([line(1, None)], stored) == {}
+    both = echoes_of_what_an_offer_gave([line(1, None), line(2, None)], stored)
+    assert {index: row.line_number for index, row in both.items()} == {1: 2}
+    # Sent the other way round they read the same: each stored line once.
+    swapped = echoes_of_what_an_offer_gave([line(2, None), line(1, None)], stored)
+    assert {index: row.line_number for index, row in swapped.items()} == {0: 2}
+
+
 # ---- a quotation's free goods, converted (D-PRC-58) -------------------------
 
 
@@ -879,6 +1076,65 @@ def test_a_quotation_saved_again_as_read_keeps_its_free_goods_the_offers() -> No
     )
     line = _quoted(shop, quotation)
     assert (line.free_quantity, line.free_promotion_id) == (D("3.0000"), None)
+
+
+def test_zero_free_typed_on_a_quotation_refuses_the_offer_on_its_order() -> None:
+    """D-PRC-68: quoted nothing free, the order gave the offer's 2 and claimed."""
+    shop = _Offers(TEN_PLUS_ONE)
+    quotation = _quotation(shop, free_quantity="0")
+    line = _quoted(shop, quotation)
+    assert (line.free_quantity, line.free_promotion_id, line.free_goods_refused) == (
+        D("0.0000"),
+        None,
+        True,
+    )
+
+    order = _converted(shop, quotation)
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("24.0000"), D("0.0000"), None)],
+        None,
+    )
+
+
+def test_a_quotation_that_said_nothing_still_asks_the_offers_at_its_order() -> None:
+    """Silence is not a refusal: an offer live by the order's day is given."""
+    shop = _Offers(TEN_PLUS_ONE)
+    shop.offer.status = "INACTIVE"
+    shop.session.commit()
+    quotation = _quotation(shop)
+    line = _quoted(shop, quotation)
+    assert (line.free_quantity, line.free_goods_refused) == (D("0.0000"), False)
+    shop.offer.status = "ACTIVE"
+    shop.session.commit()
+
+    order = _converted(shop, quotation)
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("24.0000"), D("2.0000"), shop.offer.id)],
+        D("2.0000"),
+    )
+
+
+def test_a_refusal_on_a_quotation_is_taken_back_by_saying_nothing() -> None:
+    """Saved again with no free figure, the line takes the offer again."""
+    shop = _Offers(TEN_PLUS_ONE)
+    quotation = _quotation(shop, free_quantity="0")
+    quotations = QuotationService(shop.session)
+
+    quotations.update_quotation(
+        quotation.id,
+        QuotationUpdate.model_validate(_quotation_body(shop)),
+        firm_scope=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+    line = _quoted(shop, quotation)
+    assert (line.free_quantity, line.free_promotion_id, line.free_goods_refused) == (
+        D("2.0000"),
+        shop.offer.id,
+        False,
+    )
 
 
 # ---- what a claim gave, in stock units -------------------------------------
