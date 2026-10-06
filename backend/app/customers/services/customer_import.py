@@ -395,6 +395,9 @@ class CustomerFileImporter(FileImporter[Customer]):
                 self._service._assert_may_set_standing_discount(
                     [data], allowed=self._may_manage_settings
                 )
+                self._service._assert_may_set_price_terms(
+                    [data], allowed=self._may_manage_settings
+                )
                 customer = self._service.stage_create(
                     data, firm_id=firm_id, actor_id=actor_id
                 )

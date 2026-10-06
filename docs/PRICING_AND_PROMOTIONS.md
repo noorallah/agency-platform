@@ -674,6 +674,52 @@ line records `discount_source`, `inherited` when it took its order's, so an
 order's discount is judged once; a counter bill reads the source from the
 order it raised for itself.
 
+**A price typed below the customer's is judged with the discount** (D-PRC-2,
+2026-10-06). With a 5% limit a typed 50% was refused and the same goods at a
+typed 42.00 against 84.00, discount nothing, were approved, delivered and
+billed below cost: only the discount boxes were read. The limit is judged on
+the **whole reduction** from the price the customer would otherwise pay to
+what the line charges -- the cut in the price and the typed discounts
+together, as a share of the line at the customer's price, so 80.00 against
+84.00 with a typed 3% is 7.62% and not two figures each under five. "The
+customer's price" is what the ranking in *The price a line starts at* gives
+that customer for the product, quantity and date before anything is typed
+(`DiscountLimitService.customer_prices`, through `UnitPriceResolver`), so a
+customer's own cheaper list or level is their price and not the seller's
+doing, and a price typed at or above it is not a discount. An arrangement's
+discount on the line (price list, promotion, standing rate) is still not
+counted. Above the limit the refusal names both prices: "Line 1 is priced at
+42.00 where the customer's price is 84.00: 50.00% off in all, above your
+limit of 5.00%. It needs approval by someone allowed at least 50.00%." --
+with ", with a typed discount besides" after the price where there is one --
+and whoever is allowed more approves it, the APPROVED event keeping
+`typed_price` and `customer_price` beside the percentages. A discount alone
+is refused in the words it always was.
+
+It is judged where the discount limit already was: the approval of a sales
+order, and of a bill. A counter bill is judged against the ranking, like the
+order it raised; a bill of documents against **the price its order line
+agreed**, so a price cut typed on the note or on the bill is caught where it
+is billed. A quotation is not judged, as before. Three things it does not
+do. A line sold in another unit than its stock is kept in is judged on its
+typed discount alone, because the ranking's price carries no unit. A product
+with no selling price has no customer's price to cut. And a *discount* typed
+on a delivery note reaches the bill as inherited and is judged nowhere; only
+its price is caught. The price floor is unchanged and separate: it asks
+whether the net is below cost or the minimum, whoever approves.
+
+**The customer's price level and segment are price decisions** (same PR). A
+sales manager's edit could put a customer on a cheaper price level, or into a
+segment carrying a discount or a level, and then sell at that price inside
+the limit. `price_level_id`, and `customer_group_id` where the segment moved
+into or out of carries a discount or a price level, need
+`CUSTOMER_MANAGE_SETTINGS` on create, edit and both imports, as the standing
+discount does (`_assert_may_change_price_terms`, `_assert_may_set_price_terms`
+in `app/customers/services/customer_service.py`); resending the stored value
+is not a change. A segment that carries neither stays a classification anyone
+who edits customers may set -- a salesman adding a shop says what kind of
+shop it is.
+
 ## A rate typed with GST in it is stored before tax
 
 BACKLOG 64 row 4 (`app/tax/services/inclusive_rate.py`). A counter

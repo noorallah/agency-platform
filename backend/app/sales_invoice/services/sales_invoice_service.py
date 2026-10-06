@@ -1632,7 +1632,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         # What the bill itself typed, against the approver's limit (backlog 64
         # row 3); what it inherited was judged when its order was approved.
         discount_details = DiscountLimitService(self._session).enforce(
-            firm_scope, actor_id, invoice_discounts(self._judged_discount_lines(row))
+            firm_scope,
+            actor_id,
+            lambda: invoice_discounts(self._judged_discount_lines(row)),
         )
         # A supply to an SEZ under an LUT carries no tax; one that charges some
         # is warned about rather than refused, because whether the LUT covers
@@ -2037,7 +2039,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         """
         ships_its_own = own_orders is not None
         if own_orders is not None:
-            typed = any(
+            # Typed on the bill and so on its order -- or typed on an edit
+            # that raised nothing again, which only the bill records.
+            typed = row.bill_discount_source == "typed" or any(
                 order.bill_discount_source not in OFFERED for order in own_orders
             )
         else:
@@ -2530,6 +2534,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         order, and one an offer gave is nobody's hand at all, so neither is
         counted here; on a counter bill the order it raised says which
         (D-PRC-1).
+
+        Each line also names the price the customer would otherwise pay, so
+        a price typed below it is judged with the discounts (D-PRC-2).
         """
         lines = list(
             self._session.scalars(
@@ -2545,38 +2552,102 @@ class SalesInvoiceService(TransactionalDocumentService):
             if note.raised_by_sales_invoice_id == row.id
         }
         inherited = row.bill_discount_source == "inherited"
-        if not own_notes and not inherited:
-            return list(lines)
-        note_line_ids = [
-            line.source_document_line_id
-            for line in lines
-            if line.source_document_id in own_notes
-        ]
-        sources = {
-            note_line_id: (line_source, bill_source)
-            for note_line_id, line_source, bill_source in self._session.execute(
-                select(
-                    DeliveryNoteLine.id,
-                    SalesOrderLine.discount_source,
-                    SalesOrder.bill_discount_source,
-                )
+        # What each line continues: the order line behind its note line, or
+        # the order line it bills directly.
+        by_note_line = {
+            note_line_id: order_line
+            for note_line_id, order_line in self._session.execute(
+                select(DeliveryNoteLine.id, SalesOrderLine)
                 .join(
                     SalesOrderLine,
                     SalesOrderLine.id == DeliveryNoteLine.sales_order_line_id,
                 )
-                .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
-                .where(DeliveryNoteLine.id.in_(note_line_ids))
+                .where(
+                    DeliveryNoteLine.id.in_(
+                        [line.source_document_line_id for line in lines]
+                    )
+                )
             )
             .tuples()
             .all()
         }
+        direct = {
+            order_line.id: order_line
+            for order_line in self._session.scalars(
+                select(SalesOrderLine).where(
+                    SalesOrderLine.id.in_(
+                        [
+                            line.source_document_line_id
+                            for line in lines
+                            if line.source_document_line_id not in by_note_line
+                        ]
+                    )
+                )
+            ).all()
+        }
+        own_orders = {
+            order.id: order
+            for order in self._session.scalars(
+                select(SalesOrder).where(
+                    SalesOrder.id.in_(
+                        {
+                            by_note_line[line.source_document_line_id].sales_order_id
+                            for line in lines
+                            if line.source_document_id in own_notes
+                            and line.source_document_line_id in by_note_line
+                        }
+                    )
+                )
+            ).all()
+        }
+        # A counter bill's order was priced from the bill, so its lines are
+        # judged against the price the customer would otherwise pay; any
+        # other bill against the price its order line agreed (D-PRC-2).
+        limits = DiscountLimitService(self._session)
+        ranked: dict[UUID, Decimal] = {}
+        for order in own_orders.values():
+            order_lines = [
+                order_line
+                for order_line in by_note_line.values()
+                if order_line.sales_order_id == order.id
+            ]
+            prices = limits.customer_prices(
+                order_lines,
+                firm_id=order.firm_id,
+                customer_id=order.customer_id,
+                territory_id=order.territory_id,
+                on=order.order_date,
+            )
+            ranked.update(
+                {
+                    order_line.id: prices[order_line.line_number]
+                    for order_line in order_lines
+                    if order_line.line_number in prices
+                }
+            )
         judged: list[object] = []
         for line in lines:
-            own = sources.get(line.source_document_line_id)
-            if own is None and not inherited:
-                judged.append(line)
-                continue
-            bill_typed = not inherited if own is None else own[1] not in OFFERED
+            order_line = by_note_line.get(line.source_document_line_id) or direct.get(
+                line.source_document_line_id
+            )
+            own = (
+                None
+                if order_line is None or line.source_document_id not in own_notes
+                else own_orders.get(order_line.sales_order_id)
+            )
+            if own is not None:
+                # Typed on the order the bill raised, or on the bill alone by
+                # an edit that raised nothing again.
+                bill_typed = not (inherited and own.bill_discount_source in OFFERED)
+                customer_price = ranked.get(order_line.id) if order_line else None
+            else:
+                bill_typed = not inherited
+                customer_price = (
+                    None
+                    if order_line is None
+                    or self._q(line.conversion_factor) != Decimal("1")
+                    else self._q(order_line.unit_price)
+                )
             judged.append(
                 SimpleNamespace(
                     line_number=line.line_number,
@@ -2585,7 +2656,14 @@ class SalesInvoiceService(TransactionalDocumentService):
                     bill_discount_amount=(
                         line.bill_discount_amount if bill_typed else ZERO
                     ),
-                    discount_source=line.discount_source if own is None else own[0],
+                    discount_source=(
+                        line.discount_source
+                        if own is None or order_line is None
+                        else order_line.discount_source
+                    ),
+                    current_invoice_quantity=line.current_invoice_quantity,
+                    unit_price=line.unit_price,
+                    customer_price=customer_price,
                 )
             )
         return judged
