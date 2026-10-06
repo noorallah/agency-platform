@@ -140,6 +140,9 @@ class _DeliveryNoteManagementPageState
   Set<String> _ticked = <String>{};
   // Reference data the editor needs, loaded once with the workspace.
   List<Json> _deliverableOrders = const [];
+
+  /// Whether the bays, products and features were read; New waits for them.
+  bool _referenceLoaded = false;
   List<WarehouseRecord> _warehouses = const [];
   List<Product> _products = const [];
   // Unknown until the call returns, and unknown means every field is offered.
@@ -203,8 +206,12 @@ class _DeliveryNoteManagementPageState
   /// offered buttons the server would refuse.
   bool _mayApprove() => widget.permissions.hasPermission('SALES_APPROVE');
 
-  /// Load what the editor needs: the orders that can still be delivered
-  /// against, the bays goods leave from, and product names.
+  /// Load what the editor needs that does not change under it: the bays
+  /// goods leave from, product names and the firm's features.
+  ///
+  /// The approved orders are not read here: an order approved after the page
+  /// opened would not be offered until the page was reloaded (D-UI-27), so
+  /// [_readDeliverableOrders] reads them when New is pressed.
   ///
   /// Failing here leaves the create action disabled rather than taking the
   /// workspace down; the list of notes is still readable without it.
@@ -212,39 +219,68 @@ class _DeliveryNoteManagementPageState
     if (!widget.hasActiveFirm || !_canCreate) return;
     try {
       final List<dynamic> results = await Future.wait<dynamic>([
-        widget.api.documentPage(
-          'sales-orders',
-          page: 1,
-          pageSize: 100,
-          sortBy: 'order_date',
-          descending: true,
-          additionalQuery: const {'status': 'APPROVED'},
-        ),
         widget.api.warehouses(page: 1, pageSize: 100),
         widget.api.products(page: 1, pageSize: 100),
         widget.api.activeBusinessFeatureCodes(),
       ]);
-      // A paginated body carries a list under `data`, so `_unwrap` returns the
-      // envelope rather than the payload here.
-      final dynamic data = (results[0] as Json)['data'];
       if (!mounted) return;
       setState(() {
-        _deliverableOrders = [
-          for (final dynamic order in data is List ? data : const [])
-            if (order is Map) Map<String, dynamic>.from(order),
-        ];
-        _warehouses = (results[1] as PagedResult<WarehouseRecord>).items;
-        _products = (results[2] as PagedResult<Product>).items;
-        _features = BusinessFeatures((results[3] as List<String>).toSet());
+        _warehouses = (results[0] as PagedResult<WarehouseRecord>).items;
+        _products = (results[1] as PagedResult<Product>).items;
+        _features = BusinessFeatures((results[2] as List<String>).toSet());
+        _referenceLoaded = true;
       });
     } on ApiException {
       if (!mounted) return;
-      setState(() => _deliverableOrders = const []);
+      setState(() => _referenceLoaded = false);
+    }
+  }
+
+  /// The orders that can still be delivered against, read now (one call).
+  /// Null where they could not be read.
+  Future<List<Json>?> _readDeliverableOrders() async {
+    try {
+      final Json page = await widget.api.documentPage(
+        'sales-orders',
+        page: 1,
+        pageSize: 100,
+        sortBy: 'order_date',
+        descending: true,
+        additionalQuery: const {'status': 'APPROVED'},
+      );
+      // A paginated body carries a list under `data`, so `_unwrap` returns the
+      // envelope rather than the payload here.
+      final dynamic data = page['data'];
+      return [
+        for (final dynamic order in data is List ? data : const [])
+          if (order is Map) Map<String, dynamic>.from(order),
+      ];
+    } on ApiException catch (error) {
+      if (mounted) {
+        NotificationService.show(
+          context,
+          refusalMessage(error),
+          kind: AppNotificationKind.error,
+        );
+      }
+      return null;
     }
   }
 
   /// Open the editor and reload if it saved a note.
   Future<void> _createNote() async {
+    final List<Json>? orders = await _readDeliverableOrders();
+    if (orders == null || !mounted) return;
+    if (orders.isEmpty) {
+      // A delivery note line needs an approved sales order line behind it.
+      NotificationService.show(
+        context,
+        'There is no approved sales order to deliver against.',
+        kind: AppNotificationKind.warning,
+      );
+      return;
+    }
+    _deliverableOrders = orders;
     final Object? outcome = await showDocument<Object>(
       context,
       title: 'New delivery note',
@@ -628,11 +664,10 @@ class _DeliveryNoteManagementPageState
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
-              // A delivery note line needs an approved sales order line
-              // behind it, so nothing to deliver against is a disabled button
-              // rather than an empty dialog.
-              ToolbarAction.newItem =>
-                _canCreate && _deliverableOrders.isNotEmpty,
+              // The approved orders are read when New is pressed (D-UI-27),
+              // and an empty answer is said there rather than shown as a
+              // button that is dead for no visible reason.
+              ToolbarAction.newItem => _canCreate && _referenceLoaded,
               ToolbarAction.view => _selected != null && !_bulkMode,
               ToolbarAction.refresh => true,
               _ => false,

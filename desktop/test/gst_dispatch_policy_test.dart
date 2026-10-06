@@ -54,6 +54,10 @@ class _GstApi extends ApiClient {
   final String enforcement;
   final String? message;
 
+  /// The approved orders the New note box offers, and how often they were read.
+  List<Json> approvedOrders = const <Json>[];
+  int orderReads = 0;
+
   /// What the settings read says about dispatch before invoice.
   final String storedDispatch;
 
@@ -166,7 +170,12 @@ class _GstApi extends ApiClient {
       // the notes themselves.
       resource == 'delivery-notes' && sortBy == 'delivery_date'
           ? await request('GET', '/api/v1/delivery-notes')
-          : const <String, dynamic>{'data': <dynamic>[]};
+          : resource == 'sales-orders'
+              ? () {
+                  orderReads += 1;
+                  return <String, dynamic>{'data': approvedOrders};
+                }()
+              : const <String, dynamic>{'data': <dynamic>[]};
 
   @override
   Future<PagedResult<InventoryRecord>> inventory({
@@ -290,6 +299,38 @@ Future<void> _openEditor(WidgetTester tester, _GstApi api) async {
 }
 
 void main() {
+  // D-UI-27: the Sales order box was filled when the page opened, so an order
+  // approved afterwards was not offered until the page was reloaded.
+  testWidgets('New reads the approved orders when it is pressed',
+      (tester) async {
+    final _GstApi api = _GstApi();
+    await _pumpPage(
+      tester,
+      api,
+      codes: const ['SALES_VIEW', 'SALES_APPROVE', 'SALES_CREATE'],
+    );
+    expect(api.orderReads, 0, reason: 'nothing is read at page open');
+    // An order is approved while the page is open.
+    api.approvedOrders = <Json>[
+      {
+        'id': 'so-9',
+        'order_number': 'SO-0009',
+        'order_date': '2026-08-01',
+        'warehouse_id': 'wh-1',
+        'status': 'APPROVED',
+        'lines': <Json>[],
+      },
+    ];
+    await tester.tap(find.text('+ New'));
+    await tester.pumpAndSettle();
+    expect(api.orderReads, 1);
+    // The dialog is outside the page's Phase2Scope, so it is the box of the
+    // first design.
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SO-0009'), findsWidgets);
+  });
+
   group('the delivery note editor', () {
     testWidgets('sends Sale as the reason by default', (tester) async {
       final _GstApi api = _GstApi();
