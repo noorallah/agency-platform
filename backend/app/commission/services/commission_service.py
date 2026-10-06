@@ -52,6 +52,7 @@ from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrderLine
 from app.sales_targets.services import SalesTargetService
 from app.settlements.services.net_sales import collected_net, invoiced_net
+from app.settlements.services.settlement_service import returned_units_against
 
 #: What the report calls money that belongs to nobody.
 UNASSIGNED_LABEL = "Unassigned"
@@ -642,8 +643,9 @@ class CommissionService:
         failure -- it is somebody nobody set a number for -- and a bonus for
         beating a target that does not exist would pay everybody.
 
-        A PER_UNIT rule pays its rate for every unit sold and ignores the
-        money entirely -- that is what "two rupees a case" means, and it is
+        A PER_UNIT rule pays its rate for every unit sold and kept -- the
+        quantity arrives net of what came back -- and ignores the money
+        entirely -- that is what "two rupees a case" means, and it is
         why the quantity is carried here rather than folded into the amount.
         Slabs do not apply to it: a ladder of bands is a statement about
         value, and a per-unit rate is deliberately not one.
@@ -664,8 +666,9 @@ class CommissionService:
         Args:
             rule: The arrangement.
             amount: What was collected or invoiced under it.
-            quantity: How many units were sold under it, which is what a
-                PER_UNIT rate multiplies and what a PERCENT rule ignores.
+            quantity: How many units were sold under it and not returned,
+                which is what a PER_UNIT rate multiplies and what a PERCENT
+                rule ignores.
             target_met: Whether this person's targets over the period were met,
                 or None if they had none.
 
@@ -953,6 +956,7 @@ class CommissionService:
                 if rules
                 else set()
             ),
+            firm_id=firm_id,
             on_document_total=on_document_total,
         )
         # Quantities are accumulated separately from money: a per-unit rate
@@ -1268,7 +1272,11 @@ class CommissionService:
         return margin if margin > ZERO else ZERO
 
     def _lines_of(
-        self, invoice_ids: set[UUID], *, on_document_total: bool = False
+        self,
+        invoice_ids: set[UUID],
+        *,
+        firm_id: UUID,
+        on_document_total: bool = False,
     ) -> dict[UUID, _BilledInvoice]:
         """Return what each invoice was made of, with each line's share of it.
 
@@ -1293,6 +1301,16 @@ class CommissionService:
         2 BOX of 12 are 24 units. Read as typed, the same goods paid 5.00
         billed by the box and 60.00 billed by the piece.
 
+        **And it is net of what came back** (D-PRC-59): the units a completed
+        return took off the line are taken off here, by the same test that
+        takes their value off the bill (`returned_units_against` beside
+        `credited_against`), whenever the return was raised -- a credit
+        belongs to the sale it credits. A per-unit rate paid on every unit
+        billed, so 24 pieces returned in full went on earning for 24 while a
+        percentage beside them earned nothing. A credit note takes no units
+        off: it credits value and moves no goods, so a rate difference
+        leaves a per-unit rate where it was.
+
         With `on_document_total` the old measure is used instead: the
         invoice's `grand_total` apportioned on each line's `net_amount`. It
         exists only so a period paid on that measure is re-read on it.
@@ -1306,6 +1324,7 @@ class CommissionService:
             for part in chunks(list(invoice_ids))
             for row in self._session.execute(
                 select(
+                    SalesInvoiceLine.id,
                     SalesInvoiceLine.sales_invoice_id,
                     SalesInvoiceLine.product_id,
                     SalesInvoiceLine.current_invoice_quantity,
@@ -1376,7 +1395,11 @@ class CommissionService:
         grouped: dict[
             UUID, list[tuple[UUID, Decimal, Decimal, UUID | None, Decimal | None]]
         ] = {}
+        came_back = returned_units_against(
+            self._session, firm_id=firm_id, invoice_ids=list(invoice_ids)
+        )
         for (
+            line_id,
             invoice_id,
             product_id,
             quantity,
@@ -1398,10 +1421,20 @@ class CommissionService:
                     - Decimal(str(bill_discount))
                     + Decimal(str(charges))
                 )
+            per_line_unit = Decimal(str(stock_factor or 1))
+            returned = sum(
+                (
+                    units.in_units_of(per_line_unit)
+                    for units in came_back.get(line_id, ())
+                ),
+                ZERO,
+            )
             grouped.setdefault(invoice_id, []).append(
                 (
                     product_id,
-                    Decimal(str(quantity)) * Decimal(str(stock_factor or 1)),
+                    # Never below nothing: an over-return the caps should
+                    # have refused is not a negative sale.
+                    max(ZERO, Decimal(str(quantity)) * per_line_unit - returned),
                     worth,
                     category_id,
                     None if cost is None else Decimal(str(cost)),

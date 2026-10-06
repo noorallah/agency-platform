@@ -75,6 +75,25 @@ same goods paid 5.00 billed by the box and 60.00 billed by the piece. A firm
 that means "a case" for a product kept in pieces states the rate per piece.
 A payout already accrued keeps the figure it was snapshotted with.
 
+**And the quantity is net of what came back** (D-PRC-59, 2026-10-06). A
+per-unit rule's value was net of returns and its quantity was not, and only
+the quantity is paid on: 24 pieces at 2.50 earned 60.00 and still 60.00 with
+all 24 returned, while a 5% rule beside it earned nothing, and a payout was
+paid at 386.00 where 368.50 was earned. The units a return took off a bill
+line now come off it, by **the same test that takes their value off the
+bill**: `_returns_off_bills` in `settlement_service.py` is read by
+`credited_against` for the money and by `returned_units_against` for the
+units -- a completed or closed return raised from the bill's own lines,
+whenever it was raised, because a credit belongs to the sale it credits. A
+return typed in another unit is counted from what was typed (seven pieces,
+not 0.5833 of a box of twelve). Free goods coming back beside them were
+never charged and take nothing off. **A credit note takes no units off**: it
+credits value and moves no goods, and the quantity it states is a
+description, so a rate difference leaves a per-unit rate where it was. A
+payout already accrued is not restated; a period paid on units that then
+came back is short on its next re-read, and the next accrual for that person
+carries the shortfall as a clawback (`CommissionPayoutService._recover`).
+
 **Commission is earned on net sales -- tax and freight earn nothing.**
 Decided by Claude, industry standard, on the owner's instruction of
 2026-09-24: tax is collected for the government and freight is a

@@ -181,6 +181,125 @@ def debited_against(
     return debited
 
 
+def _returns_off_bills(
+    firm_id: UUID, invoice_ids: Sequence[UUID] | None, as_of: date | None
+) -> tuple[Any, ...]:
+    """Return the test for a return line that has taken something off a bill.
+
+    The one statement of which returns count against a sales invoice, read by
+    ``credited_against`` for the money and by ``returned_units_against`` for
+    the units, so a commission paid on value and one paid per unit cannot
+    disagree about whether the same goods came back (D-PRC-59).
+
+    Only a return raised from the bill's own lines names the bill. Completing
+    is what posts Cr receivable; a draft or approved return has not moved
+    anything yet, and a cancelled one is gone.
+    """
+    # Imported here: both modules import settlement-adjacent models.
+    from app.sales_return.models import SalesReturn, SalesReturnLine
+
+    return (
+        SalesReturnLine.firm_id == firm_id,
+        SalesReturnLine.source_document_type == "SALES_INVOICE",
+        *_among(SalesReturnLine.source_document_id, invoice_ids),
+        SalesReturnLine.is_deleted.is_(False),
+        SalesReturn.status.in_(("COMPLETED", "CLOSED")),
+        SalesReturn.is_deleted.is_(False),
+        *(() if as_of is None else (SalesReturn.return_date <= as_of,)),
+    )
+
+
+@dataclass(frozen=True)
+class ReturnedUnits:
+    """The charged units one return line took off a bill line."""
+
+    #: In the bill line's own unit, at four places.
+    quantity: Decimal
+    #: What was typed, where that was another unit; else None.
+    entered: Decimal | None
+    #: How many of the bill line's unit one typed unit is.
+    factor: Decimal
+
+    def in_units_of(self, per_line_unit: Decimal) -> Decimal:
+        """Restate the return in a unit the bill line's unit holds so many of.
+
+        Worked from what was typed where there is one, at the factor's full
+        ten places, so seven pieces of a box of twelve are seven and not
+        6.9996.
+
+        Args:
+            per_line_unit: How many of the wanted unit one of the bill
+                line's unit is -- twelve pieces to the box.
+
+        Returns:
+            The units, at the four places a quantity is kept to.
+
+        """
+        if self.entered is not None and self.factor > ZERO:
+            units = self.entered * self.factor * per_line_unit
+        else:
+            units = self.quantity * per_line_unit
+        return units.quantize(Decimal("0.0001"))
+
+
+@over_chunks("invoice_ids")
+def returned_units_against(
+    session: Session,
+    *,
+    firm_id: UUID,
+    invoice_ids: Sequence[UUID] | None,
+    as_of: date | None = None,
+) -> dict[UUID, list[ReturnedUnits]]:
+    """List the charged units returns have taken off each sales invoice line.
+
+    The units behind the money ``credited_against`` sums, by the same test
+    (``_returns_off_bills``): what a per-unit commission stops paying on.
+    Free goods beside them were never charged and are not counted, and a
+    credit note is not here at all -- it credits value and moves no goods,
+    and the quantity it states is a description, not what it is worked from.
+
+    Each entry is in the **bill line's own unit** with, where the return was
+    typed in another unit, what was typed and the factor that restates it:
+    seven pieces of a line sold by the box are stored as 0.5833 of a box,
+    and 0.5833 of twelve is not seven. ``ReturnedUnits.in_units_of`` is the
+    one place that is worked out.
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        invoice_ids: The sales invoices to ask about; None asks about every
+            invoice of the firm.
+        as_of: Count only returns dated on or before this day.
+
+    Returns:
+        The returns per invoice **line** id, for the lines with any.
+
+    """
+    if invoice_ids is not None and not invoice_ids:
+        return {}
+    from app.sales_return.models import SalesReturn, SalesReturnLine
+
+    answer: dict[UUID, list[ReturnedUnits]] = {}
+    for line_id, quantity, entered, factor in session.execute(
+        select(
+            SalesReturnLine.source_document_line_id,
+            SalesReturnLine.current_return_quantity,
+            SalesReturnLine.entered_quantity,
+            SalesReturnLine.conversion_factor,
+        )
+        .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+        .where(*_returns_off_bills(firm_id, invoice_ids, as_of))
+    ).all():
+        answer.setdefault(line_id, []).append(
+            ReturnedUnits(
+                quantity=Decimal(str(quantity or 0)),
+                entered=None if entered is None else Decimal(str(entered)),
+                factor=Decimal(str(factor or 0)),
+            )
+        )
+    return answer
+
+
 @whole_past_a_chunk("invoice_ids")
 def credited_against(
     session: Session,
@@ -227,17 +346,7 @@ def credited_against(
             func.coalesce(func.sum(SalesReturnLine.net_amount), 0),
         )
         .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
-        .where(
-            SalesReturnLine.firm_id == firm_id,
-            SalesReturnLine.source_document_type == "SALES_INVOICE",
-            *_among(SalesReturnLine.source_document_id, invoice_ids),
-            SalesReturnLine.is_deleted.is_(False),
-            # Completing is what posts Cr receivable; a draft or approved
-            # return has not moved anything yet, a cancelled one is gone.
-            SalesReturn.status.in_(("COMPLETED", "CLOSED")),
-            SalesReturn.is_deleted.is_(False),
-            *(() if as_of is None else (SalesReturn.return_date <= as_of,)),
-        )
+        .where(*_returns_off_bills(firm_id, invoice_ids, as_of))
         .group_by(SalesReturnLine.source_document_id)
     ).all()
     notes = session.execute(

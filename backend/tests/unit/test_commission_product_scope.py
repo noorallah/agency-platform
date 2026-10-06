@@ -18,7 +18,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -30,11 +30,13 @@ from app.commission.schemas import (
 from app.commission.services import CommissionService
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
+from app.credit_note.models import CreditNote, CreditNoteLine
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
 from app.products.models import Product, ProductCategory
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_return.models import SalesReturn, SalesReturnLine
 
 # Fixtures here type their document numbers; see conftest (D-CFG-2).
 pytestmark = pytest.mark.typed_document_numbers
@@ -155,6 +157,87 @@ class _Books:
                     net_amount=Decimal(net),
                 )
             )
+        self.session.commit()
+
+    def _billed(self, number: str, product: Product) -> SalesInvoiceLine:
+        """Find the line of a bill that sold one product."""
+        return self.session.scalars(
+            select(SalesInvoiceLine)
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoice.invoice_number == number,
+                SalesInvoiceLine.product_id == product.id,
+            )
+        ).one()
+
+    def returned(
+        self,
+        number: str,
+        product: Product,
+        quantity: str,
+        net: str,
+        *,
+        status: str = "COMPLETED",
+    ) -> None:
+        """Bring some of one line of a bill back, worth what is given."""
+        billed = self._billed(number, product)
+        row = SalesReturn(
+            firm_id=self.firm.id,
+            customer_id=self.customer.id,
+            branch_id=self.branch_id,
+            warehouse_id=uuid4(),
+            return_number=f"SR-{uuid4().hex[:8]}",
+            return_date=WHEN,
+            status=status,
+        )
+        self.session.add(row)
+        self.session.flush()
+        self.session.add(
+            SalesReturnLine(
+                sales_return_id=row.id,
+                firm_id=self.firm.id,
+                line_number=1,
+                source_document_type="SALES_INVOICE",
+                source_document_id=billed.sales_invoice_id,
+                source_document_number=number,
+                source_document_line_id=billed.id,
+                source_document_line_number=billed.line_number,
+                product_id=product.id,
+                current_return_quantity=Decimal(quantity),
+                net_amount=Decimal(net),
+            )
+        )
+        self.session.commit()
+
+    def credited(self, number: str, product: Product, quantity: str, net: str) -> None:
+        """Credit one line of a bill some money, with no goods coming back."""
+        billed = self._billed(number, product)
+        row = CreditNote(
+            firm_id=self.firm.id,
+            customer_id=self.customer.id,
+            branch_id=self.branch_id,
+            sales_invoice_id=billed.sales_invoice_id,
+            credit_note_number=f"CN-{uuid4().hex[:8]}",
+            credit_note_date=WHEN,
+            reason="RATE_DIFFERENCE",
+            status="APPROVED",
+            taxable_amount=Decimal(net),
+            total_amount=Decimal(net),
+        )
+        self.session.add(row)
+        self.session.flush()
+        self.session.add(
+            CreditNoteLine(
+                credit_note_id=row.id,
+                firm_id=self.firm.id,
+                line_number=1,
+                sales_invoice_line_id=billed.id,
+                product_id=product.id,
+                quantity=Decimal(quantity),
+                taxable_amount=Decimal(net),
+                total_amount=Decimal(net),
+            )
+        )
         self.session.commit()
 
     def rule(
@@ -281,6 +364,77 @@ def test_a_per_unit_rate_pays_for_cases_and_ignores_the_price() -> None:
     books.invoice("SI-1", [(books.milk, "10", "600.00")])
 
     assert books.earned() == Decimal("25.00")
+
+
+def test_a_per_unit_rate_stops_paying_for_units_that_came_back() -> None:
+    """24 pieces at 2.50 earn 60.00, 42.50 with 7 back and nothing with all 24.
+
+    D-PRC-59: the rule's value was net of the return and its quantity was
+    not, and only the quantity is paid on -- a sale returned in full went on
+    earning in full, while a percentage beside it earned nothing.
+    """
+    books = _Books(_session_factory()())
+    books.rule(
+        product=books.milk,
+        rate_type=CommissionRateTypeEnum.PER_UNIT,
+        per_unit_amount="2.5",
+    )
+    books.rule("5", product=books.rice)
+    books.invoice(
+        "SI-1", [(books.milk, "24", "2400.00"), (books.rice, "24", "2400.00")]
+    )
+    assert books.earned() == Decimal("180.00")
+
+    books.returned("SI-1", books.milk, "7", "700.00")
+    books.returned("SI-1", books.rice, "7", "700.00")
+
+    # 17 kept at 2.50, and 5% of the rice's share of what the bill is worth.
+    assert books.earned() == Decimal("42.50") + Decimal("85.00")
+
+    books.returned("SI-1", books.milk, "17", "1700.00")
+    books.returned("SI-1", books.rice, "17", "1700.00")
+
+    assert books.earned() == Decimal("0.00")
+
+
+@pytest.mark.parametrize("status", ["DRAFT", "APPROVED", "CANCELLED"])
+def test_only_a_return_that_credited_the_bill_takes_units_off(status: str) -> None:
+    """The units come off by the test that takes the value off, and no other.
+
+    A return nobody completed has credited nothing, so a per-unit rate keeps
+    paying for the goods exactly as a percentage keeps paying on their value.
+    """
+    books = _Books(_session_factory()())
+    books.rule(
+        product=books.milk,
+        rate_type=CommissionRateTypeEnum.PER_UNIT,
+        per_unit_amount="2.5",
+    )
+    books.invoice("SI-1", [(books.milk, "24", "2400.00")])
+
+    books.returned("SI-1", books.milk, "7", "700.00", status=status)
+
+    assert books.earned() == Decimal("60.00")
+
+
+def test_a_credit_note_takes_no_units_off_a_per_unit_rate() -> None:
+    """A rate difference changes what the goods were worth, not how many sold.
+
+    The quantity a credit note states is a description for the tax authority
+    and not what it is worked from, so 24 pieces credited 240.00 are still 24
+    pieces sold.
+    """
+    books = _Books(_session_factory()())
+    books.rule(
+        product=books.milk,
+        rate_type=CommissionRateTypeEnum.PER_UNIT,
+        per_unit_amount="2.5",
+    )
+    books.invoice("SI-1", [(books.milk, "24", "2400.00")])
+
+    books.credited("SI-1", books.milk, "24", "240.00")
+
+    assert books.earned() == Decimal("60.00")
 
 
 def test_a_per_unit_rate_on_collections_is_refused() -> None:
