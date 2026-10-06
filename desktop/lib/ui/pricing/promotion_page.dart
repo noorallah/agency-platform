@@ -640,7 +640,7 @@ class _PromotionPageState extends State<PromotionPage> {
         row.maxRedemptionsPerCustomer == null
             ? 'No limit'
             : '${row.maxRedemptionsPerCustomer}',
-        row.status,
+        row.statusNote.isEmpty ? row.status : '${row.status} (${row.statusNote})',
       ],
       onSelect: (row) => setState(() => _selectedCoupon = row),
       onOpen: _mayManage
