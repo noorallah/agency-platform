@@ -517,7 +517,8 @@ offer reads too. The money budget is not moved by a return -- nothing nets
 `benefit_amount` for one. And the principal's claim: the preview for a period
 leaves out free goods that have since come back, a line with nothing left is
 dropped, and **a claim already raised is not rewritten** by a return that
-comes after it. `tests/unit/test_sales_return_free_goods.py` is the guard.
+comes after it: the next claim takes it back (below).
+`tests/unit/test_sales_return_free_goods.py` is the guard.
 
 **A note that says nothing ships the order's free goods** (D-PRC-4,
 2026-10-06). `free_quantity` on a delivery note line defaulted to `0`, so
@@ -575,6 +576,55 @@ nothing claimed. Three things to know:
 Returns and credit notes are netted as they stand when the claim is previewed
 or raised, whatever their date. `tests/unit/test_principal_claim_scheme_bills.py`
 is the guard.
+
+**What comes back after a claim was raised comes off the next claim**
+(D-PRC-31, 2026-10-06). A claim of 120.00 was raised, one of its two free
+units came back, and nothing anywhere took the 30.00 back: the claim stood,
+no later preview showed anything negative, and cost of goods sold had been
+credited for that unit twice. Cancelling and re-raising netted it, which a
+part-settled claim refuses. The claim raised is still **not rewritten** -- the
+principal may have paid it -- and the next claim on that principal carries a
+negative **adjustment line**, the debit adjustment a distributor carries
+forward to its next claim:
+
+- **What is owed back is summed, never stored.** For an earlier line of kind
+  SCHEME or FREE_GOODS that something has come back against (a completed
+  return, an approved credit note, the bill cancelled), the source is worked
+  again exactly as a claim raised today would work it, and the adjustment is
+  what the line was claimed for -- its amount plus the live adjustments
+  naming it (`principal_claim_lines.adjusts_line_id`, `20261006_0340`) --
+  less that. A second look therefore finds nothing more to take, and a
+  return that was already netted when the claim was raised owes nothing.
+- **The line** has the earlier line's kind, document number and date, a
+  negative `amount` (and, for goods, a negative `quantity`), and reads "Came
+  back after claim CLM-... (SR-...): Free goods under Acme 2 + 1". Its
+  `source_id` is `adjustment_source(line, n)`, so two claims raised at once
+  cannot both take it. The response names the earlier claim in
+  `adjusts_claim_number`.
+- **A claim is never negative.** It is settled by a payment or a credit note,
+  and neither can settle less than nothing. Adjustments are taken oldest
+  claim first as far as the claim's own lines reach; the one that would take
+  it below zero is taken in part and the rest is **carried forward**
+  (`adjustments_carried_forward` on the preview) to the claim after. A claim
+  that nets to exactly 0.00 is raised and reads SETTLED. With nothing new to
+  claim, none is raised: "Nothing is left to claim from Acme Ltd for that
+  period. Goods or discounts worth 30.00 came back after earlier claims; that
+  comes off the next claim on this principal that has something to claim."
+- **The ledger mirrors what the earlier line credited**: an adjustment for
+  goods debits cost of goods sold and one for a discount debits promotional
+  expense, inside the new claim's one journal
+  (`docs/LEDGER_POSTING_RULES.md`).
+- **The earlier claim cannot be cancelled from under its adjustment**: "Claim
+  CLM-... takes back goods or a discount that came back after this claim was
+  raised; cancel that claim first." Cancelling the later claim frees the
+  adjustment, and the next preview shows it again.
+
+Three limits. Only documents dated within two years before the new claim's
+period are looked for (`_LOOK_BACK`), so a preview does not re-read every bill
+the firm ever claimed. A scheme line raised before D-PRC-27 names its
+redemption, not a bill, and is never adjusted. And expiry, breakage and rate
+difference lines are not adjusted: nothing brings them back.
+`tests/unit/test_principal_claim_adjustments.py` is the guard.
 
 **Goods given free are claimed from the principal at what they cost**
 (2026-10-06). A claim (`app/principal_claims`) counted a scheme's money

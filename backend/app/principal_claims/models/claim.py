@@ -93,6 +93,7 @@ class PrincipalClaimLine(BaseEntity):
     __tablename__ = "principal_claim_lines"
     __table_args__ = (
         Index("IX_principal_claim_lines_claim", "claim_id"),
+        Index("IX_principal_claim_lines_adjusts", "adjusts_line_id"),
         Index(
             "UQ_principal_claim_lines_source_active",
             "kind",
@@ -140,7 +141,15 @@ class PrincipalClaimLine(BaseEntity):
     old_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     new_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     description: Mapped[str] = mapped_column(String(300), nullable=False)
+    #: Negative on an adjustment line, which takes back part of an earlier
+    #: claim's line.
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    #: On an adjustment: the earlier claim's line this reduces, because
+    #: goods or a discount it claimed came back after it was raised
+    #: (D-PRC-31). Null on every other line. A bare id, as ``source_id`` is.
+    #: What a source has been claimed for is its own line's amount plus the
+    #: live adjustments naming it -- summed, never stored.
+    adjusts_line_id: Mapped[UUID | None] = mapped_column(UUIDType())
 
 
 class PrincipalClaimReceipt(BaseEntity):
