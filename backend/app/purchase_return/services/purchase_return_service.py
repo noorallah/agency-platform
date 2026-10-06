@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.services import BatchSerialService
@@ -30,6 +30,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger, quantize_money
 from app.core.utils.pricing import (
@@ -81,6 +82,7 @@ from app.purchase_return.models import (
     PurchaseReturn,
     PurchaseReturnAccountingEvent,
     PurchaseReturnAttachment,
+    PurchaseReturnBillPlacement,
     PurchaseReturnLine,
     PurchaseReturnNote,
     PurchaseReturnSource,
@@ -1047,7 +1049,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         """
         if quantity <= ZERO:
             return ZERO
-        bill_lines = worths.bill_lines(source_type, source_line.id)
+        bill_lines = worths.placing(source_type, source_line.id)
         billed_quantity = quantity if bill_lines else ZERO
         if bill_lines and isinstance(source_line, GoodsReceiptLine):
             position = receipt_line_billing(self._session, [source_line])[
@@ -1224,6 +1226,12 @@ class PurchaseReturnService(TransactionalDocumentService):
         price above its bill's, and a bill may have reached the goods since
         at less than the receipt took them in at.
 
+        **Where each line fell is stored here** (D-PRC-73): the bill lines
+        its billed units came off and what they claim on each, one
+        ``PurchaseReturnBillPlacement`` per bill line. From now on every
+        reader takes this return from those rows, so nothing raised later
+        can move it to another bill.
+
         Raises:
             ValidationError: If a line claims more than its bill is worth.
 
@@ -1231,12 +1239,13 @@ class PurchaseReturnService(TransactionalDocumentService):
         worths = BillWorths(self._session, return_id=row.id)
         ordered = sorted(lines, key=lambda item: item.line_number)
         billed = {
-            line.id: worths.bill_lines(
+            line.id: worths.placing(
                 line.source_document_type, line.source_document_line_id
             )
             for line in ordered
         }
         worths.hold(bill_line for named in billed.values() for bill_line in named)
+        placements: list[PurchaseReturnBillPlacement] = []
         for line in ordered:
             share = billed_share(line)
             stored = self._q(line.current_return_quantity)
@@ -1253,8 +1262,21 @@ class PurchaseReturnService(TransactionalDocumentService):
                 continue
             worth = worths.worth(billed[line.id], stored * share, exact=exact * share)
             claims = taxable * share
-            worths.take(worth, claims)
+            placed = worths.take(worth, claims)
             if claims <= worth.amount + _ROUNDING_ROOM:
+                placements.extend(
+                    PurchaseReturnBillPlacement(
+                        purchase_return_id=row.id,
+                        purchase_return_line_id=line.id,
+                        firm_id=row.firm_id,
+                        purchase_invoice_line_id=bill_line.id,
+                        quantity=self._q(part),
+                        taxable_amount=value,
+                        created_by=row.updated_by,
+                        updated_by=row.updated_by,
+                    )
+                    for bill_line, part, value in placed
+                )
                 continue
             if not worth.claimed_against:
                 raise ValidationError(
@@ -1285,6 +1307,14 @@ class PurchaseReturnService(TransactionalDocumentService):
                 "return and raise it again, and it will be priced on what "
                 "the bill is still worth."
             )
+        # A completion tried again after a refusal starts from nothing.
+        self._session.execute(
+            delete(PurchaseReturnBillPlacement).where(
+                PurchaseReturnBillPlacement.purchase_return_id == row.id
+            )
+        )
+        self._session.add_all(placements)
+        self._session.flush()
 
     def _refuse_past_the_receipt(
         self, line: PurchaseReturnLine, *, quantity: Decimal, exact: Decimal
@@ -1675,6 +1705,13 @@ class PurchaseReturnService(TransactionalDocumentService):
         # inventory credit have to come back off the books with them.
         self._reverse_posting(
             row, firm_scope=firm_scope, actor_id=actor_id, stock_value=stock_value
+        )
+        # Its units are no longer off any bill line (D-PRC-73). After the
+        # reversal above, which reads them for the tax heads.
+        self._session.execute(
+            delete(PurchaseReturnBillPlacement).where(
+                PurchaseReturnBillPlacement.purchase_return_id == row.id
+            )
         )
         row.status = PurchaseReturnStatus.CANCELLED.value
         row.cancel_reason = reason
@@ -3872,6 +3909,44 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
 
 
+@over_chunks("return_line_ids")
+def _placements_by_line(
+    session: Session, return_line_ids: Sequence[UUID]
+) -> dict[UUID, list[tuple[UUID, Decimal]]]:
+    """Return where completed return lines were placed, with each bill's weight.
+
+    Per return line, the bill lines its billed units came off and the share
+    of those units on each (D-PRC-73). A line with no stored placement is
+    absent.
+    """
+    if not return_line_ids:
+        return {}
+    found: dict[UUID, list[tuple[UUID, Decimal]]] = {}
+    for return_line_id, bill_line_id, quantity in session.execute(
+        select(
+            PurchaseReturnBillPlacement.purchase_return_line_id,
+            PurchaseReturnBillPlacement.purchase_invoice_line_id,
+            PurchaseReturnBillPlacement.quantity,
+        ).where(
+            PurchaseReturnBillPlacement.purchase_return_line_id.in_(
+                list(return_line_ids)
+            ),
+            PurchaseReturnBillPlacement.is_deleted.is_(False),
+        )
+    ).all():
+        found.setdefault(return_line_id, []).append(
+            (bill_line_id, Decimal(str(quantity)))
+        )
+    weighted: dict[UUID, list[tuple[UUID, Decimal]]] = {}
+    for return_line_id, parts in found.items():
+        whole = sum((quantity for _, quantity in parts), ZERO)
+        if whole > ZERO:
+            weighted[return_line_id] = [
+                (bill_line_id, quantity / whole) for bill_line_id, quantity in parts
+            ]
+    return weighted
+
+
 def _billed_lines(
     session: Session, lines: Sequence[PurchaseReturnLine]
 ) -> dict[UUID, list[tuple[UUID, Decimal]]]:
@@ -3884,11 +3959,21 @@ def _billed_lines(
     the receipt, and such a line used to name no bill, so its tax fell to
     `INPUT_TAX` whole while the bill had debited CGST and SGST (D-BUY-28). A
     receipt line nothing has billed yet names none.
+
+    **A completed line names the bill lines it was placed on**, by the units
+    on each (``purchase_return_bill_placements``, D-PRC-73): the tax heads
+    then follow the same bills the claim came off. Only a line with no
+    placement -- one not yet completed -- is worked out as above.
     """
     named: dict[UUID, list[tuple[UUID, Decimal]]] = {}
     receipt_lines: dict[UUID, UUID] = {}
+    stored = _placements_by_line(session, [line.id for line in lines])
     for line in lines:
-        if line.source_document_type == PurchaseReturnSourceType.PURCHASE_INVOICE.value:
+        if line.id in stored:
+            named[line.id] = stored[line.id]
+        elif (
+            line.source_document_type == PurchaseReturnSourceType.PURCHASE_INVOICE.value
+        ):
             named[line.id] = [(line.source_document_line_id, Decimal("1"))]
         elif line.source_document_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
             receipt_lines[line.id] = line.source_document_line_id
