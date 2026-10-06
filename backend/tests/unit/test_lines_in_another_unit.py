@@ -32,7 +32,7 @@ from app.commission.schemas import (
 )
 from app.commission.services.commission_service import CommissionService
 from app.core.exceptions import ValidationError
-from app.core.utils.quantities import at_quantity_scale, plain_quantity
+from app.core.utils.quantities import at_quantity_scale, counted_in, plain_quantity
 from app.delivery_note.models import DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
@@ -1612,4 +1612,94 @@ def test_a_note_in_boxes_over_the_cap_is_counted_in_boxes() -> None:
         f"Line 1 delivers 2 BOX where {order.order_number} has 1 BOX left to "
         f"deliver of the 4 BOX ordered: {first.delivery_note_number} delivers "
         "the rest. Change the line to what is left."
+    )
+
+
+# ---- a refusal speaks the unit the return was typed in (D-PRC-86) -----------
+#
+# The eighth pricing check (2026-10-06): a note of 4 BOX billed as two bills
+# of 2 BOX, one box back off the note. Thirteen pieces named on the first
+# bill's own line were refused as "1.0833 BOX", and six pieces against five
+# left as "0.4167 BOX is left ... where the return brings back 0.5 BOX".
+
+
+def test_figures_are_counted_in_another_unit_only_where_they_are_whole() -> None:
+    """Boxes kept at four places read as the pieces they were; 26 is no box."""
+    twelfth = D("1") / D("12")
+    assert counted_in([D("2"), D("1.0833"), D("0.4167"), D("0.5")], twelfth) == [
+        D("24.0000"),
+        D("13.0000"),
+        D("5.0000"),
+        D("6.0000"),
+    ]
+    assert counted_in([D("36"), D("12"), D("48")], D("12")) == [
+        D("3.0000"),
+        D("1.0000"),
+        D("4.0000"),
+    ]
+    assert counted_in([D("6")], D("12")) == [D("0.5000")]
+    assert counted_in([D("36"), D("26")], D("12")) is None
+    assert counted_in([D("1")], D("0")) is None
+
+
+def test_a_return_typed_in_pieces_is_refused_in_pieces() -> None:
+    """13 PIECE where 12 are left, then 6 where 5 are: said in pieces."""
+    shop = _Shop()
+    note_line = _shipped(shop, "4")
+    first, first_line = _bill(shop, note_line, "2")
+    _bill(shop, note_line, "2")
+    off_the_note = ("DELIVERY_NOTE", note_line.delivery_note_id, note_line.id)
+    on_the_first = ("SALES_INVOICE", first.id, first_line.id)
+    _brought_back(shop, off_the_note, "1")
+
+    with pytest.raises(ValidationError) as thirteen:
+        _brought_back(shop, on_the_first, "13", return_uom_id=shop.piece)
+    assert (
+        f"Line 1: {first.invoice_number} line 1 billed 24 PIECE, and 12 PIECE of "
+        "that has already come back and been credited on it, so 12 PIECE is left "
+        "to return against this bill where the return brings back 13 PIECE. "
+        "Raise the return off "
+    ) in str(thirteen.value.message)
+    shop.session.rollback()
+
+    # Typed by the box, it is still said by the box.
+    with pytest.raises(ValidationError) as two_boxes:
+        _brought_back(shop, on_the_first, "2")
+    assert (
+        "billed 2 BOX, and 1 BOX of that has already come back and been "
+        "credited on it, so 1 BOX is left to return against this bill where "
+        "the return brings back 2 BOX."
+    ) in str(two_boxes.value.message)
+    shop.session.rollback()
+
+    _brought_back(shop, on_the_first, "7", return_uom_id=shop.piece)
+    with pytest.raises(ValidationError) as six:
+        _brought_back(shop, on_the_first, "6", return_uom_id=shop.piece)
+    assert (
+        "billed 24 PIECE, and 19 PIECE of that has already come back and been "
+        "credited on it, so 5 PIECE is left to return against this bill where "
+        "the return brings back 6 PIECE."
+    ) in str(six.value.message)
+    assert "BOX" not in str(six.value.message)
+
+
+# ---- a quotation's free figure is a whole number of a whole unit (D-PRC-87) -
+
+
+def test_a_quarter_of_a_box_typed_free_is_refused_on_the_quotation() -> None:
+    """A quotation of 2 + 0.25 free BOX was saved, and could never be ordered."""
+    shop = _Shop()
+
+    with pytest.raises(ValidationError) as refused:
+        _quote(shop, sales_uom_id=shop.box, free_quantity="0.25")
+
+    assert str(refused.value.message) == (
+        "Line 1, free quantity: BOX is counted in whole numbers, so 0.25 BOX "
+        "cannot be entered."
+    )
+    shop.session.rollback()
+    assert shop.session.scalars(select(SalesQuotationLine)).all() == []
+    # A whole box free is taken, and so is a fraction of a unit that allows one.
+    assert _quote(shop, sales_uom_id=shop.box, free_quantity="1").free_quantity == D(
+        "1.0000"
     )

@@ -418,6 +418,25 @@ for goods never billed -- and left the note billable in full.
   parts add up to the row and no total moves. The GST sales register's
   "against invoice" lists the same bills. A note whose bills do not account
   for all of it lists numbers and dates with no figures.
+- **A refusal counts in the unit the line was typed in** (D-PRC-86,
+  2026-10-06). The refusal for a bill line whose units are partly back
+  answered thirteen pieces as "1.0833 BOX" and five left as "0.4167 BOX is
+  left ... where the return brings back 0.5 BOX". It speaks the unit the
+  return line was typed in where every figure is whole in it at four
+  places, else the unit the product's stock is kept in, else the bill
+  line's own as the figures stand -- the rule a delivery note's cap follows
+  (D-PRC-62), and one function for both: `counted_in` in
+  `app/core/utils/quantities.py`. A figure kept at four places in the larger
+  unit was rounded on its way in, so the whole number it was is tried
+  first: 1.0833 BOX reads 13 PIECE. A line typed in the bill line's own
+  unit speaks it, as before.
+- **A quotation's free figure is a whole number of a whole-number unit**
+  (D-PRC-87, 2026-10-06). The quantity was checked when a quotation was
+  saved and the free figure was not, so "2 + 0.25 free BOX" was saved,
+  printed, sent and accepted, and could never become an order, which counts
+  the two together and refused 2.25 BOX. The free figure -- typed, or an
+  offer's -- is refused at save by name: "Line 1, free quantity: BOX is
+  counted in whole numbers, so 0.25 BOX cannot be entered."
 
 ## A firm chooses which stages of a sale its people type
 

@@ -17,13 +17,13 @@ problem listed in ``details`` in the shape request validation uses.
 """
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel
 from pydantic import ValidationError as SchemaRefusal
 
-from app.core.exceptions.base import ValidationError
+from app.core.exceptions.base import ApplicationError, ValidationError
 from app.core.exceptions.handlers import plain_validator_message
 
 #: The kinds of error whose message is a sentence one of our validators wrote.
@@ -125,4 +125,51 @@ def parse_payload[ModelT: BaseModel](
         ) from refusal
 
 
-__all__ = ["parse_payload"]
+def stage_records[RecordT, RowT](
+    records: Sequence[RecordT],
+    stage: Callable[[RecordT], RowT],
+    *,
+    rollback: Callable[[], object],
+) -> list[RowT]:
+    """Stage every record of an import, naming the record a service refuses.
+
+    A record the schema refuses is named by `parse_payload`. One the schema
+    takes and the **service** then refuses -- a return line whose units are
+    already back, an order for a customer on hold -- answered with the
+    single save's sentence and nothing else, so in a file of two nobody
+    could tell which record it was about (D-PRC-85). The refusal keeps its
+    own class, status and details and reads "Record 2 of 2: ... Nothing was
+    imported.", as a purchase return's import already did.
+
+    Args:
+        records: The file's records, in order.
+        stage: Stages one record without committing.
+        rollback: Undoes everything staged so far; called before any refusal
+            or failure leaves, so the caller inherits no half-written file.
+
+    Returns:
+        What each record staged, in order, for the caller to commit once.
+
+    Raises:
+        ApplicationError: The first record's refusal, named by its number.
+
+    """
+    rows: list[RowT] = []
+    for number, record in enumerate(records, start=1):
+        try:
+            rows.append(stage(record))
+        except ApplicationError as error:
+            rollback()
+            error.message = (
+                f"Record {number} of {len(records)}: {error.message} "
+                "Nothing was imported."
+            )
+            error.args = (error.message,)
+            raise
+        except Exception:
+            rollback()
+            raise
+    return rows
+
+
+__all__ = ["parse_payload", "stage_records"]

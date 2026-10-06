@@ -48,6 +48,7 @@ from app.core.utils.pricing import (
     resolve_line_discount,
 )
 from app.core.utils.quantities import plain_quantity
+from app.core.validation.payloads import stage_records
 from app.customers.gst_registration import effective_type, sez_tax_warning
 from app.customers.models import Customer
 from app.customers.schemas import (
@@ -3901,12 +3902,16 @@ class SalesInvoiceService(TransactionalDocumentService):
         """Import a validated batch of sales invoices atomically.
 
         It looped over a committing method while claiming to be atomic. See
-        `SalesOrderService.import_orders`.
+        `SalesOrderService.import_orders`. A record the service refuses is
+        named: "Record 2 of 2: ... Nothing was imported." (D-PRC-85).
         """
-        rows = [
-            self.stage_invoice(record, firm_id=firm_id, actor_id=actor_id)
-            for record in data.records
-        ]
+        rows = stage_records(
+            data.records,
+            lambda record: self.stage_invoice(
+                record, firm_id=firm_id, actor_id=actor_id
+            ),
+            rollback=self._session.rollback,
+        )
         self._session.commit()
         return rows
 

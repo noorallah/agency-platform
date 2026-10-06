@@ -64,8 +64,9 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
-from app.core.utils.quantities import plain_quantity
+from app.core.utils.quantities import counted_in, plain_quantity
 from app.core.utils.report_labels import UNASSIGNED
+from app.core.validation.payloads import stage_records
 from app.customers.models import Customer
 from app.customers.services.ship_to import resolve_ship_to
 from app.delivery_note.models import (
@@ -981,11 +982,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             and sales_uom_id != inventory_uom_id
             and per_unit > ZERO
         ):
-            in_line_unit = [self._q(value / per_unit) for value in figures]
-            if all(
-                self._q(counted * per_unit) == self._q(value)
-                for counted, value in zip(in_line_unit, figures, strict=True)
-            ):
+            in_line_unit = counted_in(figures, per_unit)
+            if in_line_unit is not None:
                 figures, unit_id = in_line_unit, sales_uom_id
         code = unit_named(self._session, unit_id)
         free = ", free goods included" if self._q(source.free_quantity) > ZERO else ""
@@ -2278,12 +2276,17 @@ class DeliveryNoteService(TransactionalDocumentService):
 
         It looped over a committing method while claiming to be atomic, so a
         batch that failed part-way left the records before it written and the
-        corrected file unusable. See `SalesOrderService.import_orders`.
+        corrected file unusable. See `SalesOrderService.import_orders`. A
+        record the service refuses is named: "Record 2 of 2: ... Nothing was
+        imported." (D-PRC-85).
         """
-        rows = [
-            self.stage_note(record, firm_id=firm_scope, actor_id=actor_id)
-            for record in data.records
-        ]
+        rows = stage_records(
+            data.records,
+            lambda record: self.stage_note(
+                record, firm_id=firm_scope, actor_id=actor_id
+            ),
+            rollback=self._session.rollback,
+        )
         self._session.commit()
         return rows
 
