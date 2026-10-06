@@ -414,7 +414,8 @@ moves nothing. On a bill of documents an explicit `null` means "as the
 documents say", as it does for freight; typing `0` is how the discount is
 refused. `sales_invoices.bill_discount_source` (migration `20261006_0336`)
 says `typed` or `inherited`, and both readers need it: an edit that leaves
-the discount out carries only a typed one as its rate (an inherited one is
+the discount out carries only a typed one, as the amount or the rate it was
+typed as (`bill_discount_typed_as`, D-PRC-35; an inherited one is
 inherited again at the share now billed, and a counter bill asks the order it
 raised, whose `bill_discount_source` says `typed` or `promotion`), and the
 approver's discount limit judges only a typed one -- an offer's 200 is

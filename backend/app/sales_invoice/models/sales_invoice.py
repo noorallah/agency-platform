@@ -131,6 +131,14 @@ class SalesInvoice(BaseEntity):
     #: one is judged against the approver's discount limit and carried across
     #: an edit that leaves it out (D-PRC-1).
     bill_discount_source: Mapped[str | None] = mapped_column(String(20))
+    #: How the bill discount was last stated on the bill: ``amount`` or
+    #: ``percent``; NULL where the bill never stated one. The header keeps
+    #: both figures and they look the same either way, but they are not the
+    #: same instruction: somebody who typed 25.00 off means 25.00 on whatever
+    #: the lines come to, and a four-place rate carried across an edit gave
+    #: them 25.0001 (D-PRC-35). An edit that leaves the discount out carries
+    #: it as this says; NULL carries the rate, as every bill did before.
+    bill_discount_typed_as: Mapped[str | None] = mapped_column(String(10))
     #: What the customer is charged for getting the goods to them.
     #:
     #: **Part of the taxable value, not an extra on the end.** Delivery charged
