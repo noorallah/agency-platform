@@ -10,6 +10,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/customers/loyalty_page.dart';
+import 'package:agency_desktop/ui/reports/report_catalog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,8 +28,12 @@ PermissionService _permissions({
       }));
 
 class _LoyaltyApi extends ApiClient {
-  _LoyaltyApi({required this.settings, this.entries = const []})
-      : super(
+  _LoyaltyApi({
+    required this.settings,
+    this.entries = const [],
+    this.lapsedPoints,
+    this.refuseReversal,
+  }) : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
           refreshAccessToken: () async => false,
@@ -37,6 +42,16 @@ class _LoyaltyApi extends ApiClient {
 
   final Json settings;
   final List<Json> entries;
+
+  /// What the balance reports as lapsed, when a test wants one.
+  final String? lapsedPoints;
+
+  /// The server's message when a reversal is refused.
+  final String? refuseReversal;
+
+  /// Each reversal asked for: `POST path` and the body sent.
+  final List<String> reversed = <String>[];
+  final List<Json> reversalBodies = <Json>[];
 
   /// Every write the screen makes, so a test can read the payload rather than
   /// only whether a dialog appeared.
@@ -63,6 +78,13 @@ class _LoyaltyApi extends ApiClient {
       }
       return <String, dynamic>{'data': settings};
     }
+    if (method == 'POST' && path.endsWith('/reverse')) {
+      reversed.add('$method $path');
+      reversalBodies
+          .add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));
+      if (refuseReversal != null) throw ApiException(refuseReversal!);
+      return <String, dynamic>{'data': _entry(kind: 'REDEEMED', points: '10')};
+    }
     if (method == 'POST' && path.endsWith('/loyalty/adjust')) {
       written.add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));
       return <String, dynamic>{'data': _entry(kind: 'ADJUSTED')};
@@ -85,6 +107,7 @@ class _LoyaltyApi extends ApiClient {
           'points': '20.0000',
           'amount': '20.00',
           'redeemable': false,
+          if (lapsedPoints != null) 'lapsed_points': lapsedPoints,
         },
       };
     }
@@ -101,15 +124,21 @@ Json _settings({bool enabled = true, int? expiryMonths = 24}) =>
       'expiry_months': expiryMonths,
     };
 
-Json _entry({String kind = 'EARNED', String points = '20.0000'}) =>
+Json _entry({
+  String id = 'le-1',
+  String kind = 'EARNED',
+  String points = '20.0000',
+  String invoice = 'SI-2026-2027-000004',
+  String amount = '20.00',
+}) =>
     <String, dynamic>{
-      'id': 'le-1',
+      'id': id,
       'customer_id': 'c-1',
       'customer_name': 'Kumar Stores',
       'kind': kind,
       'points': points,
-      'amount': '20.00',
-      'sales_invoice_number': 'SI-2026-2027-000004',
+      'amount': amount,
+      'sales_invoice_number': invoice,
       'earned_on': '2026-06-10',
       'expires_on': '2028-06-10',
     };
@@ -352,6 +381,147 @@ void main() {
     });
     expect(find.text('Adjust points'), findsOneWidget,
         reason: 'the dialog closed, only the toolbar button remains');
+  });
+
+  group('putting points back (D-PRC-6)', () {
+    const List<String> manage = <String>['LOYALTY_VIEW', 'LOYALTY_MANAGE'];
+    final Finder putBack =
+        find.byKey(const ValueKey('toolbar-command-put-points-back'));
+
+    // One earned row, one redemption of 10 on SI-RED, one row putting back
+    // the redemption of 5 on SI-DONE, and the redemption it undid.
+    List<Json> ledger() => <Json>[
+          _entry(id: 'le-earn', invoice: 'SI-EARN'),
+          _entry(
+              id: 'le-red',
+              kind: 'REDEEMED',
+              points: '-10.0000',
+              invoice: 'SI-RED',
+              amount: '-10.00'),
+          _entry(
+              id: 'le-done',
+              kind: 'REDEEMED',
+              points: '-5.0000',
+              invoice: 'SI-DONE',
+              amount: '-5.00'),
+          _entry(
+              id: 'le-undo',
+              kind: 'REDEEMED',
+              points: '5.0000',
+              invoice: 'SI-DONE',
+              amount: '5.00'),
+        ];
+
+    bool enabled(WidgetTester tester) {
+      final Widget button = tester.widget(putBack);
+      return button is ButtonStyleButton && button.onPressed != null;
+    }
+
+    testWidgets('a redemption can be put back, with a reason', (tester) async {
+      final _LoyaltyApi api =
+          _LoyaltyApi(settings: _settings(), entries: ledger());
+      await _pump(tester, api, permissions: _permissions(perms: manage),
+          phase2: true);
+
+      await tester.tap(find.text('SI-RED'));
+      await tester.pumpAndSettle();
+      expect(enabled(tester), isTrue);
+      await tester.tap(putBack);
+      await tester.pumpAndSettle();
+
+      // No reason, nothing sent (the box closes empty-handed).
+      await tester.tap(find.widgetWithText(FilledButton, 'Put points back'));
+      await tester.pumpAndSettle();
+      expect(api.reversed, isEmpty);
+      await tester.tap(putBack);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'Keyed on the wrong bill');
+      await tester.tap(find.widgetWithText(FilledButton, 'Put points back'));
+      await tester.pumpAndSettle();
+
+      expect(api.reversed.single, 'POST /api/v1/loyalty/redemptions/le-red/reverse');
+      expect(api.reversalBodies.single,
+          <String, dynamic>{'reason': 'Keyed on the wrong bill'});
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('only a live redemption offers it', (tester) async {
+      final _LoyaltyApi api =
+          _LoyaltyApi(settings: _settings(), entries: ledger());
+      await _pump(tester, api, permissions: _permissions(perms: manage),
+          phase2: true);
+
+      await tester.tap(find.text('SI-EARN'));
+      await tester.pumpAndSettle();
+      expect(enabled(tester), isFalse, reason: 'earned points are not spent');
+
+      // The row that put points back, and the redemption it undid.
+      await tester.tap(find.text('Points put back'));
+      await tester.pumpAndSettle();
+      expect(enabled(tester), isFalse);
+      await tester.tap(find.text('SI-DONE').first);
+      await tester.pumpAndSettle();
+      expect(enabled(tester), isFalse);
+    });
+
+    testWidgets('a row putting points back reads plainly', (tester) async {
+      await _pump(
+          tester, _LoyaltyApi(settings: _settings(), entries: ledger()),
+          phase2: true);
+      expect(find.text('Points put back'), findsOneWidget);
+    });
+
+    testWidgets('without the manage permission the action is not offered',
+        (tester) async {
+      await _pump(
+          tester, _LoyaltyApi(settings: _settings(), entries: ledger()),
+          phase2: true);
+      expect(putBack, findsNothing);
+    });
+
+    testWidgets("the server's refusal is shown", (tester) async {
+      final _LoyaltyApi api = _LoyaltyApi(
+        settings: _settings(),
+        entries: ledger(),
+        refuseReversal: 'Those points were already put back, on 2026-10-06.',
+      );
+      await _pump(tester, api, permissions: _permissions(perms: manage),
+          phase2: true);
+      await tester.tap(find.text('SI-RED'));
+      await tester.pumpAndSettle();
+      await tester.tap(putBack);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Wrong bill');
+      await tester.tap(find.widgetWithText(FilledButton, 'Put points back'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('already put back'), findsOneWidget);
+    });
+  });
+
+  testWidgets('the balance names points that have lapsed (D-PRC-3)',
+      (tester) async {
+    await _pump(
+      tester,
+      _LoyaltyApi(
+          settings: _settings(), entries: [_entry()], lapsedPoints: '12.0000'),
+      phase2: true,
+    );
+    await tester.tap(find.byKey(const ValueKey('loyalty-customer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Kumar Stores').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Lapsed'), findsOneWidget);
+    expect(find.text('12.00'), findsOneWidget);
+  });
+
+  test('the balances report names the lapsed points and their value', () {
+    final Set<String> keys = reportCatalog
+        .firstWhere((report) => report.id == 'loyalty-balances')
+        .columns
+        .map((column) => column.key)
+        .toSet();
+    expect(keys, containsAll(<String>['lapsed_points', 'lapsed_amount']));
   });
 
   testWidgets('phase 2: the scheme behind the (i), the ledger a grid',

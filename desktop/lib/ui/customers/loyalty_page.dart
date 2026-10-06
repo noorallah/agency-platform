@@ -17,6 +17,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 import 'loyalty_adjust_dialog.dart';
 import 'loyalty_settings_dialog.dart';
 
@@ -47,6 +48,9 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
   Json? _balance;
   String? _error;
   bool _loading = true;
+
+  /// The ledger row picked in the phase 2 grid, by id.
+  String? _selectedEntryId;
 
   bool get _mayView => widget.permissions.hasPermission('LOYALTY_VIEW');
 
@@ -110,6 +114,82 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
             : '$lapsed batch${lapsed == 1 ? '' : 'es'} of points lapsed.',
         kind: AppNotificationKind.success,
       );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
+  static double _signed(Json row) => double.tryParse('${row['points']}') ?? 0;
+
+  /// A second REDEEMED row with positive points is the row that put points
+  /// back (D-PRC-6); the response does not carry `reverses_id`.
+  static bool _isPutBack(Json row) =>
+      stringValue(row['kind']) == 'REDEEMED' && _signed(row) > 0;
+
+  /// The redemptions the ledger already shows put back. The response names
+  /// no `reverses_id`, so each row putting points back is matched to a
+  /// redemption of the same customer and bill spending exactly those points.
+  /// An inference over the rows read; the server's refusal is the authority.
+  Set<String> get _putBackIds {
+    final Set<String> done = <String>{};
+    for (final Json undo in _entries.where(_isPutBack)) {
+      for (final Json spent in _entries) {
+        final String id = stringValue(spent['id']);
+        if (stringValue(spent['kind']) != 'REDEEMED' ||
+            _signed(spent) >= 0 ||
+            done.contains(id) ||
+            stringValue(spent['customer_id']) !=
+                stringValue(undo['customer_id']) ||
+            stringValue(spent['sales_invoice_id']) !=
+                stringValue(undo['sales_invoice_id']) ||
+            stringValue(spent['sales_invoice_number']) !=
+                stringValue(undo['sales_invoice_number']) ||
+            _signed(spent) != -_signed(undo)) {
+          continue;
+        }
+        done.add(id);
+        break;
+      }
+    }
+    return done;
+  }
+
+  /// The picked row when it is a redemption not yet put back.
+  Json? get _selectedReversible {
+    final String? id = _selectedEntryId;
+    if (id == null) return null;
+    for (final Json row in _entries) {
+      if (stringValue(row['id']) != id) continue;
+      final bool spent =
+          stringValue(row['kind']) == 'REDEEMED' && _signed(row) < 0;
+      return spent && !_putBackIds.contains(id) ? row : null;
+    }
+    return null;
+  }
+
+  /// Put back the points the picked redemption spent, saying why.
+  Future<void> _putBack() async {
+    final Json? row = _selectedReversible;
+    if (row == null) return;
+    final String? reason = await askForReason(
+      context,
+      title: 'Put points back',
+      explanation: 'Gives the customer back the points this redemption spent '
+          'on ${stringValue(row['sales_invoice_number'])}, and the bill owes '
+          'what it did before. Use it when points were keyed against the '
+          'wrong bill.',
+      confirmLabel: 'Put points back',
+    );
+    if (reason == null || !mounted) return;
+    try {
+      await widget.api
+          .reverseLoyaltyRedemption(stringValue(row['id']), reason: reason);
+      if (!mounted) return;
+      NotificationService.show(context, 'Points put back.',
+          kind: AppNotificationKind.success);
       await _load();
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -270,6 +350,14 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
           ),
         ],
         commands: [
+          if (_mayManage)
+            ToolbarCommand(
+              id: 'put-points-back',
+              label: 'Put points back',
+              icon: Icons.undo,
+              tooltip: 'Pick a redemption in the ledger first',
+              onPressed: _selectedReversible == null ? null : _putBack,
+            ),
           ToolbarCommand(
             id: 'adjust-points',
             label: 'Adjust points',
@@ -300,6 +388,11 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
         if (balance != null)
           SummaryCards(children: [
             SummaryCount(label: 'Points', value: _money(balance['points'])),
+            // Past their date and awaiting the sweep: not in Points, not
+            // spendable (D-PRC-3).
+            if ((double.tryParse('${balance['lapsed_points'] ?? 0}') ?? 0) > 0)
+              SummaryCount(
+                  label: 'Lapsed', value: _money(balance['lapsed_points'])),
             SummaryCount(
               label: balance['redeemable'] == false
                   ? 'Worth (below the floor)'
@@ -351,16 +444,20 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
         GridColumn(key: 'expires', label: 'Expires'),
       ],
       id: (row) => '${row['id'] ?? row.hashCode}',
+      selectedId: _selectedEntryId,
       cells: (row) => [
         stringValue(row['earned_on']),
         stringValue(row['customer_name']),
-        statusInWords(stringValue(row['kind'])),
+        _isPutBack(row)
+            ? 'Points put back'
+            : statusInWords(stringValue(row['kind'])),
         stringValue(row['sales_invoice_number']),
         _points(row['points']),
         _money(row['amount']),
         row['expires_on'] == null ? 'never' : stringValue(row['expires_on']),
       ],
-      onSelect: (_) {},
+      onSelect: (row) =>
+          setState(() => _selectedEntryId = stringValue(row['id'])),
       onPageChanged: (_) {},
     );
   }
