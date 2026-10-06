@@ -345,6 +345,7 @@ class PurchaseOrderLine {
     required String schemeId,
     String schemeName = '',
     String warehouseId = '',
+    String uomId = '',
   }) =>
       PurchaseOrderLine(
         id: '',
@@ -352,8 +353,8 @@ class PurchaseOrderLine {
         productId: productId,
         description: '',
         vendorProductCode: '',
-        purchaseUomId: '',
-        inventoryUomId: '',
+        purchaseUomId: uomId,
+        inventoryUomId: uomId,
         conversionFactor: '1',
         conversionVersion: null,
         orderedQuantity: '0',

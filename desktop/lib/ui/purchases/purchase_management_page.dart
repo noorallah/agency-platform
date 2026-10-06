@@ -2639,6 +2639,11 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   /// hand, so a later preview does not put it back (PG-11).
   final Set<String> _dismissedSchemes = <String>{};
 
+  /// Scheme and product of free lines the server said are the paid line's own
+  /// product in its stock unit (D-PRC-39): lines the buyer adds, shows
+  /// read-only, and that go again when the paid line stops earning them.
+  final Set<String> _ownSchemeKeys = <String>{};
+
   /// Bumped when a line goes, or a rate is set for the user, so the boxes
   /// re-read their figures rather than keep what they held.
   int _lineEpoch = 0;
