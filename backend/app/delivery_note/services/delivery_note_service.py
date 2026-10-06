@@ -142,6 +142,12 @@ from app.uom.services import UomService, assert_quantity_fits_unit
 
 ZERO = Decimal("0")
 
+#: The notes that count against an order line: approved or later. A draft
+#: has promised nothing and a cancelled note has given it back.
+_COUNTED_AGAINST_THE_ORDER = frozenset(
+    {"APPROVED", "DISPATCHED", "COMPLETED", "CLOSED"}
+)
+
 
 def _source_product(
     source_lines: dict[UUID, SalesOrderLine], line_id: UUID | None
@@ -735,6 +741,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
         approval_details = ((licence_details or {}) | (discount_details or {})) or None
         self._settle_inherited_free_goods(row, actor_id=actor_id)
+        self._stamp_what_is_left(row, actor_id=actor_id)
         row.status = DeliveryNoteStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
@@ -844,6 +851,92 @@ class DeliveryNoteService(TransactionalDocumentService):
             row.total_current_delivery_quantity = (
                 self._q(row.total_current_delivery_quantity) + moved
             )
+
+    def _delivered_by_other_notes(
+        self, note_ids: Sequence[UUID], *, firm_id: UUID
+    ) -> dict[UUID, Decimal]:
+        """Return what other notes have delivered of these notes' order lines.
+
+        Keyed by order line, in stock units, summed over the notes that count
+        against the line -- approved or later, and for a shipped state only
+        where the goods left (`_already_delivered_quantity`, the reading the
+        cap is judged on) -- leaving out the notes asked about. One grouped
+        statement for a whole page of notes.
+        """
+        if not note_ids:
+            return {}
+        wanted = select(DeliveryNoteLine.sales_order_line_id).where(
+            DeliveryNoteLine.delivery_note_id.in_(note_ids)
+        )
+        return {
+            line_id: self._q(total or ZERO)
+            for line_id, total in self._session.execute(
+                select(
+                    DeliveryNoteLine.sales_order_line_id,
+                    func.coalesce(func.sum(DeliveryNoteLine.delivered_quantity), 0),
+                )
+                .join(
+                    DeliveryNote, DeliveryNote.id == DeliveryNoteLine.delivery_note_id
+                )
+                .where(
+                    DeliveryNoteLine.firm_id == firm_id,
+                    DeliveryNoteLine.sales_order_line_id.in_(wanted),
+                    DeliveryNoteLine.is_deleted.is_(False),
+                    DeliveryNote.is_deleted.is_(False),
+                    DeliveryNote.id.not_in(note_ids),
+                    DeliveryNote.status.in_(sorted(_COUNTED_AGAINST_THE_ORDER)),
+                    or_(
+                        DeliveryNote.status.not_in(sorted(SHIPPED_STATES)),
+                        goods_have_left_clause(),
+                    ),
+                )
+                .group_by(DeliveryNoteLine.sales_order_line_id)
+            ).all()
+        }
+
+    def _what_is_left(
+        self, line: DeliveryNoteLine, delivered_before: dict[UUID, Decimal]
+    ) -> tuple[Decimal, Decimal]:
+        """Return (delivered by other notes, still to deliver) for one line."""
+        before = delivered_before.get(line.sales_order_line_id, ZERO)
+        left = self._q(
+            self._q(line.ordered_quantity) - before - self._q(line.delivered_quantity)
+        )
+        return before, (left if left > ZERO else ZERO)
+
+    def _stamp_what_is_left(self, row: DeliveryNote, *, actor_id: UUID) -> None:
+        """Write what the order lines had left when this note was approved.
+
+        A draft's ``previously_delivered_quantity`` and ``remaining_quantity``
+        are derived when it is read, because another note of the same order
+        line can be approved while it waits (D-PRC-43). Approval is where
+        the note stops waiting, so the two figures -- and the short shipment
+        and the note's total, which follow them -- are written here, once,
+        as they stood: the challan an approved note prints states the
+        balance at the time it was issued, and goes on stating it.
+        """
+        before = self._delivered_by_other_notes([row.id], firm_id=row.firm_id)
+        total = ZERO
+        # A request session does not flush on a read.
+        self._session.flush()
+        for line in self._session.scalars(
+            select(DeliveryNoteLine).where(
+                DeliveryNoteLine.delivery_note_id == row.id,
+                DeliveryNoteLine.is_deleted.is_(False),
+            )
+        ).all():
+            delivered, left = self._what_is_left(line, before)
+            total += delivered
+            if (
+                self._q(line.previously_delivered_quantity) == delivered
+                and self._q(line.remaining_quantity) == left
+            ):
+                continue
+            line.previously_delivered_quantity = delivered
+            line.remaining_quantity = left
+            line.short_shipment_quantity = left
+            line.updated_by = actor_id
+        row.total_previously_delivered_quantity = self._q(total)
 
     def _judge_typed_reductions(
         self, row: DeliveryNote, *, actor_id: UUID
@@ -1496,10 +1589,23 @@ class DeliveryNoteService(TransactionalDocumentService):
         batch_picks = self.batch_picks([line.id for line in every_line])
         names = customer_labels(self._session, (row.customer_id for row in rows))
         warnings = self._duplicate_warnings(rows)
+        # A draft shows what its order lines have left **now** (D-PRC-43):
+        # one grouped read for every draft on the page.
+        drafts = [
+            row.id for row in rows if row.status == DeliveryNoteStatus.DRAFT.value
+        ]
+        delivered_before = self._delivered_by_other_notes(
+            drafts, firm_id=rows[0].firm_id
+        )
         answer = [
             self._note_response_from(
                 row,
                 lines=lines[row.id],
+                delivered_before=(
+                    delivered_before
+                    if row.status == DeliveryNoteStatus.DRAFT.value
+                    else None
+                ),
                 attachments=attachments[row.id],
                 notes=notes[row.id],
                 products=products,
@@ -1535,8 +1641,28 @@ class DeliveryNoteService(TransactionalDocumentService):
         customer_name: str,
         warning: str | None,
         batch_picks: dict[UUID, list[DeliveryNoteBatchPick]] | None = None,
+        delivered_before: dict[UUID, Decimal] | None = None,
     ) -> DeliveryNoteResponse:
-        """Build one note's response from what the page already read."""
+        """Build one note's response from what the page already read.
+
+        ``delivered_before`` is given for a **draft**: what other notes have
+        delivered of each of its order lines as things stand, from which the
+        lines' ``previously_delivered_quantity``, ``remaining_quantity`` and
+        ``short_shipment_quantity`` and the note's total are derived instead
+        of read off the row. The stored figures are the ones the draft was
+        saved with, and a screen that trusted them showed 6 remaining where
+        another note had since delivered them (D-PRC-43). An approved note
+        reads its row, which approval wrote (`_stamp_what_is_left`).
+        """
+        live: dict[UUID, tuple[Decimal, Decimal]] = (
+            {}
+            if delivered_before is None
+            else {
+                item.id: self._what_is_left(item, delivered_before)
+                for item in lines
+                if not item.is_deleted
+            }
+        )
         return DeliveryNoteResponse(
             id=row.id,
             version=row.version,
@@ -1569,7 +1695,11 @@ class DeliveryNoteService(TransactionalDocumentService):
             remarks=row.remarks,
             status=DeliveryNoteStatus(row.status),
             total_ordered_quantity=row.total_ordered_quantity,
-            total_previously_delivered_quantity=row.total_previously_delivered_quantity,
+            total_previously_delivered_quantity=(
+                row.total_previously_delivered_quantity
+                if delivered_before is None
+                else self._q(sum((before for before, _ in live.values()), ZERO))
+            ),
             total_current_delivery_quantity=row.total_current_delivery_quantity,
             total_free_quantity=row.total_free_quantity,
             customer_discount_percent=row.customer_discount_percent,
@@ -1602,6 +1732,15 @@ class DeliveryNoteService(TransactionalDocumentService):
                         "serials": serials.get(item.id, []),
                         "batches": (batch_picks or {}).get(item.id, []),
                     }
+                    | (
+                        {
+                            "previously_delivered_quantity": live[item.id][0],
+                            "remaining_quantity": live[item.id][1],
+                            "short_shipment_quantity": live[item.id][1],
+                        }
+                        if item.id in live
+                        else {}
+                    )
                 )
                 for item in lines
             ],
