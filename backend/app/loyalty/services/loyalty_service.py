@@ -7,6 +7,7 @@ anything writes one without going through here.
 """
 
 from calendar import monthrange
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -68,6 +69,87 @@ _OLDEST_FIRST = (
     LoyaltyEntry.created_at.asc(),
     LoyaltyEntry.id.asc(),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class BatchState:
+    """One batch of points with what the ledger has taken out of it.
+
+    The money a batch was booked at leaves it in parts -- a return takes some
+    points back, a redemption spends some, the rest lapses -- and those parts
+    have to sum **exactly** to what was accrued, or `Loyalty Payable` is left
+    holding a paisa no customer owns (D-PRC-42). So what a batch still costs
+    is never points times a rate rounded afresh: it is what was booked less
+    what the entries took, and this is what is needed to say so.
+    """
+
+    batch: LoyaltyEntry
+    #: The points still on the batch.
+    remaining: Decimal
+    #: The points spending took from it -- redemptions and adjustments, which
+    #: name no batch and are allocated oldest first.
+    spent: Decimal
+    #: The money the entries **naming** this batch took: its lapses, and the
+    #: take-backs of a cancelled, returned or credited bill, net of any put
+    #: back. Read off the ledger, not worked out.
+    taken_cost: Decimal
+
+    @property
+    def unbooked(self) -> bool:
+        """Say whether this is goodwill given before goodwill was booked.
+
+        It carries no value and no journal (D-SELL-19), and was always spent
+        at the rate of the day.
+        """
+        return (
+            self.batch.kind == LoyaltyEntryKind.ADJUSTED.value
+            and Decimal(str(self.batch.amount)) == ZERO
+            and self.batch.journal_entry_id is None
+        )
+
+    def spent_cost(self, spent: Decimal, *, current: Decimal) -> Decimal:
+        """Return the money ``spent`` points of spending take from the batch.
+
+        A part is `quantize_ledger` of its share of what the batch was booked
+        at; spending that leaves nothing takes **everything the batch has
+        left** after the entries naming it, so no paisa stays behind.
+        """
+        if spent <= ZERO:
+            return ZERO
+        if self.unbooked:
+            return quantize_ledger(spent * current)
+        points = Decimal(str(self.batch.points))
+        amount = Decimal(str(self.batch.amount))
+        base = max(amount - self.taken_cost, ZERO)
+        if points <= ZERO or spent >= self.remaining + self.spent:
+            return base
+        return min(quantize_ledger(amount * spent / points), base)
+
+    def cost_left(self, *, current: Decimal) -> Decimal:
+        """Return what the batch is still worth: booked, less what was taken."""
+        if self.unbooked:
+            return quantize_ledger(self.remaining * current)
+        amount = Decimal(str(self.batch.amount))
+        return max(
+            amount - self.taken_cost - self.spent_cost(self.spent, current=current),
+            ZERO,
+        )
+
+    def take_cost(self, points: Decimal, *, current: Decimal) -> Decimal:
+        """Return the money a lapse or a take-back of ``points`` releases.
+
+        The whole of what is left when it empties the batch; otherwise
+        `quantize_ledger` of its share. Unbooked goodwill was never accrued,
+        so taking it back releases nothing.
+        """
+        whole = Decimal(str(self.batch.points))
+        if self.unbooked or whole <= ZERO or points <= ZERO:
+            return ZERO
+        left = self.cost_left(current=current)
+        if points >= self.remaining:
+            return left
+        share = quantize_ledger(Decimal(str(self.batch.amount)) * points / whole)
+        return min(share, left)
 
 
 class LoyaltyService:
@@ -192,14 +274,15 @@ class LoyaltyService:
         customer = self._customer(customer_id, firm_scope=firm_scope)
         settings = self.settings_for(firm_scope)
         today = firm_today(self._session, firm_scope)
+        states = self.batch_states(customer_id, firm_scope=firm_scope)
         live, lapsed = self._live_and_lapsed(
-            self.unspent_batches(customer_id, firm_scope=firm_scope), today=today
+            [(state.batch, state.remaining) for state in states], today=today
         )
         gone = sum((remaining for _, remaining in lapsed), ZERO)
         points = quantize_money(
             self._points_of(customer_id, firm_scope=firm_scope) - gone
         )
-        worth = self._held_worth(live, current=self._current_rate(firm_scope))
+        worth = self._held_worth(live, states, current=self._current_rate(firm_scope))
         floor = 0 if settings is None else settings.minimum_redemption_points
         horizon = today + timedelta(days=EXPIRING_SOON_DAYS)
         # What is left of the batches still alive, not what they were earned
@@ -525,21 +608,13 @@ class LoyaltyService:
             today=firm_today(self._session, firm_id),
             actor_id=actor_id,
         )
-        left = next(
-            (
-                remaining
-                for batch, remaining in self.unspent_batches(
-                    earned.customer_id, firm_scope=firm_id
-                )
-                if batch.id == earned.id
-            ),
-            ZERO,
-        )
-        points = quantize_money(left)
-        if points <= ZERO:
+        state = self._state_of(earned, firm_scope=firm_id)
+        points = quantize_money(ZERO if state is None else state.remaining)
+        if state is None or points <= ZERO:
             return None
         whole = Decimal(str(earned.points))
-        worth = quantize_ledger(Decimal(str(earned.amount)) * points / whole)
+        # Everything the batch has left, to the paisa (D-PRC-42).
+        worth = state.take_cost(points, current=self._current_rate(firm_id))
         entry = LoyaltyEntry(
             firm_id=firm_id,
             customer_id=earned.customer_id,
@@ -660,22 +735,17 @@ class LoyaltyService:
             today=firm_today(self._session, firm_id),
             actor_id=actor_id,
         )
-        left = next(
-            (
-                remaining
-                for batch, remaining in self.unspent_batches(
-                    earned.customer_id, firm_scope=firm_id
-                )
-                if batch.id == earned.id
-            ),
-            ZERO,
-        )
+        state = self._state_of(earned, firm_scope=firm_id)
+        left = ZERO if state is None else state.remaining
         whole = Decimal(str(earned.points))
         share = min(credited / billed, ONE)
         points = min(quantize_money(whole * share), quantize_money(left))
-        if points <= ZERO:
+        if state is None or points <= ZERO:
             return None
-        worth = quantize_ledger(Decimal(str(earned.amount)) * points / whole)
+        # The batch's own cost for those points: a part is its share rounded
+        # once, and the take-back that empties the batch takes what is left,
+        # so the parts sum to what was accrued (D-PRC-42).
+        worth = state.take_cost(points, current=self._current_rate(firm_id))
         entry = LoyaltyEntry(
             firm_id=firm_id,
             customer_id=earned.customer_id,
@@ -886,7 +956,7 @@ class LoyaltyService:
         # Each point at the value it was credited at, oldest first -- not at
         # today's rate, which re-priced every point already held (D-CFG-3).
         amount = self._worth_of(
-            self.unspent_batches(invoice.customer_id, firm_scope=firm_scope),
+            self.batch_states(invoice.customer_id, firm_scope=firm_scope),
             asked,
             current=Decimal(str(settings.amount_per_point)),
         )
@@ -1044,7 +1114,7 @@ class LoyaltyService:
             quantize_ledger(change * rate)
             if change > ZERO
             else self._worth_of(
-                self.unspent_batches(customer_id, firm_scope=firm_scope),
+                self.batch_states(customer_id, firm_scope=firm_scope),
                 abs(change),
                 current=rate,
             )
@@ -1192,6 +1262,18 @@ class LoyaltyService:
             oldest first, paired with the points remaining on it.
 
         """
+        return [
+            (state.batch, state.remaining)
+            for state in self.batch_states(customer_id, firm_scope=firm_scope)
+        ]
+
+    def batch_states(self, customer_id: UUID, *, firm_scope: UUID) -> list[BatchState]:
+        """Return each batch with something left, and what was taken from it.
+
+        `unspent_batches` with the two figures the money needs beside the
+        points: what spending took from the batch and what the entries
+        naming it released.
+        """
         entries = list(
             self._session.scalars(
                 select(LoyaltyEntry)
@@ -1203,7 +1285,18 @@ class LoyaltyService:
                 .order_by(*_OLDEST_FIRST)
             ).all()
         )
-        return self._allocate(entries)
+        return self._states(entries)
+
+    def _state_of(self, batch: LoyaltyEntry, *, firm_scope: UUID) -> BatchState | None:
+        """Return one batch's state, or None where nothing is left of it."""
+        return next(
+            (
+                state
+                for state in self.batch_states(batch.customer_id, firm_scope=firm_scope)
+                if state.batch.id == batch.id
+            ),
+            None,
+        )
 
     @staticmethod
     def _live_and_lapsed(
@@ -1228,8 +1321,15 @@ class LoyaltyService:
         ]
         return live, lapsed
 
+    @classmethod
+    def _allocate(
+        cls, entries: list[LoyaltyEntry]
+    ) -> list[tuple[LoyaltyEntry, Decimal]]:
+        """Return each batch of one customer's ledger with the points left on it."""
+        return [(state.batch, state.remaining) for state in cls._states(entries)]
+
     @staticmethod
-    def _allocate(entries: list[LoyaltyEntry]) -> list[tuple[LoyaltyEntry, Decimal]]:
+    def _states(entries: list[LoyaltyEntry]) -> list[BatchState]:
         """Walk one customer's ledger, oldest first, and say what each batch holds.
 
         A batch is every credit: points earned on a bill, and points given by
@@ -1247,12 +1347,18 @@ class LoyaltyService:
         # they are attributed rather than pooled.
         attributed = {LoyaltyEntryKind.EXPIRED.value, LoyaltyEntryKind.REVERSED.value}
         taken: dict[UUID, Decimal] = {}
+        # The money those same entries took, as the ledger holds it: what a
+        # batch still costs is what it was booked at less this (D-PRC-42).
+        taken_cost: dict[UUID, Decimal] = {}
         for row in entries:
             if row.kind in attributed and row.reverses_id:
                 # Signed: a return's take-back that was itself undone
                 # (D-SELL-47) is a positive row naming the same batch.
-                taken[row.reverses_id] = taken.get(row.reverses_id, ZERO) - Decimal(
-                    str(row.points)
+                moved = Decimal(str(row.points))
+                taken[row.reverses_id] = taken.get(row.reverses_id, ZERO) - moved
+                money = Decimal(str(row.amount or 0))
+                taken_cost[row.reverses_id] = taken_cost.get(row.reverses_id, ZERO) + (
+                    money if moved < ZERO else -money
                 )
         # Everything else that took points off: redemptions, and adjustments
         # that reduced the balance. Allocated oldest batch first.
@@ -1277,59 +1383,49 @@ class LoyaltyService:
             ZERO,
         )
         pool = max(pool, ZERO)
-        left: list[tuple[LoyaltyEntry, Decimal]] = []
+        left: list[BatchState] = []
         for batch in batches:
             held = Decimal(str(batch.points)) - taken.get(batch.id, ZERO)
             spent_here = min(pool, max(held, ZERO))
             pool -= spent_here
             remaining = held - spent_here
             if remaining > ZERO:
-                left.append((batch, remaining))
+                left.append(
+                    BatchState(
+                        batch=batch,
+                        remaining=remaining,
+                        spent=spent_here,
+                        taken_cost=taken_cost.get(batch.id, ZERO),
+                    )
+                )
         return left
 
     @staticmethod
-    def _value_per_point(batch: LoyaltyEntry, current: Decimal) -> Decimal:
-        """Return what one point of a batch is worth: what it was booked at.
-
-        A batch keeps the value per point it was credited at, which is what
-        `Loyalty Payable` was credited with. Spending it at today's rate
-        instead debited more than was ever credited when the rate went up,
-        and left a residue for good when it went down (D-CFG-3).
-
-        ``current`` is used only for goodwill given before goodwill was
-        booked at all (D-SELL-19): it carries no value and no journal, and
-        was always spent at the rate of the day.
-        """
-        points = Decimal(str(batch.points))
-        amount = Decimal(str(batch.amount))
-        unbooked = (
-            batch.kind == LoyaltyEntryKind.ADJUSTED.value
-            and amount == ZERO
-            and batch.journal_entry_id is None
-        )
-        if points <= ZERO or unbooked:
-            return current
-        return amount / points
-
     def _worth_of(
-        self,
-        batches: list[tuple[LoyaltyEntry, Decimal]],
+        states: list[BatchState],
         points: Decimal,
         *,
         current: Decimal,
     ) -> Decimal:
-        """Value points spent now, oldest batch first, each at its own rate.
+        """Value points spent now, oldest batch first, each at its own cost.
 
         The same oldest-first order the expiry sweep allocates spending in,
         so the batch a redemption is valued against is the batch it used up.
+        From each batch it takes what that batch's spending comes to *after*
+        these points less what it came to before (`BatchState.spent_cost`),
+        so however many redemptions a batch is spent in, they sum to what the
+        batch had -- and the one that empties it takes the last paisa
+        (D-PRC-42).
         """
         need = points
         worth = ZERO
-        for batch, remaining in batches:
+        for state in states:
             if need <= ZERO:
                 break
-            take = min(need, remaining)
-            worth += take * self._value_per_point(batch, current)
+            take = min(need, state.remaining)
+            worth += state.spent_cost(
+                state.spent + take, current=current
+            ) - state.spent_cost(state.spent, current=current)
             need -= take
         if need > ZERO:
             # Nothing left to allocate against -- only a ledger that holds
@@ -1337,15 +1433,27 @@ class LoyaltyService:
             worth += need * current
         return quantize_ledger(worth)
 
+    @staticmethod
     def _held_worth(
-        self, batches: list[tuple[LoyaltyEntry, Decimal]], *, current: Decimal
+        batches: list[tuple[LoyaltyEntry, Decimal]],
+        states: list[BatchState],
+        *,
+        current: Decimal,
     ) -> Decimal:
-        """Return what everything a customer still holds is worth."""
+        """Return what the named batches are still worth, by the ledger.
+
+        Each batch at what it was booked at less what the ledger's entries
+        took from it -- the figure `Loyalty Payable` holds for it -- never
+        points times a rate rounded again, which read 38.49 where the
+        entries summed to 38.48 (D-PRC-42).
+        """
+        wanted = {batch.id for batch, _ in batches}
         return quantize_ledger(
             sum(
                 (
-                    remaining * self._value_per_point(batch, current)
-                    for batch, remaining in batches
+                    state.cost_left(current=current)
+                    for state in states
+                    if state.batch.id in wanted
                 ),
                 ZERO,
             )
@@ -1392,10 +1500,14 @@ class LoyaltyService:
     ) -> None:
         """Write one lapse, and hand back the cost it raised."""
         points = quantize_money(points)
-        earned = Decimal(str(batch.points))
-        # Pro-rata, because only part of the batch may be lapsing.
-        worth = quantize_ledger(
-            Decimal(str(batch.amount)) * points / earned if earned else ZERO
+        # The batch's own cost for those points: its share where only part is
+        # lapsing, and everything it has left where the lapse empties it, so
+        # the parts taken from a batch sum to what was accrued (D-PRC-42).
+        state = self._state_of(batch, firm_scope=firm_scope)
+        worth = (
+            ZERO
+            if state is None
+            else state.take_cost(points, current=self._current_rate(firm_scope))
         )
         entry = LoyaltyEntry(
             firm_id=firm_scope,
@@ -1674,7 +1786,10 @@ class LoyaltyService:
             # What can be spent, as the customer's own balance says it; what
             # ran out of time and awaits the sweep is beside it, because
             # Loyalty Payable still carries its cost until the sweep runs.
-            live, lapsed = self._live_and_lapsed(self._allocate(entries), today=today)
+            states = self._states(entries)
+            live, lapsed = self._live_and_lapsed(
+                [(state.batch, state.remaining) for state in states], today=today
+            )
             gone = quantize_money(sum((remaining for _, remaining in lapsed), ZERO))
             held = quantize_money(
                 sum((Decimal(str(row.points)) for row in entries), ZERO) - gone
@@ -1682,9 +1797,9 @@ class LoyaltyService:
             if held > ZERO or gone > ZERO:
                 totals[customer_id] = (
                     held,
-                    self._held_worth(live, current=rate),
+                    self._held_worth(live, states, current=rate),
                     gone,
-                    self._held_worth(lapsed, current=rate),
+                    self._held_worth(lapsed, states, current=rate),
                 )
         names = self._customer_names(set(totals))
         return [
@@ -1794,9 +1909,8 @@ class LoyaltyService:
         names = self._customer_names(set(customers))
         rows: list[LoyaltyExpiringRecord] = []
         for customer_id in customers:
-            for batch, remaining in self.unspent_batches(
-                customer_id, firm_scope=firm_scope
-            ):
+            for state in self.batch_states(customer_id, firm_scope=firm_scope):
+                batch, remaining = state.batch, state.remaining
                 if batch.expires_on is None or batch.expires_on > horizon:
                     continue
                 rows.append(
@@ -1804,9 +1918,8 @@ class LoyaltyService:
                         customer_id=customer_id,
                         customer_name=names.get(customer_id, str(customer_id)),
                         points=remaining,
-                        amount=quantize_ledger(
-                            remaining * self._value_per_point(batch, rate)
-                        ),
+                        # What the lapse will release, as the ledger has it.
+                        amount=state.cost_left(current=rate),
                         earned_on=batch.earned_on,
                         expires_on=batch.expires_on,
                         days_remaining=(batch.expires_on - today).days,
