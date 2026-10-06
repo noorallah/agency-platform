@@ -324,9 +324,14 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
             discount: typed ? line.discountPercent : '',
             lastRate: typed ? '' : line.discountPercent,
             lastSource: typed ? '' : line.discountSource,
+            // Blank for a line that gives nothing away, so a save takes
+            // whatever an offer gives. The one exception is a line whose
+            // free goods were refused: its "0" was typed, and opening the
+            // box blank would take the refusal back on the next save
+            // (D-PRC-68).
             free: (double.tryParse(line.freeQuantity) ?? 0) > 0
                 ? line.freeQuantity
-                : '',
+                : (line.freeGoodsRefused ? '0' : ''),
           )
             ..discountEdited = typed
             // What the offer holds is what was agreed; re-reading the product
@@ -788,12 +793,21 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
-                child: TextFormField(
-                  controller: line.free,
-                  decoration: const InputDecoration(labelText: 'Free'),
-                  keyboardType: TextInputType.number,
-                  validator: _freeQuantity,
-                  onChanged: (_) => setState(() {}),
+                // D-SELL-41, D-PRC-68: what the two silences of this box mean.
+                child: Tooltip(
+                  message: '0 refuses an offer\'s free goods on this line. '
+                      'Blank takes them.',
+                  child: TextFormField(
+                    controller: line.free,
+                    decoration: const InputDecoration(
+                      labelText: 'Free',
+                      helperText: 'Blank takes an offer; 0 refuses it.',
+                      helperMaxLines: 2,
+                    ),
+                    keyboardType: TextInputType.number,
+                    validator: _freeQuantity,
+                    onChanged: (_) => setState(() {}),
+                  ),
                 ),
               ),
               const SizedBox(width: AppSpacing.md),

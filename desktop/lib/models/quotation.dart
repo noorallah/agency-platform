@@ -17,6 +17,7 @@ class QuotationLine {
     required this.discountPercent,
     this.discountSource = '',
     this.freeQuantity = '0',
+    this.freeGoodsRefused = false,
     required this.discountAmount,
     required this.taxAmount,
     required this.netAmount,
@@ -51,6 +52,11 @@ class QuotationLine {
 
   /// Thrown in with this line, charged for at nothing.
   final String freeQuantity;
+
+  /// True where somebody typed "0 free" on the line, which refuses an offer's
+  /// free goods. A stored zero alone cannot say so: a line no offer reached
+  /// reads zero too (D-PRC-68).
+  final bool freeGoodsRefused;
   final String discountAmount;
   final String taxAmount;
   final String netAmount;
@@ -73,6 +79,7 @@ class QuotationLine {
         freeQuantity: stringValue(json['free_quantity']).isEmpty
             ? '0'
             : stringValue(json['free_quantity']),
+        freeGoodsRefused: json['free_goods_refused'] == true,
         discountAmount: stringValue(json['discount_amount']),
         taxAmount: stringValue(json['tax_amount']),
         netAmount: stringValue(json['net_amount']),

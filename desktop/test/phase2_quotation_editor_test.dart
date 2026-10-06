@@ -168,9 +168,10 @@ void main() {
     WidgetTester tester, {
     Quotation? existing,
     bool rateIncludesTax = false,
+    Size size = const Size(1600, 900),
     required void Function(Json?) onResult,
   }) async {
-    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final List<Json> asked = [];
@@ -247,6 +248,7 @@ void main() {
   Quotation saved({
     String coupon = 'SAVE10',
     String free = '0',
+    bool freeRefused = false,
     bool rateIncludesTax = false,
     String enteredRate = '',
   }) =>
@@ -271,6 +273,7 @@ void main() {
             if (enteredRate.isNotEmpty) 'entered_rate': enteredRate,
             'discount_percent': '0',
             'free_quantity': free,
+            if (freeRefused) 'free_goods_refused': true,
           },
         ],
       });
@@ -425,5 +428,28 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
     await tester.pumpAndSettle();
     expect((result!['lines'] as List).single['free_quantity'], '0');
+  });
+
+  // D-PRC-68: the one line whose free box is prefilled. "0 free" was typed to
+  // refuse an offer, and a blank box would take the refusal back on re-save.
+  testWidgets('a line whose free goods were refused opens at 0 and sends 0 '
+      'back', (tester) async {
+    Json? result;
+    final List<Json> asked = await pumpEditor(tester,
+        existing: saved(coupon: '', free: '0', freeRefused: true),
+        size: const Size(1366, 768),
+        onResult: (value) => result = value);
+    expect(
+      tester.widget<EditableText>(lineBoxes().at(2)).controller.text,
+      '0',
+    );
+    // The figures on screen are priced with the refusal too.
+    expect(asked.last['lines'][0]['free_quantity'], '0');
+    expect(find.text('Free: blank takes the offer; 0 refuses it.'),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('quotation-save-print')));
+    await tester.pumpAndSettle();
+    expect((result!['lines'] as List).single['free_quantity'], '0');
+    expect(tester.takeException(), isNull);
   });
 }
