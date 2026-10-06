@@ -327,6 +327,33 @@ def test_a_redemption_is_put_back_once() -> None:
     assert till.points() == Decimal("50.0000")
 
 
+def test_the_ledger_says_which_redemption_was_put_back_and_by_what() -> None:
+    """A screen offers "put points back" once, without guessing from its rows.
+
+    The desktop read the last hundred entries and inferred a reversal from a
+    row of the same bill with opposite points. The ledger now says it: the
+    redemption reads reversed, and the row that undid it names it.
+    """
+    from app.loyalty.services.loyalty_service import LoyaltyService
+
+    till = _Till()
+    spent = till.redeem("30")
+    kept = till.redeem("5")
+    undone = till.reverse(spent)
+
+    rows = {
+        row.id: row
+        for row in LoyaltyService(till.session).describe([spent, kept, undone])
+    }
+
+    assert (rows[spent.id].is_reversed, rows[spent.id].reverses_id) == (True, None)
+    assert (rows[kept.id].is_reversed, rows[kept.id].reverses_id) == (False, None)
+    assert (rows[undone.id].is_reversed, rows[undone.id].reverses_id) == (
+        False,
+        spent.id,
+    )
+
+
 def test_the_row_that_puts_points_back_is_not_itself_reversed() -> None:
     """There is one way to spend points again: redeem them."""
     till = _Till()

@@ -465,6 +465,51 @@ void main() {
       expect(enabled(tester), isFalse);
     });
 
+    testWidgets('the server says which redemption was put back',
+        (tester) async {
+      // Two redemptions of the same points on one bill, one put back: the
+      // rows alone cannot say which, and `is_reversed` does.
+      List<Json> flagged() => <Json>[
+            <String, dynamic>{
+              ..._entry(
+                  id: 'le-first',
+                  kind: 'REDEEMED',
+                  points: '-5.0000',
+                  invoice: 'SI-ONE',
+                  amount: '-5.00'),
+              'is_reversed': false,
+            },
+            <String, dynamic>{
+              ..._entry(
+                  id: 'le-second',
+                  kind: 'REDEEMED',
+                  points: '-5.0000',
+                  invoice: 'SI-TWO',
+                  amount: '-5.00'),
+              'is_reversed': true,
+            },
+            <String, dynamic>{
+              ..._entry(
+                  id: 'le-undo',
+                  kind: 'REDEEMED',
+                  points: '5.0000',
+                  invoice: 'SI-TWO',
+                  amount: '5.00'),
+              'is_reversed': false,
+              'reverses_id': 'le-second',
+            },
+          ];
+      await _pump(tester, _LoyaltyApi(settings: _settings(), entries: flagged()),
+          permissions: _permissions(perms: manage), phase2: true);
+
+      await tester.tap(find.text('SI-ONE'));
+      await tester.pumpAndSettle();
+      expect(enabled(tester), isTrue);
+      await tester.tap(find.text('SI-TWO').first);
+      await tester.pumpAndSettle();
+      expect(enabled(tester), isFalse, reason: 'already put back');
+    });
+
     testWidgets('a row putting points back reads plainly', (tester) async {
       await _pump(
           tester, _LoyaltyApi(settings: _settings(), entries: ledger()),
