@@ -2224,6 +2224,66 @@ class SalesOrderService(TransactionalDocumentService):
         rate = self._q(group.default_discount_percent)
         return group.id, (rate if rate > ZERO else None)
 
+    def _without_what_the_engine_gave(
+        self,
+        lines: list[SalesOrderLineWrite],
+        existing: Mapping[int, SalesOrderLine],
+    ) -> list[SalesOrderLineWrite]:
+        """Take back out of a save what the offers' engine put on the order.
+
+        The engine's free goods are the server's (D-PRC-48). A client that
+        sends the order back as it read it sends them as figures, and a
+        figure sent is a figure typed: the goods stayed free, the offer was
+        no longer named, nothing was claimed, and an offer with a budget of
+        2 free units gave 4. So what the **stored** order says an offer
+        gave is not taken as typed, and the engine works it out afresh:
+
+        * a line that sells nothing and names its offer -- the engine's own
+          line, a gift or the loose pieces of a line sold by the box -- is
+          dropped where it comes back at its line number, still selling
+          nothing;
+        * free units an offer put on a line itself, sent back as the same
+          figure, are silence again;
+        * and the zero beside such a dropped line -- the box line, read
+          back with "0 free" -- is silence too, since a client that sends
+          the offer's free line back is not refusing the offer.
+
+        The stored row decides, never the description: a free-only line a
+        person typed names no offer and stays theirs, and a figure that
+        differs from the offer's is typed and stands. A zero sent **without**
+        the engine's line is still the refusal it always was (D-SELL-41),
+        which is how the desktop sends one.
+        """
+        kept: list[SalesOrderLineWrite] = []
+        returned: set[UUID] = set()
+        for item in lines:
+            stored = existing.get(item.line_number)
+            if (
+                stored is not None
+                and stored.free_promotion_id is not None
+                and stored.product_id == item.product_id
+            ):
+                if stored.quantity == ZERO and item.quantity == ZERO:
+                    returned.add(item.product_id)
+                    continue
+                if item.free_quantity is not None and self._q(
+                    item.free_quantity
+                ) == self._q(stored.free_quantity):
+                    item = item.model_copy(update={"free_quantity": None})
+            kept.append(item)
+        if not returned:
+            return kept
+        return [
+            (
+                item.model_copy(update={"free_quantity": None})
+                if item.product_id in returned
+                and item.quantity > ZERO
+                and item.free_quantity == ZERO
+                else item
+            )
+            for item in kept
+        ]
+
     def _gift_lines(
         self,
         benefits: PromotionBenefits,
@@ -2488,6 +2548,7 @@ class SalesOrderService(TransactionalDocumentService):
                 select(SalesOrderLine).where(SalesOrderLine.sales_order_id == row.id)
             ).all()
         }
+        lines = self._without_what_the_engine_gave(lines, existing)
         seen: set[int] = set()
         subtotal = ZERO
         tax_total = ZERO
