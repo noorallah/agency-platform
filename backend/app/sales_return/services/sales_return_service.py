@@ -89,6 +89,7 @@ from app.sales_return.billing import (
     bill_line_credits,
     billed_share,
     billed_tax_by_component,
+    charged_for,
     charging_bill_line,
     note_line_billing,
     return_billed_amounts,
@@ -157,6 +158,11 @@ _PENDING_STATUSES = (
     SalesReturnStatus.DRAFT.value,
     SalesReturnStatus.APPROVED.value,
 )
+
+
+#: Half a paisa of room where a return's value is compared with its bill's:
+#: each part of a line is rounded on its own, and the ledger keeps two places.
+_ROUNDING_ROOM = Decimal("0.005")
 
 
 @dataclass(frozen=True)
@@ -809,6 +815,7 @@ class SalesReturnService(TransactionalDocumentService):
         # A credit note approved since the return was priced has taken some
         # of what its bill was worth.
         self._refuse_credit_past_the_bill(row, lines)
+        self._refuse_header_charges_past_the_bill(row, lines)
         movement_ids: list[UUID] = []
         services = stockless_products(
             self._session, (line.product_id for line in lines)
@@ -1409,6 +1416,8 @@ class SalesReturnService(TransactionalDocumentService):
             + row.additional_charges
             + row.round_off
         )
+        self._session.flush()
+        self._refuse_header_charges_past_the_bill(row, self._lines_of(row.id))
         self._replace_attachments(
             row, data.attachments, firm_id=firm_id, actor_id=actor_id
         )
@@ -1644,6 +1653,12 @@ class SalesReturnService(TransactionalDocumentService):
             # credited 472.00 was then returned in full for 2,832.00). What
             # comes off is kept with the line's share of the bill discount,
             # which is what every reader of the line works its value from.
+            #
+            # The cap runs whether or not a credit note exists (D-PRC-64): a
+            # price or a charge typed above the bill's has no bill behind
+            # it, and is refused by name; one typed below it stands, which
+            # is how a restocking deduction is taken.
+            exact_units = typed.exact if as_typed else return_quantity
             if charged is not None:
                 taken_quantity, taken_taxable = credited_here[charged.id]
                 credits = bill_line_credits(
@@ -1652,14 +1667,26 @@ class SalesReturnService(TransactionalDocumentService):
                     completed_only=False,
                     exclude_return_id=row.id,
                 )
-                if credits.credited_taxable > ZERO and taxable > ZERO:
+                if taxable > ZERO:
                     left = still_worth(
                         charged,
                         credits,
                         quantity=return_quantity,
+                        exact=exact_units,
                         taken_quantity=taken_quantity,
                         taken_taxable=taken_taxable,
                     )
+                    billed_at = charged_for(charged, quantity=exact_units)
+                    if taxable > billed_at + _ROUNDING_ROOM:
+                        raise ValidationError(
+                            self._credits_more_than_billed(
+                                index,
+                                asked=taxable,
+                                billed_at=billed_at,
+                                left=left,
+                                document=self._source_document_number(charged),
+                            )
+                        )
                     if taxable > left:
                         bill_share = self._q(bill_share + taxable - left)
                         taxable = left
@@ -1667,6 +1694,22 @@ class SalesReturnService(TransactionalDocumentService):
                     taken_quantity + return_quantity,
                     taken_taxable + taxable,
                 )
+            elif isinstance(source_line, DeliveryNoteLine):
+                # No bill has charged these goods yet, so the most they can
+                # be worth is what the note sent them at -- the order's own
+                # price, which is what a bill of them would charge.
+                sent_at = self._sent_at(source_line, quantity=exact_units)
+                if taxable > sent_at + _ROUNDING_ROOM:
+                    raise ValidationError(
+                        self._credits_more_than_billed(
+                            index,
+                            asked=taxable,
+                            billed_at=sent_at,
+                            left=sent_at,
+                            document=self._source_document_number(source_line),
+                            billed=False,
+                        )
+                    )
             # A return reverses the tax the bill charged, at the rate and in
             # the components it was charged -- never what today's rules would
             # charge (D-SELL-21). Only goods no bill has charged yet are taxed
@@ -2457,16 +2500,150 @@ class SalesReturnService(TransactionalDocumentService):
             .with_for_update()
         )
 
+    @staticmethod
+    def _credits_more_than_billed(
+        line_number: int,
+        *,
+        asked: Decimal,
+        billed_at: Decimal,
+        left: Decimal,
+        document: str,
+        billed: bool = True,
+    ) -> str:
+        """Word the refusal of a return line that credits more than its bill.
+
+        Names the line, what the return would credit, what the bill charged
+        for those goods and what they are still worth on it (D-PRC-64).
+        """
+        if not billed:
+            return (
+                f"Line {line_number}: the return credits "
+                f"{quantize_ledger(asked)} before tax for goods that {document} "
+                f"sent at {quantize_ledger(billed_at)}, and no bill has charged "
+                "them yet. Goods cannot come back at more than they were sold "
+                "for. Lower the price or the charge, or leave them out and the "
+                "line takes the note's own price."
+            )
+        return (
+            f"Line {line_number}: the return credits {quantize_ledger(asked)} "
+            f"before tax for goods that {document} billed at "
+            f"{quantize_ledger(billed_at)}, and they are still worth "
+            f"{quantize_ledger(left)} on it. A customer cannot be credited "
+            "more than they were billed. Lower the price or the charge to the "
+            "bill's, or leave them out and the line is credited what the bill "
+            "is still worth."
+        )
+
+    def _sent_at(self, note_line: DeliveryNoteLine, *, quantity: Decimal) -> Decimal:
+        """Return what a delivery note line sent some of its units at.
+
+        Before tax, after both of the note's discounts -- the note carries
+        the order line's price, and a bill of these units would charge this.
+        """
+        sent = Decimal(str(note_line.current_delivery_quantity))
+        if sent <= ZERO or quantity <= ZERO:
+            return ZERO
+        value = (
+            Decimal(str(note_line.gross_amount))
+            - Decimal(str(note_line.discount_amount))
+            - Decimal(str(note_line.bill_discount_amount))
+        )
+        return self._q(max(value, ZERO) * quantity / sent)
+
+    def _header_charges_billed(
+        self, row: SalesReturn, lines: Sequence[SalesReturnLine]
+    ) -> tuple[Decimal, Decimal, list[str]]:
+        """Return the header charges this return's bills made, and what is gone.
+
+        A return's ``additional_charges`` credit the customer with no line
+        behind them, so the only thing they can be giving back is what the
+        bills of these goods charged the same way (D-PRC-64). The bills are
+        the ones that charged the lines coming back -- named by the line, or
+        reached through the note it names; goods no bill has charged are
+        measured against their note. What other live returns of the same
+        documents already state is taken off: a credit note carries no
+        header charge, so only a return can have given one back.
+
+        Returns:
+            What those documents charged, what other returns already took,
+            and the documents' numbers for the refusal.
+
+        """
+        bills: dict[UUID, SalesInvoice] = {}
+        notes: dict[UUID, DeliveryNote] = {}
+        behind: set[UUID] = set()
+        for line in lines:
+            source_line = self._source_line(
+                line.source_document_type, line.source_document_line_id
+            )
+            charged = self._charged_line(source_line)
+            if charged is not None:
+                invoice = self._session.get(SalesInvoice, charged.sales_invoice_id)
+                if invoice is not None:
+                    bills[invoice.id] = invoice
+                if charged.source_document_type == "DELIVERY_NOTE":
+                    behind.add(charged.source_document_id)
+            elif isinstance(source_line, DeliveryNoteLine):
+                note = self._session.get(DeliveryNote, source_line.delivery_note_id)
+                if note is not None:
+                    notes[note.id] = note
+        stated = [bill.additional_charges for bill in bills.values()]
+        stated += [note.additional_charges for note in notes.values()]
+        charged_total = sum((Decimal(str(item or ZERO)) for item in stated), ZERO)
+        documents = {*bills, *notes, *behind}
+        if not documents:
+            return ZERO, ZERO, []
+        others = select(SalesReturnLine.sales_return_id).where(
+            SalesReturnLine.firm_id == row.firm_id,
+            SalesReturnLine.source_document_id.in_(documents),
+            SalesReturnLine.is_deleted.is_(False),
+        )
+        given_back = self._session.scalar(
+            select(func.coalesce(func.sum(SalesReturn.additional_charges), 0)).where(
+                SalesReturn.firm_id == row.firm_id,
+                SalesReturn.id != row.id,
+                SalesReturn.id.in_(others),
+                SalesReturn.is_deleted.is_(False),
+                SalesReturn.status != SalesReturnStatus.CANCELLED.value,
+            )
+        )
+        numbers = sorted(
+            [document.invoice_number for document in bills.values()]
+            + [document.delivery_note_number for document in notes.values()]
+        )
+        return self._q(charged_total), self._q(given_back or ZERO), numbers
+
+    def _refuse_header_charges_past_the_bill(
+        self, row: SalesReturn, lines: Sequence[SalesReturnLine]
+    ) -> None:
+        """Refuse additional charges the bills of these goods never made."""
+        asked = self._q(row.additional_charges or ZERO)
+        if asked <= ZERO:
+            return
+        charged, given_back, numbers = self._header_charges_billed(row, lines)
+        allowed = max(charged - given_back, ZERO)
+        if asked <= allowed + _ROUNDING_ROOM:
+            return
+        raise ValidationError(
+            f"This return credits {quantize_ledger(asked)} of additional "
+            f"charges, and {', '.join(numbers) or 'its source'} charged "
+            f"{quantize_ledger(charged)} of them, "
+            f"{quantize_ledger(given_back)} already given back by other "
+            "returns. A customer cannot be credited more than they were "
+            f"billed. Lower the charges to {quantize_ledger(allowed)} or less."
+        )
+
     def _refuse_credit_past_the_bill(
         self, row: SalesReturn, lines: Sequence[SalesReturnLine]
     ) -> None:
-        """Refuse a return whose bill was credited after it was priced.
+        """Refuse a return that would credit more than its bill is still worth.
 
         A return is priced when it is saved, on what its bill line was still
         worth that day. A credit note approved since has taken some of that,
         and completing the return as priced would credit the customer more
-        than the bill charged (D-SELL-88). Only a line whose bill carries an
-        approved credit note is asked: with none there is nothing to net.
+        than the bill charged (D-SELL-88). Every line with a bill behind it
+        is asked, credit note or none (D-PRC-64): a return saved before the
+        cap ran on every line may still state a price above its bill's.
         """
         taken: dict[UUID, tuple[Decimal, Decimal]] = defaultdict(lambda: (ZERO, ZERO))
         for line in sorted(lines, key=lambda item: item.line_number):
@@ -2488,27 +2665,42 @@ class SalesReturnService(TransactionalDocumentService):
             worth = self._q(line.net_amount - line.tax_amount)
             taken_quantity, taken_taxable = taken[charged.id]
             taken[charged.id] = (taken_quantity + quantity, taken_taxable + worth)
-            if credits.credited_taxable <= ZERO:
-                continue
+            entered = line.entered_quantity
             left = still_worth(
                 charged,
                 credits,
                 quantity=quantity,
+                exact=(
+                    None
+                    if entered is None
+                    else Decimal(str(entered)) * Decimal(str(line.conversion_factor))
+                ),
                 taken_quantity=taken_quantity,
                 taken_taxable=taken_taxable,
             )
             # Half a paisa of room: each return of a line is rounded on its
             # own, and the ledger keeps two places.
-            if worth > left + Decimal("0.005"):
+            if worth <= left + _ROUNDING_ROOM:
+                continue
+            if credits.credited_taxable <= ZERO:
                 raise ValidationError(
-                    f"Line {line.line_number}: {line.source_document_number} "
-                    "has been credited since this return was saved, and these "
-                    f"goods are now worth {quantize_ledger(left)} before tax "
-                    f"where the return credits {quantize_ledger(worth)}. A "
-                    "customer cannot be credited more than they were billed. "
-                    "Cancel this return and raise it again, and it will be "
-                    "priced on what the bill is still worth."
+                    self._credits_more_than_billed(
+                        line.line_number,
+                        asked=worth,
+                        billed_at=charged_for(charged, quantity=quantity),
+                        left=left,
+                        document=self._source_document_number(charged),
+                    )
                 )
+            raise ValidationError(
+                f"Line {line.line_number}: {line.source_document_number} "
+                "has been credited since this return was saved, and these "
+                f"goods are now worth {quantize_ledger(left)} before tax "
+                f"where the return credits {quantize_ledger(worth)}. A "
+                "customer cannot be credited more than they were billed. "
+                "Cancel this return and raise it again, and it will be "
+                "priced on what the bill is still worth."
+            )
 
     def _charged_tax(
         self, charged: SalesInvoiceLine, *, taxable: Decimal

@@ -359,6 +359,10 @@ def note_line_billing(
 # and was then returned in full for 2,832.00 -- 3,304.00 credited against a
 # bill of 2,832.00. Both documents now read what has already come off the line
 # from here, so a customer is never credited more than they were billed.
+#
+# The cap runs on every return, credit note or none (D-PRC-64): a return that
+# typed 1,500.00 a box against a bill at 1,200.00 credited 3,540.00 against
+# 2,832.00, because the cap was only reached once a credit note existed.
 
 
 @dataclass(frozen=True, slots=True)
@@ -501,6 +505,7 @@ def still_worth(
     credits: BillLineCredits,
     *,
     quantity: Decimal,
+    exact: Decimal | None = None,
     taken_quantity: Decimal = ZERO,
     taken_taxable: Decimal = ZERO,
 ) -> Decimal:
@@ -517,6 +522,11 @@ def still_worth(
         charged: The bill line.
         credits: What has already come off it.
         quantity: The units coming back, in the bill line's unit.
+        exact: The same units before they were rounded to four places, for
+            a line typed in another unit: seven pieces of a box of twelve
+            are worth seven twelfths of it, not 0.5833 of it. A part that
+            takes every unit still out is worth all that is left whatever
+            its rounding.
         taken_quantity: Units earlier lines of the same return bring back.
         taken_taxable: What those earlier lines credit.
 
@@ -537,4 +547,20 @@ def still_worth(
     )
     if left <= ZERO or units <= ZERO or quantity <= ZERO:
         return ZERO
+    if exact is not None and quantity < units:
+        quantity = exact
     return (left * quantity / units).quantize(_FOUR)
+
+
+def charged_for(charged: SalesInvoiceLine, *, quantity: Decimal) -> Decimal:
+    """Return what a bill line charged for some of its units, before tax.
+
+    The line's goods value (``goods_charged``) in proportion to the units
+    asked about, before any credit note or return: the most a return may
+    ever state for them, since a price or a charge above it has no bill
+    behind it (D-PRC-64).
+    """
+    billed = Decimal(str(charged.current_invoice_quantity))
+    if billed <= ZERO or quantity <= ZERO:
+        return ZERO
+    return (goods_charged(charged) * quantity / billed).quantize(_FOUR)
