@@ -271,6 +271,10 @@ class SchemeFree:
     #: Free goods of *another* product the scheme earns, for a line of their
     #: own; zero when the scheme gives the same product or earns nothing.
     other_product_quantity: Decimal
+    #: Free goods of the line's **own** product, in stock units, that are not
+    #: a whole number of the line's unit -- 2 pieces earned by 2 BOX of 12 --
+    #: for a free line of their own in the stock unit. Zero otherwise.
+    own_stock_quantity: Decimal = ZERO
 
 
 def resolve_supplier_free_goods(
@@ -280,16 +284,27 @@ def resolve_supplier_free_goods(
     buy_quantity: Decimal | None = None,
     scheme_free_quantity: Decimal | None = None,
     same_product: bool = True,
+    stock_factor: Decimal = Decimal("1"),
 ) -> SchemeFree:
     """Return the free goods a purchase line takes from a supplier's scheme.
 
-    A scheme "buy 10, get 2" earns ``floor(quantity / 10) * 2`` free, counted
-    in the line's own unit. Of the same product it fills the line's free
-    quantity -- but only where the line left it blank: ``None`` takes the
-    scheme and an explicit ``0`` refuses it, the same two answers as a
-    discount. Of another product it fills nothing on this line; the caller
-    offers it as a line of its own (paid 0, free n). No scheme, or too few
-    bought to earn anything, leaves the line as typed (blank is zero).
+    A scheme "buy 10, get 2" earns ``floor(bought / 10) * 2`` free, and both
+    figures are **stock units** (D-PRC-39): a scheme names a product, a
+    product has one stock unit, and a line bought by the box is counted at
+    the pieces it stands for -- ``quantity`` times ``stock_factor``, the
+    stock units one of the line's units holds. 2 BOX of 12 are 24 bought and
+    earn 4.
+
+    Of the same product the free goods fill the line's free quantity, in the
+    line's unit, where they are a whole number of it -- but only where the
+    line left it blank: ``None`` takes the scheme and an explicit ``0``
+    refuses it, the same two answers as a discount. Where they are not a
+    whole number of the line's unit they fill nothing on this line and are
+    answered as ``own_stock_quantity``, for a free line of the same product
+    in its stock unit. Of another product they fill nothing on this line
+    either; the caller offers that as a line of its own (paid 0, free n). No
+    scheme, or too few bought to earn anything, leaves the line as typed
+    (blank is zero).
     """
     earned = ZERO
     if (
@@ -298,7 +313,18 @@ def resolve_supplier_free_goods(
         and buy_quantity > ZERO
         and quantity > ZERO
     ):
-        earned = (quantity // buy_quantity) * scheme_free_quantity
+        bought = quantize_money(quantity * stock_factor)
+        earned = (bought // buy_quantity) * scheme_free_quantity
+    if same_product and earned > ZERO and stock_factor != Decimal("1"):
+        in_line = quantize_money(earned / stock_factor)
+        if in_line <= ZERO or in_line != in_line.to_integral_value():
+            return SchemeFree(
+                free_quantity=typed if typed is not None else ZERO,
+                applied=False,
+                other_product_quantity=ZERO,
+                own_stock_quantity=earned,
+            )
+        earned = in_line
     if not same_product:
         return SchemeFree(
             free_quantity=typed if typed is not None else ZERO,

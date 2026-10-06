@@ -107,7 +107,7 @@ from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
-from app.uom.services import UomService, assert_quantity_fits_unit
+from app.uom.services import UomService, assert_quantity_fits_unit, stock_unit_of
 
 ZERO = Decimal("0")
 
@@ -1024,6 +1024,7 @@ class QuotationService(TransactionalDocumentService):
         customer_group_id: UUID | None,
         bill_priced: bool = False,
         freight_amount: Decimal | None = None,
+        factors: Sequence[Decimal] | None = None,
     ) -> PromotionBenefits:
         """Ask the firm's promotions what this offer would earn.
 
@@ -1057,6 +1058,11 @@ class QuotationService(TransactionalDocumentService):
                         line_number=index + 1,
                         product_id=item.product_id,
                         quantity=self._q(item.quantity),
+                        # An offer counts stock units, as on the order this
+                        # becomes (D-PRC-39).
+                        stock_factor=(
+                            Decimal("1") if factors is None else factors[index]
+                        ),
                         gross=grosses[index],
                         caller_priced=(
                             item.discount_percent is not None
@@ -1071,8 +1077,37 @@ class QuotationService(TransactionalDocumentService):
         return PromotionBenefits(outcome)
 
     @staticmethod
+    def _offer_factor(
+        units: UomService,
+        row: SalesQuotation,
+        product: Product,
+        item: QuotationLineWrite,
+    ) -> Decimal:
+        """Return the stock units one unit of a quoted line holds, for offers.
+
+        A quotation moves no stock, so a line in a unit no rule converts is
+        still quoted: it is counted as typed, and the order it becomes says
+        what is missing when it converts the quantity.
+        """
+        if item.sales_uom_id is None:
+            return Decimal("1")
+        try:
+            return units.stock_factor(
+                product,
+                uom_id=item.sales_uom_id,
+                stock_uom_id=item.inventory_uom_id,
+                on_date=row.quotation_date,
+                firm_scope=row.firm_id,
+            )
+        except ValidationError:
+            return Decimal("1")
+
+    @staticmethod
     def _gift_lines(
-        benefits: PromotionBenefits, *, lines: list[QuotationLineWrite]
+        benefits: PromotionBenefits,
+        *,
+        lines: list[QuotationLineWrite],
+        stock_units: Mapping[UUID, UUID | None] | None = None,
     ) -> list[QuotationLineWrite]:
         """Turn what the engine gave away into lines the quotation shows.
 
@@ -1083,6 +1118,11 @@ class QuotationService(TransactionalDocumentService):
         write schema refuses a quantity of zero -- which is also what lets
         the conversion tell these lines from typed ones and leave them to the
         order's own offers.
+
+        Free units of a line's own product that are not a whole number of
+        the line's unit come the same way, as a free line of that product in
+        its stock unit (D-PRC-39); nobody can have typed one, since the
+        write schema refuses a line of nothing.
         """
         gifts = benefits.gifts()
         if not gifts:
@@ -1091,8 +1131,10 @@ class QuotationService(TransactionalDocumentService):
         next_number = max((item.line_number for item in lines), default=0) + 1
         added: list[QuotationLineWrite] = []
         for gift in gifts:
-            if gift.product_id in typed:
+            own = gift.for_line_number is not None
+            if gift.product_id in typed and not own:
                 continue
+            unit = (stock_units or {}).get(gift.product_id) if own else None
             added.append(
                 QuotationLineWrite.model_construct(
                     line_number=next_number + len(added),
@@ -1103,8 +1145,8 @@ class QuotationService(TransactionalDocumentService):
                     unit_price=ZERO,
                     discount_percent=ZERO,
                     discount_amount=None,
-                    sales_uom_id=None,
-                    inventory_uom_id=None,
+                    sales_uom_id=unit,
+                    inventory_uom_id=unit,
                     packaging_type_id=None,
                     tax_profile_id=None,
                     warehouse_id=None,
@@ -1264,6 +1306,7 @@ class QuotationService(TransactionalDocumentService):
         # (plan item 9.4, 2026-09-13).
         group_id, group_discount = self._customer_group(row.customer_id)
         bill_typed = bill_amount is not None or bill_percent is not None
+        units = UomService(self._session)
         benefits = self._promotions(
             row,
             lines=lines,
@@ -1271,10 +1314,18 @@ class QuotationService(TransactionalDocumentService):
             customer_group_id=group_id,
             bill_priced=bill_typed,
             freight_amount=freight_amount,
+            factors=[
+                self._offer_factor(units, row, product, item)
+                for product, item in zip(products, lines, strict=True)
+            ],
         )
         # A gift is a line, appended after the engine has answered and before
         # anything is priced, exactly as the order does it.
-        gifts = self._gift_lines(benefits, lines=lines)
+        gifts = self._gift_lines(
+            benefits,
+            lines=lines,
+            stock_units={product.id: stock_unit_of(product) for product in products},
+        )
         for gift in gifts:
             product = self._session.scalar(
                 select(Product).where(
@@ -1290,7 +1341,6 @@ class QuotationService(TransactionalDocumentService):
         # by the box is asked about at the pieces it stands for, as the
         # order it becomes is. Only a line a list mentions needs its unit
         # converted: a quotation moves no stock and converts nothing else.
-        units = UomService(self._session)
         stock_quantities = [
             (
                 item.quantity

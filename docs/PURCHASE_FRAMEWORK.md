@@ -876,7 +876,11 @@ optional other product given free, a period, and either one supplier or none
   line left it blank. A typed figure is kept and an explicit `0` refuses the
   scheme, the same two answers as a discount (`resolve_supplier_free_goods` in
   `app/core/utils/pricing.py`). The line records `scheme_id` and the label as
-  it read then (`scheme_name`, such as `10+2`).
+  it read then (`scheme_name`, such as `10+2`). **Both figures are stock
+  units** (D-PRC-39): 2 BOX of 12 are 24 bought. Free goods that are a whole
+  number of the line's unit go on the line; otherwise they are offered as a
+  free line of the same product in its stock unit (`free_uom_id` on the
+  suggestion), which the server keeps in that unit.
 - **Another product.** The free goods go on a line of their own, nothing
   charged. The order preview offers it as a suggestion and the desktop adds
   the line once; saving never invents a line. A line with only free goods is

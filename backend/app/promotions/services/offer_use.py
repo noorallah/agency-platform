@@ -18,7 +18,10 @@ counted 3 (D-PRC-34). They all read `claims_given` now: one statement, one
 row per claim, with the two netted figures on it. A caller groups it as it
 likes and can never net differently from its neighbour.
 
-Free units come back to the claim that gave them: the order line names the
+Free units are counted in **stock units** (D-PRC-39): the claim records
+what the engine gave in the product's own unit, and what a return brings
+back is converted at the factor of the note line it left on. Free units
+come back to the claim that gave them: the order line names the
 offer (``free_promotion_id``) and the claim names the order, so a return is
 netted from that order's claim on that offer and from no other.
 
@@ -97,14 +100,18 @@ def claims_given(
     from app.delivery_note.models import DeliveryNoteLine
     from app.promotions.services.bill_discounts import discount_came_back
     from app.sales_order.models import SalesOrderLine
-    from app.sales_return.free_goods import free_goods_returned
-    from app.sales_return.models import SalesReturn, SalesReturnLine
+    from app.sales_return.free_goods import (
+        free_goods_returned,
+        free_stock_units_returned,
+    )
+    from app.sales_return.models import SalesReturn
 
     came_back = (
         free_goods_returned(
             SalesOrderLine.sales_order_id.label("order_id"),
             SalesOrderLine.free_promotion_id.label("promotion_id"),
-            func.sum(SalesReturnLine.free_quantity).label("units"),
+            # In stock units, as the claim counts them (D-PRC-39).
+            func.sum(free_stock_units_returned()).label("units"),
         )
         .join(
             SalesOrderLine,

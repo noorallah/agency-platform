@@ -739,7 +739,9 @@ class PrincipalClaimService(TransactionalDocumentService):
             ValidationError: If the claim is cancelled or another supplier's.
 
         """
-        row = self.get(claim_id, firm_id=firm_id)
+        # Under the claim's lock: a credit note and a payment settling the
+        # same claim at once each fit alone and could over-settle together.
+        row = self._locked(claim_id, firm_id=firm_id)
         if row.status == "CANCELLED":
             raise ValidationError("A cancelled claim has nothing to settle.")
         if row.vendor_id != vendor_id:
@@ -759,12 +761,22 @@ class PrincipalClaimService(TransactionalDocumentService):
     ) -> PrincipalClaimReceipt:
         """Record money the principal paid, post it and commit.
 
+        The claim's row is locked before what is owed is read and before the
+        payment is numbered (D-PRC-41). What is owed is a **sum** over the
+        claim's payments and credit notes and the number is a **count** of
+        them, and neither read updates a row, so the claim's version could
+        not catch two payments made at the same instant: both were given
+        ``-PAY-<n>`` and the second was refused with 409 for its journal
+        reference -- and two that each fitted what was owed could together
+        settle more than the claim. The second now waits for the first to
+        commit, then reads what is left and takes the next number.
+
         Raises:
             ValidationError: If it is more than is owed, dated before the
                 claim, or the account is not one money moves through.
 
         """
-        row = self.get(claim_id, firm_id=firm_id)
+        row = self._locked(claim_id, firm_id=firm_id)
         if row.status == "CANCELLED":
             raise ValidationError("A cancelled claim takes no payment.")
         if data.received_on < row.claim_date:
@@ -850,8 +862,12 @@ class PrincipalClaimService(TransactionalDocumentService):
     def reverse_receipt(
         self, claim_id: UUID, receipt_id: UUID, *, firm_id: UUID, actor_id: UUID
     ) -> PrincipalClaim:
-        """Take a payment back off the books (a bounced cheque); commit."""
-        row = self.get(claim_id, firm_id=firm_id)
+        """Take a payment back off the books (a bounced cheque); commit.
+
+        Under the claim's lock, like the payment it reverses, so a payment
+        being recorded at the same instant reads what is owed after this.
+        """
+        row = self._locked(claim_id, firm_id=firm_id)
         receipt = self._session.get(PrincipalClaimReceipt, receipt_id)
         if (
             receipt is None
@@ -894,7 +910,9 @@ class PrincipalClaimService(TransactionalDocumentService):
             ValidationError: If it is cancelled already or partly settled.
 
         """
-        row = self.get(claim_id, firm_id=firm_id)
+        # Locked, so a payment cannot land between "nothing has settled it"
+        # and the cancellation.
+        row = self._locked(claim_id, firm_id=firm_id)
         if row.status == "CANCELLED":
             raise ValidationError("This claim was already cancelled.")
         if not reason.strip():
@@ -954,6 +972,28 @@ class PrincipalClaimService(TransactionalDocumentService):
     def get(self, claim_id: UUID, *, firm_id: UUID) -> PrincipalClaim:
         """Return one of the firm's claims."""
         row = self._session.get(PrincipalClaim, claim_id)
+        if row is None or row.is_deleted or row.firm_id != firm_id:
+            raise ResourceNotFoundError("Claim not found.")
+        return row
+
+    def _locked(self, claim_id: UUID, *, firm_id: UUID) -> PrincipalClaim:
+        """Return one of the firm's claims with its row locked for this write.
+
+        ``SELECT ... FOR UPDATE`` on the claim, held until the caller
+        commits: everything that settles or withdraws a claim decides on a
+        sum or a count of *other* rows, which optimistic concurrency cannot
+        protect, so the claim is the thing they queue on -- one claim at a
+        time, never the firm. ``populate_existing`` re-reads the row, so a
+        copy this session already held cannot hide what the transaction
+        ahead just committed. SQLite, under the unit suite, has no row locks
+        and reads it as a plain select.
+        """
+        row = self._session.scalars(
+            select(PrincipalClaim)
+            .where(PrincipalClaim.id == claim_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).one_or_none()
         if row is None or row.is_deleted or row.firm_id != firm_id:
             raise ResourceNotFoundError("Claim not found.")
         return row
@@ -1505,7 +1545,11 @@ class PrincipalClaimService(TransactionalDocumentService):
                     source_number=note.delivery_note_number,
                     source_date=note.delivery_date,
                     product_id=line.product_id,
-                    quantity=free,
+                    # In stock units, as an offer's claim counts them: a
+                    # free box of twelve is 12 (D-PRC-39).
+                    quantity=(
+                        free * Decimal(str(line.conversion_factor or 1))
+                    ).quantize(Decimal("0.0001")),
                     description=description,
                     amount=(given * share / Decimal("100")).quantize(CENT),
                     credit=_SOLD,

@@ -9,6 +9,10 @@ as Marg's item-wise and other-free schemes do:
   ``floor(ordered / buy) * free`` -- but only where the line left it blank.
   An explicit ``0`` refuses the scheme, the same two answers as a discount
   (``resolve_supplier_free_goods`` in ``app/core/utils/pricing.py``).
+  **Both figures are stock units** (D-PRC-39): 2 BOX of 12 are 24 bought.
+  Free goods that are a whole number of the line's unit go on the line;
+  otherwise they are offered as a free line of the same product in its
+  stock unit, the way another product's are.
 * **Another product.** The free goods go on a line of their own (paid 0, free
   n). The order preview offers that line as a *suggestion*; the client adds it
   with the scheme's id when the buyer accepts. Saving never invents a line.
@@ -115,10 +119,15 @@ class LineScheme:
     #: The scheme the line's free goods came from, and its label then.
     scheme_id: UUID | None
     scheme_name: str | None
-    #: A scheme giving another product, and how much of it this line earns.
+    #: A scheme giving goods for a line of their own -- another product, or
+    #: this line's product in stock units that are not a whole number of
+    #: its unit -- and how much of it this line earns.
     other: SupplierScheme | None
     other_quantity: Decimal
     other_label: str | None
+    #: True for a line that only carries a scheme's free goods of its own
+    #: product: it is kept in the product's stock unit.
+    in_stock_unit: bool = False
 
 
 def line_schemes(
@@ -128,12 +137,18 @@ def line_schemes(
     vendor_id: UUID,
     on: date,
     lines: Sequence[tuple[UUID, Decimal, Decimal | None, UUID | None]],
+    factors: Sequence[Decimal] | None = None,
 ) -> list[LineScheme]:
     """Resolve each ``(product, ordered, typed free, typed scheme)`` line.
 
+    ``factors`` is the stock units one unit of each line holds (one where
+    left out): a scheme counts stock units, so a line bought by the box is
+    counted at the pieces it stands for.
+
     A line naming a scheme itself is a gift line the client added from a
     suggestion: it keeps the scheme if the scheme is the firm's and gives
-    that line's product, and is refused otherwise.
+    that line's product, and is refused otherwise. One that orders nothing
+    of a scheme's **own** product carries that scheme's free stock units.
 
     Raises:
         ValidationError: If a line names a scheme that does not give its
@@ -198,6 +213,21 @@ def line_schemes(
                     )
                 )
                 continue
+            if ordered <= ZERO:
+                # The free line of a same-product scheme: stock units that
+                # are not a whole number of the paid line's unit.
+                out.append(
+                    LineScheme(
+                        free_quantity=typed if typed is not None else ZERO,
+                        scheme_id=row.id,
+                        scheme_name=scheme_label(row),
+                        other=None,
+                        other_quantity=ZERO,
+                        other_label=None,
+                        in_stock_unit=True,
+                    )
+                )
+                continue
         scheme = governing.get(product_id)
         same = scheme is not None and scheme.free_product_id in (None, product_id)
         resolved: SchemeFree = resolve_supplier_free_goods(
@@ -206,7 +236,9 @@ def line_schemes(
             buy_quantity=scheme.buy_quantity if scheme is not None else None,
             scheme_free_quantity=scheme.free_quantity if scheme is not None else None,
             same_product=same or scheme is None,
+            stock_factor=Decimal("1") if factors is None else factors[number - 1],
         )
+        apart = resolved.other_product_quantity + resolved.own_stock_quantity
         label = (
             scheme_label(scheme, names.get(scheme.free_product_id))
             if scheme is not None
@@ -217,13 +249,9 @@ def line_schemes(
                 free_quantity=resolved.free_quantity,
                 scheme_id=scheme.id if resolved.applied and scheme else None,
                 scheme_name=label if resolved.applied else None,
-                other=(
-                    scheme
-                    if scheme is not None and resolved.other_product_quantity > ZERO
-                    else None
-                ),
-                other_quantity=resolved.other_product_quantity,
-                other_label=label if resolved.other_product_quantity > ZERO else None,
+                other=scheme if scheme is not None and apart > ZERO else None,
+                other_quantity=apart,
+                other_label=label if apart > ZERO else None,
             )
         )
     return out
