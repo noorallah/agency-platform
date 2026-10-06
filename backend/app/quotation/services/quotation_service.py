@@ -107,7 +107,7 @@ from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
-from app.uom.services import assert_quantity_fits_unit
+from app.uom.services import UomService, assert_quantity_fits_unit
 
 ZERO = Decimal("0")
 
@@ -1286,13 +1286,35 @@ class QuotationService(TransactionalDocumentService):
             products.append(product)
             grosses.append(ZERO)
         lines = list(lines) + gifts
+        # A price list's quantity breaks count stock units, so a line quoted
+        # by the box is asked about at the pieces it stands for, as the
+        # order it becomes is. Only a line a list mentions needs its unit
+        # converted: a quotation moves no stock and converts nothing else.
+        units = UomService(self._session)
+        stock_quantities = [
+            (
+                item.quantity
+                * units.stock_factor(
+                    products[index],
+                    uom_id=item.sales_uom_id,
+                    stock_uom_id=item.inventory_uom_id,
+                    on_date=row.quotation_date,
+                    firm_scope=row.firm_id,
+                )
+                if prices.mentions(item.product_id)
+                else item.quantity
+            )
+            for index, item in enumerate(lines)
+        ]
         priced: list[LineDiscount] = [
             resolve_line_discount(
                 gross=grosses[index],
                 percent=item.discount_percent,
                 amount=item.discount_amount,
                 promotion_amount=benefits.line_discount(index),
-                price_list_percent=prices.rate_for(item.product_id, item.quantity),
+                price_list_percent=prices.rate_for(
+                    item.product_id, stock_quantities[index]
+                ),
                 customer_default=customer_discount,
                 customer_group_default=group_discount,
             )

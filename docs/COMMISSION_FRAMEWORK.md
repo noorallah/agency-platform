@@ -66,7 +66,14 @@ money that exists is still measured by a rule about the document.
 `rate_type` PER_UNIT multiplies **quantity** and ignores value and slabs
 entirely; it is refused on the COLLECTED basis (money has no cases) and
 refused without a product or category (it would add cases of biscuits to
-litres of oil).
+litres of oil). **The quantity is in stock units** (2026-10-06): a rule names
+no unit, so "2.50 a unit" is 2.50 for each unit the product is kept in,
+however the line was typed. A bill line's quantity is stored in the unit of
+the note or order line it bills, so `_lines_of` multiplies it by that line's
+own conversion factor -- 2 BOX of 12 are 24 units, 60.00. Read as typed, the
+same goods paid 5.00 billed by the box and 60.00 billed by the piece. A firm
+that means "a case" for a product kept in pieces states the rate per piece.
+A payout already accrued keeps the figure it was snapshotted with.
 
 **Commission is earned on net sales -- tax and freight earn nothing.**
 Decided by Claude, industry standard, on the owner's instruction of
