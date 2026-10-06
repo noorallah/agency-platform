@@ -125,6 +125,12 @@ class SalesInvoice(BaseEntity):
     bill_discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Where `bill_discount_amount` came from: ``typed`` when the bill itself
+    #: stated it, ``inherited`` when it is the share of the discount agreed on
+    #: the documents the bill continues, NULL when there is none. Only a typed
+    #: one is judged against the approver's discount limit and carried across
+    #: an edit that leaves it out (D-PRC-1).
+    bill_discount_source: Mapped[str | None] = mapped_column(String(20))
     #: What the customer is charged for getting the goods to them.
     #:
     #: **Part of the taxable value, not an extra on the end.** Delivery charged

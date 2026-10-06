@@ -42,6 +42,8 @@ from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
     LineDiscount,
     apportion,
+    continued_free_goods,
+    continued_share,
     resolve_bill_discount,
     resolve_line_discount,
 )
@@ -170,6 +172,9 @@ from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 
 ZERO = Decimal("0")
+#: An order's `bill_discount_source` where nobody typed its bill discount:
+#: an offer gave it, or there is none.
+OFFERED = frozenset({"promotion", "none"})
 
 # The two line shapes a sales invoice can be raised from. Naming the union lets
 # the helpers below say what they accept instead of taking ``object`` and
@@ -802,7 +807,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         sent = frozenset(data.model_fields_set)
         counter = self._own_counter_chain(row)
         data = self._keeping_what_the_bill_holds(
-            row, data, sent=sent, ships_its_own=counter is not None
+            row, data, sent=sent, own_orders=None if counter is None else counter[1]
         )
         # A draft counter bill whose edit changes what it ships has its
         # hidden order and note raised again, so all four always agree
@@ -2021,7 +2026,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         data: SalesInvoiceCreate,
         *,
         sent: frozenset[str],
-        ships_its_own: bool,
+        own_orders: list[SalesOrder] | None,
     ) -> SalesInvoiceCreate:
         """Fill what an edit left out of the header from the bill itself.
 
@@ -2039,7 +2044,23 @@ class SalesInvoiceService(TransactionalDocumentService):
         the notes it bills, pro-rated by the share billed (D-SELL-36), and
         that share is what an edit changes. There a null still means "as the
         notes say"; on a counter bill it means none.
+
+        Only a bill discount **somebody typed** is carried. One the bill
+        inherited from the documents it continues is inherited again, at
+        whatever share the edit now bills; one an offer gave a counter
+        bill's order is the offer's to give again when that order is priced.
+        Carrying either as a typed rate would turn an arrangement into a
+        decision, and judge it against the approver's discount limit
+        (D-PRC-1). ``own_orders`` names the orders a counter bill raised for
+        itself, None for any other bill.
         """
+        ships_its_own = own_orders is not None
+        if own_orders is not None:
+            typed = any(
+                order.bill_discount_source not in OFFERED for order in own_orders
+            )
+        else:
+            typed = row.bill_discount_source != "inherited"
         kept: dict[str, object] = {
             name: getattr(row, name)
             for name in (
@@ -2057,7 +2078,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         }
         if (
             not {"bill_discount_percent", "bill_discount_amount"} & sent
-            and row.bill_discount_amount > ZERO
+            and typed
+            and (
+                row.bill_discount_amount > ZERO
+                # A zero typed on a bill of documents refuses what they
+                # would hand it, and stays the refusal it was.
+                or (own_orders is None and row.bill_discount_source == "typed")
+            )
         ):
             kept["bill_discount_percent"] = row.bill_discount_percent
         if ships_its_own:
@@ -2516,6 +2543,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         typed on this bill, and the order it raised was not judged (backlog
         64 row 3). For a note this bill raised itself, the source is read from
         the order line behind it: typed there means typed here.
+
+        The discount on the whole bill is read the same way. A share the
+        bill inherited from the documents it continues was judged on the
+        order, and one an offer gave is nobody's hand at all, so neither is
+        counted here; on a counter bill the order it raised says which
+        (D-PRC-1).
         """
         lines = list(
             self._session.scalars(
@@ -2530,39 +2563,50 @@ class SalesInvoiceService(TransactionalDocumentService):
             for note in self._billed_notes(row)
             if note.raised_by_sales_invoice_id == row.id
         }
-        if not own_notes:
+        inherited = row.bill_discount_source == "inherited"
+        if not own_notes and not inherited:
             return list(lines)
         note_line_ids = [
             line.source_document_line_id
             for line in lines
             if line.source_document_id in own_notes
         ]
-        sources = dict(
-            self._session.execute(
-                select(DeliveryNoteLine.id, SalesOrderLine.discount_source)
+        sources = {
+            note_line_id: (line_source, bill_source)
+            for note_line_id, line_source, bill_source in self._session.execute(
+                select(
+                    DeliveryNoteLine.id,
+                    SalesOrderLine.discount_source,
+                    SalesOrder.bill_discount_source,
+                )
                 .join(
                     SalesOrderLine,
                     SalesOrderLine.id == DeliveryNoteLine.sales_order_line_id,
                 )
+                .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
                 .where(DeliveryNoteLine.id.in_(note_line_ids))
             )
             .tuples()
             .all()
-        )
+        }
         judged: list[object] = []
         for line in lines:
-            if line.source_document_line_id in sources:
-                judged.append(
-                    SimpleNamespace(
-                        line_number=line.line_number,
-                        gross_amount=line.gross_amount,
-                        discount_amount=line.discount_amount,
-                        bill_discount_amount=line.bill_discount_amount,
-                        discount_source=sources[line.source_document_line_id],
-                    )
-                )
-            else:
+            own = sources.get(line.source_document_line_id)
+            if own is None and not inherited:
                 judged.append(line)
+                continue
+            bill_typed = not inherited if own is None else own[1] not in OFFERED
+            judged.append(
+                SimpleNamespace(
+                    line_number=line.line_number,
+                    gross_amount=line.gross_amount,
+                    discount_amount=line.discount_amount,
+                    bill_discount_amount=(
+                        line.bill_discount_amount if bill_typed else ZERO
+                    ),
+                    discount_source=line.discount_source if own is None else own[0],
+                )
+            )
         return judged
 
     def _billed_notes(self, row: SalesInvoice) -> list[DeliveryNote]:
@@ -3207,6 +3251,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             total_free_quantity=row.total_free_quantity,
             bill_discount_percent=row.bill_discount_percent,
             bill_discount_amount=row.bill_discount_amount,
+            bill_discount_source=row.bill_discount_source,
             freight_amount=row.freight_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
@@ -3741,8 +3786,29 @@ class SalesInvoiceService(TransactionalDocumentService):
         percent: Decimal | None,
         amount: Decimal | None,
         taxables: list[Decimal],
+        inherited: list[Decimal],
     ) -> list[Decimal]:
-        """Resolve the document's own discount and split it across the lines.
+        """Resolve the document's discount and return each line's share.
+
+        **A bill that says nothing charges what the order agreed.** Each line
+        takes the share of the whole-document discount the line it bills
+        carries, by the quantity billed (``inherited``), exactly as it takes
+        a line discount amount; the header shows the total. Nothing read it,
+        so an order approved at 5,265.16 with 200 off was billed at 5,501.16
+        and the journal followed the bill (D-PRC-1). Freight was already
+        carried (`_inherited_freight`); this is its twin.
+
+        **A figure typed on the bill replaces it**, zero included, as a
+        typed freight does: the bill then states its own discount, split
+        across its lines by what each is worth. A figure equal to the one
+        inherited is the inheritance sent back -- an editor re-saving the
+        rate it was shown -- and keeps the source lines' own shares, so
+        opening and saving a bill moves nothing.
+
+        ``bill_discount_source`` records which, because the two are treated
+        differently afterwards: only a typed one is judged against the
+        approver's discount limit and carried across an edit that leaves it
+        out.
 
         Taken off what the lines already discounted to, never off the gross --
         off the gross, the two discounts are each computed as though the other
@@ -3751,13 +3817,30 @@ class SalesInvoiceService(TransactionalDocumentService):
         What is written back onto the header is the amount actually applied and
         the rate it represents, rather than whatever the caller sent.
         """
+        taxable = self._q(sum(taxables, ZERO))
+        carried = self._q(sum(inherited, ZERO))
+        rate = self._q(carried * 100 / taxable) if taxable > ZERO else ZERO
+        if amount is not None:
+            restated = self._q(amount) == carried
+        elif percent is not None:
+            restated = self._q(percent) == rate
+        else:
+            restated = True
+        if carried > ZERO and restated:
+            row.bill_discount_percent = rate
+            row.bill_discount_amount = carried
+            row.bill_discount_source = "inherited"
+            return inherited
         resolved = resolve_bill_discount(
-            taxable=self._q(sum(taxables, ZERO)),
+            taxable=taxable,
             percent=percent,
             amount=amount,
         )
         row.bill_discount_percent = resolved.percent
         row.bill_discount_amount = resolved.amount
+        row.bill_discount_source = (
+            None if percent is None and amount is None else "typed"
+        )
         return apportion(resolved.amount, taxables)
 
     @stamps_tax_rules(SalesInvoiceLine, "sales_invoice_id")
@@ -3880,6 +3963,8 @@ class SalesInvoiceService(TransactionalDocumentService):
                 source_line=source_line,
                 invoice_quantity=invoice_quantity,
                 source_quantity=source_quantity,
+                already_invoiced=already_invoiced,
+                firm_id=firm_id,
             )
             if invoice_quantity <= ZERO and free_quantity <= ZERO:
                 # Judged here rather than on the request, because only the
@@ -3920,12 +4005,28 @@ class SalesInvoiceService(TransactionalDocumentService):
         # tax. `header_discount_amount` on a purchase order was subtracted
         # after tax, so tax was paid on money never charged, until D-BUY-19
         # moved it onto the lines too.
+        taxables = [
+            self._q(item.gross_amount - item.discount.amount) for item in priced
+        ]
         shares = self._bill_discount_shares(
             row,
             percent=bill_percent,
             amount=bill_amount,
-            taxables=[
-                self._q(item.gross_amount - item.discount.amount) for item in priced
+            taxables=taxables,
+            inherited=[
+                min(
+                    continued_share(
+                        self._q(
+                            getattr(item.source_line, "bill_discount_amount", ZERO)
+                            or ZERO
+                        ),
+                        before=item.already_invoiced,
+                        part=item.invoice_quantity,
+                        whole=item.source_quantity,
+                    ),
+                    taxable,
+                )
+                for item, taxable in zip(priced, taxables, strict=True)
             ],
         )
         # Costed once for the whole invoice rather than per line: the ledger
@@ -3941,13 +4042,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         if freight_amount is None:
             freight_amount = self._inherited_freight(priced)
-        freight = self._freight_shares(
-            row,
-            freight=freight_amount,
-            taxables=[
-                self._q(item.gross_amount - item.discount.amount) for item in priced
-            ],
-        )
+        freight = self._freight_shares(row, freight=freight_amount, taxables=taxables)
 
         for position, item in enumerate(priced):
             index = item.index
@@ -5197,6 +5292,23 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         return self._q(total or ZERO)
 
+    def _already_invoiced_free(
+        self, *, firm_id: UUID, source_document_line_id: UUID
+    ) -> Decimal:
+        """Return the free goods other live bills already state of a line."""
+        total = self._session.scalar(
+            select(func.coalesce(func.sum(SalesInvoiceLine.free_quantity), ZERO))
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoice.firm_id == firm_id,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED.value,
+                SalesInvoiceLine.is_deleted.is_(False),
+                SalesInvoiceLine.source_document_line_id == source_document_line_id,
+            )
+        )
+        return self._q(total or ZERO)
+
     def _already_invoiced(
         self, *, firm_id: UUID, source_document_line_id: UUID
     ) -> bool:
@@ -5292,6 +5404,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         source_line: SourceLine,
         invoice_quantity: Decimal,
         source_quantity: Decimal,
+        already_invoiced: Decimal,
+        firm_id: UUID,
     ) -> Decimal:
         """Return how much this line supplies free.
 
@@ -5299,6 +5413,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         pro-rated by the share being billed: half an order invoiced carries
         half the free goods it was promised. An explicit figure wins, and an
         explicit zero refuses the inheritance.
+
+        In whole units, as a note ships them (`continued_free_goods`): a part
+        bill states what its share has earned and the earlier bills did not
+        already state, and the bill that completes the line states the rest
+        -- never a fraction of a gift, and never the same unit twice
+        (D-PRC-4).
 
         Refused above what the source line offered, because an invoice states
         what was supplied and the goods left on somebody else's document. A
@@ -5318,7 +5438,17 @@ class SalesInvoiceService(TransactionalDocumentService):
                 # supplied. Returning zero here dropped the gift off the bill
                 # entirely while the goods had already been dispatched.
                 return offered
-            return self._q(offered * invoice_quantity / source_quantity)
+            return self._q(
+                continued_free_goods(
+                    offered,
+                    before=already_invoiced,
+                    part=invoice_quantity,
+                    whole=source_quantity,
+                    already=self._already_invoiced_free(
+                        firm_id=firm_id, source_document_line_id=source_line.id
+                    ),
+                )
+            )
         claimed = self._q(Decimal(str(asked)))
         if claimed > offered:
             raise ValidationError(

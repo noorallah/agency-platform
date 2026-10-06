@@ -58,6 +58,8 @@ from app.core.utils.dates import as_utc, utc_now
 from app.core.utils.pricing import (
     LineDiscount,
     apportion,
+    continued_free_goods,
+    continued_share,
     resolve_bill_discount,
     resolve_line_discount,
 )
@@ -559,15 +561,23 @@ class DeliveryNoteService(TransactionalDocumentService):
         # A held order's draft may still have its vehicle, driver or remarks
         # put right; what it may not do is change what is to ship.
         if order.is_on_hold:
+            shipping = self._to_ship(row.id)
+            # A line that says nothing about free goods restates what the
+            # note already ships of them.
+            held_free = {line_id: free for line_id, _, free in shipping}
             asked = sorted(
                 (
                     str(line.sales_order_line_id),
                     self._q(line.current_delivery_quantity),
-                    self._q(line.free_quantity),
+                    (
+                        held_free.get(str(line.sales_order_line_id), ZERO)
+                        if line.free_quantity is None
+                        else self._q(line.free_quantity)
+                    ),
                 )
                 for line in data.lines
             )
-            if order.id != row.sales_order_id or asked != self._to_ship(row.id):
+            if order.id != row.sales_order_id or asked != shipping:
                 self._refuse_if_held(order)
         # Absent keeps the note's own ship-to, unless it now ships another
         # order, whose ship-to it takes.
@@ -1840,6 +1850,78 @@ class DeliveryNoteService(TransactionalDocumentService):
         row.freight_amount = amount  # type: ignore[attr-defined]
         return apportion(amount, taxables)
 
+    def _already_shipped(
+        self, *, firm_id: UUID, sales_order_line_id: UUID, exclude_note_id: UUID
+    ) -> tuple[Decimal, Decimal]:
+        """Return what other notes ship of one order line: charged, and free.
+
+        In the units the note lines are typed in, which is what the order
+        line's own quantity and free goods are counted in -- where
+        `_already_delivered_quantity` answers in stock units with the free
+        goods folded in. The same notes count: approved onwards, and a
+        shipped state only where the goods left.
+        """
+        charged, free = self._session.execute(
+            select(
+                func.coalesce(func.sum(DeliveryNoteLine.current_delivery_quantity), 0),
+                func.coalesce(func.sum(DeliveryNoteLine.free_quantity), 0),
+            )
+            .select_from(DeliveryNoteLine)
+            .join(DeliveryNote, DeliveryNote.id == DeliveryNoteLine.delivery_note_id)
+            .where(
+                DeliveryNoteLine.firm_id == firm_id,
+                DeliveryNoteLine.sales_order_line_id == sales_order_line_id,
+                DeliveryNoteLine.is_deleted.is_(False),
+                DeliveryNote.is_deleted.is_(False),
+                DeliveryNote.id != exclude_note_id,
+                DeliveryNote.status.in_(
+                    [
+                        DeliveryNoteStatus.APPROVED.value,
+                        DeliveryNoteStatus.DISPATCHED.value,
+                        DeliveryNoteStatus.COMPLETED.value,
+                        DeliveryNoteStatus.CLOSED.value,
+                    ]
+                ),
+                or_(
+                    DeliveryNote.status.not_in(sorted(SHIPPED_STATES)),
+                    goods_have_left_clause(),
+                ),
+            )
+        ).one()
+        return self._q(charged or ZERO), self._q(free or ZERO)
+
+    def _free_goods(
+        self,
+        item: DeliveryNoteLineWrite,
+        *,
+        source: SalesOrderLine | None,
+        shipped: tuple[Decimal, Decimal],
+    ) -> Decimal:
+        """Return the free goods one line ships.
+
+        A figure typed is taken as typed, and a typed zero ships none.
+        Silence takes **the order line's free goods, in proportion to the
+        quantity shipped** -- the rule the price and the discount already
+        follow. The field used to default to zero, so silence and a refusal
+        were one value: an order of 12 with 1 free shipped 12, the order
+        stayed part-delivered for ever with one unit reserved, and the bill
+        showed no free goods (D-PRC-4).
+        """
+        if item.free_quantity is not None:
+            return self._q(item.free_quantity)
+        if source is None:
+            return ZERO
+        before, already = shipped
+        return self._q(
+            continued_free_goods(
+                self._q(source.free_quantity),
+                before=before,
+                part=self._q(item.current_delivery_quantity),
+                whole=self._q(source.quantity),
+                already=already,
+            )
+        )
+
     def _bill_discount_shares(
         self,
         row: DeliveryNote,
@@ -1847,8 +1929,23 @@ class DeliveryNoteService(TransactionalDocumentService):
         percent: Decimal | None,
         amount: Decimal | None,
         taxables: list[Decimal],
+        inherited: list[Decimal],
     ) -> list[Decimal]:
-        """Resolve the document's own discount and split it across the lines.
+        """Resolve the document's discount and return each line's share.
+
+        **A note that says nothing ships under the order's.** Each line takes
+        its order line's share of the discount on the whole order, by the
+        quantity it ships (``inherited``), exactly as it takes a line
+        discount amount. Nothing read the order's, so 200 off an order of
+        5,265.16 was gone from its note and from the bill raised on the note,
+        which charged 5,501.16 (D-PRC-1). Freight was already carried
+        (`_inherited_freight`); this is its twin.
+
+        **A figure typed on the note replaces it**, zero included, as a
+        typed freight does: the note then states its own discount, split
+        across its lines by what each is worth. A figure equal to the one
+        inherited is the inheritance sent back -- a client re-saving what it
+        was shown -- and keeps the order's own shares.
 
         Taken off what the lines already discounted to, never off the gross --
         off the gross, the two discounts are each computed as though the other
@@ -1857,6 +1954,19 @@ class DeliveryNoteService(TransactionalDocumentService):
         What is written back onto the header is the amount actually applied and
         the rate it represents, rather than whatever the caller sent.
         """
+        taxable = self._q(sum(taxables, ZERO))
+        carried = self._q(sum(inherited, ZERO))
+        rate = self._q(carried * 100 / taxable) if taxable > ZERO else ZERO
+        if amount is not None:
+            restated = self._q(amount) == carried
+        elif percent is not None:
+            restated = self._q(percent) == rate
+        else:
+            restated = True
+        if carried > ZERO and restated:
+            row.bill_discount_percent = rate
+            row.bill_discount_amount = carried
+            return inherited
         resolved = resolve_bill_discount(
             taxable=self._q(sum(taxables, ZERO)),
             percent=percent,
@@ -1929,25 +2039,52 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             for index, item in enumerate(lines)
         ]
+        taxables = [
+            self._q(self._q(item.current_delivery_quantity) * price - line.amount)
+            for item, price, line in zip(lines, prices, priced, strict=True)
+        ]
+        # What other notes already ship of each order line, so a part
+        # delivery takes its own slice of the order's discount and of its
+        # free goods, and the last one takes what is left.
+        shipped = [
+            (
+                (ZERO, ZERO)
+                if item.sales_order_line_id not in source_lines
+                else self._already_shipped(
+                    firm_id=row.firm_id,
+                    sales_order_line_id=item.sales_order_line_id,
+                    exclude_note_id=row.id,
+                )
+            )
+            for item in lines
+        ]
         shares = self._bill_discount_shares(
             row,
             percent=bill_percent,
             amount=bill_amount,
-            taxables=[
-                self._q(self._q(item.current_delivery_quantity) * price - line.amount)
-                for item, price, line in zip(lines, prices, priced, strict=True)
+            taxables=taxables,
+            inherited=[
+                (
+                    ZERO
+                    if (source := source_lines.get(item.sales_order_line_id)) is None
+                    else min(
+                        continued_share(
+                            self._q(source.bill_discount_amount),
+                            before=before,
+                            part=self._q(item.current_delivery_quantity),
+                            whole=self._q(source.quantity),
+                        ),
+                        taxable,
+                    )
+                )
+                for item, taxable, (before, _) in zip(
+                    lines, taxables, shipped, strict=True
+                )
             ],
         )
         if freight_amount is None:
             freight_amount = self._inherited_freight(lines, source_lines)
-        freight = self._freight_shares(
-            row,
-            freight=freight_amount,
-            taxables=[
-                self._q(self._q(item.current_delivery_quantity) * price - line.amount)
-                for item, price, line in zip(lines, prices, priced, strict=True)
-            ],
-        )
+        freight = self._freight_shares(row, freight=freight_amount, taxables=taxables)
 
         for index, item in enumerate(lines):
             bill_share = shares[index]
@@ -1966,7 +2103,21 @@ class DeliveryNoteService(TransactionalDocumentService):
                 storage_node_id=item.storage_node_id,
             )
             current_qty = self._q(item.current_delivery_quantity)
-            free_qty = self._q(item.free_quantity)
+            free_qty = self._free_goods(
+                item, source=source_line, shipped=shipped[index]
+            )
+            if (
+                current_qty <= ZERO
+                and free_qty <= ZERO
+                and self._q(item.damaged_quantity) <= ZERO
+            ):
+                # Judged here where the line said nothing about free goods:
+                # only the order line says whether silence ships any.
+                raise ValidationError(
+                    f"Line {item.line_number} delivers a quantity of 0 and "
+                    "supplies nothing free. Type a quantity, or leave the line "
+                    "off the note."
+                )
             conversion = self._conversion(
                 quantity=self._q(current_qty + free_qty),
                 sales_uom_id=item.sales_uom_id or source_line.sales_uom_id,

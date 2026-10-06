@@ -684,6 +684,9 @@ def test_a_line_of_nothing_is_refused_on_every_selling_document() -> None:
             sales_order_line_id=order_line,
             line_number=1,
             current_delivery_quantity=Decimal("0"),
+            # Stated: a note line silent about free goods may inherit its
+            # order line's, so the service judges that one (D-PRC-4).
+            free_quantity=Decimal("0"),
         )
 
     SalesInvoiceLineWrite(
