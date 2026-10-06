@@ -56,7 +56,7 @@ def flow_file(name: str, log_path: str) -> str:
     m = re.match(r"agency-it-(sc_[a-z]+)(?:_[a-z0-9]+)?\.log$", base)
     if m:
         return m.group(1) + "_test.dart"
-    m = re.match(r"agency-it-(.+)\.log$", base)
+    m = re.match(r"agency-it-([a-z_]+?)(?:\.[a-z0-9]+)?\.log$", base)
     if m:
         return m.group(1) + ".dart"
     return POSITIVE_RENAME.get(name.split("-")[0], name)
@@ -74,31 +74,13 @@ def parse(paths: list[str]) -> dict[str, dict]:
                     continue
                 kind, name, cid, rest = m.groups()
                 rest = rest.strip()
-                entry = per_run.setdefault(
-                    cid,
-                    {
-                        "pass": 0,
-                        "fail": 0,
-                        "skip": 0,
-                        "notes": [],
-                        "file": flow_file(name, path),
-                        "user": name.split("-", 1)[1] if "-" in name else "",
-                    },
-                )
-                if kind == "PASS":
-                    entry["pass"] += 1
-                    note = rest.split(" :: ", 1)[1] if " :: " in rest else ""
-                elif kind in ("FAIL", "DEFECT"):
-                    entry["fail"] += 1
-                    note = rest.split(": ", 1)[1] if ": " in rest else rest
-                elif kind == "SKIP":
-                    entry["skip"] += 1
-                    note = re.sub(r"^.*\(because (.*)\)\s*$", r"\1", rest)
-                else:
-                    note = rest.split(" :: ", 1)[1] if " :: " in rest else rest
-                    note = "note: " + note
-                if note:
-                    entry["notes"].append(note)
+                # A step that covers several cases names them all up front.
+                extra = re.match(r"((?:SC-[A-Z]+-\d{3}\s+)+)", rest + " ")
+                ids = [cid] + (extra.group(1).split() if extra else [])
+                if extra:
+                    rest = rest[len(extra.group(1).rstrip()) :].strip()
+                for cid in ids:
+                    _record(per_run, kind, name, cid, rest, path)
         for cid, entry in per_run.items():
             if entry["fail"]:
                 entry["result"] = "FAIL"
@@ -108,6 +90,35 @@ def parse(paths: list[str]) -> dict[str, dict]:
                 entry["result"] = "SKIP"
             found[cid] = entry
     return found
+
+
+def _record(per_run: dict, kind: str, name: str, cid: str, rest: str, path: str) -> None:
+    """Add one FLOW line's outcome to its case's entry."""
+    entry = per_run.setdefault(
+        cid,
+        {
+            "pass": 0,
+            "fail": 0,
+            "skip": 0,
+            "notes": [],
+            "file": flow_file(name, path),
+            "user": name.split("-", 1)[1] if "-" in name else "",
+        },
+    )
+    if kind == "PASS":
+        entry["pass"] += 1
+        note = rest.split(" :: ", 1)[1] if " :: " in rest else ""
+    elif kind in ("FAIL", "DEFECT"):
+        entry["fail"] += 1
+        note = rest.split(": ", 1)[1] if ": " in rest else rest
+    elif kind == "SKIP":
+        entry["skip"] += 1
+        note = re.sub(r"^.*\(because (.*)\)\s*$", r"\1", rest)
+    else:
+        note = rest.split(" :: ", 1)[1] if " :: " in rest else rest
+        note = "note: " + note
+    if note:
+        entry["notes"].append(note)
 
 
 def book_kinds() -> dict[str, str]:

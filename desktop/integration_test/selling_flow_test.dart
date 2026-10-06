@@ -26,7 +26,7 @@ void main() {
 
     // -- Quotation ---------------------------------------------------------
     Json? quote;
-    final bool quoted = await flow.step('quotation: new, line, save', () async {
+    final bool quoted = await flow.step('SC-QT-002 quotation: new, line, save', () async {
       await openMenu(tester, 'sell', 'quotations');
       await tapNew(tester);
       await chooseIn(tester, 'quotation-customer', 'Vijaya Stores');
@@ -42,7 +42,7 @@ void main() {
       if (fault != null) throw StateError(fault);
     });
     if (quoted) {
-      await flow.step('quotation: list shows its number and total', () async {
+      await flow.step('SC-QT-003 quotation: list shows its number and total', () async {
         final String number = '${quote!['quotation_number']}';
         if (!screenHas(tester, number)) {
           throw StateError('list does not show $number');
@@ -53,7 +53,7 @@ void main() {
               'the saved grand total $grand is not on the list screen');
         }
       });
-      await flow.step('quotation: revise, change quantity, save', () async {
+      await flow.step('SC-QT-005 quotation: revise, change quantity, save', () async {
         await selectRow(tester, '${quote!['quotation_number']}');
         await tapButton(tester, 'Revise');
         await pumpFor(tester, const Duration(seconds: 3));
@@ -71,7 +71,9 @@ void main() {
         'Customer accepted': 'ACCEPTED',
         'Convert to order': 'CONVERTED',
       }.entries) {
-        await flow.step('quotation: ${stepToStatus.key}', () async {
+        await flow.step(
+            '${const <String, String>{'Mark as sent': 'SC-QT-006', 'Customer accepted': 'SC-QT-007', 'Convert to order': 'SC-QT-008'}[stepToStatus.key]} quotation: ${stepToStatus.key}',
+            () async {
           await selectRow(tester, '${quote!['quotation_number']}');
           await tapButton(tester, stepToStatus.key);
           final String asked = noticeText(tester);
@@ -91,7 +93,7 @@ void main() {
 
     // -- Sales order -------------------------------------------------------
     Json? order;
-    await flow.step('order: converted order exists with sound figures',
+    await flow.step('SC-SO-002 order: converted order exists with sound figures',
         () async {
       order = await server.newest('sales-orders');
       if (order == null) throw StateError('no sales order on the server');
@@ -107,7 +109,7 @@ void main() {
       if (fault != null) throw StateError(fault);
     });
     if (order != null) {
-      await flow.step('order: list shows it, approve', () async {
+      await flow.step('SC-SO-003 order: list shows it, approve', () async {
         await openMenu(tester, 'sell', 'salesOrders');
         final String number = '${order!['order_number']}';
         await selectRow(tester, number);
@@ -132,7 +134,7 @@ void main() {
     // -- Delivery note -----------------------------------------------------
     Json? note;
     if (order != null && '${order!['status']}' == 'APPROVED') {
-      await flow.step('delivery note: new off the order, save', () async {
+      await flow.step('SC-DN-002 delivery note: new off the order, save', () async {
         await openMenu(tester, 'sell', 'deliveryNotes/delivery-notes');
         await tapNew(tester);
         await chooseIn(
@@ -147,7 +149,7 @@ void main() {
         }
       });
       if (note != null) {
-        await flow.step('delivery note: approve (dispatch)', () async {
+        await flow.step('SC-DN-003 delivery note: approve (dispatch)', () async {
           await selectRow(tester, docNumber(note!));
           await tapButton(tester, 'Approve');
           await confirmIfAsked(tester);
@@ -157,7 +159,7 @@ void main() {
             throw StateError('still DRAFT after Approve');
           }
         });
-        await flow.step('delivery note: dispatch', () async {
+        await flow.step('SC-DN-004 delivery note: dispatch', () async {
           await selectRow(tester, docNumber(note!));
           await tapButton(tester, 'Dispatch');
           final String asked = noticeText(tester);
@@ -186,7 +188,7 @@ void main() {
     // -- Sales invoice -----------------------------------------------------
     Json? invoice;
     if (note != null) {
-      await flow.step('invoice: new, bill the note, save', () async {
+      await flow.step('SC-SB-002 invoice: new, bill the note, save', () async {
         await openMenu(tester, 'sell', 'salesInvoices/sales-invoices');
         await tapNew(tester);
         await chooseIn(tester, 'sales-invoice-bill-customer', 'Vijaya Stores');
@@ -213,7 +215,7 @@ void main() {
         }
       });
       if (invoice != null) {
-        await flow.step('invoice: approve', () async {
+        await flow.step('SC-SB-003 invoice: approve', () async {
           await selectRow(tester, docNumber(invoice!));
           await tapButton(tester, 'Approve');
           await confirmIfAsked(tester);
@@ -234,7 +236,7 @@ void main() {
 
     // -- Receipt -----------------------------------------------------------
     if (invoice != null) {
-      await flow.step('receipt: record against the bill', () async {
+      await flow.step('SC-RC-002 receipt: record against the bill', () async {
         await openMenu(tester, 'sell', 'accounting/receipts');
         await tapNew(tester);
         await typeLabelled(tester, 'Received from', 'Vijaya');
@@ -265,7 +267,7 @@ void main() {
 
     // -- Sales return ------------------------------------------------------
     if (invoice != null) {
-      await flow.step('return: new off the bill, save, approve', () async {
+      await flow.step('SC-SR-002 SC-SR-003 return: new off the bill, save, approve', () async {
         await openMenu(tester, 'sell', 'salesReturns');
         await tapNew(tester);
         await chooseIn(

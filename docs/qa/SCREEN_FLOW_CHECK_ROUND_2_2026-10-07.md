@@ -49,21 +49,49 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 ## Notes
 
 <!-- HAND:NOTES -->
+**How it was run.** From `desktop/` in Git Bash, with `IT_EMAIL`, `IT_PASSWORD` exported in the same command as `run.sh` (an export in an earlier call is gone, and the run then signs in as the demo firm's admin): administrator for the negatives, positives and the two-user cases (the second user works over HTTP through `asUser(handle)` with that user's own token), then once per role handle (`qsexe`, `qsmgr`, `qstore`, `qro`) for the Role cases:
 
+    for h in qsexe qsmgr qro; do IT_EMAIL=t10069cwy.$h@fixtures.local IT_PASSWORD=Fixture@2026pw LIMIT=300 bash integration_test/run.sh sc_so_test.dart; done
+    python docs/qa/tools/stamp_screen_results.py <log files>
+
+**Self-exits of the app (exit 79 in round 1): none in about 22 runs this round.**
+**Backend dropping connections:** `Connection closed before full header was received` hit a read-back twice in the positive selling flow and a few `curl` calls returned no answer; the harness now retries a GET up to three times. Worth finding on the server side (it is the same symptom as SCRQ-4's trigger).
+**Harness traps found:** notifications are `SelectableText`, so a text dump that reads only `Text` never sees a toast (the round 1 negative draft missed every one); a toast lives about four seconds, so it has to be read while it is up (`watch` in `cases.dart`); the grid lists do not reload when a screen is reopened (SCRQ-26), so a flow presses Refresh; `enterText` raises no key event, so it does not arm the close guard the way typing does (the Cancel finding does not depend on that: Cancel pops without asking).
+**Not run this round** (so their book rows stay blank): SB, RC, SR, PO, GR, PB, PY, PR, OF, CP, LY, CM, PC and the rest of the book, and the Positive cases that the three flows do not cover. SO and DN Negative/Role/Multi-user cases are done except those logged SKIP with a reason. SO-022 (credit warning), SO-028 (offer cap), SO-026, SO-013 (bulk tick), DN-014, DN-016, DN-020, DN-022, DN-029 are SKIP.
+**Left behind in the fixture firm:** about 110 sales orders and 15 delivery notes (drafts, approved, cancelled), a stock adjustment topping Detergent up by a few hundred, no change to masters. `negative_flow_test.dart` and `roles_flow_test.dart` were not deleted: they still hold cases for other features (quotation, return, purchase and the menu walk) that have no per-feature file yet.
 <!-- /HAND:NOTES -->
 
 ## Tally by feature
 
 | Feature | Counts (kind result: n) |
 | --- | --- |
-| DN | Multi-user FAIL: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 5, Negative SKIP: 4, Positive PASS: 1, Role PASS: 3 |
-| SO | Multi-user PASS: 3, Negative FAIL: 3, Negative PASS: 7, Negative SKIP: 3, Positive PASS: 5, Positive SKIP: 1, Role PASS: 4 |
+| CM | Positive PASS: 1 |
+| CP | Positive PASS: 1 |
+| DN | Multi-user FAIL: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 5, Negative SKIP: 4, Positive PASS: 4, Role PASS: 3 |
+| GR | Positive PASS: 1 |
+| OF | Positive PASS: 2 |
+| PB | Positive PASS: 2 |
+| PC | Positive PASS: 1 |
+| PL | Positive PASS: 2 |
+| PO | Positive PASS: 4 |
+| PR | Positive PASS: 2 |
+| PY | Positive PASS: 1 |
+| QT | Positive PASS: 6 |
+| RC | Positive PASS: 1 |
+| SB | Positive PASS: 2 |
+| SO | Multi-user PASS: 3, Negative FAIL: 3, Negative PASS: 7, Negative SKIP: 3, Positive PASS: 8, Positive SKIP: 1, Role PASS: 4 |
+| SR | Positive PASS: 2 |
 
 ## Result per case
 
 | Id | Kind | Result | What the screen showed | Flow file |
 | --- | --- | --- | --- | --- |
+| SC-CM-002 | Positive | PASS | - | `pricing_flow_test.dart` |
+| SC-CP-001 | Positive | PASS | - | `pricing_flow_test.dart` |
 | SC-DN-001 | Positive | PASS | columns present | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-002 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-DN-003 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-DN-004 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-DN-013 | Negative | PASS | note: :: quantity-related text on screen after Save: Stock / Delivery Notes / New delivery note / New delivery note / Save delivery note / Line 1 delivers 99999 where SO-2026-2027-000107 has 1 left to deliver of the 1 ordered. Change the line to what is left. / Delivery date / Reserved; open=true, saved=0, said="Seventy nine lakh ninety nine thousand nine hundred twenty only / Value at the order's rates, before tax  79,99,920.00" | `sc_dn_test.dart` (tradeadmin) |
 | SC-DN-014 | Negative | SKIP | stock cannot be set to 5 without moving the firm; on hand is 82 and approved orders reserve more than that (see SCRQ findings on over-reservation) | `sc_dn_test.dart` (tradeadmin) |
 | SC-DN-015 | Negative | FAIL | note: :: server approved list has SO-2026-2027-000112; the box offers SO-2026-2027-000107  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000106  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000105  07-10-2026  Vijaya Stores t10069cwy first; an order approved after Delivery Notes was opened (SO-2026-2027-000112) is not in the order box (known SCRQ-27); approved order offered=true, draft order offered=false; an order approved after the page opened offered=false | `sc_dn_test.dart` (tradeadmin) |
@@ -80,7 +108,34 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-DN-026 | Role | PASS | stages PUT answered 403 (HTTP level) | `sc_dn_test.dart` (qsmgr) |
 | SC-DN-029 | Multi-user | SKIP | the delivery note editor only creates; a saved note cannot be opened for change on screen, so there is no second session to race | `sc_dn_test.dart` (tradeadmin) |
 | SC-DN-030 | Multi-user | FAIL | Bad state: N1: Dispatch of a note another user had already dispatched said nothing after the dialog was confirmed | `sc_dn_test.dart` (tradeadmin) |
+| SC-GR-002 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-OF-002 | Positive | PASS | - | `pricing_flow_test.dart` |
+| SC-OF-012 | Positive | PASS | - | `pricing_flow_test.dart` |
+| SC-PB-002 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PB-003 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PC-005 | Positive | PASS | - | `pricing_flow_test.dart` |
+| SC-PL-002 | Positive | PASS | - | `pricing_flow_test.dart` |
+| SC-PL-003 | Positive | PASS | - | `pricing_flow_test.dart` |
+| SC-PO-002 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PO-003 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PO-004 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PO-005 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PR-002 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PR-003 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PY-002 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-QT-002 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-QT-003 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-QT-005 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-QT-006 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-QT-007 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-QT-008 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-RC-002 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-SB-002 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-SB-003 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-SO-001 | Positive | PASS | columns present; cards: Draft, Approved, Cancelled, Closed, Draft, Draft | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-002 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-SO-003 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-SO-005 | Positive | PASS | - | `pricing_flow_test.dart` |
 | SC-SO-006 | Positive | PASS | quantity 5 saved, total 472.0 | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-007 | Positive | PASS | status APPROVED, on hold true, notice "SO-2026-2027-000070 is on hold." | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-008 | Positive | PASS | status APPROVED, on hold false, notice "SO-2026-2027-000070 released." | `sc_so_test.dart` (tradeadmin) |
@@ -106,3 +161,5 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-SO-034 | Multi-user | PASS | note: :: the storekeeper (INVENTORY_MANAGER) is refused the order list with 403 and is not offered Delivery Notes; 01_ROLES R06 lists no Sell screen for it, so the hand over to the warehouse cannot happen on screen; warehouse list answered 403, holds the order: false | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-035 | Multi-user | PASS | status CANCELLED, on hold true, screen says "SO-2026-2027-000076 cancelled. Its stock is released." | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-036 | Multi-user | PASS | row reads: SO-2026-2027-000078 / Vijaya Stores t10069cwy / 2026-10-07 02:03 / Approved / 94.40 | `sc_so_test.dart` (tradeadmin) |
+| SC-SR-002 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-SR-003 | Positive | PASS | - | `selling_flow_test.dart` |

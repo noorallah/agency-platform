@@ -347,7 +347,23 @@ class Server {
   static const String _base = String.fromEnvironment('API_BASE_URL',
       defaultValue: 'http://127.0.0.1:8000');
 
+  /// The backend sometimes drops a connection ("Connection closed before
+  /// full header was received"); a read that is only a second opinion is
+  /// tried again rather than failing the step it is checking.
   static Future<Json> _send(HttpClient client, String method, String path,
+      {Json? body, String? token, String? firm}) async {
+    for (int attempt = 1;; attempt++) {
+      try {
+        return await _sendOnce(client, method, path,
+            body: body, token: token, firm: firm);
+      } on HttpException {
+        if (attempt >= 3 || method != 'GET') rethrow;
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+    }
+  }
+
+  static Future<Json> _sendOnce(HttpClient client, String method, String path,
       {Json? body, String? token, String? firm}) async {
     final HttpClientRequest request =
         await client.openUrl(method, Uri.parse('$_base$path'));

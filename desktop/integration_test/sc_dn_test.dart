@@ -68,7 +68,7 @@ void main() {
 
     if (itHandle == 'tradeadmin') {
       await topUpStock(admin);
-      final Json order10 = await approvedOrder(10);
+      await approvedOrder(10);
       final Json draftOrder = await apiDraftOrder(admin, quantity: 3);
       final Json order3 = await approvedOrder(3);
       final Json order2 = await approvedOrder(2);
