@@ -786,12 +786,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     return trimmed;
   }
 
-  /// A fresh line, defaulted to the first product so the row is savable as it
-  /// stands rather than starting invalid.
-  _LineDraft _newLine() {
-    final String? productId = _products.isEmpty ? null : _products.first.id;
-    return _LineDraft(productId: productId, unitPrice: _priceOf(productId));
-  }
+  /// A fresh line: no product and no quantity, so Save names what is missing
+  /// rather than drafting an order for a product nobody chose (D-UI-22).
+  _LineDraft _newLine() =>
+      _LineDraft(productId: null, quantity: '', unitPrice: _priceOf(null));
 
   void _addLine() {
     final _LineDraft line = _newLine();

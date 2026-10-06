@@ -383,6 +383,12 @@ void main() {
     await tester.tap(find.text('Raise debit note'));
     await tester.pumpAndSettle();
 
+        // Nothing is chosen for a person (D-UI-22): pick the invoice.
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('SI-2026-0009').last);
+    await tester.pumpAndSettle();
+
     expect(find.textContaining('Toothpaste 100g'), findsWidgets);
     expect(find.text('Line 1'), findsNothing);
   });
@@ -424,6 +430,11 @@ void main() {
     await tester.tap(find.textContaining('New').last);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+    // Nothing is chosen for a person (D-UI-22): pick the invoice.
+    await tester.tap(find.byKey(const ValueKey('customer-debit-note-invoice')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('SI-2026-0009').last);
+    await tester.pumpAndSettle();
 
     // The invoice's line is on screen, named by its product.
     expect(find.text('Toothpaste 100g'), findsWidgets);

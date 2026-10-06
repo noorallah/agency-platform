@@ -25,6 +25,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/first_line.dart';
+
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
@@ -522,6 +524,11 @@ void main() {
       ));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
+      await fillFirstLine(
+        tester,
+        document: 'sales-order',
+        product: 'Shampoo',
+      );
 
       Finder lineBoxes() => find.descendant(
             of: find.byKey(const ValueKey<String>('sales-order-line-0')),

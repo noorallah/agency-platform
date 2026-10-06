@@ -820,10 +820,10 @@ class _CustomerDebitNoteDialogState extends State<CustomerDebitNoteDialog> {
       if (!mounted) return;
       setState(() {
         _invoices = invoices;
-        _invoiceId = invoices.isEmpty ? '' : invoices.first.id;
-        _lineId = invoices.isEmpty || invoices.first.lines.isEmpty
-            ? ''
-            : invoices.first.lines.first.id;
+        // Nothing chosen until a person chooses: the first invoice is
+        // nobody's choice (D-UI-22); Save says what is missing.
+        _invoiceId = '';
+        _lineId = '';
         _loading = false;
       });
     } on ApiException catch (error) {
@@ -911,7 +911,7 @@ class _CustomerDebitNoteDialogState extends State<CustomerDebitNoteDialog> {
                     else ...[
                       DropdownButtonFormField<String>(
                         isExpanded: true,
-                        initialValue: _invoiceId,
+                        initialValue: _invoiceId.isEmpty ? null : _invoiceId,
                         decoration: const InputDecoration(
                           labelText: 'Invoice',
                           helperText: 'The supply being added to.',
