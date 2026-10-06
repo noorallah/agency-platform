@@ -62,6 +62,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.common.firm_metadata import firm_day_after
 from app.core.exceptions import ValidationError
+from app.core.utils.chunks import chunks
 from app.core.utils.money import ZERO, quantize_ledger
 from app.debit_note.models import DebitNote
 from app.finance.currency import rupee_rate_sql
@@ -269,9 +270,40 @@ class PayablesReportService:
                 figures[vendor] = _Acc(amounts=[ZERO] * width, counts=[0] * width)
             return figures[vendor]
 
-        for row in self._session.execute(
-            self._bills_statement(firm_id, as_of, vendor_id, branch_id)
-        ).all():
+        # The header figures returns claimed back from each bill -- their
+        # additional charges and round-off, which no line carries (D-PRC-83).
+        # Imported here: that module reads this package's models.
+        from app.settlements.services.supplier_credits import return_header_parts
+
+        header_parts = return_header_parts(
+            self._session, firm_id=firm_id, vendor_id=vendor_id, as_of=as_of
+        )
+        headers: dict[UUID, Decimal] = {}
+        header_by_return: dict[UUID, Decimal] = {}
+        for header in header_parts:
+            headers[header.purchase_invoice_id] = (
+                headers.get(header.purchase_invoice_id, ZERO) + header.amount
+            )
+            header_by_return[header.purchase_return_id] = (
+                header_by_return.get(header.purchase_return_id, ZERO) + header.amount
+            )
+        rows: list[Any] = list(
+            self._session.execute(
+                self._bills_statement(firm_id, as_of, vendor_id, branch_id)
+            ).all()
+        )
+        # A bill everything else has squared is dropped by the statement; its
+        # header figure still has to be read against it.
+        listed = {row.bill_id for row in rows}
+        rows.extend(
+            self._squared_bills(
+                firm_id,
+                as_of,
+                branch_id,
+                [bill for bill in headers if bill not in listed],
+            )
+        )
+        for row in rows:
             owed = (
                 _money(row.total)
                 - _money(row.allocated)
@@ -279,6 +311,7 @@ class PayablesReportService:
                 - _money(row.debited)
                 - _money(row.adjusted)
                 - _money(row.applied)
+                - headers.get(row.bill_id, ZERO)
             )
             if abs(owed) <= NOISE:
                 continue
@@ -299,7 +332,7 @@ class PayablesReportService:
                 figures_for.amounts[index] += owed
                 figures_for.counts[index] += 1
         for vendor, amount in self._unbilled_returns(
-            firm_id, as_of, vendor_id, branch_id
+            firm_id, as_of, vendor_id, branch_id, header_by_return
         ).items():
             acc(vendor).credits -= amount
         for vendor, amount in self._credit_applied(
@@ -312,6 +345,50 @@ class PayablesReportService:
             for vendor, amount in self._refunds(firm_id, as_of, vendor_id).items():
                 acc(vendor).credits += amount
         return figures
+
+    def _squared_bills(
+        self,
+        firm_id: UUID,
+        as_of: date,
+        branch_id: UUID | None,
+        bill_ids: list[UUID],
+    ) -> list[Any]:
+        """Return bills the main statement dropped as owing nothing.
+
+        Each as a row of that statement with nothing left on it: its total
+        and what came off it cancelled out there, so only what the caller
+        adds -- a return's header figure -- is left to read (D-PRC-83).
+        """
+        found: list[Any] = []
+        for part in chunks(bill_ids):
+            found.extend(
+                self._session.execute(
+                    select(
+                        PurchaseInvoice.id.label("bill_id"),
+                        PurchaseInvoice.vendor_id.label("vendor_id"),
+                        PurchaseInvoice.invoice_date.label("bill_date"),
+                        PurchaseInvoice.due_date.label("due_date"),
+                        literal(0).label("total"),
+                        literal(0).label("allocated"),
+                        literal(0).label("returned"),
+                        literal(0).label("debited"),
+                        literal(0).label("adjusted"),
+                        literal(0).label("applied"),
+                    ).where(
+                        PurchaseInvoice.firm_id == firm_id,
+                        PurchaseInvoice.id.in_(part),
+                        PurchaseInvoice.is_deleted.is_(False),
+                        PurchaseInvoice.status.in_(OWING_STATES),
+                        PurchaseInvoice.invoice_date <= as_of,
+                        *(
+                            ()
+                            if branch_id is None
+                            else (PurchaseInvoice.branch_id == branch_id,)
+                        ),
+                    )
+                ).all()
+            )
+        return found
 
     def _bills_statement(
         self,
@@ -545,12 +622,15 @@ class PayablesReportService:
         as_of: date,
         vendor_id: UUID | None,
         branch_id: UUID | None,
+        header_by_return: dict[UUID, Decimal],
     ) -> dict[UUID, Decimal]:
-        """Sum what returns debited payables with beyond their bills' lines.
+        """Sum what returns debited payables with beyond what came off bills.
 
         What a return's posting debited (`return_billed_amounts`, D-BUY-26)
         less its bill-sourced lines, each rounded per bill as the bill counts
-        them, so the two parts add up to the journal exactly.
+        them, so the two parts add up to the journal exactly -- and less
+        ``header_by_return``, the header figures each return claimed back
+        from those bills, which the bills carry too (D-PRC-83).
         """
         from app.purchase_return.services.purchase_return_service import (
             return_billed_amounts,
@@ -616,6 +696,9 @@ class PayablesReportService:
             )
         ).all():
             on_bills[return_id] = on_bills.get(return_id, ZERO) + _money(amount)
+        # And the header figures it claimed back from those bills (D-PRC-83).
+        for return_id, amount in header_by_return.items():
+            on_bills[return_id] = on_bills.get(return_id, ZERO) + amount
         credit: dict[UUID, Decimal] = {}
         for row in returns:
             # What the posting debited payables with, at the ledger's scale.

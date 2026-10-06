@@ -1098,9 +1098,14 @@ class SettlementService(TransactionalDocumentService):
     ) -> dict[UUID, Decimal]:
         """Sum what completed purchase returns sent back off each bill's lines.
 
-        In rupees at the bill's own rate, or in the bill's currency.
+        With the lines, the header figures a return claimed back from the
+        bill -- its ``additional_charges`` and ``round_off`` -- which are in
+        the payables debit its journal posted and in no line
+        (``return_header_parts``, D-PRC-83). In rupees at the bill's own
+        rate, or in the bill's currency.
         """
         from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+        from app.settlements.services.supplier_credits import return_header_parts
 
         rupees: Any = (
             literal(1)
@@ -1109,7 +1114,7 @@ class SettlementService(TransactionalDocumentService):
                 PurchaseInvoice.currency_code, PurchaseInvoice.exchange_rate
             )
         )
-        return {
+        taken = {
             invoice_id: Decimal(str(total))
             for invoice_id, total in self._session.execute(
                 select(
@@ -1137,6 +1142,16 @@ class SettlementService(TransactionalDocumentService):
                 .group_by(PurchaseReturnLine.source_document_id)
             ).all()
         }
+        for header in return_header_parts(
+            self._session,
+            firm_id=firm_id,
+            invoice_ids=invoice_ids,
+            in_currency=in_currency,
+        ):
+            taken[header.purchase_invoice_id] = (
+                taken.get(header.purchase_invoice_id, ZERO) + header.amount
+            )
+        return taken
 
     def list_settlements(
         self,

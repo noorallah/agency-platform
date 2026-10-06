@@ -43,6 +43,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSourceType,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_invoice.services.payables_report import PayablesReportService
 from app.purchase_return.billing import bill_line_claims
 from app.purchase_return.models import (
     PurchaseReturn,
@@ -59,6 +60,8 @@ from app.purchase_return.services.purchase_return_service import (
     return_tax_by_component,
 )
 from app.sales.models import GeoCountry
+from app.settlements.models import SupplierCreditApplication
+from app.settlements.services.settlement_service import PaymentService
 from app.settlements.services.supplier_credits import supplier_credits
 from app.tax.schemas import (
     TaxComponentWrite,
@@ -1605,3 +1608,163 @@ def test_an_open_return_of_an_unbilled_unit_takes_nothing_of_the_bill() -> None:
     assert _bill_status(fixture, bill) == "CANCELLED"
     _complete(fixture, waiting)
     assert _split(fixture.session, waiting)[0] == D("1.0000")
+
+
+# A return's header figures come off the bill as well as the account (D-PRC-83).
+
+
+def _owes(fixture: _Fixture) -> dict[UUID, D]:
+    """Return what each of the firm's supplier bills still owes in Record Payment."""
+    fixture.session.expire_all()
+    return {
+        record.invoice_id: record.outstanding_amount
+        for record in PaymentService(fixture.session).outstanding_invoices(
+            firm_id=fixture.firm.id, party_id=None
+        )
+    }
+
+
+def _payables(fixture: _Fixture) -> tuple[D, D, D | None]:
+    """Return the payables report's credits, total and gap to the ledger."""
+    report = PayablesReportService(fixture.session).report(
+        fixture.firm.id, as_of=date(2026, 8, 31)
+    )
+    return report.total.credits, report.total.total, report.books_check.difference
+
+
+def test_a_bill_returned_in_full_with_its_header_charge_owes_nothing() -> None:
+    """2 billed 236.00 and 100.00 of header charges, all of it claimed back.
+
+    The bill went on reading 100.00 outstanding beside a supplier credit of
+    100.00: offered in Record Payment and aged, for goods all returned.
+    """
+    fixture, receipt = _received("H83F", "2")
+    bill = _bill_at(fixture, receipt, "2", header_charges="100")
+    assert _owes(fixture) == {bill.id: D("336.00")}
+
+    return_id = _typed_return(fixture, "2", bill=bill, header_charges="100")
+    _complete(fixture, return_id)
+
+    assert _owes(fixture) == {}
+    assert _credit(fixture, return_id) == D("0")
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+    assert _payables(fixture) == (D("0.00"), D("0.00"), D("0.00"))
+
+
+def test_a_header_credit_already_set_against_its_bill_leaves_it_settled() -> None:
+    """The workaround on file from before: the 100.00 "credit" applied by hand.
+
+    The bill now reads the 100.00 off twice; the excess is the return's
+    credit again, used in full by that application, so the bill is settled,
+    nothing is left to apply and the report still agrees with the ledger.
+    """
+    fixture, receipt = _received("H83A", "2")
+    bill = _bill_at(fixture, receipt, "2", header_charges="100")
+    return_id = _typed_return(fixture, "2", bill=bill, header_charges="100")
+    _complete(fixture, return_id)
+    row = fixture.session.get(PurchaseReturn, return_id)
+    assert row is not None
+    fixture.session.add(
+        SupplierCreditApplication(
+            firm_id=fixture.firm.id,
+            vendor_id=row.vendor_id,
+            purchase_return_id=return_id,
+            purchase_invoice_id=bill.id,
+            applied_on=date(2026, 8, 9),
+            amount=D("100"),
+            created_by=fixture.actor_id,
+            updated_by=fixture.actor_id,
+        )
+    )
+    fixture.session.commit()
+
+    assert _owes(fixture) == {}
+    [credit] = supplier_credits(
+        fixture.session, firm_id=fixture.firm.id, source_ids=[return_id]
+    )
+    assert (credit.credit_amount, credit.available_amount) == (D("100.00"), D("0"))
+    assert _payables(fixture) == (D("0.00"), D("0.00"), D("0.00"))
+
+
+def test_a_header_charge_claimed_back_in_parts_comes_off_the_bill_each_time() -> None:
+    """One unit and 60.00 of the 100.00, then the other unit and the last 40.00."""
+    fixture, receipt = _received("H83P", "2")
+    bill = _bill_at(fixture, receipt, "2", header_charges="100")
+
+    first = _typed_return(fixture, "1", bill=bill, header_charges="60")
+    _complete(fixture, first)
+    # 336.00, less the unit's 118.00 and the 60.00 claimed back with it.
+    assert _owes(fixture) == {bill.id: D("158.00")}
+    assert _credit(fixture, first) == D("0")
+    assert _payables(fixture) == (D("0.00"), D("158.00"), D("0.00"))
+
+    second = _typed_return(fixture, "1", bill=bill, header_charges="40")
+    _complete(fixture, second)
+    assert _owes(fixture) == {}
+    assert _credit(fixture, second) == D("0")
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+
+
+def test_a_return_off_the_receipt_keeps_its_header_charge_as_credit() -> None:
+    """Off the receipt nothing comes off the bill, header charge included.
+
+    The whole return stands as a supplier credit to set against the bill,
+    as it always has: only a line raised off a bill comes off it.
+    """
+    fixture, receipt = _received("H83R", "2")
+    bill = _bill_at(fixture, receipt, "2", header_charges="100")
+
+    return_id = _typed_return(fixture, "2", receipt=receipt, header_charges="100")
+    _complete(fixture, return_id)
+
+    assert _owes(fixture) == {bill.id: D("336.00")}
+    assert _credit(fixture, return_id) == D("336.00")
+    assert _payables(fixture) == (D("-336.00"), D("0.00"), D("0.00"))
+
+
+def test_a_header_charge_is_shared_over_the_bills_a_return_names() -> None:
+    """Bills charging 100.00 and 50.00, a unit off each with 90.00: 60.00 and 30.00.
+
+    In proportion to the header charges each bill made, as the selling side
+    shares them (D-PRC-74): the bills read 40.00 and 20.00 outstanding.
+    """
+    fixture, receipt = _received("H83S", "2")
+    first = _bill_at(fixture, receipt, "1", header_charges="100")
+    second = _bill_at(fixture, receipt, "1", price="90", header_charges="50")
+    assert _owes(fixture) == {first.id: D("218.00"), second.id: D("156.20")}
+    kind = PurchaseReturnSourceType.PURCHASE_INVOICE
+    returns = PurchaseReturnService(fixture.session)
+    sent = returns.create_return(
+        PurchaseReturnCreate(
+            return_date=date(2026, 8, 8),
+            warehouse_id=fixture.warehouse.id,
+            additional_charges=D("90"),
+            source_documents=[
+                {"source_document_type": kind, "source_document_id": bill.id}
+                for bill in (first, second)
+            ],
+            lines=[
+                PurchaseReturnLineWrite(
+                    source_document_type=kind,
+                    source_document_id=bill.id,
+                    source_document_line_id=_bill_line(fixture, bill).id,
+                    line_number=number,
+                    current_return_quantity=D("1"),
+                    warehouse_id=fixture.warehouse.id,
+                )
+                for number, bill in enumerate((first, second), start=1)
+            ],
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    returns.approve_return(
+        sent.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    fixture.session.commit()
+    _complete(fixture, sent.id)
+
+    assert _owes(fixture) == {first.id: D("40.00"), second.id: D("20.00")}
+    assert _credit(fixture, sent.id) == D("0")
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("-60.00")
+    assert _payables(fixture) == (D("0.00"), D("60.00"), D("0.00"))

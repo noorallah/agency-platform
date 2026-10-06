@@ -668,6 +668,28 @@ against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
 - **Not changed:** what a bill still *owes* in Record Payment. A return
   raised off the receipt does not come off its bill there; it stands as a
   supplier credit to set against it, as before.
+- **A return's header figures come off the bill as well as the account**
+  (D-PRC-83, 2026-10-06, the buying twin of D-PRC-74;
+  `return_header_parts` in `app/settlements/services/supplier_credits.py`).
+  A return's `additional_charges` and `round_off` are in its total and in
+  the payables debit its journal posted, and in no line; a bill counted
+  only the lines returned off it. So a bill of 1,799.20 returned in full
+  with its 100.00 of charges claimed back read 100.00 outstanding beside a
+  supplier credit of 100.00 -- offered in Record Payment, aged, and able to
+  take a payment nobody owed. They now come off the bills the return's
+  lines **name**, shared in proportion to the header charges those bills
+  made (bills charging 100.00 and 50.00, a unit off each with 90.00 claimed
+  back: 60.00 and 30.00; a round-off alone follows what the lines took off
+  each), and the same amount comes off the return's credit, so the
+  supplier's balance moves once. Record Payment, the supplier credits
+  list, the outstanding and overdue reports, the payables report and a
+  debit note's room all read the one function. Where a return also has
+  lines off a goods receipt, the share of the header belonging to the bills
+  those lines were placed on (`purchase_return_bill_placements`) stays
+  supplier credit with the lines' own value; a return with no line off a
+  bill gives all of it as credit, as before. Nothing is posted and nothing
+  on file is restated: a bill that read a header charge as outstanding
+  reads it settled from the next read, and the credit beside it is gone.
 - The quantities are compared as stored, in the source line's unit: a bill
   line and its receipt line share the purchase unit. A return typed in
   another unit (`return_uom_id`) is converted into it first, and the stock
