@@ -33,6 +33,7 @@ from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.validation.payloads import parse_payload
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.inventory.services.repacking import RepackResponse, RepackService
 from app.products.models import Product
@@ -243,7 +244,7 @@ async def import_products(
     if format == "json":
         if payload is None:
             raise ValidationError("payload is required for JSON import.")
-        records = ProductImportRequest.model_validate_json(payload).records
+        records = parse_payload(ProductImportRequest, payload).records
         rows = service.import_products_json(
             records, firm_scope=scope.firm_id, actor_id=scope.actor_id
         )

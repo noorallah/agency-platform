@@ -31,6 +31,7 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.validation.payloads import parse_payload
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
     BulkApproveRequest,
@@ -308,7 +309,7 @@ async def import_purchase_orders(
         if payload is None:
             raise ValidationError("payload is required for JSON import.")
         rows = service.import_orders(
-            PurchaseOrderImportRequest.model_validate_json(payload),
+            parse_payload(PurchaseOrderImportRequest, payload),
             firm_scope=scope.firm_id,
             actor_id=scope.actor_id,
         )

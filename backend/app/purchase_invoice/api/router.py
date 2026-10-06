@@ -33,6 +33,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.pagination.reports import ReportRows
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.validation.payloads import parse_payload
 from app.document_files.api import download_response, read_upload
 from app.document_files.schemas import DocumentFileResponse
 from app.document_files.services import DocumentFileService, FileParent
@@ -1174,7 +1175,7 @@ async def import_purchase_invoices(
         raise ValidationError("payload is required for JSON import.")
     service = PurchaseInvoiceService(db)
     rows = service.import_invoices(
-        PurchaseInvoiceImportRequest.model_validate_json(payload),
+        parse_payload(PurchaseInvoiceImportRequest, payload),
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
