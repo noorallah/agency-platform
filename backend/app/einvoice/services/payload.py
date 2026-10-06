@@ -192,6 +192,13 @@ class EInvoicePayloadBuilder:
             ).all()
         }
         taxes = self._taxes_by_line([line.id for line in lines])
+        # The one answer the printed bill gives for each line's quantity and
+        # rate. Imported here: the print service reads this module's stamp.
+        from app.sales_invoice.services.invoice_print_service import (
+            stated_invoice_lines,
+        )
+
+        stated = stated_invoice_lines(self._session, lines, products)
 
         item_list: list[dict[str, object]] = []
         splits: list[GstBuckets] = []
@@ -248,15 +255,18 @@ class EInvoicePayloadBuilder:
                     )[:300],
                     "IsServc": "N",
                     "HsnCd": hsn,
-                    "Qty": float(line.current_invoice_quantity),
+                    # As the printed bill states the line -- 24 at 100.00
+                    # for a bill typed 24 PIECE of a note of 2 BOX, not the
+                    # 2 at 1,200.00 the row stores (D-PRC-40).
+                    "Qty": float(stated[line.id].quantity),
                     # Free goods are stated so the consignment reconciles, and
                     # are outside the taxable value -- the same rule the bill
                     # itself follows.
-                    "FreeQty": float(line.free_quantity),
+                    "FreeQty": float(stated[line.id].free_quantity),
                     # Three decimals for a price, two for every amount: the
                     # schema's own limits (D-CMP-13 found four going out).
                     "UnitPrice": float(
-                        Decimal(str(line.unit_price)).quantize(Decimal("0.001"))
+                        Decimal(str(stated[line.id].rate)).quantize(Decimal("0.001"))
                     ),
                     "TotAmt": _paise(line.gross_amount),
                     "Discount": _paise(

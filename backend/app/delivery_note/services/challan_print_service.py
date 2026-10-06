@@ -234,13 +234,18 @@ class DeliveryChallanPrintService:
             ).all()
         )
         products = self._products(line.product_id for line in lines)
-        units = self._units(line.sales_uom_id for line in lines)
+        # A line that names no selling unit is counted in its stock unit,
+        # and prints that rather than no unit at all (D-PRC-40).
+        units = self._units(
+            line.sales_uom_id or line.inventory_uom_id for line in lines
+        )
 
         drawn = self._drawn([line.id for line in lines])
         printed: list[InvoiceLineBlock] = []
         for line in lines:
             product = products.get(line.product_id)
-            unit = units.get(line.sales_uom_id) if line.sales_uom_id else None
+            unit_id = line.sales_uom_id or line.inventory_uom_id
+            unit = units.get(unit_id) if unit_id else None
             whole = InvoiceLineBlock(
                 number=line.line_number,
                 description=line.description or (product.name if product else "") or "",

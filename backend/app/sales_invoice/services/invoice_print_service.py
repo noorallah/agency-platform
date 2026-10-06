@@ -9,6 +9,7 @@ same reason.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from decimal import Decimal
 from uuid import UUID
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.core.exceptions import ResourceNotFoundError
-from app.delivery_note.models import DeliveryNote
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.document_framework.services.print_support import (
     customer_party,
     load_template,
@@ -44,9 +45,10 @@ from app.sales_invoice.services.invoice_pdf import (
     TemplateSettings,
 )
 from app.sales_invoice.services.upi_qr import UpiPayment, upi_payment
-from app.sales_order.models import SalesOrder
+from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.trade_licences.services import TradeLicenceService
 from app.uom.models import Uom
+from app.uom.services import StatedLine, stated_line, stock_unit_of
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "SALES_INVOICE"
@@ -189,6 +191,83 @@ def _shipped_as_typed(
     return _as_typed_at_the_counter(ship_to, invoice)
 
 
+def stated_invoice_lines(
+    session: Session,
+    lines: Sequence[SalesInvoiceLine],
+    products: Mapping[UUID, Product] | None = None,
+) -> dict[UUID, StatedLine]:
+    """Return each bill line's quantity, unit and rate as the bill states them.
+
+    One answer for the printed tax invoice and the e-invoice sent to the
+    portal, so the two cannot state a line differently. A line typed in
+    another unit than the line it bills is stated as typed -- 24 PIECE at
+    100.00; any other in the unit its quantity is in, which is the unit of
+    the note or order line it bills, read off that line: a box line billed
+    in its own unit names no ``invoice_uom_id`` and printed no unit at all
+    while its order and its challan printed BOX (D-PRC-40). ``order_uom_id``
+    answers for a line whose source is gone, and the product's stock unit
+    for a line that names none anywhere.
+    """
+    note_ids = [
+        line.source_document_line_id
+        for line in lines
+        if line.source_document_type == "DELIVERY_NOTE"
+    ]
+    order_ids = [
+        line.source_document_line_id
+        for line in lines
+        if line.source_document_type != "DELIVERY_NOTE"
+    ]
+    source_units: dict[UUID, UUID | None] = {}
+    if note_ids:
+        for line_id, unit, stock in session.execute(
+            select(
+                DeliveryNoteLine.id,
+                DeliveryNoteLine.sales_uom_id,
+                DeliveryNoteLine.inventory_uom_id,
+            ).where(DeliveryNoteLine.id.in_(note_ids))
+        ).all():
+            source_units[line_id] = unit or stock
+    if order_ids:
+        for line_id, unit, stock in session.execute(
+            select(
+                SalesOrderLine.id,
+                SalesOrderLine.sales_uom_id,
+                SalesOrderLine.inventory_uom_id,
+            ).where(SalesOrderLine.id.in_(order_ids))
+        ).all():
+            source_units[line_id] = unit or stock
+    if products is None:
+        products = {
+            product.id: product
+            for product in session.scalars(
+                select(Product).where(
+                    Product.id.in_([line.product_id for line in lines] or [None])
+                )
+            )
+        }
+    return {
+        line.id: stated_line(
+            quantity=line.current_invoice_quantity,
+            free_quantity=line.free_quantity,
+            unit_price=line.unit_price,
+            source_uom_id=(
+                source_units.get(line.source_document_line_id)
+                or line.order_uom_id
+                or (
+                    None
+                    if line.invoice_uom_id is not None
+                    else stock_unit_of(products.get(line.product_id))
+                )
+            ),
+            typed_uom_id=line.invoice_uom_id,
+            entered_quantity=line.entered_quantity,
+            conversion_factor=line.conversion_factor,
+        )
+        for line in lines
+    }
+
+
 class SalesInvoicePrintService:
     """Render one invoice, with the firm's template around it."""
 
@@ -329,12 +408,15 @@ class SalesInvoicePrintService:
                 )
             )
         }
+        # Each line as it is stated: quantity, unit and rate that belong
+        # together (D-PRC-40).
+        stated = stated_invoice_lines(self._session, lines, products)
         units = {
             unit.id: unit
             for unit in self._session.scalars(
                 select(Uom).where(
                     Uom.id.in_(
-                        [line.invoice_uom_id for line in lines if line.invoice_uom_id]
+                        [item.uom_id for item in stated.values() if item.uom_id]
                         or [None]
                     )
                 )
@@ -360,7 +442,8 @@ class SalesInvoicePrintService:
         printed: list[InvoiceLineBlock] = []
         for line in lines:
             product = products.get(line.product_id)
-            unit = units.get(line.invoice_uom_id) if line.invoice_uom_id else None
+            said = stated[line.id]
+            unit = units.get(said.uom_id) if said.uom_id else None
             batches = (
                 drawn.get(line.source_document_line_id, [])
                 if line.source_document_type == "DELIVERY_NOTE"
@@ -375,10 +458,10 @@ class SalesInvoicePrintService:
                 # As billed (D-CMP-22); an old line with none stamped
                 # falls back to the product.
                 hsn=line.hsn_sac or (product.hsn_sac if product else None),
-                quantity=line.current_invoice_quantity,
-                free_quantity=line.free_quantity,
+                quantity=said.quantity,
+                free_quantity=said.free_quantity,
                 uom=(unit.code if unit else None),
-                rate=line.unit_price,
+                rate=said.rate,
                 discount=line.discount_amount,
                 # The line's share of any bill discount is in the taxable
                 # figure but not in the discount column: that column is

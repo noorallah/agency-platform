@@ -297,6 +297,58 @@ class ContinuedQuantity:
         return self.exact * source_price
 
 
+@dataclass(frozen=True)
+class StatedLine:
+    """A document line as it is stated to somebody: on paper, or to the portal.
+
+    The quantity, the unit it is a quantity of, and the rate of one of that
+    unit -- three figures that belong together. A bill typed 24 PIECE of a
+    note of 2 BOX printed "2 PIECE at 1,200.00": the stored quantity and
+    price, which are the note line's, beside the unit the bill was typed in
+    (D-PRC-40).
+    """
+
+    quantity: Decimal
+    free_quantity: Decimal
+    uom_id: UUID | None
+    rate: Decimal
+
+
+def stated_line(
+    *,
+    quantity: Decimal | None,
+    free_quantity: Decimal | None,
+    unit_price: Decimal | None,
+    source_uom_id: UUID | None,
+    typed_uom_id: UUID | None,
+    entered_quantity: Decimal | None,
+    conversion_factor: Decimal | None,
+) -> StatedLine:
+    """Return the quantity, unit and rate a line states, which belong together.
+
+    **In the unit the line was typed in where it kept what was typed**
+    (``entered_quantity``, D-PRC-37): 24 PIECE at 100.00, the rate being the
+    stored price of a source unit times the line's factor. Otherwise in the
+    unit its stored quantity is in, which is its source line's
+    (``source_uom_id``) -- 2 BOX at 1,200.00 -- and only for want of one in
+    ``typed_uom_id``. A line written before it kept what was typed is stated
+    in its source line's unit, which is true of it: the typed figure is not
+    recoverable from four places.
+    """
+    stored = Decimal(str(quantity or 0))
+    free = Decimal(str(free_quantity or 0))
+    price = Decimal(str(unit_price or 0))
+    factor = Decimal(str(conversion_factor or 0))
+    if entered_quantity is None or typed_uom_id is None or factor <= 0:
+        return StatedLine(stored, free, source_uom_id or typed_uom_id, price)
+    return StatedLine(
+        quantity=Decimal(str(entered_quantity)),
+        free_quantity=(free / factor).quantize(_FOUR_PLACES, rounding=ROUND_HALF_UP),
+        uom_id=typed_uom_id,
+        rate=(price * factor).quantize(_FOUR_PLACES, rounding=ROUND_HALF_UP),
+    )
+
+
 def exact_quantity(
     quantity: Decimal | None,
     entered_quantity: Decimal | None,
