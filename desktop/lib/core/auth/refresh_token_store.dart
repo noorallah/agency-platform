@@ -11,6 +11,16 @@ abstract class RefreshTokenStore {
   Future<void> clear();
 }
 
+/// Set only by the click-test harness (`--dart-define=SESSION_STORE=file`), so
+/// a test run neither reads nor replaces the sign-in a person saved in the
+/// vault. Every other build keeps the vault.
+const String _sessionStore = String.fromEnvironment('SESSION_STORE');
+
+/// Where this build keeps the refresh token.
+RefreshTokenStore defaultRefreshTokenStore() => _sessionStore == 'file'
+    ? FileRefreshTokenStore()
+    : MigratingRefreshTokenStore();
+
 /// Store refresh tokens in the operating system credential vault.
 class SecureRefreshTokenStore implements RefreshTokenStore {
   SecureRefreshTokenStore({FlutterSecureStorage? storage})
