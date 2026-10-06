@@ -410,6 +410,31 @@ time it was issued and must print the same tomorrow. The field names and the
 response shape did not change.
 `tests/unit/test_draft_note_shows_what_is_left_now.py` is the guard.
 
+**The cap is judged twice: where a note is saved, and again where it is
+approved** (D-PRC-49, 2026-10-06). At save it reads the notes approved by
+then, and a draft promises nothing, so drafts of 6 and 6 of a line of 10 both
+saved -- rightly -- and both were approved: the second was a printable
+challan that could only be refused at dispatch, for its reservation, and then
+cancelled. Approval is where a note starts to count, so
+`_refuse_more_than_the_order_has_left` asks again there, on the same reading
+(`_delivered_by_other_notes`), after the inherited free goods are settled,
+and refuses by name: "Line 1 of DN-2 delivers 6 where SO-1 has 4 left to
+deliver of the 10 ordered: DN-1 delivers the rest." This is a decision about
+a **sum**, so no row version can conflict: `_lock_order_lines` takes
+`with_for_update` on the order lines the note delivers, in id order, and
+holds it to the commit, so two approvals of one order line run one after the
+other and notes of other lines do not queue.
+
+**A note line is counted in its order line's unit** (D-PRC-47). The price,
+the order's discounts and free goods, the cap and what is left to bill are
+read off the note's and the order's quantities side by side, so a note line
+naming another unit is refused where it is saved, in the goods receipt's
+words: "Line 1 is delivered in PIECE where SO-1 orders it in BOX. Deliver it
+in the order's unit." (`_line_units`). It was taken as a label: 24 PIECE
+against 2 BOX at 1,200.00 billed twelve times the order, and 2 BOX against
+24 PIECE shipped 24 and billed 2. A line naming no unit, or the order
+line's own, is unchanged; the stock unit is always the order line's.
+
 ## An invoice is corrected upward by a debit note, not by a second invoice
 
 `app/customer_debit_note` (prefix `SDN`). It names the invoice and its lines,

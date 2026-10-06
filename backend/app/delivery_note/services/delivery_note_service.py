@@ -137,8 +137,9 @@ from app.trade_licences.services.licence_check import (
     LicenceCheckService,
     LicenceDocument,
 )
+from app.uom.models import Uom
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService, assert_quantity_fits_unit
+from app.uom.services import UomService, assert_quantity_fits_unit, stock_unit_of
 
 ZERO = Decimal("0")
 
@@ -740,7 +741,11 @@ class DeliveryNoteService(TransactionalDocumentService):
             else None
         )
         approval_details = ((licence_details or {}) | (discount_details or {})) or None
+        # Held from here to the commit, so two notes of one order line are
+        # approved one after the other and the second sees the first.
+        order_lines = self._lock_order_lines(row)
         self._settle_inherited_free_goods(row, actor_id=actor_id)
+        self._refuse_more_than_the_order_has_left(row, order, order_lines)
         self._stamp_what_is_left(row, actor_id=actor_id)
         row.status = DeliveryNoteStatus.APPROVED.value
         row.approved_at = utc_now()
@@ -766,6 +771,195 @@ class DeliveryNoteService(TransactionalDocumentService):
             after_data=approval_details,
         )
         return row
+
+    def _note_lines(self, row: DeliveryNote) -> list[DeliveryNoteLine]:
+        """Return a note's live lines in line order, as the session has them."""
+        # A request session does not flush on a read.
+        self._session.flush()
+        return list(
+            self._session.scalars(
+                select(DeliveryNoteLine)
+                .where(
+                    DeliveryNoteLine.delivery_note_id == row.id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                )
+                .order_by(DeliveryNoteLine.line_number)
+            ).all()
+        )
+
+    def _lock_order_lines(self, row: DeliveryNote) -> dict[UUID, SalesOrderLine]:
+        """Lock the order lines a note delivers, and return them by id.
+
+        What an order line has left is a **sum** over its notes, and approving
+        a note updates no row those notes share, so no version can conflict:
+        two approvals at once each read the other as a draft and both pass.
+        The order line is the thing being consumed, so it is locked -- per
+        line and in one order, so notes of other lines do not queue and two
+        notes of the same lines cannot deadlock.
+        """
+        wanted = {line.sales_order_line_id for line in self._note_lines(row)}
+        if not wanted:
+            return {}
+        return {
+            source.id: source
+            for source in self._session.scalars(
+                select(SalesOrderLine)
+                .where(SalesOrderLine.id.in_(wanted))
+                .order_by(SalesOrderLine.id)
+                .with_for_update()
+            ).all()
+        }
+
+    def _other_notes_of(
+        self, sales_order_line_id: UUID, *, firm_id: UUID, exclude_note_id: UUID
+    ) -> list[str]:
+        """Return the numbers of the other notes counted against an order line.
+
+        The notes `_delivered_by_other_notes` sums: approved or later, and a
+        shipped state only where the goods left.
+        """
+        return list(
+            self._session.scalars(
+                select(DeliveryNote.delivery_note_number)
+                .join(
+                    DeliveryNoteLine,
+                    DeliveryNoteLine.delivery_note_id == DeliveryNote.id,
+                )
+                .where(
+                    DeliveryNoteLine.firm_id == firm_id,
+                    DeliveryNoteLine.sales_order_line_id == sales_order_line_id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                    DeliveryNote.is_deleted.is_(False),
+                    DeliveryNote.id != exclude_note_id,
+                    DeliveryNote.status.in_(sorted(_COUNTED_AGAINST_THE_ORDER)),
+                    or_(
+                        DeliveryNote.status.not_in(sorted(SHIPPED_STATES)),
+                        goods_have_left_clause(),
+                    ),
+                )
+                .distinct()
+                .order_by(DeliveryNote.delivery_note_number)
+            ).all()
+        )
+
+    def _refuse_more_than_the_order_has_left(
+        self,
+        row: DeliveryNote,
+        order: SalesOrder,
+        order_lines: dict[UUID, SalesOrderLine],
+    ) -> None:
+        """Refuse to approve a note for more than its order lines have left.
+
+        The cap is judged where a note is saved, against the notes approved
+        by then, and a draft promises nothing: two drafts of 6 and 6 against
+        an order line of 10 both saved, both were approved, and the second
+        was a printable challan that could never be dispatched (D-PRC-49).
+        Approval is where a note starts to count, so the cap is judged again
+        here -- on the same reading, everything approved or later whose
+        goods have not come back -- with the order lines locked
+        (`_lock_order_lines`).
+
+        Counted in stock units with the free goods in, as the cap at save
+        is, and after the inherited free goods are settled, which can move
+        what a line ships.
+
+        Raises:
+            ValidationError: Naming the line, what is left and the other
+                notes of the order line.
+
+        """
+        lines = self._note_lines(row)
+        before = self._delivered_by_other_notes([row.id], firm_id=row.firm_id)
+        asked: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        for line in lines:
+            asked[line.sales_order_line_id] += self._q(line.delivered_quantity)
+
+        def figure(value: Decimal) -> str:
+            """Return a quantity without its trailing zeros."""
+            return f"{value.normalize():f}"
+
+        for line in lines:
+            source = order_lines.get(line.sales_order_line_id)
+            if source is None:
+                continue
+            ordered = self._q(source.reservable_quantity)
+            taken = before.get(source.id, ZERO)
+            if taken + asked[source.id] <= ordered:
+                continue
+            left = max(self._q(ordered - taken), ZERO)
+            unit_id = line.inventory_uom_id or line.sales_uom_id
+            unit = None if unit_id is None else self._session.get(Uom, unit_id)
+            code = f" {unit.code}" if unit is not None else ""
+            others = self._other_notes_of(
+                source.id, firm_id=row.firm_id, exclude_note_id=row.id
+            )
+            free = (
+                ", free goods included" if self._q(source.free_quantity) > ZERO else ""
+            )
+            rest = (
+                f": {', '.join(others)} deliver{'s' if len(others) == 1 else ''} "
+                "the rest"
+                if others
+                else ""
+            )
+            raise ValidationError(
+                f"Line {line.line_number} of {row.delivery_note_number} delivers "
+                f"{figure(asked[source.id])}{code} where {order.order_number} has "
+                f"{figure(left)}{code} left to deliver of the "
+                f"{figure(ordered)}{code} ordered{free}{rest}. Cancel this note "
+                "and raise one for what is left, or cancel the other note first.",
+                details={"field": "lines"},
+            )
+
+    def _line_units(
+        self,
+        row: DeliveryNote,
+        item: DeliveryNoteLineWrite,
+        source_line: SalesOrderLine,
+    ) -> tuple[UUID | None, UUID | None]:
+        """Return the unit a note line counts in and its stock unit.
+
+        **A delivery note line is counted in its order line's unit**, as a
+        goods receipt line is in its purchase order line's. The price, the
+        order's discounts and free goods, what the line may still ship and
+        what is left to bill are all read off the two quantities side by
+        side, so a line naming another unit was priced and tallied as though
+        it had not: 24 PIECE against 2 BOX at 1,200.00 billed 33,984.00 for
+        2,832.00 of goods, and 2 BOX against 24 PIECE shipped 24, billed 2
+        and left the order 22 more to send (D-PRC-47).
+
+        The stock unit is the order line's too, whatever the note line sent:
+        it is what the order's reservation was counted in.
+
+        Raises:
+            ValidationError: The line names a unit other than the one its
+                order line is in, naming both.
+
+        """
+        ordered_in = source_line.sales_uom_id or stock_unit_of(
+            self._session.get(Product, source_line.product_id),
+            source_line.inventory_uom_id,
+        )
+        typed = item.sales_uom_id
+        if typed is not None and ordered_in is not None and typed != ordered_in:
+            order = self._session.get(SalesOrder, row.sales_order_id)
+
+            def code(uom_id: UUID) -> str:
+                """Return a unit's code."""
+                unit = self._session.get(Uom, uom_id)
+                return unit.code if unit is not None else "another unit"
+
+            raise ValidationError(
+                f"Line {item.line_number} is delivered in {code(typed)} where "
+                f"{order.order_number if order is not None else 'the order'} "
+                f"orders it in {code(ordered_in)}. Deliver it in the order's "
+                "unit.",
+                details={"field": "lines"},
+            )
+        return (
+            source_line.sales_uom_id or typed,
+            source_line.inventory_uom_id or item.inventory_uom_id,
+        )
 
     def _settle_inherited_free_goods(
         self, row: DeliveryNote, *, actor_id: UUID
@@ -2428,10 +2622,11 @@ class DeliveryNoteService(TransactionalDocumentService):
                     "supplies nothing free. Type a quantity, or leave the line "
                     "off the note."
                 )
+            sales_uom_id, inventory_uom_id = self._line_units(row, item, source_line)
             conversion = self._conversion(
                 quantity=self._q(current_qty + free_qty),
-                sales_uom_id=item.sales_uom_id or source_line.sales_uom_id,
-                inventory_uom_id=item.inventory_uom_id or source_line.inventory_uom_id,
+                sales_uom_id=sales_uom_id,
+                inventory_uom_id=inventory_uom_id,
                 product_id=source_line.product_id,
                 delivery_date=row.delivery_date,
                 firm_id=row.firm_id,
@@ -2499,8 +2694,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                 remaining_quantity=remaining_qty if remaining_qty > ZERO else ZERO,
                 damaged_quantity=self._q(item.damaged_quantity),
                 short_shipment_quantity=short_qty,
-                sales_uom_id=item.sales_uom_id or source_line.sales_uom_id,
-                inventory_uom_id=item.inventory_uom_id or source_line.inventory_uom_id,
+                sales_uom_id=sales_uom_id,
+                inventory_uom_id=inventory_uom_id,
                 packaging_type_id=item.packaging_type_id
                 or source_line.packaging_type_id,
                 # Stored as the rule gave it: stock moves at this factor (D-CFG-1).

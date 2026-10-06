@@ -369,6 +369,96 @@ def test_the_note_and_the_bill_of_a_box_order_ship_and_charge_24_pieces() -> Non
     assert bill.subtotal == D("2400.0000")
 
 
+def _note_of(shop: _Shop, order: SalesOrder, quantity: str, **line: object) -> UUID:
+    """Save a note of the approved order's one line, with what the line names."""
+    note = DeliveryNoteService(shop.session).create_note(
+        DeliveryNoteCreate.model_validate(
+            {
+                "sales_order_id": order.id,
+                "delivery_date": DAY,
+                "lines": [
+                    {
+                        "sales_order_line_id": shop.line(order).id,
+                        "line_number": 1,
+                        "current_delivery_quantity": quantity,
+                    }
+                    | line
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    return note.id
+
+
+def test_a_note_line_in_another_unit_than_its_order_line_is_refused() -> None:
+    """D-PRC-47: 24 PIECE against 2 BOX kept the box's price; 2 BOX shipped 24."""
+    shop = _Shop()
+    by_the_box = shop.order(sales_uom_id=shop.box)
+    by_the_piece = shop.order(quantity="24")
+    for order in (by_the_box, by_the_piece):
+        shop.orders.approve_order(
+            order.id, firm_scope=shop.firm_id, actor_id=shop.actor
+        )
+
+    with pytest.raises(ValidationError) as boxes:
+        _note_of(shop, by_the_box, "24", sales_uom_id=shop.piece)
+    assert str(boxes.value) == (
+        f"Line 1 is delivered in PIECE where {by_the_box.order_number} orders "
+        "it in BOX. Deliver it in the order's unit."
+    )
+    shop.session.rollback()
+    # The order by the piece names no unit: it is in the product's stock unit.
+    with pytest.raises(ValidationError) as pieces:
+        _note_of(shop, by_the_piece, "2", sales_uom_id=shop.box)
+    assert str(pieces.value) == (
+        f"Line 1 is delivered in BOX where {by_the_piece.order_number} orders "
+        "it in PIECE. Deliver it in the order's unit."
+    )
+    shop.session.rollback()
+    assert shop.session.scalars(select(DeliveryNoteLine)).all() == []
+
+
+def test_a_note_line_naming_its_order_lines_own_unit_is_unchanged() -> None:
+    """BOX against BOX and PIECE against an order in pieces count as before."""
+    shop = _Shop()
+    by_the_box = shop.order(sales_uom_id=shop.box)
+    by_the_piece = shop.order(quantity="24")
+    for order in (by_the_box, by_the_piece):
+        shop.orders.approve_order(
+            order.id, firm_scope=shop.firm_id, actor_id=shop.actor
+        )
+
+    _note_of(shop, by_the_box, "2", sales_uom_id=shop.box)
+    _note_of(shop, by_the_piece, "24", sales_uom_id=shop.piece)
+
+    shop.session.expire_all()
+    assert sorted(
+        (row.current_delivery_quantity, row.delivered_quantity, row.unit_price)
+        for row in shop.session.scalars(select(DeliveryNoteLine))
+    ) == [
+        (D("2.0000"), D("24.0000"), D("1200.0000")),
+        (D("24.0000"), D("24.0000"), D("100.0000")),
+    ]
+
+
+def test_a_note_line_cannot_count_a_box_order_in_another_stock_unit() -> None:
+    """The stock unit is the order line's: BOX sent as it still ships 24."""
+    shop = _Shop()
+    order = shop.order(sales_uom_id=shop.box)
+    shop.orders.approve_order(order.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+
+    _note_of(shop, order, "2", inventory_uom_id=shop.box)
+
+    shop.session.expire_all()
+    line = shop.session.scalars(select(DeliveryNoteLine)).one()
+    assert (line.inventory_uom_id, line.delivered_quantity) == (
+        shop.piece,
+        D("24.0000"),
+    )
+
+
 def test_a_counter_bill_by_the_box_with_no_price_charges_a_box() -> None:
     """Stages off: 2 BOX typed straight onto a bill is 2,400.00 for 24 pieces."""
     shop = _Shop(counter=True)
