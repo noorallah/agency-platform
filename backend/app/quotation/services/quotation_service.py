@@ -1066,6 +1066,14 @@ class QuotationService(TransactionalDocumentService):
                             item.discount_percent is not None
                             or item.discount_amount is not None
                         ),
+                        # A typed free quantity stands, a zero included, so
+                        # the offer gives this line nothing -- told to the
+                        # engine as the order tells it. Left unsaid, the
+                        # line's own figure was kept but the free pieces of
+                        # a line sold by the box, which the engine hands
+                        # back as a line of their own, were still added: 2
+                        # BOX typed "0 free" quoted "0 + 2 free" (D-PRC-78).
+                        free_typed=item.free_quantity is not None,
                     )
                     for index, item in enumerate(lines)
                 ],

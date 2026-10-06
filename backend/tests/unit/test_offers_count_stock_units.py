@@ -1098,6 +1098,46 @@ def test_zero_free_typed_on_a_quotation_refuses_the_offer_on_its_order() -> None
     )
 
 
+def _quoted_lines(
+    shop: _Offers, quotation: SalesQuotation
+) -> list[tuple[D, D, object, bool]]:
+    """Return each line's quantity, free quantity, offer and refusal, in order."""
+    shop.session.expire_all()
+    return [
+        (
+            line.quantity,
+            line.free_quantity,
+            line.free_promotion_id,
+            line.free_goods_refused,
+        )
+        for line in shop.session.scalars(
+            select(SalesQuotationLine)
+            .where(SalesQuotationLine.sales_quotation_id == quotation.id)
+            .order_by(SalesQuotationLine.line_number)
+        ).all()
+    ]
+
+
+def test_zero_free_typed_on_a_box_line_quotes_no_free_pieces() -> None:
+    """D-PRC-78: 2 BOX typed "0 free" still quoted the offer's "0 + 2 PIECE free"."""
+    shop = _Offers(TEN_PLUS_ONE)
+    # The control: nothing typed, the 2 free pieces come as a line of their own.
+    offered = _quotation(shop, quantity="2", sales_uom_id=shop.box)
+    assert _quoted_lines(shop, offered) == [
+        (D("2.0000"), D("0.0000"), None, False),
+        (D("0.0000"), D("2.0000"), shop.offer.id, False),
+    ]
+
+    refused = _quotation(shop, quantity="2", sales_uom_id=shop.box, free_quantity="0")
+
+    assert _quoted_lines(shop, refused) == [(D("2.0000"), D("0.0000"), None, True)]
+    order = _converted(shop, refused)
+    assert [
+        (line.quantity, line.free_quantity, line.free_promotion_id)
+        for line in shop.lines(order)
+    ] == [(D("2.0000"), D("0.0000"), None)]
+
+
 def test_a_quotation_that_said_nothing_still_asks_the_offers_at_its_order() -> None:
     """Silence is not a refusal: an offer live by the order's day is given."""
     shop = _Offers(TEN_PLUS_ONE)
