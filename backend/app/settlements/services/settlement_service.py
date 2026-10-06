@@ -335,7 +335,10 @@ def credited_against(
     delivery note is set against the bills that charged its units
     (``returns_off_notes_against``, D-PRC-66), and one off a note nobody has
     billed credits nothing and counts against nothing. A credit note is
-    always raised against one invoice.
+    always raised against one invoice. A return's header figures -- its
+    ``additional_charges`` and ``round_off``, which credit the customer and
+    are in no line -- come off the bills its goods were charged on too
+    (``header_credits_against``, D-PRC-74).
 
     One derivation, used by Record Receipt's list and by the loyalty cap, so
     the two cannot answer "what does this bill still owe" differently.
@@ -387,14 +390,34 @@ def credited_against(
     # What came back off a delivery note, on the bills that charged those
     # units (D-PRC-66): such a return credits the customer and reverses the
     # bill's tax, and the bill went on reading wholly outstanding.
-    from app.sales_return.billing import returns_off_notes_against
+    from app.sales_return.billing import (
+        header_credits_against,
+        returns_off_notes_against,
+    )
 
     off_notes: dict[UUID, Decimal] = {}
-    for share in returns_off_notes_against(
+    shares = returns_off_notes_against(
         session, firm_id=firm_id, invoice_ids=invoice_ids, as_of=as_of
-    ):
+    )
+    for share in shares:
         off_notes[share.invoice_id] = off_notes.get(share.invoice_id, ZERO) + share.net
-    for invoice_id, total in (*returned, *notes, *off_notes.items()):
+    # And what those returns gave back on their header: additional charges
+    # and round-off credit the customer and are in no line, so a bill
+    # returned in full with its 100.00 of charges went on reading 100.00
+    # outstanding and took a receipt nobody owed (D-PRC-74).
+    headers = header_credits_against(
+        session,
+        firm_id=firm_id,
+        invoice_ids=invoice_ids,
+        as_of=as_of,
+        worked_out=[share for share in shares if not share.placed],
+    )
+    for invoice_id, total in (
+        *returned,
+        *notes,
+        *off_notes.items(),
+        *headers.items(),
+    ):
         credited[invoice_id] = credited.get(invoice_id, ZERO) + quantize_ledger(
             Decimal(str(total))
         )
