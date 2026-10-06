@@ -1155,3 +1155,24 @@ def test_achievement_takes_a_page() -> None:
     window = {"from_date": APRIL[0].isoformat(), "to_date": may[1].isoformat()}
     assert status_for(router, path, page_size=101, **window) == 422
     assert status_for(router, path, page=0, **window) == 422
+
+
+def test_a_target_must_be_above_zero() -> None:
+    """D-PRC-20: a target of 0 was taken, and is met by selling nothing.
+
+    Which pays whatever bonus a commission rule hangs on the target. Refused
+    on a new target and on an edit; an edit that leaves the amount alone is
+    not asked.
+    """
+    message = "A target must be above zero. A target of nothing is always met"
+    with pytest.raises(PydanticValidationError, match=message):
+        SalesTargetWrite(
+            period_start=APRIL[0], period_end=APRIL[1], target_amount=Decimal("0")
+        )
+    with pytest.raises(PydanticValidationError, match=message):
+        SalesTargetUpdate(target_amount=Decimal("0.00"))
+
+    assert SalesTargetUpdate(notes="reviewed").target_amount is None
+    assert SalesTargetWrite(
+        period_start=APRIL[0], period_end=APRIL[1], target_amount=Decimal("0.01")
+    ).target_amount == Decimal("0.01")

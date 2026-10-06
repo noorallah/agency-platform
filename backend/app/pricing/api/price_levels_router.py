@@ -12,6 +12,7 @@ from app.common.scope import (
     firm_any_permission_scope,
     firm_permission_scope,
 )
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ResourceNotFoundError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -72,6 +73,7 @@ def list_price_levels(
 def create_price_level(
     data: PriceLevelWrite,
     scope: LevelManageScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PriceLevelResponse]:
     """Create one price level: Retail, Wholesale, Dealer."""
@@ -79,6 +81,7 @@ def create_price_level(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     db.commit()
+    set_etag(response, row)
     return ApiResponse(data=PriceLevelResponse.model_validate(row))
 
 
@@ -159,13 +162,23 @@ def update_price_level(
     level_id: UUID,
     data: PriceLevelWrite,
     scope: LevelManageScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PriceLevelResponse]:
-    """Replace one price level's details."""
-    row = PriceLevelService(db).update(
-        level_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    """Replace one price level's details.
+
+    The whole level is replaced by what is sent, so it takes `If-Match`: the
+    `version` each row of the list carries, which the answer publishes again
+    as its `ETag` (D-PRC-13).
+    """
+    service = PriceLevelService(db)
+    assert_version(
+        service.get(level_id, firm_id=scope.firm_id).version, expected_version
     )
+    row = service.update(level_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     db.commit()
+    set_etag(response, row)
     return ApiResponse(data=PriceLevelResponse.model_validate(row))
 
 
@@ -173,11 +186,14 @@ def update_price_level(
 def delete_price_level(
     level_id: UUID,
     scope: LevelManageScope,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> Response:
     """Retire a price level no customer or group buys at."""
-    PriceLevelService(db).delete(
-        level_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    service = PriceLevelService(db)
+    assert_version(
+        service.get(level_id, firm_id=scope.firm_id).version, expected_version
     )
+    service.delete(level_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

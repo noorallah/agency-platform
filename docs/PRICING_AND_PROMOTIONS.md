@@ -919,6 +919,97 @@ the goods actually leaving. `LinePrice.source` says `BATCH_PTR` or `BATCH_PTS`;
 sales lines store no price source, so it is not recorded on the line. A
 missing rate falls through unchanged.
 
+## What the pricing check of 2026-10-06 tightened (D-PRC-10 to D-PRC-16)
+
+Seven small things, each found by driving the routes rather than by reading
+them. None changes what a document is charged.
+
+**A free-goods offer is costed in units, not in money** (D-PRC-10). Goods
+given free are charged nothing, so they take nothing off the bill and a
+claim's `benefit_amount` is 0 for them by design -- adding their worth in
+would break the equality between a claim and the discount on its document,
+which is what the money budget counts. The figure is
+`promotion_redemptions.free_quantity`, and all three reports carry it:
+performance, the claims register, and the coupon report (which did not).
+Both ranked reports sort by money and then by units, so a free-goods
+campaign no longer sits level with one nobody claimed. **No worth is stored
+for free goods on a claim**, so none is shown: best-offer mode values them at
+the line's rate only to choose between offers, and a claim to the principal
+values them at cost, in `app/principal_claims`. A report that wants rupees
+has to say which of the two it means.
+
+**The offer list is searched by code as well as by name** (D-PRC-11). Two
+offers both named "Welcome" are told apart by `WELCOME-NOV` and
+`WELCOME-DEC`, and the code is what the claims register prints.
+
+**A refusal names what clashed, and is asked before the write** (D-PRC-12).
+Four requests were answered only "The request conflicts with existing data.
+Please retry." because the database was the first thing to object:
+
+| Request | Now |
+| --- | --- |
+| A price list row naming a product that is not the firm's | 422 "Row 2: the product was not found in this firm." |
+| A price list naming a customer, territory or supplier that is not the firm's | 422 "The customer this price list names was not found in this firm." |
+| Two rows for one product at one quantity | 422 "Row 2: DET already has a rate from a quantity of 10 on row 1. A product takes one rate at each quantity." |
+| An edit sent to an offer revision already replaced | 409 "This is revision 1 of offer BULK5, and revision 2 has replaced it. Open the current revision and edit that one." |
+
+The first two matter beyond the wording: in a store two firms share, the
+foreign key is satisfied by the other firm's row, so the list was **accepted**
+and named a customer its own firm cannot see. On an edit a party is checked
+only where it is changing, so a list naming a customer retired since can
+still be saved around it; the rows are checked whenever they are sent. Rows
+are counted from one, as the screen lists them.
+
+**A price level takes `If-Match` and publishes its version** (D-PRC-13).
+`PUT` and `DELETE /api/v1/price-levels/{id}` refuse a stale version with the
+standard 409, and `POST` and `PUT` answer with an `ETag`. There is no
+`GET /{id}` for a level; the `version` on each row of the list is what a
+client sends back.
+
+**Every product, customer and salesman billed has a row in the discount
+report** (D-PRC-14). `discount-by-customer`, `-by-salesman` and `-by-product`
+under `/api/v1/sales-invoices/reports/` left out anything given no discount at all, so gross by product (4,941.33) fell short
+of gross by customer and by salesman (5,141.33) by one product sold at full
+price. A row with a discount of 0.00 is a row; the three now add up to the
+same gross and the same discount.
+
+**A price revision starts today or later, keeps the MRP above the price, and
+the product says what it sells at today** (D-PRC-15).
+
+- A revision dated before the firm's own day (`firm_today`) is refused, typed
+  or from a file: "New rates start today (06-10-2026) or later, not from
+  03-10-2026. A price dated back would change today's price without saying
+  so; date it today instead." It used to be taken in silence, and once the
+  revision ahead of it was deleted it priced a quotation at 70.00 against a
+  product reading 84.00. Tally and Marg both date a price change today or
+  ahead. A row of an import file is refused the same way, by row.
+- "MRP must be greater than or equal to selling price." -- the product
+  form's own words -- when one revision names both. Naming one of them is
+  judged against the other as it will stand on the revision's date (an
+  earlier revision's, else the product's own): "... From 01-12-2026 DET would
+  sell at 120 against an MRP of 115."
+- `ProductResponse` carries `selling_price_in_force`,
+  `purchase_price_in_force` and `mrp_in_force` beside the card prices: the
+  latest revision dated today or earlier that names the price, else the card
+  price. One read for a page (`prices_in_force_today` in
+  `app/products/services/price_revisions.py`). The purchase one is hidden
+  with the cost.
+
+**A coupon reads as its offer does** (D-PRC-16). `status` on a coupon is
+derived on every read (`shown_status` in
+`app/promotions/services/coupon_crud.py`) and stored nowhere: a code switched
+off reads as it was set, and a code left ACTIVE reads as the **live revision
+of its offer** does -- the newest revision of the `version_group_id` not
+retired, never the row the code was minted against, which reads INACTIVE the
+moment anybody edits the offer. `own_status` is what the code itself is set
+to and is what an editor sends back; `offer_status` is the offer's. The
+coupon report follows the same rule. Switching the offer back on brings its
+codes back with it, because nothing was written.
+
+`tests/unit/test_promotions.py`, `tests/unit/test_price_lists.py`,
+`tests/unit/test_price_levels.py`, `tests/unit/test_price_revisions.py` and
+`tests/unit/test_discount_and_collections.py` hold the guards.
+
 ## Buy X get Y at a discount, and combo prices (SEL-2, SEL-3, 2026-10-03)
 
 Both are line discounts, so tax stays per line and the best-offer valuation

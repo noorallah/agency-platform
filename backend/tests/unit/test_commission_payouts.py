@@ -1284,3 +1284,66 @@ def test_a_payout_is_paid_on_the_day_it_was_approved_or_after() -> None:
     assert paid.paid_on == today - timedelta(days=2)
     journal = books.session.get(JournalEntry, paid.payment_journal_entry_id)
     assert journal is not None and journal.journal_date == today - timedelta(days=2)
+
+
+def _request_books() -> _Books:
+    """Build `_ready()`'s firm on a session that does not flush on a read."""
+    factory = _session_factory()
+    factory.configure(autoflush=False)
+    books = _Books(factory())
+    books.rule("10")
+    books.collect("SI-1", "5000.00")
+    return books
+
+
+def _pay(books: _Books, payout_id: UUID) -> None:
+    """Send one payment from cash, dated today, as the third person."""
+    CommissionPayoutService(books.session).pay(
+        payout_id,
+        _cash_payment(books),
+        firm_id=books.firm.id,
+        actor_id=books.payer_id,
+    )
+
+
+def test_paying_a_paid_payout_says_it_is_paid_and_when() -> None:
+    """D-PRC-19: it answered "Only an approved payout can be paid. Approve it first".
+
+    Which sends somebody looking for an approval that happened last week.
+    """
+    books = _request_books()
+    [payout] = books.accrue()
+    today = firm_today(books.session, books.firm.id)
+    books.settle(payout.id)
+
+    with pytest.raises(ValidationError) as refusal:
+        _pay(books, payout.id)
+
+    assert str(refusal.value) == (
+        f"This payout has already been paid on {today:%d-%m-%Y}. It cannot "
+        "be paid a second time."
+    )
+
+
+def test_paying_a_cancelled_payout_says_so_and_a_draft_still_asks_for_approval() -> (
+    None
+):
+    """Each state its own answer."""
+    books = _request_books()
+    [payout] = books.accrue()
+    service = CommissionPayoutService(books.session)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
+    books.session.commit()
+    service.cancel(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    with pytest.raises(ValidationError) as refusal:
+        _pay(books, payout.id)
+    assert str(refusal.value) == (
+        "This payout was cancelled, and its entry reversed, so there is "
+        "nothing to pay. Accrue the period again if it is still owed."
+    )
+
+    [draft] = books.accrue()
+    with pytest.raises(ValidationError, match="Only an approved payout can be paid"):
+        _pay(books, draft.id)

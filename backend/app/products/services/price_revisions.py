@@ -6,10 +6,23 @@ force on its own date -- the latest revision dated on or before it that
 names that price -- and falls back to the product's own price before the
 first. Revisions are never edited; one typed in error is deleted. A file of
 revisions comes in through ``app.common.file_import``.
+
+Three rules a revision keeps (D-PRC-15), typed or from a file:
+
+* **It starts today or later**, on the firm's own day. One dated back was
+  taken in silence and became today's price -- a product reading 84.00 was
+  quoted at 70.00 -- and nothing on screen said a price had changed.
+* **The MRP stays at or above the selling price**, as the product's own
+  record insists, judged against whichever of the two the revision leaves
+  alone: the one in force on the revision's date.
+* **The product says what it sells at today.** `prices_in_force_today` gives
+  a page of products their prices as the revisions leave them, so the card
+  price and the price a document takes are both on the record.
 """
 
 # ruff: noqa: D102, D107
 
+from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -32,7 +45,12 @@ from app.common.file_import import (
     service_issue,
 )
 from app.common.firm_metadata import firm_today
-from app.core.exceptions import ApplicationError, ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    ApplicationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 from app.products.models import Product
 from app.products.models.price_revision import ProductPriceRevision
@@ -59,6 +77,56 @@ def price_in_force(
     return None if value is None else Decimal(str(value))
 
 
+def prices_in_force_today(
+    session: Session, firm_id: UUID, product_ids: Iterable[UUID]
+) -> dict[UUID, dict[str, Decimal]]:
+    """Return what the revisions make each product's prices today.
+
+    One read for a page of products. A product no revision has reached is
+    absent, and so is a price no revision names: its own price stands.
+
+    Args:
+        session: The firm's session.
+        firm_id: The firm, whose own calendar says what today is.
+        product_ids: The products on the page.
+
+    Returns:
+        ``{product id: {field: price}}`` for the fields in ``_FIELDS`` that a
+        revision dated today or earlier names.
+
+    """
+    wanted = set(product_ids)
+    if not wanted:
+        return {}
+    today = firm_today(session, firm_id)
+    found: dict[UUID, dict[str, Decimal]] = {}
+    for row in session.execute(
+        select(
+            ProductPriceRevision.product_id,
+            ProductPriceRevision.selling_price,
+            ProductPriceRevision.purchase_price,
+            ProductPriceRevision.mrp,
+        )
+        .where(
+            ProductPriceRevision.product_id.in_(wanted),
+            ProductPriceRevision.firm_id == firm_id,
+            ProductPriceRevision.effective_from <= today,
+            ProductPriceRevision.is_deleted.is_(False),
+        )
+        .order_by(ProductPriceRevision.effective_from.asc())
+    ):
+        # Oldest first, so the latest revision naming a price is what is left.
+        held = found.setdefault(row.product_id, {})
+        for field in _FIELDS:
+            value = getattr(row, field)
+            if value is not None:
+                held[field] = Decimal(str(value))
+    return found
+
+
+_MRP_RULE = "MRP must be greater than or equal to selling price."
+
+
 class PriceRevisionWrite(BaseModel):
     """New rates from a date; at least one price."""
 
@@ -79,6 +147,17 @@ class PriceRevisionWrite(BaseModel):
         """Refuse a revision that revises nothing."""
         if all(getattr(self, field) is None for field in _FIELDS):
             raise ValueError("A revision names at least one new price.")
+        return self
+
+    @model_validator(mode="after")
+    def _mrp_covers_the_price(self) -> "PriceRevisionWrite":
+        """Refuse an MRP below the selling price, as the product does."""
+        if (
+            self.mrp is not None
+            and self.selling_price is not None
+            and self.mrp < self.selling_price
+        ):
+            raise ValueError(_MRP_RULE)
         return self
 
 
@@ -165,9 +244,19 @@ class PriceRevisionService:
 
         Raises:
             ConflictError: If the product already has a revision that day.
+            ValidationError: If it is dated before today, or would leave the
+                MRP below the selling price.
 
         """
         product = self._product(product_id, firm_id)
+        today = firm_today(self._session, firm_id)
+        if data.effective_from < today:
+            raise ValidationError(
+                f"New rates start today ({today:%d-%m-%Y}) or later, not from "
+                f"{data.effective_from:%d-%m-%Y}. A price dated back would "
+                "change today's price without saying so; date it today instead."
+            )
+        self._assert_mrp_covers_the_price(product, data)
         clash = self._session.scalar(
             select(ProductPriceRevision.id).where(
                 ProductPriceRevision.product_id == product_id,
@@ -207,6 +296,41 @@ class PriceRevisionService:
             },
         )
         return row
+
+    def _assert_mrp_covers_the_price(
+        self, product: Product, data: PriceRevisionWrite
+    ) -> None:
+        """Hold the MRP rule against the price the revision leaves alone.
+
+        The schema compares the two when one revision names both. Naming one
+        of them must not cross the other as it stands on the revision's date:
+        an earlier revision's, or the product's own.
+        """
+        if data.mrp is None and data.selling_price is None:
+            return
+        if data.mrp is not None and data.selling_price is not None:
+            return
+
+        def standing(field: str) -> Decimal | None:
+            """Return ``field`` as it will stand from the revision's date."""
+            sent: Decimal | None = getattr(data, field)
+            if sent is not None:
+                return sent
+            revised = price_in_force(
+                self._session, product.id, field, on=data.effective_from
+            )
+            if revised is not None:
+                return revised
+            stored = getattr(product, field)
+            return None if stored is None else Decimal(str(stored))
+
+        mrp, selling = standing("mrp"), standing("selling_price")
+        if mrp is not None and selling is not None and mrp < selling:
+            raise ValidationError(
+                f"{_MRP_RULE} From {data.effective_from:%d-%m-%Y} {product.code} "
+                f"would sell at {selling.normalize():f} against an MRP of "
+                f"{mrp.normalize():f}."
+            )
 
     def delete(
         self, product_id: UUID, revision_id: UUID, *, firm_id: UUID, actor_id: UUID

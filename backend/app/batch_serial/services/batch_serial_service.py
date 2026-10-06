@@ -104,17 +104,28 @@ def assert_trade_rates_within_mrp(
     with tax, so a trade rate above it is a typing mistake, not a price.
     Nothing to judge where either side is blank.
 
+    The two rates are held in order as well: **PTS at or below PTR** (D-PRC-18).
+    A stockist sells on to the retailer, so a price to stockist above the
+    price to retailer is the two boxes filled the wrong way round -- and it
+    bills the firm's largest buyers more than its smallest. Judged whether or
+    not the batch has an MRP, on every path that writes a rate: all of them
+    come through here.
+
     Raises:
-        ValidationError: When a rate exceeds the MRP.
+        ValidationError: When a rate exceeds the MRP, or PTS exceeds PTR.
 
     """
-    if mrp is None:
-        return
-    for label, rate in (("PTR", ptr), ("PTS", pts)):
-        if rate is not None and rate > mrp:
-            raise ValidationError(
-                f"{label} {rate:.2f} cannot exceed the MRP {mrp:.2f}."
-            )
+    if mrp is not None:
+        for label, rate in (("PTR", ptr), ("PTS", pts)):
+            if rate is not None and rate > mrp:
+                raise ValidationError(
+                    f"{label} {rate:.2f} cannot exceed the MRP {mrp:.2f}."
+                )
+    if ptr is not None and pts is not None and pts > ptr:
+        raise ValidationError(
+            f"PTS {pts:.2f} cannot exceed the PTR {ptr:.2f}: a stockist buys at "
+            "or below the price to a retailer."
+        )
 
 
 def expiry_from_shelf_life(

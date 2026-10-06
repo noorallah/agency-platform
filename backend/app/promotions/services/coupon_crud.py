@@ -5,6 +5,7 @@ people at different times: an offer is agreed once, and codes for it are minted
 per campaign, per channel, or per customer.
 """
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -13,7 +14,72 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.promotions.models import Promotion, PromotionCoupon, PromotionRedemption
-from app.promotions.schemas import PromotionCouponResponse, PromotionCouponWrite
+from app.promotions.schemas import (
+    PromotionCouponResponse,
+    PromotionCouponWrite,
+    PromotionStatus,
+)
+
+_ACTIVE = PromotionStatus.ACTIVE.value
+_INACTIVE = PromotionStatus.INACTIVE.value
+
+
+def offer_statuses(
+    session: Session, coupons: Sequence[PromotionCoupon]
+) -> dict[UUID, str]:
+    """Return the status of the offer each coupon reaches, in one read.
+
+    The offer is its `version_group_id`, not the row the code was minted
+    against: a published offer is superseded rather than edited, so that row
+    reads INACTIVE the moment anybody edits it while the offer itself is
+    still running. The live revision is the newest one not retired, which is
+    the one `PromotionService._coupon_reaches` lets the code claim.
+
+    Args:
+        session: The firm's session.
+        coupons: The coupons being shown.
+
+    Returns:
+        The live revision's status per coupon id; INACTIVE where no revision
+        of the offer is left.
+
+    """
+    groups = {
+        coupon.id: coupon.promotion.version_group_id
+        for coupon in coupons
+        if coupon.promotion is not None
+    }
+    if not groups:
+        return {coupon.id: _INACTIVE for coupon in coupons}
+    live: dict[UUID, str] = {}
+    for group, status in session.execute(
+        select(Promotion.version_group_id, Promotion.status)
+        .where(
+            Promotion.version_group_id.in_(set(groups.values())),
+            Promotion.is_deleted.is_(False),
+        )
+        .order_by(Promotion.version_number.asc())
+    ):
+        # Ascending, so the newest revision is the one left standing.
+        live[group] = status
+    return {
+        coupon.id: live.get(groups.get(coupon.id, coupon.id), _INACTIVE)
+        for coupon in coupons
+    }
+
+
+def shown_status(own_status: str, offer_status: str) -> str:
+    """Return the status a coupon reads as, which follows its offer.
+
+    A code switched off reads as it was set. A code left ACTIVE reads as its
+    offer does, because that is what presenting it will do: with the offer
+    switched off it gives nothing, and a list calling it ACTIVE says the
+    opposite (D-PRC-16). Derived on every read and stored nowhere, so
+    switching the offer back on brings its codes back with it.
+    """
+    if own_status != _ACTIVE or offer_status == _ACTIVE:
+        return own_status
+    return offer_status
 
 
 class CouponService:
@@ -189,35 +255,50 @@ class CouponService:
         self._session.commit()
 
     def coupon_response(self, row: PromotionCoupon) -> PromotionCouponResponse:
-        """Build the API response, including how much has been claimed.
+        """Build one coupon's API response."""
+        return self.coupon_responses([row])[0]
+
+    def coupon_responses(
+        self, rows: Sequence[PromotionCoupon]
+    ) -> list[PromotionCouponResponse]:
+        """Build a page of responses, with what was claimed and the status.
 
         The count is read rather than stored, for the reason the limits are:
         the redemption ledger is the record, and a second copy of a number is
-        one that can disagree with it.
+        one that can disagree with it. It and the offers' statuses are each
+        read once for the page.
         """
-        claimed = int(
-            self._session.scalar(
-                select(func.count())
-                .select_from(PromotionRedemption)
+        if not rows:
+            return []
+        claimed: dict[UUID, int] = {
+            coupon_id: int(count)
+            for coupon_id, count in self._session.execute(
+                select(PromotionRedemption.coupon_id, func.count())
                 .where(
-                    PromotionRedemption.coupon_id == row.id,
+                    PromotionRedemption.coupon_id.in_([row.id for row in rows]),
                     PromotionRedemption.status == "CLAIMED",
                     PromotionRedemption.is_deleted.is_(False),
                 )
+                .group_by(PromotionRedemption.coupon_id)
             )
-            or 0
-        )
-        return PromotionCouponResponse(
-            id=row.id,
-            promotion_id=row.promotion_id,
-            promotion_code=row.promotion.code if row.promotion else "",
-            code=row.code,
-            description=row.description,
-            status=row.status,
-            max_redemptions=row.max_redemptions,
-            max_redemptions_per_customer=row.max_redemptions_per_customer,
-            effective_from=row.effective_from,
-            effective_to=row.effective_to,
-            redemption_count=claimed,
-            version=row.version,
-        )
+        }
+        offers = offer_statuses(self._session, rows)
+        return [
+            PromotionCouponResponse(
+                id=row.id,
+                promotion_id=row.promotion_id,
+                promotion_code=row.promotion.code if row.promotion else "",
+                code=row.code,
+                description=row.description,
+                status=shown_status(row.status, offers[row.id]),
+                own_status=row.status,
+                offer_status=offers[row.id],
+                max_redemptions=row.max_redemptions,
+                max_redemptions_per_customer=row.max_redemptions_per_customer,
+                effective_from=row.effective_from,
+                effective_to=row.effective_to,
+                redemption_count=claimed.get(row.id, 0),
+                version=row.version,
+            )
+            for row in rows
+        ]

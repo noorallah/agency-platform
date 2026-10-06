@@ -664,6 +664,15 @@ states a different rate, which then stands and is audited as
 `batch.rates_updated` with the old pair. Blank never clears. The batch's own
 create and update take the same fields under the same gate and cap.
 
+**PTS at or below PTR at or below MRP** (D-PRC-18, 2026-10-06). A batch with
+PTR 90 and PTS 95 was accepted: the stockist, who sells on to the retailer,
+was charged more than the retailer. The same function holds the order of the
+two rates, with an MRP on file or without one, on every path that writes a
+rate -- the receipt's line, its completion against the rate the batch already
+holds, and the batch's create and update: "PTS 95.00 cannot exceed the PTR
+90.00: a stockist buys at or below the price to a retailer." Equal is in
+order. No import file carries the two rates, so there is no fifth path.
+
 **Shown in the picker.** `BatchAvailability` (the batch picker's availability
 rows) and `BatchResponse` carry `ptr` and `pts` beside `mrp` and
 `selling_price`.
