@@ -153,9 +153,17 @@ new order was raised from the request and had none for the bill to inherit.
   the bill discount, `attachments` and `notes` -- beside the ship-to, the
   walk-in buyer, the money received, the tenders, the charges, the firm's own
   fields and the GST-inclusive switch, which already were.
-- **The bill discount is kept as its rate.** The bill stores the rate and
-  the amount and not which was typed, and a rate still means the same on
-  other quantities. A flat amount that must stay flat is sent again.
+- **The bill discount is kept as it was typed** (D-PRC-35, 2026-10-06). It
+  was kept as its rate, because the bill stored both figures and not which
+  was typed -- so 25.00 typed on a bill of 840.00 was carried as 2.9762% and
+  came back as 25.0001, total 961.6999. `sales_invoices.bill_discount_typed_as`
+  (`20261006_0341`) now says `amount` or `percent`. A typed **amount** is
+  carried as the amount: it stands when the lines change value, and only
+  the rate beside it moves (25.00 on half the quantity is still 25.00, at
+  5.9524%). A typed **rate** is carried as the rate. A bill saved before the
+  column carries the rate, as it always did. On a counter bill the figure is
+  typed onto the order it raises and the same rule holds: 100.00 typed on
+  ten is 100.00 on twenty, where it used to become 200.00.
 - **Freight is kept on a counter bill and inherited on any other.** A bill
   of somebody's notes takes its freight from them, pro-rated by the share
   billed (D-SELL-36), and that share is what an edit changes; there `null`

@@ -650,7 +650,11 @@ def test_a_counter_bill_charges_what_its_hidden_order_agreed() -> None:
 
 
 def test_a_counter_bills_typed_discount_survives_an_edit_that_omits_it() -> None:
-    """Typed on the bill it is typed on its order, and an edit keeps the rate."""
+    """Typed on the bill it is typed on its order, and an edit keeps the amount.
+
+    It kept the **rate** until D-PRC-35: 100.00 typed on ten became 200.00 on
+    twenty. Somebody who typed an amount meant the amount.
+    """
     trade = _Trade(counter=True)
     draft = trade.counter_bill("10", bill_discount_amount="100")
     assert draft.grand_total == D("873.2000")
@@ -660,7 +664,7 @@ def test_a_counter_bills_typed_discount_survives_an_edit_that_omits_it() -> None
     assert same.grand_total == D("873.2000")
     grown = trade.resave(same, "20")
     assert trade.own_order(grown).bill_discount_source == "typed"
-    assert grown.bill_discount_percent == same.bill_discount_percent
+    assert grown.bill_discount_amount == D("100.0000")
 
 
 def test_an_inherited_bill_discount_is_not_judged_against_the_approver() -> None:

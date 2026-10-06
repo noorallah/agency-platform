@@ -617,6 +617,10 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     #: share agreed on the order the bill continues (D-PRC-1). An editor
     #: refills its box only from a typed one.
     bill_discount_source: str | None = None
+    #: ``amount`` or ``percent``: how the discount was last stated on the
+    #: bill, and so which of the two figures an edit that leaves it out
+    #: carries. An editor refills the box this names (D-PRC-35).
+    bill_discount_typed_as: str | None = None
     #: What was charged for delivery, split across the lines and taxed there.
     freight_amount: Decimal = Decimal("0")
     line_discount_total: Decimal

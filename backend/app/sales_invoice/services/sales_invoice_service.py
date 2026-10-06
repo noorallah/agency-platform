@@ -2023,9 +2023,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         counter bill whose order was raised again, the freight too, since
         the new order was raised from the request and had none to inherit.
 
-        A bill discount left out is carried as its **rate**: the bill keeps
-        both figures and not which was typed, and a rate is the one that
-        still means the same on other quantities. Freight is carried only
+        A bill discount left out is carried **as it was typed**
+        (``bill_discount_typed_as``, D-PRC-35). A typed amount is carried as
+        the amount: 25.00 off is 25.00 off whatever the lines now come to,
+        and only the rate shown beside it moves. Carried as its four-place
+        rate it came back as 25.0001. A typed rate is carried as the rate,
+        which is what still means the same on other quantities -- and so is
+        a discount on a bill saved before the bill recorded which was typed.
+        Freight is carried only
         for a bill that ships its own goods; any other bill inherits it from
         the notes it bills, pro-rated by the share billed (D-SELL-36), and
         that share is what an edit changes. There a null still means "as the
@@ -2074,7 +2079,10 @@ class SalesInvoiceService(TransactionalDocumentService):
                 or (own_orders is None and row.bill_discount_source == "typed")
             )
         ):
-            kept["bill_discount_percent"] = row.bill_discount_percent
+            if row.bill_discount_typed_as == "amount":
+                kept["bill_discount_amount"] = row.bill_discount_amount
+            else:
+                kept["bill_discount_percent"] = row.bill_discount_percent
         if ships_its_own:
             if "freight_amount" not in sent:
                 kept["freight_amount"] = row.freight_amount
@@ -3373,6 +3381,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             bill_discount_percent=row.bill_discount_percent,
             bill_discount_amount=row.bill_discount_amount,
             bill_discount_source=row.bill_discount_source,
+            bill_discount_typed_as=row.bill_discount_typed_as,
             freight_amount=row.freight_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
@@ -3941,6 +3950,15 @@ class SalesInvoiceService(TransactionalDocumentService):
         taxable = self._q(sum(taxables, ZERO))
         carried = self._q(sum(inherited, ZERO))
         rate = self._q(carried * 100 / taxable) if taxable > ZERO else ZERO
+        # Which figure the bill was told, so an edit that says nothing can
+        # carry that one. Recorded whether or not the figure turns out to be
+        # the inheritance sent back: a counter bill's typed discount is typed
+        # onto its own order and reaches the bill as that order's share.
+        row.bill_discount_typed_as = (
+            "amount"
+            if amount is not None
+            else ("percent" if percent is not None else None)
+        )
         if amount is not None:
             restated = self._q(amount) == carried
         elif percent is not None:

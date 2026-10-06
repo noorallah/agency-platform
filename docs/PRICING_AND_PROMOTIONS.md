@@ -449,7 +449,8 @@ moves nothing. On a bill of documents an explicit `null` means "as the
 documents say", as it does for freight; typing `0` is how the discount is
 refused. `sales_invoices.bill_discount_source` (migration `20261006_0336`)
 says `typed` or `inherited`, and both readers need it: an edit that leaves
-the discount out carries only a typed one as its rate (an inherited one is
+the discount out carries only a typed one, as the amount or the rate it was
+typed as (`bill_discount_typed_as`, D-PRC-35; an inherited one is
 inherited again at the share now billed, and a counter bill asks the order it
 raised, whose `bill_discount_source` says `typed` or `promotion`), and the
 approver's discount limit judges only a typed one -- an offer's 200 is
@@ -571,6 +572,33 @@ that is silent about free goods is judged in the service, which alone knows
 whether its order line gives any. **The desktop's note editor still sends an
 explicit `0`** from a box that starts at 0, so the screen ships no free goods
 until it sends nothing for a blank box.
+
+**The share a silent line takes is settled when the note is approved**
+(D-PRC-29, 2026-10-06). "What already went" is what notes **approved or
+later** had shipped, and a draft cannot know of another draft: an order of
+10 with 3 free, delivered by notes of 3 and 7 both saved before either was
+approved, stated 0 and 2 -- the second did not know it completed the line --
+and one unit never left, with the order part-delivered and the unit reserved.
+`stage_approval` now works the share again (`_settle_inherited_free_goods`),
+through the same `continued_free_goods` and the same notes, so whatever order
+the drafts were typed or approved in the notes of a line ship the order's
+free units between them, whole: 3 then 7 gives 0 and 3, 7 then 3 gives 2 and
+1. Only a line that **said nothing** is worked again --
+`delivery_note_lines.free_quantity_inherited` (`20261006_0342`) records it,
+false on every line written before, because a typed `0` is a refusal and
+must not start shipping goods. Nothing is charged for free goods, so no
+price, discount or tax moves at approval: the line's free and shipped units
+and the note's two unit totals do. Where the figure moves on a line whose
+**batches or serial numbers were already picked**, the approval is refused
+instead -- "Line 1 of DN-... now ships 3 free, not 2: another delivery of the
+same order line was approved since this note was saved. Save the note again
+so the batches or serial numbers picked cover what it ships." -- and saving
+again works the share from the notes now approved. **The money is not
+settled the same way**: two drafts each slice the order's discount from
+nothing shipped, so their slices can sum a ten-thousandth away from the
+order's (12.3455 as 3.7037 + 8.6419); it is under the paisa the ledger posts
+in, and closing it means taxing the line again at approval.
+`tests/unit/test_note_free_goods_settled_at_approval.py` is the guard.
 
 **A principal is asked for what was passed on to a customer, not for what an
 order claimed** (D-PRC-27, 2026-10-06). A redemption is the order's: it is
