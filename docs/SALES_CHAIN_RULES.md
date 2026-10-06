@@ -235,19 +235,51 @@ rate-difference credit note of 472.00 and was then returned in full for
   netted (472.00 over) and one on the first was netted twice (472.00 short).
   Units of the note no bill has charged yet come back first and credit
   nothing (D-SELL-55), as before.
-- **Nothing stores which bill a return off a note took its units from.** It
-  is worked out the same way every time from the bills, the credit notes
-  and the returns as they stand (`BillBook` in
-  `app/sales_return/billing.py`): units a return names on a bill line are
-  that line's; what returns off the note brought back fills the units left,
-  oldest return first, earliest bill first; and a return's value is set
-  against each bill up to what its units were still worth, the last bill
-  taking the rest. So a unit later named on the first bill's own line moves
-  a unit of an earlier return off the note onto the next bill, which is the
-  only place it can have come from.
+- **Which bill a return off a note took its units from is written down when
+  the return completes, and never moves** (D-PRC-72, 2026-10-06):
+  `sales_return_bill_placements`, one row per bill line with the units and
+  the value it took. It used to be worked out afresh on every read from the
+  bills, the credit notes and the returns as they stood, and so it moved
+  when any of them changed afterwards. With two bills of 1,416.00 and a
+  credit note of 472.00 on the second, a box back off the note was valued on
+  the first bill; a box then named on the first bill's own line pushed it
+  onto the second, where its 1,200.00 did not fit the 800.00 left, and was
+  itself priced at the first bill's full 1,200.00 -- 3,304.00 credited
+  against 2,832.00, and 472.00 short with the note on the first bill.
+  `BillBook` (`app/sales_return/billing.py`) now reads, in this order: what
+  completed returns off the note were **placed** on each bill line, as
+  stored; what returns name on a bill line itself; and only then what the
+  returns off the note that have **not** completed would take, oldest
+  first, earliest bill first -- those are still worked out, because a draft
+  has credited nothing and must give way.
+- **A unit a completed return brought back cannot come back again on its
+  bill's own line.** Once a return off the note has been set against a bill
+  line, those units of the bill are back and credited; a return naming more
+  of that line than is still out on it is refused, at save and again at
+  completion: "Line 1: SI-... line 1 billed 2 BOX, and 2 BOX of that has
+  already come back and been credited on it, so 0 BOX is left to return
+  against this bill where the return brings back 1 BOX. Raise the return
+  off DN-... instead, and the goods are credited on the bill that still
+  carries them." The goods still with the customer belong to another bill
+  of the same note; off the note, or on that bill's own line, they are
+  credited there. A credit note for goods never exceeds the units its
+  invoice billed -- ERPNext refuses the same return against the original
+  invoice.
+- **Cancelling a completed return removes its placement**, so the units are
+  the bill's again. A bill dated earlier than the one a return was set
+  against, approved afterwards, does not take that return's units; the next
+  return off the note fills it first.
+- **The part that brings back the last of a bill line takes exactly what the
+  line is still worth** (D-PRC-79). A part typed in another unit is worth
+  its share of the units still out, both read before rounding -- seven of
+  the seventeen pieces out, not 0.5833 of 1.4167 boxes -- and where the
+  closing part falls short of what is left by less than a paisa it takes
+  the rest. A bill of 2,832.00 returned as 7, 7, 7 and 3 pieces was credited
+  2,831.93 and read 0.07 outstanding. A deduction somebody typed is a paisa
+  or more and stands.
 - **What a bill still owes counts a return off its note** (D-PRC-66,
   2026-10-06). `credited_against` and `returned_units_against` read the
-  same split (`returns_off_notes_against`), so Record Receipt, the ageing,
+  stored split (`returns_off_notes_against`), so Record Receipt, the ageing,
   sales targets and commission see the value and the units on the bills
   they came from. They read only returns that named a bill, and a bill of
   2,832.00 went on reading wholly outstanding beside a credit of 826.00 on

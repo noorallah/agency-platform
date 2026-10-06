@@ -387,6 +387,86 @@ class SalesReturnLineTax(BaseEntity):
     )
 
 
+class SalesReturnBillPlacement(BaseEntity):
+    """Store which bill line a completed return line off a note took units from.
+
+    A delivery note line can be billed in parts, and a return raised off the
+    note names no bill: its units are set against the bills that charged
+    them, earliest first. That split used to be worked out afresh on every
+    read, so it **moved** when anything about the bills changed afterwards
+    -- a unit named later on the first bill's own line pushed a unit of an
+    earlier return onto the next bill, after that return had been valued and
+    completed at the first bill's worth, and the customer was credited
+    3,304.00 against bills of 2,832.00 (D-PRC-72).
+
+    Written once, when the return completes, and never moved: one row per
+    bill line the return line's **billed** units were set against, with the
+    units and the value each took. A line raised on a bill's own line needs
+    none -- it names its bill -- and neither do units no bill had charged.
+    Marked deleted when a completed return is cancelled.
+
+    ``sales_invoice_line_id`` and ``sales_invoice_id`` are bare ids, as
+    ``source_document_line_id`` is on the return line itself.
+    """
+
+    __tablename__ = "sales_return_bill_placements"
+    __table_args__ = (
+        Index("IX_sales_return_bill_placements_line", "sales_return_line_id"),
+        Index("IX_sales_return_bill_placements_return", "sales_return_id"),
+        Index(
+            "IX_sales_return_bill_placements_firm_bill_line",
+            "firm_id",
+            "sales_invoice_line_id",
+        ),
+        Index(
+            "IX_sales_return_bill_placements_firm_bill",
+            "firm_id",
+            "sales_invoice_id",
+        ),
+    )
+
+    sales_return_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "sales_returns.id",
+            ondelete="CASCADE",
+            name="FK_sales_return_bill_placements_sales_return_id",
+        ),
+        nullable=False,
+    )
+    sales_return_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "sales_return_lines.id",
+            ondelete="CASCADE",
+            name="FK_sales_return_bill_placements_sales_return_line_id",
+        ),
+        nullable=False,
+    )
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    sales_invoice_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    sales_invoice_line_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    #: Billed units set against this bill line, in the bill line's unit.
+    quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: The same units as they were typed, where that was another unit, and
+    #: how many of the bill line's unit one typed unit is: seven pieces of a
+    #: box of twelve are 0.5833 above and seven here.
+    entered_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    conversion_factor: Mapped[Decimal] = mapped_column(
+        Numeric(24, 10), nullable=False, default=Decimal("1"), server_default="1"
+    )
+    #: What those units credited, before tax.
+    taxable_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: What they took off the customer's account: with their tax.
+    net_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+
+
 class SalesReturnAttachment(BaseEntity):
     """Store sales return attachments."""
 

@@ -1104,6 +1104,83 @@ def test_a_box_comes_back_off_a_note_as_twelve_pieces() -> None:
     assert _on_hand(shop) == held + D("24")
 
 
+def _owed(shop: _Shop, bill: SalesInvoice) -> Decimal:
+    """Return what a bill still owes once its returns are taken off."""
+    from app.settlements.services.settlement_service import credited_against
+
+    shop.session.expire_all()
+    credited = credited_against(
+        shop.session, firm_id=shop.firm_id, invoice_ids=[bill.id]
+    ).get(bill.id, D("0"))
+    return D(str(shop.session.get(SalesInvoice, bill.id).grand_total)) - credited
+
+
+def test_a_bill_returned_in_loose_pieces_is_credited_all_of_itself() -> None:
+    """2 BOX at 1,200.00 back as 7, 7, 7 and 3 pieces: 2,832.00, not 2,831.93.
+
+    Each part was capped at its share of the boxes still out as **stored**
+    -- 0.5833 of 1.4167 where it is seven of seventeen pieces -- so the
+    second and third came back at 699.98 and 699.95, and the bill read 0.07
+    owed with every piece back (D-PRC-79). One of the four types the price
+    of a piece, as the check that found it did.
+    """
+    shop = _Shop()
+    _gst_18(shop)
+    bill, billed = _bill(shop, _shipped(shop), "2")
+    source = ("SALES_INVOICE", bill.id, billed.id)
+    assert _owed(shop, bill) == D("2832.00")
+
+    parts = [
+        _brought_back(shop, source, "7", return_uom_id=shop.piece),
+        _brought_back(shop, source, "7", return_uom_id=shop.piece, unit_price="100"),
+        _brought_back(shop, source, "7", return_uom_id=shop.piece),
+        _brought_back(shop, source, "3", return_uom_id=shop.piece),
+    ]
+
+    assert [part.net_amount - part.tax_amount for part in parts] == [
+        D("700.0000"),
+        D("700.0000"),
+        D("700.0000"),
+        D("300.0000"),
+    ]
+    assert [part.bill_discount_amount for part in parts] == [D("0.0000")] * 4
+    assert _owed(shop, bill) == D("0.00")
+
+
+def test_the_part_that_brings_back_the_last_of_a_line_takes_what_is_left() -> None:
+    """A box at 100.00 back as three fours: 33.3333, 33.3333 and 33.3334.
+
+    Three thirds rounded on their own are 99.9999; the last return takes
+    what the bill line is still worth, so the parts add up to the line.
+    """
+    shop = _Shop()
+    bill, billed = _bill(shop, _shipped(shop, "1", unit_price="100"), "1")
+    source = ("SALES_INVOICE", bill.id, billed.id)
+
+    parts = [
+        _brought_back(shop, source, "4", return_uom_id=shop.piece) for _ in range(3)
+    ]
+
+    assert [part.net_amount for part in parts] == [
+        D("33.3333"),
+        D("33.3333"),
+        D("33.3334"),
+    ]
+    assert sum(part.net_amount for part in parts) == billed.net_amount
+
+
+def test_a_deduction_typed_on_the_last_part_of_a_line_stands() -> None:
+    """The last four pieces typed at 8.00 where 8.33 was billed: 32.00."""
+    shop = _Shop()
+    bill, billed = _bill(shop, _shipped(shop, "1", unit_price="100"), "1")
+    source = ("SALES_INVOICE", bill.id, billed.id)
+    _brought_back(shop, source, "8", return_uom_id=shop.piece)
+
+    last = _brought_back(shop, source, "4", return_uom_id=shop.piece, unit_price="8")
+
+    assert last.net_amount == D("32.0000")
+
+
 def test_half_a_box_typed_as_a_box_is_refused_where_it_is_saved() -> None:
     """0.5 BOX on a bill or a return never reaches approval or completion."""
     shop = _Shop()

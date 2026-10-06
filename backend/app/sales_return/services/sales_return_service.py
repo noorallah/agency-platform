@@ -99,6 +99,7 @@ from app.sales_return.billing import (
 from app.sales_return.models import (
     SalesReturn,
     SalesReturnAttachment,
+    SalesReturnBillPlacement,
     SalesReturnLine,
     SalesReturnLineTax,
     SalesReturnNote,
@@ -163,6 +164,10 @@ _PENDING_STATUSES = (
 #: Half a paisa of room where a return's value is compared with its bill's:
 #: each part of a line is rounded on its own, and the ledger keeps two places.
 _ROUNDING_ROOM = Decimal("0.005")
+#: Below this a difference in value is rounding, not a figure anybody typed.
+_A_PAISA = Decimal("0.01")
+#: Units below this are the rounding of a part typed in another unit.
+_UNIT_DUST = Decimal("0.0005")
 
 
 @dataclass(frozen=True)
@@ -272,6 +277,11 @@ class _OnBills:
     def billed_at(self) -> Decimal:
         """Return what the bills charged for these units, as the whole line."""
         return sum((part.charged for part in self.parts), ZERO) * self.scale
+
+    @property
+    def closes(self) -> bool:
+        """Say whether the line brings back all its bills' units still out."""
+        return self.scale == Decimal("1") and all(part.closes for part in self.parts)
 
     def split(self, taxable: Decimal) -> list[Decimal]:
         """Split the line's value over its bills, earliest first."""
@@ -860,7 +870,7 @@ class SalesReturnService(TransactionalDocumentService):
             raise ValidationError("Sales return must contain at least one line.")
         # A credit note approved since the return was priced has taken some
         # of what its bill was worth.
-        credited_on = self._refuse_credit_past_the_bill(row, lines)
+        credited_on, placed = self._refuse_credit_past_the_bill(row, lines)
         self._refuse_header_charges_past_the_bill(row, lines)
         movement_ids: list[UUID] = []
         services = stockless_products(
@@ -958,6 +968,9 @@ class SalesReturnService(TransactionalDocumentService):
         # What came back before any bill charged for it credits nothing and
         # reverses no tax; only the rest is a credit note (D-SELL-55).
         self._split_against_billing(row, lines)
+        # And which bill each billed unit off a note came from, written once
+        # here and never moved (D-PRC-72).
+        self._place_on_bills(row, placed, actor_id=actor_id)
         self._session.flush()
         credited_total, credited_tax = return_billed_amounts(self._session, [row])[
             row.id
@@ -1110,6 +1123,17 @@ class SalesReturnService(TransactionalDocumentService):
             # billing is on the note to bill once more (D-SELL-55).
             for line in self._lines_of(row.id):
                 line.unbilled_quantity = ZERO
+            # Nor are its units any bill's any longer (D-PRC-72).
+            for placement in self._session.scalars(
+                select(SalesReturnBillPlacement).where(
+                    SalesReturnBillPlacement.sales_return_id == row.id,
+                    SalesReturnBillPlacement.is_deleted.is_(False),
+                )
+            ).all():
+                placement.is_deleted = True
+                placement.deleted_at = utc_now()
+                placement.deleted_by = actor_id
+                placement.updated_by = actor_id
         row.status = SalesReturnStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
@@ -1673,6 +1697,7 @@ class SalesReturnService(TransactionalDocumentService):
                 quantity=return_quantity,
                 exact=exact_units,
                 unbilled=unbilled,
+                line_number=index,
             )
             if on_bills is not None:
                 if taxable > ZERO:
@@ -1690,6 +1715,19 @@ class SalesReturnService(TransactionalDocumentService):
                         )
                     if taxable > left:
                         bill_share = self._q(bill_share + taxable - left)
+                        taxable = left
+                    elif on_bills.closes and ZERO < left - taxable < _A_PAISA:
+                        # The return that brings back the last of a bill
+                        # line takes exactly what the line is still worth:
+                        # three thirds of a box at 100.00 are 33.3333 each,
+                        # and the bill read 0.01 owed with every piece back
+                        # (D-PRC-79). Under a paisa is rounding; a deduction
+                        # anybody typed is a paisa or more and stands.
+                        short = left - taxable
+                        if bill_share >= short:
+                            bill_share = self._q(bill_share - short)
+                        else:
+                            gross_amount = self._q(gross_amount + short)
                         taxable = left
                 on_bills.hold(taxable)
             elif isinstance(source_line, DeliveryNoteLine):
@@ -2546,16 +2584,27 @@ class SalesReturnService(TransactionalDocumentService):
         quantity: Decimal,
         exact: Decimal | None,
         unbilled: Decimal,
+        line_number: int,
     ) -> _OnBills | None:
         """Set a return line's units against the bills that charged them.
 
         None where no bill has charged any of them: a line of no charged
         quantity, or goods off a note nobody has billed yet.
+
+        Raises:
+            ValidationError: The line names a bill line whose units have
+                already come back -- through returns off its delivery note,
+                which were set against this bill when they completed.
+
         """
         if quantity <= ZERO:
             return None
         if isinstance(source_line, SalesInvoiceLine):
             ledger = book.of_bill_line(source_line.id)
+            if ledger is not None:
+                self._refuse_units_already_back(
+                    ledger, source_line, quantity=quantity, line_number=line_number
+                )
             part = (
                 None
                 if ledger is None
@@ -2576,6 +2625,61 @@ class SalesReturnService(TransactionalDocumentService):
         if covered <= ZERO:
             return None
         return _OnBills(ledger, None, parts, covered, quantity / covered)
+
+    def _refuse_units_already_back(
+        self,
+        ledger: BillLedger,
+        charged: SalesInvoiceLine,
+        *,
+        quantity: Decimal,
+        line_number: int,
+    ) -> None:
+        """Refuse a line naming more of a bill line than is still out on it.
+
+        A return off the delivery note is set against the bills that charged
+        its units when it completes, and stays there (D-PRC-72). Those units
+        of the bill have come back and been credited at what they were
+        worth on it; naming them again on the bill's own line used to push
+        the earlier return onto the next bill and credit this one afresh.
+        The goods still out belong to another bill of the same note, and a
+        return off the note is credited there.
+        """
+        billed, room = ledger.named_room(charged.id)
+        if quantity <= room + _UNIT_DUST:
+            return
+        unit = self._unit_named(self._source_uom_id(charged))
+        note = (
+            charged.source_document_number
+            if charged.source_document_type == "DELIVERY_NOTE"
+            else None
+        )
+        raise ValidationError(
+            f"Line {line_number}: {self._source_document_number(charged)} line "
+            f"{charged.line_number} billed {plain_quantity(billed)}{unit}, and "
+            f"{plain_quantity(max(billed - room, ZERO))}{unit} of that has "
+            "already come back and been credited on it, so "
+            f"{plain_quantity(room)}{unit} is left to return against this "
+            f"bill where the return brings back {plain_quantity(quantity)}"
+            f"{unit}. Raise the return off {note or 'the delivery note'} "
+            "instead, and the goods are credited on the bill that still "
+            "carries them."
+        )
+
+    def _place_on_bills(
+        self,
+        row: SalesReturn,
+        placed: Sequence[SalesReturnBillPlacement],
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Write which bill each billed unit off a note was set against."""
+        self._session.query(SalesReturnBillPlacement).filter(
+            SalesReturnBillPlacement.sales_return_id == row.id
+        ).delete(synchronize_session=False)
+        for placement in placed:
+            placement.created_by = actor_id
+            placement.updated_by = actor_id
+            self._session.add(placement)
 
     def _bill_numbers(self, on_bills: _OnBills) -> str:
         """Name the bills a return line's units were charged on."""
@@ -2823,7 +2927,7 @@ class SalesReturnService(TransactionalDocumentService):
 
     def _refuse_credit_past_the_bill(
         self, row: SalesReturn, lines: Sequence[SalesReturnLine]
-    ) -> dict[UUID, dict[UUID, Decimal]]:
+    ) -> tuple[dict[UUID, dict[UUID, Decimal]], list[SalesReturnBillPlacement]]:
         """Refuse a return that would credit more than its bills are still worth.
 
         A return is priced when it is saved, on what its bill lines were
@@ -2838,7 +2942,8 @@ class SalesReturnService(TransactionalDocumentService):
         Returns:
             Per return line, the share of its credit each bill takes -- the
             bills its goods were charged on, for whoever reads the credit by
-            bill.
+            bill; and, for the lines raised off a note, the units and the
+            value each bill line takes, to be written down (D-PRC-72).
 
         """
         book = BillBook(
@@ -2849,6 +2954,7 @@ class SalesReturnService(TransactionalDocumentService):
         )
         unbilled = self._unbilled_by_line(row, lines)
         shares: dict[UUID, dict[UUID, Decimal]] = {}
+        placed: list[SalesReturnBillPlacement] = []
         for line in sorted(lines, key=lambda item: item.line_number):
             source_line = self._source_line(
                 line.source_document_type, line.source_document_line_id
@@ -2866,6 +2972,7 @@ class SalesReturnService(TransactionalDocumentService):
                     else Decimal(str(entered)) * Decimal(str(line.conversion_factor))
                 ),
                 unbilled=unbilled.get(line.id, ZERO),
+                line_number=line.line_number,
             )
             if on_bills is None:
                 continue
@@ -2904,7 +3011,61 @@ class SalesReturnService(TransactionalDocumentService):
                     else part.quantity / on_bills.billed_units
                 )
             shares[line.id] = dict(by_bill)
-        return shares
+            if on_bills.direct is None:
+                placed.extend(self._placements_of(row, line, on_bills, amounts))
+        return shares, placed
+
+    def _placements_of(
+        self,
+        row: SalesReturn,
+        line: SalesReturnLine,
+        on_bills: _OnBills,
+        amounts: Sequence[Decimal],
+    ) -> list[SalesReturnBillPlacement]:
+        """Build the placements of one line raised off a note.
+
+        One per bill line its billed units were set against: the units, and
+        the share of the line's billed value and of what it took off the
+        customer's account. The last takes what rounding left, so the parts
+        add up to the line.
+        """
+        whole = sum(amounts, ZERO)
+        billed_net = self._q(Decimal(str(line.net_amount)) / on_bills.scale)
+        billed_taxable = self._q(whole / on_bills.scale)
+        entered = line.entered_quantity
+        rows: list[SalesReturnBillPlacement] = []
+        net_left, taxable_left = billed_net, billed_taxable
+        last = len(on_bills.parts) - 1
+        for position, (part, amount) in enumerate(
+            zip(on_bills.parts, amounts, strict=True)
+        ):
+            of_units = part.quantity / on_bills.billed_units
+            of_value = amount / whole if whole > ZERO else of_units
+            net = net_left if position == last else self._q(billed_net * of_value)
+            taxable = (
+                taxable_left if position == last else self._q(billed_taxable * of_value)
+            )
+            net_left -= net
+            taxable_left -= taxable
+            rows.append(
+                SalesReturnBillPlacement(
+                    sales_return_id=row.id,
+                    sales_return_line_id=line.id,
+                    firm_id=row.firm_id,
+                    sales_invoice_id=part.invoice_id,
+                    sales_invoice_line_id=part.bill_line_id,
+                    quantity=self._q(part.quantity),
+                    entered_quantity=(
+                        None
+                        if entered is None
+                        else self._q(Decimal(str(entered)) * of_units / on_bills.scale)
+                    ),
+                    conversion_factor=line.conversion_factor,
+                    taxable_amount=taxable,
+                    net_amount=net,
+                )
+            )
+        return rows
 
     def _charged_tax(
         self, charged: SalesInvoiceLine, *, taxable: Decimal

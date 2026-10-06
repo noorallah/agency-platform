@@ -3,6 +3,7 @@
 from app.sales_return.models.sales_return import (
     SalesReturn,
     SalesReturnAttachment,
+    SalesReturnBillPlacement,
     SalesReturnLine,
     SalesReturnLineTax,
     SalesReturnNote,
@@ -12,6 +13,7 @@ from app.sales_return.models.sales_return import (
 __all__ = [
     "SalesReturn",
     "SalesReturnAttachment",
+    "SalesReturnBillPlacement",
     "SalesReturnLine",
     "SalesReturnLineTax",
     "SalesReturnNote",

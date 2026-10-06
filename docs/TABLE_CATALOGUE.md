@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**328 tables**, of which **17** live only in the platform store.
+**329 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -594,6 +594,7 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `sales_return_attachments` | firm store ¹ | Store sales return attachments. | `sales_returns`, `firms` |
+| `sales_return_bill_placements` | firm store ¹ | Store which bill line a completed return line off a note took units from. | `sales_returns`, `sales_return_lines` |
 | `sales_return_line_taxes` | firm store ¹ | Store the tax components one return line actually credited. | `sales_return_lines` |
 | `sales_return_lines` | firm store ¹ | Store one customer return line. | `sales_returns`, `firms`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes`, `batches`, `inventory_transactions` |
 | `sales_return_notes` | firm store ¹ | Store sales return notes. | `sales_returns`, `firms` |

@@ -30,7 +30,12 @@ from app.core.utils.chunks import chunks
 from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
 from app.delivery_note.models import DeliveryNoteLine
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
-from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
+from app.sales_return.models import (
+    SalesReturn,
+    SalesReturnBillPlacement,
+    SalesReturnLine,
+    SalesReturnLineTax,
+)
 
 ZERO = Decimal("0")
 _FOUR = Decimal("0.0001")
@@ -374,11 +379,27 @@ def note_line_billing(
 # credit note on the second bill was never netted (472.00 over) and one on the
 # first was netted twice (472.00 short).
 #
-# Nothing stores that split: it is worked out here, the same way every time,
-# from the bills, the credit notes and the returns as they stand
-# (``BillLedger``). Units a return names on a bill line itself are that
-# line's; what returns off the note brought back fills the units left, oldest
-# return first, earliest bill first.
+# That split is **written down when the return completes and never moves**
+# (``sales_return_bill_placements``, D-PRC-72). It used to be worked out
+# afresh on every read, and so it moved: with two bills of 1,416.00 and a
+# credit note of 472.00 on the second, a box back off the note was valued on
+# the first bill, and a box then named on the first bill's own line pushed it
+# onto the second -- where its 1,200.00 did not fit the 800.00 left -- and was
+# itself priced at the first bill's full 1,200.00. 3,304.00 credited against
+# 2,832.00; with the note on the first bill, 472.00 short.
+#
+# So ``BillLedger`` reads three things, in this order:
+#
+# * what completed returns off the note were **placed** on each bill line,
+#   as stored;
+# * what returns name on a bill line itself -- that line's, and refused once
+#   the line has no units left out, because a unit a completed return has
+#   already brought back cannot come back again against the same bill;
+# * only then what returns off the note that have **not** completed would
+#   take -- drafts and approved ones, counted so two returns cannot both be
+#   priced on the same remaining worth -- oldest first, earliest bill first.
+#   A completed return with no placement (one no bill had room for) is read
+#   the same way.
 
 
 #: Units below this are the rounding of a part typed in another unit, not
@@ -413,16 +434,32 @@ class BillStanding:
     #: What returns raised on the bill line itself took.
     direct_quantity: Decimal = ZERO
     direct_taxable: Decimal = ZERO
-    #: What returns raised on the note line took of this bill's units.
+    #: What returns raised on the note line took of this bill's units: as
+    #: placed when each completed, and as worked out for those that have not.
     note_quantity: Decimal = ZERO
     note_taxable: Decimal = ZERO
     #: Units a return in hand names on this line, not yet valued.
     reserved: Decimal = ZERO
+    #: The units that came back, before each part typed in another unit was
+    #: rounded to four places: seven pieces of a box are seven twelfths.
+    gone_exact: Decimal = ZERO
 
     @property
     def open_units(self) -> Decimal:
         """Return the billed units still with the customer."""
         return max(self.quantity - self.direct_quantity - self.note_quantity, ZERO)
+
+    @property
+    def open_exact(self) -> Decimal:
+        """Return the units still out, unrounded.
+
+        What a part of them is worth is its share of **these**: three
+        returns of seven pieces left 0.8334 of a box by the stored figures
+        where ten twelfths were out, and each took paise less than its
+        share until a bill returned in full read 0.07 outstanding
+        (D-PRC-79).
+        """
+        return max(self.quantity - self.gone_exact, ZERO)
 
     @property
     def room(self) -> Decimal:
@@ -490,6 +527,9 @@ class BillPart:
     worth: Decimal
     #: What the bill charged for them, before any credit.
     charged: Decimal
+    #: Whether these are all of the line's units still out, so that what
+    #: they credit is all the line is still worth.
+    closes: bool = False
 
 
 def spread_over(worths: Sequence[Decimal], value: Decimal) -> list[Decimal]:
@@ -509,8 +549,25 @@ def spread_over(worths: Sequence[Decimal], value: Decimal) -> list[Decimal]:
     return parts
 
 
+def _exact(quantity: object, entered: object, factor: object) -> Decimal:
+    """Return a stored quantity before it was rounded to four places.
+
+    What was typed times its factor where the line was typed in another
+    unit, and never further from the stored figure than rounding put it.
+    """
+    stored = Decimal(str(quantity or 0))
+    if entered is None:
+        return stored
+    exact = Decimal(str(entered)) * Decimal(str(factor or 1))
+    return exact if abs(exact - stored) <= _FOUR else stored
+
+
 def _units_worth(
-    left: Decimal, quantity: Decimal, exact: Decimal | None, out: Decimal
+    left: Decimal,
+    quantity: Decimal,
+    exact: Decimal | None,
+    out: Decimal,
+    out_exact: Decimal | None = None,
 ) -> Decimal:
     """Return what some of a bill line's units still out are worth.
 
@@ -518,14 +575,18 @@ def _units_worth(
     charged 2,400.00 and credited 400.00 are worth 1,000.00 each, and once
     one has come back the other is worth all of what is left. ``exact`` is
     the same units before rounding, for a part typed in another unit: seven
-    pieces of a box of twelve are seven twelfths of it, not 0.5833 of it.
+    pieces of a box of twelve are seven twelfths of it, not 0.5833 of it --
+    and ``out_exact`` is the units still out read the same way, so the
+    share is seven of the seventeen pieces out and not 0.5833 of 1.4167
+    (D-PRC-79).
     """
     if left <= ZERO or quantity <= ZERO or out <= ZERO:
         return ZERO
     if quantity >= out:
         return left.quantize(_FOUR)
     units = quantity if exact is None else exact
-    return min(left, left * units / out).quantize(_FOUR)
+    over = out if out_exact is None or out_exact <= ZERO else out_exact
+    return min(left, left * units / over).quantize(_FOUR)
 
 
 def _allocate(
@@ -568,9 +629,14 @@ def _allocate(
             value,
         )
         for (bill, took), part in zip(takes, parts, strict=True):
+            of_units = took / back.quantity
             bill.note_quantity += took
             bill.note_taxable += part
-            of_units = took / back.quantity
+            bill.gone_exact += (
+                took
+                if back.entered is None
+                else _exact(took, back.entered * of_units, back.factor)
+            )
             of_value = part / back.taxable if back.taxable > ZERO else of_units
             shares.append(
                 BillShare(
@@ -593,8 +659,11 @@ def _allocate(
 class BillLedger:
     """The bills of one delivery note line, and what has come off each.
 
-    One bill line on its own where the bill was not raised from a note. A
-    return being priced or completed adds its own lines as it goes
+    One bill line on its own where the bill was not raised from a note. The
+    bills arrive with what completed returns off the note were **placed** on
+    them already counted (``sales_return_bill_placements``); ``backs`` are
+    only the returns off the note whose split is not settled yet. A return
+    being priced or completed adds its own lines as it goes
     (``hold_direct``, ``hold_through_note``), so two lines of one return
     cannot both take the same remaining worth.
     """
@@ -603,7 +672,7 @@ class BillLedger:
         """Keep the bills in billing order and the returns oldest first."""
         self._bills = bills
         self._backs = backs
-        self._held: dict[UUID, tuple[Decimal, Decimal]] = {}
+        self._held: dict[UUID, tuple[Decimal, Decimal, Decimal]] = {}
         self._mine: list[NoteReturn] = []
 
     @property
@@ -619,7 +688,10 @@ class BillLedger:
     def standing(
         self, *, reserve: tuple[UUID, Decimal] | None = None
     ) -> tuple[list[BillStanding], list[BillShare]]:
-        """Return where each bill stands, and how the note's returns were split.
+        """Return where each bill stands, and how the unsettled returns split.
+
+        The shares are of the returns off the note that have no stored
+        placement; what was placed is already on the bills.
 
         Args:
             reserve: A bill line and the units a return is about to bring
@@ -630,9 +702,10 @@ class BillLedger:
         """
         bills = [replace(bill) for bill in self._bills]
         for bill in bills:
-            quantity, taxable = self._held.get(bill.line_id, (ZERO, ZERO))
+            quantity, taxable, exact = self._held.get(bill.line_id, (ZERO, ZERO, ZERO))
             bill.direct_quantity += quantity
             bill.direct_taxable += taxable
+            bill.gone_exact += exact
             if reserve is not None and reserve[0] == bill.line_id:
                 bill.reserved = reserve[1]
         return bills, _allocate(bills, [*self._backs, *self._mine])
@@ -653,6 +726,23 @@ class BillLedger:
                 )
         return BillLineCredits(ZERO, ZERO, ZERO)
 
+    def named_room(self, bill_line_id: UUID) -> tuple[Decimal, Decimal]:
+        """Return what one bill line billed, and how much of it can be named.
+
+        The units a return may still bring back **against this line by
+        name**: what it billed, less what other returns named on it, less
+        what completed returns off the note were placed on it. A placement
+        does not move (D-PRC-72), so once those units are gone the line has
+        nothing left to return; a return off the note that has not completed
+        gives way instead, and is set against the next bill.
+        """
+        for bill in self._bills:
+            if bill.line_id != bill_line_id:
+                continue
+            held = self._held.get(bill_line_id, (ZERO, ZERO, ZERO))[0]
+            return bill.quantity, max(bill.open_units - held, ZERO)
+        return ZERO, ZERO
+
     def direct_part(
         self, bill_line_id: UUID, *, quantity: Decimal, exact: Decimal | None = None
     ) -> BillPart | None:
@@ -666,8 +756,11 @@ class BillLedger:
                 bill_line_id=bill.line_id,
                 invoice_id=bill.invoice_id,
                 quantity=quantity,
-                worth=_units_worth(bill.left, quantity, exact, bill.open_units),
+                worth=_units_worth(
+                    bill.left, quantity, exact, bill.open_units, bill.open_exact
+                ),
                 charged=_part_of(bill.goods, units, bill.quantity),
+                closes=quantity >= bill.open_units,
             )
         return None
 
@@ -696,9 +789,14 @@ class BillLedger:
                     invoice_id=bill.invoice_id,
                     quantity=took,
                     worth=_units_worth(
-                        bill.left, took, None if exact is None else took * scale, room
+                        bill.left,
+                        took,
+                        None if exact is None else took * scale,
+                        room,
+                        bill.open_exact,
                     ),
                     charged=_part_of(bill.goods, took * scale, bill.quantity),
+                    closes=took >= room,
                 )
             )
             units -= took
@@ -707,13 +805,21 @@ class BillLedger:
         return parts
 
     def hold_direct(
-        self, bill_line_id: UUID, *, quantity: Decimal, taxable: Decimal
+        self,
+        bill_line_id: UUID,
+        *,
+        quantity: Decimal,
+        taxable: Decimal,
+        exact: Decimal | None = None,
     ) -> None:
         """Count a line of the return in hand, named on a bill line."""
-        held_quantity, held_taxable = self._held.get(bill_line_id, (ZERO, ZERO))
+        held_quantity, held_taxable, held_exact = self._held.get(
+            bill_line_id, (ZERO, ZERO, ZERO)
+        )
         self._held[bill_line_id] = (
             held_quantity + quantity,
             held_taxable + taxable,
+            held_exact + (quantity if exact is None else exact),
         )
 
     def hold_through_note(self, *, quantity: Decimal, taxable: Decimal) -> None:
@@ -815,7 +921,7 @@ class BillBook:
         return self._by_bill.get(bill_line_id)
 
     def shares(self) -> list[BillShare]:
-        """Return how every loaded return off a note was split over its bills."""
+        """Return how the loaded returns with no stored placement were split."""
         answer: list[BillShare] = []
         for ledger in self._by_note.values():
             if ledger is not None:
@@ -880,6 +986,7 @@ class BillBook:
             lone.append(bill)
         self._read_credit_notes(standing)
         self._read_returns_on_bills(standing)
+        self._read_placements(standing)
         backs = self._read_returns_on_notes(list(by_note))
         for note_line_id in notes:
             bills = by_note.get(note_line_id)
@@ -939,33 +1046,68 @@ class BillBook:
     def _read_returns_on_bills(self, standing: dict[UUID, BillStanding]) -> None:
         """Put what returns raised on each bill line itself took."""
         for part in chunks(list(standing)):
-            for line_id, quantity, taxable in self._session.execute(
+            for row in self._session.execute(
                 self._returns(
                     SalesReturnLine.source_document_line_id,
-                    func.coalesce(func.sum(SalesReturnLine.current_return_quantity), 0),
-                    func.coalesce(
-                        func.sum(
-                            SalesReturnLine.net_amount - SalesReturnLine.tax_amount
-                        ),
-                        0,
-                    ),
-                )
-                .where(
+                    SalesReturnLine.current_return_quantity,
+                    SalesReturnLine.entered_quantity,
+                    SalesReturnLine.conversion_factor,
+                    SalesReturnLine.net_amount,
+                    SalesReturnLine.tax_amount,
+                ).where(
                     SalesReturnLine.source_document_type == "SALES_INVOICE",
                     SalesReturnLine.source_document_line_id.in_(part),
                 )
-                .group_by(SalesReturnLine.source_document_line_id)
             ).all():
-                standing[line_id].direct_quantity = Decimal(str(quantity or 0))
-                standing[line_id].direct_taxable = Decimal(str(taxable or 0))
+                bill = standing[row.source_document_line_id]
+                bill.direct_quantity += Decimal(str(row.current_return_quantity or 0))
+                bill.direct_taxable += Decimal(str(row.net_amount or 0)) - Decimal(
+                    str(row.tax_amount or 0)
+                )
+                bill.gone_exact += _exact(
+                    row.current_return_quantity,
+                    row.entered_quantity,
+                    row.conversion_factor,
+                )
+
+    def _read_placements(self, standing: dict[UUID, BillStanding]) -> None:
+        """Put what completed returns off the note were placed on each bill line.
+
+        As written when each completed (D-PRC-72), whatever has happened to
+        the bills since. Only a completed return has any, so they are read
+        whichever returns this book otherwise counts.
+        """
+        for part in chunks(list(standing)):
+            statement = _placements(
+                self._firm_id,
+                SalesReturnBillPlacement.sales_invoice_line_id,
+                SalesReturnBillPlacement.quantity,
+                SalesReturnBillPlacement.entered_quantity,
+                SalesReturnBillPlacement.conversion_factor,
+                SalesReturnBillPlacement.taxable_amount,
+                as_of=self._as_of,
+            ).where(SalesReturnBillPlacement.sales_invoice_line_id.in_(part))
+            if self._exclude_return_id is not None:
+                statement = statement.where(
+                    SalesReturnBillPlacement.sales_return_id != self._exclude_return_id
+                )
+            for row in self._session.execute(statement).all():
+                bill = standing[row.sales_invoice_line_id]
+                bill.note_quantity += Decimal(str(row.quantity or 0))
+                bill.note_taxable += Decimal(str(row.taxable_amount or 0))
+                bill.gone_exact += _exact(
+                    row.quantity, row.entered_quantity, row.conversion_factor
+                )
 
     def _read_returns_on_notes(
         self, note_line_ids: Sequence[UUID]
     ) -> dict[UUID, list[NoteReturn]]:
-        """Read the billed part of each return line raised off these note lines.
+        """Read the billed part of each unsettled return line off these note lines.
 
-        Oldest first: by when each completed, then by when it was raised, so
-        the split of an earlier return does not move when a later one lands.
+        The ones with no stored placement: a draft or an approved return,
+        which has not been split yet, and a completed one no bill had room
+        for. Oldest first: by when each completed, then by when it was
+        raised.
         """
         found: list[tuple[tuple[Any, ...], UUID, NoteReturn]] = []
         for part in chunks(list(note_line_ids)):
@@ -987,6 +1129,7 @@ class BillBook:
                 ).where(
                     SalesReturnLine.source_document_type == "DELIVERY_NOTE",
                     SalesReturnLine.source_document_line_id.in_(part),
+                    ~_placed(),
                 )
             ).all():
                 quantity = Decimal(str(row.current_return_quantity or 0))
@@ -1032,6 +1175,39 @@ class BillBook:
         return backs
 
 
+def _placed() -> ColumnElement[bool]:
+    """Match a return line whose split over its bills is written down."""
+    return (
+        select(SalesReturnBillPlacement.id)
+        .where(
+            SalesReturnBillPlacement.sales_return_line_id == SalesReturnLine.id,
+            SalesReturnBillPlacement.is_deleted.is_(False),
+        )
+        .exists()
+    )
+
+
+def _placements(
+    firm_id: UUID,
+    *columns: ColumnElement[Any] | InstrumentedAttribute[Any],
+    as_of: date | None,
+) -> Select[Any]:
+    """Start a statement over the placements of returns that credited."""
+    statement = (
+        select(*columns)
+        .join(SalesReturn, SalesReturn.id == SalesReturnBillPlacement.sales_return_id)
+        .where(
+            SalesReturnBillPlacement.firm_id == firm_id,
+            SalesReturnBillPlacement.is_deleted.is_(False),
+            SalesReturn.is_deleted.is_(False),
+            SalesReturn.status.in_(_COMPLETED),
+        )
+    )
+    if as_of is not None:
+        statement = statement.where(SalesReturn.return_date <= as_of)
+    return statement
+
+
 def returns_off_notes_against(
     session: Session,
     *,
@@ -1051,6 +1227,12 @@ def returns_off_notes_against(
     on the bills they came from. A return off a note nobody has billed
     counts against nothing: it credited nothing.
 
+    The split is the one written when each return completed
+    (``sales_return_bill_placements``, D-PRC-72) and is read as stored, so a
+    bill never reads differently because something else happened to the
+    note since. Only a completed return with nothing stored is still worked
+    out.
+
     Args:
         session: The firm's session.
         firm_id: The owning firm.
@@ -1063,6 +1245,45 @@ def returns_off_notes_against(
         One share per return line and bill line it took units from.
 
     """
+    if invoice_ids is not None and not invoice_ids:
+        return []
+    stored = _placements(
+        firm_id,
+        SalesReturnBillPlacement.sales_return_line_id,
+        SalesReturnBillPlacement.sales_return_id,
+        SalesReturnBillPlacement.sales_invoice_line_id,
+        SalesReturnBillPlacement.sales_invoice_id,
+        SalesReturnBillPlacement.quantity,
+        SalesReturnBillPlacement.entered_quantity,
+        SalesReturnBillPlacement.conversion_factor,
+        SalesReturnBillPlacement.taxable_amount,
+        SalesReturnBillPlacement.net_amount,
+        as_of=as_of,
+    )
+    if invoice_ids is not None:
+        stored = stored.where(
+            SalesReturnBillPlacement.sales_invoice_id.in_(invoice_ids)
+        )
+    answer = [
+        BillShare(
+            return_line_id=row.sales_return_line_id,
+            return_id=row.sales_return_id,
+            bill_line_id=row.sales_invoice_line_id,
+            invoice_id=row.sales_invoice_id,
+            quantity=Decimal(str(row.quantity or 0)),
+            taxable=Decimal(str(row.taxable_amount or 0)),
+            of_value=ZERO,
+            of_units=ZERO,
+            net=Decimal(str(row.net_amount or 0)),
+            entered=(
+                None
+                if row.entered_quantity is None
+                else Decimal(str(row.entered_quantity))
+            ),
+            factor=Decimal(str(row.conversion_factor or 0)),
+        )
+        for row in session.execute(stored).all()
+    ]
     off_notes = (
         select(SalesReturnLine.source_document_line_id)
         .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
@@ -1073,6 +1294,7 @@ def returns_off_notes_against(
             SalesReturnLine.current_return_quantity > SalesReturnLine.unbilled_quantity,
             SalesReturn.is_deleted.is_(False),
             SalesReturn.status.in_(_COMPLETED),
+            ~_placed(),
         )
     )
     if as_of is not None:
@@ -1080,8 +1302,6 @@ def returns_off_notes_against(
     if invoice_ids is None:
         note_line_ids = session.scalars(off_notes.distinct()).all()
     else:
-        if not invoice_ids:
-            return []
         note_line_ids = session.scalars(
             select(SalesInvoiceLine.source_document_line_id)
             .where(
@@ -1093,13 +1313,14 @@ def returns_off_notes_against(
             .distinct()
         ).all()
     if not note_line_ids:
-        return []
+        return answer
     book = BillBook(session, firm_id=firm_id, completed_only=True, as_of=as_of)
     book.load(note_line_ids=note_line_ids)
     wanted = None if invoice_ids is None else set(invoice_ids)
-    return [
+    answer.extend(
         share for share in book.shares() if wanted is None or share.invoice_id in wanted
-    ]
+    )
+    return answer
 
 
 def bill_line_credits(
