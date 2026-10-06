@@ -88,6 +88,12 @@ from app.settlements.schemas import (
     OutstandingInvoiceRecord,
     SettlementCreate,
 )
+from app.settlements.services.customer_credits import (
+    credit_applied_to_bills,
+    draw_refund_on_credits,
+    drawn_back_onto_bills,
+    release_refund_draws,
+)
 from app.settlements.services.supplier_credits import credit_applied_against
 from app.tcs.services import TcsService
 from app.vendors.models import Vendor, VendorOpeningBill
@@ -431,12 +437,15 @@ def settled_against(
     firm_id: UUID,
     invoice_ids: Sequence[UUID] | None,
     as_of: date | None = None,
+    drawn_back: bool = True,
 ) -> dict[UUID, Decimal]:
     """Sum everything that has come off each sales invoice.
 
-    Money allocated from a posted receipt, points spent on the bill, and the
-    returns and credit notes raised against it (``credited_against``), less
-    what approved debit notes added to it (``debited_against``). Each
+    Money allocated from a posted receipt, points spent on the bill, the
+    returns and credit notes raised against it (``credited_against``) and the
+    credit of another bill's return or credit note set against it
+    (``credit_applied_to_bills``, D-PRC-75), less what approved debit notes
+    added to it (``debited_against``). Each
     part is rounded to the ledger's two decimals before they are added, which
     is how Record Receipt has always shown them. This is the one answer to
     "what does this bill still owe": Record Receipt's list and the ageing both
@@ -451,6 +460,9 @@ def settled_against(
         as_of: Count only what had happened by the end of this day -- a
             receipt dated after it had not arrived yet, and one reversed after
             it still stood. None counts what stands now.
+        drawn_back: False leaves out what goes back on a bill whose own
+            return's credit was used elsewhere (``drawn_back_onto_bills``),
+            which is itself worked out from this reading.
 
     Returns:
         The settled amount per invoice, for those with any.
@@ -511,6 +523,21 @@ def settled_against(
         session, firm_id=firm_id, invoice_ids=invoice_ids, as_of=as_of
     ).items():
         settled[invoice_id] = settled.get(invoice_id, ZERO) + amount
+    # And the credit a return or credit note left on a bill already paid,
+    # set against this one (D-PRC-75): it posts nothing and settles the bill
+    # exactly as money allocated to it does.
+    for invoice_id, amount in credit_applied_to_bills(
+        session, firm_id=firm_id, bill_ids=invoice_ids, as_of=as_of
+    ).items():
+        settled[invoice_id] = settled.get(invoice_id, ZERO) + amount
+    # Less what goes back on a bill whose own return's credit was used
+    # elsewhere and which has since come to owe more again -- its receipt
+    # reversed -- so the same credit is not counted on two bills.
+    if drawn_back:
+        for invoice_id, amount in drawn_back_onto_bills(
+            session, firm_id=firm_id, invoice_ids=invoice_ids
+        ).items():
+            settled[invoice_id] = settled.get(invoice_id, ZERO) - amount
     # And what an approved party adjustment -- a write-off or a set-off --
     # took off the bill (backlog 74 row 2). Imported here: that module reads
     # these services.
@@ -1215,6 +1242,12 @@ class SettlementService(TransactionalDocumentService):
             firm_id=firm_id, actor_id=actor_id
         )
         party = self._require_party(firm_id=firm_id, party_id=data.party_id)
+        if data.credit_source_id is not None and not is_refund:
+            # Accepted and discarded would be worse than refused: a credit
+            # is set against a bill by its own route, not by a receipt.
+            raise ValidationError(
+                "Only a refund names the return or credit note it pays back."
+            )
         order = self._advance_order(data, firm_id=firm_id)
         currency = normalize_currency(data.currency_code)
         # A payment in a supplier's currency (PG-12): the request's amounts
@@ -1384,6 +1417,22 @@ class SettlementService(TransactionalDocumentService):
             )
 
         if is_refund:
+            # What a return or credit note left on the account is that
+            # document's credit, and money handed back out of it is the
+            # credit gone (D-PRC-75): the refund names its source or takes
+            # the oldest credit held first, before the advance moves, so a
+            # credit paid back cannot be set against a bill as well.
+            draw_refund_on_credits(
+                self._session,
+                firm_id=firm_id,
+                customer_id=data.party_id,
+                refund_id=row.id,
+                refund_number=number,
+                amount=amount,
+                refunded_on=data.settlement_date,
+                actor_id=actor_id,
+                source_id=data.credit_source_id,
+            )
             # The receivable service holds the rule that a refund cannot
             # exceed the advance the customer is actually holding, and
             # refuses it by name.
@@ -1843,6 +1892,16 @@ class SettlementService(TransactionalDocumentService):
                     commit=False,
                     on=mirror.journal_date,
                 )
+        if self.DIRECTION == SettlementDirection.REFUND:
+            # The money came back, so the credits it paid back are free
+            # again (D-PRC-75).
+            release_refund_draws(
+                self._session,
+                firm_id=firm_id,
+                refund_id=row.id,
+                actor_id=actor_id,
+                reason=reason or f"{row.settlement_number} reversed.",
+            )
         if self.DIRECTION == SettlementDirection.RECEIPT:
             # The money is going back, so the tax collected on it goes back
             # too. Mirrored rather than deleted: a quarterly return may

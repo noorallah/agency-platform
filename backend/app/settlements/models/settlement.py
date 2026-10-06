@@ -416,3 +416,79 @@ class SupplierCreditRefund(BaseEntity):
     )
     reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     reversal_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class CustomerCreditApplication(BaseEntity):
+    """Store how much of one return's or credit note's credit went where.
+
+    A completed sales return and an approved credit note credit the customer
+    against the bill they name. Where that bill was already paid there is
+    nothing left on it to come off, so the excess stands on the customer's
+    account -- and belonged to no receipt, so ``allocate`` could never set it
+    against a later bill; it could only be refunded (D-PRC-75).
+
+    What a source has left to give is derived: what its own bills could not
+    absorb, less its live rows here. A row names where that much of it went:
+    another bill of the same customer (a sales invoice or an opening bill),
+    or -- ``target_type`` ``REFUND`` -- the refund that paid it back in cash,
+    so a credit that was refunded cannot be applied as well.
+
+    Applying posts no journal: the return already credited receivables and
+    the bill already debited them. ``advance_amount`` is the part that came
+    out of the advance the customer held (the receivable row named by
+    ``receivable_transaction_id`` moved it), so taking the application back
+    returns exactly that. A row is reversed, never edited or deleted.
+
+    The source and the target are bare ids, as a return line names its
+    source: one column each for five kinds of document.
+    """
+
+    __tablename__ = "customer_credit_applications"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="CK_customer_credit_applications_positive"),
+        CheckConstraint(
+            "source_type IN ('SALES_RETURN', 'CREDIT_NOTE')",
+            name="CK_customer_credit_applications_source_type",
+        ),
+        CheckConstraint(
+            "target_type IN ('SALES_INVOICE', 'CUSTOMER_OPENING_BILL', 'REFUND')",
+            name="CK_customer_credit_applications_target_type",
+        ),
+        Index("IX_customer_credit_applications_source", "firm_id", "source_id"),
+        Index("IX_customer_credit_applications_target", "firm_id", "target_id"),
+        Index("IX_customer_credit_applications_customer", "firm_id", "customer_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    customer_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "customers.id",
+            ondelete="RESTRICT",
+            name="FK_customer_credit_applications_customer_id",
+        ),
+        nullable=False,
+    )
+    #: ``SALES_RETURN`` or ``CREDIT_NOTE``, and that document's id.
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    source_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    #: ``SALES_INVOICE`` or ``CUSTOMER_OPENING_BILL`` -- the bill it settles
+    #: -- or ``REFUND``, the refund settlement that paid it back.
+    target_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    target_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    applied_on: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    #: The part of ``amount`` that came out of the customer's advance.
+    advance_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00"), server_default="0"
+    )
+    #: The ``ADVANCE_APPLY`` row that moved the customer's balances, where
+    #: any of it came out of the advance.
+    receivable_transaction_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: ``POSTED`` or ``REVERSED``.
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="POSTED", server_default="POSTED"
+    )
+    reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    reversed_by: Mapped[UUID | None] = mapped_column(UUIDType())
+    reversal_reason: Mapped[str | None] = mapped_column(Text)

@@ -35,6 +35,74 @@ advance". `_advance_part_of` reads the split off the receipt's own
 receivable row and subtracts what earlier allocations used, or the last of
 an advance is stranded for ever.
 
+## A customer's credit is set against another bill, and posts no journal
+
+Built 2026-10-06 (D-PRC-75, PRCQ-74): the receivable twin of supplier credit.
+A completed sales return and an approved credit note come off the bill they
+name. Where that bill was **already paid** nothing is left on it to come off,
+so the excess stood on the customer's account as an advance that belonged to
+no receipt -- and `allocate` only spends one receipt's unapplied money. The
+customer owed 826.00 on one line and was owed 826.00 on another; only a cash
+refund could clear it.
+
+- **What a source has to give is derived, never stored**
+  (`app/settlements/services/customer_credits.py`): how far its own bills are
+  settled past their totals (`settled_against` less `grand_total`), falling
+  to the bill's returns and credit notes **newest first**, each up to what it
+  took off that bill -- a return's own lines, its units placed on the bill
+  from a delivery note (`sales_return_bill_placements`), its header charges
+  (`header_credit_parts`) and the credit notes against the bill -- less the
+  live rows of `customer_credit_applications` (migration `20261006_0348`).
+- **A row says where part of a credit went**: a sales invoice or a customer
+  opening bill of the same customer, or the **refund** that paid it back
+  (`target_type` `REFUND`). `GET /api/v1/receipts/customer-credits?party_id=`
+  lists them, `POST /api/v1/receipts/customer-credits/{source_id}/apply` sets
+  one against a bill, and
+  `POST /api/v1/receipts/customer-credits/applications/{id}/reverse` takes it
+  back. `RECEIPT_VIEW` reads, `RECEIPT_CREATE` writes -- the codes the receipt
+  allocation routes already enforce.
+- **No journal.** One customer, one control account: the return credited
+  receivables and the bill debited them. What moves is the customer's own two
+  figures, and **only by the part the credit was holding as an advance**. A
+  credit note is applied up to what the customer owes when it posts and only
+  the rest becomes an advance; the receivable row it wrote remembers the
+  split. The part that already came off the balance is applied first and
+  moves nothing; the rest posts one `ADVANCE_APPLY` row referenced
+  `customer_credit_application` to the application, and a reversal goes back
+  by that row's own deltas (`advance_amount` on the application says how
+  much).
+- **Every reader of what a bill owes counts it.** `settled_against` adds
+  `credit_applied_to_bills` (so Record Receipt, ageing, the invoice print and
+  the debit-note and hand-share readers follow), `opening_bill_receipts` adds
+  it for an opening bill, and the loyalty cap reads it too. The customer
+  statement shows the `ADVANCE_APPLY` row as it shows a receipt's. On the
+  **collected** basis (`collected_net`) a credit applied **is** a collection
+  on the bill it settles, dated `applied_on`: the cash it stands for was
+  taken off the first bill's receipts when the goods came back, and would
+  otherwise be counted on neither bill. A payment promise still counts only
+  receipts.
+- **A refund draws on the credit.** `POST /refunds` may name
+  `credit_source_id`; named, it is refused past what that source has left.
+  Unnamed it takes the credits **held on account, oldest first**, before the
+  advance moves. Either way the credit paid back cannot be applied as well,
+  and reversing the refund frees it. A refund recorded before the table
+  existed has no row: the reader takes such money off the oldest held credits,
+  because a customer cannot hold more as credit than the account says.
+- **Cancelling the source withdraws its applications** -- each bill owes that
+  part again, and the advance each spent comes back before the return's or
+  note's own row is undone. **Cancelling a bill a credit is set against is
+  refused by name** ("credit applied from SR-…"), as it is for a receipt;
+  take the application back first. Supplier credit withdraws on both sides;
+  the sales side already refuses a bill with money applied, and this follows
+  it.
+- **A reversed receipt puts used credit back on its bill**
+  (`drawn_back_onto_bills`): once the first bill owes again, its return gives
+  less credit than was used elsewhere, and the difference would be off two
+  bills at once.
+- **Loyalty is not a source.** A redemption is capped at what its bill owes,
+  so it never over-settles a bill by itself; where a return follows a bill
+  paid in points, the return is the source of the credit.
+
 ## Money received on the bill posts as a receipt, not as part of the bill
 
 A counter payment entered on a sales invoice (backlog 64 row 5) posts **two

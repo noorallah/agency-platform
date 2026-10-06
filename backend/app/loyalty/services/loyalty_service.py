@@ -1675,12 +1675,22 @@ class LoyaltyService:
             column="sales_invoice_id",
             bill_ids=[invoice.id],
         ).get(invoice.id, ZERO)
+        # And another bill's return or credit note set against this one
+        # (D-PRC-75): it settles the bill as money does.
+        from app.settlements.services.customer_credits import (
+            credit_applied_to_bills,
+        )
+
+        applied = credit_applied_to_bills(
+            self._session, firm_id=firm_scope, bill_ids=[invoice.id]
+        ).get(invoice.id, ZERO)
         owed = (
             quantize_ledger(invoice.grand_total)
             - quantize_ledger(Decimal(str(paid or 0)))
             - quantize_ledger(Decimal(str(spent or 0)))
             - credited
             - adjusted
+            - applied
         )
         return owed if owed > ZERO else ZERO
 

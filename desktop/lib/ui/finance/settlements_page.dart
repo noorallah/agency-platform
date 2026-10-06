@@ -355,6 +355,16 @@ class _SettlementsPageState extends State<SettlementsPage> {
                 icon: const Icon(Icons.currency_exchange, size: 16),
                 label: const Text('Supplier refunds'),
               ),
+            // What a return or credit note left on a bill already paid: set
+            // against another of the customer's bills here (D-PRC-75). About
+            // no row in the list, as Supplier credits is.
+            if (_canCreate && widget.direction == SettlementDirection.receipt)
+              OutlinedButton.icon(
+                key: const ValueKey('customer-credits'),
+                onPressed: () => unawaited(_customerCredits()),
+                icon: const Icon(Icons.assignment_return_outlined, size: 16),
+                label: const Text('Customer credits'),
+              ),
           ],
           commands: [
             ToolbarCommand(
@@ -1031,6 +1041,86 @@ class _SettlementsPageState extends State<SettlementsPage> {
     }
   }
 
+  /// Set what a customer's return or credit note left on a paid bill
+  /// against another of their bills (D-PRC-75).
+  ///
+  /// Nothing is posted: the return credited the customer when it completed
+  /// and the bill debited them when it was approved. The dialog runs the
+  /// save itself, so a refusal is read with the amount still typed.
+  Future<void> _customerCredits() async {
+    final PartyOption? customer = await _pickVendor();
+    if (customer == null || !mounted) return;
+    final List<CustomerCredit> credits;
+    final List<OutstandingInvoice> bills;
+    try {
+      credits = await widget.api.customerCredits(customer.id);
+      bills = await widget.api.outstandingInvoices(
+        direction: SettlementDirection.receipt,
+        partyId: customer.id,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+      return;
+    }
+    if (!mounted) return;
+    if (credits.isEmpty || bills.isEmpty) {
+      NotificationService.show(
+        context,
+        credits.isEmpty
+            ? '${customer.name} holds no credit from returns or credit notes.'
+            : '${customer.name} has no unpaid bills to set the credit '
+                'against.',
+        kind: AppNotificationKind.information,
+      );
+      return;
+    }
+    final CustomerCredit? credit = credits.length == 1
+        ? credits.single
+        : await showDialog<CustomerCredit>(
+            context: context,
+            builder: (dialogContext) => SimpleDialog(
+              title: const Text('Which credit?'),
+              children: [
+                for (final CustomerCredit row in credits)
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.pop(dialogContext, row),
+                    child: Text(
+                      '${row.label} -- ${row.availableAmount} left',
+                    ),
+                  ),
+              ],
+            ),
+          );
+    if (credit == null || !mounted) return;
+    final _Application? chosen = await showDialog<_Application>(
+      context: context,
+      builder: (context) => _ApplyDialog(
+        title: 'Set ${credit.label} against a bill',
+        note: 'Nothing moves in the ledger. The '
+            '${credit.isCreditNote ? 'credit note' : 'return'} credited the '
+            'customer when it was raised; this says which bill that credit '
+            'settles.',
+        available: credit.availableAmount,
+        availableLabel: 'of credit',
+        invoiceLabel: 'Bill',
+        invoices: bills,
+        onSave: (application) => widget.api.applyCustomerCredit(
+          sourceId: credit.sourceId,
+          invoiceId: application.invoiceId,
+          amount: application.amount,
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    NotificationService.show(
+      context,
+      '${credit.label} set against ${chosen.invoiceNumber}.',
+      kind: AppNotificationKind.success,
+    );
+    await _load();
+  }
+
   /// "SI-… on 2026-05-19": the bill, and the day the money met it, which
   /// is what a statement's running balance is dated by (D-TER-19).
   static String _allocationLabel(SettlementAllocation a) =>
@@ -1123,10 +1213,16 @@ class _ApplyDialog extends StatefulWidget {
     required this.availableLabel,
     required this.invoiceLabel,
     required this.invoices,
+    this.onSave,
   });
 
   final String title;
   final String note;
+
+  /// The save, run by the dialog itself so a refusal is shown with the
+  /// amount still typed (D-DLG-1). Null closes with the choice and leaves
+  /// the call to the caller, as the two older uses do.
+  final Future<void> Function(_Application application)? onSave;
 
   /// What there is to apply, and what to call it: money on account, or a
   /// supplier's credit from returns.
@@ -1139,7 +1235,8 @@ class _ApplyDialog extends StatefulWidget {
   State<_ApplyDialog> createState() => _ApplyDialogState();
 }
 
-class _ApplyDialogState extends State<_ApplyDialog> {
+class _ApplyDialogState extends State<_ApplyDialog>
+    with SaveInDialog<_ApplyDialog> {
   late final TextEditingController _amount =
       TextEditingController(text: widget.available);
   late String _invoiceId = widget.invoices.first.invoiceId;
@@ -1164,6 +1261,7 @@ class _ApplyDialogState extends State<_ApplyDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              saveErrorBanner(),
               Text(
                 widget.note,
                 style: Theme.of(context).textTheme.bodySmall,
@@ -1202,19 +1300,24 @@ class _ApplyDialogState extends State<_ApplyDialog> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: cancelHandler,
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              final String amount = _amount.text.trim();
-              if (amount.isEmpty) return;
-              Navigator.of(context).pop(_Application(
-                invoiceId: _invoiceId,
-                invoiceNumber: _chosen.invoiceNumber,
-                amount: amount,
-              ));
-            },
+            onPressed: saving
+                ? null
+                : () {
+                    final String amount = _amount.text.trim();
+                    if (amount.isEmpty) return;
+                    unawaited(submit<_Application>(
+                      _Application(
+                        invoiceId: _invoiceId,
+                        invoiceNumber: _chosen.invoiceNumber,
+                        amount: amount,
+                      ),
+                      widget.onSave,
+                    ));
+                  },
             child: const Text('Apply'),
           ),
         ],

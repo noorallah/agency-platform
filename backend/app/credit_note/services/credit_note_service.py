@@ -512,6 +512,21 @@ class CreditNoteService(TransactionalDocumentService):
                 # date, which put the undo before the decision (D-SELL-27).
                 actor_id=actor_id,
             ).journal_date
+        if row.status == CreditNoteStatus.APPROVED.value:
+            # Whatever its credit was set against owes that again, and the
+            # advance each application spent comes back before the note's
+            # own row is undone (D-PRC-75).
+            from app.settlements.services.customer_credits import (
+                withdraw_credit_applications,
+            )
+
+            withdraw_credit_applications(
+                self._session,
+                firm_id=firm_scope,
+                source_id=row.id,
+                actor_id=actor_id,
+                reason=f"Cancelled credit note {row.credit_note_number}.",
+            )
         if row.receivable_transaction_id is not None:
             self._customers.reverse_receivable_transaction(
                 row.receivable_transaction_id,

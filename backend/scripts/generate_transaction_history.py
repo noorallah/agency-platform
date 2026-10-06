@@ -247,6 +247,10 @@ RESET_ORDER: tuple[str, ...] = (
     # Supplier credit set against a bill names the purchase return, the debit
     # note, the opening bill and the bill, RESTRICT each way (D-FIN-19).
     "supplier_credit_applications",
+    # Customer credit set against a bill names the return or credit note
+    # that gave it and the bill or refund it went to, by bare id (D-PRC-75):
+    # nothing would stop it outliving them, so it goes with them.
+    "customer_credit_applications",
     # A registration names the invoice, credit note, debit note or return it
     # registered, and an e-way bill names its registration.
     "eway_bills",

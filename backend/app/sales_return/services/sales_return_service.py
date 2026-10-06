@@ -1103,6 +1103,20 @@ class SalesReturnService(TransactionalDocumentService):
                 actor_id=actor_id,
                 stock_value=stock_value,
             )
+            # Whatever its credit was set against owes that again, and the
+            # advance each application spent comes back first: the return's
+            # own row below can only be undone with it there (D-PRC-75).
+            from app.settlements.services.customer_credits import (
+                withdraw_credit_applications,
+            )
+
+            withdraw_credit_applications(
+                self._session,
+                firm_id=firm_scope,
+                source_id=row.id,
+                actor_id=actor_id,
+                reason=reason or f"Cancelled sales return {row.return_number}.",
+            )
             self._reverse_receivable(
                 row,
                 firm_scope=firm_scope,

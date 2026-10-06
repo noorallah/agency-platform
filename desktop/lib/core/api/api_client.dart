@@ -10889,6 +10889,55 @@ class ApiClient {
         ),
       );
 
+  /// What a customer's returns and credit notes left on their account
+  /// because the bill they named was already paid (D-PRC-75).
+  Future<List<CustomerCredit>> customerCredits(String customerId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/receipts/customer-credits',
+      query: {'party_id': customerId},
+    );
+    return _unwrapList(response, CustomerCredit.fromJson);
+  }
+
+  /// Set part of a customer credit against another of that customer's bills.
+  ///
+  /// Nothing is posted: the return credited receivables when it completed
+  /// and the bill debited them when it was approved. [appliedOn] left out is
+  /// the later of the two documents' dates, which the server works out.
+  Future<CustomerCredit> applyCustomerCredit({
+    required String sourceId,
+    required String invoiceId,
+    required String amount,
+    String? appliedOn,
+  }) async =>
+      CustomerCredit.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/receipts/customer-credits/$sourceId/apply',
+            body: <String, dynamic>{
+              'invoice_id': invoiceId,
+              'amount': amount,
+              if (appliedOn != null && appliedOn.isNotEmpty)
+                'applied_on': appliedOn,
+            },
+          ),
+        ),
+      );
+
+  /// Take a customer credit back off the bill it was set against in error.
+  Future<void> reverseCustomerCreditApplication({
+    required String applicationId,
+    required String reason,
+  }) async {
+    await request(
+      'POST',
+      '/api/v1/receipts/customer-credits/applications/$applicationId/reverse',
+      body: <String, dynamic>{'reason': reason},
+    );
+  }
+
   /// What the supplier handed back against a credit whose return came back
   /// as a refund, newest first as the server lists them.
   Future<List<SupplierRefund>> supplierRefunds(String sourceId) async =>

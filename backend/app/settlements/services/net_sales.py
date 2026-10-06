@@ -21,6 +21,13 @@ it only ever hands back money that was never counted as collected against a
 bill -- an advance, or the excess a credit note left on the customer's
 account. The credit note or return that put it there is what takes the sale
 off; counting the refund as well would take it off twice.
+
+**A credit set against another bill is a collection on that bill.** The money
+a customer paid on a bill that then came back is taken off that bill's
+receipts above. Where what it left on the account is set against a later
+bill (`customer_credit_applications`, D-PRC-75) the same money has met a sale
+that still stands, so it counts as collected there, on the day it was
+applied -- or cash the firm really holds would be counted on neither bill.
 """
 
 from collections.abc import Sequence
@@ -35,6 +42,7 @@ from sqlalchemy.orm import Session
 from app.core.utils.money import ZERO
 from app.sales_invoice.models import SalesInvoice
 from app.settlements.models import (
+    CustomerCreditApplication,
     Settlement,
     SettlementAllocation,
     SettlementDirection,
@@ -166,9 +174,14 @@ def collected_net(
         _allocated_on() >= from_date,
         _allocated_on() <= to_date,
     )
+    applied = _applications(firm_id).where(
+        CustomerCreditApplication.applied_on >= from_date,
+        CustomerCreditApplication.applied_on <= to_date,
+    )
     if salesman_id is not None:
         statement = statement.where(SalesInvoice.salesman_id == salesman_id)
-    in_window = session.execute(statement).all()
+        applied = applied.where(SalesInvoice.salesman_id == salesman_id)
+    in_window = [*session.execute(statement).all(), *session.execute(applied).all()]
     invoice_ids = {row[2] for row in in_window}
     credited = credited_against(session, firm_id=firm_id, invoice_ids=list(invoice_ids))
     net = _net_allocations(session, firm_id=firm_id, credited=credited)
@@ -231,6 +244,34 @@ def _allocations(firm_id: UUID) -> Select[_AllocationRow]:
     )
 
 
+def _applications(firm_id: UUID) -> Select[_AllocationRow]:
+    """Build the walk over every live credit set against a sales invoice.
+
+    The same shape as ``_allocations``, so a credit applied is one more row
+    of money that met the bill, dated the day it was applied.
+    """
+    return (
+        select(
+            SalesInvoice.salesman_id,
+            SalesInvoice.territory_id,
+            SalesInvoice.id,
+            CustomerCreditApplication.applied_on,
+            CustomerCreditApplication.id,
+            CustomerCreditApplication.amount,
+            CustomerCreditApplication.created_at,
+            SalesInvoice.grand_total,
+        )
+        .join(SalesInvoice, SalesInvoice.id == CustomerCreditApplication.target_id)
+        .where(
+            CustomerCreditApplication.firm_id == firm_id,
+            CustomerCreditApplication.target_type == "SALES_INVOICE",
+            CustomerCreditApplication.is_deleted.is_(False),
+            CustomerCreditApplication.status == "POSTED",
+            SalesInvoice.is_deleted.is_(False),
+        )
+    )
+
+
 def _net_allocations(
     session: Session, *, firm_id: UUID, credited: dict[UUID, Decimal]
 ) -> dict[UUID, Decimal]:
@@ -244,9 +285,14 @@ def _net_allocations(
     """
     if not credited:
         return {}
-    rows = session.execute(
-        _allocations(firm_id).where(SalesInvoice.id.in_(list(credited)))
-    ).all()
+    rows = [
+        *session.execute(
+            _allocations(firm_id).where(SalesInvoice.id.in_(list(credited)))
+        ).all(),
+        *session.execute(
+            _applications(firm_id).where(SalesInvoice.id.in_(list(credited)))
+        ).all(),
+    ]
     by_invoice: dict[UUID, list[tuple[date, datetime, UUID, Decimal]]] = {}
     totals: dict[UUID, Decimal] = {}
     for _, _, invoice_id, when, allocation_id, amount, created_at, total in rows:

@@ -140,6 +140,36 @@ class _SettlementApi extends ApiClient {
     return credits.first;
   }
 
+  /// What `/receipts/customer-credits` answers, what was applied, and a
+  /// refusal to answer the apply with.
+  List<CustomerCredit> customerCreditRows = const [];
+  Json? appliedCustomerCredit;
+  String? customerCreditRefusal;
+
+  @override
+  Future<List<CustomerCredit>> customerCredits(String customerId) async =>
+      customerCreditRows;
+
+  @override
+  Future<CustomerCredit> applyCustomerCredit({
+    required String sourceId,
+    required String invoiceId,
+    required String amount,
+    String? appliedOn,
+  }) async {
+    final String? refusal = customerCreditRefusal;
+    if (refusal != null) {
+      throw ApiException(refusal, statusCode: 422);
+    }
+    appliedCustomerCredit = <String, dynamic>{
+      'source_id': sourceId,
+      'invoice_id': invoiceId,
+      'amount': amount,
+      if (appliedOn != null) 'applied_on': appliedOn,
+    };
+    return customerCreditRows.first;
+  }
+
   @override
   Future<Settlement> allocateReceipt({
     required String id,
@@ -1054,6 +1084,135 @@ void main() {
       await _pump(tester, _SettlementApi());
 
       expect(find.text('Supplier credits'), findsNothing);
+    });
+  });
+
+  group('customer credits (D-PRC-75)', () {
+    CustomerCredit credit({
+      String id = 'sr-1',
+      String type = 'SALES_RETURN',
+      String number = 'SR-2026-2027-000004',
+    }) =>
+        CustomerCredit.fromJson({
+          'source_id': id,
+          'source_type': type,
+          'source_number': number,
+          'source_date': '2026-10-06',
+          'customer_id': 'c-1',
+          'credit_amount': '826.00',
+          'applied_amount': '0.00',
+          'refunded_amount': '0.00',
+          'available_amount': '826.00',
+          'held_amount': '826.00',
+          'applied_to': <String>[],
+          'applications': <Json>[],
+        });
+
+    _SettlementApi customerApi() => _SettlementApi(
+          rows: [_settlement()],
+          outstanding: [_invoice('si-2', 'SI-2026-2027-000031', '1416.00')],
+        )..customerCreditRows = [credit()];
+
+    Future<void> open(WidgetTester tester, _SettlementApi api) async {
+      await _pump(tester, api, phase2: true);
+      await tester.tap(find.byKey(const ValueKey('customer-credits')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Kumar Stores'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a return left on a paid bill is set against another bill',
+        (tester) async {
+      final _SettlementApi api = customerApi();
+      await open(tester, api);
+
+      expect(
+        find.text('Set Return SR-2026-2027-000004 against a bill'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Nothing moves in the ledger'), findsOneWidget);
+      expect(find.textContaining('826.00 of credit'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      // Exactly the keys the route declares, and no date: the server dates
+      // it by the later of the two documents.
+      expect(api.appliedCustomerCredit, <String, dynamic>{
+        'source_id': 'sr-1',
+        'invoice_id': 'si-2',
+        'amount': '826.00',
+      });
+      expect(find.text('Set Return SR-2026-2027-000004 against a bill'),
+          findsNothing);
+    });
+
+    testWidgets('a refusal stays in the dialog with the amount typed',
+        (tester) async {
+      final _SettlementApi api = customerApi()
+        ..customerCreditRefusal = 'SI-2026-2027-000031 owes only 590.00.';
+      await open(tester, api);
+
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '700');
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('save-error-banner')), findsOneWidget);
+      expect(find.textContaining('owes only 590.00'), findsOneWidget);
+      expect(find.text('700'), findsOneWidget);
+      expect(api.appliedCustomerCredit, isNull);
+    });
+
+    testWidgets('a credit note is named as one, and two credits are asked',
+        (tester) async {
+      final _SettlementApi api = customerApi()
+        ..customerCreditRows = [
+          credit(),
+          credit(id: 'cn-1', type: 'CREDIT_NOTE', number: 'CN-2026-2027-000002'),
+        ];
+      await open(tester, api);
+
+      expect(find.text('Which credit?'), findsOneWidget);
+      await tester
+          .tap(find.textContaining('Credit note CN-2026-2027-000002'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(api.appliedCustomerCredit!['source_id'], 'cn-1');
+    });
+
+    testWidgets('a customer with no credit is told so', (tester) async {
+      final _SettlementApi api = customerApi()..customerCreditRows = const [];
+      await open(tester, api);
+
+      expect(
+        find.textContaining('holds no credit from returns or credit notes'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('payments offer no customer credit, and it fits 1366x768',
+        (tester) async {
+      await _pump(
+        tester,
+        _SettlementApi(),
+        direction: SettlementDirection.payment,
+        perms: const ['PAYMENT_VIEW', 'PAYMENT_CREATE'],
+        phase2: true,
+      );
+      expect(find.byKey(const ValueKey('customer-credits')), findsNothing);
+
+      final _SettlementApi api = customerApi();
+      await _pump(tester, api, phase2: true);
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('customer-credits')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byKey(const ValueKey('customer-credits')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Kumar Stores'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
     });
   });
 

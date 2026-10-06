@@ -381,6 +381,72 @@ class SupplierCredit {
       );
 }
 
+/// What a sales return or a credit note left on a customer's account: the
+/// part its own bill could not absorb because it was already paid, until it
+/// is set against another of their bills or paid back (D-PRC-75).
+class CustomerCredit {
+  const CustomerCredit({
+    required this.sourceId,
+    required this.sourceType,
+    required this.sourceNumber,
+    required this.sourceDate,
+    required this.creditAmount,
+    required this.appliedAmount,
+    required this.refundedAmount,
+    required this.availableAmount,
+    required this.heldAmount,
+    required this.appliedTo,
+  });
+
+  /// The id the apply call names: the sales return's or the credit note's.
+  final String sourceId;
+
+  /// SALES_RETURN or CREDIT_NOTE.
+  final String sourceType;
+  final String sourceNumber;
+  final String sourceDate;
+  final String creditAmount;
+  final String appliedAmount;
+  final String refundedAmount;
+
+  /// What is left to set against a bill; already nets what was applied and
+  /// what was paid back.
+  final String availableAmount;
+
+  /// The part of what is left that is held on account and may be refunded.
+  final String heldAmount;
+  final List<String> appliedTo;
+
+  bool get isCreditNote => sourceType == 'CREDIT_NOTE';
+
+  /// "Return SR-1" or "Credit note CN-1", so the two kinds can be told apart.
+  String get label =>
+      '${isCreditNote ? 'Credit note' : 'Return'} $sourceNumber';
+
+  factory CustomerCredit.fromJson(Json json) => CustomerCredit(
+        sourceId: stringValue(json['source_id']),
+        sourceType: stringValue(json['source_type']).isEmpty
+            ? 'SALES_RETURN'
+            : stringValue(json['source_type']),
+        sourceNumber: stringValue(json['source_number']),
+        sourceDate: stringValue(json['source_date']),
+        creditAmount: stringValue(json['credit_amount']),
+        appliedAmount: stringValue(json['applied_amount']),
+        refundedAmount: stringValue(json['refunded_amount']).isEmpty
+            ? '0.00'
+            : stringValue(json['refunded_amount']),
+        availableAmount: stringValue(json['available_amount']),
+        heldAmount: stringValue(json['held_amount']).isEmpty
+            ? '0.00'
+            : stringValue(json['held_amount']),
+        appliedTo: [
+          for (final dynamic number
+              in json['applied_to'] is List ? json['applied_to'] : const [])
+            stringValue(number),
+        ],
+      );
+}
+
 /// Money a supplier handed back against a purchase return's credit.
 class SupplierRefund {
   const SupplierRefund({

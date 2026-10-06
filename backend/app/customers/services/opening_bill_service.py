@@ -115,6 +115,21 @@ def opening_bill_receipts(
         as_of=as_of,
     ).items():
         received[bill_id] = received.get(bill_id, ZERO) + amount
+    # And the credit a return or credit note left on a paid bill, set
+    # against this one (D-PRC-75). Imported here, as the settlement models.
+    from app.settlements.services.customer_credits import (
+        OPENING_BILL,
+        credit_applied_to_bills,
+    )
+
+    for bill_id, amount in credit_applied_to_bills(
+        session,
+        firm_id=firm_id,
+        bill_ids=list(bill_ids),
+        target_type=OPENING_BILL,
+        as_of=as_of,
+    ).items():
+        received[bill_id] = received.get(bill_id, ZERO) + amount
     return received
 
 
