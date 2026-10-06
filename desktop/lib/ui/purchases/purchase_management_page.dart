@@ -4482,9 +4482,11 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   /// Close, telling the workspace whether anything moved.
   ///
   /// `null` means nothing happened and the grid can be left alone.
-  void _close() => Navigator.of(
+  void _close() => leaveDocument(
         context,
-      ).pop(_acted ? PurchaseEditorOutcome(order: _draft, saved: false) : null);
+        result: _acted ? PurchaseEditorOutcome(order: _draft, saved: false) : null,
+        saved: _acted,
+      );
 }
 
 class PurchaseImportWizard extends StatefulWidget {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -88,5 +90,5 @@ mixin SaveInDialog<T extends StatefulWidget> on State<T> {
 
   /// A Cancel handler that does nothing while a save is in flight.
   VoidCallback? get cancelHandler =>
-      saving ? null : () => Navigator.pop(context);
+      saving ? null : () => unawaited(Navigator.of(context).maybePop());
 }
