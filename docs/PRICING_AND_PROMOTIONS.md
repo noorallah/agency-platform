@@ -397,6 +397,21 @@ list) all ask `rate_for` at the stock quantity now; a delivery note and a bill
 inherit. On a quotation only a line a list actually mentions has its unit
 converted, since a quotation converts nothing else.
 
+**The break is asked at four places, whichever way the factor runs**
+(D-PRC-52). A product kept in BOX and sold in PIECE converts by a factor
+that cannot be written exactly -- a piece is 0.0833333333 of a box of
+twelve -- so 24 PIECE came to 1.9999999992 boxes and took the 2% step where
+the line itself read 2.0000 boxes and 2 BOX on the same list took the 5%
+"from 2". A quantity is kept to four places and a break is written to four,
+so `PriceListResolver._asked_at` rounds the question there, once, for
+`rate_for` and `price_for` and so for every caller. The money of such a line
+is the typed quantity times the price of the typed unit on the order, the
+note and the bill (7 PIECE at 100.00 is 700.00). What leaves the shelf is
+0.5833 of a box, because stock is kept in the stock unit at four places, and
+its cost is 0.5833 of a box's cost: the two paise are a property of keeping
+the larger unit, they come back when the box is finished, and they are not
+moved into the valuation.
+
 **Which quantity each thing counts, for a line in another unit than its
 stock** -- checked on 2026-10-06, one answer each:
 

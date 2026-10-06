@@ -17,7 +17,7 @@ applies: the list is more specific, not a replacement for the blanket rate.
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import and_, case, or_, select
@@ -27,6 +27,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from app.pricing.models import PriceList, PriceListItem
 
 ZERO = Decimal("0")
+_FOUR_PLACES = Decimal("0.0001")
 
 
 class PriceListResolver:
@@ -146,6 +147,23 @@ class PriceListResolver:
         """Say whether any list in force holds a rate for the product."""
         return product_id is not None and bool(self._rates.get(product_id))
 
+    @staticmethod
+    def _asked_at(quantity: Decimal | None) -> Decimal:
+        """Return the stock quantity a break is asked at, at four places.
+
+        A quantity is kept to four places and a break is written to four,
+        so the question is asked at four. The caller's figure is a typed
+        quantity times a conversion factor, and a factor that runs from a
+        small unit to a large one cannot be written exactly: a piece is
+        0.0833333333 of a box of twelve, 24 pieces came to 1.9999999992
+        boxes, and a line the document itself counts as 2.0000 boxes missed
+        the break "from 2" (D-PRC-52). Rounded here, in the one place both
+        ladders are read, whichever way a line's factor runs.
+        """
+        if quantity is None:
+            return ZERO
+        return Decimal(str(quantity)).quantize(_FOUR_PLACES, rounding=ROUND_HALF_UP)
+
     def rate_for(
         self, product_id: UUID | None, quantity: Decimal | None = None
     ) -> Decimal | None:
@@ -172,7 +190,7 @@ class PriceListResolver:
         breaks = self._rates.get(product_id)
         if not breaks:
             return None
-        wanted = Decimal(str(quantity)) if quantity is not None else ZERO
+        wanted = self._asked_at(quantity)
         best: Decimal | None = None
         for threshold, percent in breaks:
             if threshold <= wanted:
@@ -196,7 +214,7 @@ class PriceListResolver:
         breaks = self._prices.get(product_id)
         if not breaks:
             return None
-        wanted = Decimal(str(quantity)) if quantity is not None else ZERO
+        wanted = self._asked_at(quantity)
         best: Decimal | None = None
         for threshold, price in breaks:
             if threshold <= wanted:
