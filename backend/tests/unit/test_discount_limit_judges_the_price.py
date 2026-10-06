@@ -15,6 +15,7 @@ Every case runs on a request-shaped session (autoflush off).
 
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -40,6 +41,7 @@ from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services.discount_limit import (
     DiscountedLine,
     DiscountLimitService,
+    note_reduction,
 )
 from app.sales_order.services.sales_order_service import SalesOrderService
 from tests.unit.test_customer_management import (
@@ -385,6 +387,328 @@ def test_a_bill_discount_typed_on_a_counter_bill_by_an_edit_is_still_judged() ->
         desk.bills.approve_invoice(
             draft.id, firm_scope=desk.firm_id, actor_id=desk.manager
         )
+
+
+class _Counter(_Desk):
+    """The desk, raising delivery notes and bills of an order of 10 at 100.00."""
+
+    def __init__(self, *, notes: bool = True) -> None:
+        """Build the desk; ``notes`` off leaves the delivery note to the bill."""
+        super().__init__()
+        if not notes:
+            self.setup.stages(quotation=False, sales_order=True, delivery_note=False)
+        self.notes = DeliveryNoteService(self.session)
+
+    def agreed(self, approver: UUID | None = None, **typed: object) -> UUID:
+        """Raise an order of 10 at 100.00 and have somebody approve it."""
+        discount = typed.pop("discount_percent", None)
+        order_id = self.order(
+            price="100",
+            quantity="10",
+            discount_percent=None if discount is None else str(discount),
+            **typed,
+        )
+        self.approve(order_id, approver or self.manager)
+        return order_id
+
+    def order_line(self, order_id: UUID) -> SalesOrderLine:
+        """Return the order's one line."""
+        return self.session.scalars(
+            select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order_id)
+        ).one()
+
+    def note(
+        self, order_id: UUID, *, header: dict[str, object] | None = None, **line: object
+    ) -> UUID:
+        """Save a draft note of the whole order, typing what is named."""
+        return self.notes.create_note(
+            DeliveryNoteCreate.model_validate(
+                {
+                    "sales_order_id": order_id,
+                    "delivery_date": DAY,
+                    "lines": [
+                        {
+                            "sales_order_line_id": self.order_line(order_id).id,
+                            "line_number": 1,
+                            "current_delivery_quantity": "10",
+                        }
+                        | line
+                    ],
+                }
+                | (header or {})
+            ),
+            firm_id=self.firm_id,
+            actor_id=self.actor,
+        ).id
+
+    def approve_note(self, note_id: UUID, approver: UUID) -> str:
+        """Approve a note as somebody; return its status."""
+        try:
+            return self.notes.approve_note(
+                note_id, firm_scope=self.firm_id, actor_id=approver
+            ).status
+        except ValidationError:
+            self.session.rollback()
+            raise
+
+    def number(self, note_id: UUID) -> str:
+        """Return a note's number."""
+        return self.notes.get_note(
+            note_id, firm_scope=self.firm_id
+        ).delivery_note_number
+
+    def bill(self, note_id: UUID, **header: object) -> UUID:
+        """Dispatch a note and save a draft bill of all of it, typing nothing."""
+        self.notes.dispatch_note(note_id, firm_scope=self.firm_id, actor_id=self.actor)
+        note_line = self.session.scalars(
+            select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note_id)
+        ).one()
+        return self.bills.create_invoice(
+            SalesInvoiceCreate.model_validate(
+                {
+                    "customer_id": self.setup.customer.id,
+                    "invoice_date": DAY,
+                    "lines": [
+                        {
+                            "source_document_type": "DELIVERY_NOTE",
+                            "source_document_id": note_id,
+                            "source_document_line_id": note_line.id,
+                            "line_number": 1,
+                            "current_invoice_quantity": "10",
+                        }
+                    ],
+                }
+                | header
+            ),
+            firm_id=self.firm_id,
+            actor_id=self.actor,
+        ).id
+
+    def bill_of_order(self, order_id: UUID, **header: object) -> UUID:
+        """Save a draft bill straight off an order, for a firm typing no notes."""
+        return self.bills.create_invoice(
+            SalesInvoiceCreate.model_validate(
+                {
+                    "customer_id": self.setup.customer.id,
+                    "invoice_date": DAY,
+                    "lines": [
+                        {
+                            "source_document_type": "SALES_ORDER",
+                            "source_document_id": order_id,
+                            "source_document_line_id": self.order_line(order_id).id,
+                            "line_number": 1,
+                            "current_invoice_quantity": "10",
+                        }
+                    ],
+                }
+                | header
+            ),
+            firm_id=self.firm_id,
+            actor_id=self.actor,
+        ).id
+
+    def approve_bill(self, bill_id: UUID, approver: UUID) -> str:
+        """Approve a bill as somebody; return its status."""
+        try:
+            return self.bills.approve_invoice(
+                bill_id, firm_scope=self.firm_id, actor_id=approver
+            ).status
+        except ValidationError:
+            self.session.rollback()
+            raise
+
+
+@pytest.mark.parametrize(
+    ("line", "header"),
+    [
+        ({"discount_percent": "30"}, {}),
+        ({"discount_amount": "300"}, {}),
+        ({}, {"bill_discount_percent": "30"}),
+    ],
+)
+def test_a_discount_typed_on_a_delivery_note_is_judged_at_its_approval(
+    line: dict[str, str], header: dict[str, str]
+) -> None:
+    """D-PRC-23: 30% typed on the note of an order at 100.00, by a 5% manager.
+
+    The note was saved, approved and dispatched, and its bill approved, by
+    the same sales manager: the discount reached the bill as inherited.
+    """
+    desk = _Counter()
+    order_id = desk.agreed()
+    note_id = desk.note(order_id, header=header, **line)
+
+    with pytest.raises(ValidationError) as refused:
+        desk.approve_note(note_id, desk.manager)
+
+    assert str(refused.value.message) == (
+        f"Line 1 of delivery note {desk.number(note_id)} carries a discount of "
+        "30.00%, above your limit of 5.00%. It needs approval by someone "
+        "allowed at least 30.00%."
+    )
+    assert desk.notes.get_note(note_id, firm_scope=desk.firm_id).status == "DRAFT"
+
+    # Somebody allowed more approves it, and the timeline keeps who and what.
+    assert desk.approve_note(note_id, desk.head) == "APPROVED"
+    event = desk.session.scalars(
+        select(DocumentLifecycleEvent).where(
+            DocumentLifecycleEvent.source_document_id == note_id,
+            DocumentLifecycleEvent.action == "APPROVED",
+        )
+    ).one()
+    assert event.details_json is not None
+    assert event.details_json["typed_reduction_judged"] is True
+    assert event.details_json["discount_approval"] == {
+        "typed_discount_percent": "30.00",
+        "approver_limit_percent": "60.00",
+    }
+    # Judged once: the manager bills what the note now holds.
+    assert desk.approve_bill(desk.bill(note_id), desk.manager) == "APPROVED"
+
+
+def test_a_price_typed_on_a_delivery_note_is_judged_at_its_approval() -> None:
+    """50.00 typed on the note where the order agreed 100.00 is half off."""
+    desk = _Counter()
+    note_id = desk.note(desk.agreed(), unit_price="50")
+
+    with pytest.raises(ValidationError) as refused:
+        desk.approve_note(note_id, desk.manager)
+
+    assert str(refused.value.message) == (
+        f"Line 1 of delivery note {desk.number(note_id)} is priced at 50.00 "
+        "where the customer's price is 100.00: 50.00% off in all, above your "
+        "limit of 5.00%. It needs approval by someone allowed at least 50.00%."
+    )
+    assert desk.approve_note(note_id, desk.head) == "APPROVED"
+    # The head agreed 50.00, so a bill at 50.00 cuts nothing further.
+    assert desk.approve_bill(desk.bill(note_id), desk.manager) == "APPROVED"
+
+
+def test_a_note_that_types_nothing_is_never_refused_for_its_order() -> None:
+    """The head agreed 30% and 10% off the order; the manager ships and bills it."""
+    desk = _Counter()
+    order_id = desk.agreed(desk.head, discount_percent="30", bill_discount_percent="10")
+
+    note_id = desk.note(order_id)
+
+    assert desk.approve_note(note_id, desk.manager) == "APPROVED"
+    event = desk.session.scalars(
+        select(DocumentLifecycleEvent).where(
+            DocumentLifecycleEvent.source_document_id == note_id,
+            DocumentLifecycleEvent.action == "APPROVED",
+        )
+    ).one()
+    assert "typed_reduction_judged" not in (event.details_json or {})
+    assert desk.approve_bill(desk.bill(note_id), desk.manager) == "APPROVED"
+
+
+def test_a_note_within_the_limit_or_dearer_than_its_order_is_approved() -> None:
+    """4% typed passes at 5%; the order's own 30% typed again is not a change."""
+    desk = _Counter()
+    within = desk.note(desk.agreed(), discount_percent="4")
+    assert desk.approve_note(within, desk.manager) == "APPROVED"
+
+    agreed = desk.agreed(desk.head, discount_percent="30")
+    same = desk.note(agreed, discount_percent="30")
+    assert desk.approve_note(same, desk.manager) == "APPROVED"
+
+    # A smaller discount, and a higher price, give nothing away.
+    less = desk.note(
+        desk.agreed(desk.head, discount_percent="30"), discount_percent="2"
+    )
+    assert desk.approve_note(less, desk.manager) == "APPROVED"
+    dearer = desk.note(desk.agreed(), unit_price="110")
+    assert desk.approve_note(dearer, desk.manager) == "APPROVED"
+
+
+@pytest.mark.parametrize(
+    ("line", "header"),
+    [({"discount_percent": "30"}, {}), ({}, {"bill_discount_percent": "30"})],
+)
+def test_a_note_reduction_nobody_judged_is_caught_at_the_bill(
+    line: dict[str, str], header: dict[str, str]
+) -> None:
+    """A note approved before notes were judged: its bill answers for the 30%."""
+    desk = _Counter()
+    note_id = desk.note(desk.agreed(), header=header, **line)
+    # As a note approved before D-PRC-23 was: approved, with nothing judged.
+    desk.notes.stage_approval(
+        note_id, firm_scope=desk.firm_id, actor_id=desk.actor, check_licences=False
+    )
+    desk.session.commit()
+    bill_id = desk.bill(note_id)
+
+    with pytest.raises(ValidationError, match="carries a discount of 30.00%"):
+        desk.approve_bill(bill_id, desk.manager)
+
+    assert desk.approve_bill(bill_id, desk.head) == "APPROVED"
+
+
+def test_a_bill_that_ships_an_order_itself_does_not_judge_the_order_again() -> None:
+    """Note stage off: the head's 30% order is billed by the manager.
+
+    The discount on the bill is the order's, judged when the head approved
+    it. A discount the manager types on that bill is the manager's.
+    """
+    desk = _Counter(notes=False)
+
+    kept = desk.bill_of_order(desk.agreed(desk.head, discount_percent="30"))
+    assert desk.approve_bill(kept, desk.manager) == "APPROVED"
+
+    typed = desk.bill_of_order(desk.agreed(), bill_discount_percent="30")
+    with pytest.raises(ValidationError, match="carries a discount of 30.00%"):
+        desk.approve_bill(typed, desk.manager)
+    assert desk.approve_bill(typed, desk.head) == "APPROVED"
+
+
+def test_what_a_note_line_types_is_read_against_its_order_line() -> None:
+    """Silence is the order's; a larger discount or a lower price is the note's."""
+
+    def line(**fields: str) -> SimpleNamespace:
+        """Describe a line by the figures the judge reads."""
+        return SimpleNamespace(
+            line_number=1, **{name: D(value) for name, value in fields.items()}
+        )
+
+    order = line(
+        quantity="10",
+        unit_price="100",
+        discount_amount="100",
+        discount_percent="10",
+        bill_discount_amount="90",
+    )
+
+    def note(**fields: str) -> SimpleNamespace:
+        """Describe a note line of 4 of the order's 10."""
+        base = {
+            "current_delivery_quantity": "4",
+            "unit_price": "100",
+            "gross_amount": "400",
+            "discount_amount": "40",
+            "bill_discount_amount": "36",
+        }
+        return line(**(base | fields))
+
+    assert note_reduction(note(), order) is None
+    # A ten-thousandth of rounding in a slice is still the inheritance.
+    assert note_reduction(note(discount_amount="40.0001"), order) is None
+    typed = note_reduction(note(discount_amount="120"), order)
+    assert typed is not None
+    assert (typed.typed_line, typed.typed_bill) == (True, False)
+    assert typed.line.percent == D("30.00")
+    shared = note_reduction(note(bill_discount_amount="76"), order)
+    assert shared is not None
+    assert (shared.typed_line, shared.typed_bill) == (False, True)
+    # At another price the order's rate is what silence inherits.
+    cut = note_reduction(
+        note(unit_price="50", gross_amount="200", discount_amount="20"), order
+    )
+    assert cut is not None
+    assert (cut.typed_line, cut.line.price_cut, cut.line.percent) == (
+        False,
+        D("200"),
+        D("50.00"),
+    )
 
 
 def _desk_and_office() -> tuple[Session, object, object, UUID]:

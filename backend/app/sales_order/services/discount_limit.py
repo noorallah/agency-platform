@@ -35,8 +35,20 @@ to what the line charges: the cut in the price and the typed discounts
 together, as a share of the line at the customer's price. A price typed at or
 above the customer's is not a discount, and the customer's own cheaper list or
 level is their price, not the person's doing. On a bill of documents the
-customer's price is the one its order line agreed, so a price cut on the note
-or on the bill is judged where it is billed. A line sold in another unit than
+customer's price is the one its order line agreed, so a price cut on the bill
+is judged where it is billed.
+
+**A delivery note is judged for what it types** (D-PRC-23). A discount typed
+on a note reached the bill as inherited and was judged nowhere, so the person
+the limit binds gave 30% by typing it one document later. A note line that is
+cheaper than the order line it continues -- a larger discount, a larger share
+of a discount on the whole note, or a lower price -- is judged at the note's
+approval (``note_reduction``), and the APPROVED event records that it was
+(``NOTE_REDUCTION_JUDGED``). A bill treats as inherited only what the order
+agreed, or what a note so judged holds: a reduction from a note with no such
+record is judged at the bill. A note that types nothing is never judged.
+
+A line sold in another unit than
 the one stock is kept in is judged on its typed discount alone: the ranking's
 price carries no unit, and guessing one would refuse honest lines.
 """
@@ -181,6 +193,94 @@ def invoice_discounts(lines: Iterable[object]) -> list[DiscountedLine]:
     return result
 
 
+#: The key a delivery note's APPROVED event carries when the note typed a
+#: reduction and its approval judged it. A bill reads it: only a reduction so
+#: recorded is inherited rather than judged again (D-PRC-23).
+NOTE_REDUCTION_JUDGED = "typed_reduction_judged"
+#: A slice of an amount and its plain pro-rata share differ by rounding
+#: alone; anything within a paisa is the inheritance, not a decision.
+_INHERITED_WITHIN = Decimal("0.01")
+
+
+@dataclass(frozen=True, slots=True)
+class NoteReduction:
+    """What a delivery note line took off beyond what its order line agreed."""
+
+    line: DiscountedLine
+    #: The note's own line discount is larger than the order line's.
+    typed_line: bool
+    #: The note's share of a discount on the whole note is larger than the
+    #: order line's share of the order's.
+    typed_bill: bool
+
+
+def note_reduction(note_line: object, order_line: object) -> NoteReduction | None:
+    """Return what a note line typed that makes it cheaper than its order line.
+
+    A note that says nothing ships the order line's price, its discount and
+    its share of the order's bill discount by the quantity shipped, and is
+    never judged for them: they were the order's, judged at its approval.
+    What the note *types* replaces what it would have inherited; where that
+    leaves the line cheaper than the same quantity on the order, it is the
+    typing person's doing (D-PRC-23) and is judged as on an order -- a typed
+    line discount and a typed bill-discount share in whole, a lower price
+    against the order's price.
+
+    Args:
+        note_line: The delivery note line.
+        order_line: The sales order line it continues.
+
+    Returns:
+        The line for the judge and which of its discounts were typed, or
+        None where the note line is no cheaper than its order line agreed.
+
+    """
+
+    def figure(row: object, name: str) -> Decimal:
+        """Return a stored figure of a line, nothing as zero."""
+        return Decimal(str(getattr(row, name, None) or _ZERO))
+
+    shipped = figure(note_line, "current_delivery_quantity")
+    ordered = figure(order_line, "quantity")
+    if shipped <= _ZERO or ordered <= _ZERO:
+        return None
+    price = figure(note_line, "unit_price")
+    agreed_price = figure(order_line, "unit_price")
+    gross = figure(note_line, "gross_amount")
+    line_discount = figure(note_line, "discount_amount")
+    bill_share = figure(note_line, "bill_discount_amount")
+    # At the order's price the order's amount is shared by quantity; at
+    # another price its rate is what silence inherits.
+    agreed_at_order_price = figure(order_line, "discount_amount") * shipped / ordered
+    agreed_line = (
+        agreed_at_order_price
+        if price == agreed_price
+        else gross * figure(order_line, "discount_percent") / _HUNDRED
+    )
+    agreed_bill = figure(order_line, "bill_discount_amount") * shipped / ordered
+    charged = gross - line_discount - bill_share
+    agreed = shipped * agreed_price - agreed_at_order_price - agreed_bill
+    if charged >= agreed - _INHERITED_WITHIN:
+        return None
+    typed_line = line_discount > agreed_line + _INHERITED_WITHIN
+    typed_bill = bill_share > agreed_bill + _INHERITED_WITHIN
+    if not typed_line and not typed_bill and price >= agreed_price:
+        return None
+    return NoteReduction(
+        line=DiscountedLine(
+            line_number=int(getattr(note_line, "line_number", 0)),
+            gross=gross,
+            typed_discount=(line_discount if typed_line else _ZERO)
+            + (bill_share if typed_bill else _ZERO),
+            quantity=shipped,
+            price=price,
+            customer_price=agreed_price,
+        ),
+        typed_line=typed_line,
+        typed_bill=typed_bill,
+    )
+
+
 class DiscountLimitService:
     """Each role's discount limit in a firm, and judging an approval by it."""
 
@@ -313,6 +413,8 @@ class DiscountLimitService:
         firm_id: UUID,
         approver_id: UUID,
         lines: Sequence[DiscountedLine] | Callable[[], Sequence[DiscountedLine]],
+        *,
+        document: str | None = None,
     ) -> dict[str, object] | None:
         """Refuse an approval above the approver's limit, else say what to keep.
 
@@ -321,7 +423,9 @@ class DiscountLimitService:
         when nothing was typed off or the approver has no limit. ``lines``
         may be a callable, read only once the approver is known to have a
         limit: working out the customer's prices costs a firm with no limits
-        nothing.
+        nothing. ``document`` names the document in the refusal where the
+        reader may not be looking at it -- "delivery note DN-1" -- and the
+        sentence is otherwise the one an order is refused in.
         """
         limit = self.limit_for(firm_id, approver_id)
         if limit is None:
@@ -335,6 +439,9 @@ class DiscountLimitService:
         price = Decimal(widest.price or _ZERO).quantize(_CENT, ROUND_HALF_UP)
         usual = Decimal(widest.customer_price or _ZERO).quantize(_CENT, ROUND_HALF_UP)
         if widest.percent > limit:
+            subject = f"Line {widest.line_number}" + (
+                f" of {document}" if document else ""
+            )
             if cut:
                 besides = (
                     ", with a typed discount besides"
@@ -342,13 +449,13 @@ class DiscountLimitService:
                     else ""
                 )
                 raise ValidationError(
-                    f"Line {widest.line_number} is priced at {price} where the "
+                    f"{subject} is priced at {price} where the "
                     f"customer's price is {usual}{besides}: {widest.percent}% off "
                     f"in all, above your limit of {limit}%. It needs approval by "
                     f"someone allowed at least {widest.percent}%."
                 )
             raise ValidationError(
-                f"Line {widest.line_number} carries a discount of "
+                f"{subject} carries a discount of "
                 f"{widest.percent}%, above your limit of {limit}%. It needs "
                 f"approval by someone allowed at least {widest.percent}%."
             )

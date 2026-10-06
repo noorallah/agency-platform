@@ -124,6 +124,11 @@ from app.products.services.stockless import stockless_products
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
+from app.sales_order.services.discount_limit import (
+    NOTE_REDUCTION_JUDGED,
+    DiscountLimitService,
+    note_reduction,
+)
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
@@ -720,6 +725,15 @@ class DeliveryNoteService(TransactionalDocumentService):
             if check_licences
             else (None, None)
         )
+        # What the note itself typed off, against the approver's discount
+        # limit (D-PRC-23); skipped with the licences where the chain
+        # approves a note nobody typed, whose bill is judged instead.
+        discount_details = (
+            self._judge_typed_reductions(row, actor_id=actor_id)
+            if check_licences
+            else None
+        )
+        approval_details = ((licence_details or {}) | (discount_details or {})) or None
         row.status = DeliveryNoteStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
@@ -732,7 +746,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             to_state=row.status,
             actor_id=actor_id,
             remarks=licence_remark,
-            details=licence_details,
+            details=approval_details,
         )
         record_audit(
             self._session,
@@ -741,9 +755,64 @@ class DeliveryNoteService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data=licence_details,
+            after_data=approval_details,
         )
         return row
+
+    def _judge_typed_reductions(
+        self, row: DeliveryNote, *, actor_id: UUID
+    ) -> dict[str, object] | None:
+        """Judge what a note typed off against its approver's discount limit.
+
+        A discount typed on a delivery note reached the bill as inherited and
+        was judged nowhere: a sales manager limited to 5% typed 30% on the
+        note, dispatched it, billed it and approved the bill alone (D-PRC-23).
+        A line the note made cheaper than the order line it continues is the
+        typing person's doing, and is judged here as an order's is, by the
+        same judge; whoever is allowed more approves it. A note that types
+        nothing has no such line and is never refused for what its order
+        agreed.
+
+        Returns:
+            The details the APPROVED event keeps -- that a typed reduction
+            was judged, which is what lets a bill inherit it, and the
+            approval a limited approver gave -- or None where the note typed
+            nothing off.
+
+        Raises:
+            ValidationError: Above the approver's limit, in the order's own
+                words, naming the note.
+
+        """
+        # A request session does not flush on a read.
+        self._session.flush()
+        reductions = [
+            reduction
+            for note_line, order_line in self._session.execute(
+                select(DeliveryNoteLine, SalesOrderLine)
+                .join(
+                    SalesOrderLine,
+                    SalesOrderLine.id == DeliveryNoteLine.sales_order_line_id,
+                )
+                .where(
+                    DeliveryNoteLine.delivery_note_id == row.id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                )
+                .order_by(DeliveryNoteLine.line_number.asc())
+            )
+            .tuples()
+            .all()
+            if (reduction := note_reduction(note_line, order_line)) is not None
+        ]
+        if not reductions:
+            return None
+        approval = DiscountLimitService(self._session).enforce(
+            row.firm_id,
+            actor_id,
+            [reduction.line for reduction in reductions],
+            document=f"delivery note {row.delivery_note_number}",
+        )
+        return {NOTE_REDUCTION_JUDGED: True} | (approval or {})
 
     def dispatch_note(
         self,
