@@ -56,7 +56,12 @@ def preview_claim(
     scope: ClaimViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PrincipalClaimPreview]:
-    """Return what a claim for the period would hold, writing nothing."""
+    """Return what a claim would hold, writing nothing.
+
+    For a period, or for one price cut (``kinds=["RATE_DIFFERENCE"]`` with
+    an ``effective_date``): then each line states the stock on hand at the
+    close of the day before, the old and the new rate, and their difference.
+    """
     return ApiResponse(
         data=PrincipalClaimService(db).preview(data, firm_id=scope.firm_id)
     )
@@ -73,7 +78,7 @@ def raise_claim(
     response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PrincipalClaimResponse]:
-    """Raise and post a claim for one principal and period."""
+    """Raise and post a claim on one principal, for a period or a price cut."""
     service = PrincipalClaimService(db)
     row = service.raise_claim(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     set_etag(response, row)
