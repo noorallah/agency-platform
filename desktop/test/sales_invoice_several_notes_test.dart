@@ -445,4 +445,29 @@ void main() {
       [1, 2],
     );
   });
+
+  // D-UI-18: the "Choose the customer first" hint stays in the widget tree
+  // after a choice, but a DropdownMenu hint is faded to nothing once the box
+  // holds text. It is invisible, not a defect.
+  testWidgets('the customer hint is not visible once a customer is chosen',
+      (tester) async {
+    final _Api api = _Api(billable: <Json>[
+      _note('dn-1', 'DN-000001'),
+      _note('dn-3', 'DN-000003',
+          customer: 'cust-2', customerName: 'Bharat Traders'),
+    ]);
+    await _pump(tester, api);
+    double hintOpacity() => find
+        .ancestor(
+          of: find.text('Choose the customer first'),
+          matching: find.byType(AnimatedOpacity),
+        )
+        .evaluate()
+        .map((e) => (e.widget as AnimatedOpacity).opacity)
+        .first;
+
+    expect(hintOpacity(), 1.0, reason: 'shown while the box is empty');
+    await _chooseCustomer(tester, 'Anand Agencies');
+    expect(hintOpacity(), 0.0, reason: 'faded out once a customer is chosen');
+  });
 }
