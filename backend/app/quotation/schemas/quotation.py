@@ -241,6 +241,8 @@ class QuotationLineResponse(QuotationSchema):
     description: str | None
     quantity: Decimal
     free_quantity: Decimal
+    #: The offer that gave the free quantity; null where it was typed.
+    free_promotion_id: UUID | None = None
     sales_uom_id: UUID | None
     inventory_uom_id: UUID | None
     packaging_type_id: UUID | None

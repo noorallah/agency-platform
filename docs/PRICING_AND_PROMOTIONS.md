@@ -351,9 +351,16 @@ leave it to the order: `sales_quotations.bill_discount_source` (only a
 `freight_waived_amount` (the order is handed the charge that was *asked*, and
 waives it again only if an offer still does), and a gift line is the one line
 with a quantity of zero, which the write schema refuses from anybody else, so
-the conversion drops it and the order's offers add it back. One gap stays: a
-`FREE_QUANTITY` offer's free goods on a line are indistinguishable from typed
-ones, on the quotation as on the order, so they carry over as the line's.
+the conversion drops it and the order's offers add it back. A `FREE_QUANTITY`
+offer's free goods **on a line** were the one gap left -- indistinguishable
+from typed ones, so "24 PIECE, 2 free" became an order that named no offer,
+claimed nothing and stood outside the budget. The quotation line now names
+their giver as the order line does (`sales_quotation_lines.free_promotion_id`,
+`20261006_0344`): the conversion hands the order silence for an offer's
+figure, so the order works the offer out afresh, names it, claims it and is
+refused it once the budget is spent, and hands over only a figure a person
+typed (D-PRC-58). A quotation saved before that revision has no marker and
+converts as typed until it is saved again.
 
 ## `customer_type` is a legal classification, not a commercial one
 
@@ -452,19 +459,33 @@ pieces typed as pieces do, where they used to earn one BOX.
 (D-PRC-48, `SalesOrderService._without_what_the_engine_gave`). The stored
 line decides, never its description. A line that sells nothing and names its
 offer in `free_promotion_id` -- the loose pieces above, or a gift of another
-product -- is dropped where it comes back at its line number, and the engine
+product -- is dropped where it comes back, and the engine
 adds it again if the offer still gives it; free units an offer put on a line
 itself, sent back as the same figure, are read as silence; and so is the "0
-free" of a line sent back beside its own free line. So an editor may drop
+free" of a line sent back beside its own free line. **A line is recognised
+by what the stored order says about it, not by where it stands**
+(D-PRC-58, `echoes_of_what_an_offer_gave` in
+`app/sales_order/services/offer_echoes.py`): the write schema carries no
+line id, so a sent line of the same product and kind at a stored line's
+number is that line, and a stored offer line nothing stayed at is looked
+for among the lines that moved -- the engine's own line by its product, a
+quantity of 0, its free figure and its unit, a line's own free units by
+product and the figure the offer gave. Matching on the number alone held
+only while no line moved: with the line above deleted, or one inserted,
+the echoed figures stood as typed, and a spent budget of 2 free units
+shipped 26 twice. So an editor may drop
 the engine's lines or echo the whole read: either way the order ends with
 one free line naming its offer, claimed once and counted against the budget
 once. It was otherwise: an echoed free line stood as typed, named no offer
 and staged no claim, and an offer with a budget of 2 free units gave 4. A
 free-only line a person typed names no offer and stays theirs; a figure that
 differs from the offer's is typed and stands; and "0 free" sent **without**
-the engine's line is still the refusal D-SELL-41 made it. A quotation
+the engine's line is still the refusal D-SELL-41 made it. A free-only line
+sent at a number the engine's line did not hold, with another free figure
+or unit than the engine's, is a typed one. A quotation
 stages no claim and its write schema refuses a line that sells nothing, so
-an editor there must drop the engine's line.
+an editor there must drop the engine's line; an offer's free units on a
+quotation line, echoed, are read as silence the same way.
 
 **Every reader of free units counts stock units**: the claim's
 `free_quantity` (the engine's figure), the free-unit budget, what a short
