@@ -51,6 +51,7 @@ from app.core.utils.chunks import CHUNK_SIZE
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
+from app.core.utils.quantities import plain_quantity
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
@@ -2172,6 +2173,13 @@ class SalesReturnService(TransactionalDocumentService):
                 )
             free = typed_free
             charged = self._q(total - free)
+            if free > ZERO and source_free <= ZERO:
+                # Asked for by name, of a line that gave none (D-PRC-51).
+                raise ValidationError(
+                    f"Line {line_number} brings back {plain_quantity(free)} "
+                    "free, and the source line sent nothing free. Type it as "
+                    "a quantity to credit it."
+                )
         if charged > charged_left or free > free_left:
             sent = (
                 f"{dispatched} sent, {already_returned} already returned"

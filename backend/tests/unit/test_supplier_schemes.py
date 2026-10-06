@@ -724,6 +724,55 @@ def test_a_line_of_free_goods_alone_can_be_returned(firm: _Firm) -> None:
         _return(firm, line, "2")
 
 
+def test_free_units_typed_as_nothing_bought_go_back_as_free(firm: _Firm) -> None:
+    """D-PRC-51: quantity 0 with 1 free, off a line that was all free.
+
+    Refused as "a quantity of 0" while the same unit typed as a quantity of 1
+    went back. It leaves stock at the cost it is carried at, which goes to
+    purchase price variance -- the goods came in at nil cost -- and nothing
+    is claimed from the supplier: no payable, no debit note value.
+    """
+    bought = _received_with_free(firm, "12", "0")
+    line = _received_with_free(firm, "0", "1")
+    # Thirteen on the shelf for 1,200.00: 92.31 a piece.
+    assert firm.stock() == D("13")
+    accrued = firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED)
+
+    one = _return(firm, line, "0", free_quantity="1")
+
+    returns = PurchaseReturnService(firm.session)
+    (sent,) = returns.return_response(one).lines
+    assert (sent.current_return_quantity, sent.free_quantity) == (D("1"), D("1"))
+    assert (sent.gross_amount, sent.net_amount) == (D("0"), D("0"))
+    assert one.grand_total == D("0")
+    _send_back(firm, one)
+    assert firm.stock() == D("12")
+    assert firm.balance(ControlAccountPurpose.INVENTORY) == D("1107.69")
+    assert firm.balance(ControlAccountPurpose.PURCHASE_PRICE_VARIANCE) == D("92.31")
+    assert firm.balance(ControlAccountPurpose.ACCOUNTS_PAYABLE) == 0
+    assert firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED) == accrued
+
+    # No more free units than the line has left, and none off a line with none.
+    with pytest.raises(ValidationError, match="0 bought and 0 free"):
+        _return(firm, line, "0", free_quantity="1")
+    firm.session.rollback()
+    with pytest.raises(ValidationError, match="12 bought and 0 free"):
+        _return(firm, bought, "0", free_quantity="1")
+    firm.session.rollback()
+    # Nothing bought and nothing free is still a line for nothing.
+    with pytest.raises(ValidationError) as nothing:
+        _return(firm, bought, "0", free_quantity="0")
+    assert str(nothing.value.message) == (
+        "Line 1 returns a quantity of 0 and nothing free. Type a quantity, or "
+        "leave the line off the return."
+    )
+    firm.session.rollback()
+    # A line of bought units is priced and credited as it always was.
+    paid = returns.return_response(_return(firm, bought, "1")).lines[0]
+    assert (paid.current_return_quantity, paid.free_quantity) == (D("1"), D("0"))
+    assert paid.gross_amount == D("100.0000")
+
+
 def _codes(route: APIRoute) -> set[str]:
     """Return every permission code a route's dependencies enforce."""
     found: set[str] = set()

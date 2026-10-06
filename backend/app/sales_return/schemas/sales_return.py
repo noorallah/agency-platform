@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.batch_serial.schemas import PickedSerial
+from app.core.utils.quantities import free_goods_alone
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -71,8 +72,11 @@ class SalesReturnLineWrite(SalesReturnSchema):
     source_document_id: UUID
     source_document_line_id: UUID
     line_number: int = Field(ge=1)
-    #: Everything coming back on this line, free goods included.
-    current_return_quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
+    #: Everything coming back on this line, free goods included. Zero beside
+    #: a ``free_quantity`` is the other way of typing free goods alone -- "0
+    #: charged, 1 free", the only way to describe what comes back off a line
+    #: that was all free -- and is read as that many, all free (D-PRC-51).
+    current_return_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
     #: How many of ``current_return_quantity`` are free goods (D-PRC-8).
     #: Blank takes the charged units first and counts as free only what comes
     #: back beyond them; a number says so outright -- the free unit of a
@@ -133,6 +137,28 @@ class SalesReturnLineWrite(SalesReturnSchema):
     #: the count matches. None (or absent) keeps the line's picks as they
     #: were; an empty list clears them.
     serial_ids: list[UUID] | None = Field(default=None, max_length=10000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _free_goods_alone(cls, data: object) -> object:
+        """Read "0 charged, n free" as n coming back, all of them free.
+
+        The free units of a line that was all free -- an offer's own free
+        line -- could not be sent back as free: the quantity had to be more
+        than nothing, and the refusal was the schema's bare "greater than 0"
+        (D-PRC-51). What may still come back free is the service's cap.
+        """
+        return free_goods_alone(data, quantity_field="current_return_quantity")
+
+    @model_validator(mode="after")
+    def _brings_something_back(self) -> "SalesReturnLineWrite":
+        """Refuse a line of 0 with nothing free, in words."""
+        if self.current_return_quantity <= 0:
+            raise ValueError(
+                f"Line {self.line_number} returns a quantity of 0 and nothing "
+                "free. Type a quantity, or leave the line off the return."
+            )
+        return self
 
     @model_validator(mode="after")
     def _condition_adds_up(self) -> "SalesReturnLineWrite":

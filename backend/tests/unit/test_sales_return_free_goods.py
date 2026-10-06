@@ -18,6 +18,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 
 from app.core.exceptions import ValidationError
@@ -448,3 +449,82 @@ def test_a_claim_already_raised_is_not_rewritten() -> None:
     agency.session.expire_all()
     (view,) = claims.responses([claims.get(claim.id, firm_id=agency.firm_id)])
     assert (view.free_goods_amount, view.total_amount) == (D("60.00"), D("60.00"))
+
+
+# ---- free goods typed on their own (D-PRC-51) ------------------------------
+#
+# The fourth live check: an offer's free units sit on a line of their own
+# (0 charged, 2 free), and a return of "0, with 1 free" off it was refused by
+# the schema -- "Input should be greater than 0".
+
+
+def test_free_goods_typed_as_nothing_charged_come_back_free() -> None:
+    """0 with 1 free: one back on the shelf, nothing credited, the offer told."""
+    agency = _Agency()
+    offer = agency.offer()
+    bill = agency.bill(free=None)
+    assert _free_claimed(agency, offer) == D("2.0000")
+    held, owed, credits = (
+        _on_hand(agency),
+        _outstanding(agency),
+        _credit_rows(agency),
+    )
+
+    row = _returned(agency, bill, "0", free="1")
+
+    line = _line(agency, row)
+    assert (line.current_return_quantity, line.free_quantity) == (D("0"), D("1"))
+    assert (line.gross_amount, line.tax_amount, line.net_amount) == (
+        D("0"),
+        D("0"),
+        D("0"),
+    )
+    assert _on_hand(agency) == held + 1
+    assert (_outstanding(agency), _credit_rows(agency)) == (owed, credits)
+    assert row.journal_entry_id is None, "no credit note was posted"
+    assert _free_claimed(agency, offer) == D("1.0000")
+    (view,) = SalesReturnService(agency.session).return_responses([row])
+    assert (view.lines[0].current_return_quantity, view.lines[0].free_quantity) == (
+        D("1.0000"),
+        D("1.0000"),
+    ), "read back as one coming back, one of it free"
+
+
+def test_free_goods_alone_are_capped_at_what_is_still_out_free() -> None:
+    """Two were free: a third is refused, and so is one off a bill with none."""
+    agency = _Agency()
+    agency.offer()
+    bill = agency.bill(free=None)
+    _returned(agency, bill, "0", free="2")
+    plain = agency.bill(free="0")
+
+    for source, words in (
+        (bill, "line 1 can still bring back 4.0000 charged and 0.0000 free"),
+        (
+            plain,
+            "Line 1 brings back 1 free, and the source line sent nothing free. "
+            "Type it as a quantity to credit it.",
+        ),
+    ):
+        with pytest.raises(ValidationError) as refused:
+            SalesReturnService(agency.session).create_return(
+                _describe(agency, source, "0", free="1"),
+                firm_id=agency.firm_id,
+                actor_id=agency.actor,
+            )
+        agency.session.rollback()
+        assert words in refused.value.message
+
+
+def test_a_line_of_nothing_at_all_is_refused_in_words() -> None:
+    """0 with nothing free names the line, not "greater than 0"."""
+    agency = _Agency()
+    bill = agency.bill(free="1")
+
+    with pytest.raises(PydanticValidationError) as refused:
+        _describe(agency, bill, "0", free="0")
+
+    assert (
+        "Line 1 returns a quantity of 0 and nothing free. Type a quantity, or "
+        "leave the line off the return." in str(refused.value)
+    )

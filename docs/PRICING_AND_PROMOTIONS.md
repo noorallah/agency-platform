@@ -620,6 +620,23 @@ it had. Unlike a purchase return, **a line off the bill may bring free goods
 back as well as one off the note**: a counter firm never sees its notes, and
 the bill line carries the free quantity it inherited.
 
+**"0 charged, 1 free" is the same line typed the other way** (D-PRC-51,
+2026-10-06). An offer's free units sit on a line of their own -- 0 charged, 2
+PIECE free -- and somebody sending one back types what they see: a quantity
+of 0 with 1 free. The sales return's schema refused that as "Input should be
+greater than 0" and the purchase return as "a quantity of 0", while the same
+unit typed as a quantity of 1 went through on both. `free_goods_alone`
+(`app/core/utils/quantities.py`) restates such a line, on both returns' write
+models, as the shape above -- 1 coming back, 1 of it free -- so the services
+keep their one path and their caps: no more free units than the source line
+has left ("... can still bring back 4.0000 charged and 0.0000 free"), and
+none off a line that gave none ("Line 1 brings back 1 free, and the source
+line sent nothing free. Type it as a quantity to credit it."). A line of 0
+with nothing free is refused on both as "Line 1 returns a quantity of 0 and
+nothing free. Type a quantity, or leave the line off the return." The
+response reads 1 and 1 whichever way it was typed. A line that is charged
+quantity behaves as before.
+
 **The same free unit comes back once, whichever document the return names**
 (the twin of D-BUY-61). The charged cap already counted across the note line
 and the bill line that billed it (`_goods_behind`, D-SELL-7); the free cap
