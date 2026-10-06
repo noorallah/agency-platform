@@ -108,7 +108,7 @@ class FlowLog {
       failures.add('$label: $text');
       // ignore: avoid_print
       print('FLOW: FAIL [$name] $label: '
-          '${text.length > 500 ? text.substring(0, 500) : text}');
+          '${text.length > 1800 ? text.substring(0, 1800) : text}');
       return false;
     }
   }
@@ -142,6 +142,7 @@ class FlowLog {
 /// Open a screen from the menu bar: the area's drop-down, then the item, using
 /// "All ... screens" when the item is not on the daily list.
 Future<void> openMenu(WidgetTester tester, String area, String path) async {
+  await closeOpenEditor(tester);
   await tester.tap(find.byKey(ValueKey<String>('menu-area-$area')));
   await pumpFor(tester, const Duration(milliseconds: 600));
   final Finder item = find.byKey(ValueKey<String>('menu-item-$path'));
@@ -293,7 +294,8 @@ Future<bool> confirmIfAsked(WidgetTester tester) async {
 
 /// Tap the grid row showing [text] (a document number).
 Future<void> selectRow(WidgetTester tester, String text) async {
-  final Finder row = find.text(text);
+  // A grid shows the number alone; the list view puts it first in a line.
+  final Finder row = find.textContaining(text);
   await pumpUntil(tester, row, waitingFor: 'a row showing $text');
   await tester.tap(row.first);
   await pumpFor(tester, const Duration(milliseconds: 600));
@@ -472,3 +474,51 @@ Future<void> chooseInKeyed(
   await tester.tap(entry.last);
   await pumpFor(tester, const Duration(milliseconds: 600));
 }
+
+/// Tap an editor's save button and wait for the editor to close. A save the
+/// server or the form refused leaves the editor open, so that is a failure,
+/// and the messages on screen say why.
+Future<void> saveEditor(WidgetTester tester, String key) async {
+  await tapKey(tester, key);
+  final Finder button = find.byKey(ValueKey<String>(key));
+  final DateTime deadline = DateTime.now().add(const Duration(seconds: 12));
+  while (DateTime.now().isBefore(deadline)) {
+    await tester.pump(const Duration(milliseconds: 200));
+    if (button.evaluate().isEmpty) {
+      await pumpFor(tester, const Duration(seconds: 1));
+      return;
+    }
+  }
+  final RegExp complaint = RegExp(
+      r'must|need|choose|required|select|pick|add a|cannot|can.t|not |refus|invalid|enter',
+      caseSensitive: false);
+  throw StateError('the editor stayed open after $key. Messages: '
+      '${textOnScreen(tester).where(complaint.hasMatch).take(12).join(' | ')}'
+      ' Screen: ${textOnScreen(tester).skip(14).take(90).join(' | ')}');
+}
+
+/// Leave a document editor a failed step left open, so the next step starts
+/// from a list rather than from somebody else's form.
+Future<void> closeOpenEditor(WidgetTester tester) async {
+  final Finder band = find.byKey(const ValueKey<String>('document-band-actions'));
+  if (band.evaluate().isEmpty) return;
+  final Finder cancel =
+      find.descendant(of: band, matching: find.text('Cancel'));
+  if (cancel.evaluate().isEmpty) return;
+  await tester.tap(cancel.first);
+  await pumpFor(tester, const Duration(milliseconds: 800));
+  final Finder discard = find.byKey(const ValueKey<String>('document-discard'));
+  if (discard.evaluate().isNotEmpty) {
+    await tester.tap(discard.first);
+    await pumpFor(tester, const Duration(seconds: 1));
+  }
+}
+
+/// What a snackbar or an open dialog on screen is saying right now.
+String noticeText(WidgetTester tester) => <String>[
+      for (final Text t in tester.widgetList<Text>(find.descendant(
+          of: find.byWidgetPredicate(
+              (Widget w) => w is SnackBar || w is Dialog),
+          matching: find.byType(Text))))
+        t.data ?? '',
+    ].where((String t) => t.isNotEmpty).join(' | ');

@@ -181,7 +181,7 @@ void main() {
     // -- An order that picks the offer up ----------------------------------
     await flow.step('order: picks up the offer, shows its discount', () async {
       await openMenu(tester, 'sell', 'salesOrders');
-      await tapButtonStarting(tester, 'New Order');
+      await tapNew(tester);
       await chooseIn(tester, 'sales-order-customer', 'Vijaya Stores');
       await chooseIn(tester, 'sales-order-line-product-0', 'Detergent');
       await typeIn(tester, 'sales-order-line-0', 1, '10');
@@ -189,7 +189,7 @@ void main() {
       final bool offerOnScreen = screenHas(tester, 'Flow offer') ||
           screenHas(tester, offerCode) ||
           screenHas(tester, '5%');
-      await tapKey(tester, 'sales-order-save');
+      await saveEditor(tester, 'sales-order-save');
       await pumpFor(tester, const Duration(seconds: 3));
       final Json? order = await server.newest('sales-orders');
       if (order == null) throw StateError('nothing was saved');

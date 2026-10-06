@@ -28,12 +28,12 @@ void main() {
     Json? quote;
     final bool quoted = await flow.step('quotation: new, line, save', () async {
       await openMenu(tester, 'sell', 'quotations');
-      await tapButtonStarting(tester, 'New Quotation');
+      await tapNew(tester);
       await chooseIn(tester, 'quotation-customer', 'Vijaya Stores');
       await chooseIn(tester, 'quotation-line-product-0', 'Detergent');
       await typeIn(tester, 'quotation-line-0', 1, '10');
       await pumpFor(tester, const Duration(seconds: 3));
-      await tapKey(tester, 'quotation-save');
+      await saveEditor(tester, 'quotation-save');
       await pumpFor(tester, const Duration(seconds: 3));
       quote = await server.newest('quotations');
       final String? fault = quote == null
@@ -59,22 +59,30 @@ void main() {
         await pumpFor(tester, const Duration(seconds: 3));
         await typeIn(tester, 'quotation-line-0', 1, '12');
         await pumpFor(tester, const Duration(seconds: 3));
-        await tapKey(tester, 'quotation-save');
+        await saveEditor(tester, 'quotation-save');
         await pumpFor(tester, const Duration(seconds: 3));
         quote = await server.newest('quotations');
         final String? fault = arithmeticFault(quote!, quantity: 12);
         if (fault != null) throw StateError(fault);
       });
-      for (final String label in <String>[
-        'Mark as sent',
-        'Customer accepted',
-        'Convert to order',
-      ]) {
-        await flow.step('quotation: $label', () async {
+      for (final MapEntry<String, String> stepToStatus
+          in const <String, String>{
+        'Mark as sent': 'SENT',
+        'Customer accepted': 'ACCEPTED',
+        'Convert to order': 'CONVERTED',
+      }.entries) {
+        await flow.step('quotation: ${stepToStatus.key}', () async {
           await selectRow(tester, '${quote!['quotation_number']}');
-          await tapButton(tester, label);
+          await tapButton(tester, stepToStatus.key);
+          final String asked = noticeText(tester);
           await confirmIfAsked(tester);
           await pumpFor(tester, const Duration(seconds: 2));
+          final Json now = await server.one('quotations', '${quote!['id']}');
+          if ('${now['status']}' != stepToStatus.value) {
+            throw StateError('quotation is ${now['status']} after '
+                '${stepToStatus.key}, expected ${stepToStatus.value}; the '
+                'screen asked "$asked" and said "${noticeText(tester)}"');
+          }
         });
       }
     } else {
@@ -87,8 +95,9 @@ void main() {
         () async {
       order = await server.newest('sales-orders');
       if (order == null) throw StateError('no sales order on the server');
-      final Json? q = quote;
-      if (q != null && '${order!['source_quotation_id']}' != '${q['id']}') {
+      Json? q = quote;
+      if (q != null) q = await server.one('quotations', '${q['id']}');
+      if (q != null && '${q['converted_sales_order_id']}' != '${order!['id']}') {
         flow.defect(
             'order: converted from quote',
             'newest order ${order!['order_number']} is not the converted '
@@ -129,7 +138,7 @@ void main() {
         await chooseIn(
             tester, 'delivery-note-order', '${order!['order_number']}');
         await pumpFor(tester, const Duration(seconds: 2));
-        await tapKey(tester, 'delivery-note-save');
+        await saveEditor(tester, 'delivery-note-save');
         await pumpFor(tester, const Duration(seconds: 3));
         note = await server.newest('delivery-notes');
         if (note == null) throw StateError('nothing was saved');
@@ -148,6 +157,27 @@ void main() {
             throw StateError('still DRAFT after Approve');
           }
         });
+        await flow.step('delivery note: dispatch', () async {
+          await selectRow(tester, docNumber(note!));
+          await tapButton(tester, 'Dispatch');
+          final String asked = noticeText(tester);
+          // Dispatch offers to raise the bill there and then; this flow bills
+          // the note by hand in the next step, so it dispatches without.
+          final Finder anyway =
+              find.byKey(const ValueKey<String>('dispatch-anyway'));
+          if (anyway.evaluate().isNotEmpty) {
+            await tester.tap(anyway.first);
+          } else {
+            await confirmIfAsked(tester);
+          }
+          await pumpFor(tester, const Duration(seconds: 3));
+          final String said = noticeText(tester);
+          note = await server.one('delivery-notes', '${note!['id']}');
+          if ('${note!['status']}' != 'DISPATCHED') {
+            throw StateError('status is ${note!['status']} after Dispatch; '
+                'the screen said "$said" (before confirming: "$asked")');
+          }
+        });
       }
     } else {
       flow.skip('delivery note', 'no approved order');
@@ -158,15 +188,18 @@ void main() {
     if (note != null) {
       await flow.step('invoice: new, bill the note, save', () async {
         await openMenu(tester, 'sell', 'salesInvoices/sales-invoices');
-        await tapButtonStarting(tester, 'New Invoice');
-        await chooseIn(tester, 'sales-invoice-customer', 'Vijaya Stores');
+        await tapNew(tester);
+        await chooseIn(tester, 'sales-invoice-bill-customer', 'Vijaya Stores');
         await tapKey(tester, 'sales-invoice-choose-notes');
         await pumpFor(tester, const Duration(seconds: 2));
-        await tester.tap(find.byType(Checkbox).first);
+        await tester.tap(find
+            .descendant(
+                of: find.byType(Dialog), matching: find.byType(Checkbox))
+            .first);
         await pumpFor(tester, const Duration(milliseconds: 500));
         await confirmIfAsked(tester);
         await pumpFor(tester, const Duration(seconds: 3));
-        await tapKey(tester, 'sales-invoice-save');
+        await saveEditor(tester, 'sales-invoice-save');
         await pumpFor(tester, const Duration(seconds: 3));
         invoice = await server.newest('sales-invoices');
         if (invoice == null) throw StateError('nothing was saved');
@@ -203,7 +236,7 @@ void main() {
     if (invoice != null) {
       await flow.step('receipt: record against the bill', () async {
         await openMenu(tester, 'sell', 'accounting/receipts');
-        await tapButtonStarting(tester, 'Record');
+        await tapNew(tester);
         await typeLabelled(tester, 'Received from', 'Vijaya');
         await pumpFor(tester, const Duration(seconds: 1));
         await tester.tap(find.textContaining('Vijaya Stores').last);
@@ -234,13 +267,13 @@ void main() {
     if (invoice != null) {
       await flow.step('return: new off the bill, save, approve', () async {
         await openMenu(tester, 'sell', 'salesReturns');
-        await tapButtonStarting(tester, 'New Return');
+        await tapNew(tester);
         await chooseIn(
             tester, 'sales-return-document', docNumber(invoice!));
         await pumpFor(tester, const Duration(seconds: 2));
         await typeInKeyed(tester, 'sales-return-returning-', '1');
         await pumpFor(tester, const Duration(seconds: 2));
-        await tapKey(tester, 'sales-return-save');
+        await saveEditor(tester, 'sales-return-save');
         await pumpFor(tester, const Duration(seconds: 3));
         final Json? ret = await server.newest('sales-returns');
         if (ret == null) throw StateError('nothing was saved');

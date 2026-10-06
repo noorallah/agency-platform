@@ -29,7 +29,7 @@ void main() {
           tester, 'purchase-order-line-product-', 'Detergent');
       await typeIn(tester, 'purchase-order-line-0', 1, '10');
       await pumpFor(tester, const Duration(seconds: 3));
-      await tapKey(tester, 'purchase-order-save');
+      await saveEditor(tester, 'purchase-order-save');
       await pumpFor(tester, const Duration(seconds: 3));
       order = await server.newest('purchase-orders');
       final String? fault = order == null
@@ -54,7 +54,7 @@ void main() {
         await pumpFor(tester, const Duration(seconds: 3));
         await typeIn(tester, 'purchase-order-line-0', 1, '12');
         await pumpFor(tester, const Duration(seconds: 3));
-        await tapKey(tester, 'purchase-order-save');
+        await saveEditor(tester, 'purchase-order-save');
         await pumpFor(tester, const Duration(seconds: 3));
         order = await server.one('purchase-orders', '${order!['id']}');
         final String? fault = arithmeticFault(order!, quantity: 12);
@@ -84,7 +84,7 @@ void main() {
         await tapNew(tester);
         await chooseIn(tester, 'goods-receipt-order', docNumber(order!));
         await pumpFor(tester, const Duration(seconds: 2));
-        await tapKey(tester, 'goods-receipt-save-complete');
+        await saveEditor(tester, 'goods-receipt-save-complete');
         await confirmIfAsked(tester);
         await pumpFor(tester, const Duration(seconds: 3));
         receipt = await server.newest('goods-receipts');
@@ -115,7 +115,7 @@ void main() {
         await tapNew(tester);
         await chooseIn(tester, 'purchase-invoice-order', docNumber(order!));
         await pumpFor(tester, const Duration(seconds: 3));
-        await tapKey(tester, 'purchase-invoice-save');
+        await saveEditor(tester, 'purchase-invoice-save');
         await pumpFor(tester, const Duration(seconds: 3));
         bill = await server.newest('purchase-invoices');
         if (bill == null) throw StateError('nothing was saved');
@@ -148,7 +148,7 @@ void main() {
     if (bill != null) {
       await flow.step('payment: record against the bill', () async {
         await openMenu(tester, 'buy', 'accounting/payments');
-        await tapButtonStarting(tester, 'Record');
+        await tapNew(tester);
         await typeLabelled(tester, 'Paid to', 'Principal');
         await pumpFor(tester, const Duration(seconds: 1));
         await tester.tap(find.textContaining('Principal supplier').last);
@@ -184,7 +184,7 @@ void main() {
         await pumpFor(tester, const Duration(seconds: 2));
         await typeInKeyed(tester, 'purchase-return-returning-', '1');
         await pumpFor(tester, const Duration(seconds: 2));
-        await tapKey(tester, 'purchase-return-save');
+        await saveEditor(tester, 'purchase-return-save');
         await pumpFor(tester, const Duration(seconds: 3));
         final Json? ret = await server.newest('purchase-returns');
         if (ret == null) throw StateError('nothing was saved');

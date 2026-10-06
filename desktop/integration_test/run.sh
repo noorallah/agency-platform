@@ -29,6 +29,6 @@ STATUS=$?
 HERE="$(cygpath -w "$PWD")"
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"name='agency_desktop.exe'\" | Where-Object { \$_.ExecutablePath -like '$HERE*' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" >/dev/null 2>&1
 
-grep -E "^[0-9]+:[0-9]+ \+|Timed out|On screen:|SIGNED IN|FLOW:|Some tests failed|All tests passed" "$LOG" | cut -c1-700 | tail -120
+grep -E "^[0-9]+:[0-9]+ \+|Timed out|On screen:|SIGNED IN|FLOW:|Some tests failed|All tests passed" "$LOG" | cut -c1-2000 | tail -120
 echo "exit $STATUS, log $LOG"
 exit "$STATUS"
