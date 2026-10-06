@@ -2719,7 +2719,11 @@ class SalesOrderService(TransactionalDocumentService):
                 product_id=item.product_id,
                 batch_ids=[line.pinned_batch_id],
                 paid=net - freight_share,
-                charged=line.base_quantity,
+                # The line as it stands -- a box at the price of a box --
+                # and the judge converts it to the pieces the MRP is
+                # printed on (D-PRC-36).
+                quantity=quantity,
+                stock_units_per_unit=line.conversion_factor,
             )
             line.remarks = item.remarks
             line.updated_by = actor_id

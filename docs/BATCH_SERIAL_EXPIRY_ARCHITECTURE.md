@@ -637,6 +637,29 @@ order for a batch it may never ship; such a line is judged at dispatch. A
 note that chooses its batches is likewise judged at dispatch, not when the
 draft is saved. Free goods charge nothing and are not counted.
 
+**The MRP is the price of a stock unit, and the judge does the conversion
+(D-PRC-36, 2026-10-06).** A pharmacy sells by the strip and the box, and the
+pack the MRP is printed on is the piece. AMX, 12 to a box, GST 12%, a batch
+printed 120.00: 1 BOX at 1,200.00 is 1,344.00 with tax, **112.00 a piece**.
+The order and the dispatch judged it so and 12 pieces left; the bill's
+approval then refused it as "charges 1344.00 a unit with tax", and billed as
+12 PIECE as "16134.45 a unit" -- the bill multiplied by its own
+`conversion_factor`, which is the unit the bill was *typed* in against the
+note's (a twelfth for pieces against a box), not the note line's factor into
+stock. The goods were out and no bill of them could be approved.
+
+Each caller used to work out the stock units itself, which is how one of four
+came to differ. `refuse_above_batch_mrp` now takes the line **as it stands**
+-- `paid`, the `quantity` it pays for in the line's own unit, and
+`stock_units_per_unit`, how many stock units one of that unit holds -- and
+divides once. The order and the note hand over their own `conversion_factor`;
+the bill, whose line is counted and priced in its note line's unit whatever
+unit it was typed in, hands over the **note line's** factor
+(`_stock_units_per_note_unit`). So a bill reaches the verdict its dispatch
+reached: a box at 1,320.00 is refused everywhere as "charges 123.20 a unit
+with tax", exactly as 12 PIECE at 110.00 is, and the unit named in the
+refusal is always the stock unit.
+
 **Price from batch** (`batch_sale_settings.price_from_batch`, off): where a
 line's batch is chosen, the screen fills its rate from the batch's selling
 price, ahead of the price list. The server takes the rate it is sent, as for
