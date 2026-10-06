@@ -93,6 +93,7 @@ from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from app.sales_order.services.offer_echoes import echoes_of_what_an_offer_gave
 from app.sales_order.services.sales_order_service import (
     PromotionBenefits,
     normalized_coupon,
@@ -810,7 +811,15 @@ class QuotationService(TransactionalDocumentService):
                         # Zero on the quotation is "none given", which the
                         # order must read as silence and ask the offers again,
                         # not as a refusal of them (D-SELL-41).
-                        free_quantity=line.free_quantity or None,
+                        # So is a figure an offer put there: the order works
+                        # the offer out afresh, names it and claims it, inside
+                        # its budget. Only a typed figure is handed over as
+                        # typed (D-PRC-58).
+                        free_quantity=(
+                            None
+                            if line.free_promotion_id is not None
+                            else line.free_quantity or None
+                        ),
                         sales_uom_id=line.sales_uom_id,
                         inventory_uom_id=line.inventory_uom_id,
                         packaging_type_id=line.packaging_type_id,
@@ -1254,6 +1263,20 @@ class QuotationService(TransactionalDocumentService):
                 )
             ).all()
         }
+        # A figure the offer put on a line, sent back as read, is silence
+        # again -- at its number or wherever the line moved to -- or saving
+        # the quotation twice would make the offer's free goods typed ones,
+        # and the order it becomes would carry them unclaimed (D-PRC-58).
+        echoed = echoes_of_what_an_offer_gave(lines, existing.values())
+        lines = [
+            (
+                item.model_copy(update={"free_quantity": None})
+                if index in echoed
+                else item
+            )
+            for index, item in enumerate(lines)
+        ]
+        asked = len(lines)
         seen: set[int] = set()
         subtotal = ZERO
         tax_total = ZERO
@@ -1452,6 +1475,14 @@ class QuotationService(TransactionalDocumentService):
                 if item.free_quantity is None
                 else item.free_quantity
             )
+            # Whose they are, as the order records it: the offer's where the
+            # engine gave them, nobody's where a person typed the figure.
+            if index >= asked:
+                line.free_promotion_id = benefits.gift_promotion(item.product_id)
+            elif item.free_quantity is None and line.free_quantity > ZERO:
+                line.free_promotion_id = benefits.free_promotion(index)
+            else:
+                line.free_promotion_id = None
             line.sales_uom_id = item.sales_uom_id
             line.inventory_uom_id = item.inventory_uom_id
             line.packaging_type_id = item.packaging_type_id

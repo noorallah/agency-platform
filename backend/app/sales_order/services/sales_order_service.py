@@ -122,6 +122,7 @@ from app.sales_order.services.discount_limit import (
     DiscountLimitService,
     order_discounts,
 )
+from app.sales_order.services.offer_echoes import echoes_of_what_an_offer_gave
 from app.sales_order.services.price_floor import PriceFloorService, order_lines
 from app.settlements.models import Settlement
 from app.tax.schemas import TaxRuleSimulationRequest, TaxRuleSimulationResponse
@@ -2240,8 +2241,10 @@ class SalesOrderService(TransactionalDocumentService):
 
         * a line that sells nothing and names its offer -- the engine's own
           line, a gift or the loose pieces of a line sold by the box -- is
-          dropped where it comes back at its line number, still selling
-          nothing;
+          dropped where it comes back still selling nothing: at its line
+          number, or at another with the same free figure and unit, which
+          is where it arrives once a line above it was deleted or one was
+          inserted (D-PRC-58; `echoes_of_what_an_offer_gave`);
         * free units an offer put on a line itself, sent back as the same
           figure, are silence again;
         * and the zero beside such a dropped line -- the box line, read
@@ -2256,20 +2259,14 @@ class SalesOrderService(TransactionalDocumentService):
         """
         kept: list[SalesOrderLineWrite] = []
         returned: set[UUID] = set()
-        for item in lines:
-            stored = existing.get(item.line_number)
-            if (
-                stored is not None
-                and stored.free_promotion_id is not None
-                and stored.product_id == item.product_id
-            ):
-                if stored.quantity == ZERO and item.quantity == ZERO:
+        echoes = echoes_of_what_an_offer_gave(lines, existing.values())
+        for index, item in enumerate(lines):
+            stored = echoes.get(index)
+            if stored is not None:
+                if stored.quantity == ZERO:
                     returned.add(item.product_id)
                     continue
-                if item.free_quantity is not None and self._q(
-                    item.free_quantity
-                ) == self._q(stored.free_quantity):
-                    item = item.model_copy(update={"free_quantity": None})
+                item = item.model_copy(update={"free_quantity": None})
             kept.append(item)
         if not returned:
             return kept

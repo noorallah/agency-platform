@@ -26,6 +26,7 @@ from app.delivery_note.models import DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
 from app.inventory.models import InventoryRecord
+from app.products.models import Product
 from app.promotions.models import Promotion, PromotionCondition, PromotionRedemption
 from app.promotions.schemas import (
     PromotionActionType,
@@ -37,11 +38,11 @@ from app.promotions.services.promotion_service import budget_rooms
 from app.purchase.models import PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate
 from app.purchase.services import PurchaseService
-from app.quotation.models import SalesQuotationLine
-from app.quotation.schemas import QuotationCreate
+from app.quotation.models import SalesQuotation, SalesQuotationLine
+from app.quotation.schemas import QuotationCreate, QuotationUpdate
 from app.quotation.services.quotation_service import QuotationService
 from app.sales_order.models import SalesOrder, SalesOrderLine
-from app.sales_order.schemas import SalesOrderUpdate
+from app.sales_order.schemas import SalesOrderCreate, SalesOrderUpdate
 from app.sales_return.schemas import (
     SalesReturnCreate,
     SalesReturnLineWrite,
@@ -590,6 +591,291 @@ def test_a_quotation_by_the_box_shows_the_two_free_pieces() -> None:
         shop.piece,
     )
     assert shop.session.scalars(select(PromotionRedemption)).all() == []
+
+
+# ---- an echoed order whose lines moved (D-PRC-58) ---------------------------
+
+
+def _another_product(shop: _Offers) -> UUID:
+    """Add a product no offer mentions, sold at 50.00."""
+    other = Product(
+        firm_id=shop.firm_id,
+        code="SKU-OTHER",
+        name="Another product",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+        selling_price=D("50"),
+    )
+    shop.session.add(other)
+    shop.session.commit()
+    return other.id
+
+
+def _order_under_another_line(shop: _Offers, other: UUID, **line: object) -> SalesOrder:
+    """Save a draft whose first line is the other product, then the offer's."""
+    return shop.orders.create_order(
+        SalesOrderCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "branch_id": shop.setup.branch.id,
+                "warehouse_id": shop.setup.warehouse.id,
+                "order_date": DAY,
+                "lines": [
+                    {"line_number": 1, "product_id": other, "quantity": "1"},
+                    {
+                        "line_number": 2,
+                        "product_id": shop.setup.product.id,
+                        "quantity": "2",
+                    }
+                    | line,
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+
+def _without_the_first_line(
+    shop: _Offers, order: SalesOrder
+) -> list[dict[str, object]]:
+    """Return the read with line 1 deleted and the rest renumbered from 1."""
+    kept = _as_read(shop, order)[1:]
+    return [line | {"line_number": number} for number, line in enumerate(kept, 1)]
+
+
+def test_an_echoed_order_with_the_line_above_deleted_keeps_its_offer() -> None:
+    """D-PRC-58: the free line arrived at another number and stood as typed."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = _order_under_another_line(
+        shop, _another_product(shop), sales_uom_id=shop.box
+    )
+    assert len(shop.lines(order)) == 3, "the offer added its free line"
+
+    _save_again(shop, order, _without_the_first_line(shop, order))
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("2.0000"), D("0.0000"), None),
+            (D("0.0000"), D("2.0000"), shop.offer.id),
+        ],
+        D("2.0000"),
+    )
+
+
+def test_an_echoed_order_with_a_line_inserted_above_keeps_its_offer() -> None:
+    """The two echoed lines sent as 2 and 3 under a new line 1."""
+    shop = _Offers(TEN_PLUS_ONE)
+    other = _another_product(shop)
+    order = shop.order(sales_uom_id=shop.box)
+    moved = [
+        line | {"line_number": line["line_number"] + 1}  # type: ignore[operator]
+        for line in _as_read(shop, order)
+    ]
+
+    _save_again(
+        shop,
+        order,
+        [{"line_number": 1, "product_id": other, "quantity": "1"}, *moved],
+    )
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("1.0000"), D("0.0000"), None),
+            (D("2.0000"), D("0.0000"), None),
+            (D("0.0000"), D("2.0000"), shop.offer.id),
+        ],
+        D("2.0000"),
+    )
+
+
+def test_free_units_on_a_line_that_moved_stay_the_offers() -> None:
+    """24 PIECE with the offer's 2 free, echoed at line 1 where it was line 2."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = _order_under_another_line(
+        shop, _another_product(shop), quantity="24", sales_uom_id=shop.piece
+    )
+
+    _save_again(shop, order, _without_the_first_line(shop, order))
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("24.0000"), D("2.0000"), shop.offer.id)],
+        D("2.0000"),
+    )
+    # A figure that is not the offer's is typed wherever the line stands.
+    lines = _as_read(shop, order)
+    lines[0] |= {"free_quantity": "5", "line_number": 4}
+    _save_again(shop, order, lines)
+    assert _free_line_and_claim(shop, order)[0] == [(D("24.0000"), D("5.0000"), None)]
+
+
+def test_a_moved_echo_cannot_get_round_the_offers_budget() -> None:
+    """A spent budget of 2 still shipped 26: the moved free line escaped it."""
+    shop = _Offers(TEN_PLUS_ONE)
+    shop.offer.max_free_quantity = D("2")
+    shop.session.commit()
+    first = shop.order(sales_uom_id=shop.box)
+    second = _order_under_another_line(
+        shop, _another_product(shop), sales_uom_id=shop.box
+    )
+    echoed = _without_the_first_line(shop, second)
+    assert len(echoed) == 2, "the second draft was quoted the offer too"
+    shop.approve(first)
+
+    _save_again(shop, second, echoed)
+
+    assert _free_line_and_claim(shop, second) == (
+        [(D("2.0000"), D("0.0000"), None)],
+        None,
+    )
+    shop.approve(second)
+    room = budget_rooms(shop.session, [shop.offer], firm_id=shop.firm_id)[shop.offer.id]
+    assert (room.free_claimed, room.free_left) == (D("2.0000"), D("0.0000"))
+
+
+def test_a_free_line_typed_at_another_figure_is_not_the_moved_echo() -> None:
+    """Only the engine's own facts make a moved line its echo: 5 is typed."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = _order_under_another_line(
+        shop, _another_product(shop), sales_uom_id=shop.box
+    )
+    lines = _without_the_first_line(shop, order)
+    lines[1]["free_quantity"] = "5"
+
+    _save_again(shop, order, lines)
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("2.0000"), D("0.0000"), None),
+            (D("0.0000"), D("5.0000"), None),
+        ],
+        None,
+    )
+
+
+# ---- a quotation's free goods, converted (D-PRC-58) -------------------------
+
+
+def _quotation(shop: _Offers, **line: object) -> SalesQuotation:
+    """Quote 24 PIECE of the product, with what the line names."""
+    return QuotationService(shop.session).create_quotation(
+        QuotationCreate.model_validate(_quotation_body(shop, **line)),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+
+def _quotation_body(shop: _Offers, **line: object) -> dict[str, object]:
+    """Return the request for a quotation of 24 PIECE."""
+    return {
+        "customer_id": shop.setup.customer.id,
+        "branch_id": shop.setup.branch.id,
+        "warehouse_id": shop.setup.warehouse.id,
+        "quotation_date": DAY,
+        "valid_until": DAY.replace(year=2099),
+        "lines": [
+            {
+                "line_number": 1,
+                "product_id": shop.setup.product.id,
+                "quantity": "24",
+                "sales_uom_id": shop.piece,
+            }
+            | line
+        ],
+    }
+
+
+def _quoted(shop: _Offers, quotation: SalesQuotation) -> SalesQuotationLine:
+    """Return the quotation's one line, as stored."""
+    shop.session.expire_all()
+    return shop.session.scalars(
+        select(SalesQuotationLine).where(
+            SalesQuotationLine.sales_quotation_id == quotation.id
+        )
+    ).one()
+
+
+def _converted(shop: _Offers, quotation: SalesQuotation) -> SalesOrder:
+    """Accept the quotation and turn it into an order dated the same day."""
+    quotations = QuotationService(shop.session)
+    quotations.accept_quotation(
+        quotation.id, firm_scope=shop.firm_id, actor_id=shop.actor
+    )
+    _, order = quotations.convert_quotation(
+        quotation.id, firm_scope=shop.firm_id, actor_id=shop.actor, order_date=DAY
+    )
+    return order
+
+
+def test_a_quotations_free_goods_from_an_offer_are_claimed_by_its_order() -> None:
+    """The order read "24, 2 free", named no offer and claimed nothing."""
+    shop = _Offers(TEN_PLUS_ONE)
+    quotation = _quotation(shop)
+    line = _quoted(shop, quotation)
+    assert (line.free_quantity, line.free_promotion_id) == (D("2.0000"), shop.offer.id)
+
+    order = _converted(shop, quotation)
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("24.0000"), D("2.0000"), shop.offer.id)],
+        D("2.0000"),
+    )
+
+
+def test_a_converted_quotation_cannot_get_round_the_offers_budget() -> None:
+    """Quoted while the budget was open, ordered after it was spent."""
+    shop = _Offers(TEN_PLUS_ONE)
+    shop.offer.max_free_quantity = D("2")
+    shop.session.commit()
+    quotation = _quotation(shop)
+    assert _quoted(shop, quotation).free_quantity == D("2.0000")
+    shop.approve(shop.order(sales_uom_id=shop.box))
+
+    order = _converted(shop, quotation)
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("24.0000"), D("0.0000"), None)],
+        None,
+    )
+
+
+def test_free_goods_typed_on_a_quotation_carry_over_as_typed() -> None:
+    """3 free typed by a person is not the offer's 2, and the order keeps it."""
+    shop = _Offers(TEN_PLUS_ONE)
+    quotation = _quotation(shop, free_quantity="3")
+    assert _quoted(shop, quotation).free_promotion_id is None
+
+    order = _converted(shop, quotation)
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("24.0000"), D("3.0000"), None)],
+        None,
+    )
+
+
+def test_a_quotation_saved_again_as_read_keeps_its_free_goods_the_offers() -> None:
+    """The offer's 2 sent back as "2" is not a typed 2; a 3 is."""
+    shop = _Offers(TEN_PLUS_ONE)
+    quotation = _quotation(shop)
+    quotations = QuotationService(shop.session)
+
+    quotations.update_quotation(
+        quotation.id,
+        QuotationUpdate.model_validate(_quotation_body(shop, free_quantity="2.0000")),
+        firm_scope=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+    line = _quoted(shop, quotation)
+    assert (line.free_quantity, line.free_promotion_id) == (D("2.0000"), shop.offer.id)
+    quotations.update_quotation(
+        quotation.id,
+        QuotationUpdate.model_validate(_quotation_body(shop, free_quantity="3")),
+        firm_scope=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    line = _quoted(shop, quotation)
+    assert (line.free_quantity, line.free_promotion_id) == (D("3.0000"), None)
 
 
 # ---- what a claim gave, in stock units -------------------------------------

@@ -207,6 +207,13 @@ class SalesQuotationLine(BaseEntity):
     free_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The offer that gave `free_quantity`, where one did; null where a
+    #: person typed it, and on every line quoted before this column. The
+    #: conversion reads it: an offer's free goods are left for the order to
+    #: work out, claim and count against the budget, and only a typed figure
+    #: is handed over as typed (D-PRC-58). A bare id with no foreign key, as
+    #: on the order line.
+    free_promotion_id: Mapped[UUID | None] = mapped_column(UUIDType())
     sales_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT")
     )
