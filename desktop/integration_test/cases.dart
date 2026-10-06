@@ -277,3 +277,40 @@ Future<void> tapDialogButton(WidgetTester tester, String label) async {
   await tester.tap(b.first);
   await pumpFor(tester, const Duration(milliseconds: 800));
 }
+
+/// Put stock on the shelf (an adjustment over HTTP) until the first product
+/// the firm holds has at least [wanted] available. Dispatch needs real stock,
+/// and every run of the flows dispatches some.
+Future<void> topUpStock(Server server, {num wanted = 300}) async {
+  final dynamic rows = await server.get('/api/v1/inventory?page_size=1');
+  final Json row = (rows as List<dynamic>).first as Json;
+  final double available = num2(row['available_quantity']);
+  if (available >= wanted) return;
+  await server.write('POST', '/api/v1/inventory/adjustments', <String, dynamic>{
+    'branch_id': row['branch_id'],
+    'warehouse_id': row['warehouse_id'],
+    'product_id': row['product_id'],
+    'quantity': (wanted - available).ceil(),
+    'transaction_date': DateTime.now().toIso8601String().substring(0, 10),
+    'remarks': 'screen cases: stock for dispatch',
+  });
+}
+
+/// Pick the entry showing [label] from a filtering dropdown whose key is
+/// [key]: type the label into its box first, so the entry is built whatever
+/// the length of the list.
+Future<void> chooseFiltered(
+    WidgetTester tester, String key, String label) async {
+  await tapKey(tester, key);
+  final Finder box = find.descendant(
+      of: find.byKey(ValueKey<String>(key)),
+      matching: find.byType(EditableText));
+  if (box.evaluate().isNotEmpty) {
+    await tester.enterText(box.first, label);
+    await pumpFor(tester, const Duration(milliseconds: 600));
+  }
+  final Finder entry = find.textContaining(label);
+  await pumpUntil(tester, entry, waitingFor: 'picker entry "$label"');
+  await tester.tap(entry.last);
+  await pumpFor(tester, const Duration(milliseconds: 600));
+}

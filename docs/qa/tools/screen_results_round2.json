@@ -1,4 +1,194 @@
 {
+ "SC-DN-001": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "columns present"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-013": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "note: :: quantity-related text on screen after Save: Stock | Delivery Notes | New delivery note | New delivery note | Save delivery note | Line 1 delivers 99999 where SO-2026-2027-000107 has 1 left to deliver of the 1 ordered. Change the line to what is left. | Delivery date | Reserved",
+   "open=true, saved=0, said=\"Seventy nine lakh ninety nine thousand nine hundred twenty only | Value at the order's rates, before tax  79,99,920.00\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-014": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "stock cannot be set to 5 without moving the firm; on hand is 82 and approved orders reserve more than that (see SCRQ findings on over-reservation)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-015": {
+  "fail": 1,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "note: :: server approved list has SO-2026-2027-000112; the box offers SO-2026-2027-000107  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000106  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000105  07-10-2026  Vijaya Stores t10069cwy first",
+   "an order approved after Delivery Notes was opened (SO-2026-2027-000112) is not in the order box (known SCRQ-27)",
+   "approved order offered=true, draft order offered=false; an order approved after the page opened offered=false"
+  ],
+  "pass": 1,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-016": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "the date box offers no future date in two attempts"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-017": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter a delivery quantity on at least one line. A line with nothing reserved cannot be dispatched until the order is approved. | Zero only | Value at the order's rates, before tax  0.00\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-018": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Edit is absent on an Approved note (the editor only creates; no Edit exists for a note in any status)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-019": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Dispatch is absent on a Draft note"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-020": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "needs a billed dispatched note; chain done in the SB file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-021": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "note status APPROVED; said \"SO-2026-2027-000113 is on hold and cannot be dispatched (\"dispatch test\"). Release it first.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-022": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "no carrier master record in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-023": {
+  "fail": 1,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Bad state: Cancel closed an editor holding a typed quantity without asking"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-DN-024": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "buttons {+ New: absent, Approve: absent, Dispatch: absent, Cancel: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-DN-025": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Delivery Notes offered: false; menu areas sell, buy, stock, masters; list answers 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-DN-026": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "stages PUT answered 403 (HTTP level)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsmgr"
+ },
+ "SC-DN-029": {
+  "fail": 0,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "the delivery note editor only creates; a saved note cannot be opened for change on screen, so there is no second session to race"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-DN-030": {
+  "fail": 1,
+  "file": "sc_dn_test.dart",
+  "notes": [
+   "Bad state: N1: Dispatch of a note another user had already dispatched said nothing after the dialog was confirmed"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-SO-001": {
   "fail": 0,
   "file": "sc_so_test.dart",

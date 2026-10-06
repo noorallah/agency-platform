@@ -27,6 +27,19 @@ void main() {
       await refreshList(tester);
     }
 
+    /// Open the order box and take the first order it offers.
+    Future<String> pickFirstOrder() async {
+      await tapKey(tester, 'delivery-note-order');
+      await pumpFor(tester, const Duration(milliseconds: 600));
+      final Finder entry = find.byWidgetPredicate((Widget w) =>
+          w is Text && RegExp(r'^SO-[0-9-]+\s').hasMatch(w.data ?? ''));
+      await pumpUntil(tester, entry, waitingFor: 'an order in the order box');
+      final String label = (tester.widget(entry.first) as Text).data!;
+      await tester.tap(find.text(label).last);
+      await pumpFor(tester, const Duration(seconds: 2));
+      return label.split(' ').first;
+    }
+
     String today() => DateTime.now().toIso8601String().substring(0, 10);
 
     /// An approved order for [quantity] units, raised and approved over HTTP.
@@ -54,6 +67,15 @@ void main() {
     }
 
     if (itHandle == 'tradeadmin') {
+      await topUpStock(admin);
+      final Json order10 = await approvedOrder(10);
+      final Json draftOrder = await apiDraftOrder(admin, quantity: 3);
+      final Json order3 = await approvedOrder(3);
+      final Json order2 = await approvedOrder(2);
+      final Json noteDraft = await apiNote(order3);
+      final Json noteApproved = await apiNote(order2);
+      await apiAct(admin, 'delivery-notes', '${noteApproved['id']}', 'approve');
+
       await log.step('SC-DN-001 list opens with its columns', () async {
         await openNotes();
         final List<String> missing = <String>[
@@ -72,27 +94,36 @@ void main() {
         log.saw = 'columns present';
       });
 
-      final Json order10 = await approvedOrder(10);
-      final Json draftOrder = await apiDraftOrder(admin, quantity: 3);
-      final Json order3 = await approvedOrder(3);
-      final Json order2 = await approvedOrder(2);
-      final Json noteDraft = await apiNote(order3);
-      final Json noteApproved = await apiNote(order2);
-      await apiAct(admin, 'delivery-notes', '${noteApproved['id']}', 'approve');
 
-      await log.step('SC-DN-013 quantity 11 against 10 owed is refused',
+      await log.step('SC-DN-013 more than is owed is refused (99999 typed)',
           () async {
         await openNotes();
         await tapNew(tester);
-        await chooseIn(
-            tester, 'delivery-note-order', docNumber(order10));
+        await pickFirstOrder();
         await pumpFor(tester, const Duration(seconds: 2));
         log.saw = await expectRefusal(tester, me,
             collection: 'delivery-notes',
             openKey: 'delivery-note-save',
             press: () async {
-              await typeInKeyed(tester, 'delivery-note-delivering-', '11');
+              await typeInKeyed(tester, 'delivery-note-delivering-', '99999');
               await tapKey(tester, 'delivery-note-save');
+              await pumpFor(tester, const Duration(seconds: 1));
+              final String all = textOnScreen(tester)
+                  .where((String t) =>
+                      t.length < 220 &&
+                      RegExp(r'quantity|deliver|owed|reserved|exceed|more than|stock',
+                              caseSensitive: false)
+                          .hasMatch(t))
+                  .take(8)
+                  .join(' | ');
+              log.info('SC-DN-013', 'quantity-related text on screen after '
+                  'Save: $all');
+              if (!RegExp(r'exceed|more than|reserved|owed|cannot|only',
+                      caseSensitive: false)
+                  .hasMatch(all)) {
+                log.defect('SC-DN-013 N1', 'no sentence says the quantity '
+                    'is more than can be delivered');
+              }
             });
       });
       await closeOpenEditor(tester);
@@ -101,8 +132,7 @@ void main() {
           () async {
         await openNotes();
         await tapNew(tester);
-        await chooseIn(
-            tester, 'delivery-note-order', docNumber(order10));
+        await pickFirstOrder();
         await pumpFor(tester, const Duration(seconds: 2));
         log.saw = await expectRefusal(tester, me,
             collection: 'delivery-notes',
@@ -114,6 +144,9 @@ void main() {
       });
       await log.step('SC-DN-023 the Cancel button on a typed-in editor asks',
           () async {
+        await openNotes();
+        await tapNew(tester);
+        await pickFirstOrder();
         await typeInKeyed(tester, 'delivery-note-delivering-', '4');
         await tapButton(tester, 'Cancel');
         await pumpFor(tester, const Duration(seconds: 1));
@@ -136,13 +169,33 @@ void main() {
         await tapNew(tester);
         await tapKey(tester, 'delivery-note-order');
         await pumpFor(tester, const Duration(seconds: 1));
-        final bool offeredApproved = screenHas(tester, docNumber(order10));
+        final bool offeredApproved = textOnScreen(tester)
+            .any((String t) => RegExp(r'^SO-[0-9-]+\s').hasMatch(t));
         final bool offeredDraft = screenHas(tester, docNumber(draftOrder));
         log.saw = 'approved order offered=$offeredApproved, draft order '
             'offered=$offeredDraft';
         if (offeredDraft) throw StateError('a Draft order is offered');
         if (!offeredApproved) {
           throw StateError('the approved order is not offered either');
+        }
+        await closeOpenEditor(tester);
+        // The picker reads the approved orders once, when the page first
+        // opens: an order approved since is missing until the app restarts.
+        final Json late = await approvedOrder(1);
+        await openNotes();
+        await tapNew(tester);
+        await tapKey(tester, 'delivery-note-order');
+        await pumpFor(tester, const Duration(seconds: 1));
+        final bool lateOffered = screenHas(tester, docNumber(late));
+        log.saw = '${log.saw}; an order approved after the page opened '
+            'offered=$lateOffered';
+        final String serverNewest = docNumber(late);
+        log.info('SC-DN-015', 'server approved list has $serverNewest; the '
+            'box offers ${textOnScreen(tester).where((String t) => RegExp(r'^SO-[0-9-]+\s').hasMatch(t)).take(3).join(' / ')} first');
+        if (!lateOffered) {
+          log.defect('SC-DN-015 stale picker',
+              'an order approved after Delivery Notes was opened '
+              '(${docNumber(late)}) is not in the order box (known SCRQ-27)');
         }
       });
       await closeOpenEditor(tester);
@@ -179,9 +232,9 @@ void main() {
         final String said = await watch(tester, confirm: false, seconds: 5);
         final Json now = await admin.one('delivery-notes', '${noteApproved['id']}');
         log.saw = 'status ${now['status']}; asked "$asked"; said "$said"';
-        if (said.isEmpty && asked.isEmpty) {
-          throw StateError('N1: a second Dispatch of the same note said '
-              'nothing');
+        if (said.isEmpty) {
+          throw StateError('N1: Dispatch of a note another user had already '
+              'dispatched said nothing after the dialog was confirmed');
         }
       });
 

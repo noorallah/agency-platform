@@ -19,6 +19,10 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SCRQ-24 | Medium | SC-SO-020 | Sales orders, Approve; Stock | Approving orders of 500 units against about 82 on hand is accepted without a word; Stock then shows reserved 1,550 and available -1,468 for the product. Cancelling them gave it back. | Either a refusal or a warning in words, or the reservation capped at what exists; the book left the choice open, so the policy needs an owner decision | server reservation at approval; screen `lib/ui/sales/sales_document_steps.dart:29-74` says nothing on success |
 | SCRQ-25 | Low | (any, sign-in) | Purchase orders page | One run died at start with "This widget has been unmounted, so the State no longer has a context" thrown from the purchase page's `_load` after an await | no exception when the page is left while it loads | `lib/ui/purchases/purchase_management_page.dart:414` (via `_bootstrap`, line 284) |
 | SCRQ-26 | Low | SC-SO-036 | Sales orders list | Leaving the list and opening it again shows the old rows: orders another user raised in between are not there until Refresh is pressed | list reads itself again when opened | `lib/ui/sales/sales_order_management_page.dart` (`_load` runs once) |
+| SCRQ-27 | Medium | SC-DN-015 | New delivery note, Sales order box | The box lists the approved orders read when the Delivery Notes page loaded; an order approved afterwards (SO-...098 in the run) is missing while older ones (...093) are offered. A person approves an order and cannot find it to deliver against it | the box offers every approved order, read when the editor opens | `lib/ui/delivery_notes/delivery_note_management_page.dart:209-240` (`_loadReferenceData`, once) |
+| SCRQ-28 | Medium | SC-DN-030 | Delivery notes, Dispatch from a stale list | Note already dispatched by another user, list not refreshed: Dispatch opens the "No invoice yet" dialog as if it could go; after "Dispatch anyway" nothing at all is said | "Only approved delivery notes can be dispatched." (or the list refreshes and says so) | `lib/ui/delivery_notes/delivery_note_management_page.dart:1355-1370` |
+| SCRQ-29 | Medium | SC-DN-023 | New delivery note editor, Cancel | As SCRQ-21: Cancel closes an editor holding an order and a typed quantity without a question | "Discard unsaved changes?" | `lib/ui/delivery_notes/delivery_note_editor_phase2.dart` (Cancel pops directly) |
+| SCRQ-30 | Medium | SC-DN-025, SC-SO-034 | Menu, Warehouse role (INVENTORY_MANAGER) | The storekeeper's menu has no Sell area at all; Delivery Notes and Sales Orders answer 403. The book's role table says Warehouse "dispatches stock", and its chain (FS, SM, WH) cannot reach WH | the role can open Delivery Notes to dispatch, or the book's role table is corrected | `backend/app/identity/system_seed.py` (INVENTORY_MANAGER grants no SALES_* code) |
 <!-- /HAND:FINDINGS -->
 
 ## Established behaviour (the book should say this)
@@ -35,6 +39,11 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 - Edit exists only on a Draft and, for Field Sales, only on a document that user raised.
 - Warehouse (INVENTORY_MANAGER) has no Sell screen and the server answers 403 for sales orders and delivery notes; the hand-over chain of SO-034 cannot reach WH on screen (matches 01_ROLES R06).
 - Sales Manager's PUT of credit settings and sales stages answers 403 (checked over HTTP, settings screens not opened).
+- Delivery note, too many units: "Line 1 delivers 99999 where SO-... has 1 left to deliver of the 1 ordered. Change the line to what is left." (DN-013 as the book wants); no lines: "Enter a delivery quantity on at least one line. A line with nothing reserved cannot be dispatched until the order is approved." (DN-017).
+- Dispatch off an order on hold: "SO-... is on hold and cannot be dispatched ("<reason>"). Release it first." (DN-021). Dispatch of an Approved note with no bill opens "No invoice yet": GST s.31 wording, buttons Cancel, Dispatch anyway, Dispatch and invoice.
+- The delivery note editor only creates: there is no Edit for a note in any status, so SC-DN-018 is true for a Draft too and SC-DN-029 (two sessions on one draft) cannot be made on screen.
+- Field Sales is offered Delivery Notes (list, no Approve or Dispatch) and, under Accounts, GST returns, GSTR-2B, Rule 37, Rule 42, GST checks, GST payment and GST deposits (menu read only, not opened).
+- Read Only is offered the list of Delivery Notes and every write button is absent.
 <!-- /HAND:ESTABLISHED -->
 
 ## Notes
@@ -47,12 +56,30 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 
 | Feature | Counts (kind result: n) |
 | --- | --- |
+| DN | Multi-user FAIL: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 5, Negative SKIP: 4, Positive PASS: 1, Role PASS: 3 |
 | SO | Multi-user PASS: 3, Negative FAIL: 3, Negative PASS: 7, Negative SKIP: 3, Positive PASS: 5, Positive SKIP: 1, Role PASS: 4 |
 
 ## Result per case
 
 | Id | Kind | Result | What the screen showed | Flow file |
 | --- | --- | --- | --- | --- |
+| SC-DN-001 | Positive | PASS | columns present | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-013 | Negative | PASS | note: :: quantity-related text on screen after Save: Stock / Delivery Notes / New delivery note / New delivery note / Save delivery note / Line 1 delivers 99999 where SO-2026-2027-000107 has 1 left to deliver of the 1 ordered. Change the line to what is left. / Delivery date / Reserved; open=true, saved=0, said="Seventy nine lakh ninety nine thousand nine hundred twenty only / Value at the order's rates, before tax  79,99,920.00" | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-014 | Negative | SKIP | stock cannot be set to 5 without moving the firm; on hand is 82 and approved orders reserve more than that (see SCRQ findings on over-reservation) | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-015 | Negative | FAIL | note: :: server approved list has SO-2026-2027-000112; the box offers SO-2026-2027-000107  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000106  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000105  07-10-2026  Vijaya Stores t10069cwy first; an order approved after Delivery Notes was opened (SO-2026-2027-000112) is not in the order box (known SCRQ-27); approved order offered=true, draft order offered=false; an order approved after the page opened offered=false | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-016 | Negative | SKIP | the date box offers no future date in two attempts | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-017 | Negative | PASS | open=true, saved=0, said="Enter a delivery quantity on at least one line. A line with nothing reserved cannot be dispatched until the order is approved. / Zero only / Value at the order's rates, before tax  0.00" | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-018 | Negative | PASS | Edit is absent on an Approved note (the editor only creates; no Edit exists for a note in any status) | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-019 | Negative | PASS | Dispatch is absent on a Draft note | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-020 | Negative | SKIP | needs a billed dispatched note; chain done in the SB file | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-021 | Negative | PASS | note status APPROVED; said "SO-2026-2027-000113 is on hold and cannot be dispatched ("dispatch test"). Release it first." | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-022 | Negative | SKIP | no carrier master record in the fixture firm | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-023 | Negative | FAIL | Bad state: Cancel closed an editor holding a typed quantity without asking | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-024 | Role | PASS | buttons {+ New: absent, Approve: absent, Dispatch: absent, Cancel: absent} | `sc_dn_test.dart` (qro) |
+| SC-DN-025 | Role | PASS | Delivery Notes offered: false; menu areas sell, buy, stock, masters; list answers 403 | `sc_dn_test.dart` (qstore) |
+| SC-DN-026 | Role | PASS | stages PUT answered 403 (HTTP level) | `sc_dn_test.dart` (qsmgr) |
+| SC-DN-029 | Multi-user | SKIP | the delivery note editor only creates; a saved note cannot be opened for change on screen, so there is no second session to race | `sc_dn_test.dart` (tradeadmin) |
+| SC-DN-030 | Multi-user | FAIL | Bad state: N1: Dispatch of a note another user had already dispatched said nothing after the dialog was confirmed | `sc_dn_test.dart` (tradeadmin) |
 | SC-SO-001 | Positive | PASS | columns present; cards: Draft, Approved, Cancelled, Closed, Draft, Draft | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-006 | Positive | PASS | quantity 5 saved, total 472.0 | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-007 | Positive | PASS | status APPROVED, on hold true, notice "SO-2026-2027-000070 is on hold." | `sc_so_test.dart` (tradeadmin) |
