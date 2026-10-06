@@ -205,6 +205,8 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                                 rows: [
                                   for (int i = 0; i < _lines.length; i++)
                                     _orderRow(context, i),
+                                  for (final Json free in _offerFreeShown)
+                                    _offerFreeRow(context, free),
                                 ],
                                 addLabel: _locked
                                     ? null
@@ -725,6 +727,65 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  /// A line the offers' engine added (D-PRC-39): read-only, and not part of
+  /// what a save sends -- the server adds it again from the offer.
+  Widget _offerFreeRow(BuildContext context, Json free) {
+    final ThemeData theme = Theme.of(context);
+    final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
+    final Product? product = _product(stringValue(free['product_id']));
+    final String unit = _unitCodes[stringValue(free['sales_uom_id'])] ??
+        product?.unit ??
+        '';
+    final int number = (free['line_number'] as num?)?.toInt() ?? 0;
+    return DocumentLineRow(
+      key: ValueKey<String>('sales-order-offer-free-$number'),
+      columns: _columns,
+      current: false,
+      onTap: () {},
+      cells: [
+        Text('$number', style: text),
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                product?.name ?? '',
+                overflow: TextOverflow.ellipsis,
+                style: text,
+              ),
+              Text(
+                _offerFreeWords(free),
+                key: ValueKey<String>('sales-order-offer-free-words-$number'),
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 11,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Text(product?.hsnSac ?? '', style: text),
+        Text('', style: text),
+        Text(
+          documentQuantity(stringValue(free['free_quantity'])),
+          style: text,
+          textAlign: TextAlign.right,
+        ),
+        Text(unit, style: text, overflow: TextOverflow.ellipsis),
+        Text('', style: text),
+        Text('', style: text),
+        Text('', style: text),
+        Text('', style: text),
+        Text('', style: text),
+        Text('', style: text),
+        const SizedBox.shrink(),
       ],
     );
   }

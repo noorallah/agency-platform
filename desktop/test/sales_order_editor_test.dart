@@ -110,6 +110,9 @@ class _OrderApi extends ApiClient {
   /// Every draft phase 2 asked to be priced.
   final List<Json> previews = <Json>[];
 
+  /// Lines the server adds to what it prices, as the offers' engine does.
+  List<Json> engineLines = const <Json>[];
+
   Json? created;
   Json? updated;
   int? sentVersion;
@@ -192,6 +195,19 @@ class _OrderApi extends ApiClient {
     if (path == '/api/v1/firm-members') {
       return <String, dynamic>{'data': members};
     }
+    if (path == '/api/v1/uom-framework/uoms') {
+      return _paged(<Json>[
+        <String, dynamic>{
+          'id': 'u-pc',
+          'code': 'PIECE',
+          'name': 'Piece',
+          'symbol': 'pc',
+          'dimension': 'COUNT',
+          'status': 'ACTIVE',
+          'is_decimal_allowed': false,
+        },
+      ]);
+    }
     if (method == 'POST' && path == '/api/v1/sales-orders/preview') {
       previews.add(body!);
       // Priced as the server would: 18% on the lines as sent.
@@ -220,7 +236,7 @@ class _OrderApi extends ApiClient {
             'subtotal': subtotal.toStringAsFixed(4),
             'tax_total': (subtotal * .18).toStringAsFixed(4),
             'grand_total': (subtotal * 1.18).toStringAsFixed(4),
-            'lines': priced,
+            'lines': <Json>[...priced, ...engineLines],
           },
           'lines': <Json>[
             for (final Json line in priced)
@@ -1020,6 +1036,88 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('sales-order-save')));
       await tester.pumpAndSettle();
       expect(_firstLine(api.updated!).containsKey('free_quantity'), isFalse);
+    });
+
+    // A line the offers' engine added (D-PRC-39): nothing sold, free goods,
+    // `free_promotion_id` set. Sent back it would be a typed line.
+    Json withEngineLine() => _draft()
+      ..['lines'] = <Json>[
+        <String, dynamic>{
+          'line_number': 1,
+          'product_id': 'p1',
+          'quantity': '2',
+          'free_quantity': '0',
+          'unit_price': '95',
+          'discount_percent': '0',
+          'discount_source': 'percent',
+          'discount_amount': '0',
+        },
+        <String, dynamic>{
+          'line_number': 2,
+          'product_id': 'p1',
+          'description': 'Free with PROMO-1',
+          'quantity': '0',
+          'free_quantity': '2',
+          'free_promotion_id': 'promo-1',
+          'sales_uom_id': 'u-pc',
+          'unit_price': '0',
+          'discount_percent': '0',
+          'discount_source': 'percent',
+          'discount_amount': '0',
+        },
+      ];
+
+    testWidgets(
+        "an offer's own free line is shown read-only and not sent back",
+        (tester) async {
+      final _OrderApi api = _api()..existing = withEngineLine();
+      api.engineLines = <Json>[
+        (withEngineLine()['lines'] as List<dynamic>).last as Json,
+      ];
+      await pumpPhase2(tester, api, orderId: 'so-1');
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'no overflow at 1366x768');
+
+      // One editable row; the engine's line is a read-only row.
+      expect(find.byKey(const ValueKey('sales-order-line-0')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sales-order-line-1')), findsNothing);
+      expect(find.text('Free with PROMO-1: 2 PIECE'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pumpAndSettle();
+      final List<dynamic> sent = api.updated!['lines'] as List<dynamic>;
+      expect(sent, hasLength(1));
+      expect((sent.single as Json)['quantity'], '2');
+      // The preview is priced without it too.
+      expect(
+        (api.previews.last['lines'] as List<dynamic>),
+        hasLength(1),
+      );
+    });
+
+    testWidgets('a free line a person typed is still sent', (tester) async {
+      final _OrderApi api = _api()
+        ..existing = (withEngineLine()
+          ..['lines'] = <Json>[
+            <String, dynamic>{
+              'line_number': 1,
+              'product_id': 'p1',
+              'quantity': '2',
+              'free_quantity': '2',
+              'free_promotion_id': null,
+              'unit_price': '95',
+              'discount_percent': '0',
+              'discount_source': 'percent',
+              'discount_amount': '0',
+            },
+          ]);
+      await pumpPhase2(tester, api, orderId: 'so-1');
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pumpAndSettle();
+      final List<dynamic> sent = api.updated!['lines'] as List<dynamic>;
+      expect(sent, hasLength(1));
+      expect((sent.single as Json)['free_quantity'], '2');
     });
   });
 
