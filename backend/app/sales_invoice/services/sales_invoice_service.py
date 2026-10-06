@@ -3379,9 +3379,37 @@ class SalesInvoiceService(TransactionalDocumentService):
         files = document_file_counts(
             self._session, FileParent.SALES_INVOICE, [r.id for r in rows]
         )
+        # A counter bill's bill discount is typed onto the order it raised
+        # and reaches the bill as that order's share, so the row records
+        # `inherited` -- which is what every rule reads, and is left alone.
+        # To a reader it was typed: the response says so (third pricing
+        # check, section D item 3). One read for the page, and only where a
+        # bill was told a figure.
+        told = [
+            row.id
+            for row in rows
+            if row.bill_discount_source == "inherited"
+            and row.bill_discount_typed_as is not None
+        ]
+        typed_on_own_order = (
+            set(
+                self._session.scalars(
+                    select(SalesOrder.raised_by_sales_invoice_id).where(
+                        SalesOrder.raised_by_sales_invoice_id.in_(told),
+                        SalesOrder.is_deleted.is_(False),
+                        SalesOrder.status != "CANCELLED",
+                        SalesOrder.bill_discount_source == "typed",
+                    )
+                ).all()
+            )
+            if told
+            else set()
+        )
         for response in answer:
             response.attributes = fields.get(response.id, [])
             response.attached_file_count = files.get(response.id, 0)
+            if response.id in typed_on_own_order:
+                response.bill_discount_source = "typed"
         return answer
 
     def _invoice_response(
