@@ -32,7 +32,7 @@ from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
-from app.core.utils.pricing import inherited_share
+from app.core.utils.pricing import continued_amount, inherited_line_discount
 from app.core.utils.quantities import plain_quantity
 from app.document_files.services import goods_receipt_file_counts
 from app.document_framework.models import (
@@ -1696,19 +1696,25 @@ class GoodsReceiptService(TransactionalDocumentService):
             unit_price = self._q(line.unit_price or purchase_line.unit_price)
             description = line.description or purchase_line.description
             gross_amount = self._q(accepted * unit_price)
-            discount_amount = self._q(
-                line.discount_amount
-                if line.discount_amount > ZERO
-                else gross_amount * self._q(line.discount_percent) / Decimal("100")
+            discount_percent, discount_amount = self._line_discount(
+                line,
+                purchase_line,
+                gross=gross_amount,
+                accepted=accepted,
+                previously=prev_received,
             )
             if discount_amount > gross_amount:
                 raise ValidationError("Discount cannot exceed the line amount.")
             # The order line's share of the whole-order discount, for the part
             # of it received, comes off before tax as it did on the order; the
             # stock is valued without it otherwise (D-BUY-19).
+            # Sliced at the paisa, so the receipts of a line take the order
+            # line's share between them and post what the order says
+            # (D-PRC-93); each part rounded alone left 1,340.01 of 1,340.00.
             bill_share = min(
-                inherited_share(
-                    purchase_line.bill_discount_amount,
+                continued_amount(
+                    self._q(purchase_line.bill_discount_amount),
+                    before=prev_received,
                     part=accepted,
                     whole=ordered_quantity,
                 ),
@@ -1758,7 +1764,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 current_receipt_quantity=self._q(line.current_receipt_quantity),
                 accepted_quantity=accepted,
                 unit_price=unit_price,
-                discount_percent=self._q(line.discount_percent),
+                discount_percent=discount_percent,
                 discount_amount=discount_amount,
                 bill_discount_amount=bill_share,
                 gross_amount=gross_amount,
@@ -1859,6 +1865,48 @@ class GoodsReceiptService(TransactionalDocumentService):
         # _recalculate_totals runs immediately after every caller of this method
         # and recomputed all three with a *different* formula, so anything
         # written here was dead and only served to suggest two answers existed.
+
+    def _line_discount(
+        self,
+        line: GoodsReceiptLineWrite,
+        purchase_line: PurchaseOrderLine,
+        *,
+        gross: Decimal,
+        accepted: Decimal,
+        previously: Decimal,
+    ) -> tuple[Decimal, Decimal]:
+        """Return the discount rate a receipt line records, and its amount.
+
+        A line that says nothing takes its order line's discount (D-PRC-93):
+        a rate as itself, an amount by the share accepted, sliced so the
+        receipts of a line take the order's figure between them and the one
+        that completes it takes the rounding (`inherited_line_discount`). It
+        took none, so an order at 10% off was received -- and then billed --
+        at full price unless the client repeated the discount.
+
+        A figure typed on the line, a zero included, is the receipt's own:
+        an amount above zero beats a rate, as it always has here.
+        """
+        if line.discount_percent is None and line.discount_amount is None:
+            rate, amount = inherited_line_discount(
+                percent=purchase_line.discount_percent,
+                amount=purchase_line.discount_amount,
+                gross=purchase_line.gross_amount,
+                part=accepted,
+                whole=self._q(purchase_line.ordered_quantity),
+                before=previously,
+            )
+            if amount is not None:
+                # Never more than the part received is worth, at a price the
+                # receipt typed below the order's.
+                return ZERO, self._q(min(amount, gross))
+            percent = self._q(rate or ZERO)
+            return percent, self._q(gross * percent / Decimal("100"))
+        percent = self._q(line.discount_percent or ZERO)
+        typed = self._q(line.discount_amount or ZERO)
+        if typed > ZERO:
+            return percent, typed
+        return percent, self._q(gross * percent / Decimal("100"))
 
     def _line_units(
         self,

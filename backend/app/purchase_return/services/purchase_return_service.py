@@ -35,6 +35,7 @@ from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger, quantize_money
 from app.core.utils.pricing import (
     LineDiscount,
+    inherited_line_discount,
     inherited_share,
     resolve_line_discount,
 )
@@ -1139,7 +1140,17 @@ class PurchaseReturnService(TransactionalDocumentService):
         else:
             whole = Decimal(str(source_line.ordered_quantity))
         gross = self._q(exact * Decimal(str(priced.unit_price or ZERO)))
-        discount = self._line_discount(spec={}, source_line=priced, gross=gross).amount
+        discount = self._line_discount(
+            spec={},
+            source_line=priced,
+            gross=gross,
+            part=exact,
+            whole=(
+                whole
+                if priced is source_line
+                else Decimal(str(getattr(priced, "ordered_quantity", whole)))
+            ),
+        ).amount
         bill_share = min(
             inherited_share(
                 getattr(source_line, "bill_discount_amount", ZERO) or ZERO,
@@ -2869,7 +2880,11 @@ class PurchaseReturnService(TransactionalDocumentService):
                 else return_quantity * unit_price
             )
             line_discount = self._line_discount(
-                spec=spec, source_line=source_line, gross=gross_amount
+                spec=spec,
+                source_line=source_line,
+                gross=gross_amount,
+                part=return_quantity,
+                whole=source_quantity,
             )
             discount_amount = line_discount.amount
             # The source line's share of the order's whole-order discount, for
@@ -3796,23 +3811,42 @@ class PurchaseReturnService(TransactionalDocumentService):
         spec: dict[str, object],
         source_line: object,
         gross: Decimal,
+        part: Decimal,
+        whole: Decimal,
     ) -> LineDiscount:
         """Return the discount for one line.
 
-        What the line itself says wins; where it says nothing, the **rate** on
-        the source line carries over. A rate is inherited and an absolute
-        amount is not, because a rate does not care about quantity: this
-        document may cover part of the source line, and copying a whole-line
-        amount onto a part of it would discount more than was ever agreed.
+        What the line itself says wins; where it says nothing, the source
+        line's discount carries over: **a rate as itself, an amount by the
+        share going back** (`inherited_line_discount`), since copying a
+        whole-line amount onto a part of it would hand back more discount
+        than was ever given. Only the rate was read until D-PRC-93, so goods
+        received at 144.00 off, typed as an amount, went back at full price.
 
         The percentage was stored and never applied before this: the tax base
         and the subtotal were both computed from the amount alone, so a line
         carrying `10` was billed at full price.
+
+        Args:
+            spec: The line as typed.
+            source_line: The receipt or bill line the goods go back off.
+            gross: What the return line is worth before discount.
+            part: The charged quantity of the source line going back.
+            whole: The source line's charged quantity.
+
         """
         percent = spec.get("discount_percent")
         amount = spec.get("discount_amount")
         if percent is None and amount is None:
-            percent = getattr(source_line, "discount_percent", None) or None
+            percent, amount = inherited_line_discount(
+                percent=getattr(source_line, "discount_percent", None),
+                amount=getattr(source_line, "discount_amount", None),
+                gross=getattr(source_line, "gross_amount", None),
+                part=part,
+                whole=whole,
+            )
+            if amount is not None:
+                amount = min(amount, self._q(gross))
         return resolve_line_discount(
             gross=gross,
             percent=None if percent is None else Decimal(str(percent)),

@@ -324,6 +324,46 @@ Raise a second receipt against the same order. Because the over-receipt check
 counts every earlier receipt, the outstanding quantity is always derived rather
 than stored, and receiving more than was ordered is refused at completion.
 
+### Each document inherits the discount of the line it continues (D-PRC-93)
+
+A receipt line continues an order line, a bill line a receipt line (or, with
+the receipt stage off, the order line through the receipt the bill raises),
+and a return line a receipt or bill line. **A line that types no discount
+takes the one on the line it continues: a rate as itself, an amount by the
+share it covers** (`inherited_line_discount` in `app/core/utils/pricing.py`).
+
+| Hop | Says nothing | Types a figure |
+| --- | --- | --- |
+| Order line to receipt line | the order line's rate, or its amount sliced by the quantity accepted | `discount_percent` or `discount_amount`, a zero included, is the receipt's own |
+| Receipt line to bill line | the receipt line's rate, or its amount sliced by the quantity billed | the bill's figure replaces it |
+| Order line to bill line (receipt stage off) | the raised receipt inherits as any receipt does, and the bill inherits from it | the bill line's figure is the bill's; the receipt keeps the order's deal |
+| Receipt or bill line to return line | the rate, or the plain share of the amount for the units going back | the return's figure, capped at what the bill charged as before |
+
+- **Which shape a source line has is read off its figures.** Its rate is
+  inherited where the rate reproduces its amount exactly: an order's 144.00
+  off 1,440.00 is recorded as 10% and is the same deal either way. Everywhere
+  else the amount is the deal: a receipt keeps no rate for a discount typed as
+  an amount, and 100.00 off 333.00 is a rate of 30.03% that no longer
+  multiplies back.
+- **An amount is sliced at the paisa and the last part takes the rounding**
+  (`continued_amount`): 100.00 over parts of 8, 8 and 8 of 24 is 33.33, 33.34
+  and 33.33, so three receipts and three bills post 1,340.00 for an order of
+  1,340.00. The order line's share of a whole-order discount
+  (`bill_discount_amount`, D-BUY-19) is sliced the same way on the receipt
+  and the bill; each part rounded alone at four places posted 1,340.01.
+- **The discount fields on a goods receipt line are optional**, and left out
+  (or null) is the instruction to inherit. They defaulted to zero, so a
+  receipt that said nothing -- which is what the desktop sends -- took goods
+  ordered at a discount into stock at full price, and its bill charged full
+  price too.
+- Only the **rate** was inherited before. A receipt whose discount was typed
+  as an amount passed none of it to its bill: two receipts of 764.64 were
+  billed 849.60 each, 1,699.20 against an order of 1,529.28, with 144.00 sent
+  to purchase price variance and no refusal.
+- Documents saved before this are not restated. A receipt already completed
+  at full price for goods ordered at a discount keeps its stock value, and a
+  bill raised off it now still bills what that receipt says.
+
 ---
 
 ## 3. Purchase Invoice
@@ -530,7 +570,8 @@ against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
   figure above **both** what the source line states and what the bill
   charged is a refusal.
 - **Goods no bill has reached go back at what the receipt took them in
-  at**: its line's price, discount rate and share of the order discount
+  at**: its line's price, discount (a rate as itself, an amount by the
+  share going back, D-PRC-93) and share of the order discount
   (`_taken_in_at`), the order line's price where the receipt line states
   none. Such a line claims nothing from the supplier (D-BUY-26), but it is
   what the return reads and prints.

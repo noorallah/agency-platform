@@ -24,7 +24,9 @@ from app.finance.models import FirmControlAccount, GLPosting
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
-from app.goods_receipt.models import GoodsReceipt
+from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
+from app.goods_receipt.schemas import GoodsReceiptCreate
+from app.goods_receipt.services.goods_receipt_service import GoodsReceiptService
 from app.identity.system_seed import ROLE_PERMISSION_CODES
 from app.inventory.models import InventoryRecord, ProductValuation
 from app.products.models import Product
@@ -32,9 +34,12 @@ from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate, PurchaseWorkflowSettingsWrite
 from app.purchase.services import PurchaseService
 from app.purchase.services.workflow_settings_service import PurchaseWorkflowService
-from app.purchase_invoice.models import PurchaseInvoice
+from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.purchase_invoice.schemas import PurchaseInvoiceCreate
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_return.models import PurchaseReturn
+from app.purchase_return.schemas import PurchaseReturnCreate
+from app.purchase_return.services import PurchaseReturnService
 from app.vendors.models import Vendor
 
 
@@ -712,3 +717,294 @@ def test_a_free_only_order_line_comes_in_whole_with_the_first_bill_naming_it(
     second = _part_bill(firm, order, (paid, "12", {}), (gift, "0", {}))
     assert second.total_free_quantity == Decimal("0")
     assert firm.stock() == Decimal("27")
+
+
+# --- D-PRC-93: each buying document inherits the discount of the line it
+# continues, a rate as itself and an amount by the share it covers ---
+
+_TWENTY_FOUR = {"ordered_quantity": "24", "unit_price": "60"}
+
+
+def _discounted_order(
+    firm: _Firm, **discount: object
+) -> tuple[PurchaseOrder, PurchaseOrderLine]:
+    """Approve an order of 24 at 60.00 with the discount given on its line."""
+    order, (line,) = _order_with_free(
+        firm, {"product_id": firm.product.id} | _TWENTY_FOUR | discount
+    )
+    return order, line
+
+
+def _receive(
+    firm: _Firm,
+    order: PurchaseOrder,
+    line: PurchaseOrderLine,
+    quantity: str,
+    **typed: object,
+) -> GoodsReceiptLine:
+    """Receive part of an order line on a completed receipt a person typed."""
+    service = GoodsReceiptService(firm.session)
+    receipt = service.create_receipt(
+        GoodsReceiptCreate.model_validate(
+            {
+                "purchase_order_id": order.id,
+                "receipt_date": "2026-08-05",
+                "lines": [
+                    {
+                        "purchase_order_line_id": line.id,
+                        "line_number": 1,
+                        "current_receipt_quantity": quantity,
+                        "warehouse_id": firm.warehouse.id,
+                    }
+                    | typed
+                ],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=firm.firm.id, actor_id=firm.actor_id
+    )
+    return firm.session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    ).one()
+
+
+def _bill_receipt(
+    firm: _Firm, receipt_line: GoodsReceiptLine, quantity: str, **typed: object
+) -> PurchaseInvoice:
+    """Bill part of a receipt line and approve the bill."""
+    bills = firm.bills()
+    bill = bills.create_invoice(
+        PurchaseInvoiceCreate.model_validate(
+            {
+                "invoice_date": "2026-08-10",
+                "supplier_invoice_number": f"S-{uuid4().hex[:8]}",
+                "supplier_invoice_date": "2026-08-09",
+                "lines": [
+                    {
+                        "source_document_type": "GOODS_RECEIPT",
+                        "source_document_id": receipt_line.goods_receipt_id,
+                        "source_document_line_id": receipt_line.id,
+                        "line_number": 1,
+                        "current_invoice_quantity": quantity,
+                    }
+                    | typed
+                ],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    return bills.approve_invoice(
+        bill.id, firm_scope=firm.firm.id, actor_id=firm.actor_id
+    )
+
+
+def _send_back(
+    firm: _Firm, source_type: str, source_id: object, line_id: object, quantity: str
+) -> PurchaseReturn:
+    """Draft a return of some of a receipt or bill line, typing no figure."""
+    return PurchaseReturnService(firm.session).create_return(
+        PurchaseReturnCreate.model_validate(
+            {
+                "warehouse_id": firm.warehouse.id,
+                "return_date": "2026-08-12",
+                "lines": [
+                    {
+                        "source_document_type": source_type,
+                        "source_document_id": source_id,
+                        "source_document_line_id": line_id,
+                        "line_number": 1,
+                        "current_return_quantity": quantity,
+                    }
+                ],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+
+
+def _settled(firm: _Firm) -> tuple[Decimal, Decimal, Decimal, Decimal]:
+    """Return stock value, the accrual left, payables and price variance."""
+    return (
+        firm.balance(ControlAccountPurpose.INVENTORY),
+        firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED),
+        firm.balance(ControlAccountPurpose.ACCOUNTS_PAYABLE),
+        firm.balance(ControlAccountPurpose.PURCHASE_PRICE_VARIANCE),
+    )
+
+
+def test_a_receipts_discount_typed_as_an_amount_reaches_its_bill(
+    firm: _Firm,
+) -> None:
+    """The report's case: 72.00 off each receipt of 12 is 72.00 off its bill.
+
+    Only a rate was inherited and the receipt keeps none for an amount, so
+    the two bills came to 1,440.00 before tax where the order and the
+    receipts said 1,296.00, and 144.00 went to purchase price variance.
+    """
+    order, line = _discounted_order(firm, discount_amount="144")
+
+    bills = [
+        _bill_receipt(
+            firm, _receive(firm, order, line, "12", discount_amount="72"), "12"
+        )
+        for _ in range(2)
+    ]
+
+    assert [bill.grand_total for bill in bills] == [Decimal("648.0000")] * 2
+    assert _settled(firm) == (Decimal("1296"), 0, Decimal("-1296"), 0)
+
+
+def test_an_amount_off_a_receipt_is_split_over_its_part_bills_to_the_paisa(
+    firm: _Firm,
+) -> None:
+    """100.00 off a receipt of 24, billed 8, 8 and 8: the bills take 100.00."""
+    order, line = _discounted_order(firm)
+    receipt_line = _receive(firm, order, line, "24", discount_amount="100")
+
+    bills = [_bill_receipt(firm, receipt_line, "8") for _ in range(3)]
+
+    taken = [
+        firm.session.scalars(
+            select(PurchaseInvoiceLine.discount_amount).where(
+                PurchaseInvoiceLine.purchase_invoice_id == bill.id
+            )
+        ).one()
+        for bill in bills
+    ]
+    assert taken == [Decimal("33.3300"), Decimal("33.3400"), Decimal("33.3300")]
+    assert sum((bill.grand_total for bill in bills), Decimal("0")) == Decimal("1340")
+    assert _settled(firm) == (Decimal("1340"), 0, Decimal("-1340"), 0)
+
+
+@pytest.mark.parametrize(
+    ("discount", "worth"),
+    [
+        ({"discount_percent": "10"}, Decimal("1296")),
+        ({"discount_amount": "144"}, Decimal("1296")),
+        ({"discount_amount": "100"}, Decimal("1340")),
+    ],
+)
+def test_a_receipt_that_types_no_discount_takes_its_order_lines(
+    firm: _Firm, discount: dict[str, object], worth: Decimal
+) -> None:
+    """Received 8, 8 and 8 saying nothing: stock and bills at the order's net.
+
+    The receipt took no discount unless the client repeated it, so goods
+    ordered at 1,296.00 were valued, and then billed, at 1,440.00.
+    """
+    order, line = _discounted_order(firm, **discount)
+
+    received = [_receive(firm, order, line, "8") for _ in range(3)]
+
+    assert sum((row.discount_amount for row in received), Decimal("0")) == (
+        Decimal("1440") - worth
+    )
+    assert firm.balance(ControlAccountPurpose.INVENTORY) == worth
+    bills = [_bill_receipt(firm, row, "8") for row in received]
+    assert sum((bill.grand_total for bill in bills), Decimal("0")) == worth
+    assert _settled(firm) == (worth, 0, -worth, 0)
+
+
+def test_a_discount_typed_on_a_receipt_replaces_the_orders_a_zero_included(
+    firm: _Firm,
+) -> None:
+    """A typed zero is a refusal, a typed rate or amount the receipt's own."""
+    order, line = _discounted_order(firm, discount_percent="10")
+
+    none = _receive(firm, order, line, "8", discount_percent="0")
+    rate = _receive(firm, order, line, "8", discount_percent="5")
+    amount = _receive(firm, order, line, "8", discount_amount="30")
+
+    assert [row.discount_amount for row in (none, rate, amount)] == [
+        Decimal("0.0000"),
+        Decimal("24.0000"),
+        Decimal("30.0000"),
+    ]
+
+
+def test_a_discount_typed_on_the_bill_replaces_the_receipts(firm: _Firm) -> None:
+    """The bill's own figure stands over the amount it would have inherited."""
+    order, line = _discounted_order(firm, discount_amount="144")
+    receipt_line = _receive(firm, order, line, "24", discount_amount="144")
+
+    typed = _bill_receipt(firm, receipt_line, "12", discount_amount="50")
+    refused = _bill_receipt(firm, receipt_line, "12", discount_percent="0")
+
+    assert typed.grand_total == Decimal("670.0000")
+    assert refused.grand_total == Decimal("720.0000")
+
+
+def test_part_bills_off_an_order_take_its_amount_between_them(firm: _Firm) -> None:
+    """Receipt stage off, 100.00 off 24, billed 8, 8, 8: 1,340.00, no variance."""
+    firm.stages(order=True, receipt=False)
+    order, line = _discounted_order(firm, discount_amount="100")
+
+    receipts = [_part_bill(firm, order, (line, "8", {})) for _ in range(3)]
+
+    assert sum(
+        (receipt.line_discount_total for receipt in receipts), Decimal("0")
+    ) == Decimal("100")
+    assert _settled(firm) == (Decimal("1340"), 0, Decimal("-1340"), 0)
+
+
+def test_goods_go_back_at_the_amount_their_receipt_or_bill_took_off(
+    firm: _Firm,
+) -> None:
+    """6 of 24 received at 144.00 off go back at 324.00, off either document."""
+    order, line = _discounted_order(firm, discount_amount="144")
+    receipt_line = _receive(firm, order, line, "24", discount_amount="144")
+
+    unbilled = _send_back(
+        firm, "GOODS_RECEIPT", receipt_line.goods_receipt_id, receipt_line.id, "6"
+    )
+    assert unbilled.subtotal == Decimal("324.0000")
+    PurchaseReturnService(firm.session).cancel_return(
+        unbilled.id, firm_scope=firm.firm.id, actor_id=firm.actor_id, reason="billed"
+    )
+
+    bill = _bill_receipt(firm, receipt_line, "24")
+    bill_line = firm.session.scalars(
+        select(PurchaseInvoiceLine).where(
+            PurchaseInvoiceLine.purchase_invoice_id == bill.id
+        )
+    ).one()
+    billed = _send_back(firm, "PURCHASE_INVOICE", bill.id, bill_line.id, "6")
+    assert billed.subtotal == Decimal("324.0000")
+
+
+def test_an_orders_header_discount_reaches_three_part_receipts_and_bills(
+    firm: _Firm,
+) -> None:
+    """100.00 off the whole order, received and billed 8, 8, 8: nothing left."""
+    service = PurchaseService(firm.session)
+    order = service.create_order(
+        PurchaseOrderCreate.model_validate(
+            {
+                "branch_id": firm.branch.id,
+                "warehouse_id": firm.warehouse.id,
+                "vendor_id": firm.vendor.id,
+                "purchase_date": "2026-08-02",
+                "header_discount_amount": "100",
+                "lines": [{"product_id": firm.product.id} | _TWENTY_FOUR],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    service.submit_order(order.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    service.approve_order(order.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    line = firm.session.scalars(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    ).one()
+
+    for _ in range(3):
+        _bill_receipt(firm, _receive(firm, order, line, "8"), "8")
+
+    inventory, accrual, payable, variance = _settled(firm)
+    assert (inventory, payable) == (Decimal("1340"), Decimal("-1340"))
+    assert (accrual, variance) == (0, 0)

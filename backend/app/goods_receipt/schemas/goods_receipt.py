@@ -89,11 +89,16 @@ class GoodsReceiptLineWrite(GoodsReceiptSchema):
     unit_price: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
-    discount_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    #: Both left out (or null): the line takes its order line's discount, a
+    #: rate as itself and an amount by the share received (D-PRC-93). Either
+    #: one typed, a zero included, is the receipt's own figure and replaces
+    #: it. They defaulted to zero, so a receipt that said nothing took goods
+    #: ordered at a discount in at full price.
+    discount_percent: Decimal | None = Field(
+        default=None, ge=0, max_digits=9, decimal_places=4
     )
-    discount_amount: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    discount_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     tax_profile_id: UUID | None = None
     packaging_type_id: UUID | None = None
