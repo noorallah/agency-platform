@@ -213,7 +213,12 @@ class _PriceListDialogState extends State<PriceListDialog> {
       // scope it refuses -- and is more use than anything invented here.
       setState(() {
         _error =
-            saveFailureMessage(error, 'price list', changesKept: true);
+            saveFailureMessage(
+          error,
+          'price list',
+          changesKept: true,
+          isNew: widget.existing == null,
+        );
         _saving = false;
       });
     }
