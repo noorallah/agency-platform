@@ -596,8 +596,14 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         _unitLabel(product),
         product.hsnSac,
         _gstRate(product.taxProfileGroupCode),
-        product.mrp,
-        product.sellingPrice,
+        // The card price, and beside it what a document takes today where a
+        // dated revision has made it different (D-PRC-15).
+        product.mrpInForceNow.isEmpty
+            ? product.mrp
+            : '${product.mrp} (now ${product.mrpInForceNow})',
+        product.sellingInForceNow.isEmpty
+            ? product.sellingPrice
+            : '${product.sellingPrice} (now ${product.sellingInForceNow})',
         _quantity(product.stockOnHand),
         product.isDeleted ? 'DELETED' : product.status,
       ];

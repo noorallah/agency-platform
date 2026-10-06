@@ -173,9 +173,15 @@ class CommissionPaymentDialog extends StatefulWidget {
   const CommissionPaymentDialog({
     super.key,
     required this.payout,
+    this.today,
   });
 
   final CommissionPayoutRecord payout;
+
+  /// The day the payment is dated by default and the latest it may be. Left
+  /// null it is this computer's day; the server judges it again on the firm's
+  /// own calendar (D-PRC-9).
+  final DateTime? today;
 
   @override
   State<CommissionPaymentDialog> createState() =>
@@ -183,8 +189,29 @@ class CommissionPaymentDialog extends StatefulWidget {
 }
 
 class _CommissionPaymentDialogState extends State<CommissionPaymentDialog> {
+  late final DateTime _today =
+      DateUtils.dateOnly(widget.today ?? DateTime.now());
+
+  /// The earliest day money may leave: the day the debt was agreed, which
+  /// is the approval, and never before the accrual. `approved_at` is an
+  /// instant, read here in this computer's day; the server's refusal stands
+  /// if the firm's calendar disagrees.
+  late final DateTime _earliest = () {
+    final DateTime? approved =
+        DateTime.tryParse(widget.payout.approvedAt)?.toLocal();
+    final DateTime? accrued = DateTime.tryParse(widget.payout.accruedOn);
+    // Nothing known of either: the picker's old five-year reach.
+    DateTime first = DateTime(_today.year - 5, _today.month, _today.day);
+    for (final DateTime? known in <DateTime?>[accrued, approved]) {
+      if (known != null && DateUtils.dateOnly(known).isAfter(first)) {
+        first = DateUtils.dateOnly(known);
+      }
+    }
+    return first.isAfter(_today) ? _today : first;
+  }();
+
   late final TextEditingController _paidOn =
-      TextEditingController(text: isoDate(DateTime.now()));
+      TextEditingController(text: isoDate(_today));
   String _method = 'BANK';
   String? _error;
 
@@ -198,6 +225,16 @@ class _CommissionPaymentDialogState extends State<CommissionPaymentDialog> {
     final DateTime? paidOn = parseIsoDate(_paidOn.text);
     if (paidOn == null) {
       setState(() => _error = 'Enter the date the money left as YYYY-MM-DD.');
+      return;
+    }
+    if (DateUtils.dateOnly(paidOn).isAfter(_today)) {
+      setState(() => _error =
+          'A payout cannot be paid on a day that has not happened yet.');
+      return;
+    }
+    if (DateUtils.dateOnly(paidOn).isBefore(_earliest)) {
+      setState(() => _error = 'A payout cannot be paid before it was '
+          'approved (${isoDate(_earliest)}).');
       return;
     }
     Navigator.of(context).pop(<String, dynamic>{
@@ -227,6 +264,9 @@ class _CommissionPaymentDialogState extends State<CommissionPaymentDialog> {
             CommissionDateField(
               controller: _paidOn,
               label: 'Paid on',
+              helper: 'YYYY-MM-DD, from the day it was approved to today',
+              firstDate: _earliest,
+              lastDate: _today,
             ),
             const SizedBox(height: AppSpacing.md),
             DropdownButtonFormField<String>(

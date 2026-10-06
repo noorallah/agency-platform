@@ -16,6 +16,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/commission.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/commission/commission_page.dart';
+import 'package:agency_desktop/ui/commission/payout_dialogs.dart';
 import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -972,6 +973,78 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.paid!['method'], 'BANK');
     expect(api.paid!.containsKey('money_account_id'), isFalse);
+  });
+
+  group('the date money left (D-PRC-9)', () {
+    // Approved on 2 October; today is 6 October.
+    CommissionPayoutRecord approved() => CommissionPayoutRecord.fromJson(
+          <String, dynamic>{
+            ..._draftPayout(),
+            'status': 'APPROVED',
+            'accrued_on': '2026-09-30',
+            'approved_at': '2026-10-02T10:15:00Z',
+          },
+        );
+
+    Future<void> open(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: CommissionPaymentDialog(
+            payout: approved(),
+            today: DateTime(2026, 10, 6, 23, 59),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('defaults to today', (tester) async {
+      await open(tester);
+      expect(
+        tester
+            .widget<TextField>(find.widgetWithText(TextField, 'Paid on'))
+            .controller!
+            .text,
+        '2026-10-06',
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the picker runs from the approval day to today',
+        (tester) async {
+      await open(tester);
+      await tester.tap(find.byTooltip('Pick a date'));
+      await tester.pumpAndSettle();
+      final CalendarDatePicker picker =
+          tester.widget(find.byType(CalendarDatePicker));
+      expect(picker.firstDate, DateTime(2026, 10, 2));
+      expect(picker.lastDate, DateTime(2026, 10, 6),
+          reason: 'tomorrow cannot be picked');
+    });
+
+    testWidgets('a date typed past today is refused on the form',
+        (tester) async {
+      await open(tester);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Paid on'), '2026-10-07');
+      await tester.tap(find.widgetWithText(FilledButton, 'Record payment'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('has not happened yet'), findsOneWidget);
+    });
+
+    testWidgets('a date before the approval is refused, naming the day',
+        (tester) async {
+      await open(tester);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Paid on'), '2026-10-01');
+      await tester.tap(find.widgetWithText(FilledButton, 'Record payment'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('before it was approved (2026-10-02)'),
+          findsOneWidget);
+    });
   });
 
   // --------------------------------------------------------------------

@@ -77,8 +77,13 @@ class _Recorder {
       );
 }
 
-Future<void> _pumpEditor(WidgetTester tester, _Recorder recorder) async {
-  tester.view.physicalSize = const Size(1600, 900);
+Future<void> _pumpEditor(
+  WidgetTester tester,
+  _Recorder recorder, {
+  Product? product,
+  Size size = const Size(1600, 900),
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
@@ -86,7 +91,7 @@ Future<void> _pumpEditor(WidgetTester tester, _Recorder recorder) async {
     home: Scaffold(
       body: ProductWorkspaceDialog(
         mode: ProductDialogMode.edit,
-        product: _product,
+        product: product ?? _product,
         categories: const [],
         uoms: const [],
         definitions: const [],
@@ -161,7 +166,93 @@ class _ImportApi extends ApiClient {
       throw const ApiException('no preview');
 }
 
+/// Card price 84.00; a revision that has started makes it 70.00 today.
+Product _withInForce() => Product.fromJson(const {
+      'id': 'product-1',
+      'code': 'PROD-001',
+      'name': 'Pain Relief',
+      'product_type': 'STOCK_ITEM',
+      'status': 'ACTIVE',
+      'unit': 'BOX',
+      'purchase_price': '60',
+      'selling_price': '84.00',
+      'mrp': '120',
+      'purchase_price_in_force': '60',
+      'selling_price_in_force': '70.00',
+      'mrp_in_force': '120',
+      'stock_on_hand': '42',
+    });
+
 void main() {
+  testWidgets('new rates start today at the earliest (D-PRC-15)',
+      (tester) async {
+    final List<Json> added = <Json>[];
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: NewRatesDialog(
+          productId: 'product-1',
+          today: DateTime(2026, 10, 6, 15, 30),
+          onSave: (productId, body) async {
+            added.add(body);
+            return _revision('x', body['effective_from'] as String);
+          },
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // Typing nothing: the date offered is today.
+    await tester.enterText(
+        find.byKey(const ValueKey('price-revision-selling')), '70');
+    await tester.tap(find.byKey(const ValueKey('price-revision-save')));
+    await tester.pumpAndSettle();
+    expect(added.single['effective_from'], '2026-10-06');
+  });
+
+  testWidgets('the picker offers nothing before today', (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: NewRatesDialog(
+          productId: 'product-1',
+          today: DateTime(2026, 10, 6),
+          onSave: (productId, body) async => _revision('x', '2026-10-06'),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('price-revision-from')));
+    await tester.pumpAndSettle();
+
+    final CalendarDatePicker picker =
+        tester.widget(find.byType(CalendarDatePicker));
+    expect(picker.firstDate, DateTime(2026, 10, 6));
+    expect(picker.initialDate, DateTime(2026, 10, 6));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the product says what it sells at today where a revision has '
+      'made it differ', (tester) async {
+    await _pumpEditor(tester, _Recorder(),
+        product: _withInForce(), size: const Size(1366, 768));
+    expect(find.text('Sells at today'), findsOneWidget);
+    expect(find.text('70.00'), findsOneWidget);
+    expect(find.text('Buys at today'), findsNothing,
+        reason: 'the purchase price has not moved');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a product whose prices have not moved shows no second price',
+      (tester) async {
+    await _pumpEditor(tester, _Recorder(), size: const Size(1366, 768));
+    expect(find.text('Sells at today'), findsNothing);
+  });
+
   testWidgets('the history lists every row and marks the one in force',
       (tester) async {
     await _pumpEditor(tester, _Recorder());

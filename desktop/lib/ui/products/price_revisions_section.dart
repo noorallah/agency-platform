@@ -205,10 +205,17 @@ class NewRatesDialog extends StatefulWidget {
     super.key,
     required this.productId,
     required this.onSave,
+    this.today,
   });
 
   final String productId;
   final Future<PriceRevision> Function(String productId, Json body) onSave;
+
+  /// The day new rates may start at the earliest. Left null it is this
+  /// computer's day, which is what the screen has always defaulted to; the
+  /// server judges it again on the firm's own calendar and refuses an earlier
+  /// date (D-PRC-15).
+  final DateTime? today;
 
   @override
   State<NewRatesDialog> createState() => _NewRatesDialogState();
@@ -219,7 +226,9 @@ class _NewRatesDialogState extends State<NewRatesDialog> with SaveInDialog {
   final TextEditingController _purchase = TextEditingController();
   final TextEditingController _mrp = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
-  DateTime _from = DateTime.now();
+  late final DateTime _today =
+      DateUtils.dateOnly(widget.today ?? DateTime.now());
+  late DateTime _from = _today;
   String? _problem;
 
   @override
@@ -237,7 +246,9 @@ class _NewRatesDialogState extends State<NewRatesDialog> with SaveInDialog {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _from,
-      firstDate: DateTime(2000),
+      // New rates start today or later; a date already gone would be taken
+      // in silence as today's price.
+      firstDate: _today,
       lastDate: DateTime(2100),
     );
     if (picked != null) setState(() => _from = picked);
@@ -309,8 +320,8 @@ class _NewRatesDialogState extends State<NewRatesDialog> with SaveInDialog {
                   child: InputDecorator(
                     decoration: const InputDecoration(
                       labelText: 'Effective from',
-                      helperText: 'Documents dated on or after this day use '
-                          'these rates',
+                      helperText: 'Today or later. Documents dated on or '
+                          'after this day use these rates',
                       helperMaxLines: 2,
                       suffixIcon: Icon(Icons.calendar_today, size: 18),
                     ),

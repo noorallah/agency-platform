@@ -256,6 +256,27 @@ extension _Phase2ProductForm on _ProductWorkspaceDialogState {
       DocumentSidePair('Buys at', money(buy)),
       DocumentSidePair('Sells at', money(sell), bold: true),
       DocumentSidePair('MRP', money(mrp)),
+      // A dated revision has started and made today's price differ from the
+      // card above: say which one a document takes (D-PRC-15).
+      if (product != null &&
+          (product.sellingInForceNow.isNotEmpty ||
+              product.purchaseInForceNow.isNotEmpty ||
+              product.mrpInForceNow.isNotEmpty)) ...[
+        if (product.sellingInForceNow.isNotEmpty)
+          DocumentSidePair('Sells at today',
+              money(double.tryParse(product.sellingInForceNow) ?? 0),
+              bold: true),
+        if (product.purchaseInForceNow.isNotEmpty)
+          DocumentSidePair('Buys at today',
+              money(double.tryParse(product.purchaseInForceNow) ?? 0)),
+        if (product.mrpInForceNow.isNotEmpty)
+          DocumentSidePair('MRP today',
+              money(double.tryParse(product.mrpInForceNow) ?? 0)),
+        const DocumentSideNote(
+          'new rates have started under Price history; documents take these, '
+          'not the card prices above',
+        ),
+      ],
       if (buy > 0 && sell > 0) ...[
         DocumentSidePair(
           'Margin',

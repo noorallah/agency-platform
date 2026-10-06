@@ -295,6 +295,17 @@ const List<ReportDefinition> reportCatalog = [
     path: '/api/v1/promotions/reports/coupons',
     permission: 'PROMOTION_VIEW',
     area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'code', label: 'Coupon'),
+      ReportColumn(key: 'promotion_code', label: 'Offer code'),
+      ReportColumn(key: 'status', label: 'Status'),
+      ReportColumn(key: 'claimed_count', label: 'Claimed', numeric: true),
+      ReportColumn(key: 'customer_count', label: 'Customers', numeric: true),
+      ReportColumn(key: 'benefit_amount', label: 'Benefit', numeric: true),
+      ReportColumn(key: 'free_quantity', label: 'Free units', numeric: true),
+      ReportColumn(key: 'max_redemptions', label: 'Limit', numeric: true),
+      ReportColumn(key: 'remaining_redemptions', label: 'Left', numeric: true),
+    ],
   ),
 
   // ---- Purchase ------------------------------------------------------

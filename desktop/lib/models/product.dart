@@ -286,6 +286,9 @@ class Product {
     required this.sellingPrice,
     this.minimumSellingPrice = '',
     required this.mrp,
+    this.purchasePriceInForce = '',
+    this.sellingPriceInForce = '',
+    this.mrpInForce = '',
     required this.status,
     required this.remarks,
     this.trackBatch = false,
@@ -374,6 +377,26 @@ class Product {
   /// The price floor, per stock unit; empty when the product has none.
   final String minimumSellingPrice;
   final String mrp;
+
+  /// The three prices as they stand today, after any dated revision that has
+  /// started (D-PRC-15); the figures above are the product's own card. Empty
+  /// from an older server.
+  final String purchasePriceInForce;
+  final String sellingPriceInForce;
+  final String mrpInForce;
+
+  static String _differing(String card, String inForce) {
+    final double? now = double.tryParse(inForce);
+    if (now == null || now == double.tryParse(card)) return '';
+    return inForce;
+  }
+
+  /// What a document dated today takes, where it is not the card price; empty
+  /// when the two agree or the server did not say.
+  String get purchaseInForceNow =>
+      _differing(purchasePrice, purchasePriceInForce);
+  String get sellingInForceNow => _differing(sellingPrice, sellingPriceInForce);
+  String get mrpInForceNow => _differing(mrp, mrpInForce);
   final String status;
   final String remarks;
   final bool trackBatch;
@@ -467,6 +490,9 @@ class Product {
         sellingPrice: stringValue(json['selling_price']),
         minimumSellingPrice: stringValue(json['minimum_selling_price']),
         mrp: stringValue(json['mrp']),
+        purchasePriceInForce: stringValue(json['purchase_price_in_force']),
+        sellingPriceInForce: stringValue(json['selling_price_in_force']),
+        mrpInForce: stringValue(json['mrp_in_force']),
         status: stringValue(json['status']),
         remarks: stringValue(json['remarks']),
         trackBatch: boolValue(json['track_batch']),

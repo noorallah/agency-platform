@@ -1887,6 +1887,8 @@ class CommissionDateField extends StatelessWidget {
     this.helper,
     this.enabled = true,
     this.onChanged,
+    this.firstDate,
+    this.lastDate,
   });
 
   final TextEditingController controller;
@@ -1895,13 +1897,24 @@ class CommissionDateField extends StatelessWidget {
   final bool enabled;
   final VoidCallback? onChanged;
 
+  /// The earliest and latest day the picker offers. Left null the window is
+  /// five years either side of the date shown, as it always was.
+  final DateTime? firstDate;
+  final DateTime? lastDate;
+
   Future<void> _pick(BuildContext context) async {
-    final DateTime anchor = parseIsoDate(controller.text) ?? DateTime.now();
+    final DateTime shown = parseIsoDate(controller.text) ?? DateTime.now();
+    final DateTime first = firstDate ?? DateTime(shown.year - 5);
+    final DateTime last = lastDate ?? DateTime(shown.year + 5);
+    // The picker asserts its initial date is inside its window.
+    final DateTime anchor = shown.isBefore(first)
+        ? first
+        : (shown.isAfter(last) ? last : shown);
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: anchor,
-      firstDate: DateTime(anchor.year - 5),
-      lastDate: DateTime(anchor.year + 5),
+      firstDate: first,
+      lastDate: last,
     );
     if (picked == null) return;
     controller.text = isoDate(picked);
