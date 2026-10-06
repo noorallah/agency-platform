@@ -1416,6 +1416,31 @@ def header_credits_against(
 ) -> dict[UUID, Decimal]:
     """Return what completed returns' header figures took off each bill.
 
+    The sum, per bill, of ``header_credit_parts``; see there.
+    """
+    answer: dict[UUID, Decimal] = defaultdict(Decimal)
+    for by_bill in header_credit_parts(
+        session,
+        firm_id=firm_id,
+        invoice_ids=invoice_ids,
+        as_of=as_of,
+        worked_out=worked_out,
+    ).values():
+        for invoice_id, amount in by_bill.items():
+            answer[invoice_id] += amount
+    return dict(answer)
+
+
+def header_credit_parts(
+    session: Session,
+    *,
+    firm_id: UUID,
+    invoice_ids: Sequence[UUID] | None,
+    as_of: date | None = None,
+    worked_out: Sequence[BillShare] = (),
+) -> dict[UUID, dict[UUID, Decimal]]:
+    """Return what each completed return's header figures took off each bill.
+
     A return's ``additional_charges`` -- and its ``round_off`` -- credit the
     customer with no line behind them: they are in the return's total, the
     journal and the customer's account, and in no line. Read off the lines
@@ -1441,7 +1466,9 @@ def header_credits_against(
             stored placement, as ``returns_off_notes_against`` gave them.
 
     Returns:
-        The amount per invoice, for those with any.
+        The amount per return and, within it, per invoice, for those with
+        any -- per return because the credit a return leaves on a paid bill
+        is that return's to give (D-PRC-75).
 
     """
     if invoice_ids is not None and not invoice_ids:
@@ -1539,7 +1566,7 @@ def header_credits_against(
                 Decimal(str(row.additional_charges or 0)),
             )
     wanted = None if invoice_ids is None else set(invoice_ids)
-    answer: dict[UUID, Decimal] = defaultdict(Decimal)
+    answer: dict[UUID, dict[UUID, Decimal]] = {}
     for return_id, amount in amounts.items():
         on = sorted(
             (bill for bill in took.get(return_id, {}) if bill in bills),
@@ -1550,8 +1577,8 @@ def header_credits_against(
         )
         for invoice_id, part_amount in split.items():
             if wanted is None or invoice_id in wanted:
-                answer[invoice_id] += part_amount
-    return dict(answer)
+                answer.setdefault(return_id, {})[invoice_id] = part_amount
+    return answer
 
 
 def bill_line_credits(

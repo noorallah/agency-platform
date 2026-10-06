@@ -100,6 +100,10 @@ class SettlementCreate(SettlementSchema):
     #: if the order is cancelled the deposit stays on the customer's account.
     #: Receipts only; a payment to a vendor has no sales order behind it.
     sales_order_id: UUID | None = None
+    #: On a refund only: the sales return or credit note whose credit is
+    #: being paid back (D-PRC-75). Blank takes the oldest credit the
+    #: customer holds on account first.
+    credit_source_id: UUID | None = None
     allocations: list[SettlementAllocationWrite] = Field(default_factory=list)
     #: Tax deducted at source out of ``amount`` (backlog 53.1). ``amount`` is
     #: what settles the party -- the bill's full value -- and the cash or bank
@@ -399,7 +403,65 @@ class SupplierCreditApplyRequest(SettlementSchema):
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
 
 
+class CustomerCreditApplicationRecord(SettlementSchema):
+    """Describe one place a customer credit went: a bill, or a refund."""
+
+    id: UUID
+    #: SALES_INVOICE, CUSTOMER_OPENING_BILL or REFUND.
+    target_type: str
+    target_id: UUID
+    target_number: str
+    amount: Decimal
+    applied_on: date
+    version: int
+
+
+class CustomerCreditRecord(SettlementSchema):
+    """Describe what a sales return or credit note left on the customer.
+
+    A return or credit note against a bill already paid has nothing left on
+    that bill to come off, so the excess is credit on the customer's account
+    until it is set against another bill or paid back (D-PRC-75).
+    """
+
+    #: The id of the sales return or credit note that gave the credit.
+    source_id: UUID
+    #: SALES_RETURN or CREDIT_NOTE.
+    source_type: str
+    source_number: str
+    source_date: date
+    customer_id: UUID
+    credit_amount: Decimal
+    applied_amount: Decimal
+    refunded_amount: Decimal
+    available_amount: Decimal
+    #: The part of what is left that is held on account and may be paid
+    #: back; the rest already came off the balance and can only be applied.
+    held_amount: Decimal
+    applied_to: list[str]
+    applications: list[CustomerCreditApplicationRecord]
+
+
+class CustomerCreditApplyRequest(SettlementSchema):
+    """Set part of a customer credit against another of the customer's bills."""
+
+    invoice_id: UUID
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    #: The day the credit met the bill; blank is the later of the two dates.
+    applied_on: date | None = None
+
+
+class CustomerCreditReverseRequest(SettlementSchema):
+    """Take a credit back off the bill it was set against."""
+
+    reason: str = Field(min_length=1, max_length=500)
+
+
 __all__ = [
+    "CustomerCreditApplicationRecord",
+    "CustomerCreditApplyRequest",
+    "CustomerCreditRecord",
+    "CustomerCreditReverseRequest",
     "SupplierRefundCreate",
     "SupplierRefundResponse",
     "SupplierRefundReverse",

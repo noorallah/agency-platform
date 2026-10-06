@@ -20,6 +20,7 @@ from app.common.scope import (
     firm_any_permission_scope,
     firm_permission_scope,
 )
+from app.core.concurrency import set_etag
 from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -35,6 +36,10 @@ from app.finance.services.ledger_attachments import (
 )
 from app.settlements.models import Settlement, SettlementMethod
 from app.settlements.schemas import (
+    CustomerCreditApplicationRecord,
+    CustomerCreditApplyRequest,
+    CustomerCreditRecord,
+    CustomerCreditReverseRequest,
     OutstandingInvoiceRecord,
     SettlementAllocateRequest,
     SettlementAllocationResponse,
@@ -57,6 +62,14 @@ from app.settlements.services import (
 )
 from app.settlements.services.cheque_print import ChequeService
 from app.settlements.services.collection_report import CollectionReportService
+from app.settlements.services.customer_credits import (
+    CustomerCredit,
+    CustomerCreditUse,
+    application_record,
+    apply_customer_credit,
+    customer_credits,
+    reverse_customer_credit_application,
+)
 from app.settlements.services.receipt_print import ReceiptPrintService
 from app.settlements.services.supplier_credits import (
     SupplierCredit,
@@ -364,6 +377,129 @@ def receipt_parties(
         search=search,
         page=page,
         page_size=page_size,
+    )
+
+
+def _credit_use_record(use: CustomerCreditUse) -> CustomerCreditApplicationRecord:
+    """Build the response for one place a customer credit went."""
+    return CustomerCreditApplicationRecord(
+        id=use.id,
+        target_type=use.target_type,
+        target_id=use.target_id,
+        target_number=use.target_number,
+        amount=use.amount,
+        applied_on=use.applied_on,
+        version=use.version,
+    )
+
+
+def _customer_credit_record(credit: CustomerCredit) -> CustomerCreditRecord:
+    """Build the response for one customer credit."""
+    return CustomerCreditRecord(
+        source_id=credit.source_id,
+        source_type=credit.source_type,
+        source_number=credit.source_number,
+        source_date=credit.source_date,
+        customer_id=credit.customer_id,
+        credit_amount=credit.credit_amount,
+        applied_amount=credit.applied_amount,
+        refunded_amount=credit.refunded_amount,
+        available_amount=credit.available_amount,
+        held_amount=credit.held_amount,
+        applied_to=credit.applied_to,
+        applications=[_credit_use_record(use) for use in credit.uses],
+    )
+
+
+@receipts_router.get(
+    "/customer-credits", response_model=ApiResponse[list[CustomerCreditRecord]]
+)
+def customer_unapplied_credits(
+    party_id: UUID,
+    scope: ReceiptViewScope,
+    include_applied: Annotated[bool, Query()] = False,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerCreditRecord]]:
+    """Return what the customer's returns and credit notes left on account.
+
+    A return or credit note against a bill already paid has nothing left on
+    that bill to come off, so the excess stands on the customer's account
+    and belongs to no receipt (D-PRC-75). Only credits with something left
+    are listed unless ``include_applied`` asks for the used ones too, which
+    is where an application to take back is found.
+    """
+    return ApiResponse(
+        data=[
+            _customer_credit_record(credit)
+            for credit in customer_credits(
+                db, firm_id=scope.firm_id, customer_id=party_id
+            )
+            if include_applied or credit.available_amount > 0
+        ]
+    )
+
+
+@receipts_router.post(
+    "/customer-credits/{source_id}/apply",
+    response_model=ApiResponse[CustomerCreditRecord],
+)
+def apply_customer_unapplied_credit(
+    source_id: UUID,
+    payload: CustomerCreditApplyRequest,
+    scope: ReceiptCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerCreditRecord]:
+    """Set a return's or credit note's credit against another bill.
+
+    Nothing is posted: the return credited receivables when it completed and
+    the bill debited them when it was approved; this says which bill the
+    credit belongs to, so the bill owes that much less.
+    """
+    credit = apply_customer_credit(
+        db,
+        firm_id=scope.firm_id,
+        source_id=source_id,
+        invoice_id=payload.invoice_id,
+        amount=payload.amount,
+        applied_on=payload.applied_on,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(
+        data=_customer_credit_record(credit),
+        message="Customer credit applied to the bill.",
+    )
+
+
+@receipts_router.post(
+    "/customer-credits/applications/{application_id}/reverse",
+    response_model=ApiResponse[CustomerCreditApplicationRecord],
+)
+def reverse_customer_credit(
+    application_id: UUID,
+    payload: CustomerCreditReverseRequest,
+    scope: ReceiptCreateScope,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerCreditApplicationRecord]:
+    """Take a credit back off the bill it was set against in error.
+
+    The bill owes that much again and the credit is free again. Nothing is
+    posted, as nothing was when it was applied.
+    """
+    row = reverse_customer_credit_application(
+        db,
+        firm_id=scope.firm_id,
+        application_id=application_id,
+        reason=payload.reason,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    db.refresh(row)
+    set_etag(response, row)
+    return ApiResponse(
+        data=_credit_use_record(application_record(db, row)),
+        message="Customer credit taken off the bill.",
     )
 
 

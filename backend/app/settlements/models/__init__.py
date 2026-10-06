@@ -1,6 +1,7 @@
 """Settlement persistence models."""
 
 from app.settlements.models.settlement import (
+    CustomerCreditApplication,
     Settlement,
     SettlementAllocation,
     SettlementDirection,
@@ -11,6 +12,7 @@ from app.settlements.models.settlement import (
 )
 
 __all__ = [
+    "CustomerCreditApplication",
     "Settlement",
     "SettlementAllocation",
     "SettlementDirection",

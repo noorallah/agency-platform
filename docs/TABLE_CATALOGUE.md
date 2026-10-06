@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**329 tables**, of which **17** live only in the platform store.
+**331 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -504,6 +504,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `purchase_return_accounting_events` | firm store ¹ | Store reusable accounting placeholder events. | `purchase_returns`, `firms` |
 | `purchase_return_attachments` | firm store ¹ | Store purchase return attachments. | `purchase_returns`, `firms` |
+| `purchase_return_bill_placements` | firm store ¹ | Record which supplier bill line a completed return line came off. | `purchase_returns`, `purchase_return_lines`, `firms`, `purchase_invoice_lines` |
 | `purchase_return_lines` | firm store ¹ | Store one purchase return line. | `purchase_returns`, `firms`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes`, `batches`, `inventory_transactions` |
 | `purchase_return_notes` | firm store ¹ | Store purchase return notes. | `purchase_returns`, `firms` |
 | `purchase_return_sources` | firm store ¹ | Store supplier return source document references. | `purchase_returns`, `firms`, `vendors`, `branches` |
@@ -612,6 +613,7 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `cheque_layouts` | firm store ¹ | One bank account's printing offsets and A/c Payee choice. | `firms`, `ledger_accounts` |
+| `customer_credit_applications` | firm store ¹ | Store how much of one return's or credit note's credit went where. | `customers` |
 | `payment_run_lines` | firm store ¹ | One bill in a run, and the payment that settled it. | `payment_runs`, `vendors`, `settlements` |
 | `payment_runs` | firm store ¹ | The bills chosen to be paid on one date (decision A110). | `firms` |
 | `post_dated_cheques` | firm store ¹ | Store one cheque dated ahead, from a customer or to a supplier. | `customers`, `vendors`, `settlements`, `journal_entries` |

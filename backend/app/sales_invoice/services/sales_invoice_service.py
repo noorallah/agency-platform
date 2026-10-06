@@ -2985,6 +2985,18 @@ class SalesInvoiceService(TransactionalDocumentService):
         ).all()
         if receipts:
             blockers.append("money applied from " + ", ".join(sorted(receipts)))
+        # Credit a return or credit note left on another bill, set against
+        # this one: it clears the bill as a receipt does, and would be left
+        # clearing nothing (D-PRC-75).
+        from app.settlements.services.customer_credits import (
+            credit_numbers_against,
+        )
+
+        credits = credit_numbers_against(
+            self._session, firm_id=row.firm_id, bill_id=row.id
+        )
+        if credits:
+            blockers.append("credit applied from " + ", ".join(credits))
         # A write-off or set-off naming the bill, drafted or approved: it would
         # clear nothing once the bill was gone (backlog 74 row 2).
         from app.party_adjustments.services.allocations import (
