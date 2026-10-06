@@ -6,6 +6,7 @@ import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/document_preview.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/sales_return.dart';
+import 'package:agency_desktop/ui/reports/report_catalog.dart';
 import 'package:agency_desktop/ui/sales_returns/sales_return_editor_dialog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
@@ -75,7 +76,160 @@ Future<SalesReturnPreviewRecord> _price(
   });
 }
 
+/// A note of 12 charged and 1 free toothpaste, and 3 soap with none free.
+ReturnableDocument _noteWithFree() => ReturnableDocument.fromDeliveryNote({
+      'id': 'dn-1',
+      'delivery_note_number': 'DN-2026-000001',
+      'delivery_date': '2026-08-10',
+      'customer_name': 'Anand Agencies',
+      'status': 'DISPATCHED',
+      'lines': [
+        {
+          'id': 'dn-line-1',
+          'line_number': 1,
+          'product_id': 'prod-1',
+          'product_name': 'Toothpaste 150g',
+          'current_delivery_quantity': '12',
+          'free_quantity': '1',
+          'unit_price': '50',
+        },
+        {
+          'id': 'dn-line-2',
+          'line_number': 2,
+          'product_id': 'prod-2',
+          'product_name': 'Soap 100g',
+          'current_delivery_quantity': '3',
+          'free_quantity': '0',
+          'unit_price': '30',
+        },
+      ],
+    });
+
+/// Opens the phase 2 editor at 1366x768 and returns what Save popped.
+Future<void> _openEditor(
+  WidgetTester tester,
+  ReturnableDocument note,
+  List<Json?> saved,
+) async {
+  tester.view.physicalSize = const Size(1366, 768);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(MaterialApp(
+    home: Scaffold(
+      body: Builder(
+        builder: (context) => TextButton(
+          onPressed: () async {
+            saved.add(await Navigator.of(context).push<Json>(
+              MaterialPageRoute<Json>(
+                builder: (_) => Scaffold(
+                  body: Phase2Scope(
+                    child: SalesReturnEditorDialog(
+                      documents: [note],
+                      warehouses: [
+                        WarehouseRecord.fromJson({
+                          'id': 'wh-1',
+                          'code': 'MAIN',
+                          'name': 'Main',
+                          'is_default': true,
+                        }),
+                      ],
+                      today: DateTime(2026, 8, 20),
+                      preview: (draft) => _price(draft, <Json>[]),
+                    ),
+                  ),
+                ),
+              ),
+            ));
+          },
+          child: const Text('open'),
+        ),
+      ),
+    ),
+  ));
+  await tester.tap(find.text('open'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  testWidgets('the free box is on a line that shipped free goods and only '
+      'there (D-PRC-8)', (tester) async {
+    await _openEditor(tester, _noteWithFree(), <Json?>[]);
+    expect(
+        find.byKey(const ValueKey<String>('sales-return-free-dn-1-0')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey<String>('sales-return-free-dn-1-1')),
+        findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a blank free box sends no free_quantity, a typed one sends it, '
+      'and 13 may come back against 12 sent and 1 free', (tester) async {
+    final List<Json?> saved = <Json?>[];
+    await _openEditor(tester, _noteWithFree(), saved);
+
+    // 13 is more than the 12 charged, but the line sent one free as well.
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('sales-return-returning-dn-1-0')),
+        '13');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-return-save')));
+    await tester.pumpAndSettle();
+    expect(saved.single!['lines'], isNotNull);
+    Json line = (saved.single!['lines'] as List).single as Json;
+    expect(line['current_return_quantity'], '13');
+    expect(line.containsKey('free_quantity'), isFalse);
+
+    saved.clear();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('sales-return-returning-dn-1-0')),
+        '1');
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('sales-return-free-dn-1-0')), '1');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-return-save')));
+    await tester.pumpAndSettle();
+    line = (saved.single!['lines'] as List).single as Json;
+    expect(line['current_return_quantity'], '1');
+    expect(line['free_quantity'], '1');
+  });
+
+  testWidgets('more free than was sent free, or than comes back, is refused '
+      'on the form', (tester) async {
+    final List<Json?> saved = <Json?>[];
+    await _openEditor(tester, _noteWithFree(), saved);
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('sales-return-returning-dn-1-0')),
+        '3');
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('sales-return-free-dn-1-0')), '2');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-return-save')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1 free'), findsWidgets);
+    expect(saved, isEmpty);
+  });
+
+  test('a saved return line carries its free goods', () {
+    final SalesReturnLine line = SalesReturnLine.fromJson({
+      'id': 'l-1',
+      'free_quantity': '1.0000',
+      'current_return_quantity': '13.0000',
+    });
+    expect(line.freeQuantity, '1.0000');
+  });
+
+  test('the by-product return report names its free units', () {
+    final Set<String> keys = reportCatalog
+        .firstWhere((report) => report.id == 'sales-return-by-product')
+        .columns
+        .map((column) => column.key)
+        .toSet();
+    expect(keys, containsAll(<String>['return_quantity', 'free_quantity']));
+  });
+
   testWidgets('phase 2 returns several lines at once, priced as typed',
       (tester) async {
     tester.view.physicalSize = const Size(1600, 900);
