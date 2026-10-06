@@ -1135,6 +1135,59 @@ def test_half_a_box_typed_as_a_box_is_refused_where_it_is_saved() -> None:
 # printed no unit at all while its order and challan printed BOX.
 
 
+def test_a_per_unit_commission_stops_paying_for_pieces_that_came_back() -> None:
+    """2 BOX billed, 7 PIECE back: 17 pieces at 2.50 are 42.50 (D-PRC-59).
+
+    The return is stored as 0.5833 of a box, and 0.5833 of twelve is 6.9996
+    pieces; the units are worked from the seven that were typed.
+    """
+    shop = _Shop()
+    seller = User(
+        email="asha@back.example.com",
+        full_name="Asha Rao",
+        password_hash="x",
+        is_active=True,
+    )
+    shop.session.add(seller)
+    shop.session.flush()
+    shop.session.add(UserFirm(user_id=seller.id, firm_id=shop.firm_id, is_active=True))
+    bill, billed = _bill(shop, _shipped(shop), "2")
+    bill.salesman_id = seller.id
+    shop.session.commit()
+    commission = CommissionService(shop.session)
+    commission.create_rule(
+        CommissionRuleCreate(
+            salesman_id=seller.id,
+            percentage=D("0"),
+            effective_from=date(2026, 4, 1),
+            basis=CommissionBasisEnum.INVOICED,
+            product_id=shop.setup.product.id,
+            rate_type=CommissionRateTypeEnum.PER_UNIT,
+            per_unit_amount=D("2.5"),
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    shop.session.commit()
+
+    def earned() -> Decimal:
+        """Return what the seller has earned over the year."""
+        report = commission.report(
+            firm_id=shop.firm_id, from_date=date(2026, 4, 1), to_date=date(2027, 3, 31)
+        )
+        [row] = [row for row in report.rows if row.salesman_id == seller.id]
+        return row.commission_amount
+
+    assert earned() == D("60.00")
+
+    source = ("SALES_INVOICE", bill.id, billed.id)
+    _brought_back(shop, source, "7", return_uom_id=shop.piece)
+    assert earned() == D("42.50")
+
+    _brought_back(shop, source, "17", return_uom_id=shop.piece)
+    assert earned() == D("0.00")
+
+
 def _printed(shop: _Shop, bill: SalesInvoice) -> tuple[Decimal, str | None, Decimal]:
     """Return the quantity, unit and rate the tax invoice prints for its line."""
     document = SalesInvoicePrintService(shop.session)._document(
