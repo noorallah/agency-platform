@@ -89,17 +89,18 @@ def test_price_from_batch_is_a_firm_setting_off_by_default() -> None:
 
 
 def test_a_bill_above_the_batch_mrp_is_refused() -> None:
-    """LATE says 90 on the pack; four at 100 cannot be billed."""
+    """LATE says 90 on the pack; four at 100 cannot be billed.
+
+    Refused when the bill is saved, since D-PRC-7: the batch is chosen there,
+    so that is where the price meets the pack.
+    """
     shop = _Counter()
     shop.batches["LATE"].mrp = Decimal("90.00")
     shop.session.commit()
-    draft = shop.bills.create_invoice(
-        shop.bill([shop.pick("LATE")]), firm_id=shop.firm.id, actor_id=shop.actor
-    )
 
     with pytest.raises(ValidationError, match="above the MRP of 90.00"):
-        shop.bills.approve_invoice(
-            draft.id, firm_scope=shop.firm.id, actor_id=shop.actor
+        shop.bills.create_invoice(
+            shop.bill([shop.pick("LATE")]), firm_id=shop.firm.id, actor_id=shop.actor
         )
 
 
@@ -108,11 +109,27 @@ def test_a_batch_with_no_mrp_is_judged_on_the_products() -> None:
     shop = _Counter()
     shop.drug.mrp = Decimal("80.00")
     shop.session.commit()
+
+    with pytest.raises(ValidationError, match="above the MRP of 80.00"):
+        shop.bills.create_invoice(
+            shop.bill([shop.pick("LATE")]), firm_id=shop.firm.id, actor_id=shop.actor
+        )
+
+
+def test_a_bill_of_a_dispatched_note_is_still_refused_at_approval() -> None:
+    """The last line of defence stays: an MRP lowered after the goods left.
+
+    The save and the dispatch were within the MRP printed then; the batch
+    record is corrected to 90 afterwards, and the bill is judged on it.
+    """
+    shop = _Counter()
     draft = shop.bills.create_invoice(
         shop.bill([shop.pick("LATE")]), firm_id=shop.firm.id, actor_id=shop.actor
     )
+    shop.batches["LATE"].mrp = Decimal("90.00")
+    shop.session.commit()
 
-    with pytest.raises(ValidationError, match="above the MRP of 80.00"):
+    with pytest.raises(ValidationError, match="above the MRP of 90.00"):
         shop.bills.approve_invoice(
             draft.id, firm_scope=shop.firm.id, actor_id=shop.actor
         )

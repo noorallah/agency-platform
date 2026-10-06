@@ -16,13 +16,14 @@ the caller's transaction, so a bill that fails leaves no order and no note
 behind it. That is the whole reason the `stage_*` methods exist.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.services.mrp_ceiling import refuse_above_batch_mrp
 from app.branches.models import Branch, Warehouse
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
@@ -217,6 +218,7 @@ class SalesChainService:
                 if (batch_id := self._one_batch(line)) is not None
             },
         )
+        self._refuse_above_chosen_mrp(order, data.lines)
         self.raised_orders.append(order)
         # Checked for licences at the bill's approval, not here (backlog 54).
         SalesOrderService(self._session).stage_approval(
@@ -551,6 +553,47 @@ class SalesChainService:
                 "coupon_code": None,
             }
         )
+
+    def _refuse_above_chosen_mrp(
+        self, order: SalesOrder, lines: Sequence[SalesInvoiceLineWrite]
+    ) -> None:
+        """Hold a line drawn from several chosen batches to the lowest MRP.
+
+        A line drawn wholly from one batch is pinned to it on the order, and
+        the order judges its own pinned lines as it saves them. One that
+        chose two or more names no batch to pin, so it is judged here, on the
+        order line just priced, at the save of the bill rather than at its
+        approval (D-PRC-7).
+
+        Raises:
+            ValidationError: Naming the line, the rate and the MRP.
+
+        """
+        chosen = {
+            line.line_number: [pick.batch_id for pick in line.batches or []]
+            for line in lines
+            if len({pick.batch_id for pick in line.batches or []}) > 1
+        }
+        if not chosen:
+            return
+        for line in self._session.scalars(
+            select(SalesOrderLine)
+            .where(
+                SalesOrderLine.sales_order_id == order.id,
+                SalesOrderLine.is_deleted.is_(False),
+                SalesOrderLine.line_number.in_(chosen),
+            )
+            .order_by(SalesOrderLine.line_number)
+        ):
+            refuse_above_batch_mrp(
+                self._session,
+                line_number=line.line_number,
+                product_id=line.product_id,
+                batch_ids=chosen[line.line_number],
+                paid=Decimal(str(line.net_amount))
+                - Decimal(str(line.freight_amount or 0)),
+                charged=Decimal(str(line.base_quantity or 0)),
+            )
 
     @staticmethod
     def _one_batch(line: SalesInvoiceLineWrite) -> UUID | None:
