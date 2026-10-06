@@ -1464,6 +1464,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     );
   }
 
+  /// Whether the price level is somebody else's to set
+  /// (`CUSTOMER_MANAGE_SETTINGS`, D-PRC-2). The server refuses a moved level
+  /// on a create, an edit and an import alike.
+  bool get _priceLevelLocked => !widget.mayChangeCreditLimit;
+
   Widget _priceLevelDropdown() {
     final List<DropdownMenuItem<String>> items = [
       const DropdownMenuItem(value: '', child: Text('No level')),
@@ -1484,12 +1489,17 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       key: const ValueKey('customer-price-level'),
       isExpanded: true,
       initialValue: _priceLevelId,
-      decoration: const InputDecoration(
+      decoration: InputDecoration(
         labelText: 'Price level',
-        helperText: "Blank: the group's level, else the product's price",
+        // A price level is a price decision, so it takes the code a standing
+        // discount does: the picker shows what is stored and cannot move it.
+        helperText: _priceLevelLocked && !_readOnly
+            ? _newTermsHelper
+            : "Blank: the group's level, else the product's price",
+        helperMaxLines: 2,
       ),
       items: items,
-      onChanged: _readOnly
+      onChanged: _readOnly || _priceLevelLocked
           ? null
           : (value) => setState(() {
                 _priceLevelId = value ?? '';
@@ -1814,8 +1824,12 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         if (widget.loadVendors != null && _vendorsLoaded)
           'linked_vendor_id': _linkedVendorId.isEmpty ? null : _linkedVendorId,
         // Only once the levels arrived: absent means "leave the level alone"
-        // and null clears it.
-        if (widget.loadPriceLevels != null && _priceLevelsLoaded)
+        // and null clears it. Without the settings code a new customer sends
+        // none, and an edit sends back the stored level, which the server
+        // does not count as a change.
+        if (widget.loadPriceLevels != null &&
+            _priceLevelsLoaded &&
+            !(_priceLevelLocked && widget.customer == null))
           'price_level_id': _priceLevelId.isEmpty ? null : _priceLevelId,
         'trade_class': _tradeClass.isEmpty ? null : _tradeClass,
         'credit_limit': _fields['credit_limit']!.text.trim(),
