@@ -16,6 +16,7 @@ from pydantic import (
 )
 
 from app.core.utils.quantities import free_goods_alone
+from app.core.validation import NumberedOnce
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 #: One serial number as typed; the service trims it and compares without case.
@@ -186,7 +187,10 @@ class PurchaseReturnCreate(PurchaseReturnSchema):
     source_documents: list[PurchaseReturnSourceWrite] = Field(
         default_factory=list, max_length=100
     )
-    lines: list[PurchaseReturnLineWrite] = Field(min_length=1, max_length=1000)
+    #: Each line numbered once (D-PRC-60).
+    lines: Annotated[list[PurchaseReturnLineWrite], NumberedOnce] = Field(
+        min_length=1, max_length=1000
+    )
     attachments: list[PurchaseReturnAttachmentWrite] = Field(
         default_factory=list, max_length=500
     )

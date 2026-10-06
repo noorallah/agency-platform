@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -16,6 +16,7 @@ from pydantic import (
 
 from app.batch_serial.schemas import PickedSerial
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.core.validation import NumberedOnce
 from app.core.validation.common import normalize_gstin
 
 #: How goods can travel, as an e-way bill names it.
@@ -200,7 +201,10 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
     freight_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
     )
-    lines: list[DeliveryNoteLineWrite] = Field(min_length=1, max_length=1000)
+    #: Each line numbered once (D-PRC-60).
+    lines: Annotated[list[DeliveryNoteLineWrite], NumberedOnce] = Field(
+        min_length=1, max_length=1000
+    )
     attachments: list[DeliveryNoteAttachmentWrite] = Field(
         default_factory=list, max_length=500
     )

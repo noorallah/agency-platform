@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Response
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -22,28 +24,37 @@ from app.core.exceptions import ConflictError, ValidationError
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.core.utils.dates import utc_now
+from app.core.validation import NumberedOnce
 from app.customers.models import Customer
+from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteUpdate
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
 )
 from app.firms.models import Firm
+from app.goods_receipt.schemas import GoodsReceiptCreate, GoodsReceiptUpdate
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import InventoryTransaction
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.promotions.models import Promotion, PromotionAction, PromotionRedemption
 from app.promotions.services.redemption_service import RedemptionService
+from app.purchase_invoice.schemas import PurchaseInvoiceCreate, PurchaseInvoiceUpdate
+from app.purchase_return.schemas import PurchaseReturnCreate, PurchaseReturnUpdate
+from app.quotation.schemas import QuotationCreate, QuotationUpdate
 from app.sales.models import GeoCountry
 from app.sales.models import territory as _sales_models  # noqa: F401
+from app.sales_invoice.schemas import SalesInvoiceCreate, SalesInvoiceUpdate
 from app.sales_order.api.router import update_sales_order
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import (
     SalesOrderCreate,
     SalesOrderLineWrite,
     SalesOrderStatus,
+    SalesOrderUpdate,
 )
 from app.sales_order.services import SalesOrderService
+from app.sales_return.schemas import SalesReturnCreate, SalesReturnUpdate
 from app.tax.models import TaxComponent, TaxProfile, TaxProfileComponent, TaxSystem
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
@@ -1639,3 +1650,75 @@ def test_a_preview_prices_the_order_and_saves_nothing() -> None:
     assert session.scalar(select(func.count()).select_from(AuditLog)) == audits
     saved = service.create_order(payload, firm_id=firm.id, actor_id=uuid4())
     assert saved.order_number == preview.order.order_number
+
+
+# ---- two lines carrying one line number (D-PRC-60) --------------------------
+
+
+def _two_lines_numbered_one() -> dict[str, object]:
+    """Return an order of two products whose lines are both numbered 1."""
+    return {
+        "customer_id": uuid4(),
+        "branch_id": uuid4(),
+        "warehouse_id": uuid4(),
+        "order_date": date(2026, 8, 4),
+        "lines": [
+            {"line_number": 1, "product_id": uuid4(), "quantity": "2"},
+            {"line_number": 1, "product_id": uuid4(), "quantity": "3"},
+        ],
+    }
+
+
+@pytest.mark.parametrize("schema", [SalesOrderCreate, SalesOrderUpdate])
+def test_an_order_with_two_lines_at_one_number_is_refused_by_name(
+    schema: type[SalesOrderCreate],
+) -> None:
+    """A save wrote the second line over the first and kept a total for both.
+
+    413.00 over a single line of 177.00, which then approved; a new order
+    came back as a bare 409 from the unique key. Both are a 422 now.
+    """
+    with pytest.raises(PydanticValidationError) as refused:
+        schema.model_validate(_two_lines_numbered_one())
+
+    assert (
+        "Lines 1 and 2 of the request are both numbered 1. Number each line once."
+        in str(refused.value)
+    )
+    # Lines numbered apart are an order like any other.
+    body = _two_lines_numbered_one()
+    body["lines"][1]["line_number"] = 2  # type: ignore[index]
+    assert len(schema.model_validate(body).lines) == 2
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        SalesOrderCreate,
+        SalesOrderUpdate,
+        QuotationCreate,
+        QuotationUpdate,
+        DeliveryNoteCreate,
+        DeliveryNoteUpdate,
+        SalesInvoiceCreate,
+        SalesInvoiceUpdate,
+        SalesReturnCreate,
+        SalesReturnUpdate,
+        GoodsReceiptCreate,
+        GoodsReceiptUpdate,
+        PurchaseInvoiceCreate,
+        PurchaseInvoiceUpdate,
+        PurchaseReturnCreate,
+        PurchaseReturnUpdate,
+    ],
+)
+def test_every_document_keyed_on_its_line_number_refuses_a_repeat(
+    schema: type[BaseModel],
+) -> None:
+    """One shared validator on every document whose lines hold a unique number.
+
+    Each of these tables keys a line on (document, line number), so a repeat
+    is either a row written over or a 409 from the database. A purchase
+    order numbers its own lines and takes none from the request.
+    """
+    assert NumberedOnce in schema.model_fields["lines"].metadata

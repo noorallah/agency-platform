@@ -1,8 +1,10 @@
 """Validation framework exports."""
 
 from app.core.validation.common import (
+    NumberedOnce,
     check_tan_if_set,
     ensure_business_rule,
+    lines_numbered_once,
     normalize_pan,
     normalize_tan,
     pan_in_gstin,
@@ -16,8 +18,10 @@ from app.core.validation.common import (
 )
 
 __all__ = [
+    "NumberedOnce",
     "check_tan_if_set",
     "ensure_business_rule",
+    "lines_numbered_once",
     "normalize_pan",
     "normalize_tan",
     "pan_in_gstin",

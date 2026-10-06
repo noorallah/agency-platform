@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.core.validation import NumberedOnce
 from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
@@ -181,7 +182,10 @@ class SalesOrderCreate(SalesOrderSchema):
     freight_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
     )
-    lines: list[SalesOrderLineWrite] = Field(min_length=1, max_length=1000)
+    #: Each line numbered once (D-PRC-60).
+    lines: Annotated[list[SalesOrderLineWrite], NumberedOnce] = Field(
+        min_length=1, max_length=1000
+    )
     attachments: list[SalesOrderAttachmentWrite] = Field(
         default_factory=list, max_length=500
     )
