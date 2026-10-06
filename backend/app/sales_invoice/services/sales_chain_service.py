@@ -595,7 +595,8 @@ class SalesChainService:
                 batch_ids=chosen[line.line_number],
                 paid=Decimal(str(line.net_amount))
                 - Decimal(str(line.freight_amount or 0)),
-                charged=Decimal(str(line.base_quantity or 0)),
+                quantity=Decimal(str(line.quantity or 0)),
+                stock_units_per_unit=line.conversion_factor,
             )
 
     @staticmethod

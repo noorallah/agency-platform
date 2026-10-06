@@ -23,6 +23,16 @@ each **charged** stock unit costs the customer: after its discounts, with its
 tax, freight left out. Free goods charge nothing and are not counted. The
 product's own MRP stands in for a batch that carries none, and a line drawn
 from several batches is held to the lowest of them.
+
+**The pack is a stock unit, and a line need not be.** A line sold by the box
+of twelve charges a box, and the MRP is printed on a piece, so the judge is
+handed the line as it stands -- what it charges, for how many of its own
+unit -- with how many stock units one of that unit holds, and does the one
+conversion itself. Each caller used to hand over stock units it had worked
+out, and the bill worked them out wrongly: a box at 1,200.00, which is
+112.00 a piece with tax and under an MRP of 120.00, passed the order and the
+dispatch and was refused on the bill as "1344.00 a unit" with the goods
+already out (D-PRC-36).
 """
 
 from __future__ import annotations
@@ -49,7 +59,8 @@ def refuse_above_batch_mrp(
     product_id: UUID,
     batch_ids: Iterable[UUID | None],
     paid: Decimal,
-    charged: Decimal,
+    quantity: Decimal,
+    stock_units_per_unit: Decimal | None = None,
 ) -> None:
     """Refuse a line charging more per unit than the MRP of a batch it ships.
 
@@ -60,14 +71,18 @@ def refuse_above_batch_mrp(
         batch_ids: The batches the line leaves from; ``None`` entries -- stock
             held under no batch -- are ignored.
         paid: What the line costs the customer with tax, freight left out.
-        charged: How many stock units that pays for, free goods left out.
+        quantity: How many that pays for, in the line's own unit, free goods
+            left out.
+        stock_units_per_unit: How many stock units one of the line's unit
+            holds -- 12 for a box of twelve; one, or nothing, for a line in
+            the stock unit.
 
     Raises:
         ValidationError: Naming the line, the rate and the MRP.
 
     """
     wanted = {batch_id for batch_id in batch_ids if batch_id is not None}
-    charged = Decimal(str(charged or 0))
+    charged = Decimal(str(quantity or 0)) * Decimal(str(stock_units_per_unit or 1))
     if not wanted or charged <= ZERO:
         return
     printed = dict(
