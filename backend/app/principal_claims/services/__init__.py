@@ -99,6 +99,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.models import JournalEntry
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import (
@@ -793,12 +794,13 @@ class PrincipalClaimService(TransactionalDocumentService):
             created_by=actor_id,
             updated_by=actor_id,
         )
+        reference = self._next_receipt_reference(row)
         self._session.add(receipt)
         self._session.flush()
         entry = DocumentPostingService(self._session).post_principal_claim_receipt(
             firm_id=firm_id,
             settlement_id=receipt.id,
-            reference_number=f"CLAIM-{row.claim_number}-PAY-{utc_now():%Y%m%d%H%M%S}",
+            reference_number=reference,
             received_on=data.received_on,
             amount=data.amount,
             money_account_id=data.money_account_id,
@@ -809,6 +811,41 @@ class PrincipalClaimService(TransactionalDocumentService):
         self._audit("principal_claim.payment_received", row, actor_id)
         self._session.commit()
         return receipt
+
+    def _next_receipt_reference(self, row: PrincipalClaim) -> str:
+        """Return the journal reference for the claim's next payment.
+
+        ``CLAIM-<number>-PAY-<n>``, counted from the payments the claim has
+        already had -- reversed ones included, since their journals still
+        hold their references. It was the clock to the second, so two
+        payments recorded inside one second were the same reference and the
+        second was refused with a 409 (D-PRC-33). References already written
+        are left as they are; a number one of them holds is stepped over.
+        """
+        taken = set(
+            self._session.scalars(
+                select(JournalEntry.reference_number)
+                .join(
+                    PrincipalClaimReceipt,
+                    PrincipalClaimReceipt.journal_entry_id == JournalEntry.id,
+                )
+                .where(PrincipalClaimReceipt.claim_id == row.id)
+            ).all()
+        )
+        sequence = (
+            int(
+                self._session.scalar(
+                    select(func.count())
+                    .select_from(PrincipalClaimReceipt)
+                    .where(PrincipalClaimReceipt.claim_id == row.id)
+                )
+                or 0
+            )
+            + 1
+        )
+        while f"CLAIM-{row.claim_number}-PAY-{sequence}" in taken:
+            sequence += 1
+        return f"CLAIM-{row.claim_number}-PAY-{sequence}"
 
     def reverse_receipt(
         self, claim_id: UUID, receipt_id: UUID, *, firm_id: UUID, actor_id: UUID
@@ -824,12 +861,20 @@ class PrincipalClaimService(TransactionalDocumentService):
         ):
             raise ResourceNotFoundError("Payment not found on this claim.")
         if receipt.journal_entry_id is not None:
+            # The payment's own reference with -REV: a payment is reversed
+            # once, so the pair is as unique as the payment is, and the two
+            # read together in the ledger. The clock to the second it used
+            # to carry collided like the payment's did (D-PRC-33).
+            posted = self._session.get(JournalEntry, receipt.journal_entry_id)
+            paid_as = (
+                posted.reference_number
+                if posted is not None and posted.reference_number
+                else f"CLAIM-{row.claim_number}-PAY"
+            )
             JournalEntryEngine(self._session).reverse_entry(
                 receipt.journal_entry_id,
                 firm_id=firm_id,
-                reference_number=(
-                    f"CLAIM-{row.claim_number}-PAYREV-{utc_now():%Y%m%d%H%M%S}"
-                ),
+                reference_number=f"{paid_as}-REV",
                 actor_id=actor_id,
             )
         receipt.status = "REVERSED"
