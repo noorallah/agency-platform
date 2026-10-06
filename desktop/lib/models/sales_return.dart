@@ -46,6 +46,8 @@ class SalesReturnLine {
     required this.netAmount,
     required this.batchNumber,
     required this.remarks,
+    this.enteredQuantity = '',
+    this.returnUomId = '',
     this.serials = const [],
     this.taxRuleCode,
     this.taxRuleVersion,
@@ -64,6 +66,17 @@ class SalesReturnLine {
   final String dispatchedQuantity;
   final String alreadyReturnedQuantity;
   final String currentReturnQuantity;
+
+  /// What was typed, in [returnUomId], where the line was typed in another
+  /// unit than the source line's (D-PRC-37); empty otherwise.
+  /// [currentReturnQuantity] is then the same goods in the source line's
+  /// unit (0.5833 of a box for 7 pieces).
+  final String enteredQuantity;
+  final String returnUomId;
+
+  /// The quantity the line's own unit counts.
+  String get shownQuantity =>
+      enteredQuantity.isEmpty ? currentReturnQuantity : enteredQuantity;
 
   /// The free goods among [currentReturnQuantity], credited nothing
   /// (D-PRC-8).
@@ -123,6 +136,8 @@ class SalesReturnLine {
         netAmount: stringValue(json['net_amount']),
         batchNumber: stringValue(json['batch_number']),
         remarks: stringValue(json['remarks']),
+        enteredQuantity: stringValue(json['entered_quantity']),
+        returnUomId: stringValue(json['return_uom_id']),
         serials: PickedSerial.listFrom(json['serials']),
         taxRuleCode: LineTaxRule.fromJson(json).code,
         taxRuleVersion: LineTaxRule.fromJson(json).version,

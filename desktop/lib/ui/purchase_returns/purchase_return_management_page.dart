@@ -691,7 +691,7 @@ class _PurchaseReturnManagementPageState
               description: line.description,
               uom: _labels.unit(line.returnUomId),
               packaging: line.packagingTypeId,
-              quantity: line.currentReturnQuantity,
+              quantity: line.shownQuantity,
               unitPrice: line.unitPrice,
               discount: line.discountAmount,
               taxProfile: _labels.taxProfile(line.taxProfileId),
@@ -943,6 +943,7 @@ class _PurchaseReturnLine {
     required this.grossAmount,
     required this.netAmount,
     required this.remarks,
+    this.enteredQuantity = '',
   });
 
   final int lineNumber;
@@ -951,12 +952,22 @@ class _PurchaseReturnLine {
   final String returnUomId;
   final String packagingTypeId;
   final String currentReturnQuantity;
+
+  /// What was typed, in [returnUomId], where the line was typed in another
+  /// unit than the line it sends back (D-PRC-37); empty otherwise.
+  /// [currentReturnQuantity] is then the same goods in the source line's
+  /// unit, so it is not what the unit beside the figure counts.
+  final String enteredQuantity;
   final String unitPrice;
   final String discountAmount;
   final String taxProfileId;
   final String grossAmount;
   final String netAmount;
   final String remarks;
+
+  /// The quantity the line's own unit counts.
+  String get shownQuantity =>
+      enteredQuantity.isEmpty ? currentReturnQuantity : enteredQuantity;
 
   factory _PurchaseReturnLine.fromJson(Map<String, dynamic> json) =>
       _PurchaseReturnLine(
@@ -966,6 +977,7 @@ class _PurchaseReturnLine {
         returnUomId: stringValue(json['return_uom_id']),
         packagingTypeId: stringValue(json['packaging_type_id']),
         currentReturnQuantity: stringValue(json['current_return_quantity']),
+        enteredQuantity: stringValue(json['entered_quantity']),
         unitPrice: stringValue(json['unit_price']),
         discountAmount: stringValue(json['discount_amount']),
         taxProfileId: stringValue(json['tax_profile_id']),

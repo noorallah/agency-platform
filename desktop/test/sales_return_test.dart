@@ -7,6 +7,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/sales_return.dart';
+import 'package:agency_desktop/models/uom_packaging.dart';
 import 'package:agency_desktop/ui/sales_returns/sales_return_management_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
@@ -42,6 +43,8 @@ SalesReturn _return({
   String journalId = 'jrnl-1',
   String cancelReason = '',
   String? free,
+  String? entered,
+  String? returnUomId,
 }) =>
     SalesReturn.fromJson({
       'id': id,
@@ -76,6 +79,8 @@ SalesReturn _return({
           'already_returned_quantity': '0.0000',
           'current_return_quantity': returned,
           if (free != null) 'free_quantity': free,
+          if (entered != null) 'entered_quantity': entered,
+          if (returnUomId != null) 'return_uom_id': returnUomId,
           'restock_quantity': restocked,
           'damaged_quantity': '1.0000',
           'scrap_quantity': '0.0000',
@@ -151,6 +156,20 @@ class _ReturnApi extends ApiClient {
     }
     throw ApiException('The printer is offline.', statusCode: 503);
   }
+
+  @override
+  Future<List<UomRecord>> uoms({bool includeInactive = false}) async =>
+      const <UomRecord>[
+        UomRecord(
+          id: 'u-pc',
+          code: 'PIECE',
+          name: 'Piece',
+          symbol: 'pc',
+          dimension: 'COUNT',
+          status: 'ACTIVE',
+          isDecimalAllowed: false,
+        ),
+      ];
 
   @override
   Future<PagedResult<SalesReturn>> salesReturns({
@@ -316,6 +335,34 @@ void main() {
       await tester.tap(find.text('SR-2026-2027-000001  ·  2026-08-14'));
       await tester.pumpAndSettle();
       expect(find.textContaining('of them free'), findsNothing);
+    });
+
+    testWidgets('a line typed in another unit says what was typed (D-PRC-37)',
+        (tester) async {
+      // 7 PIECE against a line counted in boxes of 12: the server keeps
+      // 0.5833 in the source unit and the 7 beside it.
+      await _pump(
+        tester,
+        _ReturnApi(rows: [
+          _return(returned: '0.5833', entered: '7.0000', returnUomId: 'u-pc'),
+        ]),
+      );
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.tap(find.text('SR-2026-2027-000001  ·  2026-08-14'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('7.0000 PIECE returned'), findsOneWidget);
+      expect(find.textContaining('0.5833 returned'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a line typed in the source unit is read as before',
+        (tester) async {
+      await _pump(tester, _ReturnApi(rows: [_return()]));
+      await tester.tap(find.text('SR-2026-2027-000001  ·  2026-08-14'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('2.0000 returned'), findsOneWidget);
     });
 
     testWidgets('a line says what is still returnable', (tester) async {

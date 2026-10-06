@@ -11,6 +11,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/bulk_action.dart';
 import '../../models/entities.dart';
 import '../../models/sales_return.dart';
+import '../../models/uom_packaging.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
@@ -62,6 +63,11 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
   DatePeriod _period = const DatePeriod.all();
   List<SalesReturn> _returns = const [];
   SalesReturn? _selected;
+
+  /// Unit codes by id, read once -- and only when a line was typed in a unit
+  /// of its own (D-PRC-37), the one case that needs a unit named.
+  final Map<String, String> _unitCodes = <String, String>{};
+  bool _unitsAsked = false;
 
   /// The rows ticked for a bulk approve or cancel (backlog 56 A).
   Set<String> _ticked = <String>{};
@@ -120,6 +126,7 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
             ? null
             : result.items.where((item) => item.id == selectedId).firstOrNull;
       });
+      _loadUnitNames(result.items);
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() {
@@ -130,6 +137,39 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Read the unit names once, when a listed line was typed in a unit of its
+  /// own; the lines then say "7 PIECE returned", not 0.5833 of a box.
+  void _loadUnitNames(List<SalesReturn> rows) {
+    if (_unitsAsked) return;
+    final bool typed = rows.any(
+      (row) => row.lines.any((line) => line.enteredQuantity.isNotEmpty),
+    );
+    if (!typed) return;
+    _unitsAsked = true;
+    unawaited(() async {
+      try {
+        final List<UomRecord> units = await widget.api.uoms(
+          includeInactive: true,
+        );
+        if (!mounted) return;
+        setState(() {
+          for (final UomRecord unit in units) {
+            _unitCodes[unit.id] = unit.code;
+          }
+        });
+      } on ApiException {
+        // The line then names the quantity without a unit.
+      }
+    }());
+  }
+
+  /// "7 PIECE" for a line typed in its own unit, the plain quantity otherwise.
+  String _returnedWords(SalesReturnLine line) {
+    if (line.enteredQuantity.isEmpty) return line.currentReturnQuantity;
+    final String unit = _unitCodes[line.returnUomId] ?? '';
+    return '${line.enteredQuantity}${unit.isEmpty ? '' : ' $unit'}';
   }
 
   Future<void> _raiseReturn() async {
@@ -911,7 +951,7 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
                           ? 'Line ${line.lineNumber}'
                           : line.description),
                       Text(
-                        '${line.currentReturnQuantity} returned · '
+                        '${_returnedWords(line)} returned · '
                         '${(double.tryParse(line.freeQuantity) ?? 0) > 0 ? '${line.freeQuantity} of them free · ' : ''}'
                         '${line.restockQuantity} sellable · '
                         'from ${line.sourceDocumentNumber} '
