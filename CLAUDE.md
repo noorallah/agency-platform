@@ -126,7 +126,7 @@ binary both call. `scripts/` does not reach a customer — a released build is
 compiled and has no interpreter to hand a `.py` to — so **anything an installed
 copy has to do belongs in `app/` and is exposed as a subcommand of
 `app/cli.py`** (`serve`, `create-database`, `migrate-all`, `firm-count`,
-`purge-retention`, `messaging-run-once`, `set-branding`, `backup`, `where`, `quick-check` -- the read-only sanity check of a running server, `docs/qa/SANITY_CHECK.md` -- `--version`). With no firm registered, `migrate-all`
+`purge-retention`, `messaging-run-once`, `loyalty-expire`, `set-branding`, `backup`, `where`, `quick-check` -- the read-only sanity check of a running server, `docs/qa/SANITY_CHECK.md` -- `--version`). With no firm registered, `migrate-all`
 migrates and prunes the platform store alone; `firm_shared` is built with the
 first SHARED firm (`docs/TENANCY_AND_STORES.md`). `tests/unit/test_cli_entry_point.py` fails the build when
 a shipped `.ps1` reaches for `-m alembic`, `-m uvicorn` or a script by path
