@@ -953,13 +953,44 @@ It is judged where the discount limit already was: the approval of a sales
 order, and of a bill. A counter bill is judged against the ranking, like the
 order it raised; a bill of documents against **the price its order line
 agreed**, so a price cut typed on the note or on the bill is caught where it
-is billed. A quotation is not judged, as before. Three things it does not
+is billed. A quotation is not judged, as before. Two things it does not
 do. A line sold in another unit than its stock is kept in is judged on its
-typed discount alone, because the ranking's price carries no unit. A product
-with no selling price has no customer's price to cut. And a *discount* typed
-on a delivery note reaches the bill as inherited and is judged nowhere; only
-its price is caught. The price floor is unchanged and separate: it asks
-whether the net is below cost or the minimum, whoever approves.
+typed discount alone, because the ranking's price carries no unit. And a
+product with no selling price has no customer's price to cut. The price floor
+is unchanged and separate: it asks whether the net is below cost or the
+minimum, whoever approves.
+
+**A delivery note is judged for what it types** (D-PRC-23, 2026-10-06). The
+third thing it did not do: a discount typed on a note reached the bill as
+`inherited` and was judged nowhere, so a sales manager limited to 5% typed 30%
+on the note -- on the line as a rate or an amount, or on the whole note --
+dispatched it, billed it and approved the bill alone. A note line that is
+**cheaper than the order line it continues** is the typing person's doing
+(`note_reduction` in `app/sales_order/services/discount_limit.py`): a line discount larger than the
+order line's share for the quantity shipped, a share of a discount on the
+whole note larger than the order's, each counted in whole as on an order, or a
+price below the order's, cut against the order's price. It is judged by the
+same judge at the **note's approval**, against the approver's limit, and the
+refusal is the order's sentence naming the note: "Line 1 of delivery note
+DN-2026-2027-000004 carries a discount of 30.00%, above your limit of 5.00%.
+It needs approval by someone allowed at least 30.00%." (for a price, "Line 1
+of delivery note … is priced at 50.00 where the customer's price is 100.00:
+…"). The note stays a draft until somebody allowed more approves it. A note
+that types nothing, types what its order already gave, a smaller discount or a
+higher price has no such line and is never refused for what its order agreed.
+
+The note's APPROVED event records that the reduction was judged
+(`typed_reduction_judged`, beside `discount_approval` where the approver has
+a limit), and **a bill treats as inherited only what the order agreed, or
+what a note so recorded holds**. A reduction on a note with no record -- one
+approved before this rule, or the hidden note a bill raises for itself -- is
+judged at the bill's approval as though typed there, so it cannot arrive
+unjudged; a note that was judged hands the bill its own price as the agreed
+one. The same change stopped a bill judging an order **a person raised** a
+second time: with the delivery-note stage off, a bill that only ships an order
+read that order's typed discount as its own, and a clerk limited to 5% could
+not bill the 30% the head had approved. Only an order the bill raised for
+itself is the bill's to answer for.
 
 **The customer's price level and segment are price decisions** (same PR). A
 sales manager's edit could put a customer on a cheaper price level, or into a

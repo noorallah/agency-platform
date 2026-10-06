@@ -143,9 +143,11 @@ from app.sales_invoice.services.sales_chain_service import (
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
 from app.sales_order.services.discount_limit import (
+    NOTE_REDUCTION_JUDGED,
     TYPED_SOURCES,
     DiscountLimitService,
     invoice_discounts,
+    note_reduction,
 )
 from app.sales_order.services.price_floor import PriceFloorService, invoice_lines
 from app.sales_order.services.sales_order_service import (
@@ -2538,6 +2540,16 @@ class SalesInvoiceService(TransactionalDocumentService):
 
         Each line also names the price the customer would otherwise pay, so
         a price typed below it is judged with the discounts (D-PRC-2).
+
+        **Inherited means what the order agreed.** A discount or a price a
+        delivery note typed below its order line is judged at the note's
+        approval, which records that it was; a bill of that note inherits
+        the note's terms. One from a note with no such record -- approved
+        before notes were judged, or raised by this bill for an order a
+        person typed -- is the bill's to answer for, and is judged here as
+        typed (D-PRC-23). "Its own order" is one this bill raised: an order
+        a person raised and somebody approved was judged then, and a bill
+        that only ships it does not judge it again.
         """
         lines = list(
             self._session.scalars(
@@ -2555,10 +2567,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         inherited = row.bill_discount_source == "inherited"
         # What each line continues: the order line behind its note line, or
         # the order line it bills directly.
-        by_note_line = {
-            note_line_id: order_line
-            for note_line_id, order_line in self._session.execute(
-                select(DeliveryNoteLine.id, SalesOrderLine)
+        continued = {
+            note_line.id: (note_line, order_line)
+            for note_line, order_line in self._session.execute(
+                select(DeliveryNoteLine, SalesOrderLine)
                 .join(
                     SalesOrderLine,
                     SalesOrderLine.id == DeliveryNoteLine.sales_order_line_id,
@@ -2571,6 +2583,10 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             .tuples()
             .all()
+        }
+        by_note_line = {
+            note_line_id: order_line
+            for note_line_id, (_, order_line) in continued.items()
         }
         direct = {
             order_line.id: order_line
@@ -2597,10 +2613,23 @@ class SalesInvoiceService(TransactionalDocumentService):
                             if line.source_document_id in own_notes
                             and line.source_document_line_id in by_note_line
                         }
-                    )
+                    ),
+                    SalesOrder.raised_by_sales_invoice_id == row.id,
                 )
             ).all()
         }
+        # What each note line typed below its order line, for the notes this
+        # bill did not price through an order of its own; and which of those
+        # notes had it judged at their own approval.
+        reductions = {
+            note_line_id: reduction
+            for note_line_id, (note_line, order_line) in continued.items()
+            if order_line.sales_order_id not in own_orders
+            and (reduction := note_reduction(note_line, order_line)) is not None
+        }
+        judged_notes = self._notes_judged_for_what_they_typed(
+            {continued[note_line_id][0].delivery_note_id for note_line_id in reductions}
+        )
         # A counter bill's order was priced from the bill, so its lines are
         # judged against the price the customer would otherwise pay; any
         # other bill against the price its order line agreed (D-PRC-2).
@@ -2636,6 +2665,11 @@ class SalesInvoiceService(TransactionalDocumentService):
                 if order_line is None or line.source_document_id not in own_notes
                 else own_orders.get(order_line.sales_order_id)
             )
+            source = (
+                line.discount_source
+                if own is None or order_line is None
+                else order_line.discount_source
+            )
             if own is not None:
                 # Typed on the order the bill raised, or on the bill alone by
                 # an edit that raised nothing again.
@@ -2643,11 +2677,24 @@ class SalesInvoiceService(TransactionalDocumentService):
                 customer_price = ranked.get(order_line.id) if order_line else None
             else:
                 bill_typed = not inherited
+                agreed_price = (
+                    None if order_line is None else self._q(order_line.unit_price)
+                )
+                reduction = reductions.get(line.source_document_line_id)
+                if reduction is not None:
+                    note_line = continued[line.source_document_line_id][0]
+                    if note_line.delivery_note_id in judged_notes:
+                        # Judged on the note: its price is the agreed one.
+                        agreed_price = self._q(note_line.unit_price)
+                    else:
+                        if reduction.typed_line and source == "inherited":
+                            source = "amount"
+                        bill_typed = bill_typed or reduction.typed_bill
                 customer_price = (
                     None
-                    if order_line is None
+                    if agreed_price is None
                     or self._q(line.conversion_factor) != Decimal("1")
-                    else self._q(order_line.unit_price)
+                    else agreed_price
                 )
             judged.append(
                 SimpleNamespace(
@@ -2657,17 +2704,32 @@ class SalesInvoiceService(TransactionalDocumentService):
                     bill_discount_amount=(
                         line.bill_discount_amount if bill_typed else ZERO
                     ),
-                    discount_source=(
-                        line.discount_source
-                        if own is None or order_line is None
-                        else order_line.discount_source
-                    ),
+                    discount_source=source,
                     current_invoice_quantity=line.current_invoice_quantity,
                     unit_price=line.unit_price,
                     customer_price=customer_price,
                 )
             )
         return judged
+
+    def _notes_judged_for_what_they_typed(self, note_ids: set[UUID]) -> set[UUID]:
+        """Return the notes whose approval judged a reduction they typed.
+
+        Read off the note's APPROVED event, where its approval says so
+        (``NOTE_REDUCTION_JUDGED``). Asked only for notes that typed one.
+        """
+        if not note_ids:
+            return set()
+        return {
+            event.source_document_id
+            for event in self._session.scalars(
+                select(DocumentLifecycleEvent).where(
+                    DocumentLifecycleEvent.source_document_id.in_(note_ids),
+                    DocumentLifecycleEvent.action == "APPROVED",
+                )
+            ).all()
+            if (event.details_json or {}).get(NOTE_REDUCTION_JUDGED)
+        }
 
     def _billed_notes(self, row: SalesInvoice) -> list[DeliveryNote]:
         """Return the delivery notes a bill names as its sources."""

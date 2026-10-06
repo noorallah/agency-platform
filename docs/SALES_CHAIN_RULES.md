@@ -349,6 +349,14 @@ judge the outcome -- what the line charges against what the customer would
 otherwise pay -- and whoever it binds must not hold the setting that moves the
 yardstick. `PRICING_AND_PROMOTIONS.md` has the rule.
 
+**And a limit on one document is a limit the next document lifts** (D-PRC-23,
+2026-10-06). The order and the bill were judged and the delivery note between
+them was not, so the discount was typed there. Every document that can make
+the sale cheaper than the one before it is judged for what it adds, at its own
+approval -- order, note and bill -- and a document downstream inherits only
+what was judged: a note-typed reduction with no record of having been judged
+is judged at the bill.
+
 ## A sales order's status follows its deliveries
 
 **A sales order's status follows its deliveries as of 2026-08-23**, the way a
