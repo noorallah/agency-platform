@@ -245,6 +245,14 @@ rate-difference credit note of 472.00 and was then returned in full for
   taking the rest. So a unit later named on the first bill's own line moves
   a unit of an earlier return off the note onto the next bill, which is the
   only place it can have come from.
+- **What a bill still owes counts a return off its note** (D-PRC-66,
+  2026-10-06). `credited_against` and `returned_units_against` read the
+  same split (`returns_off_notes_against`), so Record Receipt, the ageing,
+  sales targets and commission see the value and the units on the bills
+  they came from. They read only returns that named a bill, and a bill of
+  2,832.00 went on reading wholly outstanding beside a credit of 826.00 on
+  the customer's account. A return off a note nobody has billed counts
+  against nothing.
 - **A credit note's cap counts what came back**: charged, less other live
   notes, less completed returns of the line. "A credit note cannot credit
   more than the line was charged: 1000.00 charged, 0.00 already

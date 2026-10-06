@@ -191,9 +191,12 @@ def _returns_off_bills(
     the units, so a commission paid on value and one paid per unit cannot
     disagree about whether the same goods came back (D-PRC-59).
 
-    Only a return raised from the bill's own lines names the bill. Completing
-    is what posts Cr receivable; a draft or approved return has not moved
-    anything yet, and a cancelled one is gone.
+    This is the half that names its bill: a return raised from the bill's own
+    lines. The other half -- a return raised off the delivery note after the
+    bill exists -- names no bill and is set against the bills that charged
+    its units by ``returns_off_notes_against`` (D-PRC-66); both readers add
+    the two. Completing is what posts Cr receivable; a draft or approved
+    return has not moved anything yet, and a cancelled one is gone.
     """
     # Imported here: both modules import settlement-adjacent models.
     from app.sales_return.models import SalesReturn, SalesReturnLine
@@ -297,6 +300,22 @@ def returned_units_against(
                 factor=Decimal(str(factor or 0)),
             )
         )
+    # And the units that came back off the delivery note, on the bill lines
+    # that charged them (D-PRC-66): 7 of 24 back off the note took nothing
+    # off a 2.50-a-unit commission where the same return off the bill took
+    # 17.50.
+    from app.sales_return.billing import returns_off_notes_against
+
+    for share in returns_off_notes_against(
+        session, firm_id=firm_id, invoice_ids=invoice_ids, as_of=as_of
+    ):
+        answer.setdefault(share.bill_line_id, []).append(
+            ReturnedUnits(
+                quantity=share.quantity.quantize(Decimal("0.0001")),
+                entered=share.entered,
+                factor=share.factor,
+            )
+        )
     return answer
 
 
@@ -311,11 +330,12 @@ def credited_against(
     """Sum what returns and credit notes have taken off each sales invoice.
 
     A completed sales return and an approved credit note both post Cr
-    receivable, so the ledger already says the customer owes less. Only a
-    return raised from the bill's own lines names the bill; one raised from a
-    delivery note stays a credit on the customer's account, exactly as a
-    purchase return raised from a goods receipt does on the supplier's
-    (D-BUY-6). A credit note is always raised against one invoice.
+    receivable, so the ledger already says the customer owes less. A return
+    raised from the bill's own lines names the bill; one raised from a
+    delivery note is set against the bills that charged its units
+    (``returns_off_notes_against``, D-PRC-66), and one off a note nobody has
+    billed credits nothing and counts against nothing. A credit note is
+    always raised against one invoice.
 
     One derivation, used by Record Receipt's list and by the loyalty cap, so
     the two cannot answer "what does this bill still owe" differently.
@@ -364,7 +384,17 @@ def credited_against(
         )
         .group_by(CreditNote.sales_invoice_id)
     ).all()
-    for invoice_id, total in (*returned, *notes):
+    # What came back off a delivery note, on the bills that charged those
+    # units (D-PRC-66): such a return credits the customer and reverses the
+    # bill's tax, and the bill went on reading wholly outstanding.
+    from app.sales_return.billing import returns_off_notes_against
+
+    off_notes: dict[UUID, Decimal] = {}
+    for share in returns_off_notes_against(
+        session, firm_id=firm_id, invoice_ids=invoice_ids, as_of=as_of
+    ):
+        off_notes[share.invoice_id] = off_notes.get(share.invoice_id, ZERO) + share.net
+    for invoice_id, total in (*returned, *notes, *off_notes.items()):
         credited[invoice_id] = credited.get(invoice_id, ZERO) + quantize_ledger(
             Decimal(str(total))
         )

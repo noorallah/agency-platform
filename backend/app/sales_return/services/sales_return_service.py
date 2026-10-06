@@ -2705,6 +2705,21 @@ class SalesReturnService(TransactionalDocumentService):
             - Decimal(str(note_line.discount_amount))
             - Decimal(str(note_line.bill_discount_amount))
         )
+        if value <= ZERO:
+            # A note written before its lines carried a price: the order
+            # line it ships is what a bill of these units would charge.
+            from app.sales_order.models import SalesOrderLine
+
+            ordered = self._session.get(SalesOrderLine, note_line.sales_order_line_id)
+            if ordered is not None and Decimal(str(ordered.quantity)) > ZERO:
+                worth = (
+                    Decimal(str(ordered.gross_amount))
+                    - Decimal(str(ordered.discount_amount))
+                    - Decimal(str(ordered.bill_discount_amount))
+                )
+                return self._q(
+                    max(worth, ZERO) * quantity / Decimal(str(ordered.quantity))
+                )
         return self._q(max(value, ZERO) * quantity / sent)
 
     def _header_charges_billed(
