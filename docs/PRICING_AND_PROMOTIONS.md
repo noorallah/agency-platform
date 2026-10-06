@@ -431,10 +431,25 @@ it; `SalesOrderService._gift_lines` adds it naming the stock unit): the
 order reads "2 BOX" and "0 + 2 PIECE free, Free with B10G1", 26 pieces are
 reserved and shipped, and the free line names the offer in
 `free_promotion_id`. So 12 BOX under "buy 10 get 1" earn 14 PIECE, as 144
-pieces typed as pieces do, where they used to earn one BOX. An editor that
-sends the free line back (a line of that product selling nothing and giving
-some away) is not given a second one; like any gift line it then stands as
-typed, so an editor should drop it and let the engine add it again.
+pieces typed as pieces do, where they used to earn one BOX.
+
+**What an offer gave is the server's on every later save of a sales order**
+(D-PRC-48, `SalesOrderService._without_what_the_engine_gave`). The stored
+line decides, never its description. A line that sells nothing and names its
+offer in `free_promotion_id` -- the loose pieces above, or a gift of another
+product -- is dropped where it comes back at its line number, and the engine
+adds it again if the offer still gives it; free units an offer put on a line
+itself, sent back as the same figure, are read as silence; and so is the "0
+free" of a line sent back beside its own free line. So an editor may drop
+the engine's lines or echo the whole read: either way the order ends with
+one free line naming its offer, claimed once and counted against the budget
+once. It was otherwise: an echoed free line stood as typed, named no offer
+and staged no claim, and an offer with a budget of 2 free units gave 4. A
+free-only line a person typed names no offer and stays theirs; a figure that
+differs from the offer's is typed and stands; and "0 free" sent **without**
+the engine's line is still the refusal D-SELL-41 made it. A quotation
+stages no claim and its write schema refuses a line that sells nothing, so
+an editor there must drop the engine's line.
 
 **Every reader of free units counts stock units**: the claim's
 `free_quantity` (the engine's figure), the free-unit budget, what a short

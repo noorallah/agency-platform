@@ -349,6 +349,208 @@ def test_saving_the_order_again_with_its_free_line_does_not_double_it() -> None:
     ]
 
 
+def _save_again(
+    shop: _Offers, order: SalesOrder, lines: list[dict[str, object]]
+) -> None:
+    """Save the draft again with exactly these lines."""
+    shop.orders.update_order(
+        order.id,
+        SalesOrderUpdate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "branch_id": shop.setup.branch.id,
+                "warehouse_id": shop.setup.warehouse.id,
+                "order_date": DAY,
+                "lines": lines,
+            }
+        ),
+        firm_scope=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+
+def _as_read(shop: _Offers, order: SalesOrder) -> list[dict[str, object]]:
+    """Return the order's lines the way a client echoing the read sends them.
+
+    Every figure the read gave, the "0 free" of the box line included --
+    the fourth pricing check's request (D-PRC-48).
+    """
+    return [
+        {
+            "line_number": row.line_number,
+            "product_id": row.product_id,
+            "quantity": row.quantity,
+            "free_quantity": row.free_quantity,
+            "unit_price": row.unit_price,
+            "sales_uom_id": row.sales_uom_id,
+            "inventory_uom_id": row.inventory_uom_id,
+        }
+        for row in shop.lines(order)
+    ]
+
+
+def _free_line_and_claim(
+    shop: _Offers, order: SalesOrder
+) -> tuple[list[tuple[Decimal, Decimal, UUID | None]], Decimal | None]:
+    """Return each line's (sold, free, offer named) and the claim's free units."""
+    claim = shop.claim(order)
+    return (
+        [
+            (row.quantity, row.free_quantity, row.free_promotion_id)
+            for row in shop.lines(order)
+        ],
+        None if claim is None else claim.free_quantity,
+    )
+
+
+def test_an_order_sent_back_as_read_keeps_its_offer_named_and_claimed() -> None:
+    """D-PRC-48: both lines echoed left the goods free and the offer unnamed."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = shop.order(sales_uom_id=shop.box)
+    free_line_id = shop.lines(order)[1].id
+
+    _save_again(shop, order, _as_read(shop, order))
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("2.0000"), D("0.0000"), None),
+            (D("0.0000"), D("2.0000"), shop.offer.id),
+        ],
+        D("2.0000"),
+    )
+    # Reconciled on its line number, not deleted and inserted again.
+    assert shop.lines(order)[1].id == free_line_id
+
+
+def test_an_order_sent_back_as_read_with_more_boxes_earns_the_offer_afresh() -> None:
+    """3 BOX is 36 bought and 3 free: the echoed "2 free" is not kept."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = shop.order(sales_uom_id=shop.box)
+    lines = _as_read(shop, order)
+    lines[0]["quantity"] = "3"
+
+    _save_again(shop, order, lines)
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("3.0000"), D("0.0000"), None),
+            (D("0.0000"), D("3.0000"), shop.offer.id),
+        ],
+        D("3.0000"),
+    )
+
+
+def test_an_order_saved_again_without_its_free_line_is_given_it_again() -> None:
+    """The desktop's save: the box line alone, saying nothing about free goods."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = shop.order(sales_uom_id=shop.box)
+    box_line = {
+        "line_number": 1,
+        "product_id": shop.setup.product.id,
+        "quantity": "2",
+        "sales_uom_id": shop.box,
+    }
+
+    _save_again(shop, order, [box_line])
+    _save_again(shop, order, [box_line])
+
+    assert _free_line_and_claim(shop, order) == (
+        [
+            (D("2.0000"), D("0.0000"), None),
+            (D("0.0000"), D("2.0000"), shop.offer.id),
+        ],
+        D("2.0000"),
+    )
+
+
+def test_a_zero_typed_without_the_free_line_still_refuses_the_offer() -> None:
+    """D-SELL-41 stands: "0 free" on the box line alone is a refusal."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = shop.order(sales_uom_id=shop.box)
+
+    _save_again(
+        shop,
+        order,
+        [
+            {
+                "line_number": 1,
+                "product_id": shop.setup.product.id,
+                "quantity": "2",
+                "free_quantity": "0",
+                "sales_uom_id": shop.box,
+            }
+        ],
+    )
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("2.0000"), D("0.0000"), None)],
+        None,
+    )
+
+
+def test_an_echoed_order_cannot_get_round_the_offers_budget() -> None:
+    """A budget of 2 free units gave 4: the echoed free line escaped the count."""
+    shop = _Offers(TEN_PLUS_ONE)
+    shop.offer.max_free_quantity = D("2")
+    shop.session.commit()
+    first = shop.order(sales_uom_id=shop.box)
+    second = shop.order(sales_uom_id=shop.box)
+    echoed = _as_read(shop, second)
+    assert len(echoed) == 2, "both drafts were quoted the offer"
+    shop.approve(first)
+
+    _save_again(shop, second, echoed)
+
+    # The budget is spent, so the order is priced without the offer.
+    assert _free_line_and_claim(shop, second) == (
+        [(D("2.0000"), D("0.0000"), None)],
+        None,
+    )
+    shop.approve(second)
+    room = budget_rooms(shop.session, [shop.offer], firm_id=shop.firm_id)[shop.offer.id]
+    assert (room.free_claimed, room.free_left) == (D("2.0000"), D("0.0000"))
+
+
+def test_free_units_on_the_line_itself_sent_back_as_read_stay_the_offers() -> None:
+    """24 PIECE with the offer's 2 free: echoed, the 2 stayed and the claim went."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = shop.order(quantity="24", sales_uom_id=shop.piece)
+
+    _save_again(shop, order, _as_read(shop, order))
+
+    assert _free_line_and_claim(shop, order) == (
+        [(D("24.0000"), D("2.0000"), shop.offer.id)],
+        D("2.0000"),
+    )
+    # A figure that is not the offer's is typed, and stands as typed.
+    lines = _as_read(shop, order)
+    lines[0]["free_quantity"] = "5"
+    _save_again(shop, order, lines)
+    assert _free_line_and_claim(shop, order)[0] == [(D("24.0000"), D("5.0000"), None)]
+
+
+def test_a_free_line_a_person_typed_stays_theirs_when_saved_again() -> None:
+    """No offer is named on a typed free-only line, so it is never dropped."""
+    shop = _Offers(TEN_PLUS_ONE)
+    order = shop.order(sales_uom_id=shop.box)
+    typed = _as_read(shop, order)
+    typed[1]["free_quantity"] = "5"
+    typed[1]["line_number"] = 3
+    # Line 3 is new to the order: a free-only line somebody added by hand.
+    _save_again(shop, order, [typed[0] | {"free_quantity": None}, typed[1]])
+    assert [
+        (row.line_number, row.free_quantity, row.free_promotion_id)
+        for row in shop.lines(order)
+    ] == [(1, D("0.0000"), None), (3, D("5.0000"), None)]
+
+    _save_again(shop, order, _as_read(shop, order))
+
+    assert [
+        (row.line_number, row.free_quantity, row.free_promotion_id)
+        for row in shop.lines(order)
+    ] == [(1, D("0.0000"), None), (3, D("5.0000"), None)]
+
+
 def test_a_quotation_by_the_box_shows_the_two_free_pieces() -> None:
     """A quotation quotes what the order will give: 2 PIECE free, claiming none."""
     shop = _Offers(TEN_PLUS_ONE)
