@@ -25,19 +25,31 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.commission.schemas import (
+    CommissionBasisEnum,
+    CommissionRateTypeEnum,
+    CommissionRuleCreate,
+)
+from app.commission.services.commission_service import CommissionService
 from app.core.exceptions import ValidationError
 from app.delivery_note.models import DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
+from app.identity.models import User, UserFirm
 from app.inventory.models import InventoryRecord
-from app.pricing.models import PriceLevel, ProductPriceLevel
+from app.pricing.models import (
+    PriceLevel,
+    PriceList,
+    PriceListItem,
+    ProductPriceLevel,
+)
 from app.purchase.models import PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate
 from app.purchase.services import PurchaseService
 from app.quotation.models import SalesQuotationLine
 from app.quotation.schemas import QuotationCreate
 from app.quotation.services.quotation_service import QuotationService
-from app.sales_invoice.models import SalesInvoiceLine
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.schemas import SalesInvoiceCreate
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -421,3 +433,180 @@ def test_a_purchase_line_by_the_box_with_no_price_costs_twelve_pieces() -> None:
     assert typed.unit_price == D("700.0000")
     pieces = buy(purchase_uom_id=shop.piece, inventory_uom_id=shop.piece)
     assert (pieces.unit_price, pieces.gross_amount) == (D("60.0000"), D("120.0000"))
+
+
+def _list_with_a_break_at_twenty(shop: _Shop) -> None:
+    """Give the customer a price list: 2% off, 5% off from 20 pieces."""
+    price_list = PriceList(
+        firm_id=shop.firm_id,
+        code="BREAKS",
+        name="Breaks",
+        customer_id=shop.setup.customer.id,
+        effective_from=date(2026, 4, 1),
+    )
+    shop.session.add(price_list)
+    shop.session.flush()
+    shop.session.add_all(
+        [
+            PriceListItem(
+                price_list_id=price_list.id,
+                firm_id=shop.firm_id,
+                product_id=shop.setup.product.id,
+                min_quantity=D(quantity),
+                discount_percent=D(percent),
+            )
+            for quantity, percent in (("0", "2"), ("20", "5"))
+        ]
+    )
+    shop.session.commit()
+
+
+def test_a_price_lists_discount_break_counts_the_pieces_in_a_box() -> None:
+    """2 BOX of 12 reach the break "from 20"; one box of 12 does not."""
+    shop = _Shop()
+    _list_with_a_break_at_twenty(shop)
+
+    two = shop.line(shop.order(sales_uom_id=shop.box))
+    one = shop.line(shop.order(quantity="1", sales_uom_id=shop.box))
+    pieces = shop.line(shop.order(quantity="24"))
+
+    assert (two.discount_percent, two.discount_amount) == (D("5.0000"), D("120.0000"))
+    assert (one.discount_percent, one.discount_amount) == (D("2.0000"), D("24.0000"))
+    assert pieces.discount_percent == D("5.0000")
+
+
+def _quote(shop: _Shop, **line: object) -> SalesQuotationLine:
+    """Quote 2 of the product, with what the line names, and return the line."""
+    QuotationService(shop.session).create_quotation(
+        QuotationCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "branch_id": shop.setup.branch.id,
+                "warehouse_id": shop.setup.warehouse.id,
+                "quotation_date": DAY,
+                "valid_until": date(2026, 8, 31),
+                "lines": [
+                    {
+                        "line_number": 1,
+                        "product_id": shop.setup.product.id,
+                        "quantity": "2",
+                    }
+                    | line
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    return shop.session.scalars(select(SalesQuotationLine)).one()
+
+
+def test_a_quotation_by_the_box_takes_the_same_discount_break() -> None:
+    """The quotation the order comes from quotes the 5% the order will give."""
+    shop = _Shop()
+    _list_with_a_break_at_twenty(shop)
+
+    line = _quote(shop, sales_uom_id=shop.box)
+
+    assert (line.discount_percent, line.discount_amount) == (
+        D("5.0000"),
+        D("120.0000"),
+    )
+
+
+def test_a_quotation_in_a_unit_no_list_prices_still_converts_nothing() -> None:
+    """A typed price in a carton no rule converts is quoted, as before."""
+    shop = _Shop()
+
+    line = _quote(shop, sales_uom_id=shop.carton, unit_price="900")
+
+    assert line.gross_amount == D("1800.0000")
+
+
+def _billed_by_the_box(shop: _Shop) -> SalesInvoice:
+    """Order, ship and bill 2 BOX, and return the bill."""
+    order = shop.order(sales_uom_id=shop.box)
+    shop.orders.approve_order(order.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    notes = DeliveryNoteService(shop.session)
+    note = notes.create_note(
+        DeliveryNoteCreate.model_validate(
+            {
+                "sales_order_id": order.id,
+                "delivery_date": DAY,
+                "lines": [
+                    {
+                        "sales_order_line_id": shop.line(order).id,
+                        "line_number": 1,
+                        "current_delivery_quantity": "2",
+                    }
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    notes.approve_note(note.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    notes.dispatch_note(note.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    shop.session.expire_all()
+    note_line = shop.session.scalars(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    ).one()
+    return SalesInvoiceService(shop.session).create_invoice(
+        SalesInvoiceCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "invoice_date": DAY,
+                "lines": [
+                    {
+                        "source_document_type": "DELIVERY_NOTE",
+                        "source_document_id": note.id,
+                        "source_document_line_id": note_line.id,
+                        "line_number": 1,
+                        "current_invoice_quantity": "2",
+                    }
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+
+def test_a_per_unit_commission_pays_for_the_pieces_in_a_box() -> None:
+    """2.50 a unit on 2 BOX of 12 is 60.00, as it is on 24 pieces."""
+    shop = _Shop()
+    seller = User(
+        email="asha@box.example.com",
+        full_name="Asha Rao",
+        password_hash="x",
+        is_active=True,
+    )
+    shop.session.add(seller)
+    shop.session.flush()
+    shop.session.add(UserFirm(user_id=seller.id, firm_id=shop.firm_id, is_active=True))
+    bill = _billed_by_the_box(shop)
+    bill.salesman_id = seller.id
+    bill.status = "APPROVED"
+    shop.session.commit()
+    commission = CommissionService(shop.session)
+    commission.create_rule(
+        CommissionRuleCreate(
+            salesman_id=seller.id,
+            percentage=D("0"),
+            effective_from=date(2026, 4, 1),
+            basis=CommissionBasisEnum.INVOICED,
+            product_id=shop.setup.product.id,
+            rate_type=CommissionRateTypeEnum.PER_UNIT,
+            per_unit_amount=D("2.5"),
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    shop.session.commit()
+
+    report = commission.report(
+        firm_id=shop.firm_id, from_date=date(2026, 4, 1), to_date=date(2027, 3, 31)
+    )
+
+    [row] = [row for row in report.rows if row.salesman_id == seller.id]
+    assert row.commission_amount == D("60.00")

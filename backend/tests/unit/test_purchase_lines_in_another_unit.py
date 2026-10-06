@@ -26,6 +26,7 @@ from app.inventory.models import (
     ProductValuation,
     StockLedgerEntry,
 )
+from app.pricing.models import PriceList, PriceListItem
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import (
     PurchaseOrderCreate,
@@ -667,3 +668,38 @@ def test_a_bill_in_pieces_bills_a_receipt_of_boxes_up_to_what_came_in() -> None:
     )
     assert bill.grand_total == D("1440.0000")
     assert buyer.books() == (D("1440.00"), D("0"), D("-1440.00"))
+
+
+def test_a_supplier_lists_discount_break_counts_the_pieces_in_a_box() -> None:
+    """2 BOX of 12 take the supplier's discount "from 20"; 1 BOX does not."""
+    buyer = _Buyer()
+    price_list = PriceList(
+        firm_id=buyer.firm_id,
+        code="SUP-BREAKS",
+        name="Supplier breaks",
+        vendor_id=buyer.firm.vendor.id,
+        effective_from=date(2026, 4, 1),
+    )
+    buyer.session.add(price_list)
+    buyer.session.flush()
+    buyer.session.add_all(
+        [
+            PriceListItem(
+                price_list_id=price_list.id,
+                firm_id=buyer.firm_id,
+                product_id=buyer.firm.product.id,
+                min_quantity=D(quantity),
+                discount_percent=D(percent),
+            )
+            for quantity, percent in (("0", "2"), ("20", "5"))
+        ]
+    )
+    buyer.session.commit()
+
+    two = buyer.order_line(buyer.order(approve=False, purchase_uom_id=buyer.box))
+    one = buyer.order_line(
+        buyer.order(approve=False, ordered_quantity="1", purchase_uom_id=buyer.box)
+    )
+
+    assert (two.discount_percent, two.discount_amount) == (D("5.0000"), D("72.0000"))
+    assert (one.discount_percent, one.discount_amount) == (D("2.0000"), D("14.4000"))

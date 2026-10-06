@@ -364,6 +364,41 @@ merging into it** -- a customer's own arrangement is the arrangement, not an
 amendment to the firm-wide one, and merging would silently give them breaks
 nobody agreed with them.
 
+**A break counts stock units, for the discount as for the fixed rate**
+(2026-10-06). A list names no unit, so "from 20" is 20 of the unit the product
+is kept in, and a line in another unit is asked about at the stock quantity it
+stands for -- the line's quantity times `UomService.stock_factor`, the factor
+its stock moves at. D-PRC-25 did this for the list's fixed rate and left the
+discount counting the quantity as typed, so 2 BOX of 12 took the *rate* of the
+break at 20 and the *discount* of the break at 0: one line, two rungs of one
+ladder. The sales order, the quotation and the purchase order (the supplier's
+list) all ask `rate_for` at the stock quantity now; a delivery note and a bill
+inherit. On a quotation only a line a list actually mentions has its unit
+converted, since a quotation converts nothing else.
+
+**Which quantity each thing counts, for a line in another unit than its
+stock** -- checked on 2026-10-06, one answer each:
+
+| What | Counts | |
+| --- | --- | --- |
+| Price list: fixed rate, discount (customer and supplier lists) | stock units | this change and D-PRC-25 |
+| Customer price level | nothing -- a level holds one rate per product, no breaks | converted to the line's unit by `price_in_unit` |
+| Commission `PER_UNIT` | stock units | this change; `docs/COMMISSION_FRAMEWORK.md` |
+| Rate contract | its own unit; a line in another unit is not priced from it | unchanged |
+| Supplier's order terms (minimum, multiple) | the line's quantity, in the buying unit the catalogue is kept in | unchanged |
+| **Promotions** (line-quantity conditions, buy X get Y, slabs) and **supplier schemes** | **the line's quantity as typed, and free goods in the line's unit** | unchanged -- see below |
+
+**An offer counts the line as typed, and that is still open.** "Buy 10 get 1"
+on a line of 12 BOX gives 1 BOX; on 2 BOX of 12 it gives nothing, where 24
+pieces typed as pieces earn 2. Counting stock units is the better rule, and
+it is not a change to which number is read: the offer's free goods are put on
+the line in the line's unit, a box cannot carry two free pieces, and the
+claim and the free-unit budget record what the engine gave. Doing it means
+free goods in stock units on a line of their own and budgets that count stock
+units, inside `app/promotions`. Until then a firm that sells by the box and
+by the piece states its offer for the unit it means, and an offer with a
+quantity condition should be tried in both units before it is published.
+
 ## A discount on the whole document reaches the lines, and therefore the tax
 
 **A discount on the whole document reaches the lines, and therefore the tax.**
@@ -1238,9 +1273,10 @@ handed them to the line as they stood: 2 BOX of a product at 100.00 a piece,
 12 to a box, with no price typed, was charged 100.00 a box -- 236.00 with tax
 for 24 pieces. A blank price is now filled through
 `UnitPriceResolver.price_in_unit`: the ranking is asked at the **stock
-quantity** the line stands for (so a list's quantity break for a fixed rate
-counts pieces; the break for a list's *discount* still counts the quantity as
-typed, which is not changed here), and one line unit is worth that price times the stock units it holds -- the
+quantity** the line stands for (so a list's quantity break counts pieces,
+for its fixed rate and, since 2026-10-06, for its discount too -- *A price
+list holds a ladder* above), and one line unit is worth that price times the
+stock units it holds -- the
 factor of the rule `convert_quantity` uses for the line on the document's
 date, from the line's unit to the product's stock unit. The box is 1,200.00
 and the line 2,400.00 before tax. It is one function for the sales order and

@@ -45,9 +45,11 @@ from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
 from app.core.utils.pricing import apportion
+from app.delivery_note.models import DeliveryNoteLine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.products.models import Product, ProductCategory
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_order.models import SalesOrderLine
 from app.sales_targets.services import SalesTargetService
 from app.settlements.services.net_sales import collected_net, invoiced_net
 
@@ -1283,6 +1285,14 @@ class CommissionService:
         `apportion` is the same helper a bill discount is split with, so the
         rounding residual lands on the largest line rather than being dropped.
 
+        **A line's quantity is in stock units**, which is what a per-unit
+        rate multiplies: a rule names no unit, so "2.50 a unit" is 2.50 for
+        each unit the product is kept in, however the line was typed. The
+        bill line's quantity is stored in the unit of the note or order line
+        it bills, so it is multiplied by that line's own conversion factor --
+        2 BOX of 12 are 24 units. Read as typed, the same goods paid 5.00
+        billed by the box and 60.00 billed by the piece.
+
         With `on_document_total` the old measure is used instead: the
         invoice's `grand_total` apportioned on each line's `net_amount`. It
         exists only so a period paid on that measure is re-read on it.
@@ -1306,8 +1316,24 @@ class CommissionService:
                     SalesInvoiceLine.charges_amount,
                     Product.category_id,
                     SalesInvoiceLine.cost_amount,
+                    func.coalesce(
+                        DeliveryNoteLine.conversion_factor,
+                        SalesOrderLine.conversion_factor,
+                        1,
+                    ),
                 )
                 .join(Product, Product.id == SalesInvoiceLine.product_id, isouter=True)
+                # The line this one bills: a note line, else an order line.
+                .join(
+                    DeliveryNoteLine,
+                    DeliveryNoteLine.id == SalesInvoiceLine.source_document_line_id,
+                    isouter=True,
+                )
+                .join(
+                    SalesOrderLine,
+                    SalesOrderLine.id == SalesInvoiceLine.source_document_line_id,
+                    isouter=True,
+                )
                 .where(
                     SalesInvoiceLine.sales_invoice_id.in_(part),
                     SalesInvoiceLine.is_deleted.is_(False),
@@ -1361,6 +1387,7 @@ class CommissionService:
             charges,
             category_id,
             cost,
+            stock_factor,
         ) in rows:
             if on_document_total:
                 worth = Decimal(str(net_amount))
@@ -1374,7 +1401,7 @@ class CommissionService:
             grouped.setdefault(invoice_id, []).append(
                 (
                     product_id,
-                    Decimal(str(quantity)),
+                    Decimal(str(quantity)) * Decimal(str(stock_factor or 1)),
                     worth,
                     category_id,
                     None if cost is None else Decimal(str(cost)),

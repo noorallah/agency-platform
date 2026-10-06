@@ -2486,6 +2486,9 @@ class SalesOrderService(TransactionalDocumentService):
         # The unit each product's stock is kept in, for the lines that name
         # a selling unit (D-PRC-26).
         stock_units: dict[UUID, UUID | None] = {}
+        # The stock units one unit of each line holds, for the price list's
+        # quantity breaks, which count stock units.
+        factors: list[Decimal] = []
         for item in lines:
             product = self._session.scalar(
                 select(Product).where(
@@ -2501,6 +2504,15 @@ class SalesOrderService(TransactionalDocumentService):
             # agreed, and the refusal names what is actually being raised.
             assert_product_takes_new_lines(product, document=raised_as)
             stock_units[product.id] = stock_unit_of(product)
+            factors.append(
+                self._uom.stock_factor(
+                    product,
+                    uom_id=item.sales_uom_id,
+                    stock_uom_id=item.inventory_uom_id,
+                    on_date=row.order_date,
+                    firm_scope=row.firm_id,
+                )
+            )
             grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
 
         # Promotions are read once the grosses are known and before anything is
@@ -2525,6 +2537,8 @@ class SalesOrderService(TransactionalDocumentService):
         asked = len(lines)
         lines = list(lines) + self._gift_lines(benefits, lines=lines)
         grosses += [ZERO] * (len(lines) - len(grosses))
+        # A gift line names no unit: it is in the stock unit.
+        factors += [Decimal("1")] * (len(lines) - len(factors))
 
         priced: list[LineDiscount] = [
             resolve_line_discount(
@@ -2532,7 +2546,11 @@ class SalesOrderService(TransactionalDocumentService):
                 percent=item.discount_percent,
                 amount=item.discount_amount,
                 promotion_amount=benefits.line_discount(index),
-                price_list_percent=prices.rate_for(item.product_id, item.quantity),
+                # At the stock quantity, as the list's fixed rate is asked
+                # (D-PRC-25): 2 BOX of 12 take the break "from 20".
+                price_list_percent=prices.rate_for(
+                    item.product_id, item.quantity * factors[index]
+                ),
                 customer_default=customer_discount,
                 customer_group_default=group_discount,
             )

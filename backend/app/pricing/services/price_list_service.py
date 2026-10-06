@@ -142,6 +142,10 @@ class PriceListResolver:
             self._rates[product_id] = sorted(ladder.items())
             self._prices[product_id] = sorted(prices[product_id].items())
 
+    def mentions(self, product_id: UUID | None) -> bool:
+        """Say whether any list in force holds a rate for the product."""
+        return product_id is not None and bool(self._rates.get(product_id))
+
     def rate_for(
         self, product_id: UUID | None, quantity: Decimal | None = None
     ) -> Decimal | None:
@@ -155,6 +159,13 @@ class PriceListResolver:
         line's quantity** wins: breaks of 0, 50 and 200 price a line of 120 at
         the 50. A caller that says nothing about quantity gets the ordinary
         rate, which is what every list held before breaks existed.
+
+        **The quantity is in stock units**, as ``price_for``'s is: a list
+        names no unit, so its breaks count the unit the product is kept in,
+        and a caller with a line in another unit multiplies by the line's
+        factor first (`UomService.stock_factor`). 2 BOX of 12 reach a break
+        "from 20"; asked at the typed 2 they took the fixed rate of the
+        break at 20 and the discount of the break at 0.
         """
         if product_id is None:
             return None

@@ -2427,7 +2427,11 @@ class PurchaseService(TransactionalDocumentService):
                     price_list_percent=(
                         Decimal(str(contract.discount_percent))
                         if from_contract and contract is not None
-                        else lists.rate_for(line.product_id, line.ordered_quantity)
+                        # At the stock quantity, like the list's fixed
+                        # rate above: its breaks count stock units.
+                        else lists.rate_for(
+                            line.product_id, line.ordered_quantity * factor
+                        )
                     ),
                     customer_default=standing if standing > ZERO else None,
                 )

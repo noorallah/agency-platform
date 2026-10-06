@@ -869,6 +869,39 @@ class UomService:
             on_date=on_date,
         ).conversion_factor
 
+    def stock_factor(
+        self,
+        product: Product | None,
+        *,
+        uom_id: UUID | None,
+        stock_uom_id: UUID | None,
+        on_date: date,
+        firm_scope: UUID,
+    ) -> Decimal:
+        """Return the stock units one unit of a document line holds.
+
+        For anything that counts a line against a figure kept per stock unit
+        -- a price list's quantity break, a commission paid per unit: 2 BOX
+        of 12 are 24 for it. The line's unit against `stock_unit_of` the
+        product (``stock_uom_id`` is what the line named, for a product that
+        carries none), by the rule `convert_quantity` uses. One for a line
+        that names no unit.
+
+        Raises:
+            ValidationError: No rule converts the line's unit to the stock
+                unit, naming the product and both units.
+
+        """
+        if uom_id is None or product is None:
+            return Decimal("1")
+        return self.unit_factor(
+            product_id=product.id,
+            from_uom_id=uom_id,
+            to_uom_id=stock_unit_of(product, stock_uom_id),
+            on_date=on_date,
+            firm_scope=firm_scope,
+        )
+
     def quantity_between(
         self,
         *,
