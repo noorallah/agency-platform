@@ -376,6 +376,16 @@ nothing free was given the offer's 2 by the order, claimed at approval
 line with no free figure. A client that echoes a read "0.0000" is typing a
 refusal, on the quotation as on the order.
 
+**The quotation tells the engine a free figure was typed, as the order
+does** (`free_typed`, D-PRC-78, 2026-10-06). It did not: the typed figure
+was kept on the line itself, but the engine still worked the offer out, and
+where the free goods of a line sold by the box are loose pieces -- handed
+back as a free line of their own (D-PRC-39) -- that line was still added.
+2 BOX typed "0 free" under "buy 10 get 1" read and printed "0 + 2 PIECE
+free, offer named" on the quotation while its order gave nothing. A typed
+figure, zero or not, now stops the engine giving that line anything, on the
+line or beside it.
+
 ## `customer_type` is a legal classification, not a commercial one
 
 **`customer_type` is a legal classification, not a commercial one.** It holds
