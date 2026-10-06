@@ -22,6 +22,13 @@ from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
+from app.credit_note.models import CreditNote
+from app.credit_note.schemas import (
+    CreditNoteCreate,
+    CreditNoteLineWrite,
+    CreditNoteReasonEnum,
+)
+from app.credit_note.services import CreditNoteService
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.delivery_note.models import DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
@@ -68,6 +75,7 @@ from app.sales_return.schemas import (
     SalesReturnStatus,
 )
 from app.sales_return.services import SalesReturnService
+from app.settlements.services.settlement_service import credited_against
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
 
@@ -1853,3 +1861,165 @@ def test_a_return_on_a_note_names_the_bill_it_credits() -> None:
     assert credit.against_invoice_ids == [setup.invoice.id]
     assert credit.against_invoice_number == setup.invoice.invoice_number
     assert [item[1] for item in credit.items] == [bill_line.id]
+
+
+# ---- a return after a credit note (D-SELL-88) -------------------------------
+#
+# The fifth pricing check (2026-10-06): a bill of 2,832.00 took a
+# rate-difference credit note of 472.00 and was then returned in full for
+# 2,832.00 -- 3,304.00 credited against a bill of 2,832.00. Here the bill is
+# four at 100.00 with 72.00 of GST, 472.00 in all.
+
+
+def _credit_note(setup: _Dispatch, taxable: str, *, approve: bool = True) -> CreditNote:
+    """Credit the bill's line some value with no goods coming back."""
+    line = setup.session.scalar(
+        select(SalesInvoiceLine).where(
+            SalesInvoiceLine.sales_invoice_id == setup.invoice.id
+        )
+    )
+    assert line is not None
+    service = CreditNoteService(setup.session)
+    note = service.create_note(
+        CreditNoteCreate(
+            sales_invoice_id=setup.invoice.id,
+            credit_note_date=date(2026, 8, 5),
+            reason=CreditNoteReasonEnum.RATE_DIFFERENCE,
+            lines=[
+                CreditNoteLineWrite(
+                    sales_invoice_line_id=line.id,
+                    line_number=1,
+                    quantity=Decimal("4"),
+                    taxable_amount=Decimal(taxable),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    if approve:
+        service.approve_note(note.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    setup.session.commit()
+    return note
+
+
+def _returned(
+    setup: _Dispatch, payload: SalesReturnCreate, *, complete: bool = True
+) -> SalesReturn:
+    """Raise and approve a return, and complete it unless told not to."""
+    service = SalesReturnService(setup.session)
+    row = service.create_return(payload, firm_id=setup.firm.id, actor_id=setup.actor_id)
+    service.approve_return(row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    if complete:
+        row = service.complete_return(
+            row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+    return row
+
+
+def _credited_on_the_bill(setup: _Dispatch) -> Decimal:
+    """Return everything returns and credit notes have taken off the bill."""
+    return credited_against(
+        setup.session, firm_id=setup.firm.id, invoice_ids=[setup.invoice.id]
+    ).get(setup.invoice.id, Decimal("0"))
+
+
+def test_a_return_after_a_credit_note_credits_what_the_bill_is_still_worth() -> None:
+    """80.00 credited off 400.00, then all four back: 320.00, not 400.00.
+
+    With the tax that follows each, the note is 94.40 and the return 377.60:
+    472.00 between them, which is the bill and not a rupee more.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _charge_gst(setup)
+    _credit_note(setup, "80")
+
+    row = _returned(setup, _against_the_bill(setup, "4"))
+
+    line = session.scalars(
+        select(SalesReturnLine).where(SalesReturnLine.sales_return_id == row.id)
+    ).one()
+    assert (line.gross_amount, line.bill_discount_amount) == (
+        Decimal("400.0000"),
+        Decimal("80.0000"),
+    )
+    assert (row.subtotal, row.tax_total) == (Decimal("320.0000"), Decimal("57.6000"))
+    assert row.grand_total == Decimal("377.6000")
+    assert [credit.amount for credit in _credits(session)] == [Decimal("377.60")]
+    assert _credited_on_the_bill(setup) == Decimal("472.00")
+
+
+def test_a_credit_note_is_spread_over_the_units_still_out() -> None:
+    """One back is a quarter of what is left; the last three take the rest."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _charge_gst(setup)
+    _credit_note(setup, "80")
+
+    first = _returned(setup, _against_the_bill(setup, "1"))
+    rest = _returned(setup, _against_the_bill(setup, "3"))
+
+    assert (first.subtotal, rest.subtotal) == (
+        Decimal("80.0000"),
+        Decimal("240.0000"),
+    )
+    assert _credited_on_the_bill(setup) == Decimal("472.00")
+
+
+def test_goods_back_before_the_credit_note_leave_it_to_the_rest() -> None:
+    """Two back at full price, 150.00 credited, then the other two: 50.00.
+
+    The note can only be about the goods the customer kept, so the whole of
+    it comes off them -- pro-rated over all four, the last two would have
+    come back at 125.00 and the bill been credited 475.00 of its 400.00.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _charge_gst(setup)
+
+    first = _returned(setup, _against_the_bill(setup, "2"))
+    _credit_note(setup, "150")
+    rest = _returned(setup, _against_the_bill(setup, "2"))
+
+    assert (first.subtotal, rest.subtotal) == (
+        Decimal("200.0000"),
+        Decimal("50.0000"),
+    )
+    assert _credited_on_the_bill(setup) == Decimal("472.00")
+
+
+def test_goods_back_through_the_note_are_worth_what_the_bill_is_too() -> None:
+    """The same goods by the other door credit the same 320.00."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _charge_gst(setup)
+    _credit_note(setup, "80")
+
+    row = _returned(setup, setup.payload(quantity=Decimal("4")))
+
+    assert (row.subtotal, row.tax_total) == (Decimal("320.0000"), Decimal("57.6000"))
+
+
+def test_a_draft_credit_note_takes_nothing_off_a_return() -> None:
+    """A note nobody approved has credited nothing yet."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _credit_note(setup, "80", approve=False)
+
+    row = _returned(setup, _against_the_bill(setup, "4"), complete=False)
+
+    assert row.subtotal == Decimal("400.0000")
+
+
+def test_a_return_priced_before_a_credit_note_does_not_complete() -> None:
+    """The note approved in between took 80.00 of what the return credits."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    row = _returned(setup, _against_the_bill(setup, "4"), complete=False)
+    _credit_note(setup, "80")
+
+    with pytest.raises(ValidationError, match="credited since this return was saved"):
+        SalesReturnService(session).complete_return(
+            row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
