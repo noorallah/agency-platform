@@ -112,7 +112,6 @@ from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
-from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 from app.vendors.models import Vendor
 
@@ -681,7 +680,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                     rejected_qty if line.item_condition == "QUARANTINE" else ZERO
                 ),
                 entered_quantity=current_qty,
-                entered_uom_id=line.return_uom_id or line.purchase_uom_id,
+                entered_uom_id=self._counted_in(line),
                 conversion_version=line.conversion_version,
                 remarks=line.remarks or row.remarks,
                 batch_id=batch_id,
@@ -2146,18 +2145,20 @@ class PurchaseReturnService(TransactionalDocumentService):
                 and return_uom_id is not None
                 and return_uom_id != source_uom_id
             ):
-                conversion = self._uom.convert_quantity(
-                    ConversionRequest(
-                        product_id=self._product_id(source_line),
-                        from_uom_id=return_uom_id,
-                        to_uom_id=source_uom_id,
-                        quantity=requested_quantity,
-                        conversion_date=return_date,
-                    ),
+                # In the source line's unit, which is what the caps below
+                # count in and what the stock leaves in: by the rule for
+                # the pair, else through the product's stock unit, so 12
+                # PIECE go back off a receipt of 2 BOX as 1 BOX.
+                converted, factor = self._uom.quantity_between(
+                    product_id=self._product_id(source_line),
+                    from_uom_id=_required_uuid(return_uom_id),
+                    to_uom_id=source_uom_id,
+                    quantity=requested_quantity,
+                    on_date=return_date,
                     firm_scope=firm_id,
                 )
-                return_quantity = self._q(conversion.converted_quantity)
-                conversion_factor = self._q(conversion.conversion_factor)
+                return_quantity = self._q(converted)
+                conversion_factor = self._q(factor)
             # Request sessions do not autoflush, and an earlier line of this
             # same return may be sending back the same goods.
             self._session.flush()
@@ -2278,7 +2279,11 @@ class PurchaseReturnService(TransactionalDocumentService):
                 tax_amount=tax_amount,
                 net_amount=net_amount,
                 packaging_type_id=spec.get("packaging_type_id"),
-                purchase_uom_id=spec.get("purchase_uom_id"),
+                # The unit the quantities above are in: the source line's.
+                # It was whatever the request sent, so a return naming no
+                # unit against a line received by the box stored none, and
+                # 1 BOX left the shelf as one piece.
+                purchase_uom_id=source_uom_id or spec.get("purchase_uom_id"),
                 return_uom_id=spec.get("return_uom_id"),
                 conversion_factor=conversion_factor,
                 conversion_version=spec.get("conversion_version"),
@@ -2979,6 +2984,31 @@ class PurchaseReturnService(TransactionalDocumentService):
 
     def _conversion_factor(self, spec: dict[str, object]) -> Decimal:
         return self._q(Decimal(str(spec.get("conversion_factor", Decimal("1")))))
+
+    def _counted_in(self, line: PurchaseReturnLine) -> UUID | None:
+        """Return the unit a stored return line's quantity is counted in.
+
+        The source line's unit, always: a quantity typed in another unit
+        (``return_uom_id``) is converted into it before it is stored, so
+        moving the stock in the typed unit took 1 piece off the shelf for 12
+        PIECE sent back as 1 BOX. The line stores it as ``purchase_uom_id``;
+        a line saved before it did is answered from its source line, so a
+        draft from then still completes at the right quantity.
+        """
+        if line.purchase_uom_id is not None:
+            return line.purchase_uom_id
+        source: SourceLine | None
+        if line.source_document_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
+            source = self._session.get(GoodsReceiptLine, line.source_document_line_id)
+        elif line.source_document_type == (
+            PurchaseReturnSourceType.PURCHASE_INVOICE.value
+        ):
+            source = self._session.get(
+                PurchaseInvoiceLine, line.source_document_line_id
+            )
+        else:
+            source = self._session.get(PurchaseOrderLine, line.source_document_line_id)
+        return None if source is None else self._source_uom_id(source)
 
     def _source_type(self, value: object) -> str:
         return value.value if hasattr(value, "value") else str(value)

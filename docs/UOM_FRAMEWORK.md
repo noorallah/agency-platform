@@ -108,7 +108,9 @@ two sides of a document do not agree on how much of a default they take:
 
 | Module | Line unit comes from |
 | --- | --- |
-| `purchase` | `line.purchase_uom_id` **or** `product.purchase_uom_id` |
+| `purchase` | `line.purchase_uom_id` **or** `product.purchase_uom_id`; its **stock** unit is the product's (below) |
+| `goods_receipt` | the order line's unit, always; another unit on the receipt line is refused |
+| `purchase_invoice`, `purchase_return` | the line's unit against the *source line's* unit, stored in the source line's |
 | `sales_order` | `line.sales_uom_id` only — no fallback to the product; its **stock** unit is the product's (below) |
 | `sales_invoice` | the invoice line's unit against the *source line's* unit |
 
@@ -137,8 +139,56 @@ factor of 1, and stock moves the quantity as typed, as before. A counter bill
 is covered through the order it raises. **A price follows the same factor**: a
 blank price on a line in another unit is the stock-unit price times it
 (D-PRC-25, `PRICING_AND_PROMOTIONS.md`). An order line stored before this
-keeps the figures it was stored with until it is saved again. The purchase
-order still converts only when the line names both units.
+keeps the figures it was stored with until it is saved again.
+
+**The buying side is the same rule, and its cost follows the quantity**
+(2026-10-06, the buying twin of D-PRC-26). A purchase order line stored the
+product's units whatever it was sent, but converted only when it was sent
+*both*: 2 BOX naming the box alone -- or naming nothing, for a product whose
+buying unit is BOX -- read a factor of 1 and a base quantity of 2 beside units
+that said 24 pieces. `buying_units_of` (`app/uom/services/uom_service.py`) is
+the one answer for the order and the goods receipt: the unit the line names,
+else the product's `purchase_uom_id`, converts to `stock_unit_of` the product
+whatever stock unit the line carries; a line with no buying unit at all is in
+the stock unit and converts nothing. A buying unit no rule converts is refused
+in the same words, where the order is saved -- including a product's *default*
+buying unit, which used to be saved at a factor of 1 and refused only at the
+receipt.
+
+The larger half was the **cost**, and it did not depend on how the line named
+its units. A goods receipt handed the stock ledger what one *received* unit
+cost -- a box -- as the cost of one *stock* unit, so 2 BOX at 720.00 put 24
+pieces on the shelf at 720.00 each: 17,280.00 of inventory and of goods
+received not invoiced for goods bought for 1,440.00, a moving average twelve
+times too high for every later sale's cost of goods sold, and the bill then
+cleared the accrual by crediting the missing 15,840.00 to purchase price
+variance. `InventoryService.record_goods_receipt` now takes
+``entered_unit_cost`` -- the cost of one unit *of the line* -- and divides it
+by the factor the quantity moved at, so the movement is worth exactly what the
+line is: 24 pieces at 60.00. **Stock received before this is not restated**:
+its movements, the moving average built on them and the journals stand as
+posted, and a firm that bought by the box needs its valuation corrected by a
+stock revaluation, not by re-saving documents.
+
+Three more things follow the same unit. **A receipt line is counted in its
+order line's unit**: what the order is owed, what a line may still take in,
+what is left to bill and what may go back are read off the two quantities side
+by side, so a receipt line naming another unit is refused -- "Line 1 is
+received in BOX where PO-2026-2027-000004 orders it in PIECE. Receive it in
+the order's unit." (2 BOX against 24 PIECE ordered used to put 24 on the
+shelf, leave the order 2 of 24 received and cost two pieces' price.) **A bill
+or return line typed in another unit is stored in its source line's unit**,
+converted by `UomService.quantity_between`: the rule for the pair where there
+is one, else through the product's stock unit, so 24 PIECE bill a receipt of
+2 BOX, and 25 are more than came in, with only the box-to-piece rule a firm
+actually writes. **A return's stock leaves in the unit its quantity is stored
+in**, the source line's: it left in whatever unit the request sent, so a
+return of 1 naming no unit took one piece off the shelf for 1 BOX, and 12
+PIECE typed against a box line -- stored as 1 -- took one piece too. A return
+line saved before this with no unit is answered from its source line when it
+is completed. `tests/unit/test_purchase_lines_in_another_unit.py` is the
+guard; a debit note carries no unit and moves no stock, so it has nothing to
+convert.
 
 `business_profile_uom_defaults` supplies the starting point for a firm's
 industry (base, inventory, purchase and sales units, plus the two fraction
@@ -240,9 +290,18 @@ use.
 
 ## Conversion happens on the line, only when the units differ
 
-All **seven** transactional modules convert this way — purchase, goods receipt,
-delivery note, purchase invoice, purchase return, sales order, sales invoice.
-Each holds a `UomService` and calls `convert_quantity` per line:
+**Eight** document modules convert this way, counted on 2026-10-06 with
+`grep -rlE "convert_quantity|quantity_between" backend/app --include=*.py`
+rather than remembered (this line said seven long after `sales_return` made
+it eight; the command also lists `uom` itself and two files that only mention
+the name, `inventory` and `pricing`): purchase, goods receipt, purchase invoice, purchase return, sales
+order, delivery note, sales invoice, sales return. Each holds a `UomService`.
+Six call `convert_quantity` per line; the purchase invoice and the purchase
+return, whose line continues another document's line, call
+`quantity_between`, which is `convert_quantity` with a second route through
+the stock unit. `inventory` resolves the rule itself for a movement that
+carries no line factor, and `pricing` reads only the factor (`unit_factor`).
+The shape, on a line that converts into stock:
 
 ```python
 if purchase_uom_id is None or inventory_uom_id is None or purchase_uom_id == inventory_uom_id:
@@ -407,9 +466,13 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
 - **The conversion date is the document's date**, resolved with `utc_now()`.
 - **An unconfigured pair is an error, not a factor of 1.** The `factor = 1`
   short-circuit applies *only* when the two units are the same or one is unset
-  -- and on a sales order line "unset" is no longer the caller's to choose: a
-  line that names a selling unit takes its stock unit from the product
-  (D-PRC-26).
+  -- and "unset" is no longer the caller's to choose: a sales order line that
+  names a selling unit takes its stock unit from the product (D-PRC-26), and
+  a purchase line takes both its buying unit and its stock unit from the
+  product where it names neither.
+- **A cost is per some unit, and the stock ledger's is the stock unit.** Hand
+  it a document's cost per *line* unit and every piece is valued as a box.
+  `record_goods_receipt(entered_unit_cost=...)` converts it with the quantity.
 - **Seeding the catalogue is not seeding conversions.** 36 units shipped with
   zero rules, so the module was inert: every line took the `factor = 1`
   short-circuit and the first line raised in a different unit would have failed.
@@ -428,4 +491,4 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
 
 *Moved out of `CLAUDE.md` on 2026-09-15 when that file passed the 150k-character limit.*
 
-**UOM & packaging** (`app/uom`) — `docs/UOM_FRAMEWORK.md` is the reference: the seven unit slots a product carries, effective-dated conversion rules, and the resolution order (the product's own rule before the firm-wide one, ranked explicitly rather than by NULL sort). **Eight** document modules call `convert_quantity` per line -- `purchase`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `sales_order`, `delivery_note`, `sales_invoice`, `sales_return` -- plus `inventory`, taking a `factor = 1` short-circuit only when the units match. `quotation` deliberately does not: it moves no stock, and the conversion happens when it becomes an order, because `convert_quotation` builds that order through `SalesOrderService.create_order`.
+**UOM & packaging** (`app/uom`) — `docs/UOM_FRAMEWORK.md` is the reference: the seven unit slots a product carries, effective-dated conversion rules, and the resolution order (the product's own rule before the firm-wide one, ranked explicitly rather than by NULL sort). **Eight** document modules convert per line -- `purchase`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `sales_order`, `delivery_note`, `sales_invoice`, `sales_return` (the purchase invoice and return through `quantity_between`, which calls `convert_quantity`; count with the `grep` above) -- plus `inventory`, taking a `factor = 1` short-circuit only when the units match. `quotation` deliberately does not: it moves no stock, and the conversion happens when it becomes an order, because `convert_quotation` builds that order through `SalesOrderService.create_order`.
