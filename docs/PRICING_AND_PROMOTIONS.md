@@ -509,7 +509,12 @@ typed as (`bill_discount_typed_as`, D-PRC-35; an inherited one is
 inherited again at the share now billed, and a counter bill asks the order it
 raised, whose `bill_discount_source` says `typed` or `promotion`), and the
 approver's discount limit judges only a typed one -- an offer's 200 is
-nobody's hand, and a typed order's was judged on the order. Nothing is
+nobody's hand, and a typed order's was judged on the order. **A counter
+bill's typed discount reads `typed` on the response**: it is typed onto the
+order the bill raised and reaches the bill as that order's share, so the row
+records `inherited` and every rule above goes on reading the row; the
+response looks at the order and says what the person did (third pricing
+check, section D), with `bill_discount_typed_as` beside it as before. Nothing is
 written to `promotion_redemptions` on the way down: the claim is the order's,
 and what the performance report says an offer gave is now what came off the
 bills.
@@ -536,6 +541,28 @@ that percentage. A line continued **at another price** inherits the rate as
 itself, because the order's amount no longer describes it. The bills above are
 382.32 and 573.48. Free goods needed no change: a part bill's hidden note
 already said nothing about them.
+
+**What a bill types on a line of an order stays typed** (D-PRC-46,
+2026-10-06). With the delivery-note stage off, a discount typed on the line
+of a bill raised straight off an order was accepted and ignored: the bill
+saved at the order's 1,180.00 and was approved. The bill raises its own note
+there, and its lines were rebuilt from that note alone
+(`SalesChainService._rebind`). A bill of a note a person typed takes such a
+figure -- it replaces what the line inherits, a zero included, and the
+bill's approver is judged for it -- and a bill that raises its own note is
+the same bill, so the two now answer one request alike: 10% or 100.00 typed
+on the line bills 1,062.00, a typed `0` refuses the order's own discount,
+and somebody limited to 5% is refused at the bill's approval, "Line 1
+carries a discount of 10.00%, above your limit of 5.00%. It needs approval
+by someone allowed at least 10.00%." The hidden note still says nothing and
+ships the order's deal; it is the **bill line** that carries the typed rate
+or amount. A **price** typed on the line is carried the same way where the
+line names no other unit than the order's (a line continued at another
+price inherits the order's rate as itself, as above). Still not taken from
+such a bill line, and worth knowing: a free quantity typed on it, and a
+unit other than the order's -- the note ships the order's.
+`tests/unit/test_bill_of_an_order_takes_what_it_types.py` checks each case
+against its twin on a firm that types its notes.
 
 ## A bill can state what was given away
 

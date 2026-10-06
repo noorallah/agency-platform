@@ -512,7 +512,24 @@ class SalesChainService:
         Billing is capped on `current_delivery_quantity` -- what the customer
         is charged for -- and never on `delivered_quantity`, which has the free
         goods folded into it and is measured in inventory units.
+
+        **What the bill typed on a line of an order stays typed** (D-PRC-46).
+        The lines were rebuilt from the note alone, so a discount typed on
+        the line of a bill straight off an order was accepted and ignored:
+        the bill saved at the order's 1,180.00. A bill of a note a person
+        typed takes such a figure -- it replaces what the line inherits, a
+        zero included, and the bill's approver is judged for it -- and a bill
+        that raises its own note is the same bill. The hidden note still
+        says nothing and ships the order's deal; the **bill line** carries
+        the typed rate or amount, and a typed price where the line names no
+        other unit than the order's.
         """
+        typed = {
+            line.source_document_line_id: line
+            for line in data.lines
+            if line.source_document_type == SalesInvoiceSourceType.SALES_ORDER
+            and line.source_document_line_id is not None
+        }
         note_lines = list(
             self._session.scalars(
                 select(DeliveryNoteLine)
@@ -530,9 +547,18 @@ class SalesChainService:
                 source_document_line_id=note_line.id,
                 line_number=note_line.line_number,
                 current_invoice_quantity=note_line.current_delivery_quantity,
-                unit_price=note_line.unit_price,
+                unit_price=self._typed_price(
+                    typed.get(note_line.sales_order_line_id), note_line
+                ),
                 # Left unstated so the invoice inherits the note's free goods
-                # and its discount pro-rata, the same way any other bill does.
+                # and its discount pro-rata, the same way any other bill does
+                # -- unless the bill typed one on this line of the order.
+                discount_percent=getattr(
+                    typed.get(note_line.sales_order_line_id), "discount_percent", None
+                ),
+                discount_amount=getattr(
+                    typed.get(note_line.sales_order_line_id), "discount_amount", None
+                ),
                 tax_profile_id=note_line.tax_profile_id,
                 packaging_type_id=note_line.packaging_type_id,
                 invoice_uom_id=note_line.sales_uom_id,
@@ -556,6 +582,23 @@ class SalesChainService:
                 "coupon_code": None,
             }
         )
+
+    @staticmethod
+    def _typed_price(
+        line: SalesInvoiceLineWrite | None, note_line: DeliveryNoteLine
+    ) -> Decimal:
+        """Return the price a bill line of an order is billed at.
+
+        The note line's -- the order's -- unless the bill typed one. A line
+        that names another unit than the order's keeps the order's price: its
+        quantity is read in the order's unit here, so a price for that other
+        unit would be multiplied by the wrong figure.
+        """
+        if line is None or line.unit_price is None:
+            return note_line.unit_price
+        if line.invoice_uom_id not in (None, note_line.sales_uom_id):
+            return note_line.unit_price
+        return line.unit_price
 
     def _refuse_above_chosen_mrp(
         self, order: SalesOrder, lines: Sequence[SalesInvoiceLineWrite]
