@@ -54,6 +54,13 @@ class _GstApi extends ApiClient {
   final String enforcement;
   final String? message;
 
+  /// Set to make Dispatch itself refuse, as the server does for a note
+  /// somebody else already dispatched.
+  String? dispatchRefusal;
+
+  /// How many times the list of notes was read.
+  int listReads = 0;
+
   /// The approved orders the New note box offers, and how often they were read.
   List<Json> approvedOrders = const <Json>[];
   int orderReads = 0;
@@ -87,6 +94,9 @@ class _GstApi extends ApiClient {
           'would_block': enforcement == 'BLOCK' && message != null,
         },
       };
+    }
+    if (method == 'POST' && path.endsWith('/dispatch') && dispatchRefusal != null) {
+      throw ApiException(dispatchRefusal!, statusCode: 422);
     }
     if (path.endsWith('/dispatch-and-invoice')) {
       return {
@@ -129,6 +139,7 @@ class _GstApi extends ApiClient {
       };
     }
     if (method == 'GET' && path == '/api/v1/delivery-notes') {
+      listReads += 1;
       return {
         'data': <Json>[
           {
@@ -299,6 +310,24 @@ Future<void> _openEditor(WidgetTester tester, _GstApi api) async {
 }
 
 void main() {
+  // D-UI-28: Dispatch pressed from a stale list on a note somebody else had
+  // already dispatched opened the dialog and then said nothing.
+  testWidgets('a refused dispatch says why and reads the list again',
+      (tester) async {
+    final _GstApi api = _GstApi()
+      ..dispatchRefusal = 'Only approved delivery notes can be dispatched.';
+    await _pumpPage(tester, api);
+    final int before = api.listReads;
+    await _tapDispatch(tester);
+    await tester.tap(find.byKey(const ValueKey('dispatch-anyway')));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Only approved delivery notes can be dispatched.'),
+      findsWidgets,
+    );
+    expect(api.listReads, greaterThan(before), reason: 'the row is refreshed');
+  });
+
   // D-UI-27: the Sales order box was filled when the page opened, so an order
   // approved afterwards was not offered until the page was reloaded.
   testWidgets('New reads the approved orders when it is pressed',

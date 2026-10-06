@@ -1099,12 +1099,20 @@ class _DeliveryNoteManagementPageState
       if (overrideReason != null) 'licence_override_reason': overrideReason,
       if (batchReason != null) 'batch_reason': batchReason,
     };
-    await widget.api.documentAction(
-      'delivery-notes',
-      note.id,
-      suffix,
-      query: query.isEmpty ? null : query,
-    );
+    try {
+      await widget.api.documentAction(
+        'delivery-notes',
+        note.id,
+        suffix,
+        query: query.isEmpty ? null : query,
+      );
+    } on ApiException {
+      // The list the person acted from may be stale (another user dispatched
+      // this note): read it again so the row shows where the note really is,
+      // and let the refusal go on to be said (D-UI-28).
+      if (mounted) unawaited(_load());
+      rethrow;
+    }
     final String step = suffix.substring(1);
     return DocumentStepDone(
       switch (step) {
