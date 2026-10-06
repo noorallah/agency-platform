@@ -171,8 +171,11 @@ from app.trade_licences.services.licence_check import (
     LicenceCheckService,
     LicenceDocument,
 )
-from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService, assert_quantity_fits_unit
+from app.uom.services import (
+    UomService,
+    assert_quantity_fits_unit,
+    price_per_source_unit,
+)
 
 ZERO = Decimal("0")
 #: An order's `bill_discount_source` where nobody typed its bill discount:
@@ -2698,12 +2701,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                         if reduction.typed_line and source == "inherited":
                             source = "amount"
                         bill_typed = bill_typed or reduction.typed_bill
-                customer_price = (
-                    None
-                    if agreed_price is None
-                    or self._q(line.conversion_factor) != Decimal("1")
-                    else agreed_price
-                )
+                # A line typed in another unit than the line it bills is
+                # stored in that line's unit -- quantity and price both -- so
+                # the agreed price is already the price of the unit it is
+                # in. It was left out on `conversion_factor != 1` and judged
+                # on its typed discount alone.
+                customer_price = agreed_price
             judged.append(
                 SimpleNamespace(
                     line_number=line.line_number,
@@ -4047,18 +4050,21 @@ class SalesInvoiceService(TransactionalDocumentService):
                 and invoice_uom_id is not None
                 and invoice_uom_id != source_uom_id
             ):
-                conversion = self._uom.convert_quantity(
-                    ConversionRequest(
-                        product_id=self._product_id(source_line),
-                        from_uom_id=invoice_uom_id,
-                        to_uom_id=source_uom_id,
-                        quantity=requested_quantity,
-                        conversion_date=invoice_date,
-                    ),
+                # In the source line's unit, which is what the cap below
+                # and every later reader counts in: by the rule for the
+                # pair, else through the product's stock unit, so 24 PIECE
+                # bill a note of 2 BOX -- and 25 are more than was shipped
+                # -- with only the box-to-piece rule a firm writes.
+                converted, factor = self._uom.quantity_between(
+                    product_id=self._product_id(source_line),
+                    from_uom_id=UUID(str(invoice_uom_id)),
+                    to_uom_id=source_uom_id,
+                    quantity=requested_quantity,
+                    on_date=invoice_date,
                     firm_scope=firm_id,
                 )
-                invoice_quantity = self._q(conversion.converted_quantity)
-                conversion_factor = self._q(conversion.conversion_factor)
+                invoice_quantity = self._q(converted)
+                conversion_factor = self._q(factor)
             already_invoiced = self._already_invoiced_quantity(
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
@@ -4083,6 +4089,17 @@ class SalesInvoiceService(TransactionalDocumentService):
                     "is left to bill."
                 )
             unit_price = self._invoice_unit_price(spec=spec, source_line=source_line)
+            if spec.get("unit_price") is not None:
+                # Typed for the unit the line was typed in; the line is
+                # stored in the source line's, so the price is restated with
+                # the quantity.
+                unit_price = self._q(
+                    price_per_source_unit(
+                        unit_price,
+                        typed_quantity=requested_quantity,
+                        source_quantity=invoice_quantity,
+                    )
+                )
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(invoice_quantity * unit_price)
             # Resolved before the tax call, not after it. The percentage never

@@ -112,7 +112,7 @@ two sides of a document do not agree on how much of a default they take:
 | `goods_receipt` | the order line's unit, always; another unit on the receipt line is refused |
 | `purchase_invoice`, `purchase_return` | the line's unit against the *source line's* unit, stored in the source line's |
 | `sales_order` | `line.sales_uom_id` only — no fallback to the product; its **stock** unit is the product's (below) |
-| `sales_invoice` | the invoice line's unit against the *source line's* unit |
+| `sales_invoice` | the invoice line's unit against the *source line's* unit, stored in the source line's |
 
 So a sales order raised without a unit on the line converts nothing, whatever
 the product says. Worth knowing before assuming a product's `sales_uom_id`
@@ -189,6 +189,22 @@ line saved before this with no unit is answered from its source line when it
 is completed. `tests/unit/test_purchase_lines_in_another_unit.py` is the
 guard; a debit note carries no unit and moves no stock, so it has nothing to
 convert.
+
+**A line that continues another line is stored in that line's unit --
+quantity and price both** (2026-10-06). This is the shape of a sales bill, a
+supplier's bill and a purchase return: `current_invoice_quantity` (or
+`current_return_quantity`) and `unit_price` are in the unit of the source
+line (`order_uom_id` on a sales bill, `purchase_uom_id` on the buying
+documents), and `invoice_uom_id` / `return_uom_id` with `conversion_factor`
+only record how the line was typed. So the quantity cap, the discount limit
+and everything downstream read one unit. Two things did not follow it. The
+conversion needed a rule from the typed unit to the source unit, which is the
+direction nobody writes; `quantity_between` goes through the stock unit. And a
+typed price was multiplied by the *converted* quantity as it stood;
+`price_per_source_unit` restates it, because a price somebody types is the
+price of the unit they typed. `conversion_factor` on these three lines is
+typed unit to source unit -- **not** a factor into stock, which is the
+source line's own.
 
 `business_profile_uom_defaults` supplies the starting point for a firm's
 industry (base, inventory, purchase and sales units, plus the two fraction
@@ -296,10 +312,10 @@ rather than remembered (this line said seven long after `sales_return` made
 it eight; the command also lists `uom` itself and two files that only mention
 the name, `inventory` and `pricing`): purchase, goods receipt, purchase invoice, purchase return, sales
 order, delivery note, sales invoice, sales return. Each holds a `UomService`.
-Six call `convert_quantity` per line; the purchase invoice and the purchase
-return, whose line continues another document's line, call
-`quantity_between`, which is `convert_quantity` with a second route through
-the stock unit. `inventory` resolves the rule itself for a movement that
+Five call `convert_quantity` per line; the sales invoice, the purchase
+invoice and the purchase return, whose line continues another document's
+line, call `quantity_between`, which is `convert_quantity` with a second
+route through the stock unit. `inventory` resolves the rule itself for a movement that
 carries no line factor, and `pricing` reads only the factor (`unit_factor`).
 The shape, on a line that converts into stock:
 
@@ -491,4 +507,4 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
 
 *Moved out of `CLAUDE.md` on 2026-09-15 when that file passed the 150k-character limit.*
 
-**UOM & packaging** (`app/uom`) — `docs/UOM_FRAMEWORK.md` is the reference: the seven unit slots a product carries, effective-dated conversion rules, and the resolution order (the product's own rule before the firm-wide one, ranked explicitly rather than by NULL sort). **Eight** document modules convert per line -- `purchase`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `sales_order`, `delivery_note`, `sales_invoice`, `sales_return` (the purchase invoice and return through `quantity_between`, which calls `convert_quantity`; count with the `grep` above) -- plus `inventory`, taking a `factor = 1` short-circuit only when the units match. `quotation` deliberately does not: it moves no stock, and the conversion happens when it becomes an order, because `convert_quotation` builds that order through `SalesOrderService.create_order`.
+**UOM & packaging** (`app/uom`) — `docs/UOM_FRAMEWORK.md` is the reference: the seven unit slots a product carries, effective-dated conversion rules, and the resolution order (the product's own rule before the firm-wide one, ranked explicitly rather than by NULL sort). **Eight** document modules convert per line -- `purchase`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `sales_order`, `delivery_note`, `sales_invoice`, `sales_return` (the sales invoice, the purchase invoice and the purchase return through `quantity_between`, which calls `convert_quantity`; count with the `grep` above) -- plus `inventory`, taking a `factor = 1` short-circuit only when the units match. `quotation` deliberately does not: it moves no stock, and the conversion happens when it becomes an order, because `convert_quotation` builds that order through `SalesOrderService.create_order`.

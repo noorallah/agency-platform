@@ -112,7 +112,11 @@ from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
-from app.uom.services import UomService, assert_quantity_fits_unit
+from app.uom.services import (
+    UomService,
+    assert_quantity_fits_unit,
+    price_per_source_unit,
+)
 from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
@@ -2159,6 +2163,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 )
                 return_quantity = self._q(converted)
                 conversion_factor = self._q(factor)
+            converted_quantity = return_quantity
             # Request sessions do not autoflush, and an earlier line of this
             # same return may be sending back the same goods.
             self._session.flush()
@@ -2198,6 +2203,18 @@ class PurchaseReturnService(TransactionalDocumentService):
                 by_another_route=by_another_route,
             )
             unit_price = self._unit_price(spec, source_line)
+            if spec.get("unit_price") is not None:
+                # Typed for the unit the line was typed in; restated for the
+                # source line's unit the quantity is stored in. Before the
+                # free goods are split off: both quantities are the whole
+                # line here.
+                unit_price = self._q(
+                    price_per_source_unit(
+                        unit_price,
+                        typed_quantity=requested_quantity,
+                        source_quantity=converted_quantity,
+                    )
+                )
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(return_quantity * unit_price)
             line_discount = self._line_discount(

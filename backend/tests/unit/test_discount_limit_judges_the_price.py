@@ -34,6 +34,7 @@ from app.delivery_note.services.delivery_note_service import DeliveryNoteService
 from app.document_framework.models import DocumentLifecycleEvent
 from app.identity.models import Role, User, UserFirm, UserRole
 from app.pricing.models import PriceLevel, ProductPriceLevel
+from app.sales_invoice.models import SalesInvoiceLine
 from app.sales_invoice.schemas import SalesInvoiceCreate, SalesInvoiceLineWrite
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrderLine
@@ -44,6 +45,7 @@ from app.sales_order.services.discount_limit import (
     note_reduction,
 )
 from app.sales_order.services.sales_order_service import SalesOrderService
+from app.uom.models import ConversionRule
 from tests.unit.test_customer_management import (
     _customer_data,
     _firm,
@@ -912,3 +914,117 @@ def test_a_new_customer_starts_on_a_price_only_from_the_office() -> None:
         "NEW-3",
         "NEW-4",
     ]
+
+
+def _note_of_two_boxes(desk: _Counter, *, back_rule: bool = False) -> tuple[UUID, UUID]:
+    """Order, approve and ship 2 BOX at 1,200.00; return the note and the piece.
+
+    ``back_rule`` also writes the piece-to-box rule few firms do.
+    """
+    piece, box, _ = box_of_twelve(desk.session, desk.setup)
+    if back_rule:
+        desk.session.add(
+            ConversionRule(
+                firm_id=desk.firm_id,
+                product_id=desk.setup.product.id,
+                from_uom_id=piece,
+                to_uom_id=box,
+                conversion_factor=D("0.0833333333"),
+                rounding_mode="HALF_UP",
+                precision_scale=4,
+                effective_from=date(2026, 4, 1),
+                version_number=1,
+            )
+        )
+        desk.session.commit()
+    order_id = desk.order(price="1200", units={"sales_uom_id": box})
+    desk.approve(order_id, desk.manager)
+    note_id = desk.note(order_id, current_delivery_quantity="2")
+    desk.approve_note(note_id, desk.manager)
+    desk.notes.dispatch_note(note_id, firm_scope=desk.firm_id, actor_id=desk.actor)
+    return note_id, piece
+
+
+def _bill_in_pieces(
+    desk: _Counter, note_id: UUID, piece: UUID, quantity: str, **line: object
+) -> SalesInvoiceLine:
+    """Bill a note's line as so many PIECE; return the stored bill line."""
+    note_line = desk.session.scalars(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note_id)
+    ).one()
+    try:
+        bill = desk.bills.create_invoice(
+            SalesInvoiceCreate.model_validate(
+                {
+                    "customer_id": desk.setup.customer.id,
+                    "invoice_date": DAY,
+                    "lines": [
+                        {
+                            "source_document_type": "DELIVERY_NOTE",
+                            "source_document_id": note_id,
+                            "source_document_line_id": note_line.id,
+                            "line_number": 1,
+                            "current_invoice_quantity": quantity,
+                            "invoice_uom_id": piece,
+                        }
+                        | line
+                    ],
+                }
+            ),
+            firm_id=desk.firm_id,
+            actor_id=desk.actor,
+        )
+    except ValidationError:
+        desk.session.rollback()
+        raise
+    return desk.session.scalars(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == bill.id)
+    ).one()
+
+
+def test_a_note_of_two_boxes_is_billed_as_24_pieces_and_not_25() -> None:
+    """The cap compares what was shipped, whatever unit the bill is typed in."""
+    desk = _Counter()
+    note_id, piece = _note_of_two_boxes(desk)
+
+    with pytest.raises(ValidationError, match="exceeds the available source"):
+        _bill_in_pieces(desk, note_id, piece, "25")
+    line = _bill_in_pieces(desk, note_id, piece, "24")
+
+    # Stored in the note line's unit, at the note's price for it.
+    assert (line.current_invoice_quantity, line.unit_price) == (
+        D("2.0000"),
+        D("1200.0000"),
+    )
+    assert line.gross_amount == D("2400.0000")
+
+
+def test_a_price_typed_on_a_bill_in_pieces_is_the_price_of_a_piece() -> None:
+    """24 PIECE at 100.00 is 2,400.00: restated as 1,200.00 a box, not 200.00."""
+    desk = _Counter()
+    note_id, piece = _note_of_two_boxes(desk)
+
+    line = _bill_in_pieces(desk, note_id, piece, "24", unit_price="100")
+
+    assert (line.unit_price, line.gross_amount) == (D("1200.0000"), D("2400.0000"))
+    assert desk.approve_bill(line.sales_invoice_id, desk.manager) == "APPROVED"
+
+
+@pytest.mark.parametrize("back_rule", [False, True])
+def test_a_bill_in_pieces_at_half_price_is_refused_as_half_off(
+    back_rule: bool,
+) -> None:
+    """A bill in another unit than its note was judged on its discount alone.
+
+    24 PIECE at 50.00, where the note agreed 1,200.00 a box of 12: 600.00 a
+    box, half price, typed by nobody as a discount.
+    """
+    desk = _Counter()
+    note_id, piece = _note_of_two_boxes(desk, back_rule=back_rule)
+
+    line = _bill_in_pieces(desk, note_id, piece, "24", unit_price="50")
+
+    assert (line.unit_price, line.gross_amount) == (D("600.0000"), D("1200.0000"))
+    with pytest.raises(ValidationError, match=r"600.00 where .* 1200.00: 50.00% off"):
+        desk.approve_bill(line.sales_invoice_id, desk.manager)
+    assert desk.approve_bill(line.sales_invoice_id, desk.head) == "APPROVED"
