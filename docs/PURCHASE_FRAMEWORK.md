@@ -220,6 +220,19 @@ rule for the pair or else through the stock unit; a price typed on it is the
 price of the unit typed and is restated with the quantity (24 PIECE at 60.00
 is stored as 2 BOX at 720.00).
 
+**Pieces that are not whole boxes cost what the pieces cost, and no variance
+comes of a conversion** (D-PRC-37, D-PRC-38, 2026-10-06). Against a receipt
+of 2 BOX at 720.00, a bill of 7 PIECE at 60.00 was stored as 0.5833 BOX at
+720.0411, cleared 419.98 of the accrual and booked 0.02 to purchase price
+variance; 17 PIECE with no price were 1,020.024. The bill line keeps what was
+typed (`entered_quantity`) beside the quantity the cap counts: 7 PIECE are
+**420.00** at 720.0000 a box and clear 420.00, 17 are 1,020.00, and the
+variance account is not touched. A return of 7 PIECE was saved, approved and
+refused at completion ("BOX is counted in whole numbers, so 0.5833 BOX cannot
+be entered"); it now sends back **seven pieces**, at their cost. Half a box
+typed as a box is refused where the line is saved. `docs/UOM_FRAMEWORK.md`,
+"Pieces that are not whole boxes", is the reference.
+
 **A bill of products typed with no order counts each line in the unit it
 names, else the product's buying unit**, because the order it raises does: a
 bill of 2 with no unit and no price, for that product, is 2 BOX at 720.00 and
@@ -537,7 +550,7 @@ had cleared.
 | `vendors` | who is being bought from | a purchase order requires a vendor |
 | `products` | what is bought, and its batch/expiry rules | `require_batch_on_receipt` decides whether a receipt can complete |
 | `branches` | branch, warehouse and storage node | stock posts to the warehouse the line names |
-| `uom` | `convert_quantity` per line (`buying_units_of` picks the two units; `quantity_between` for a bill or return line in another unit than its source) | buying unit → the product's stock unit; a factor of 1 only when the two are the same or the line has no buying unit |
+| `uom` | `convert_quantity` per line (`buying_units_of` picks the two units; `continued_quantity` for a bill or return line in another unit than its source) | buying unit → the product's stock unit; a factor of 1 only when the two are the same or the line has no buying unit |
 | `tax` | `TaxRuleService.simulate` per line | this **is** the tax calculation, not a preview; it must never commit |
 | `batch_serial` | batch, lot, serial and expiry | a batch number on a receipt line resolves to a real batch |
 | `inventory` | the stock ledger and stock rows | receipts post here; returns and cancellations reverse here |

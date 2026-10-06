@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from decimal import (
     ROUND_CEILING,
@@ -221,23 +222,102 @@ def stock_unit_of(product: Product | None, fallback: UUID | None = None) -> UUID
     return fallback
 
 
-def price_per_source_unit(
-    price: Decimal, *, typed_quantity: Decimal, source_quantity: Decimal
-) -> Decimal:
-    """Return a price typed for one unit as the price of one source-line unit.
+#: How far the stored parts of a line may sit from the whole through
+#: rounding alone: ten parts each half a unit in the fourth place out.
+_ROUNDING_SLACK = Decimal("0.0005")
+_FOUR_PLACES = Decimal("0.0001")
+_TEN_PLACES = Decimal("0.0000000001")
 
-    A bill or return line typed in another unit than the line it continues
-    is stored in that line's unit: 24 PIECE of a note of 2 BOX is stored as
-    2. **A price somebody types is the price of the unit they typed**, so it
-    is restated with the quantity -- 100.00 a piece is 1,200.00 a box --
-    and the line is worth what was typed. Multiplied as it stood, 24 PIECE
-    at 100.00 was billed 200.00. ``typed_quantity`` over ``source_quantity``
-    is the source units' worth of typed units, taken from the two quantities
-    rather than from a factor so 24 over 2 is exactly 12.
+
+@dataclass(frozen=True)
+class ContinuedQuantity:
+    """What a line typed in one unit is, in the unit of the line it continues.
+
+    A bill or a return continues a note, a receipt or a bill, and every cap
+    and later reader counts in that source line's unit, so the row stores
+    ``quantity`` there. 7 PIECE of a box of 12 is 0.5833 of a box at the four
+    places a quantity is kept to, and **0.5833 of a box is not seven
+    pieces**: priced, it is 699.96 where seven pieces are 700.00, and moved,
+    it is 6.9996 pieces -- or, on a unit counted in whole numbers, a
+    quantity nobody may enter (D-PRC-37, D-PRC-38). So the line also keeps
+    ``entered``, what the person typed, and is priced, moved and printed from
+    that; ``exact`` is the same figure in the source line's unit before it
+    is rounded, for anything worked out per source unit.
     """
-    if source_quantity <= 0 or typed_quantity == source_quantity:
-        return price
-    return price * typed_quantity / source_quantity
+
+    #: In the source line's unit, at four places: what the row stores and
+    #: what the caps count.
+    quantity: Decimal
+    #: In the source line's unit, not rounded: what money is worked on.
+    exact: Decimal
+    #: What was typed, in the unit it was typed in; None for a line in the
+    #: source line's own unit, which is its own record.
+    entered: Decimal | None
+    #: Source units one typed unit is; one for a line in the source's unit.
+    factor: Decimal
+
+    @property
+    def stored_factor(self) -> Decimal:
+        """Return the factor at the ten places the line's column keeps."""
+        return self.factor.quantize(_TEN_PLACES)
+
+    def taking(self, left: Decimal) -> ContinuedQuantity:
+        """Return the quantity stored as ``left`` where it takes all of it.
+
+        ``left`` is what the source line still has to give, in its own unit.
+        A part that takes all of it to within rounding is stored as exactly
+        what is left: three bills of 5, 5 and 14 pieces of two boxes are
+        0.4167 + 0.4167 + 1.1667 = 2.0001 boxes when each is rounded on its
+        own, and the third was refused as more than was shipped.
+        """
+        if self.entered is None or left == self.quantity:
+            return self
+        if abs(left - self.exact) > min(_ROUNDING_SLACK, self.factor / 2):
+            return self
+        return ContinuedQuantity(left, self.exact, self.entered, self.factor)
+
+    def price_per_source_unit(self, price: Decimal) -> Decimal:
+        """Return a price typed for the typed unit as one source unit's.
+
+        60.00 a piece is 720.00 a box. Divided by the unrounded factor, so
+        the box is exactly twelve pieces' worth and a bill at the receipt's
+        own price shows no price variance.
+        """
+        return price if self.entered is None else price / self.factor
+
+    def worth(self, *, typed_price: Decimal | None, source_price: Decimal) -> Decimal:
+        """Return what the line is worth before discounts, not yet rounded.
+
+        **From what was typed**: seven pieces at the price typed for a piece,
+        or -- with no price typed -- seven twelfths of the source line's
+        price for a box, which is 700.00 and never 0.5833 of it.
+        """
+        if self.entered is not None and typed_price is not None:
+            return self.entered * typed_price
+        return self.exact * source_price
+
+
+def exact_quantity(
+    quantity: Decimal | None,
+    entered_quantity: Decimal | None,
+    conversion_factor: Decimal | None,
+) -> Decimal:
+    """Return a stored line's quantity in its source unit, before rounding.
+
+    For a reader that values a line per source unit -- the share of a
+    receipt's accrual a bill clears -- where the four places of the stored
+    quantity are money: 0.5833 of a box at 720.00 is 419.98 and seven pieces
+    are 420.00, and the two paise went to purchase price variance
+    (D-PRC-37). A line typed in its source line's unit has no
+    ``entered_quantity`` and is its own answer.
+    """
+    stored = Decimal(str(quantity or 0))
+    if entered_quantity is None:
+        return stored
+    exact = Decimal(str(entered_quantity)) * Decimal(str(conversion_factor or 1))
+    # Never further from the stored figure than rounding put it: a line whose
+    # factor was kept at four places before this is read as it was stored.
+    return exact if abs(exact - stored) <= _FOUR_PLACES else stored
 
 
 def buying_units_of(
@@ -921,73 +1001,98 @@ class UomService:
             firm_scope=firm_scope,
         )
 
-    def quantity_between(
+    def continued_quantity(
         self,
         *,
         product_id: UUID,
         quantity: Decimal,
+        from_uom_id: UUID | None,
+        to_uom_id: UUID | None,
+        on_date: date,
+        firm_scope: UUID,
+        left: Decimal | None = None,
+    ) -> ContinuedQuantity:
+        """Return a typed quantity as the line it continues counts it.
+
+        ``from_uom_id`` is the unit typed and ``to_uom_id`` the source
+        line's; with either unset, or the two the same, the quantity is
+        already in the source line's unit. Otherwise it is converted by the
+        rule for the pair, else through the product's stock unit -- 24
+        pieces are 24 stock units and a box is 12, so 2 BOX, because the
+        rules a firm writes run from a pack to the stock unit and seldom
+        back again -- and **kept unrounded beside the stored four
+        places**, so the caller prices and moves what was typed.
+
+        ``left`` is what the source line still has to give, in its own
+        unit; a part that takes all of it is stored as exactly that
+        (`ContinuedQuantity.taking`).
+
+        Raises:
+            ValidationError: Nothing converts the pair, naming the product
+                and the units.
+
+        """
+        if from_uom_id is None or to_uom_id is None or from_uom_id == to_uom_id:
+            return ContinuedQuantity(quantity, quantity, None, Decimal("1"))
+        factor = self._factor_between(
+            product_id=product_id,
+            from_uom_id=from_uom_id,
+            to_uom_id=to_uom_id,
+            on_date=on_date,
+            firm_scope=firm_scope,
+        )
+        exact = quantity * factor
+        stored = exact.quantize(_FOUR_PLACES, rounding=ROUND_HALF_UP)
+        typed = ContinuedQuantity(stored, exact, quantity, factor)
+        return typed if left is None else typed.taking(left)
+
+    def _factor_between(
+        self,
+        *,
+        product_id: UUID,
         from_uom_id: UUID,
         to_uom_id: UUID,
         on_date: date,
         firm_scope: UUID,
-    ) -> tuple[Decimal, Decimal]:
-        """Return a quantity in another unit, and the factor it converted at.
+    ) -> Decimal:
+        """Return how many of one unit one of another is, not rounded.
 
-        For a line that continues another document's line in a different
-        unit: a bill of 24 PIECE for a receipt of 2 BOX. The rule for the
-        pair converts it where there is one, exactly as `convert_quantity`
-        does. Where there is none the two meet in the unit the product's
-        stock is kept in -- 24 pieces are 24 stock units and a box is 12, so
-        2 BOX -- because the rules a firm writes run from a pack to the stock
-        unit and seldom back again.
-
-        Raises:
-            ValidationError: Neither a rule for the pair nor rules to the
-                stock unit convert it, naming the product and the units.
-
+        The rule for the pair where there is one; else the two meet in the
+        unit the product's stock is kept in -- a piece is one stock unit and
+        a box twelve, so a piece is a twelfth of a box.
         """
-        if from_uom_id == to_uom_id:
-            return quantity, Decimal("1")
         product = self._session.scalar(
             select(Product).where(
                 Product.id == product_id, Product.firm_id == firm_scope
             )
         )
         stock = stock_unit_of(product)
-        direct = ConversionRequest(
-            product_id=product_id,
-            from_uom_id=from_uom_id,
-            to_uom_id=to_uom_id,
-            quantity=quantity,
-            conversion_date=on_date,
-        )
-        if stock is None:
-            converted = self.convert_quantity(direct, firm_scope=firm_scope)
-            return converted.converted_quantity, converted.conversion_factor
         try:
-            converted = self.convert_quantity(direct, firm_scope=firm_scope)
-        except ValidationError:
-            into_stock = self.unit_factor(
+            return self.unit_factor(
                 product_id=product_id,
                 from_uom_id=from_uom_id,
-                to_uom_id=stock,
+                to_uom_id=to_uom_id,
                 on_date=on_date,
                 firm_scope=firm_scope,
             )
-            out_of_stock = self.unit_factor(
-                product_id=product_id,
-                from_uom_id=to_uom_id,
-                to_uom_id=stock,
-                on_date=on_date,
-                firm_scope=firm_scope,
-            )
-            # Multiplied before it is divided: 24 x 1 / 12 is 2, where 24
-            # times a rounded twelfth is not.
-            return (
-                quantity * into_stock / out_of_stock,
-                into_stock / out_of_stock,
-            )
-        return converted.converted_quantity, converted.conversion_factor
+        except ValidationError:
+            if stock is None:
+                raise
+        into_stock = self.unit_factor(
+            product_id=product_id,
+            from_uom_id=from_uom_id,
+            to_uom_id=stock,
+            on_date=on_date,
+            firm_scope=firm_scope,
+        )
+        out_of_stock = self.unit_factor(
+            product_id=product_id,
+            from_uom_id=to_uom_id,
+            to_uom_id=stock,
+            on_date=on_date,
+            firm_scope=firm_scope,
+        )
+        return into_stock / out_of_stock
 
     def upsert_profile_default(
         self,

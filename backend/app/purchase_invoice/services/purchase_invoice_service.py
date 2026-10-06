@@ -129,7 +129,7 @@ from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.services import (
     UomService,
     assert_quantity_fits_unit,
-    price_per_source_unit,
+    exact_quantity,
 )
 from app.vendors.models import Vendor
 
@@ -2493,26 +2493,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             conversion_factor = self._q(
                 Decimal(str(spec.get("conversion_factor", Decimal("1"))))
             )
-            invoice_quantity = requested_quantity
-            if (
-                source_uom_id is not None
-                and invoice_uom_id is not None
-                and invoice_uom_id != source_uom_id
-            ):
-                # In the source line's unit, which is what the cap below
-                # and every later reader counts in: by the rule for the
-                # pair, else through the product's stock unit, so 24 PIECE
-                # bills a receipt of 2 BOX with only the box-to-piece rule.
-                converted, factor = self._uom.quantity_between(
-                    product_id=self._product_id(source_line),
-                    from_uom_id=_required_uuid(invoice_uom_id),
-                    to_uom_id=source_uom_id,
-                    quantity=requested_quantity,
-                    on_date=invoice_date,
-                    firm_scope=firm_id,
-                )
-                invoice_quantity = self._q(converted)
-                conversion_factor = self._q(factor)
             already_invoiced = self._already_invoiced_quantity(
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
@@ -2526,6 +2506,24 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                         source_line.id
                     ].returned_unbilled
                 )
+            # In the source line's unit, which is what the cap below and
+            # every later reader counts in: by the rule for the pair, else
+            # through the product's stock unit, so 24 PIECE bills a receipt
+            # of 2 BOX with only the box-to-piece rule. What was typed is
+            # kept beside it and the line is costed from that: 17 PIECE at
+            # 60.00 are 1,020.00, not 1.4167 boxes' 1,020.02 (D-PRC-37).
+            typed = self._uom.continued_quantity(
+                product_id=self._product_id(source_line),
+                quantity=requested_quantity,
+                from_uom_id=_optional_uuid(invoice_uom_id),
+                to_uom_id=source_uom_id,
+                on_date=invoice_date,
+                firm_scope=firm_id,
+                left=source_quantity - returned_unbilled - already_invoiced,
+            )
+            invoice_quantity = typed.quantity
+            if typed.entered is not None:
+                conversion_factor = typed.stored_factor
             # No request can lift this cap: a body flag the caller set switched
             # it off entirely, and 60 was billed against a receipt of 6
             # (D-BUY-15).
@@ -2546,20 +2544,39 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             # default to zero, so a bill sent without prices was worth nothing
             # (D-BUY-3).
             stated_price = spec.get("unit_price")
+            typed_price: Decimal | None = None
             if stated_price is None:
                 stated_price = getattr(source_line, "unit_price", None) or ZERO
             else:
-                # Typed for the unit the line was typed in; the line is
-                # stored in the source line's, so the price is restated with
-                # the quantity (60.00 a piece is 720.00 a box).
-                stated_price = price_per_source_unit(
-                    Decimal(str(stated_price)),
-                    typed_quantity=requested_quantity,
-                    source_quantity=invoice_quantity,
-                )
+                # Typed for the unit the line was typed in; the row keeps the
+                # price of one of the source line's unit (60.00 a piece is
+                # 720.00 a box, exactly, so a bill at the receipt's own price
+                # shows no variance).
+                typed_price = self._q(Decimal(str(stated_price)))
+                stated_price = typed.price_per_source_unit(typed_price)
             unit_price = self._q(Decimal(str(stated_price)))
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
-            gross_amount = self._q(invoice_quantity * unit_price)
+            # Worth what was typed: seventeen pieces at a piece's price.
+            gross_amount = self._q(
+                typed.worth(typed_price=typed_price, source_price=unit_price)
+            )
+            if (
+                typed.entered is not None
+                and typed_price is None
+                and already_invoiced > ZERO
+                and invoice_quantity + already_invoiced
+                == source_quantity - returned_unbilled
+            ):
+                # The part that completes the source line takes what the
+                # earlier parts left of its worth, so the bills of a receipt
+                # add up to the receipt to the paisa however a box divides.
+                gross_amount = self._completing_worth(
+                    firm_id=firm_id,
+                    source_line_id=source_line.id,
+                    whole=(source_quantity - returned_unbilled) * unit_price,
+                    price=unit_price,
+                    otherwise=gross_amount,
+                )
             line_discount = self._line_discount(
                 spec=spec, source_line=source_line, gross=gross_amount
             )
@@ -2585,9 +2602,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 product_id=self._product_id(source_line),
                 tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
+                # Taxed on what the line is worth, which for a line typed
+                # in another unit is not its stored quantity times its
+                # price (D-PRC-37).
                 invoice_value=self._line_net_amount(
-                    quantity=invoice_quantity,
-                    unit_price=unit_price,
+                    quantity=Decimal("1"),
+                    unit_price=gross_amount,
                     discount_amount=discount_amount + bill_share,
                     charges_amount=charges_amount,
                 ),
@@ -2643,6 +2663,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 purchase_uom_id=spec.get("purchase_uom_id") or source_uom_id,
                 invoice_uom_id=invoice_uom_id or source_uom_id,
                 conversion_factor=conversion_factor,
+                entered_quantity=typed.entered,
                 conversion_version=spec.get("conversion_version"),
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 storage_node_id=spec.get("storage_node_id"),
@@ -3350,6 +3371,45 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             return self._q(getattr(source_line, "accepted_quantity", ZERO))
         return self._q(getattr(source_line, "ordered_quantity", ZERO))
 
+    def _completing_worth(
+        self,
+        *,
+        firm_id: UUID,
+        source_line_id: UUID,
+        whole: Decimal,
+        price: Decimal,
+        otherwise: Decimal,
+    ) -> Decimal:
+        """Return what the part that completes a source line is worth.
+
+        What is left of the whole line's worth after the parts billed
+        before, each rounded to the paisa as the ledger rounds it: rounding
+        the sum is not rounding the parts. Only where every earlier part was
+        billed at the source line's own price -- one that typed another
+        price is the supplier's own figure, and this part is then simply
+        worth what it bills (``otherwise``).
+        """
+        earlier = self._session.execute(
+            select(PurchaseInvoiceLine.unit_price, PurchaseInvoiceLine.gross_amount)
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+            )
+            .where(
+                PurchaseInvoice.firm_id == firm_id,
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.status != PurchaseInvoiceStatus.CANCELLED.value,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoiceLine.source_document_line_id == source_line_id,
+            )
+        ).all()
+        if any(self._q(Decimal(str(was))) != price for was, _ in earlier):
+            return otherwise
+        left = quantize_ledger(whole) - sum(
+            (quantize_ledger(Decimal(str(gross))) for _, gross in earlier), ZERO
+        )
+        return self._q(left) if left > ZERO else otherwise
+
     def _already_invoiced_quantity(
         self, *, firm_id: UUID, source_document_line_id: UUID
     ) -> Decimal:
@@ -3677,11 +3737,23 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         accrued = ZERO
         for receipt_id, receipt_lines in lines.items():
-            bills = self._posted_bills_on(receipt_lines, except_invoice_id=invoice_id)
-            bills.append(receipts[receipt_id])
+            posted = self._posted_bills_on(receipt_lines, except_invoice_id=invoice_id)
+            posted[invoice_id] = receipts[receipt_id]
+            # A bill typed in pieces against a box clears the pieces' share,
+            # not the share of a box rounded to four places: 0.5833 of a box
+            # at 720.00 cleared 419.98 where seven pieces cost 420.00, and
+            # two paise went to purchase price variance (D-PRC-37).
+            unrounded = self._unrounded_billed(receipt_lines)
             accrued += self._replay_accrual(
                 receipt_lines,
-                bills,
+                list(posted.values()),
+                exact=[
+                    {
+                        line_id: quantity + unrounded.get((bill_id, line_id), ZERO)
+                        for line_id, quantity in bill.items()
+                    }
+                    for bill_id, bill in posted.items()
+                ],
                 returned={
                     line_id: self._q(positions[line_id].returned_unbilled)
                     for line_id in receipt_lines
@@ -3726,7 +3798,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         receipt_lines: dict[UUID, tuple[Decimal, Decimal]],
         *,
         except_invoice_id: UUID,
-    ) -> list[dict[UUID, Decimal]]:
+    ) -> dict[UUID, dict[UUID, Decimal]]:
         """Return the bills already posted against these lines, oldest first.
 
         Read from the rows rather than the invoice being approved, whose own
@@ -3766,7 +3838,35 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         bills: dict[UUID, dict[UUID, Decimal]] = {}
         for bill_id, line_id, quantity in rows:
             bills.setdefault(bill_id, {})[line_id] = self._q(quantity)
-        return list(bills.values())
+        return bills
+
+    def _unrounded_billed(
+        self, receipt_lines: dict[UUID, tuple[Decimal, Decimal]]
+    ) -> dict[tuple[UUID, UUID], Decimal]:
+        """Return what rounding took off each bill's quantity of these lines.
+
+        Per bill and receipt line, the quantity typed in another unit less
+        the four places it is stored at in the receipt line's unit; nothing
+        for a line typed in the receipt's own unit.
+        """
+        drift: dict[tuple[UUID, UUID], Decimal] = defaultdict(lambda: ZERO)
+        for bill_id, line_id, stored, entered, factor in self._session.execute(
+            select(
+                PurchaseInvoiceLine.purchase_invoice_id,
+                PurchaseInvoiceLine.source_document_line_id,
+                PurchaseInvoiceLine.current_invoice_quantity,
+                PurchaseInvoiceLine.entered_quantity,
+                PurchaseInvoiceLine.conversion_factor,
+            ).where(
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoiceLine.entered_quantity.is_not(None),
+                PurchaseInvoiceLine.source_document_line_id.in_(list(receipt_lines)),
+            )
+        ).all():
+            drift[(bill_id, line_id)] += exact_quantity(
+                stored, entered, factor
+            ) - Decimal(str(stored))
+        return drift
 
     def _replay_accrual(
         self,
@@ -3775,6 +3875,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         *,
         returned: dict[UUID, Decimal] | None = None,
         returned_cost: Decimal = ZERO,
+        exact: list[dict[UUID, Decimal]] | None = None,
     ) -> list[Decimal]:
         """Return what each bill in turn clears of one receipt's accrual.
 
@@ -3788,6 +3889,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         ``returned_cost`` what those returns took off the accrual (D-BUY-26):
         the goods count toward completing the receipt, and their cost is not
         the completing bill's to clear.
+
+        ``exact`` is each bill's quantities before they were rounded to the
+        receipt line's unit, for a bill typed in another one: its share is
+        worked on those, while what completes the receipt is still counted
+        on the stored quantities, which add up to it exactly.
         """
         posted = quantize_ledger(
             sum((cost for _, cost in receipt_lines.values()), ZERO)
@@ -3798,7 +3904,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         cleared = ZERO
         complete = False
         shares: list[Decimal] = []
-        for bill in bills:
+        for position, bill in enumerate(bills):
             if complete:
                 shares.append(ZERO)
                 continue
@@ -3806,8 +3912,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             for line_id, quantity in bill.items():
                 accepted, cost = receipt_lines[line_id]
                 open_quantity = max(accepted - billed[line_id], ZERO)
+                worked = quantity if exact is None else exact[position][line_id]
                 if accepted > ZERO:
-                    share += cost * min(quantity, open_quantity) / accepted
+                    share += cost * min(worked, open_quantity) / accepted
                 billed[line_id] += quantity
             complete = all(
                 billed[line_id] >= accepted
@@ -4050,6 +4157,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             packaging_type_id=row.packaging_type_id,
             purchase_uom_id=row.purchase_uom_id,
             invoice_uom_id=row.invoice_uom_id,
+            entered_quantity=row.entered_quantity,
             conversion_factor=row.conversion_factor,
             conversion_version=row.conversion_version,
             warehouse_id=row.warehouse_id,

@@ -178,7 +178,7 @@ received in BOX where PO-2026-2027-000004 orders it in PIECE. Receive it in
 the order's unit." (2 BOX against 24 PIECE ordered used to put 24 on the
 shelf, leave the order 2 of 24 received and cost two pieces' price.) **A bill
 or return line typed in another unit is stored in its source line's unit**,
-converted by `UomService.quantity_between`: the rule for the pair where there
+converted by `UomService.continued_quantity`: the rule for the pair where there
 is one, else through the product's stock unit, so 24 PIECE bill a receipt of
 2 BOX, and 25 are more than came in, with only the box-to-piece rule a firm
 actually writes. **A return's stock leaves in the unit its quantity is stored
@@ -186,7 +186,8 @@ in**, the source line's: it left in whatever unit the request sent, so a
 return of 1 naming no unit took one piece off the shelf for 1 BOX, and 12
 PIECE typed against a box line -- stored as 1 -- took one piece too. A return
 line saved before this with no unit is answered from its source line when it
-is completed. `tests/unit/test_purchase_lines_in_another_unit.py` is the
+is completed. (A return typed in another unit leaves as typed; see "Pieces
+that are not whole boxes" below.) `tests/unit/test_purchase_lines_in_another_unit.py` is the
 guard; a debit note carries no unit and moves no stock, so it has nothing to
 convert.
 
@@ -199,12 +200,103 @@ documents), and `invoice_uom_id` / `return_uom_id` with `conversion_factor`
 only record how the line was typed. So the quantity cap, the discount limit
 and everything downstream read one unit. Two things did not follow it. The
 conversion needed a rule from the typed unit to the source unit, which is the
-direction nobody writes; `quantity_between` goes through the stock unit. And a
-typed price was multiplied by the *converted* quantity as it stood;
-`price_per_source_unit` restates it, because a price somebody types is the
-price of the unit they typed. `conversion_factor` on these three lines is
-typed unit to source unit -- **not** a factor into stock, which is the
-source line's own.
+direction nobody writes; `continued_quantity` goes through the stock unit. And
+a typed price was multiplied by the *converted* quantity as it stood;
+`ContinuedQuantity.price_per_source_unit` restates it, because a price
+somebody types is the price of the unit they typed. `conversion_factor` on
+these lines is typed unit to source unit -- **not** a factor into stock, which
+is the source line's own. A sales return is the fourth such line.
+
+### Pieces that are not whole boxes (D-PRC-37, D-PRC-38, 2026-10-06)
+
+**0.5833 of a box is not seven pieces.** The quantity column holds four
+places, so 7 PIECE of a box of 12 was stored only as 0.5833 BOX, and every
+figure worked from that was a little wrong: a sales bill of 7 PIECE of a note
+at 1,200.00 a box was 699.96 where seven pieces are 700.00 (with the other 17
+the bills came to 2,831.95 against the note's 2,832.00); a supplier's bill of
+17 PIECE was 1,020.024, and one of 7 PIECE at a typed 60.00 was stored at
+720.0411 a box and cleared 419.98 of the receipt's accrual, with 0.02 booked
+to purchase price variance; and a purchase return of 7 PIECE was saved,
+approved, and then refused at completion -- "BOX is counted in whole numbers,
+so 0.5833 BOX cannot be entered" -- and stayed APPROVED for ever.
+
+**The storage decision.** The row keeps **both**: the quantity in the source
+line's unit, as before, and beside it **`entered_quantity`**, what was typed,
+in the line's own `invoice_uom_id` / `return_uom_id` (migration
+`20261006_0343`, on `sales_invoice_lines`, `purchase_invoice_lines`,
+`purchase_return_lines` and `sales_return_lines`; null on a line typed in its
+source line's own unit, and on every line written before it). Storing only
+the typed unit and quantity was the other choice and was not taken: about 160
+places in some thirty files read `current_invoice_quantity` or
+`current_return_quantity` as a count in the source line's unit -- every cap,
+every "already billed", the lifecycle sums, commission, the offers' and the
+principal's claims -- and each would have had to learn to convert. They are
+unchanged, and read what they read before. What changed is what is **worked
+from the typed figure**:
+
+- **Money.** The line is worth what was typed
+  (`ContinuedQuantity.worth`): seven pieces at the price typed for a piece,
+  or, with none typed, seven twelfths of the source line's price for a box
+  taken *before* rounding -- 700.00, never 0.5833 of it. `gross_amount` is
+  that figure, and the tax is worked on it, not on quantity times price.
+- **The price.** `unit_price` stays the price of one source unit and is
+  exact: 60.00 a piece is 720.0000 a box (it was restated from the rounded
+  quantity as 720.0411), so a bill at the receipt's own price is at the
+  receipt's own price for the price-variance report too.
+- **`conversion_factor`** is kept at the ten places its column has
+  (0.0833333333), where it was rounded to four. `exact_quantity(quantity,
+  entered_quantity, conversion_factor)` in `app/uom/services/uom_service.py`
+  gives any reader that values a line per source unit the unrounded figure;
+  the share of a receipt's accrual a bill clears (`_replay_accrual`) and the
+  MRP ceiling on a bill use it. **No purchase price variance arises from a
+  conversion.**
+- **The stock.** A purchase return and a sales return typed in another unit
+  move what was typed, in the unit it was typed in: 7 PIECE, so seven pieces.
+- **The parts add up.** Each part rounded on its own, 5 + 5 + 14 PIECE of two
+  boxes are 0.4167 + 0.4167 + 1.1667 = 2.0001 BOX, and the third was refused
+  as more than was shipped. The part that takes all that is left (to within
+  rounding: half a typed unit, and never more than 0.0005) is stored as
+  exactly what is left (`ContinuedQuantity.taking`). And where it bills at
+  the source line's own price, as every part before it did, it is worth what
+  they left of the line to the paisa (`_completing_worth`): a box at 1,000.00
+  billed 4 + 4 + 4 pieces is 333.33 + 333.33 + **333.34**.
+
+**The whole-number rule of a unit is asked of what a person typed, never of a
+converted figure**, and it is asked where the line is saved. 7 PIECE against a
+box line is seven of a unit that takes whole numbers or fractions as PIECE
+does; 0.5 BOX typed as a box is refused at save, on a bill and on a return
+alike: "BOX is counted in whole numbers, so 0.5 BOX cannot be entered." Two
+converted figures used to be put to the rule:
+
+- the 0.5833 BOX a return of pieces was stored as, at completion -- gone, since
+  the return moves what was typed;
+- **one batch's share of a line split across batches.** A box of twelve drawn
+  ten from one batch and two from the next was passed to the stock ledger as
+  0.8333 and 0.1667 of a box, so approving an order by the box for a
+  batch-tracked product whose batches did not hold whole boxes was refused,
+  "BOX is counted in whole numbers, so 0.8333 BOX cannot be entered"; and
+  where the unit allows fractions the shares were converted *back* -- 0.1667
+  of twelve is 2.0004 pieces -- so the hold and the stock drifted from the
+  allocation. The reservation, its release and the dispatch now take
+  `share_of_line` for a split: the rule is the line's to pass, and what moves
+  is the allocation itself.
+
+**What is not typed in pieces.** A goods receipt line and a delivery note
+line are counted in their order line's unit and one naming another is refused
+where it is saved, as above; loose pieces of an order by the box are received
+or delivered on an order line in pieces. A return line that sends back **free
+goods beside charged ones** in another unit than its source line is counted
+and moved in the source line's unit, so its quantity must be one that unit
+can hold, and it is refused at save if not -- never at completion.
+
+**A sales return against a bill reads the bill's line in the note's unit.** A
+bill line is counted in the unit of the line it bills whatever unit it was
+typed in, and the return read `invoice_uom_id` as that unit: 7 PIECE off a
+bill typed 24 PIECE of 2 BOX was refused as more than the "2" dispatched. The
+return also needed a piece-to-box rule, which nobody writes, and passed its
+stock in the typed unit beside a quantity in the source's.
+`tests/unit/test_lines_in_another_unit.py` and
+`tests/unit/test_purchase_lines_in_another_unit.py` drive all of it.
 
 `business_profile_uom_defaults` supplies the starting point for a firm's
 industry (base, inventory, purchase and sales units, plus the two fraction
@@ -307,15 +399,15 @@ use.
 ## Conversion happens on the line, only when the units differ
 
 **Eight** document modules convert this way, counted on 2026-10-06 with
-`grep -rlE "convert_quantity|quantity_between" backend/app --include=*.py`
+`grep -rlE "convert_quantity|continued_quantity" backend/app --include=*.py`
 rather than remembered (this line said seven long after `sales_return` made
 it eight; the command also lists `uom` itself and two files that only mention
 the name, `inventory` and `pricing`): purchase, goods receipt, purchase invoice, purchase return, sales
 order, delivery note, sales invoice, sales return. Each holds a `UomService`.
-Five call `convert_quantity` per line; the sales invoice, the purchase
-invoice and the purchase return, whose line continues another document's
-line, call `quantity_between`, which is `convert_quantity` with a second
-route through the stock unit. `inventory` resolves the rule itself for a movement that
+Four call `convert_quantity` per line; the sales invoice, the purchase
+invoice, the purchase return and the sales return, whose line continues
+another document's line, call `continued_quantity`, which resolves the same
+rule with a second route through the stock unit and keeps the typed figure. `inventory` resolves the rule itself for a movement that
 carries no line factor, and `pricing` reads only the factor (`unit_factor`).
 The shape, on a line that converts into stock:
 
@@ -507,4 +599,4 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
 
 *Moved out of `CLAUDE.md` on 2026-09-15 when that file passed the 150k-character limit.*
 
-**UOM & packaging** (`app/uom`) — `docs/UOM_FRAMEWORK.md` is the reference: the seven unit slots a product carries, effective-dated conversion rules, and the resolution order (the product's own rule before the firm-wide one, ranked explicitly rather than by NULL sort). **Eight** document modules convert per line -- `purchase`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `sales_order`, `delivery_note`, `sales_invoice`, `sales_return` (the sales invoice, the purchase invoice and the purchase return through `quantity_between`, which calls `convert_quantity`; count with the `grep` above) -- plus `inventory`, taking a `factor = 1` short-circuit only when the units match. `quotation` deliberately does not: it moves no stock, and the conversion happens when it becomes an order, because `convert_quotation` builds that order through `SalesOrderService.create_order`.
+**UOM & packaging** (`app/uom`) — `docs/UOM_FRAMEWORK.md` is the reference: the seven unit slots a product carries, effective-dated conversion rules, and the resolution order (the product's own rule before the firm-wide one, ranked explicitly rather than by NULL sort). **Eight** document modules convert per line -- `purchase`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `sales_order`, `delivery_note`, `sales_invoice`, `sales_return` (the sales invoice, the purchase invoice and the two returns through `continued_quantity`, which resolves the same rule; count with the `grep` above) -- plus `inventory`, taking a `factor = 1` short-circuit only when the units match. `quotation` deliberately does not: it moves no stock, and the conversion happens when it becomes an order, because `convert_quotation` builds that order through `SalesOrderService.create_order`.

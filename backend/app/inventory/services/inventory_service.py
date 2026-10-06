@@ -3008,6 +3008,7 @@ class InventoryService:
         line_conversion: LineConversion | None = None,
         remarks: str | None = None,
         batch_id: UUID | None = None,
+        share_of_line: bool = False,
     ) -> InventoryTransaction:
         """Reserve stock for a sales order line, against one batch.
 
@@ -3016,6 +3017,13 @@ class InventoryService:
         ``allocate_for_reservation`` and call this once per batch; the part of
         a reservation no batch can cover is passed with no batch, because there
         is no batch behind it.
+
+        ``share_of_line`` says the entered quantity is one batch's share of a
+        line split across batches, not a figure anybody typed: a box of
+        twelve drawn ten from one batch and two from the next is 0.8333 and
+        0.1667 of a box. The whole-number rule of the unit is the line's to
+        pass, not each share's, and the stock that moves is the allocation
+        itself -- ten pieces, not 0.8333 of twelve (D-PRC-38).
         """
         (
             base_quantity,
@@ -3032,7 +3040,10 @@ class InventoryService:
             conversion_version=conversion_version,
             line_conversion=line_conversion,
             on_date=transaction_date,
+            enforce_whole_units=not share_of_line,
         )
+        if share_of_line:
+            base_quantity = Decimal(str(reserve_quantity))
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=branch_id,
@@ -3080,8 +3091,14 @@ class InventoryService:
         line_conversion: LineConversion | None = None,
         remarks: str | None = None,
         batch_id: UUID | None = None,
+        share_of_line: bool = False,
     ) -> InventoryTransaction:
-        """Release a sales order's reservation."""
+        """Release a sales order's reservation.
+
+        ``share_of_line`` is one batch's share of a line held across
+        batches: what is let go is that batch's hold itself, in stock units,
+        as it was reserved.
+        """
         (
             base_quantity,
             entered_quantity,
@@ -3099,6 +3116,8 @@ class InventoryService:
             on_date=transaction_date,
             enforce_whole_units=False,
         )
+        if share_of_line:
+            base_quantity = Decimal(str(release_quantity))
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=branch_id,
@@ -3703,11 +3722,19 @@ class InventoryService:
         remarks: str | None = None,
         batch_id: UUID | None = None,
         serial_id: UUID | None = None,
+        share_of_line: bool = False,
     ) -> InventoryTransaction:
         """Post the stock a delivery note dispatched, from one batch.
 
         Callers holding a line that spans batches call
         ``allocate_for_dispatch`` first and then this once per allocated batch.
+
+        ``share_of_line`` says the entered quantity is one batch's share of a
+        line split across batches, not a figure anybody typed: a box of
+        twelve drawn ten from one batch and two from the next is 0.8333 and
+        0.1667 of a box. The whole-number rule of the unit is the line's to
+        pass, not each share's, and the stock that moves is the allocation
+        itself -- ten pieces, not 0.8333 of twelve (D-PRC-38).
         """
         (
             base_quantity,
@@ -3724,7 +3751,10 @@ class InventoryService:
             conversion_version=conversion_version,
             line_conversion=line_conversion,
             on_date=transaction_date,
+            enforce_whole_units=not share_of_line,
         )
+        if share_of_line:
+            base_quantity = Decimal(str(dispatch_quantity))
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=branch_id,

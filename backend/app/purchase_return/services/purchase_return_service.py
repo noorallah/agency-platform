@@ -115,7 +115,6 @@ from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.services import (
     UomService,
     assert_quantity_fits_unit,
-    price_per_source_unit,
 )
 from app.vendors.models import Vendor
 
@@ -658,6 +657,16 @@ class PurchaseReturnService(TransactionalDocumentService):
             # What leaves the shelf: the charged units and the free ones
             # going back beside them (D-BUY-56).
             current_qty = self._q(line.current_return_quantity + line.free_quantity)
+            counted_in = self._counted_in(line)
+            conversion_version = line.conversion_version
+            if line.entered_quantity is not None and line.return_uom_id is not None:
+                # Typed in another unit than the line it sends back: what
+                # was typed is what leaves, in the unit it was typed in --
+                # seven pieces, not the 0.5833 of a box the cap counts,
+                # which a box counted in whole numbers refuses (D-PRC-38).
+                current_qty = self._q(line.entered_quantity)
+                counted_in = line.return_uom_id
+                conversion_version = None
             rejected_qty = line.rejected_quantity
             sellable_qty = self._q(current_qty - rejected_qty)
             if sellable_qty < ZERO:
@@ -684,8 +693,8 @@ class PurchaseReturnService(TransactionalDocumentService):
                     rejected_qty if line.item_condition == "QUARANTINE" else ZERO
                 ),
                 entered_quantity=current_qty,
-                entered_uom_id=self._counted_in(line),
-                conversion_version=line.conversion_version,
+                entered_uom_id=counted_in,
+                conversion_version=conversion_version,
                 remarks=line.remarks or row.remarks,
                 batch_id=batch_id,
                 rejects_held=self._rejects_awaiting_return(line),
@@ -2143,27 +2152,22 @@ class PurchaseReturnService(TransactionalDocumentService):
             conversion_factor = self._q(
                 Decimal(str(spec.get("conversion_factor", Decimal("1"))))
             )
-            return_quantity = requested_quantity
-            if (
-                source_uom_id is not None
-                and return_uom_id is not None
-                and return_uom_id != source_uom_id
-            ):
-                # In the source line's unit, which is what the caps below
-                # count in and what the stock leaves in: by the rule for
-                # the pair, else through the product's stock unit, so 12
-                # PIECE go back off a receipt of 2 BOX as 1 BOX.
-                converted, factor = self._uom.quantity_between(
-                    product_id=self._product_id(source_line),
-                    from_uom_id=_required_uuid(return_uom_id),
-                    to_uom_id=source_uom_id,
-                    quantity=requested_quantity,
-                    on_date=return_date,
-                    firm_scope=firm_id,
-                )
-                return_quantity = self._q(converted)
-                conversion_factor = self._q(factor)
-            converted_quantity = return_quantity
+            # In the source line's unit, which is what the caps below count
+            # in: by the rule for the pair, else through the product's stock
+            # unit, so 12 PIECE go back off a receipt of 2 BOX as 1 BOX.
+            # What was typed is kept beside it, and that is what is costed
+            # and what leaves the shelf: 7 PIECE were stored only as 0.5833
+            # BOX, approved, and then could never be completed (D-PRC-38).
+            typed = self._uom.continued_quantity(
+                product_id=self._product_id(source_line),
+                quantity=requested_quantity,
+                from_uom_id=_optional_uuid(return_uom_id),
+                to_uom_id=source_uom_id,
+                on_date=return_date,
+                firm_scope=firm_id,
+            )
+            if typed.entered is not None:
+                conversion_factor = typed.stored_factor
             # Request sessions do not autoflush, and an earlier line of this
             # same return may be sending back the same goods.
             self._session.flush()
@@ -2189,6 +2193,11 @@ class PurchaseReturnService(TransactionalDocumentService):
             # only the returns naming this source line left 10 pending on a
             # receipt line whose 10 had gone back off its bill.
             already_bought = self._q(source_quantity - charged_left)
+            free_left = self._q(source_free - already_free)
+            # The part that sends back all that is left is stored as exactly
+            # that, however its pieces round as boxes.
+            typed = typed.taking(self._q(charged_left + free_left))
+            return_quantity = typed.quantity
             # No request can lift this cap: a body flag the caller set was all
             # it took to send back more than was received (D-SELL-29).
             return_quantity, free_quantity = self._split_free_goods(
@@ -2196,27 +2205,38 @@ class PurchaseReturnService(TransactionalDocumentService):
                 total=return_quantity,
                 typed_free=self._typed_free(spec, requested_quantity, return_quantity),
                 charged_left=charged_left,
-                free_left=self._q(source_free - already_free),
+                free_left=free_left,
                 off_a_receipt=(
                     source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value
                 ),
                 by_another_route=by_another_route,
             )
-            unit_price = self._unit_price(spec, source_line)
-            if spec.get("unit_price") is not None:
-                # Typed for the unit the line was typed in; restated for the
-                # source line's unit the quantity is stored in. Before the
-                # free goods are split off: both quantities are the whole
-                # line here.
-                unit_price = self._q(
-                    price_per_source_unit(
-                        unit_price,
-                        typed_quantity=requested_quantity,
-                        source_quantity=converted_quantity,
-                    )
+            # Only charged goods are worth what was typed for them; with
+            # free goods beside them the line is counted, costed and moved
+            # in the source line's unit, where it must then be a quantity
+            # that unit can hold -- refused here, where it is saved, never
+            # at completion (D-PRC-38).
+            as_typed = typed.entered is not None and free_quantity == ZERO
+            if typed.entered is not None and not as_typed:
+                assert_quantity_fits_unit(
+                    self._session,
+                    quantity=self._q(return_quantity + free_quantity),
+                    uom_id=source_uom_id,
+                    product_id=self._product_id(source_line),
+                    firm_id=firm_id,
                 )
+            unit_price = self._unit_price(spec, source_line)
+            typed_price = None if spec.get("unit_price") is None else unit_price
+            if typed_price is not None:
+                # Typed for the unit the line was typed in; the row keeps the
+                # price of one of the source line's unit.
+                unit_price = self._q(typed.price_per_source_unit(typed_price))
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
-            gross_amount = self._q(return_quantity * unit_price)
+            gross_amount = self._q(
+                typed.worth(typed_price=typed_price, source_price=unit_price)
+                if as_typed
+                else return_quantity * unit_price
+            )
             line_discount = self._line_discount(
                 spec=spec, source_line=source_line, gross=gross_amount
             )
@@ -2242,9 +2262,11 @@ class PurchaseReturnService(TransactionalDocumentService):
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 product_id=self._product_id(source_line),
                 tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
+                # Taxed on what the line is worth, which for a line typed
+                # in another unit is not its stored quantity times its price.
                 invoice_value=self._line_net_amount(
-                    quantity=return_quantity,
-                    unit_price=unit_price,
+                    quantity=Decimal("1"),
+                    unit_price=gross_amount,
                     discount_amount=discount_amount + bill_share,
                     charges_amount=charges_amount,
                 ),
@@ -2303,6 +2325,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 purchase_uom_id=source_uom_id or spec.get("purchase_uom_id"),
                 return_uom_id=spec.get("return_uom_id"),
                 conversion_factor=conversion_factor,
+                entered_quantity=typed.entered if as_typed else None,
                 conversion_version=spec.get("conversion_version"),
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 storage_node_id=spec.get("storage_node_id"),
@@ -3322,6 +3345,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             packaging_type_id=row.packaging_type_id,
             purchase_uom_id=row.purchase_uom_id,
             return_uom_id=row.return_uom_id,
+            entered_quantity=row.entered_quantity,
             conversion_factor=row.conversion_factor,
             conversion_version=row.conversion_version,
             warehouse_id=row.warehouse_id,

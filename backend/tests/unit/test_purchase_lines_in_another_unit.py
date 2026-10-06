@@ -732,3 +732,165 @@ def test_a_price_typed_on_a_bill_or_return_in_pieces_is_the_price_of_a_piece() -
         D("720.0000"),
         D("720.0000"),
     )
+
+
+# ---- pieces that are not whole boxes (D-PRC-37, D-PRC-38) -------------------
+#
+# The third live check (2026-10-06): against a receipt of 2 BOX at 720.00, a
+# bill of 7 PIECE at 60.00 was stored as 0.5833 BOX at 720.0411 and cleared
+# 419.98 of the accrual, 0.02 to purchase price variance; 17 PIECE with no
+# price were 1,020.024. A return of 7 PIECE was saved as 0.5833 BOX, approved,
+# and refused at completion: "BOX is counted in whole numbers, so 0.5833 BOX
+# cannot be entered."
+
+
+def _variance(buyer: _Buyer) -> Decimal:
+    """Return what has gone to purchase price variance."""
+    return buyer.firm.balance(ControlAccountPurpose.PURCHASE_PRICE_VARIANCE)
+
+
+def test_loose_pieces_billed_off_a_box_receipt_cost_what_the_pieces_cost() -> None:
+    """7 PIECE at 60.00 are 420.00 and 17 with no price 1,020.00: no variance."""
+    buyer = _Buyer()
+    receipt = buyer.receive(buyer.order(**buyer.named("c")))
+
+    seven = buyer.bill(receipt, "7", invoice_uom_id=buyer.piece, unit_price="60")
+
+    line = buyer.bill_line(seven)
+    assert (line.entered_quantity, line.invoice_uom_id) == (D("7.0000"), buyer.piece)
+    # The cap still counts in the receipt line's unit, at the receipt's price.
+    assert (line.current_invoice_quantity, line.unit_price) == (
+        D("0.5833"),
+        D("720.0000"),
+    )
+    assert line.conversion_factor == D("0.0833333333")
+    assert (line.gross_amount, seven.grand_total) == (D("420.0000"), D("420.0000"))
+    # The accrual is cleared for seven pieces, and nothing is variance.
+    assert buyer.books() == (D("1440.00"), D("-1020.00"), D("-420.00"))
+    assert _variance(buyer) == D("0")
+
+    rest = buyer.bill(receipt, "17", invoice_uom_id=buyer.piece)
+
+    line = buyer.bill_line(rest)
+    assert (line.entered_quantity, line.current_invoice_quantity) == (
+        D("17.0000"),
+        D("1.4167"),
+    )
+    assert (line.unit_price, line.gross_amount) == (D("720.0000"), D("1020.0000"))
+    assert buyer.books() == (D("1440.00"), D("0"), D("-1440.00"))
+    assert _variance(buyer) == D("0")
+
+
+def test_parts_in_pieces_that_round_up_as_boxes_still_bill_the_whole_receipt() -> None:
+    """5, 5 and 14 PIECE are 0.4167 + 0.4167 + 1.1667 boxes: the third is taken.
+
+    Each rounded on its own they come to 2.0001 BOX, and the bill that
+    completes the receipt was refused as more than came in. It is stored as
+    what was left.
+    """
+    buyer = _Buyer()
+    receipt = buyer.receive(buyer.order(**buyer.named("c")))
+
+    buyer.bill(receipt, "5", invoice_uom_id=buyer.piece)
+    buyer.bill(receipt, "5.0", invoice_uom_id=buyer.piece)
+    last = buyer.bill(receipt, "14", invoice_uom_id=buyer.piece)
+
+    line = buyer.bill_line(last)
+    assert (line.entered_quantity, line.current_invoice_quantity) == (
+        D("14.0000"),
+        D("1.1666"),
+    )
+    assert line.gross_amount == D("840.0000")
+    assert buyer.books() == (D("1440.00"), D("0"), D("-1440.00"))
+    assert _variance(buyer) == D("0")
+    with pytest.raises(ValidationError, match="exceeds the available source"):
+        buyer.bill(receipt, "1", invoice_uom_id=buyer.piece)
+    buyer.session.rollback()
+
+
+def test_the_bill_that_completes_a_receipt_takes_what_the_others_left() -> None:
+    """A box at 1,000.00 billed 4 + 4 + 4 pieces is 333.33 + 333.33 + 333.34."""
+    buyer = _Buyer()
+    receipt = buyer.receive(
+        buyer.order(ordered_quantity="1", unit_price="1000", **buyer.named("c")),
+        "1",
+    )
+
+    bills = [
+        buyer.bill(receipt, quantity, invoice_uom_id=buyer.piece)
+        for quantity in ("4", "4.0", "4.00")
+    ]
+
+    assert [buyer.bill_line(bill).gross_amount for bill in bills] == [
+        D("333.3333"),
+        D("333.3333"),
+        D("333.3400"),
+    ]
+    assert buyer.books() == (D("1000.00"), D("0"), D("-1000.00"))
+    assert _variance(buyer) == D("0")
+
+
+def test_seven_pieces_sent_back_off_a_box_line_leave_as_seven_pieces() -> None:
+    """D-PRC-38: saved, approved and completed; 7 pieces leave at 60.00."""
+    buyer = _Buyer()
+    receipt = buyer.receive(buyer.order(**buyer.named("c")))
+    buyer.bill(receipt)
+    assert buyer.stock() == D("24.0000")
+
+    sent = buyer.send_back(
+        "GOODS_RECEIPT",
+        receipt.id,
+        buyer.receipt_line(receipt).id,
+        quantity="7",
+        return_uom_id=buyer.piece,
+    )
+
+    line = buyer.return_line(sent)
+    assert (line.entered_quantity, line.return_uom_id) == (D("7.0000"), buyer.piece)
+    assert (line.current_return_quantity, line.unit_price) == (
+        D("0.5833"),
+        D("720.0000"),
+    )
+    assert line.gross_amount == D("420.0000")
+    buyer.session.expire_all()
+    assert buyer.session.get(PurchaseReturn, sent.id).status == "COMPLETED"
+    assert buyer.stock() == D("17.0000")
+    moved, cost, value = buyer.movement(line.inventory_transaction_id)
+    assert (abs(moved), cost, abs(value)) == (D("7.0000"), D("60.000000"), D("420.00"))
+    # The other 17 go back too, and the line is then all gone.
+    rest = buyer.send_back(
+        "GOODS_RECEIPT",
+        receipt.id,
+        buyer.receipt_line(receipt).id,
+        quantity="17",
+        return_uom_id=buyer.piece,
+    )
+    assert buyer.return_line(rest).current_return_quantity == D("1.4167")
+    assert buyer.stock() == D("0.0000")
+    assert buyer.books()[0] == D("0.00")
+
+
+@pytest.mark.parametrize("named", [True, False])
+def test_half_a_box_typed_as_a_box_is_refused_where_it_is_saved(named: bool) -> None:
+    """0.5 BOX, named or as the line's own unit, never reaches approval."""
+    buyer = _Buyer()
+    receipt = buyer.receive(buyer.order(**buyer.named("c")))
+    unit = {"return_uom_id": buyer.box} if named else {}
+
+    with pytest.raises(ValidationError) as refused:
+        buyer.send_back(
+            "GOODS_RECEIPT",
+            receipt.id,
+            buyer.receipt_line(receipt).id,
+            quantity="0.5",
+            **unit,
+        )
+    buyer.session.rollback()
+
+    assert str(refused.value.message) == (
+        "BOX is counted in whole numbers, so 0.5 BOX cannot be entered."
+    )
+    assert buyer.session.scalars(select(PurchaseReturn)).all() == []
+    with pytest.raises(ValidationError, match="so 0.5 BOX cannot be entered"):
+        buyer.bill(receipt, "0.5", **({"invoice_uom_id": buyer.box} if named else {}))
+    buyer.session.rollback()

@@ -393,6 +393,10 @@ class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
     packaging_type_id: UUID | None
     purchase_uom_id: UUID | None
     invoice_uom_id: UUID | None
+    #: What was typed, in ``invoice_uom_id``, where the line was typed in
+    #: another unit than the line it bills; ``current_invoice_quantity`` is
+    #: then the same goods in that source line's unit (D-PRC-37).
+    entered_quantity: Decimal | None = None
     conversion_factor: Decimal
     conversion_version: int | None
     warehouse_id: UUID | None
