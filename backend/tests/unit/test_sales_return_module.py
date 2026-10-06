@@ -67,7 +67,12 @@ from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
-from app.sales_return.billing import billed_part, credits_a_bill
+from app.sales_return.billing import (
+    CreditedBill,
+    billed_part,
+    bills_credited,
+    credits_a_bill,
+)
 from app.sales_return.models import (
     SalesReturn,
     SalesReturnBillPlacement,
@@ -82,6 +87,9 @@ from app.sales_return.schemas import (
     SalesReturnStatus,
 )
 from app.sales_return.services import SalesReturnService
+from app.sales_return.services.credit_note_print_service import (
+    CreditNotePrintService,
+)
 from app.settlements.services.net_sales import invoiced_net
 from app.settlements.services.settlement_service import (
     credited_against,
@@ -89,6 +97,7 @@ from app.settlements.services.settlement_service import (
     settled_against,
 )
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
+from app.tax.services.gst_buckets import GstBuckets
 from app.uom.models import uom as _uom_models  # noqa: F401
 
 #: What the goods cost coming in, and what they sell for going out. They are
@@ -3109,3 +3118,165 @@ def test_a_draft_return_off_the_note_takes_nothing_off_the_bill() -> None:
     _returned(setup, setup.payload(quantity=Decimal("2")), complete=False)
 
     assert _off_the_bill(setup, setup.invoice) == Decimal("0")
+
+
+# ---- a credit note names the invoices it corrects (D-PRC-84) ----------------
+#
+# The eighth pricing check (2026-10-06): the printed credit note of a sales
+# return carried no bill number or date, raised on a bill's own line or off a
+# delivery note, and GSTR-1 named only the earliest bill of a return set
+# against two. Here the note of four at 100.00 is billed as two bills of two.
+
+
+def _references(setup: _Dispatch, row: SalesReturn) -> list[tuple[str, str]]:
+    """Return what a return's credit note prints beside its number and date."""
+    document = CreditNotePrintService(setup.session)._document(
+        row, firm_scope=setup.firm.id
+    )
+    return list(document.references)
+
+
+def _dated(invoice: SalesInvoice) -> tuple[str, str]:
+    """Return the row a credit note prints for one original invoice."""
+    return (
+        "Against invoice",
+        f"{invoice.invoice_number} dated {invoice.invoice_date.strftime('%d %b %Y')}",
+    )
+
+
+def test_a_credit_note_on_a_bills_own_line_prints_that_bills_number_and_date() -> None:
+    """Raised on the second bill's line: that bill, and no delivery note."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+
+    row = _returned(setup, _on_the_line_of(setup, second, "1"))
+
+    assert _references(setup, row) == [_dated(second)]
+
+
+def test_a_credit_note_off_a_note_prints_every_bill_it_was_set_against() -> None:
+    """Three back off the note: the first bill's two and one of the second's."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+
+    row = _returned(setup, setup.payload(quantity=Decimal("3")))
+
+    assert _references(setup, row) == [
+        _dated(setup.invoice),
+        _dated(second),
+        ("Delivery note", setup.note.delivery_note_number),
+    ]
+    # Two back fall on the first bill alone, and only that one is named.
+    setup_b, _ = _billed_in_two(_session_factory()())
+    alone = _returned(setup_b, setup_b.payload(quantity=Decimal("2")))
+    assert _references(setup_b, alone)[:1] == [_dated(setup_b.invoice)]
+    assert len(_references(setup_b, alone)) == 2
+
+
+def test_a_return_off_a_note_not_yet_completed_names_its_note_and_no_bill() -> None:
+    """Approved and no more: it has been set against no bill yet."""
+    session = _session_factory()()
+    setup, _second = _billed_in_two(session)
+
+    row = _returned(setup, setup.payload(quantity=Decimal("3")), complete=False)
+
+    assert _references(setup, row) == [
+        ("Delivery note", setup.note.delivery_note_number),
+    ]
+
+
+def test_a_return_completed_before_placements_names_the_earliest_bill() -> None:
+    """Nothing stored splits it: the earliest bill of the note line, as before."""
+    session = _session_factory()()
+    setup, _second = _billed_in_two(session)
+    row = _returned(setup, setup.payload(quantity=Decimal("3")))
+    session.query(SalesReturnBillPlacement).delete()
+    session.commit()
+    lines = session.scalars(
+        select(SalesReturnLine).where(SalesReturnLine.sales_return_id == row.id)
+    ).all()
+
+    [(line_id, bills)] = bills_credited(session, lines).items()
+
+    assert line_id == lines[0].id
+    assert bills == [
+        CreditedBill(
+            setup.invoice.id,
+            _bill_line(session, setup.invoice).id,
+            setup.invoice.invoice_number,
+            setup.invoice.invoice_date,
+        )
+    ]
+
+
+def test_gstr1_names_every_bill_a_return_off_a_note_was_set_against() -> None:
+    """Three back off the note: 200.00 on the first bill, 100.00 on the second."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    row = _returned(setup, setup.payload(quantity=Decimal("3")))
+    reader = GstReturnService(session)
+
+    [credit] = reader._returns_as_credits([row])
+
+    assert credit.against_invoice_ids == [setup.invoice.id, second.id]
+    assert credit.against_invoice_number == (
+        f"{setup.invoice.invoice_number}, {second.invoice_number}"
+    )
+    assert {key: part for key, (part, _) in credit.by_invoice.items()} == {
+        setup.invoice.id: Decimal("200.0000"),
+        second.id: Decimal("100.0000"),
+    }
+    assert credit.taxable == Decimal("300.0000")
+    # The HSN summary nets the line once, under the earliest bill's line.
+    assert [item[1] for item in credit.items] == [_bill_line(session, setup.invoice).id]
+    listed = reader._against_invoices(
+        credit,
+        reader._invoice_references(credit.against_invoice_ids),
+        {
+            "taxable_value": 300.0,
+            "integrated_tax": 0.0,
+            "central_tax": 0.0,
+            "state_tax": 0.0,
+            "cess": 0.0,
+        },
+    )
+    assert [
+        (entry["invoice_number"], entry["invoice_date"], entry["taxable_value"])
+        for entry in listed
+    ] == [
+        (setup.invoice.invoice_number, setup.invoice.invoice_date.isoformat(), 200.0),
+        (second.invoice_number, second.invoice_date.isoformat(), 100.0),
+    ]
+
+
+def test_the_parts_of_a_note_add_up_to_its_own_row() -> None:
+    """Tax of 18.01 over two bills of equal worth: 9.01 and 9.00, never 9.00 twice."""
+    session = _session_factory()()
+    setup, second = _billed_in_two(session)
+    row = _returned(setup, setup.payload(quantity=Decimal("4")))
+    reader = GstReturnService(session)
+    [credit] = reader._returns_as_credits([row])
+    half = GstBuckets(
+        cgst=Decimal("4.5025"), sgst=Decimal("4.5025"), rate=Decimal("18")
+    )
+    credit.by_invoice = {
+        setup.invoice.id: (Decimal("200"), half),
+        second.id: (Decimal("200"), half),
+    }
+    figures = {
+        "taxable_value": 400.0,
+        "integrated_tax": 0.0,
+        "central_tax": 9.01,
+        "state_tax": 9.01,
+        "cess": 0.0,
+    }
+
+    listed = reader._against_invoices(
+        credit, reader._invoice_references(credit.against_invoice_ids), dict(figures)
+    )
+
+    assert len(listed) == 2
+    for name, whole in figures.items():
+        parts = [Decimal(str(entry[name])) for entry in listed]
+        assert sum(parts, Decimal("0")) == Decimal(str(whole)), name
+    assert [entry["central_tax"] for entry in listed] == [4.5, 4.51]

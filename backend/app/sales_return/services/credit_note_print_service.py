@@ -40,6 +40,7 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
 )
+from app.sales_return.billing import CreditedBill, bills_credited
 from app.sales_return.models import (
     SalesReturn,
     SalesReturnLine,
@@ -226,7 +227,7 @@ class CreditNotePrintService:
             for line in lines
         ]
 
-        references: list[tuple[str, str]] = []
+        references = self._originals(row, lines)
         if row.return_reason:
             # Why the goods came back is the first thing anybody reading a
             # credit note wants to know.
@@ -265,6 +266,51 @@ class CreditNotePrintService:
             date_label="Credit note date",
             words_label="CREDIT, IN WORDS",
         )
+
+    def _originals(
+        self, row: SalesReturn, lines: list[SalesReturnLine]
+    ) -> list[tuple[str, str]]:
+        """Name the invoices this credit note corrects, and the notes it is off.
+
+        A GST credit note is issued against a tax invoice and states the
+        number and date of each one it corrects; this print carried neither,
+        by either route, so a customer's accountant could not match it to a
+        bill (D-PRC-84). A line raised on a bill's own line names that bill;
+        a line off a delivery note names every bill its units were set
+        against when the return completed -- several, where the note was
+        billed in parts -- which is what GSTR-1 names too (`bills_credited`).
+        One row a bill, earliest first, then the delivery notes the goods
+        came back off.
+
+        A return off a note that has not completed has been set against no
+        bill yet, and names its note alone.
+        """
+        credited = bills_credited(self._session, lines, completed=row.status in _ISSUED)
+        bills: dict[UUID, CreditedBill] = {}
+        for line in lines:
+            for bill in credited.get(line.id, []):
+                bills.setdefault(bill.invoice_id, bill)
+        references = [
+            (
+                "Against invoice",
+                f"{bill.invoice_number} dated {bill.invoice_date.strftime('%d %b %Y')}",
+            )
+            for bill in sorted(
+                bills.values(),
+                key=lambda item: (item.invoice_date, item.invoice_number),
+            )
+        ]
+        notes = list(
+            dict.fromkeys(
+                line.source_document_number
+                for line in lines
+                if line.source_document_type == "DELIVERY_NOTE"
+                and line.source_document_number
+            )
+        )
+        if notes:
+            references.append(("Delivery note", ", ".join(notes)))
+        return references
 
     def _taxes(self, ids: Iterable[UUID]) -> dict[UUID, list[SalesReturnLineTax]]:
         """Read the stored breakup for every line, in one query."""
