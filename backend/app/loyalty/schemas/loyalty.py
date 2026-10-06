@@ -75,6 +75,12 @@ class LoyaltyEntryResponse(LoyaltySchema):
     earned_on: date
     expires_on: date | None = None
     remarks: str | None = None
+    #: The entry this one undoes: on a redemption, the redemption whose points
+    #: it puts back (D-PRC-6); on a take-back or a lapse, the batch it is of.
+    reverses_id: UUID | None = None
+    #: True on a redemption whose points have since been put back, so a
+    #: screen offers "put points back" once and not on the row that did it.
+    is_reversed: bool = False
 
 
 class LoyaltyBalance(LoyaltySchema):

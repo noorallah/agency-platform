@@ -286,9 +286,31 @@ class LoyaltyService:
                     )
                 ).all()
             }
+        # Which redemptions on this page have had their points put back: one
+        # read for the page, so a screen need not guess it from the rows it
+        # happens to hold (D-PRC-6).
+        spent = {
+            row.id
+            for row in rows
+            if row.kind == LoyaltyEntryKind.REDEEMED.value and row.reverses_id is None
+        }
+        put_back: set[UUID] = set()
+        if spent:
+            put_back = {
+                entry_id
+                for entry_id in self._session.scalars(
+                    select(LoyaltyEntry.reverses_id).where(
+                        LoyaltyEntry.reverses_id.in_(spent),
+                        LoyaltyEntry.kind == LoyaltyEntryKind.REDEEMED.value,
+                        LoyaltyEntry.is_deleted.is_(False),
+                    )
+                ).all()
+                if entry_id is not None
+            }
         described: list[LoyaltyEntryResponse] = []
         for row in rows:
             answer = LoyaltyEntryResponse.model_validate(row)
+            answer.is_reversed = row.id in put_back
             answer.customer_name = names.get(row.customer_id)
             answer.sales_invoice_number = (
                 None

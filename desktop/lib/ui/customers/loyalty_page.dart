@@ -129,11 +129,18 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
   static bool _isPutBack(Json row) =>
       stringValue(row['kind']) == 'REDEEMED' && _signed(row) > 0;
 
-  /// The redemptions the ledger already shows put back. The response names
-  /// no `reverses_id`, so each row putting points back is matched to a
-  /// redemption of the same customer and bill spending exactly those points.
-  /// An inference over the rows read; the server's refusal is the authority.
+  /// The redemptions already put back. The server says so on each row
+  /// (`is_reversed`). Where a response does not carry the flag, each row
+  /// putting points back is matched to a redemption of the same customer
+  /// and bill spending exactly those points: an inference over the rows
+  /// read, with the server's refusal as the authority.
   Set<String> get _putBackIds {
+    if (_entries.any((Json row) => row.containsKey('is_reversed'))) {
+      return <String>{
+        for (final Json row in _entries)
+          if (row['is_reversed'] == true) stringValue(row['id']),
+      };
+    }
     final Set<String> done = <String>{};
     for (final Json undo in _entries.where(_isPutBack)) {
       for (final Json spent in _entries) {
