@@ -89,6 +89,7 @@ from app.settlements.schemas import (
     SettlementCreate,
 )
 from app.settlements.services.customer_credits import (
+    absorb_credit_no_longer_given,
     credit_applied_to_bills,
     draw_refund_on_credits,
     drawn_back_onto_bills,
@@ -1945,6 +1946,23 @@ class SettlementService(TransactionalDocumentService):
             },
         )
         self._session.flush()
+        if row.customer_id is not None and self.DIRECTION in (
+            SettlementDirection.RECEIPT,
+            SettlementDirection.REFUND,
+        ):
+            # A bill this receipt paid owes again, so what a return had left
+            # on the account because the bill was paid is no longer held for
+            # the customer: it comes off that bill, as the bill already
+            # reads. A refund reversed puts back an advance the same may be
+            # true of. Left alone, the customer owed that much on no bill
+            # and held it from no source (D-PRC-88).
+            absorb_credit_no_longer_given(
+                self._session,
+                firm_id=firm_id,
+                customer_id=row.customer_id,
+                actor_id=actor_id,
+                on=mirror.journal_date,
+            )
         return row
 
     # ------------------------------------------------------------------

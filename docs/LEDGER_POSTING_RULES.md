@@ -85,20 +85,58 @@ refund could clear it.
   `credit_source_id`; named, it is refused past what that source has left.
   Unnamed it takes the credits **held on account, oldest first**, before the
   advance moves. Either way the credit paid back cannot be applied as well,
-  and reversing the refund frees it. A refund recorded before the table
-  existed has no row: the reader takes such money off the oldest held credits,
-  because a customer cannot hold more as credit than the account says.
+  and reversing the refund frees it.
+- **A refund with no row paid back what the credits held when it was made**
+  (D-PRC-91, 2026-10-06). A refund recorded before the table existed says
+  nothing about its source. The reader used to infer it from the total --
+  "a customer cannot hold more as credit than the account says" -- which
+  only bites while the account holds nothing else: 500.00 received on
+  account afterwards read as 500.00 of a credit paid back long ago being
+  available again, and applying it spent the receipt's money and stranded
+  the receipt. `_untracked_refunds` now walks the customer's account rows
+  that move a credit's advance or hand money back, in the order they were
+  made: a refund that names no credit takes what the credits were holding
+  **at that moment**, oldest first, and a reversal undoes exactly what its
+  original did. Money that arrived later is not in it, and a refund made
+  before a credit existed took none of it. The total rule stays behind it as
+  a backstop. Two statements a customer, and only when one of their credits
+  is held as an advance.
 - **Cancelling the source withdraws its applications** -- each bill owes that
   part again, and the advance each spent comes back before the return's or
   note's own row is undone. **Cancelling a bill a credit is set against is
   refused by name** ("credit applied from SR-…"), as it is for a receipt;
   take the application back first. Supplier credit withdraws on both sides;
   the sales side already refuses a bill with money applied, and this follows
-  it.
+  it. An **opening bill** is refused the same way and names the credit --
+  "OBC-… cannot be cancelled while it has 826.00 of credit applied from
+  SR-…. Reverse that application first." -- where it used to ask for
+  receipts to be reversed when there were none (D-PRC-92).
 - **A reversed receipt puts used credit back on its bill**
   (`drawn_back_onto_bills`): once the first bill owes again, its return gives
   less credit than was used elsewhere, and the difference would be off two
   bills at once.
+- **An advance its source no longer gives goes back on the source's own
+  bill** (D-PRC-88, 2026-10-06). A return on a paid bill leaves its value on
+  the customer's account as an advance, and that advance is credit only
+  while the bill stays settled past its total. When the receipt is reversed
+  the bill reads the return as coming off it again, so the same money stood
+  on the account twice. The case found: bill 1 paid, 826.00 returned and
+  applied to bill 2, bill 1's receipt reversed, then the application
+  reversed "by its own deltas" -- 4,248.00 owed and 826.00 held against
+  bills of 3,422.00; with both bills paid the customer owed 826.00 on no
+  bill, held 826.00 from no source, and could be paid it in cash. The same
+  happened with no application at all, and with a refund reversed after the
+  receipt. **Nothing is refused**: a bounced cheque must be reversible
+  whatever was done with the return's credit. Instead
+  `absorb_credit_no_longer_given` runs after a receipt, a refund or an
+  application is reversed, and for each source takes what its posting left
+  on the account, less what it still holds as credit, off both of the
+  customer's figures -- one `ADVANCE_APPLY` row referenced
+  `customer_credit_absorbed` to the source, capped at what the account holds
+  and owes. No journal: receivables did not move. Cancelling the source
+  reverses those rows before its own, as it withdraws its applications. In
+  any order of apply, refund, reverse and pay, what the customer owes is
+  what the bills owe and what they hold is what their credits hold.
 - **Loyalty is not a source.** A redemption is capped at what its bill owes,
   so it never over-settles a bill by itself; where a return follows a bill
   paid in points, the return is the source of the credit.

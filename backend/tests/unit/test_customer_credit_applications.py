@@ -7,13 +7,13 @@ belonged to no receipt: `allocate` could not reach it, and the customer owed
 drive the receivable twin of `test_supplier_credit.py`.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Response
-from sqlalchemy import event, func, select
+from sqlalchemy import event, func, select, update
 from sqlalchemy.orm import Session
 
 from app.common.audit.models import AuditLog
@@ -774,3 +774,411 @@ def test_the_routes_list_apply_and_take_back() -> None:
     assert taken_back is not None
     assert response.headers["ETag"] == f'"{taken_back.version}"'
     assert _owes(setup, second.id) == Decimal("200.00")
+
+
+# ---- the account goes on agreeing with the bills, in any order (D-PRC-88) ---
+
+
+class _Scene:
+    """A bill of 200.00 paid, one unit returned, and a second bill of 200.00.
+
+    Each step is what a person does, committed, and after every one the
+    customer's two figures are checked against the bills and the credits.
+    """
+
+    def __init__(self) -> None:
+        """Pay the first bill, return one unit of it, raise the second."""
+        self.session = _session_factory()()
+        self.setup = _Dispatch(self.session, billed=Decimal("2"))
+        self.first = self.setup.invoice
+        self.receipt = _receipt(self.setup, "200", (self.first.id, "200"))
+        self.returned = _returned(
+            self.setup, _on_the_line_of(self.setup, self.first, "1")
+        )
+        self.session.commit()
+        self.second = _second_bill(self.setup)
+        self.refund: Settlement | None = None
+        self.agree()
+
+    def owed(self) -> dict[UUID, Decimal]:
+        """Return what each bill still owes, as Record Receipt offers them."""
+        return {
+            record.invoice_id: record.outstanding_amount
+            for record in ReceiptService(self.session).outstanding_invoices(
+                firm_id=self.setup.firm.id, party_id=self.setup.customer.id
+            )
+        }
+
+    def agree(self) -> None:
+        """Check the account against the bills and the credits.
+
+        The customer holds exactly what their credits hold as an advance,
+        and owes what the bills owe less the credit that already came off
+        the balance and names no bill yet.
+        """
+        outstanding, advance = _balances(self.setup)
+        credits = _credits(self.setup)
+        held = sum((credit.held_amount for credit in credits), Decimal("0"))
+        loose = sum(
+            (credit.available_amount - credit.held_amount for credit in credits),
+            Decimal("0"),
+        )
+        assert advance == held
+        assert outstanding == sum(self.owed().values(), Decimal("0")) - loose
+
+    def apply(self) -> None:
+        """Set the return's credit against the second bill."""
+        _apply(self.setup, self.returned.id, self.second.id, "100")
+        self.agree()
+
+    def reverse_receipt(self) -> None:
+        """Take back the receipt that paid the first bill."""
+        ReceiptService(self.session).reverse(
+            self.receipt.id,
+            firm_id=self.setup.firm.id,
+            actor_id=self.setup.actor_id,
+            reason="bounced",
+        )
+        self.session.commit()
+        self.agree()
+
+    def reverse_application(self) -> None:
+        """Take the credit off the second bill again."""
+        [row] = [row for row in _applications(self.session) if row.status == "POSTED"]
+        reverse_customer_credit_application(
+            self.session,
+            firm_id=self.setup.firm.id,
+            application_id=row.id,
+            reason="wrong bill",
+            actor_id=self.setup.actor_id,
+        )
+        self.session.commit()
+        self.agree()
+
+    def pay_back(self) -> None:
+        """Hand the credit back in cash."""
+        self.refund = _refund(self.setup, "100", source_id=self.returned.id)
+        self.agree()
+
+    def reverse_refund(self) -> None:
+        """Take the refund back."""
+        assert self.refund is not None
+        RefundService(self.session).reverse(
+            self.refund.id,
+            firm_id=self.setup.firm.id,
+            actor_id=self.setup.actor_id,
+            reason="not collected",
+        )
+        self.session.commit()
+        self.agree()
+
+    def cancel_return(self) -> None:
+        """Cancel the return that gave the credit."""
+        SalesReturnService(self.session).cancel_return(
+            self.returned.id,
+            firm_scope=self.setup.firm.id,
+            actor_id=self.setup.actor_id,
+            reason="undo",
+        )
+        self.session.commit()
+        self.agree()
+
+    def pay_what_the_bills_read(self) -> None:
+        """Pay each bill exactly what it owes, then expect nothing either way."""
+        for bill_id, amount in self.owed().items():
+            _receipt(self.setup, str(amount), (bill_id, str(amount)))
+        self.agree()
+        assert self.owed() == {}
+        assert _balances(self.setup) == (Decimal("0.00"), Decimal("0.00"))
+        # Nothing is held, so nothing can be handed back a second time.
+        with pytest.raises(ValidationError, match="exceeds unapplied advance"):
+            _refund(self.setup, "100")
+        self.session.rollback()
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        # Round 9's sequence: 4,248.00 owed and 826.00 held at 826.00 a unit.
+        ("apply", "reverse_receipt", "reverse_application"),
+        ("apply", "reverse_application", "reverse_receipt"),
+        ("apply", "reverse_receipt"),
+        ("reverse_receipt",),
+        ("pay_back", "reverse_receipt", "reverse_refund"),
+        ("pay_back", "reverse_refund", "reverse_receipt"),
+        ("pay_back", "reverse_receipt"),
+        ("apply", "reverse_application", "pay_back", "reverse_receipt"),
+    ],
+)
+def test_the_account_agrees_with_the_bills_in_any_order(steps: tuple[str, ...]) -> None:
+    """Apply, refund and reverse in every order: paid up, nothing owed or held."""
+    scene = _Scene()
+    for step in steps:
+        getattr(scene, step)()
+    scene.pay_what_the_bills_read()
+
+
+def test_a_reversed_application_puts_back_no_advance_the_credit_lost() -> None:
+    """The figures of the defect: the first bill's receipt goes, then the credit.
+
+    The return's 100.00 is part of what the first bill does not owe once its
+    receipt is reversed, so taking the application off the second bill moves
+    100.00 between the bills and nothing on the account.
+    """
+    scene = _Scene()
+    scene.apply()
+    scene.reverse_receipt()
+    assert _balances(scene.setup) == (Decimal("300.00"), Decimal("0.00"))
+    assert scene.owed() == {
+        scene.first.id: Decimal("200.00"),
+        scene.second.id: Decimal("100.00"),
+    }
+    journals = _journals(scene.session)
+
+    scene.reverse_application()
+
+    assert _balances(scene.setup) == (Decimal("300.00"), Decimal("0.00"))
+    assert scene.owed() == {
+        scene.first.id: Decimal("100.00"),
+        scene.second.id: Decimal("200.00"),
+    }
+    assert _credits(scene.setup) == []
+    assert _journals(scene.session) == journals
+    statement = CustomerStatementService(scene.session).statement(
+        scene.setup.customer.id,
+        firm_scope=scene.setup.firm.id,
+        from_date=date(2026, 1, 1),
+        to_date=date(2027, 1, 1),
+    )
+    assert statement.closing_balance == Decimal("300.00")
+
+
+def test_a_reversed_receipt_takes_an_unused_credit_back_onto_its_bill() -> None:
+    """Never applied: the bill owes less the return, and nothing is held."""
+    scene = _Scene()
+
+    scene.reverse_receipt()
+
+    assert _balances(scene.setup) == (Decimal("300.00"), Decimal("0.00"))
+    assert scene.owed() == {
+        scene.first.id: Decimal("100.00"),
+        scene.second.id: Decimal("200.00"),
+    }
+    [row] = scene.session.scalars(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.reference_type == "customer_credit_absorbed"
+        )
+    ).all()
+    assert row.reference_id == scene.returned.id
+    assert (row.outstanding_delta, row.advance_delta) == (
+        Decimal("-100.00"),
+        Decimal("-100.00"),
+    )
+    events = scene.session.scalars(
+        select(AuditLog.action).where(AuditLog.action == "customer_credit.absorbed")
+    ).all()
+    assert len(events) == 1
+
+
+def test_only_the_part_the_bill_owes_again_goes_back_onto_it() -> None:
+    """Two receipts of 100.00 and one reversed after 60.00 was applied.
+
+    The return's 100.00 is no longer past the bill's total, so the 40.00
+    still held goes back on it and the 60.00 used elsewhere is drawn back.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("2"))
+    _receipt(setup, "100", (setup.invoice.id, "100"))
+    late = _receipt(setup, "100", (setup.invoice.id, "100"))
+    returned = _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    session.commit()
+    second = _second_bill(setup)
+    _apply(setup, returned.id, second.id, "60")
+    assert _balances(setup) == (Decimal("140.00"), Decimal("40.00"))
+
+    ReceiptService(session).reverse(
+        late.id, firm_id=setup.firm.id, actor_id=setup.actor_id, reason="bounced"
+    )
+    session.commit()
+
+    assert _balances(setup) == (Decimal("200.00"), Decimal("0.00"))
+    assert _owes(setup, setup.invoice.id) == Decimal("60.00")
+    assert _owes(setup, second.id) == Decimal("140.00")
+
+
+@pytest.mark.parametrize("applied_first", [True, False])
+def test_cancelling_the_return_undoes_what_went_back_onto_its_bill(
+    applied_first: bool,
+) -> None:
+    """The source gone after its advance was absorbed: every bill owes in full."""
+    scene = _Scene()
+    if applied_first:
+        scene.apply()
+        scene.reverse_receipt()
+        scene.reverse_application()
+    else:
+        scene.reverse_receipt()
+
+    scene.cancel_return()
+
+    assert _balances(scene.setup) == (Decimal("400.00"), Decimal("0.00"))
+    assert scene.owed() == {
+        scene.first.id: Decimal("200.00"),
+        scene.second.id: Decimal("200.00"),
+    }
+
+
+# ---- a refund made before credits were tracked (D-PRC-91) -------------------
+
+
+def _untracked(session: Session) -> None:
+    """Leave the store as it stood before the table existed: no rows."""
+    session.query(CustomerCreditApplication).delete()
+    session.commit()
+
+
+def test_money_received_since_does_not_bring_back_a_credit_paid_back() -> None:
+    """500.00 on account after an untracked refund is the receipt's, not credit."""
+    session = _session_factory()()
+    setup, returned, second = _paid_then_returned(session)
+    _refund(setup, "100")
+    _untracked(session)
+
+    receipt = _receipt(setup, "500")
+
+    assert _balances(setup) == (Decimal("0.00"), Decimal("300.00"))
+    [credit] = _credits(setup)
+    assert credit.refunded_amount == Decimal("100.00")
+    assert credit.available_amount == Decimal("0.00")
+    assert credit.held_amount == Decimal("0.00")
+    with pytest.raises(ValidationError, match="has only 0.00 of credit left"):
+        _apply(setup, returned.id, second.id, "100")
+    session.rollback()
+    with pytest.raises(ValidationError, match="has only 0.00 of credit left"):
+        _refund(setup, "100", source_id=returned.id)
+    session.rollback()
+    # And the receipt's money is still the receipt's to set against the bill.
+    ReceiptService(session).allocate(
+        receipt.id,
+        invoice_id=second.id,
+        amount=Decimal("200"),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    assert _owes(setup, second.id) == Decimal("0")
+    assert _balances(setup) == (Decimal("0.00"), Decimal("300.00"))
+
+
+def test_an_untracked_refund_takes_the_oldest_credit_and_leaves_the_next() -> None:
+    """Two credits of 100.00, 100.00 handed back before rows were kept."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("2"))
+    _receipt(setup, "200", (setup.invoice.id, "200"))
+    first = _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    session.commit()
+    _refund(setup, "100")
+    _untracked(session)
+    second = _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    session.commit()
+    _receipt(setup, "500")
+
+    credits = {credit.source_id: credit for credit in _credits(setup)}
+
+    assert credits[first.id].refunded_amount == Decimal("100.00")
+    assert credits[first.id].available_amount == Decimal("0.00")
+    assert credits[second.id].refunded_amount == Decimal("0.00")
+    assert credits[second.id].available_amount == Decimal("100.00")
+    assert credits[second.id].held_amount == Decimal("100.00")
+
+
+def test_a_refund_made_before_a_credit_existed_took_none_of_it() -> None:
+    """Money on account handed back, and only then a return on a paid bill."""
+    session = _session_factory()()
+    setup = _Dispatch(session, billed=Decimal("2"))
+    _receipt(setup, "200", (setup.invoice.id, "200"))
+    _receipt(setup, "50")
+    _refund(setup, "50")
+    # The unit suite's clock has one-second ticks: put the refund where it
+    # was made, a day before the return.
+    session.execute(
+        update(CustomerReceivableTransaction).values(
+            created_at=datetime(2026, 8, 1, 9, 0, 0)
+        )
+    )
+    session.commit()
+    returned = _returned(setup, _on_the_line_of(setup, setup.invoice, "1"))
+    session.commit()
+
+    [credit] = _credits(setup)
+
+    assert credit.source_id == returned.id
+    assert credit.refunded_amount == Decimal("0.00")
+    assert credit.available_amount == Decimal("100.00")
+    assert credit.held_amount == Decimal("100.00")
+
+
+# ---- an opening bill a credit is set against (D-PRC-92) ---------------------
+
+
+def test_cancelling_an_opening_bill_names_the_credit_set_against_it() -> None:
+    """No receipt exists, so the refusal must not ask for one to be reversed."""
+    session = _session_factory()()
+    setup, returned, _second = _paid_then_returned(session)
+    bills = CustomerOpeningBillService(session)
+    opening = bills.create(
+        setup.customer.id,
+        CustomerOpeningBillWrite(
+            bill_date=date(2026, 3, 10),
+            posting_date=date(2026, 4, 1),
+            amount=Decimal("250"),
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    session.commit()
+    _apply(setup, returned.id, opening.id, "100")
+
+    with pytest.raises(ValidationError) as refused:
+        bills.cancel(
+            opening.id,
+            reason="entered twice",
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    session.rollback()
+    message = str(refused.value)
+    assert message == (
+        f"{opening.bill_number} cannot be cancelled while it has 100.00 of "
+        f"credit applied from {returned.return_number}. Reverse that "
+        "application first."
+    )
+    assert "receipt" not in message
+
+    # With a receipt beside the credit, both are named.
+    _receipt(setup, "50", (opening.id, "50"))
+    with pytest.raises(ValidationError, match="the receipts for the other 50.00"):
+        bills.cancel(
+            opening.id,
+            reason="entered twice",
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    session.rollback()
+
+    # A bill only a receipt was taken against is refused as before.
+    [row] = [row for row in _applications(session) if row.status == "POSTED"]
+    reverse_customer_credit_application(
+        session,
+        firm_id=setup.firm.id,
+        application_id=row.id,
+        reason="wrong bill",
+        actor_id=setup.actor_id,
+    )
+    session.commit()
+    with pytest.raises(ValidationError, match="Reverse those receipts"):
+        bills.cancel(
+            opening.id,
+            reason="entered twice",
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
