@@ -321,6 +321,60 @@ class PurchaseReturnLine(BaseEntity):
     tax_rule_version: Mapped[int | None] = mapped_column(Integer)
 
 
+class PurchaseReturnBillPlacement(BaseEntity):
+    """Record which supplier bill line a completed return line came off.
+
+    A return raised off a goods receipt line names no bill, and the receipt
+    line may have been billed by several; a return raised off a bill line
+    whose units have all gone back takes the rest from the other bills of
+    the same receipt line. Which bill line each unit came off, and what it
+    claimed there, is decided when the return **completes** and kept here,
+    one row per bill line, so every later reader agrees with what was
+    posted (D-PRC-73). It used to be worked out again on every read, and a
+    later return naming a bill line moved an earlier return's units onto
+    the next bill after they had been valued: 2,171.20 was claimed from a
+    supplier against bills of 1,699.20.
+
+    Only the billed part of a line is placed; what went back before any
+    bill reached it (``unbilled_quantity``) has no row. The rows go when
+    the return is cancelled.
+    """
+
+    __tablename__ = "purchase_return_bill_placements"
+    __table_args__ = (
+        Index("IX_purchase_return_bill_placements_return", "purchase_return_id"),
+        Index(
+            "IX_purchase_return_bill_placements_firm_bill_line",
+            "firm_id",
+            "purchase_invoice_line_id",
+        ),
+    )
+
+    purchase_return_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("purchase_returns.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    purchase_return_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("purchase_return_lines.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    purchase_invoice_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("purchase_invoice_lines.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: The units placed on the bill line, in the bill line's own unit.
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    #: What those units claimed off the bill line, before tax.
+    taxable_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+
+
 class PurchaseReturnAttachment(BaseEntity):
     """Store purchase return attachments."""
 

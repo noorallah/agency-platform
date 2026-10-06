@@ -555,19 +555,42 @@ against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
   rate per unit of the billed part, because the debit-note part of a line is
   its value by quantity (`return_billed_amounts`).
 - **A receipt billed in parts is netted bill by bill.** A return off the
-  receipt names no bill line and nothing stored says which bill charged the
-  units going back, so it is decided the same way on every read
-  (`place_on_bills`): **the bills of the receipt line earliest first** (bill
-  date, then number), each for the units it billed that have not already
-  gone back. Earlier returns off the receipt are placed by that rule, in the
-  order they were raised, before the one being asked about, and a return's
-  value follows its units -- never more to one bill than it was still worth
-  while another has room. Billed 3 and 3 at 100.00 with 150.00 claimed on the
-  first bill, 4 back off the receipt claim 250.00: three units of the first
-  bill at the 150.00 left and one of the second at 100.00. This is the
-  placement for **value** only; which tax heads a receipt-route return
-  reverses is still shared over the bills by the quantity each billed
-  (`_billed_lines`, D-BUY-28).
+  receipt names no bill line, so its units are placed (`place_on_bills`) on
+  **the bills of the receipt line earliest first** (bill date, then number),
+  each for the units it billed that have not already gone back, and a
+  return's value follows its units -- never more to one bill than it was
+  still worth while another has room. Billed 3 and 3 at 100.00 with 150.00
+  claimed on the first bill, 4 back off the receipt claim 250.00: three
+  units of the first bill at the 150.00 left and one of the second at
+  100.00.
+- **Where a return fell is decided once, when it completes, and stored**
+  (D-PRC-73, 2026-10-06; `purchase_return_bill_placements`, one row per
+  return line and bill line: the units and what they claimed before tax).
+  It used to be worked out again on every read, with returns raised off
+  bill lines counted first -- so on a receipt of 2 billed 1 and 1, a unit
+  back off the receipt (placed on the first bill, 849.60) and then a unit
+  off the **first bill's own line** moved the earlier return onto the
+  second bill after it had been valued, where a debit note of 472.00 left
+  no room for it, and priced the first bill's unit afresh at 849.60:
+  2,171.20 claimed against bills of 1,699.20, and 331.20 of input tax
+  reversed against 259.20 taken. Now:
+  - every reader of a **completed** return -- the next return's cap, the
+    completion re-check, a debit note's cap, the tax heads (`_billed_lines`,
+    D-BUY-28), the bill's currency rate -- takes it from the stored rows and
+    never derives it again; cancelling the return removes them;
+  - a return **not yet completed** is still derived, on top of the stored
+    rows, in the order raised (date, number, line), by either route;
+  - **a return raised off a bill line takes that line's units first, and
+    the rest from the other bills of the same receipt line**, earliest
+    first (`placing_order`). The goods are the receipt's whichever bill is
+    named, so where the named line's unit already went back off the receipt
+    the unit is valued at what the next bill is still worth -- 377.60 in
+    the case above, 1,699.20 in all. Its tax heads follow the bills it was
+    placed on;
+  - migration `20261006_0347` places every return completed before it, in
+    date order by the same rule, and restates nothing: a return that
+    over-claimed before the fix keeps its value and is counted in full
+    against the bill it lands on.
 - **A debit note's cap counts what went back by either route**: billed, less
   other live notes, less returns raised off the bill line (any not
   cancelled) and completed returns raised off the receipt it billed. The

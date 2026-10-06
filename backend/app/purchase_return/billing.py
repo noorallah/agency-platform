@@ -9,27 +9,45 @@ so no more is claimed from a supplier than they billed. The buying twin of
 ``app/sales_return/billing.py`` (D-SELL-88).
 
 **A receipt billed in parts.** A return raised off a goods receipt line names
-no bill line, and the receipt line may have been billed by several. Nothing
-stored says which bill charged the units going back, so it is decided here,
-the same way on every read: the bills are taken **earliest first**, each for
-the units it billed that have not already gone back. Earlier returns off the
-receipt are placed by that rule before the one being asked about, in the order
-they were raised. What went back before any bill reached it
-(``unbilled_quantity``, D-BUY-26) claimed nothing and is placed nowhere.
+no bill line, and the receipt line may have been billed by several. The bills
+are taken **earliest first**, each for the units it billed that have not
+already gone back. A return raised off a bill line takes that line's units
+first, and where they have all gone back -- by a return off the receipt that
+was placed there -- the rest come off the other bills of the same receipt
+line, earliest first: the goods are the receipt's, whichever bill is named.
+What went back before any bill reached it (``unbilled_quantity``, D-BUY-26)
+claimed nothing and is placed nowhere.
+
+**Placed once.** Where a return's units fell, and what they claimed there, is
+decided when the return completes and stored
+(``purchase_return_bill_placements``, D-PRC-73). Every reader takes a
+completed return from those rows and never works it out again. It used to be
+derived on every read with the returns raised off bill lines counted first,
+so a later return naming the first bill's own line moved an earlier return
+off the receipt onto the next bill, after it had been valued at the first
+bill's price: its value did not fit there, and the first bill's line was
+priced afresh as though nothing had come off it. Only returns that have not
+completed are still derived -- on top of the stored rows, in the order they
+were raised -- because nothing about them is final.
 """
 
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.debit_note.models import DebitNote, DebitNoteLine, DebitNoteStatus
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
-from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+from app.purchase_return.models import (
+    PurchaseReturn,
+    PurchaseReturnBillPlacement,
+    PurchaseReturnLine,
+)
 
 ZERO = Decimal("0")
 _FOUR = Decimal("0.0001")
@@ -156,17 +174,38 @@ def _debit_notes(
     }
 
 
-def _returns(
+def _pending_returns(
     session: Session,
     *,
     source_type: str,
     source_line_ids: Sequence[UUID],
     states: Sequence[str],
     exclude_return_id: UUID | None,
-) -> list[PurchaseReturnLine]:
-    """Return the return lines raised off these source lines, oldest first."""
+) -> list[tuple[tuple[date, str, int, str], PurchaseReturnLine]]:
+    """Return the lines still to be placed, each with its place in line.
+
+    A completed return is read from its stored placements, so what is asked
+    for here is the returns short of that -- and a completed line with no
+    stored row, which is one written straight into the store without
+    completing through the service (sample data does), counted as it always
+    was. The key orders the lines as they were raised: by the return's
+    date, its number, then the line's.
+    """
+    if not states or not source_line_ids:
+        return []
+    placed = (
+        select(PurchaseReturnBillPlacement.id)
+        .where(
+            PurchaseReturnBillPlacement.purchase_return_line_id
+            == PurchaseReturnLine.id,
+            PurchaseReturnBillPlacement.is_deleted.is_(False),
+        )
+        .exists()
+    )
     statement = (
-        select(PurchaseReturnLine)
+        select(
+            PurchaseReturnLine, PurchaseReturn.return_date, PurchaseReturn.return_number
+        )
         .join(
             PurchaseReturn,
             PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
@@ -177,16 +216,67 @@ def _returns(
             PurchaseReturnLine.is_deleted.is_(False),
             PurchaseReturn.is_deleted.is_(False),
             PurchaseReturn.status.in_(list(states)),
-        )
-        .order_by(
-            PurchaseReturn.return_date.asc(),
-            PurchaseReturn.return_number.asc(),
-            PurchaseReturnLine.line_number.asc(),
+            or_(PurchaseReturn.status.not_in(COMPLETED), ~placed),
         )
     )
     if exclude_return_id is not None:
         statement = statement.where(PurchaseReturn.id != exclude_return_id)
-    return list(session.scalars(statement).all())
+    return [
+        ((raised_on, number, line.line_number, str(line.id)), line)
+        for line, raised_on, number in session.execute(statement).all()
+    ]
+
+
+def _placed(
+    session: Session,
+    bill_line_ids: Sequence[UUID],
+    *,
+    exclude_return_id: UUID | None,
+) -> list[tuple[UUID, Decimal, Decimal]]:
+    """Return what completed returns placed on each bill line: units and value.
+
+    The stored rows (D-PRC-73). A cancelled return's rows are removed when
+    it is cancelled; the status is asked as well, so a row that outlived its
+    return can never count.
+    """
+    statement = (
+        select(
+            PurchaseReturnBillPlacement.purchase_invoice_line_id,
+            func.coalesce(func.sum(PurchaseReturnBillPlacement.quantity), 0),
+            func.coalesce(func.sum(PurchaseReturnBillPlacement.taxable_amount), 0),
+        )
+        .join(
+            PurchaseReturn,
+            PurchaseReturn.id == PurchaseReturnBillPlacement.purchase_return_id,
+        )
+        .where(
+            PurchaseReturnBillPlacement.purchase_invoice_line_id.in_(
+                list(bill_line_ids)
+            ),
+            PurchaseReturnBillPlacement.is_deleted.is_(False),
+            PurchaseReturn.is_deleted.is_(False),
+            PurchaseReturn.status.in_(COMPLETED),
+        )
+        .group_by(PurchaseReturnBillPlacement.purchase_invoice_line_id)
+    )
+    if exclude_return_id is not None:
+        statement = statement.where(PurchaseReturn.id != exclude_return_id)
+    return [
+        (line_id, Decimal(str(units)), Decimal(str(value)))
+        for line_id, units, value in session.execute(statement).all()
+    ]
+
+
+def placing_order(
+    named: PurchaseInvoiceLine, family: Sequence[PurchaseInvoiceLine]
+) -> list[PurchaseInvoiceLine]:
+    """Return the bill lines a return off a bill line takes its units from.
+
+    The line it names first; then the other standing bills of the same
+    receipt line, earliest first, for units the named line no longer holds
+    because a return off the receipt was placed on it.
+    """
+    return [named, *(line for line in family if line.id != named.id)]
 
 
 def bill_line_claims(
@@ -199,10 +289,14 @@ def bill_line_claims(
 ) -> dict[UUID, BillLineClaims]:
     """Return what returns and debit notes have already taken off bill lines.
 
-    **Debit notes** once approved, which is when one posts. **Returns** by
-    either route: raised on the bill line itself, or on the goods receipt
-    line it billed, placed on the bills of that line earliest first (see the
-    module's note). Only the billed part of a return counts.
+    **Debit notes** once approved, which is when one posts. **Completed
+    returns** from where they were placed when they completed, by either
+    route (D-PRC-73). **Returns not yet completed** -- and a completed line
+    nothing was stored for -- are placed here, on top of those, in the
+    order they were raised: one off a bill line on that
+    line first, one off a goods receipt line on the bills of that line
+    earliest first (see the module's note). Only the billed part of a return
+    counts.
 
     Args:
         session: The firm's session.
@@ -241,68 +335,73 @@ def bill_line_claims(
             every.setdefault(line.id, line)
     quantity: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
     taxable: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
-    for back in _returns(
+    for line_id, units, value in _placed(
+        session, list(every), exclude_return_id=exclude_return_id
+    ):
+        quantity[line_id] += units
+        taxable[line_id] += value
+    claimed = _debit_notes(session, list(every))
+    waiting = _pending_returns(
         session,
         source_type=_BILL,
         source_line_ids=list(every),
         states=bill_returns,
         exclude_return_id=exclude_return_id,
-    ):
-        quantity[back.source_document_line_id] += Decimal(
-            str(back.current_return_quantity)
-        )
-        taxable[back.source_document_line_id] += Decimal(
-            str(back.net_amount)
-        ) - Decimal(str(back.tax_amount))
-    claimed = _debit_notes(session, list(every))
-    if families:
-        for back in _returns(
-            session,
-            source_type=_RECEIPT,
-            source_line_ids=list(families),
-            states=receipt_returns,
-            exclude_return_id=exclude_return_id,
-        ):
-            share = billed_share(back)
-            units = Decimal(str(back.current_return_quantity)) * share
-            if units <= ZERO:
-                continue
-            worth = (
-                Decimal(str(back.net_amount)) - Decimal(str(back.tax_amount))
-            ) * share
-            family = families[back.source_document_line_id]
-            placed = place_on_bills(family, units, returned=quantity)
-            # More sent back than the standing bills hold -- a bill was
-            # cancelled since. The rest stays with the last bill, so the
-            # value is never lost from the count.
-            rest = units - sum((part for _, part in placed), ZERO)
-            if rest > ZERO and family:
-                placed.append((family[-1], rest))
-            # Its value follows the units, and no more to one bill than that
-            # bill was still worth while another has room: which is how the
-            # return was priced.
-            limits = [
-                still_worth(
-                    line,
-                    BillLineClaims(
-                        returned_quantity=quantity[line.id],
-                        returned_taxable=taxable[line.id],
-                        claimed_taxable=claimed.get(line.id, ZERO),
-                    ),
-                    quantity=part,
-                )
-                for line, part in placed
-            ]
-            shares = share_out(
-                worth,
-                [
-                    (part, limit)
-                    for (_, part), limit in zip(placed, limits, strict=True)
-                ],
+    ) + _pending_returns(
+        session,
+        source_type=_RECEIPT,
+        source_line_ids=list(families),
+        states=receipt_returns,
+        exclude_return_id=exclude_return_id,
+    )
+    for _, back in sorted(waiting, key=lambda item: item[0]):
+        share = billed_share(back)
+        units = Decimal(str(back.current_return_quantity)) * share
+        if units <= ZERO:
+            continue
+        worth = (Decimal(str(back.net_amount)) - Decimal(str(back.tax_amount))) * share
+        last: PurchaseInvoiceLine | None
+        if back.source_document_type == _BILL:
+            named = every[back.source_document_line_id]
+            family = (
+                families.get(named.source_document_line_id, [])
+                if named.source_document_type == _RECEIPT
+                else []
             )
-            for (line, part), value in zip(placed, shares, strict=True):
-                quantity[line.id] += part
-                taxable[line.id] += value
+            order = placing_order(named, family)
+            last = named
+        else:
+            order = families[back.source_document_line_id]
+            last = order[-1] if order else None
+        placed = place_on_bills(order, units, returned=quantity)
+        # More sent back than the standing bills hold -- a bill was
+        # cancelled since. The rest stays with the bill named, or the last
+        # of the receipt's, so the value is never lost from the count.
+        rest = units - sum((part for _, part in placed), ZERO)
+        if rest > ZERO and last is not None:
+            placed.append((last, rest))
+        # Its value follows the units, and no more to one bill than that
+        # bill was still worth while another has room: which is how the
+        # return was priced.
+        limits = [
+            still_worth(
+                line,
+                BillLineClaims(
+                    returned_quantity=quantity[line.id],
+                    returned_taxable=taxable[line.id],
+                    claimed_taxable=claimed.get(line.id, ZERO),
+                ),
+                quantity=part,
+            )
+            for line, part in placed
+        ]
+        shares = share_out(
+            worth,
+            [(part, limit) for (_, part), limit in zip(placed, limits, strict=True)],
+        )
+        for (line, part), value in zip(placed, shares, strict=True):
+            quantity[line.id] += part
+            taxable[line.id] += value
     return {
         line_id: BillLineClaims(
             returned_quantity=quantity[line_id].quantize(_FOUR),
@@ -484,6 +583,26 @@ class BillWorths:
             return []
         return charging_bill_lines(self._session, [source_line_id])[source_line_id]
 
+    def placing(
+        self, source_type: str, source_line_id: UUID
+    ) -> list[PurchaseInvoiceLine]:
+        """Return the bill lines a return line's units are placed on, in order.
+
+        As `bill_lines`, and for a return raised off a bill line the other
+        standing bills of the same receipt line after it: where the named
+        line's units have already gone back off the receipt, the rest come
+        off those (D-PRC-73).
+        """
+        named = self.bill_lines(source_type, source_line_id)
+        if source_type != _BILL or not named:
+            return named
+        line = named[0]
+        receipt_line_id = line.source_document_line_id
+        if line.source_document_type != _RECEIPT or receipt_line_id is None:
+            return named
+        family = charging_bill_lines(self._session, [receipt_line_id])
+        return placing_order(line, family[receipt_line_id])
+
     def hold(self, bill_lines: Iterable[PurchaseInvoiceLine]) -> None:
         """Take the bill lines before reading what is left of them to claim.
 
@@ -560,16 +679,34 @@ class BillWorths:
             charged=charged,
         )
 
-    def take(self, worth: BilledWorth, taxable: Decimal) -> None:
+    def take(
+        self, worth: BilledWorth, taxable: Decimal
+    ) -> list[tuple[PurchaseInvoiceLine, Decimal, Decimal]]:
         """Record what a line of this return claims off the bills it reverses.
 
         Shared over the bill lines by the units placed on each, and never
         more on one than it was still worth while another has room.
+
+        Returns:
+            Where the line fell: each bill line with the units placed on it
+            and what they claim there, to the fourth place and adding up to
+            ``taxable`` -- what completion stores (D-PRC-73).
+
         """
         shares = share_out(taxable, [(part, limit) for _, part, limit in worth.parts])
+        placed: list[tuple[PurchaseInvoiceLine, Decimal, Decimal]] = []
         for (line, part, _), share in zip(worth.parts, shares, strict=True):
             taken_quantity, taken_taxable = self._taken[line.id]
             self._taken[line.id] = (taken_quantity + part, taken_taxable + share)
+            placed.append((line, part, share.quantize(_FOUR)))
+        if placed:
+            # The rounding of the parts goes on the last, so they add up.
+            line, part, share = placed[-1]
+            residual = taxable.quantize(_FOUR) - sum(
+                (value for _, _, value in placed), ZERO
+            )
+            placed[-1] = (line, part, share + residual)
+        return placed
 
 
 __all__ = [
@@ -584,6 +721,7 @@ __all__ = [
     "charging_bill_lines",
     "goods_billed",
     "place_on_bills",
+    "placing_order",
     "share_out",
     "still_worth",
 ]

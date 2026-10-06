@@ -13,12 +13,14 @@ inventory) at the receipt's cost, with no tax and no payable, and the bill may
 bill only what is left. Only what goes back beyond that is a debit note.
 """
 
+import importlib.util
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ValidationError
@@ -40,7 +42,11 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSourceType,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
-from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+from app.purchase_return.models import (
+    PurchaseReturn,
+    PurchaseReturnBillPlacement,
+    PurchaseReturnLine,
+)
 from app.purchase_return.schemas import (
     PurchaseReturnCreate,
     PurchaseReturnLineWrite,
@@ -1075,3 +1081,230 @@ def test_header_charges_saved_over_the_bill_are_refused_again_at_completion() ->
         _complete(fixture, return_id)
     fixture.session.rollback()
     assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("-236.00")
+
+
+# Where a return's units were placed is decided once, at completion (D-PRC-73).
+
+INPUT_SGST = "1330"
+_MIGRATION = (
+    Path(__file__).resolve().parents[2]
+    / "alembic"
+    / "versions"
+    / "20261006_0347_purchase_return_bill_placements.py"
+)
+
+
+def _parts(
+    code: str, bills: int, note_on: int | None
+) -> tuple[_Fixture, GoodsReceipt, list[PurchaseInvoice]]:
+    """Receive one unit per bill and bill them apart, 40.00 claimed on one."""
+    fixture, receipt = _received(code, str(bills))
+    billed = [
+        _bill(fixture, receipt, "1", number=f"SUP-{index}") for index in range(bills)
+    ]
+    if note_on is not None:
+        _debit_note(fixture, billed[note_on], "40")
+    return fixture, receipt, billed
+
+
+def _back(
+    fixture: _Fixture,
+    receipt: GoodsReceipt,
+    bills: list[PurchaseInvoice],
+    route: str,
+) -> UUID:
+    """Send one unit back off the receipt ("r") or off a bill by its index."""
+    if route == "r":
+        return_id = _raise_return(fixture, "1", receipt=receipt)
+    else:
+        return_id = _raise_return(fixture, "1", bill=bills[int(route)])
+    _complete(fixture, return_id)
+    return return_id
+
+
+def _rooms(fixture: _Fixture, bills: list[PurchaseInvoice]) -> list[tuple[D, D, D]]:
+    """Return each bill line's claimed, returned and claimable."""
+    fixture.session.expire_all()
+    return [_room(fixture, bill) for bill in bills]
+
+
+def test_a_unit_off_the_receipt_then_the_first_bills_own_line() -> None:
+    """Two bills of 100.00, 40.00 claimed on the second: 100.00 then 60.00.
+
+    The first return was placed on the first bill and claimed its 100.00;
+    naming that bill's line afterwards cannot move it. 2,171.20 was claimed
+    against bills of 1,699.20 this way (PRCQ-72).
+    """
+    fixture, receipt, bills = _parts("PL73A", 2, 1)
+    session = fixture.session
+
+    first = _back(fixture, receipt, bills, "r")
+    assert _claimed(session, first) == (D("100.0000"), D("18.0000"))
+    assert _rooms(fixture, bills) == [
+        (D("0.0000"), D("100.0000"), D("0.0000")),
+        (D("40.0000"), D("0.0000"), D("60.0000")),
+    ]
+
+    second = _back(fixture, receipt, bills, "0")
+    assert _claimed(session, second) == (D("60.0000"), D("10.8000"))
+    # The first return stays where it was placed, for every reader.
+    assert _rooms(fixture, bills) == [
+        (D("0.0000"), D("100.0000"), D("0.0000")),
+        (D("40.0000"), D("60.0000"), D("0.0000")),
+    ]
+    assert _net(session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+    assert _net(session, fixture.firm.id, INPUT_CGST) == D("0.00")
+    assert _net(session, fixture.firm.id, INPUT_SGST) == D("0.00")
+
+
+def test_the_mirror_with_the_debit_note_on_the_first_bill() -> None:
+    """40.00 claimed on the first bill: 60.00 off the receipt, then 100.00."""
+    fixture, receipt, bills = _parts("PL73M", 2, 0)
+
+    first = _back(fixture, receipt, bills, "r")
+    second = _back(fixture, receipt, bills, "0")
+
+    assert _claimed(fixture.session, first) == (D("60.0000"), D("10.8000"))
+    assert _claimed(fixture.session, second) == (D("100.0000"), D("18.0000"))
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+    assert _net(fixture.session, fixture.firm.id, INPUT_CGST) == D("0.00")
+
+
+@pytest.mark.parametrize("note_on", [None, 0, 1, 2])
+@pytest.mark.parametrize(
+    "routes",
+    [
+        ("r", "0", "r"),
+        ("r", "0", "1"),
+        ("0", "r", "r"),
+        ("1", "r", "0"),
+        ("r", "r", "0"),
+        ("2", "0", "r"),
+        ("r", "1", "2"),
+        ("r", "r", "r"),
+    ],
+)
+def test_returns_by_either_route_claim_what_three_bills_charged(
+    routes: tuple[str, str, str], note_on: int | None
+) -> None:
+    """Three bills of 100.00, a note on each in turn, every unit back.
+
+    Whatever order the routes come in, what is claimed is what was billed:
+    never more, and with every unit back never less.
+    """
+    code = "P" + "".join(routes) + str(note_on)
+    fixture, receipt, bills = _parts(code, 3, note_on)
+    session = fixture.session
+    note = D("0") if note_on is None else D("40")
+    claimed = D("0")
+    before = _rooms(fixture, bills)
+    for route in routes:
+        return_id = _back(fixture, receipt, bills, route)
+        claimed += _claimed(session, return_id)[0]
+        after = _rooms(fixture, bills)
+        # Never more off a bill line than it billed.
+        assert all(taken + back <= D("100") for taken, back, _ in after)
+        # And what an earlier return took off a line is still off it.
+        assert all(now[1] >= then[1] for now, then in zip(after, before, strict=True))
+        before = after
+        assert _net(session, fixture.firm.id, TRADE_PAYABLES) <= D("0.00")
+
+    assert claimed == D("300") - note
+    assert _net(session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+    assert _net(session, fixture.firm.id, INPUT_CGST) == D("0.00")
+    assert all(room == D("0.0000") for _, _, room in before)
+
+
+def test_a_cancelled_return_gives_its_place_back() -> None:
+    """Off the receipt and cancelled: the first bill's unit is whole again."""
+    fixture, receipt, bills = _parts("PL73C", 2, 1)
+    session = fixture.session
+
+    gone = _back(fixture, receipt, bills, "r")
+    _cancel(fixture, gone)
+    assert _rooms(fixture, bills) == [
+        (D("0.0000"), D("0.0000"), D("100.0000")),
+        (D("40.0000"), D("0.0000"), D("60.0000")),
+    ]
+
+    first = _back(fixture, receipt, bills, "0")
+    second = _back(fixture, receipt, bills, "r")
+    assert _claimed(session, first) == (D("100.0000"), D("18.0000"))
+    assert _claimed(session, second) == (D("60.0000"), D("10.8000"))
+    assert _net(session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+
+
+def _stored(session: Session) -> list[tuple[UUID, UUID, D, D]]:
+    """Return every placement: return line, bill line, units and value."""
+    session.expire_all()
+    return sorted(
+        (
+            (
+                row.purchase_return_line_id,
+                row.purchase_invoice_line_id,
+                D(str(row.quantity)).quantize(D("0.0001")),
+                D(str(row.taxable_amount)).quantize(D("0.0001")),
+            )
+            for row in session.scalars(select(PurchaseReturnBillPlacement)).all()
+        ),
+        key=str,
+    )
+
+
+def test_completion_stores_where_each_unit_fell() -> None:
+    """Off the receipt lands on the first bill; off that bill's line, the second."""
+    fixture, receipt, bills = _parts("PL73S", 2, 1)
+    first = _back(fixture, receipt, bills, "r")
+    second = _back(fixture, receipt, bills, "0")
+    lines = [_bill_line(fixture, bill).id for bill in bills]
+
+    placed = {
+        row.purchase_return_id: (
+            row.purchase_invoice_line_id,
+            D(str(row.quantity)),
+            D(str(row.taxable_amount)),
+        )
+        for row in fixture.session.scalars(select(PurchaseReturnBillPlacement)).all()
+    }
+    assert placed == {
+        first: (lines[0], D("1"), D("100")),
+        second: (lines[1], D("1"), D("60")),
+    }
+
+
+def test_the_backfill_places_completed_returns_as_completion_does() -> None:
+    """Migration 0347 on a store with no rows writes what the service stores."""
+    spec = importlib.util.spec_from_file_location("_placements_0347", _MIGRATION)
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    fixture, receipt, bills = _parts("PL73F", 3, 1)
+    session = fixture.session
+    for route in ("r", "0", "r"):
+        _back(fixture, receipt, bills, route)
+    written = _stored(session)
+    assert len(written) == 3
+
+    session.execute(delete(PurchaseReturnBillPlacement))
+    session.commit()
+    migration._backfill(session.connection())
+    session.commit()
+    assert _stored(session) == written
+
+    # Run again, it adds nothing.
+    migration._backfill(session.connection())
+    session.commit()
+    assert _stored(session) == written
+
+
+def test_a_debit_note_reads_the_placement_a_later_return_cannot_move() -> None:
+    """Both routes used, both bills spent: neither has room for a note."""
+    fixture, receipt, bills = _parts("PL73N", 2, None)
+
+    _back(fixture, receipt, bills, "r")
+    _back(fixture, receipt, bills, "0")
+
+    for bill in bills:
+        with pytest.raises(ValidationError, match="more than is left of the bill"):
+            _debit_note(fixture, bill, "10", approve=False)
+        fixture.session.rollback()
