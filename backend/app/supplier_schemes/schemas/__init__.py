@@ -99,3 +99,9 @@ class SupplierSchemeSuggestion(SupplierSchemeSchema):
     #: if the order has one; its free quantity may differ from
     #: ``free_quantity`` after the paid line's quantity changed.
     existing_line_number: int | None = None
+    #: The unit ``free_quantity`` is in where the free goods are of the paid
+    #: line's **own** product (D-PRC-39): its stock unit, because 2 pieces
+    #: earned by a line of 2 BOX cannot go on the box line. The line added
+    #: for it is saved in this unit whatever unit it is sent in. Null for
+    #: free goods of another product.
+    free_uom_id: UUID | None = None

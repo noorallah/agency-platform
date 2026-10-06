@@ -1505,7 +1505,11 @@ class PrincipalClaimService(TransactionalDocumentService):
                     source_number=note.delivery_note_number,
                     source_date=note.delivery_date,
                     product_id=line.product_id,
-                    quantity=free,
+                    # In stock units, as an offer's claim counts them: a
+                    # free box of twelve is 12 (D-PRC-39).
+                    quantity=(
+                        free * Decimal(str(line.conversion_factor or 1))
+                    ).quantize(Decimal("0.0001")),
                     description=description,
                     amount=(given * share / Decimal("100")).quantize(CENT),
                     credit=_SOLD,

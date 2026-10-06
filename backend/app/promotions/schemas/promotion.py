@@ -447,6 +447,11 @@ class PromotionLineRequest(PromotionSchema):
     product_id: UUID | None = None
     quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18)
     gross: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18)
+    #: The stock units one unit of this line holds -- 12 for a line sold by
+    #: the box of twelve, 1 for a line in the unit the product is kept in.
+    #: An offer counts stock units (D-PRC-39): a quantity condition, "buy X"
+    #: and a combo's set all read ``quantity`` times this.
+    stock_factor: Decimal = Field(default=Decimal("1"), gt=0, max_digits=18)
     #: True when somebody typed a discount on this line. Promotions are not
     #: evaluated for it -- a person deciding beats a rule -- and the trace says
     #: so, rather than reporting a benefit the line never received.
@@ -534,10 +539,16 @@ class PromotionGift(PromotionSchema):
     """
 
     product_id: UUID
+    #: In the product's stock unit.
     quantity: Decimal
     promotion_code: str
     #: The row behind the code: a code is only unique among live offers.
     promotion_id: UUID | None = None
+    #: Set where these are free units of a **line's own product** that are
+    #: not a whole number of the line's unit -- 2 pieces earned by a line of
+    #: 2 BOX -- so the document adds them as a free line of the same product
+    #: in the stock unit. Null for a gift of another product.
+    for_line_number: int | None = None
 
 
 class PromotionEvaluationResponse(PromotionSchema):

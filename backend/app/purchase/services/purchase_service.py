@@ -111,7 +111,12 @@ from app.trade_licences.services.licence_check import (
     LicenceDocument,
 )
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService, assert_quantity_fits_unit, buying_units_of
+from app.uom.services import (
+    UomService,
+    assert_quantity_fits_unit,
+    buying_units_of,
+    stock_unit_of,
+)
 from app.vendors.models import Vendor
 from app.vendors.services.order_quantities import quantity_hints
 
@@ -422,25 +427,26 @@ class PurchaseService(TransactionalDocumentService):
                 )
                 for line in data.lines
             ],
+            factors=self._stock_factors(
+                data.lines, on=data.purchase_date, firm_id=firm_id
+            ),
         )
         earned = [
             (number, outcome)
             for number, outcome in enumerate(outcomes, start=1)
-            if outcome.other is not None and outcome.other.free_product_id
+            if outcome.other is not None
         ]
         if not earned:
             return []
         free_ids = {
-            outcome.other.free_product_id
+            outcome.other.free_product_id or outcome.other.product_id
             for _, outcome in earned
             if outcome.other is not None
         }
         products = {
-            product_id: (code, name)
-            for product_id, code, name in self._session.execute(
-                select(Product.id, Product.code, Product.name).where(
-                    Product.id.in_(free_ids)
-                )
+            row.id: row
+            for row in self._session.scalars(
+                select(Product).where(Product.id.in_(free_ids))
             ).all()
         }
         carried = {
@@ -451,24 +457,52 @@ class PurchaseService(TransactionalDocumentService):
         suggestions: list[SupplierSchemeSuggestion] = []
         for number, outcome in earned:
             scheme = outcome.other
-            if scheme is None or scheme.free_product_id is None:
+            if scheme is None:
                 continue
-            code, name = products.get(scheme.free_product_id, ("", ""))
+            # A scheme giving its own product earned stock units that are
+            # not a whole number of the paid line's unit (D-PRC-39): the
+            # same suggestion, of the same product, in its stock unit.
+            own = scheme.free_product_id in (None, scheme.product_id)
+            free_id = scheme.free_product_id or scheme.product_id
+            product = products.get(free_id)
             suggestions.append(
                 SupplierSchemeSuggestion(
                     line_number=number,
                     scheme_id=scheme.id,
                     scheme_label=outcome.other_label or "",
-                    free_product_id=scheme.free_product_id,
-                    free_product_code=code,
-                    free_product_name=name,
+                    free_product_id=free_id,
+                    free_product_code="" if product is None else product.code,
+                    free_product_name="" if product is None else product.name,
                     free_quantity=outcome.other_quantity,
-                    existing_line_number=carried.get(
-                        (scheme.free_product_id, scheme.id)
-                    ),
+                    existing_line_number=carried.get((free_id, scheme.id)),
+                    free_uom_id=stock_unit_of(product) if own else None,
                 )
             )
         return suggestions
+
+    def _stock_factors(
+        self, lines: Sequence[PurchaseLineWrite], *, on: date, firm_id: UUID
+    ) -> list[Decimal]:
+        """Return the stock units one unit of each line holds.
+
+        The factor each line's quantity is converted at (`_line_units`), for
+        a supplier scheme, which counts stock units (D-PRC-39).
+        """
+        factors: list[Decimal] = []
+        for line in lines:
+            unit, stock_unit = self._line_units(
+                self._session.get(Product, line.product_id), line
+            )
+            factors.append(
+                self._uom.unit_factor(
+                    product_id=line.product_id,
+                    from_uom_id=unit,
+                    to_uom_id=stock_unit,
+                    on_date=on,
+                    firm_scope=firm_id,
+                )
+            )
+        return factors
 
     def stage_order(
         self,
@@ -2321,7 +2355,8 @@ class PurchaseService(TransactionalDocumentService):
             vendor_id=order.vendor_id,
             on=order.purchase_date,
         )
-        # The supplier's free schemes (PG-11), resolved for every line at once.
+        # The supplier's free schemes (PG-11), resolved for every line at once
+        # and counted in stock units (D-PRC-39).
         schemes = line_schemes(
             self._session,
             firm_id=order.firm_id,
@@ -2336,11 +2371,21 @@ class PurchaseService(TransactionalDocumentService):
                 )
                 for line in lines
             ],
+            factors=self._stock_factors(
+                lines, on=order.purchase_date, firm_id=order.firm_id
+            ),
         )
         priced: list[PurchaseLineWrite] = []
         sources: list[tuple[str, UUID | None]] = []
         for line, scheme in zip(lines, schemes, strict=True):
             product = self._session.get(Product, line.product_id)
+            if scheme.in_stock_unit:
+                # A scheme's free units of the line's own product are stock
+                # units, whatever unit the line was sent in.
+                own_unit = stock_unit_of(product, line.inventory_uom_id)
+                line = line.model_copy(
+                    update={"purchase_uom_id": own_unit, "inventory_uom_id": own_unit}
+                )
             # A contract's rate is per its own unit; a line in another unit is
             # not priced from it, so a drawn quantity never needs converting.
             unit, stock_unit = self._line_units(product, line)
