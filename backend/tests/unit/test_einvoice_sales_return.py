@@ -16,6 +16,7 @@ from app.einvoice.services.offline import OfflineEInvoiceService
 from app.einvoice.services.reporting_window import pending
 from app.sales_invoice.models import SalesInvoiceLine
 from app.sales_return.models import SalesReturn, SalesReturnLine
+from app.uom.models import Uom
 from tests.unit.test_einvoice import WHEN, _Books, _einvoicing_since, _session_factory
 
 
@@ -240,3 +241,33 @@ def test_the_registration_answer_names_the_return() -> None:
     answer = _labelled(books.session, row, firm_id=books.firm.id)
     assert answer.sales_return_id == sales_return.id
     assert answer.document_type == "SALES_RETURN"
+
+
+def test_a_return_typed_in_another_unit_is_registered_as_its_note_states_it() -> None:
+    """D-PRC-50: 24 PIECE of 2 BOX go to the portal as 24 at 8.333.
+
+    The row stores the line in its source line's unit -- 2 at 100.00 -- and
+    that is what was sent, beside a printed credit note that says 24 pieces.
+    """
+    books = _Books(_session_factory()())
+    sales_return = _return(books)
+    piece = Uom(code="PIECE", name="Piece", dimension="COUNT", status="ACTIVE")
+    books.session.add(piece)
+    books.session.flush()
+    line = books.session.scalars(
+        select(SalesReturnLine).where(
+            SalesReturnLine.sales_return_id == sales_return.id
+        )
+    ).one()
+    line.return_uom_id = piece.id
+    line.entered_quantity = Decimal("24")
+    line.conversion_factor = Decimal("0.0833333333")
+    books.session.commit()
+
+    row = _service(books).register(
+        SALES_RETURN, sales_return.id, firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+
+    item = row.request_payload["ItemList"][0]  # type: ignore[index]
+    assert (item["Qty"], item["UnitPrice"]) == (24.0, 8.333)
+    assert (item["TotAmt"], item["AssAmt"]) == (200.0, 200.0)

@@ -33,6 +33,7 @@ from app.einvoice.services.payload import EInvoicePayloadBuilder
 from app.einvoice.services.portal import portal_for
 from app.einvoice.services.reporting_window import refuse_if_late
 from app.sales_invoice.models import SalesInvoice
+from app.uom.services import stated_line
 
 CREDIT_NOTE = "CREDIT_NOTE"
 DEBIT_NOTE = "DEBIT_NOTE"
@@ -205,7 +206,19 @@ def _read_return(
             sales_invoice_line_id=row.source_document_line_id,
             product_id=row.product_id,
             description=row.description,
-            quantity=Decimal(str(row.current_return_quantity)),
+            # As the printed credit note states the line -- 7 for seven
+            # pieces off a line sold by the box, not the 0.5833 of a box the
+            # row stores -- through the function the print reads; the unit
+            # price is then the taxable value over it, 100.000 (D-PRC-50).
+            quantity=stated_line(
+                quantity=row.current_return_quantity,
+                free_quantity=row.free_quantity,
+                unit_price=row.unit_price,
+                source_uom_id=row.sales_uom_id,
+                typed_uom_id=row.return_uom_id,
+                entered_quantity=row.entered_quantity,
+                conversion_factor=row.conversion_factor,
+            ).quantity,
             # What the line credited before tax, as GSTR-1 reads it.
             taxable_amount=Decimal(str(row.net_amount)) - Decimal(str(row.tax_amount)),
             tax_amount=Decimal(str(row.tax_amount)),

@@ -1006,12 +1006,13 @@ def gst_sales_register(
 
 
 class HsnSalesRecord(BaseModel):
-    """The outward supplies of one HSN code at one rate (backlog §87 #1)."""
+    """The outward supplies of one HSN code, unit and rate (backlog §87 #1)."""
 
     model_config = ConfigDict(from_attributes=True)
 
     hsn_code: str
     description: str
+    unit: str = ""
     rate: Decimal
     quantity: Decimal
     taxable_value: Decimal

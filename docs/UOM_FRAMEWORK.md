@@ -327,15 +327,46 @@ one answer:
 
 There is no printed purchase return and no printed proforma of its own.
 
-**The e-invoice and GSTR-1 say what the bill says.** Neither names a unit:
-the e-invoice payload sends no `Unit` (the portal's UQC codes are not this
-system's unit codes, and nothing maps them), and GSTR-1's HSN summary is
-keyed on the code and the rate. Both report a **quantity**, and both now
-report the one the bill states -- `Qty` 24 and `UnitPrice` 100.000 for the
-bill above, and 24 in the HSN summary -- where they reported the stored 2
-(at 1,200.00). For a box line billed by the box both report 2. The e-invoice
-reads `stated_invoice_lines`, the function the print reads, so the paper and
-the portal cannot state a line differently.
+**The e-invoice and GSTR-1 say what the bill says.** The e-invoice payload
+sends no `Unit` (the portal's UQC codes are not this system's unit codes, and
+nothing maps them). Both report a **quantity**, and both report the one the
+bill states -- `Qty` 24 and `UnitPrice` 100.000 for the bill above, and 24 in
+the HSN summary -- where they reported the stored 2 (at 1,200.00). For a box
+line billed by the box both report 2. The e-invoice reads
+`stated_invoice_lines`, the function the print reads, so the paper and the
+portal cannot state a line differently.
+
+**So does the credit note of a sales return (D-PRC-50, 2026-10-06).** 7 PIECE
+back off a bill typed 24 PIECE left the HSN row reading 23.4167, and went to
+the portal as `Qty` 0.5833 at `UnitPrice` 1200.069, beside a printed credit
+note that said 7 at 100.00. The return's e-invoice (`_read_return` in
+`app/einvoice/services/note_registration.py`) and GSTR-1's credits
+(`_returns_as_credits`) now read `stated_line`, as the print does: 7 at
+100.000, and 17 left on the row.
+
+**The HSN summary is one row per code, unit and rate (D-PRC-50).** It was
+keyed on the code and the rate, so 24 PIECE, 2 BOX and 7 PIECE of one code
+read 33 -- of nothing. `_fold_hsn` now keys on the unit the line states as
+well, which is Table 12's own shape (HSN, UQC, rate) and the shape the
+purchase HSN summary already had; splitting was chosen over converting every
+line to the stock unit because that would state a quantity no document
+states. Each row of GSTR-1's `hsn` and of
+`/sales-invoices/reports/hsn-summary` carries `unit`: this firm's unit code,
+**not** a portal UQC. The unit is the printed bill's (`_stated_units`, the
+same order of answers as `stated_invoice_lines`); a return line states its
+own; a financial credit or debit note, which carries none, reads the invoice
+line it names. The values and the tax are the same rupees whichever row they
+sit on, so no other table of GSTR-1 or GSTR-3B moves. Two things follow that
+are true rather than tidy: a box sent back off a bill typed in pieces takes
+1 off a BOX row and the value with it, which can leave that row negative
+beside a PIECE row that is whole; and a product whose bills name both units
+has two rows to add by hand until a UQC mapping converts them.
+
+**The purchase HSN summary had the same mistake the other way round**
+(`gst_purchase_register.py`): it was already keyed on the code and the
+bill's typed unit, and counted the stored quantity beside it -- 7 PIECE of a
+box receipt read "0.5833 PIECE". It counts `entered_quantity` where the bill
+or the return kept one.
 
 ### Either unit field of a sales bill line names the unit (D-PRC-44, 2026-10-06)
 

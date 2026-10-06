@@ -36,6 +36,9 @@ from app.purchase.services import PurchaseService
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.purchase_invoice.schemas import PurchaseInvoiceCreate
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_invoice.services.gst_purchase_register import (
+    GstPurchaseRegisterService,
+)
 from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 from app.purchase_return.schemas import PurchaseReturnCreate
 from app.purchase_return.services.purchase_return_service import (
@@ -894,3 +897,31 @@ def test_half_a_box_typed_as_a_box_is_refused_where_it_is_saved(named: bool) -> 
     with pytest.raises(ValidationError, match="so 0.5 BOX cannot be entered"):
         buyer.bill(receipt, "0.5", **({"invoice_uom_id": buyer.box} if named else {}))
     buyer.session.rollback()
+
+
+def test_the_hsn_summary_counts_what_was_typed_in_the_unit_it_names() -> None:
+    """D-PRC-50: 7 PIECE billed and 5 PIECE sent back read 7 and 2 PIECE.
+
+    The row is filed under the typed unit, and counted the stored part of a
+    box beside it: "0.5833 PIECE" bought, and 0.1666 after the return.
+    """
+    buyer = _Buyer()
+    receipt = buyer.receive(buyer.order(**buyer.named("c")))
+    bill = buyer.bill(receipt, "7", invoice_uom_id=buyer.piece)
+    register = GstPurchaseRegisterService(buyer.session)
+
+    [bought] = register.hsn_summary(buyer.firm_id)
+    assert (bought.unit, bought.quantity) == ("PIECE", D("7.0000"))
+    assert bought.taxable_value == D("420.00")
+
+    buyer.send_back(
+        "PURCHASE_INVOICE",
+        bill.id,
+        buyer.bill_line(bill).id,
+        quantity="5",
+        return_uom_id=buyer.piece,
+    )
+
+    [left] = register.hsn_summary(buyer.firm_id)
+    assert (left.unit, left.quantity) == ("PIECE", D("2.0000"))
+    assert left.taxable_value == D("120.00")

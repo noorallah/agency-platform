@@ -52,6 +52,7 @@ from app.quotation.services.quotation_service import QuotationService
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.schemas import SalesInvoiceCreate
 from app.sales_invoice.services import SalesInvoiceService
+from app.sales_invoice.services.gst_sales_register import GstSalesRegisterService
 from app.sales_invoice.services.invoice_print_service import (
     SalesInvoicePrintService,
 )
@@ -1136,3 +1137,45 @@ def test_an_ordered_unit_that_is_not_the_notes_is_refused_in_words() -> None:
         "the line is billed in is the other field."
     )
     assert shop.session.scalars(select(SalesInvoice)).all() == []
+
+
+# ---- the quantity declared (D-PRC-50) --------------------------------------
+#
+# The fourth live check: 7 PIECE back off a bill typed 24 PIECE left GSTR-1's
+# HSN row reading 23.4167, and 24 PIECE, 2 BOX and 7 PIECE of one code read 33.
+
+
+def _hsn(shop: _Shop) -> list[tuple[str, Decimal, Decimal]]:
+    """Return the HSN summary's rows: unit, quantity and taxable value."""
+    return [
+        (row.unit, row.quantity, row.taxable_value)
+        for row in GstSalesRegisterService(shop.session).hsn_summary(shop.firm_id)
+    ]
+
+
+def test_a_return_in_pieces_comes_off_the_hsn_summary_in_pieces() -> None:
+    """24 PIECE billed and 7 PIECE back leave 17 PIECE worth 1,700.00."""
+    shop = _Shop()
+    bill, billed = _bill(shop, _shipped(shop), "24", invoice_uom_id=shop.piece)
+    assert _hsn(shop) == [("PIECE", D("24.0000"), D("2400.00"))]
+
+    _brought_back(
+        shop, ("SALES_INVOICE", bill.id, billed.id), "7", return_uom_id=shop.piece
+    )
+
+    assert _hsn(shop) == [("PIECE", D("17.0000"), D("1700.00"))]
+
+
+def test_the_hsn_summary_never_adds_pieces_to_boxes() -> None:
+    """24 PIECE and 2 BOX of one code are two rows, and 4,800.00 between them."""
+    shop = _Shop()
+    _bill(shop, _shipped(shop), "24", invoice_uom_id=shop.piece)
+    _bill(shop, _shipped(shop), "2")
+
+    rows = _hsn(shop)
+
+    assert rows == [
+        ("BOX", D("2.0000"), D("2400.00")),
+        ("PIECE", D("24.0000"), D("2400.00")),
+    ]
+    assert sum((taxable for _, _, taxable in rows), D("0")) == D("4800.00")
