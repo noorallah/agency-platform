@@ -147,7 +147,16 @@ class SchemeSuggestion {
     this.freeProductCode = '',
     this.freeProductName = '',
     this.existingLineNumber,
+    this.freeUomId = '',
   });
+
+  /// The unit [freeQuantity] is in where the free goods are of the paid line's
+  /// own product (D-PRC-39): its stock unit, so they cannot go on the paid
+  /// line and need a line of their own. Empty for another product's goods.
+  final String freeUomId;
+
+  /// Free goods of the paid line's own product, in the stock unit.
+  bool get isOwnProduct => freeUomId.isNotEmpty;
 
   final int lineNumber;
   final String schemeId;
@@ -174,6 +183,7 @@ class SchemeSuggestion {
         freeQuantity: _plainNumber('${json['free_quantity'] ?? ''}'),
         existingLineNumber:
             int.tryParse('${json['existing_line_number'] ?? ''}'),
+        freeUomId: json['free_uom_id'] == null ? '' : '${json['free_uom_id']}',
       );
 }
 

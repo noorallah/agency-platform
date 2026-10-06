@@ -274,11 +274,44 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
   /// gift line for another product, or the free box of the line that already
   /// carries it. The same scheme and product are never added twice, and a
   /// gift taken off by hand stays off. Priced again only when something moved.
+  ///
+  /// A scheme that gives the paid line's own product in its stock unit
+  /// (D-PRC-39) is offered, not added: the buyer adds it from the side panel,
+  /// and its line goes again once the paid line's quantity no longer earns it.
   void _applySchemeSuggestions(List<SchemeSuggestion> suggestions) {
-    if (_locked || suggestions.isEmpty) return;
-    final List<PurchaseOrderLine> lines = [..._draft.lines];
+    if (_locked) return;
+    List<PurchaseOrderLine> lines = [..._draft.lines];
     bool changed = false;
+    final Set<String> earned = <String>{
+      for (final SchemeSuggestion s in suggestions)
+        if (s.isOwnProduct) s.key,
+    };
+    _ownSchemeKeys.addAll(earned);
+    final List<PurchaseOrderLine> kept = [
+      for (final PurchaseOrderLine l in lines)
+        if (!(_isSchemeGift(l) &&
+            _ownSchemeKeys.contains(_giftKey(l)) &&
+            !earned.contains(_giftKey(l))))
+          l,
+    ];
+    if (kept.isNotEmpty && kept.length != lines.length) {
+      lines = [
+        for (int i = 0; i < kept.length; i++) kept[i].copyWith(lineNumber: i + 1),
+      ];
+      changed = true;
+    }
     for (final SchemeSuggestion s in suggestions) {
+      if (s.isOwnProduct) {
+        final int own = lines.indexWhere(
+          (l) => _isSchemeGift(l) && _giftKey(l) == s.key,
+        );
+        if (own >= 0 &&
+            _number(lines[own].freeQuantity) != _number(s.freeQuantity)) {
+          lines[own] = lines[own].copyWith(freeQuantity: s.freeQuantity);
+          changed = true;
+        }
+        continue;
+      }
       if (_dismissedSchemes.contains(s.key)) continue;
       int at = -1;
       final int named = (s.existingLineNumber ?? 0) - 1;
@@ -314,9 +347,95 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     _schedulePreview();
   }
 
+  /// A line that only gives goods (nothing paid for) and names its scheme.
+  bool _isSchemeGift(PurchaseOrderLine line) =>
+      _number(line.orderedQuantity) == 0 && line.schemeId.isNotEmpty;
+
+  String _giftKey(PurchaseOrderLine line) =>
+      '${line.schemeId}|${line.productId}';
+
+  /// The scheme's free goods of the product the order already buys, in its
+  /// stock unit: shown as the scheme gave them and not typed over.
+  bool _isOwnSchemeFree(PurchaseOrderLine line) =>
+      _isSchemeGift(line) &&
+      (_ownSchemeKeys.contains(_giftKey(line)) ||
+          _draft.lines.any(
+            (o) =>
+                !identical(o, line) &&
+                _number(o.orderedQuantity) > 0 &&
+                o.productId == line.productId,
+          ));
+
+  String _unitCode(String uomId) {
+    for (final UomRecord unit in widget.uoms) {
+      if (unit.id == uomId) return unit.code;
+    }
+    return '';
+  }
+
+  /// The scheme's own-product free goods the order does not carry yet, each
+  /// with the one action that adds them as a line of their own.
+  List<SchemeSuggestion> _freeLineOffers() {
+    final List<SchemeSuggestion> out = <SchemeSuggestion>[];
+    for (final SchemeSuggestion s
+        in _preview?.schemeSuggestions ?? const <SchemeSuggestion>[]) {
+      if (!s.isOwnProduct) continue;
+      if (_draft.lines.any((l) => _isSchemeGift(l) && _giftKey(l) == s.key)) {
+        continue;
+      }
+      out.add(s);
+    }
+    return out;
+  }
+
+  /// Add the free goods as their own line: ordered 0, free n, in the unit the
+  /// server named, carrying the scheme (D-PRC-39).
+  void _addFreeLine(SchemeSuggestion s) {
+    if (_locked) return;
+    _setState(() {
+      _lineEpoch++;
+      _ownSchemeKeys.add(s.key);
+      _draft = _draft.copyWith(lines: [
+        ..._draft.lines,
+        PurchaseOrderLine.gift(
+          lineNumber: _draft.lines.length + 1,
+          productId: s.freeProductId,
+          freeQuantity: s.freeQuantity,
+          schemeId: s.schemeId,
+          schemeName: s.schemeLabel,
+          warehouseId: _draft.warehouseId,
+          uomId: s.freeUomId,
+        ),
+      ]);
+    });
+    _schedulePreview();
+  }
+
   /// "Scheme 10+2 applied" for each line a scheme gave free goods to.
   List<Widget> _schemeNotes() {
     final List<Widget> out = <Widget>[];
+    for (final SchemeSuggestion s in _freeLineOffers()) {
+      if (out.isEmpty) out.add(const DocumentSideHeading('Supplier schemes'));
+      final String unit = _unitCode(s.freeUomId);
+      out.add(Padding(
+        key: ValueKey<String>('po-scheme-offer-${s.schemeId}'),
+        padding: const EdgeInsets.only(bottom: 4),
+        child: DocumentSideNote(
+          'Scheme ${s.schemeLabel}: ${documentQuantity(s.freeQuantity)}'
+          '${unit.isEmpty ? '' : ' $unit'} free',
+        ),
+      ));
+      if (!_locked) {
+        out.add(Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            key: ValueKey<String>('po-scheme-add-${s.schemeId}'),
+            onPressed: () => _addFreeLine(s),
+            child: const Text('Add the free line'),
+          ),
+        ));
+      }
+    }
     for (int i = 0; i < _draft.lines.length; i++) {
       final PurchaseOrderLine line = _draft.lines[i];
       final String name = line.schemeName.isNotEmpty
@@ -956,6 +1075,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     required String name,
     required String value,
     required ValueChanged<String> onChanged,
+    bool readOnly = false,
   }) =>
       TextFormField(
         // Keyed on the line's place and product and on removals, so a box
@@ -965,7 +1085,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           '${_draft.lines[index].productId}',
         ),
         initialValue: value,
-        readOnly: _locked,
+        readOnly: _locked || readOnly,
         textAlign: TextAlign.right,
         keyboardType: TextInputType.number,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13),
@@ -979,6 +1099,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     final Product? product = _product(line.productId);
     final PurchaseOrderLine? priced = _pricedLine(index);
     final DocumentPreviewLine? companion = _companion(index);
+    final bool schemeFree = _isOwnSchemeFree(line);
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final double taxable = priced == null
         ? _typedTaxable(line)
@@ -1006,7 +1127,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                 ),
                 initialSelection:
                     line.productId.isEmpty ? null : line.productId,
-                enabled: !_locked,
+                enabled: !_locked && !schemeFree,
                 expandedInsets: EdgeInsets.zero,
                 enableFilter: true,
                 requestFocusOnTap: true,
@@ -1032,7 +1153,20 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                   _changeLine(index, _choose(line, value));
                 },
               ),
-              if (companion != null)
+              if (schemeFree)
+                Text(
+                  'Scheme ${line.schemeName}: '
+                  '${documentQuantity(line.freeQuantity)} '
+                  '${_unitCode(line.purchaseUomId)} free, given by the '
+                  'supplier',
+                  key: ValueKey<String>('po-scheme-free-${index + 1}'),
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 11,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                )
+              else if (companion != null)
                 Text(
                   'Stock ${documentQuantity(companion.availableQuantity)}'
                   '${companion.lastPrice.isEmpty ? '' : '  ·  last from them '
@@ -1071,6 +1205,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           context,
           index: index,
           name: 'qty',
+          readOnly: schemeFree,
           value: line.orderedQuantity,
           onChanged: (value) =>
               _changeLine(index, line.copyWith(orderedQuantity: value)),
@@ -1079,11 +1214,12 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           context,
           index: index,
           name: 'free',
+          readOnly: schemeFree,
           value: line.freeQuantity,
           onChanged: (value) =>
               _changeLine(index, line.copyWith(freeQuantity: value)),
         ),
-        _unitCell(context, index, line, text),
+        _unitCell(context, index, line, text, readOnly: schemeFree),
         _rateWithSource(
           (priced ?? line).isRateContract,
           index,
@@ -1091,6 +1227,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
             context,
             index: index,
             name: 'rate-$_rateEpoch',
+            readOnly: schemeFree,
             value: line.unitPrice,
             onChanged: (value) =>
                 _changeLine(index, line.copyWith(unitPrice: value)),
@@ -1100,6 +1237,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           context,
           index: index,
           name: 'disc',
+          readOnly: schemeFree,
           value: line.discountPercent,
           onChanged: (value) =>
               _changeLine(index, line.copyWith(discountPercent: value)),
@@ -1108,6 +1246,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           context,
           index: index,
           name: 'disc-amt',
+          readOnly: schemeFree,
           value: line.discountAmount,
           onChanged: (value) =>
               _changeLine(index, line.copyWith(discountAmount: value)),
@@ -1151,8 +1290,9 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     BuildContext context,
     int index,
     PurchaseOrderLine line,
-    TextStyle? text,
-  ) {
+    TextStyle? text, {
+    bool readOnly = false,
+  }) {
     if (widget.uoms.isEmpty) {
       return Text(_product(line.productId)?.unit ?? '', style: text);
     }
@@ -1177,7 +1317,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
             child: Text(unit.code, overflow: TextOverflow.ellipsis),
           ),
       ],
-      onChanged: _locked
+      onChanged: _locked || readOnly
           ? null
           : (value) {
               if (value != null) {
