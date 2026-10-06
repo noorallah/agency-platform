@@ -1326,6 +1326,48 @@ def returns_off_notes_against(
     return answer
 
 
+def returns_resting_on(
+    session: Session, *, firm_id: UUID, invoice_id: UUID
+) -> set[UUID]:
+    """Return the returns off delivery notes that have taken units of one bill.
+
+    What stops a bill being cancelled (D-PRC-77): a completed return whose
+    units were **placed** on this bill has credited the customer for goods
+    it charged, and cancelling the bill would take the whole of it off the
+    customer on top of that credit. A return off the note that has not
+    completed counts where its units would be set against this bill as the
+    bills stand.
+
+    A return of the same note that took nothing of this bill is not here:
+    one that came back before any bill had charged its goods, one placed on
+    the note's other bills -- and any return at all where the bill is a
+    draft, which has charged nobody.
+    """
+    resting = set(
+        session.scalars(
+            _placements(
+                firm_id, SalesReturnBillPlacement.sales_return_id, as_of=None
+            ).where(SalesReturnBillPlacement.sales_invoice_id == invoice_id)
+        ).all()
+    )
+    note_line_ids = session.scalars(
+        select(SalesInvoiceLine.source_document_line_id).where(
+            SalesInvoiceLine.sales_invoice_id == invoice_id,
+            SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
+            SalesInvoiceLine.is_deleted.is_(False),
+        )
+    ).all()
+    if note_line_ids:
+        book = BillBook(session, firm_id=firm_id, completed_only=False)
+        book.load(note_line_ids=note_line_ids)
+        resting |= {
+            share.return_id
+            for share in book.shares()
+            if share.invoice_id == invoice_id and share.return_id is not None
+        }
+    return resting
+
+
 def _split_header(
     amount: Decimal, bills: Sequence[tuple[UUID, Decimal, Decimal]]
 ) -> dict[UUID, Decimal]:
