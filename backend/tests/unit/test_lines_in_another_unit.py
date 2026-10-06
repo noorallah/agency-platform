@@ -536,8 +536,8 @@ def test_a_purchase_line_by_the_box_with_no_price_costs_twelve_pieces() -> None:
     assert (pieces.unit_price, pieces.gross_amount) == (D("60.0000"), D("120.0000"))
 
 
-def _list_with_a_break_at_twenty(shop: _Shop) -> None:
-    """Give the customer a price list: 2% off, 5% off from 20 pieces."""
+def _list_with_a_break_at_twenty(shop: _Shop, *, at: str = "20") -> None:
+    """Give the customer a price list: 2% off, 5% off from 20 stock units."""
     price_list = PriceList(
         firm_id=shop.firm_id,
         code="BREAKS",
@@ -556,7 +556,7 @@ def _list_with_a_break_at_twenty(shop: _Shop) -> None:
                 min_quantity=D(quantity),
                 discount_percent=D(percent),
             )
-            for quantity, percent in (("0", "2"), ("20", "5"))
+            for quantity, percent in (("0", "2"), (at, "5"))
         ]
     )
     shop.session.commit()
@@ -574,6 +574,134 @@ def test_a_price_lists_discount_break_counts_the_pieces_in_a_box() -> None:
     assert (two.discount_percent, two.discount_amount) == (D("5.0000"), D("120.0000"))
     assert (one.discount_percent, one.discount_amount) == (D("2.0000"), D("24.0000"))
     assert pieces.discount_percent == D("5.0000")
+
+
+def _kept_by_the_box(shop: _Shop) -> None:
+    """Turn the product round: kept in BOX at 1,200.00, sold by the PIECE.
+
+    The fourth check's product (D-PRC-52). A piece is a twelfth of a box,
+    which the rule's ten places can only write as 0.0833333333.
+    """
+    product = shop.setup.product
+    product.base_uom_id = shop.box
+    product.inventory_uom_id = shop.box
+    product.selling_price = D("1200")
+    box = shop.session.get(Uom, shop.box)
+    assert box is not None
+    box.is_decimal_allowed = True
+    shop.session.add(
+        ConversionRule(
+            firm_id=shop.firm_id,
+            product_id=product.id,
+            from_uom_id=shop.piece,
+            to_uom_id=shop.box,
+            conversion_factor=D("0.0833333333"),
+            rounding_mode="HALF_UP",
+            precision_scale=4,
+            effective_from=date(2026, 4, 1),
+            version_number=1,
+        )
+    )
+    shop.session.commit()
+
+
+def test_pieces_of_a_product_kept_by_the_box_reach_the_break_at_two_boxes() -> None:
+    """D-PRC-52: 24 PIECE are 2 boxes, asked as 1.9999999992 and given 2%."""
+    shop = _Shop()
+    _kept_by_the_box(shop)
+    _list_with_a_break_at_twenty(shop, at="2")
+
+    two_boxes = shop.line(shop.order(quantity="24", sales_uom_id=shop.piece))
+    one_box = shop.line(shop.order(quantity="12", sales_uom_id=shop.piece))
+    by_the_box = shop.line(shop.order(sales_uom_id=shop.box))
+    short = shop.line(shop.order(quantity="23", sales_uom_id=shop.piece))
+
+    assert (two_boxes.unit_price, two_boxes.base_quantity) == (
+        D("100.0000"),
+        D("2.0000"),
+    )
+    assert (two_boxes.discount_percent, two_boxes.discount_amount) == (
+        D("5.0000"),
+        D("120.0000"),
+    )
+    assert by_the_box.discount_amount == D("120.0000")
+    assert (one_box.discount_percent, one_box.discount_amount) == (
+        D("2.0000"),
+        D("24.0000"),
+    )
+    assert short.discount_percent == D("2.0000")
+
+
+def test_a_quotation_in_pieces_of_a_boxed_product_takes_the_same_break() -> None:
+    """The quotation asks the list the way the order does."""
+    shop = _Shop()
+    _kept_by_the_box(shop)
+    _list_with_a_break_at_twenty(shop, at="2")
+
+    line = _quote(shop, quantity="24", sales_uom_id=shop.piece)
+
+    assert (line.discount_percent, line.discount_amount) == (
+        D("5.0000"),
+        D("120.0000"),
+    )
+
+
+def test_loose_pieces_of_a_boxed_product_are_charged_as_typed_all_the_way() -> None:
+    """7 PIECE at 100.00 is 700.00 on the order, the note and the bill.
+
+    The shelf holds boxes at four places, so 0.5833 of one leaves; the money
+    is 7 times the price of a piece and never 0.5833 of a box's.
+    """
+    shop = _Shop()
+    _kept_by_the_box(shop)
+    order = shop.order(quantity="7", sales_uom_id=shop.piece)
+    stored = shop.line(order)
+    assert (stored.unit_price, stored.gross_amount, stored.base_quantity) == (
+        D("100.0000"),
+        D("700.0000"),
+        D("0.5833"),
+    )
+    shop.orders.approve_order(order.id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    notes = DeliveryNoteService(shop.session)
+
+    note_id = _note_of(shop, order, "7")
+    notes.approve_note(note_id, firm_scope=shop.firm_id, actor_id=shop.actor)
+    notes.dispatch_note(note_id, firm_scope=shop.firm_id, actor_id=shop.actor)
+
+    shop.session.expire_all()
+    note_line = shop.session.scalars(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note_id)
+    ).one()
+    assert (
+        note_line.current_delivery_quantity,
+        note_line.sales_uom_id,
+        note_line.unit_price,
+        note_line.gross_amount,
+        note_line.delivered_quantity,
+    ) == (D("7.0000"), shop.piece, D("100.0000"), D("700.0000"), D("0.5833"))
+    assert shop.orders.get_order(order.id, firm_scope=shop.firm_id).status == (
+        "DELIVERED"
+    )
+    bill = SalesInvoiceService(shop.session).create_invoice(
+        SalesInvoiceCreate.model_validate(
+            {
+                "customer_id": shop.setup.customer.id,
+                "invoice_date": DAY,
+                "lines": [
+                    {
+                        "source_document_type": "DELIVERY_NOTE",
+                        "source_document_id": note_id,
+                        "source_document_line_id": note_line.id,
+                        "line_number": 1,
+                        "current_invoice_quantity": "7",
+                    }
+                ],
+            }
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor,
+    )
+    assert bill.subtotal == D("700.0000")
 
 
 def _quote(shop: _Shop, **line: object) -> SalesQuotationLine:
