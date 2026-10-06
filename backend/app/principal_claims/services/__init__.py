@@ -5,11 +5,13 @@ the principal's goods that expire on its shelf, and takes back the ones that
 arrive broken -- and the principal owes it for all three. A claim gathers
 them for one principal and one period:
 
-* **Scheme** -- each redemption of a promotion the principal funds, at the
-  principal's share of the benefit the customer was given; and the free
-  goods such a promotion put on a dispatched line, at the same share of what
-  they cost. A redemption's benefit is money only, so the goods are a line
-  of their own.
+* **Scheme** -- what a promotion the principal funds took off each approved
+  bill of the period, at the principal's share, less what a return or a
+  credit note took back (`passed_on`: an order claims an offer, a bill
+  passes it on, and only what was passed on is the principal's to pay); and
+  the free goods such a promotion put on a dispatched line, at the same
+  share of what they cost. A redemption's benefit is money only, so the
+  goods are a line of their own.
 * **Free goods** -- free quantity somebody *typed* on a line of the
   principal's products (the "10 + 1" a salesman gives), at what the dispatch
   that shipped it cost. Its own kind, so the principal sees what the firm
@@ -97,10 +99,14 @@ from app.principal_claims.models import (
     PrincipalClaimLine,
     PrincipalClaimReceipt,
 )
+from app.principal_claims.services.passed_on import (
+    passed_on_bills,
+    scheme_bill_source,
+)
 from app.products.models import Product
 from app.products.models.brand import Brand, Principal
 from app.products.models.price_revision import ProductPriceRevision
-from app.promotions.models import Promotion, PromotionRedemption
+from app.promotions.models import Promotion
 from app.sales_order.models import SalesOrderLine
 from app.sales_return.free_goods import free_goods_returned
 from app.sales_return.models import SalesReturn, SalesReturnLine
@@ -1087,37 +1093,63 @@ class PrincipalClaimService(TransactionalDocumentService):
     def _schemes(
         self, firm_id: UUID, principal_id: UUID, start: date, end: date
     ) -> list[_Candidate]:
-        """Redemptions of the principal's schemes, at its share."""
-        rows = self._session.execute(
-            select(PromotionRedemption, Promotion)
-            .join(Promotion, Promotion.id == PromotionRedemption.promotion_id)
-            .where(
-                PromotionRedemption.firm_id == firm_id,
-                PromotionRedemption.is_deleted.is_(False),
-                PromotionRedemption.status == "CLAIMED",
-                PromotionRedemption.redeemed_on >= start,
-                PromotionRedemption.redeemed_on <= end,
-                Promotion.principal_id == principal_id,
+        """Return the principal's schemes, at its share of what the bills passed on.
+
+        Read off the **approved bills** dated in the period, not off the
+        order that claimed the offer (D-PRC-27): the firm claims what it gave
+        a customer, so an order approved and never billed claims nothing, one
+        part billed claims that part, and what a completed return or an
+        approved credit note took back is not claimed (`passed_on_bills`).
+
+        The source is the redemption **and the bill** (`scheme_bill_source`),
+        so a part billed in a later period is claimed in that period and the
+        same bill's discount is never claimed twice. A redemption a claim
+        raised before this rule holds whole, under its own id, is left with
+        that claim: none of its bills is claimed again.
+        """
+        passed = passed_on_bills(
+            self._session,
+            firm_id=firm_id,
+            principal_id=principal_id,
+            start=start,
+            end=end,
+        )
+        if not passed:
+            return []
+        offers = {
+            promotion_id: (name, Decimal(str(share)))
+            for promotion_id, name, share in self._session.execute(
+                select(
+                    Promotion.id, Promotion.name, Promotion.principal_share_percent
+                ).where(
+                    Promotion.firm_id == firm_id,
+                    Promotion.principal_id == principal_id,
+                )
+            ).all()
+        }
+        whole = {
+            source_id
+            for kind, source_id in self._claimed({row.redemption_id for row in passed})
+            if kind == "SCHEME"
+        }
+        found: list[_Candidate] = []
+        for row in passed:
+            if row.redemption_id in whole or row.promotion_id not in offers:
+                continue
+            name, share = offers[row.promotion_id]
+            found.append(
+                _Candidate(
+                    kind="SCHEME",
+                    source_id=scheme_bill_source(row.redemption_id, row.invoice_id),
+                    source_number=row.invoice_number,
+                    source_date=row.invoice_date,
+                    product_id=None,
+                    quantity=None,
+                    description=f"{name} on order {row.order_number}",
+                    amount=(row.given * share / Decimal("100")).quantize(CENT),
+                )
             )
-            .order_by(PromotionRedemption.redeemed_on, PromotionRedemption.id)
-        ).all()
-        return [
-            _Candidate(
-                kind="SCHEME",
-                source_id=redemption.id,
-                source_number=redemption.document_number or "",
-                source_date=redemption.redeemed_on,
-                product_id=None,
-                quantity=None,
-                description=promotion.name,
-                amount=(
-                    Decimal(str(redemption.benefit_amount))
-                    * Decimal(str(promotion.principal_share_percent))
-                    / Decimal("100")
-                ).quantize(CENT),
-            )
-            for redemption, promotion in rows
-        ]
+        return found
 
     def _free_goods(
         self, firm_id: UUID, principal_id: UUID, start: date, end: date
