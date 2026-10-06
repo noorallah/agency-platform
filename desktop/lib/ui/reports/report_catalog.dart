@@ -859,6 +859,13 @@ const List<ReportDefinition> reportCatalog = [
     path: '/api/v1/loyalty/reports/balances',
     permission: 'LOYALTY_VIEW',
     area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'customer_name', label: 'Customer'),
+      ReportColumn(key: 'points', label: 'Points', numeric: true),
+      ReportColumn(key: 'amount', label: 'Worth', numeric: true),
+      ReportColumn(key: 'lapsed_points', label: 'Lapsed points', numeric: true),
+      ReportColumn(key: 'lapsed_amount', label: 'Lapsed value', numeric: true),
+    ],
   ),
   ReportDefinition(
     id: 'loyalty-movements',

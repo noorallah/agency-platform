@@ -7532,6 +7532,19 @@ class ApiClient {
         },
       ));
 
+  /// Put back the points one redemption spent, on a bill that stays
+  /// (D-PRC-6). Needs `LOYALTY_MANAGE` and a reason; the server refuses a
+  /// redemption already put back, and a row that is itself points put back.
+  Future<Json> reverseLoyaltyRedemption(
+    String entryId, {
+    required String reason,
+  }) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/loyalty/redemptions/$entryId/reverse',
+        body: <String, dynamic>{'reason': reason},
+      ));
+
   /// Write off points that have run out of time. Safe to run twice.
   Future<Json> expireLoyalty() async =>
       _unwrapMap(await request('POST', '/api/v1/loyalty/expire'));
