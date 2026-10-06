@@ -298,6 +298,14 @@ class SalesReturnLine(BaseEntity):
     return_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT")
     )
+    #: What was typed, in ``return_uom_id``, where that is another unit than the
+    #: line this one continues: 7 for seven pieces of a line sold by the
+    #: box. ``current_return_quantity`` beside it is the same goods in the
+    #: source line's unit at four places (0.5833), which is what the caps
+    #: count; the line is priced, moved and printed from this one, because
+    #: 0.5833 of a box is not seven pieces (D-PRC-37). Null on a line typed
+    #: in its source line's own unit, and on every line written before it.
+    entered_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     conversion_factor: Mapped[Decimal] = mapped_column(
         Numeric(24, 10), nullable=False, default=Decimal("1"), server_default="1"
     )

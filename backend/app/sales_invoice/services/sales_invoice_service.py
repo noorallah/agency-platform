@@ -174,7 +174,7 @@ from app.trade_licences.services.licence_check import (
 from app.uom.services import (
     UomService,
     assert_quantity_fits_unit,
-    price_per_source_unit,
+    exact_quantity,
 )
 
 ZERO = Decimal("0")
@@ -285,6 +285,9 @@ class _PricedInvoiceLine:
     source_quantity: Decimal
     already_invoiced: Decimal
     conversion_factor: Decimal
+    #: What was typed, where the line was typed in another unit than its
+    #: source line's (D-PRC-37); None otherwise.
+    entered_quantity: Decimal | None
     source_uom_id: UUID | None
     unit_price: Decimal
     charges_amount: Decimal
@@ -1985,7 +1988,13 @@ class SalesInvoiceService(TransactionalDocumentService):
                 ],
                 paid=Decimal(str(line.net_amount))
                 - Decimal(str(line.freight_amount or 0)),
-                quantity=Decimal(str(line.current_invoice_quantity or 0)),
+                # Seven pieces, not the 0.5833 of a box the cap counts:
+                # 6.9996 pieces would put the rate a paisa out (D-PRC-37).
+                quantity=exact_quantity(
+                    line.current_invoice_quantity,
+                    line.entered_quantity,
+                    line.conversion_factor,
+                ),
                 stock_units_per_unit=stock_units.get(line.source_document_line_id),
             )
 
@@ -4076,31 +4085,29 @@ class SalesInvoiceService(TransactionalDocumentService):
             conversion_factor = self._q(
                 Decimal(str(spec.get("conversion_factor", Decimal("1"))))
             )
-            invoice_quantity = requested_quantity
-            if (
-                source_uom_id is not None
-                and invoice_uom_id is not None
-                and invoice_uom_id != source_uom_id
-            ):
-                # In the source line's unit, which is what the cap below
-                # and every later reader counts in: by the rule for the
-                # pair, else through the product's stock unit, so 24 PIECE
-                # bill a note of 2 BOX -- and 25 are more than was shipped
-                # -- with only the box-to-piece rule a firm writes.
-                converted, factor = self._uom.quantity_between(
-                    product_id=self._product_id(source_line),
-                    from_uom_id=UUID(str(invoice_uom_id)),
-                    to_uom_id=source_uom_id,
-                    quantity=requested_quantity,
-                    on_date=invoice_date,
-                    firm_scope=firm_id,
-                )
-                invoice_quantity = self._q(converted)
-                conversion_factor = self._q(factor)
             already_invoiced = self._already_invoiced_quantity(
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
+            # In the source line's unit, which is what the cap below and
+            # every later reader counts in: by the rule for the pair, else
+            # through the product's stock unit, so 24 PIECE bill a note of
+            # 2 BOX -- and 25 are more than was shipped -- with only the
+            # box-to-piece rule a firm writes. What was typed is kept beside
+            # it, and the line is priced from that: 7 PIECE are 0.5833 of a
+            # box at four places and 700.00, not 699.96 (D-PRC-37).
+            typed = self._uom.continued_quantity(
+                product_id=self._product_id(source_line),
+                quantity=requested_quantity,
+                from_uom_id=_optional_uuid(invoice_uom_id),
+                to_uom_id=source_uom_id,
+                on_date=invoice_date,
+                firm_scope=firm_id,
+                left=source_quantity - already_invoiced,
+            )
+            invoice_quantity = typed.quantity
+            if typed.entered is not None:
+                conversion_factor = typed.stored_factor
             # No request can lift this cap: a body flag the caller set was all
             # it took to bill 50 against a note for 5 (D-SELL-30).
             if invoice_quantity + already_invoiced > source_quantity:
@@ -4121,19 +4128,33 @@ class SalesInvoiceService(TransactionalDocumentService):
                     "is left to bill."
                 )
             unit_price = self._invoice_unit_price(spec=spec, source_line=source_line)
-            if spec.get("unit_price") is not None:
-                # Typed for the unit the line was typed in; the line is
-                # stored in the source line's, so the price is restated with
-                # the quantity.
-                unit_price = self._q(
-                    price_per_source_unit(
-                        unit_price,
-                        typed_quantity=requested_quantity,
-                        source_quantity=invoice_quantity,
-                    )
-                )
+            typed_price = None if spec.get("unit_price") is None else unit_price
+            if typed_price is not None:
+                # Typed for the unit the line was typed in; the row keeps
+                # the price of one of the source line's unit, so 100.00 a
+                # piece is stored as 1,200.00 a box.
+                unit_price = self._q(typed.price_per_source_unit(typed_price))
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
-            gross_amount = self._q(invoice_quantity * unit_price)
+            # Worth what was typed: seven pieces at a piece's price.
+            gross_amount = self._q(
+                typed.worth(typed_price=typed_price, source_price=unit_price)
+            )
+            if (
+                typed.entered is not None
+                and typed_price is None
+                and already_invoiced > ZERO
+                and invoice_quantity + already_invoiced == source_quantity
+            ):
+                # The part that completes the source line takes what the
+                # earlier parts left of its worth, so the bills of a note
+                # add up to the note to the paisa however a box divides.
+                gross_amount = self._completing_worth(
+                    firm_id=firm_id,
+                    source_line_id=source_line.id,
+                    whole=source_quantity * unit_price,
+                    price=unit_price,
+                    otherwise=gross_amount,
+                )
             # Resolved before the tax call, not after it. The percentage never
             # reached this module: it was stored on the line and the tax base
             # and the subtotal were both computed from the amount alone, so a
@@ -4175,6 +4196,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     source_quantity=source_quantity,
                     already_invoiced=already_invoiced,
                     conversion_factor=conversion_factor,
+                    entered_quantity=typed.entered,
                     source_uom_id=source_uom_id,
                     unit_price=unit_price,
                     charges_amount=charges_amount,
@@ -4271,9 +4293,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 product_id=self._product_id(priced_source),
                 tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
+                # Taxed on what the line is worth, which for a line typed
+                # in another unit is not its stored quantity times its
+                # price (D-PRC-37).
                 invoice_value=self._line_net_amount(
-                    quantity=invoice_quantity,
-                    unit_price=unit_price,
+                    quantity=Decimal("1"),
+                    unit_price=gross_amount,
                     discount_amount=discount_amount,
                     charges_amount=charges_amount,
                     freight_amount=freight_share,
@@ -4328,6 +4353,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 order_uom_id=spec.get("order_uom_id") or source_uom_id,
                 invoice_uom_id=spec.get("invoice_uom_id"),
                 conversion_factor=conversion_factor,
+                entered_quantity=item.entered_quantity,
                 conversion_version=spec.get("conversion_version"),
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 storage_node_id=spec.get("storage_node_id"),
@@ -4379,6 +4405,43 @@ class SalesInvoiceService(TransactionalDocumentService):
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
+
+    def _completing_worth(
+        self,
+        *,
+        firm_id: UUID,
+        source_line_id: UUID,
+        whole: Decimal,
+        price: Decimal,
+        otherwise: Decimal,
+    ) -> Decimal:
+        """Return what the part that completes a source line is worth.
+
+        What is left of the whole line's worth after the parts billed
+        before, each rounded to the paisa as the ledger rounds it: rounding
+        the sum is not rounding the parts, and three bills of four pieces of
+        a box of twelve at 1,000.00 were 333.33 three times. Only where
+        every earlier part was billed at the source line's own price --
+        one that typed another price made its own bargain, and this part is
+        then simply worth what it bills (``otherwise``).
+        """
+        earlier = self._session.execute(
+            select(SalesInvoiceLine.unit_price, SalesInvoiceLine.gross_amount)
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoice.firm_id == firm_id,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED.value,
+                SalesInvoiceLine.is_deleted.is_(False),
+                SalesInvoiceLine.source_document_line_id == source_line_id,
+            )
+        ).all()
+        if any(self._q(Decimal(str(was))) != price for was, _ in earlier):
+            return otherwise
+        left = quantize_ledger(whole) - sum(
+            (quantize_ledger(Decimal(str(gross))) for _, gross in earlier), ZERO
+        )
+        return self._q(left) if left > ZERO else otherwise
 
     @staticmethod
     def _entered_rate(
@@ -6226,6 +6289,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             order_uom_id=row.order_uom_id,
             invoice_uom_id=row.invoice_uom_id,
             conversion_factor=row.conversion_factor,
+            entered_quantity=row.entered_quantity,
             conversion_version=row.conversion_version,
             warehouse_id=row.warehouse_id,
             storage_node_id=row.storage_node_id,

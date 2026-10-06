@@ -125,7 +125,6 @@ from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
-from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 
 ZERO = Decimal("0")
@@ -153,6 +152,18 @@ _PENDING_STATUSES = (
     SalesReturnStatus.DRAFT.value,
     SalesReturnStatus.APPROVED.value,
 )
+
+
+@dataclass(frozen=True)
+class _ComingBack:
+    """What one return line puts back on the shelf, in one unit."""
+
+    quantity: Decimal
+    restock: Decimal
+    damaged: Decimal
+    scrap: Decimal
+    uom_id: UUID | None
+    conversion_version: int | None
 
 
 def _optional_uuid(value: object) -> UUID | None:
@@ -831,6 +842,7 @@ class SalesReturnService(TransactionalDocumentService):
                         customer_id=row.customer_id,
                     ),
                 )
+            coming = self._coming_back(line)
             transaction = self._inventory.record_sales_return(
                 firm_scope=firm_scope,
                 actor_id=actor_id,
@@ -843,17 +855,13 @@ class SalesReturnService(TransactionalDocumentService):
                 # What arrives on the shelf: the charged units and the free
                 # ones coming back beside them (D-PRC-8), at the cost the
                 # product is carried at.
-                return_quantity=self._q(
-                    line.current_return_quantity + line.free_quantity
-                ),
-                restock_quantity=line.restock_quantity,
-                damaged_quantity=line.damaged_quantity,
-                scrap_quantity=line.scrap_quantity,
-                entered_quantity=self._q(
-                    line.current_return_quantity + line.free_quantity
-                ),
-                entered_uom_id=line.return_uom_id or line.sales_uom_id,
-                conversion_version=line.conversion_version,
+                return_quantity=coming.quantity,
+                restock_quantity=coming.restock,
+                damaged_quantity=coming.damaged,
+                scrap_quantity=coming.scrap,
+                entered_quantity=coming.quantity,
+                entered_uom_id=coming.uom_id,
+                conversion_version=coming.conversion_version,
                 remarks=line.remarks or row.remarks,
                 batch_id=batch_id,
                 # One unit coming back is named on the movement itself; the
@@ -1476,29 +1484,34 @@ class SalesReturnService(TransactionalDocumentService):
             conversion_factor = self._q(
                 _decimal(spec.get("conversion_factor"), Decimal("1"))
             )
-            return_quantity = requested
-            if (
-                source_uom_id is not None
-                and return_uom_id is not None
-                and return_uom_id != source_uom_id
-            ):
-                conversion = self._uom.convert_quantity(
-                    ConversionRequest(
-                        product_id=source_line.product_id,
-                        from_uom_id=return_uom_id,
-                        to_uom_id=source_uom_id,
-                        quantity=requested,
-                        conversion_date=return_date,
-                    ),
-                    firm_scope=firm_id,
-                )
-                return_quantity = self._q(conversion.converted_quantity)
-                conversion_factor = self._q(conversion.conversion_factor)
+            # In the source line's unit, which is what the caps below count
+            # in: by the rule for the pair, else through the product's stock
+            # unit, so 7 PIECE come back off a note of 2 BOX with only the
+            # box-to-piece rule a firm writes. What was typed is kept beside
+            # it, and that is what is credited and what comes back onto the
+            # shelf (D-PRC-37, D-PRC-38).
+            typed = self._uom.continued_quantity(
+                product_id=source_line.product_id,
+                quantity=requested,
+                from_uom_id=return_uom_id,
+                to_uom_id=source_uom_id,
+                on_date=return_date,
+                firm_scope=firm_id,
+            )
+            if typed.entered is not None:
+                conversion_factor = typed.stored_factor
             already_returned, already_free = self._already_returned(
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
                 exclude_return_id=row.id,
             )
+            source_free = self._q(getattr(source_line, "free_quantity", ZERO) or 0)
+            # The part that brings back all that is left is stored as
+            # exactly that, however its pieces round as boxes.
+            typed = typed.taking(
+                self._q(dispatched - already_returned + source_free - already_free)
+            )
+            return_quantity = typed.quantity
             # Everything on the line, in the source line's unit: the buckets
             # below are parts of all of it, free goods included.
             total_quantity = return_quantity
@@ -1511,9 +1524,23 @@ class SalesReturnService(TransactionalDocumentService):
                 typed_free=self._typed_free(spec, requested, total_quantity),
                 dispatched=dispatched,
                 already_returned=already_returned,
-                source_free=self._q(getattr(source_line, "free_quantity", ZERO) or 0),
+                source_free=source_free,
                 already_free=already_free,
             )
+            # Only charged goods are worth what was typed for them; with
+            # free goods beside them the line is counted, credited and moved
+            # in the source line's unit, where it must then be a quantity
+            # that unit can hold -- refused here, where it is saved, never
+            # at completion (D-PRC-38).
+            as_typed = typed.entered is not None and free_quantity == ZERO
+            if typed.entered is not None and not as_typed:
+                assert_quantity_fits_unit(
+                    self._session,
+                    quantity=total_quantity,
+                    uom_id=source_uom_id,
+                    product_id=source_line.product_id,
+                    firm_id=firm_id,
+                )
             # A bill's line and the note line it billed are the same goods, so
             # what comes back through either route counts against what left.
             goods = self._goods_behind(source_line)
@@ -1558,7 +1585,16 @@ class SalesReturnService(TransactionalDocumentService):
                 if spec.get("unit_price") is not None
                 else _decimal(getattr(source_line, "unit_price", ZERO))
             )
-            gross_amount = self._q(return_quantity * unit_price)
+            typed_price = None if spec.get("unit_price") is None else unit_price
+            if typed_price is not None:
+                # Typed for the unit the line was typed in; the row keeps the
+                # price of one of the source line's unit.
+                unit_price = self._q(typed.price_per_source_unit(typed_price))
+            gross_amount = self._q(
+                typed.worth(typed_price=typed_price, source_price=unit_price)
+                if as_typed
+                else return_quantity * unit_price
+            )
             line_discount = self._line_discount(
                 spec=spec, source_line=source_line, gross=gross_amount
             )
@@ -1578,10 +1614,7 @@ class SalesReturnService(TransactionalDocumentService):
                 source_line, "tax_profile_id", None
             )
             taxable = self._q(
-                return_quantity * unit_price
-                - discount_amount
-                - bill_share
-                + charges_amount
+                gross_amount - discount_amount - bill_share + charges_amount
             )
             # A return reverses the tax the bill charged, at the rate and in
             # the components it was charged -- never what today's rules would
@@ -1650,6 +1683,7 @@ class SalesReturnService(TransactionalDocumentService):
                 sales_uom_id=source_uom_id,
                 return_uom_id=return_uom_id,
                 conversion_factor=conversion_factor,
+                entered_quantity=typed.entered if as_typed else None,
                 warehouse_id=_optional_uuid(spec.get("warehouse_id"))
                 or row.warehouse_id,
                 storage_node_id=_optional_uuid(spec.get("storage_node_id")),
@@ -2022,10 +2056,55 @@ class SalesReturnService(TransactionalDocumentService):
         return self._q(getattr(source_line, "current_invoice_quantity", ZERO))
 
     def _source_uom_id(self, source_line: SourceLine) -> UUID | None:
-        return (
-            getattr(source_line, "sales_uom_id", None)
-            or getattr(source_line, "invoice_uom_id", None)
-            or getattr(source_line, "inventory_uom_id", None)
+        """Return the unit the source line's quantities are counted in.
+
+        A note line's own selling unit. **A bill line is counted in the unit
+        of the line it bills**, whatever unit it was typed in
+        (``invoice_uom_id``): a bill typed 24 PIECE of a note of 2 BOX
+        stores 2, and a return read against it as pieces could bring back
+        two.
+        """
+        if isinstance(source_line, SalesInvoiceLine):
+            goods = self._goods_behind(source_line)
+            if goods is not None:
+                return goods.sales_uom_id or goods.inventory_uom_id
+            return source_line.order_uom_id or source_line.invoice_uom_id
+        return getattr(source_line, "sales_uom_id", None) or getattr(
+            source_line, "inventory_uom_id", None
+        )
+
+    def _coming_back(self, line: SalesReturnLine) -> _ComingBack:
+        """Return what a return line puts on the shelf, and in which unit.
+
+        The line's quantities are in its source line's unit, so that is the
+        unit they arrive in -- they were passed with the unit the line was
+        *typed* in, which read 1 BOX as one piece. A line typed in another
+        unit arrives as typed: seven pieces, not the 0.5833 of a box the cap
+        counts, which a box counted in whole numbers refuses (D-PRC-38). Its
+        damaged and scrapped parts are restated in that unit and the rest
+        is what goes back on sale.
+        """
+        total = self._q(line.current_return_quantity + line.free_quantity)
+        factor = Decimal(str(line.conversion_factor or 0))
+        if line.entered_quantity is None or line.return_uom_id is None or factor <= 0:
+            return _ComingBack(
+                quantity=total,
+                restock=line.restock_quantity,
+                damaged=line.damaged_quantity,
+                scrap=line.scrap_quantity,
+                uom_id=line.sales_uom_id or line.return_uom_id,
+                conversion_version=line.conversion_version,
+            )
+        entered = self._q(line.entered_quantity)
+        damaged = self._q(Decimal(str(line.damaged_quantity)) / factor)
+        scrap = self._q(Decimal(str(line.scrap_quantity)) / factor)
+        return _ComingBack(
+            quantity=entered,
+            restock=max(self._q(entered - damaged - scrap), ZERO),
+            damaged=damaged,
+            scrap=scrap,
+            uom_id=line.return_uom_id,
+            conversion_version=None,
         )
 
     def _source_document_number(self, source_line: SourceLine) -> str:

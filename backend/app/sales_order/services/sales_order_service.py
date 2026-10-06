@@ -2989,6 +2989,7 @@ class SalesOrderService(TransactionalDocumentService):
                     ),
                     remarks=remarks,
                     batch_id=batch_id,
+                    share_of_line=len(allocation) > 1,
                 )
             line.reserved_quantity = line.reservable_quantity
             line.updated_by = actor_id
@@ -3088,6 +3089,7 @@ class SalesOrderService(TransactionalDocumentService):
                     ),
                     remarks=f"sales_order release line {line.line_number}",
                     batch_id=batch_id,
+                    share_of_line=len(allocation) > 1,
                 )
             line.reserved_quantity = ZERO
             line.updated_by = actor_id

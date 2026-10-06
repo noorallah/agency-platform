@@ -321,6 +321,10 @@ class SalesReturnLineResponse(SalesReturnSchema):
     sales_uom_id: UUID | None
     return_uom_id: UUID | None
     conversion_factor: Decimal
+    #: What was typed, in ``return_uom_id``, where the line was typed in
+    #: another unit than the line it brings back; ``current_return_quantity``
+    #: is then the same goods in that source line's unit (D-PRC-37).
+    entered_quantity: Decimal | None = None
     conversion_version: int | None
     warehouse_id: UUID | None
     storage_node_id: UUID | None

@@ -829,7 +829,7 @@ all. Found by reading a rendered bill rather than the code.
 **The cap is compared in the unit of the line being billed, whatever unit the
 bill is typed in** (2026-10-06). A bill line naming another unit
 (`invoice_uom_id`) is converted into its source line's unit first --
-`UomService.quantity_between`: the rule for the pair, else through the
+`UomService.continued_quantity`: the rule for the pair, else through the
 product's stock unit -- so a note of 2 BOX of 12 is billed as 24 PIECE and
 refused at 25, "Invoice quantity exceeds the available source quantity." It
 needed a piece-to-box rule before, which a firm seldom writes, and was
@@ -839,6 +839,18 @@ stored as 2 at 1,200.00 and billed 2,400.00, where the typed 100.00 was
 multiplied by the converted 2 and billed 200.00. The same holds for a
 supplier's bill and a purchase return typed in another unit than the line
 they continue.
+
+**Pieces that are not whole boxes are worth what was typed** (D-PRC-37,
+2026-10-06). 7 PIECE of that note are 0.5833 of a box at the four places a
+quantity is kept to, and were billed 699.96; with the other 17 the two bills
+came to 2,831.95 against the note's 2,832.00. The line now keeps what was
+typed beside the quantity the cap counts (`entered_quantity`) and is priced
+from it: 7 PIECE with no price are **700.00**, and 17 at a typed 100.00 are
+1,700.00 at 1,200.0000 a box (it was stored at 1,199.9718). The part that
+completes the note is stored as exactly what was left of it and, billed at
+the note's own price like the parts before it, is worth what they left to the
+paisa. `docs/UOM_FRAMEWORK.md`, "Pieces that are not whole boxes", is the
+reference, with the storage decision and what a return does.
 
 ## `FREE_PRODUCT` emits a line rather than setting a field
 
