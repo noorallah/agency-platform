@@ -1376,6 +1376,26 @@ reference plus `-REV`, 49 characters -- and a number one of them happens to
 hold is stepped over. `tests/unit/test_principal_claim_receipts.py` is the
 guard.
 
+**Whatever settles a claim locks the claim first** (D-PRC-41, 2026-10-06).
+Counting the claim's payments held nothing while it counted, so two payments
+recorded at the same instant from two connections were both numbered
+`-PAY-<n>`: one posted and the other answered 409 for its journal reference,
+though both fitted what the claim was owed. The same gap sat under the money:
+what a claim is owed is a **sum** over its payments and credit notes, no row
+is updated to read it, and so no `version` could stop two payments that each
+fitted from settling more than the claim between them. `record_receipt`,
+`reverse_receipt`, `cancel` and `to_settle` (a supplier credit note set
+against the claim) now read the claim through `_locked` -- `SELECT ... FOR
+UPDATE` on that one row, held to the commit, with `populate_existing` so a
+copy the session held cannot hide what the request ahead committed. The
+second payment waits, reads what is left, takes the next number and is
+refused only if it no longer fits: "The claim has 20.00 still to settle, so
+40.00 cannot be received against it." One claim queues; the firm does not.
+`tests/unit/test_principal_claim_settles_under_a_lock.py` proves the lock is
+asked for first and that payments in turn cannot over-settle; **the race
+itself is not reproduced there** -- SQLite has no row locks -- and wants two
+connections against PostgreSQL to be seen.
+
 ## `app/settlements` is money in and money out
 
 **`app/settlements` is money in and money out**, and it is one document for both directions: a receipt from a customer and a payment to a vendor differ only in signs. It posts to the general ledger through `DocumentPostingService.post_settlement`, and `settlements.journal_entry_id` is NOT NULL because the defect it exists to close is a settlement that never reached the ledger. ****A customer's opening balance posts** `Dr Accounts Receivable / Cr Opening Balance Equity` as of 2026-08-15, and is refused outright when the firm has no chart of accounts or open period -- a balance nobody can book is one the firm should not be told it has recorded. Revising one or deleting the customer mirrors the entry, traced through `customer_receivable_transactions.journal_entry_id`. `CustomerService.post_receivable_transaction` still moves a customer balance without writing a journal** -- it is the older, lower-level path and the two books drift by every rupee recorded through it, so record money through `/api/v1/receipts` and `/api/v1/payments` instead. What an invoice still owes is derived from `settlement_allocations`, never stored on the invoice. A settlement is reversed rather than edited or deleted: a mirror journal cancels it, the allocations stop clearing invoices but still record what they had cleared, and `CustomerService.reverse_receivable_transaction` puts the customer's balances back by the **deltas stored on the original row** -- never recomputed, because a receipt of 500 against an outstanding 300 splits into 300 of balance and 200 of advance and only that row remembers the split. **A receipt whose advance has since been applied wrote more than one row** -- its own and an `ADVANCE_APPLY` per application -- and the reversal undoes every one of them, the applications first (D-SELL-8, 2026-09-19): taking "the" row picked one at random, so a bounced cheque that had been applied was refused as overtaken or left the customer's balance out of step with 1100.
