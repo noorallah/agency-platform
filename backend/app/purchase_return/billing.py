@@ -318,6 +318,48 @@ def bill_line_claims(
     asked = {line.id: line for line in bill_lines}
     if not asked:
         return {}
+    quantity, taxable, claimed, _ = _derive(
+        session,
+        asked,
+        bill_returns=bill_returns,
+        receipt_returns=receipt_returns,
+        exclude_return_id=exclude_return_id,
+    )
+    return {
+        line_id: BillLineClaims(
+            returned_quantity=quantity[line_id].quantize(_FOUR),
+            returned_taxable=taxable[line_id].quantize(_FOUR),
+            claimed_taxable=claimed.get(line_id, ZERO).quantize(_FOUR),
+        )
+        for line_id in asked
+    }
+
+
+def _derive(
+    session: Session,
+    asked: dict[UUID, PurchaseInvoiceLine],
+    *,
+    bill_returns: Sequence[str],
+    receipt_returns: Sequence[str],
+    exclude_return_id: UUID | None,
+) -> tuple[
+    dict[UUID, Decimal],
+    dict[UUID, Decimal],
+    dict[UUID, Decimal],
+    list[tuple[UUID, PurchaseInvoiceLine]],
+]:
+    """Work out what stands against some bill lines, and whose it is.
+
+    The reading behind `bill_line_claims`, kept whole so the question "which
+    returns rest on this bill" is answered by the same placing and can never
+    disagree with it (D-PRC-80).
+
+    Returns:
+        Units and value returned per bill line, what debit notes claimed
+        per bill line, and -- for the returns placed here and not read from
+        stored rows -- each return with a bill line its units fell on.
+
+    """
     # Placing a receipt's returns needs every bill of the receipt line, not
     # only the ones asked about.
     families = charging_bill_lines(
@@ -354,6 +396,7 @@ def bill_line_claims(
         states=receipt_returns,
         exclude_return_id=exclude_return_id,
     )
+    fell: list[tuple[UUID, PurchaseInvoiceLine]] = []
     for _, back in sorted(waiting, key=lambda item: item[0]):
         share = billed_share(back)
         units = Decimal(str(back.current_return_quantity)) * share
@@ -402,14 +445,86 @@ def bill_line_claims(
         for (line, part), value in zip(placed, shares, strict=True):
             quantity[line.id] += part
             taxable[line.id] += value
-    return {
-        line_id: BillLineClaims(
-            returned_quantity=quantity[line_id].quantize(_FOUR),
-            returned_taxable=taxable[line_id].quantize(_FOUR),
-            claimed_taxable=claimed.get(line_id, ZERO).quantize(_FOUR),
-        )
-        for line_id in asked
+            fell.append((back.purchase_return_id, line))
+    return quantity, taxable, claimed, fell
+
+
+def returns_resting_on(session: Session, *, invoice_id: UUID) -> set[UUID]:
+    """Return the purchase returns that have taken units of one supplier bill.
+
+    What stops a bill being cancelled (D-PRC-80). A return raised off a
+    goods receipt names no bill, and one raised off another bill of the same
+    receipt line spills onto this one once its own line's units are back;
+    both claim from the supplier what **this** bill charged. Asked only of
+    the returns that name the bill, the cancel went through under them: the
+    claim stood with no bill behind it, the supplier's credit could be spent
+    on another bill, and the input tax was reversed twice. So three kinds
+    rest on a bill, the buying twin of the sales side's rule (D-PRC-77):
+
+    - a live return with a line raised off one of the bill's own lines;
+    - a completed return whose units were **placed** on it
+      (``purchase_return_bill_placements``), whichever document it names;
+    - a return not yet completed whose units would be placed on it as the
+      bills stand, by the same placing that prices it.
+
+    A return of the same receipt that took nothing of this bill is not
+    here: one that went back before any bill reached its goods, one placed
+    on the receipt's other bills -- and any return off the receipt where
+    the bill is a draft, which has charged nothing.
+    """
+    lines = list(
+        session.scalars(
+            select(PurchaseInvoiceLine).where(
+                PurchaseInvoiceLine.purchase_invoice_id == invoice_id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+            )
+        ).all()
+    )
+    if not lines:
+        return set()
+    line_ids = [line.id for line in lines]
+    resting = set(
+        session.scalars(
+            select(PurchaseReturnLine.purchase_return_id)
+            .join(
+                PurchaseReturn,
+                PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+            )
+            .where(
+                PurchaseReturnLine.source_document_type == _BILL,
+                PurchaseReturnLine.source_document_line_id.in_(line_ids),
+                PurchaseReturnLine.is_deleted.is_(False),
+                PurchaseReturn.is_deleted.is_(False),
+                PurchaseReturn.status.in_(LIVE),
+            )
+        ).all()
+    )
+    resting |= set(
+        session.scalars(
+            select(PurchaseReturnBillPlacement.purchase_return_id)
+            .join(
+                PurchaseReturn,
+                PurchaseReturn.id == PurchaseReturnBillPlacement.purchase_return_id,
+            )
+            .where(
+                PurchaseReturnBillPlacement.purchase_invoice_line_id.in_(line_ids),
+                PurchaseReturnBillPlacement.is_deleted.is_(False),
+                PurchaseReturn.is_deleted.is_(False),
+                PurchaseReturn.status.in_(COMPLETED),
+            )
+        ).all()
+    )
+    *_, fell = _derive(
+        session,
+        {line.id: line for line in lines},
+        bill_returns=LIVE,
+        receipt_returns=LIVE,
+        exclude_return_id=None,
+    )
+    resting |= {
+        return_id for return_id, line in fell if line.purchase_invoice_id == invoice_id
     }
+    return resting
 
 
 def share_out(
@@ -722,6 +837,7 @@ __all__ = [
     "goods_billed",
     "place_on_bills",
     "placing_order",
+    "returns_resting_on",
     "share_out",
     "still_worth",
 ]

@@ -1308,3 +1308,115 @@ def test_a_debit_note_reads_the_placement_a_later_return_cannot_move() -> None:
         with pytest.raises(ValidationError, match="more than is left of the bill"):
             _debit_note(fixture, bill, "10", approve=False)
         fixture.session.rollback()
+
+
+# A bill is held from cancelling by the returns set against it (D-PRC-80).
+
+
+def _cancel_bill(fixture: _Fixture, bill: PurchaseInvoice) -> None:
+    """Cancel the supplier bill, leaving the session clean after a refusal."""
+    try:
+        PurchaseInvoiceService(fixture.session).cancel_invoice(
+            bill.id,
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            reason="Keyed wrongly",
+        )
+    except ValidationError:
+        fixture.session.rollback()
+        raise
+    fixture.session.commit()
+
+
+def _return_number(fixture: _Fixture, return_id: UUID) -> str:
+    """Return the purchase return's number."""
+    row = fixture.session.get(PurchaseReturn, return_id)
+    assert row is not None
+    return row.return_number
+
+
+def _bill_status(fixture: _Fixture, bill: PurchaseInvoice) -> str:
+    """Return the bill's status as the store holds it."""
+    fixture.session.expire_all()
+    row = fixture.session.get(PurchaseInvoice, bill.id)
+    assert row is not None
+    return row.status
+
+
+@pytest.mark.parametrize("completed", [True, False])
+def test_a_bill_does_not_cancel_under_a_return_off_the_receipt_set_on_it(
+    completed: bool,
+) -> None:
+    """Two bills of one unit, a unit back off the receipt: it is the first bill's.
+
+    The first bill cancelled under it (200) and the supplier's credit stood
+    with no bill behind it. The second, which the return took nothing of,
+    cancels as before.
+    """
+    fixture, receipt, bills = _parts(f"C80R{int(completed)}", 2, None)
+    return_id = _raise_return(fixture, "1", receipt=receipt)
+    if completed:
+        _complete(fixture, return_id)
+
+    with pytest.raises(ValidationError) as refusal:
+        _cancel_bill(fixture, bills[0])
+    assert str(refusal.value.message) == (
+        f"{bills[0].invoice_number} cannot be cancelled while it has purchase "
+        f"return {_return_number(fixture, return_id)}. Reverse or cancel those "
+        "first."
+    )
+    assert _bill_status(fixture, bills[0]) == "APPROVED"
+
+    _cancel_bill(fixture, bills[1])
+    assert _bill_status(fixture, bills[1]) == "CANCELLED"
+
+
+def test_a_bill_does_not_cancel_under_a_return_that_spilled_onto_it() -> None:
+    """A unit off the receipt, then one on the first bill's own line.
+
+    The second return names the first bill and its unit fell on the second:
+    cancelling the second left the supplier in debit by the whole of it.
+    """
+    fixture, receipt, bills = _parts("C80S", 2, None)
+    first = _back(fixture, receipt, bills, "r")
+    second = _back(fixture, receipt, bills, "0")
+
+    with pytest.raises(ValidationError) as refusal:
+        _cancel_bill(fixture, bills[1])
+    assert str(refusal.value.message) == (
+        f"{bills[1].invoice_number} cannot be cancelled while it has purchase "
+        f"return {_return_number(fixture, second)}. Reverse or cancel those "
+        "first."
+    )
+    # The first bill is held by both: one placed on it, one naming its line.
+    with pytest.raises(ValidationError) as both:
+        _cancel_bill(fixture, bills[0])
+    numbers = ", ".join(
+        sorted([_return_number(fixture, first), _return_number(fixture, second)])
+    )
+    assert f"purchase return {numbers}." in str(both.value.message)
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+
+    # With the return that fell on it cancelled, the bill cancels.
+    _cancel(fixture, second)
+    _cancel_bill(fixture, bills[1])
+    assert _bill_status(fixture, bills[1]) == "CANCELLED"
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+
+
+def test_a_return_that_took_nothing_of_a_bill_does_not_hold_it() -> None:
+    """3 received, 1 billed, 1 back before any bill reached it, a draft of 1.
+
+    The return reversed the receipt's accrual and claimed nothing from the
+    supplier, so neither the approved bill nor the draft is held by it.
+    """
+    fixture, receipt = _received("C80U", "3")
+    billed = _bill(fixture, receipt, "1", number="SUP-A")
+    sent = _send_back(fixture, receipt, "1")
+    assert _split(fixture.session, sent)[0] == D("1.0000")
+    draft = _bill(fixture, receipt, "1", number="SUP-B", approve=False)
+
+    _cancel_bill(fixture, draft)
+    _cancel_bill(fixture, billed)
+    assert _bill_status(fixture, draft) == "CANCELLED"
+    assert _bill_status(fixture, billed) == "CANCELLED"

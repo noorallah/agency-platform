@@ -3980,15 +3980,20 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         if adjustments:
             blockers.append("party adjustment " + ", ".join(adjustments))
+        # The returns that name the bill, and the ones that name its goods
+        # receipt or another bill of it and were set against this one
+        # (D-PRC-80): each claims from the supplier what this bill charged.
+        from app.purchase_return.billing import returns_resting_on
+
+        named = select(PurchaseReturnSource.purchase_return_id).where(
+            PurchaseReturnSource.source_document_type == "PURCHASE_INVOICE",
+            PurchaseReturnSource.source_document_id == row.id,
+        )
+        placed = sorted(returns_resting_on(self._session, invoice_id=row.id), key=str)
         returns = self._session.scalars(
             select(PurchaseReturn.return_number)
-            .join(
-                PurchaseReturnSource,
-                PurchaseReturnSource.purchase_return_id == PurchaseReturn.id,
-            )
             .where(
-                PurchaseReturnSource.source_document_type == "PURCHASE_INVOICE",
-                PurchaseReturnSource.source_document_id == row.id,
+                or_(PurchaseReturn.id.in_(named), PurchaseReturn.id.in_(placed)),
                 PurchaseReturn.status != "CANCELLED",
                 PurchaseReturn.is_deleted.is_(False),
             )
