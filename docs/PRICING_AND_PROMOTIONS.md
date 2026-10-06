@@ -362,6 +362,20 @@ refused it once the budget is spent, and hands over only a figure a person
 typed (D-PRC-58). A quotation saved before that revision has no marker and
 converts as typed until it is saved again.
 
+**A refusal typed on the quotation carries to the order.** `None` and `0`
+are different answers there as everywhere: "0 free" typed on a quotation
+line refuses the offer on the quotation, and the order it becomes is handed
+that 0, so it gives nothing free and claims nothing. A zero nobody typed --
+no offer gave anything on the day -- is still handed over as silence, and
+the order asks the offers again (D-SELL-41). The line's `free_quantity` is 0
+in both cases, so `sales_quotation_lines.free_goods_refused`
+(`20261006_0345`) keeps them apart; it is on the read as well. Until it
+existed the conversion handed silence for both, and a customer quoted
+nothing free was given the offer's 2 by the order, claimed at approval
+(D-PRC-68). The refusal is taken back the way it is on an order: save the
+line with no free figure. A client that echoes a read "0.0000" is typing a
+refusal, on the quotation as on the order.
+
 ## `customer_type` is a legal classification, not a commercial one
 
 **`customer_type` is a legal classification, not a commercial one.** It holds
@@ -466,11 +480,28 @@ free" of a line sent back beside its own free line. **A line is recognised
 by what the stored order says about it, not by where it stands**
 (D-PRC-58, `echoes_of_what_an_offer_gave` in
 `app/sales_order/services/offer_echoes.py`): the write schema carries no
-line id, so a sent line of the same product and kind at a stored line's
-number is that line, and a stored offer line nothing stayed at is looked
-for among the lines that moved -- the engine's own line by its product, a
-quantity of 0, its free figure and its unit, a line's own free units by
-product and the figure the offer gave. Matching on the number alone held
+line id. **A line that sells nothing** at such a stored line's number, of
+the same product, is that line, and an engine's line nothing stayed at is
+looked for among the lines that moved by its product, its free figure and
+its unit. **A line that sells something is paired with the stored line of
+its product whose facts it repeats, and its number only breaks a tie**
+(D-PRC-63), each stored line taken once and the surest reading first: the
+same line where it stood; the same quantity and free figure anywhere; the
+same free figure at its own number (a quantity changed under the offer's
+figure); a line at its own number that says nothing; and last the same
+free figure on any line of the product not yet paired. Number first was
+wrong for two lines of one product: 24 with 2 free and 36 with 3, sent back
+the other way round, were each read as the *other* having stayed with a new
+figure typed on it -- both stood, no offer was named, nothing was claimed,
+and 10 free units left against a budget of 5. **The last pairing is the
+doubtful one, and doubt goes to the offer.** A "3" on the line of 24 after
+the line of 36 was deleted may be typed or may be the deleted line's figure
+carried over; the stored order cannot say, so it is read as the echo and the
+offer is worked out afresh (2, named and claimed). That can give a line less
+or more than was typed and never more than the offer and its budget allow,
+where standing as typed on a wrong guess gives free goods no budget counts.
+With the line of 36 still there as read, the same "3" pairs with nothing and
+stands as typed. Matching on the number alone held
 only while no line moved: with the line above deleted, or one inserted,
 the echoed figures stood as typed, and a spent budget of 2 free units
 shipped 26 twice. So an editor may drop
