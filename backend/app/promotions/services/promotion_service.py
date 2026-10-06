@@ -1202,7 +1202,8 @@ def budget_rooms(
     Summed from `claims_given`, the one statement every reader of an offer's
     use shares: what each claim took, less what an order closed short gave
     back (D-PRC-28), less the free units a completed return brought back
-    (D-PRC-8).
+    (D-PRC-8) and the discount on goods that came back or were credited
+    (D-PRC-45).
     """
     budgeted = {row.version_group_id for row in promotions}
     claimed: dict[UUID, tuple[Decimal, Decimal]] = {}

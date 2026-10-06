@@ -214,9 +214,30 @@ them**: the order line names the offer and the claim names the order. The
 redemptions report shows the netted figures as `benefit_amount` and
 `free_quantity` and what the document claimed as `claimed_benefit_amount`
 and `claimed_free_quantity`; a REVERSED or PENDING row reads what was
-claimed in both. Money is still not netted by a return -- only a short close
-moves `benefit_given`; what a return does to the principal's share is in the
-claim, below.
+claimed in both.
+
+**A sale that came back did not take the offer's money** (D-PRC-45,
+2026-10-06). An order of 6 at 100.00 under a 10% offer with a budget of
+100.00 was billed and returned whole, and the offer, the performance report,
+the redemptions report and discount-by-promotion went on reading 60.00 given
+and 40.00 left -- though a short close gave its part back and a returned free
+unit did. `benefit_given` is now claimed, less released, **less the share of
+the order's discount that its bills passed on and completed sales returns or
+approved credit notes then took back**, never below zero: 2 of 6 returned
+leaves 40.00, all 6 leaves nothing, and the next sale takes what came back.
+That share is the one a claim on the principal has read since D-PRC-27, and
+both readers take it from one statement, `discount_on_bills` in
+`app/promotions/services/bill_discounts.py` -- a row per standing bill line
+with the discount it carried and the share of it that came back -- so the
+offer's budget, its reports and the principal's claim cannot disagree about
+what the customer kept. Three things to know. The claim's own row is not
+rewritten: `benefit_amount` stays what the order claimed, and the
+redemptions report shows it beside the netted figure. **A sale approved and
+not yet billed holds its claim whole**: a claim is made at approval, and
+nothing has come back of goods that never left. And a return approved but
+not completed gives nothing back -- the goods are still with the customer.
+The count limits are not moved: "one use" returned is still one use.
+`tests/unit/test_returned_discount_frees_the_budget.py` is the guard.
 
 **An order closed short keeps what it delivered of a claim and gives back the
 rest.** Closing an order with a note or a bill against it used to keep every
@@ -549,8 +570,8 @@ route). An offer's free-unit budget: `budget_rooms` takes the units returned
 off lines whose order line names the offer (`free_promotion_id`) out of
 `free_claimed`, so a scheme of 500 free units that gave 2 and took 1 back has
 given 1 -- since D-PRC-34 through `claims_given`, which every report of the
-offer reads too. The money budget is not moved by a return -- nothing nets
-`benefit_amount` for one. And the principal's claim: the preview for a period
+offer reads too. The money budget nets a returned sale's discount the same
+way (D-PRC-45, above). And the principal's claim: the preview for a period
 leaves out free goods that have since come back, a line with nothing left is
 dropped, and **a claim already raised is not rewritten** by a return that
 comes after it: the next claim takes it back (below).
