@@ -324,6 +324,80 @@ void main() {
       expect(sent.single['price_level_id'], 'l1');
     });
 
+    Widget lockedForm(
+      List<Json> sent, {
+      required CustomerDialogMode mode,
+      required bool mayChange,
+    }) =>
+        CustomerWorkspaceDialog(
+          mode: mode,
+          customer: mode == CustomerDialogMode.edit
+              ? Customer.fromJson(customerJson(level: 'l1'))
+              : null,
+          onSave: (payload) async {
+            sent.add(payload);
+            return Customer.fromJson(customerJson());
+          },
+          loadPlaces: (level, {parentId = ''}) async => const [],
+          loadPriceLevels: () async => _levels,
+          mayChangeCreditLimit: mayChange,
+        );
+
+    testWidgets('without the settings code the level is locked on an edit '
+        'and goes back as stored', (tester) async {
+      final List<Json> sent = [];
+      await _pumpPhase2(
+        tester,
+        lockedForm(sent, mode: CustomerDialogMode.edit, mayChange: false),
+      );
+      final Finder picker = find.byKey(const ValueKey('customer-price-level'));
+      expect(
+        tester.widget<DropdownButtonFormField<String>>(picker).onChanged,
+        isNull,
+      );
+      expect(find.textContaining('manage customer settings permission'),
+          findsWidgets);
+
+      await tester.tap(find.byKey(const ValueKey('customer-save')));
+      await tester.pumpAndSettle();
+      expect(sent.single['price_level_id'], 'l1');
+    });
+
+    testWidgets('without the settings code a new customer sends no level',
+        (tester) async {
+      final List<Json> sent = [];
+      await _pumpPhase2(
+        tester,
+        lockedForm(sent, mode: CustomerDialogMode.create, mayChange: false),
+      );
+      final Finder picker = find.byKey(const ValueKey('customer-price-level'));
+      expect(
+        tester.widget<DropdownButtonFormField<String>>(picker).onChanged,
+        isNull,
+      );
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Customer name'), 'New Shop');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Display name'), 'New Shop');
+      await tester.tap(find.byKey(const ValueKey('customer-save')));
+      await tester.pumpAndSettle();
+      expect(sent, hasLength(1));
+      expect(sent.single.containsKey('price_level_id'), isFalse);
+    });
+
+    testWidgets('with the settings code the picker is open', (tester) async {
+      final List<Json> sent = [];
+      await _pumpPhase2(
+        tester,
+        lockedForm(sent, mode: CustomerDialogMode.edit, mayChange: true),
+      );
+      final Finder picker = find.byKey(const ValueKey('customer-price-level'));
+      expect(
+        tester.widget<DropdownButtonFormField<String>>(picker).onChanged,
+        isNotNull,
+      );
+    });
+
     testWidgets('levels that did not load: no picker, nothing sent',
         (tester) async {
       final List<Json> sent = [];
