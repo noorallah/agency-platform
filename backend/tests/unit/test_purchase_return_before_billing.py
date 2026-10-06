@@ -40,7 +40,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSourceType,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
-from app.purchase_return.models import PurchaseReturnLine
+from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 from app.purchase_return.schemas import (
     PurchaseReturnCreate,
     PurchaseReturnLineWrite,
@@ -776,3 +776,302 @@ def test_only_the_billed_part_of_a_return_is_netted_by_a_debit_note() -> None:
     # 354.00 billed, less 177.00 by the note, less 59.00 for the unit returned.
     assert _net(session, fixture.firm.id, TRADE_PAYABLES) == D("-118.00")
     assert _room(fixture, bill) == (D("150.0000"), D("50.0000"), D("100.0000"))
+
+
+# A return never claims more than its supplier bill charged (D-PRC-71).
+
+
+def _bill_at(
+    fixture: _Fixture,
+    receipt: GoodsReceipt,
+    quantity: str,
+    *,
+    price: str = "100",
+    line_charges: str = "0",
+    header_charges: str = "0",
+) -> PurchaseInvoice:
+    """Bill ``quantity`` of the receipt line at ``price``, with its charges."""
+    line = _receipt_line(fixture, receipt)
+    service = PurchaseInvoiceService(fixture.session)
+    bill = service.create_invoice(
+        PurchaseInvoiceCreate(
+            supplier_invoice_number=f"SUP-{price}-{quantity}",
+            supplier_invoice_date=date(2026, 8, 6),
+            invoice_date=date(2026, 8, 6),
+            additional_charges=D(header_charges),
+            source_documents=[
+                {
+                    "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
+                }
+            ],
+            lines=[
+                PurchaseInvoiceLineWrite(
+                    source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=line.id,
+                    line_number=1,
+                    current_invoice_quantity=D(quantity),
+                    unit_price=D(price),
+                    charges_amount=D(line_charges),
+                )
+            ],
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    fixture.session.commit()
+    service.approve_invoice(
+        bill.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    fixture.session.commit()
+    return bill
+
+
+def _typed_return(
+    fixture: _Fixture,
+    quantity: str,
+    *,
+    receipt: GoodsReceipt | None = None,
+    bill: PurchaseInvoice | None = None,
+    price: str | None = None,
+    line_charges: str = "0",
+    header_charges: str = "0",
+) -> UUID:
+    """Save and approve a return that types a price or charges, or neither."""
+    if bill is not None:
+        kind = PurchaseReturnSourceType.PURCHASE_INVOICE
+        document_id, line_id = bill.id, _bill_line(fixture, bill).id
+    else:
+        assert receipt is not None
+        kind = PurchaseReturnSourceType.GOODS_RECEIPT
+        document_id, line_id = receipt.id, _receipt_line(fixture, receipt).id
+    returns = PurchaseReturnService(fixture.session)
+    try:
+        sent = returns.create_return(
+            PurchaseReturnCreate(
+                return_date=date(2026, 8, 8),
+                warehouse_id=fixture.warehouse.id,
+                additional_charges=D(header_charges),
+                source_documents=[
+                    {"source_document_type": kind, "source_document_id": document_id}
+                ],
+                lines=[
+                    PurchaseReturnLineWrite(
+                        source_document_type=kind,
+                        source_document_id=document_id,
+                        source_document_line_id=line_id,
+                        line_number=1,
+                        current_return_quantity=D(quantity),
+                        unit_price=None if price is None else D(price),
+                        charges_amount=D(line_charges),
+                        warehouse_id=fixture.warehouse.id,
+                    )
+                ],
+            ),
+            firm_id=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+    except ValidationError:
+        fixture.session.rollback()
+        raise
+    returns.approve_return(
+        sent.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    fixture.session.commit()
+    return sent.id
+
+
+def test_a_return_can_type_a_price_a_line_charge_and_a_header_charge() -> None:
+    """The three figures a return can state over its bill are all writable.
+
+    Which is why each needs the cap: none of them is read off the bill.
+    """
+    line_fields = PurchaseReturnLineWrite.model_fields
+    assert {
+        "unit_price",
+        "discount_percent",
+        "discount_amount",
+        "charges_amount",
+    } <= set(line_fields)
+    assert {"additional_charges", "round_off"} <= set(PurchaseReturnCreate.model_fields)
+    # And no other money a caller can type: the tax and the totals are worked.
+    assert not {"tax_amount", "net_amount", "gross_amount"} & set(line_fields)
+
+
+@pytest.mark.parametrize("off", ["bill", "receipt"])
+def test_a_price_typed_over_the_bills_is_refused_by_name(off: str) -> None:
+    """2 billed at 100.00, sent back at 150.00 each: 300.00 against 200.00."""
+    fixture, receipt = _received(f"P71P{off[0]}", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+
+    with pytest.raises(ValidationError) as refusal:
+        if off == "bill":
+            _typed_return(fixture, "2", price="150", bill=bill)
+        else:
+            _typed_return(fixture, "2", price="150", receipt=receipt)
+
+    assert str(refusal.value.message) == (
+        f"Line 1: the return claims 300.00 before tax for goods that "
+        f"{bill.invoice_number} billed at 200.00, and they are still worth "
+        "200.00 on it. No more can be claimed from a supplier than they "
+        "billed. Lower the price or the charge to the bill's, or leave them "
+        "out and the line claims what the bill is still worth."
+    )
+
+
+@pytest.mark.parametrize("off", ["bill", "receipt"])
+def test_a_line_charge_the_bill_never_made_is_refused(off: str) -> None:
+    """2 billed 200.00 with no charge of their own, sent back with 50.00 of one."""
+    fixture, receipt = _received(f"P71C{off[0]}", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+
+    with pytest.raises(ValidationError) as refusal:
+        if off == "bill":
+            _typed_return(fixture, "2", line_charges="50", bill=bill)
+        else:
+            _typed_return(fixture, "2", line_charges="50", receipt=receipt)
+
+    assert "the return claims 250.00 before tax" in str(refusal.value.message)
+    assert "billed at 200.00" in str(refusal.value.message)
+
+
+def test_a_line_takes_back_its_share_of_the_bill_lines_own_charges() -> None:
+    """2 billed 200.00 and 20.00 of charges: one goes back with 10.00, not 11.00."""
+    fixture, receipt = _received("P71LC", "2")
+    bill = _bill_at(fixture, receipt, "2", line_charges="20")
+
+    with pytest.raises(ValidationError, match="billed at 110.00"):
+        _typed_return(fixture, "1", bill=bill, line_charges="11")
+    return_id = _typed_return(fixture, "1", bill=bill, line_charges="10")
+
+    assert _claimed(fixture.session, return_id)[0] == D("110.0000")
+    _complete(fixture, return_id)
+
+
+@pytest.mark.parametrize("off", ["bill", "receipt"])
+def test_a_price_typed_under_the_bills_stands(off: str) -> None:
+    """2 billed at 100.00 go back at 80.00: 160.00 is claimed, and it completes."""
+    fixture, receipt = _received(f"P71U{off[0]}", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+
+    if off == "bill":
+        return_id = _typed_return(fixture, "2", price="80", bill=bill)
+    else:
+        return_id = _typed_return(fixture, "2", price="80", receipt=receipt)
+    _complete(fixture, return_id)
+
+    assert _claimed(fixture.session, return_id) == (D("160.0000"), D("28.8000"))
+    # 236.00 billed, 188.80 claimed back.
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("-47.20")
+
+
+def test_header_charges_claim_back_only_what_the_bill_charged_that_way() -> None:
+    """A bill with 30.00 of header charges: 30.00 comes back once, and no more."""
+    fixture, receipt = _received("P71H", "2")
+    bill = _bill_at(fixture, receipt, "2", header_charges="30")
+
+    with pytest.raises(ValidationError) as refusal:
+        _typed_return(fixture, "1", bill=bill, header_charges="30.01")
+    assert str(refusal.value.message) == (
+        f"This return claims 30.01 of additional charges, and "
+        f"{bill.invoice_number} charged 30.00 of them, 0.00 already claimed "
+        "back by other returns. No more can be claimed from a supplier than "
+        "they billed. Lower the charges to 30.00 or less."
+    )
+    _typed_return(fixture, "1", bill=bill, header_charges="30")
+    # The other unit, off the receipt this time: the same bill, nothing left.
+    with pytest.raises(ValidationError, match="30.00 already claimed back"):
+        _typed_return(fixture, "1", receipt=receipt, header_charges="1")
+    _typed_return(fixture, "1", receipt=receipt)
+
+
+def test_header_charges_on_a_bill_that_made_none_are_refused() -> None:
+    """2 billed 200.00 with no header charge, sent back with 50.00 of them."""
+    fixture, receipt = _received("P71H0", "2")
+    _bill(fixture, receipt, "2", number="SUP-2")
+
+    with pytest.raises(ValidationError, match="charged 0.00 of them"):
+        _typed_return(fixture, "2", receipt=receipt, header_charges="50")
+
+
+def test_goods_no_bill_has_reached_go_back_at_what_the_receipt_took_them_in_at() -> (
+    None
+):
+    """6 received at 100.00 and not billed: 2 back at 150.00 is refused."""
+    fixture, receipt = _received("P71R")
+
+    with pytest.raises(ValidationError) as refusal:
+        _typed_return(fixture, "2", receipt=receipt, price="150")
+    assert str(refusal.value.message) == (
+        f"Line 1: the return states 300.00 before tax for goods that "
+        f"{receipt.grn_number} took in at 200.00, and no supplier bill has "
+        "charged them yet. Goods cannot go back at more than they came in "
+        "for. Lower the price or the charge, or leave them out and the line "
+        "takes the receipt's own price."
+    )
+    return_id = _typed_return(fixture, "2", receipt=receipt, price="90")
+    assert _claimed(fixture.session, return_id)[0] == D("180.0000")
+    _complete(fixture, return_id)
+
+
+def test_a_receipt_billed_for_less_goes_back_at_what_the_bill_charged() -> None:
+    """Received at 100.00, billed at 90.00: the return reads 100.00 and claims 90.00.
+
+    Nothing was typed over the receipt's own price, so nothing is refused;
+    the line is valued at what its bill is worth.
+    """
+    fixture, receipt = _received("P71L", "2")
+    _bill_at(fixture, receipt, "2", price="90")
+
+    return_id = _raise_return(fixture, "2", receipt=receipt)
+    assert _claimed(fixture.session, return_id) == (D("180.0000"), D("32.4000"))
+    _complete(fixture, return_id)
+
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+    assert _net(fixture.session, fixture.firm.id, INPUT_CGST) == D("0.00")
+
+
+def test_a_return_saved_over_its_bill_is_refused_again_at_completion() -> None:
+    """A return on file from before the cap, at 150.00 a unit: it does not complete."""
+    fixture, receipt = _received("P71X", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+    return_id = _typed_return(fixture, "2", bill=bill)
+    line = fixture.session.scalars(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == return_id
+        )
+    ).one()
+    # As it was saved before the cap ran on every line.
+    line.unit_price, line.gross_amount = D("150"), D("300")
+    line.tax_amount, line.net_amount = D("54"), D("354")
+    fixture.session.commit()
+
+    with pytest.raises(ValidationError) as refusal:
+        _complete(fixture, return_id)
+    assert str(refusal.value.message) == (
+        f"Line 1: the return claims 300.00 before tax for goods that "
+        f"{bill.invoice_number} billed at 200.00, and they are still worth "
+        "200.00 on it. No more can be claimed from a supplier than they "
+        "billed. Cancel this return and raise it again, and it will be "
+        "priced on what the goods are still worth."
+    )
+    fixture.session.rollback()
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("-236.00")
+
+
+def test_header_charges_saved_over_the_bill_are_refused_again_at_completion() -> None:
+    """A return on file with 50.00 of header charges its bill never made."""
+    fixture, receipt = _received("P71Y", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-2")
+    return_id = _typed_return(fixture, "2", bill=bill)
+    row = fixture.session.get(PurchaseReturn, return_id)
+    assert row is not None
+    row.additional_charges = D("50")
+    row.grand_total = row.grand_total + D("50")
+    fixture.session.commit()
+
+    with pytest.raises(ValidationError, match="claims 50.00 of additional charges"):
+        _complete(fixture, return_id)
+    fixture.session.rollback()
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("-236.00")

@@ -507,9 +507,43 @@ against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
   what earlier returns took, spread over the units still held
   (`still_worth`): 2 boxes billed 1,440.00 with 400.00 claimed go back at
   520.00 each, 1,040.00 and 1,227.20 with tax. The line is priced as before
-  and only capped at that figure, so a return on a bill with no approved
-  debit note is unchanged, and so is a return before the bill exists. Tax is
-  worked on the reduced base.
+  and only capped at that figure. Tax is worked on the reduced base.
+- **The cap runs on every return, debit note or none** (D-PRC-71,
+  2026-10-06, the buying twin of D-PRC-64). It was only reached once an
+  approved debit note stood against the bill, and the write schema takes a
+  `unit_price`, a line `charges_amount`, a discount and a header
+  `additional_charges`, none of them read off the bill -- so a return typed
+  150.00 a unit against a bill at 100.00 claimed 354.00 against 236.00 and
+  reversed 54.00 of input tax where 36.00 was taken. A line that states
+  more than its bill lines charged for those units (`charged_for`: goods and
+  the line's own charges, by quantity) is **refused by name**, at save and
+  again at completion: "Line 1: the return claims 300.00 before tax for
+  goods that PI-… billed at 200.00, and they are still worth 200.00 on it.
+  No more can be claimed from a supplier than they billed. …". A price or
+  charge typed **below** the bill's stands -- a deduction the supplier
+  makes. At completion the refusal ends "Cancel this return and raise it
+  again", because an approved return can no longer be edited.
+- **A line that typed nothing over its receipt is never refused for the
+  receipt's price.** Received at 100.00 and billed at 90.00, a return off
+  the receipt reads 100.00 and used to claim it; it is now valued at the
+  90.00 the bill charged, silently, the way a debit note is netted. Only a
+  figure above **both** what the source line states and what the bill
+  charged is a refusal.
+- **Goods no bill has reached go back at what the receipt took them in
+  at**: its line's price, discount rate and share of the order discount
+  (`_taken_in_at`), the order line's price where the receipt line states
+  none. Such a line claims nothing from the supplier (D-BUY-26), but it is
+  what the return reads and prints.
+- **A return's `additional_charges` claim back only what the bill charged
+  the same way**: the `additional_charges` of the bills its goods were
+  charged on (the receipt's where no bill has reached them), less what
+  other live returns of those bills and receipts already state. A debit
+  note names bill lines and carries no header charge, so only a return can
+  have claimed one back. Refused at save and at completion: "This return
+  claims 30.01 of additional charges, and PI-… charged 30.00 of them, 0.00
+  already claimed back by other returns. …".
+- Returns already on file are not restated. One saved above its bill and
+  not yet completed is refused at completion.
 - **What comes off is kept in the return line's `bill_discount_amount`**,
   beside its share of the bill discount: every reader of the line -- the
   journal, the supplier's credit, GSTR-3B's reversal, the registers -- works

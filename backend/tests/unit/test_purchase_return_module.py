@@ -374,6 +374,8 @@ def _billed_in_full(
             received_quantity=line.accepted_quantity,
             current_invoice_quantity=line.accepted_quantity,
             unit_price=line.unit_price,
+            # What the bill charged: a return is capped at it (D-PRC-71).
+            gross_amount=line.accepted_quantity * line.unit_price,
         )
     )
     session.commit()
