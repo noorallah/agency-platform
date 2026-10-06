@@ -161,6 +161,32 @@ def test_approval_writes_what_the_draft_was_showing() -> None:
     assert note.total_previously_delivered_quantity == D("6.0000")
 
 
+def test_a_note_for_more_than_the_order_has_left_is_refused_at_approval() -> None:
+    """D-PRC-49: drafts of 6 and 6 of a line of 10 were both approved."""
+    drafts = _Drafts()
+    second_six = drafts.note(drafts.sale, "6", ship=False)
+    drafts.approve(drafts.six)
+
+    with pytest.raises(ValidationError) as refused:
+        drafts.approve(second_six)
+
+    assert str(refused.value) == (
+        f"Line 1 of {second_six.delivery_note_number} delivers 6 where "
+        f"{drafts.sale.order_number} has 4 left to deliver of the 10 ordered: "
+        f"{drafts.six.delivery_note_number} delivers the rest. Cancel this note "
+        "and raise one for what is left, or cancel the other note first."
+    )
+    drafts.session.rollback()
+    assert drafts.read(second_six).status == "DRAFT"
+    # What is left is still deliverable, and a cancelled note gives its 6 back.
+    drafts.approve(drafts.four)
+    drafts.notes.cancel_note(
+        drafts.six.id, firm_scope=drafts.firm_id, actor_id=drafts.actor, reason="Wrong"
+    )
+    drafts.approve(second_six)
+    assert drafts.read(second_six).status == "APPROVED"
+
+
 def test_a_cancelled_note_gives_the_draft_its_quantity_back() -> None:
     """The approved 6 is cancelled: the draft of 4 reads 6 remaining again."""
     drafts = _Drafts()
