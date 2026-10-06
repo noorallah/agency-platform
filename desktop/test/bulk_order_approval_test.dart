@@ -249,6 +249,7 @@ void main() {
     await tester.tap(find.text('Cancel selected'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Customer withdrew.');
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Cancel orders'));
     await tester.pumpAndSettle();
 
@@ -318,6 +319,7 @@ void main() {
     await tester.tap(find.text('Cancel selected'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Wrong supplier.');
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Cancel orders'));
     await tester.pumpAndSettle();
 

@@ -273,6 +273,7 @@ void main() {
       find.widgetWithText(TextField, 'Narration'),
       'Carried over from the old books',
     );
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
 
@@ -314,6 +315,7 @@ void main() {
       ),
       'Entered twice',
     );
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Cancel bill'));
     await tester.pumpAndSettle();
 

@@ -241,6 +241,7 @@ void main() {
       await tester.tap(find.text('Raise e-way bill'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).at(1), 'KA01AB1234');
+      await tester.pump();
       await tester.tap(find.text('Raise'));
       await tester.pumpAndSettle();
       expect(
@@ -260,6 +261,7 @@ void main() {
       await tester.tap(find.text('Raise e-way bill'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).at(1), 'KA01AB1234');
+      await tester.pump();
       await tester.tap(find.text('Raise'));
       await tester.pumpAndSettle();
       expect(
@@ -280,6 +282,7 @@ void main() {
         find.byKey(const ValueKey('eway-record-number')),
         '1234',
       );
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('eway-record-save')));
       await tester.pumpAndSettle();
       expect(find.text('An e-way bill number is 12 digits.'), findsOneWidget);
@@ -297,6 +300,7 @@ void main() {
         find.byKey(const ValueKey('eway-record-vehicle')),
         'KA01AB1234',
       );
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('eway-record-save')));
       await tester.pumpAndSettle();
 
@@ -347,6 +351,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('note-eway-withdraw')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'Vehicle broke down');
+      await tester.pump();
       await tester.tap(find.text('Withdraw').last);
       await tester.pumpAndSettle();
 
@@ -370,6 +375,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('note-eway-raise')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).at(1), 'KA01AB1234');
+      await tester.pump();
       await tester.tap(find.text('Raise'));
       await tester.pumpAndSettle();
       expect(
@@ -411,6 +417,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('eway-nudge-raise')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).at(1), 'KA01AB1234');
+      await tester.pump();
       await tester.tap(find.text('Raise').last);
       await tester.pumpAndSettle();
       expect(

@@ -228,6 +228,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('rule42-takeback-r-1')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Posted by mistake');
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Take back'));
     await tester.pumpAndSettle();
 

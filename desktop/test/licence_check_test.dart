@@ -295,6 +295,7 @@ void main() {
       find.widgetWithText(TextField, 'Reason'),
       'The customer collects it in person tomorrow.',
     );
+    await tester.pump();
     await tester.tap(find.text('Override').last);
     await tester.pumpAndSettle();
 
@@ -371,6 +372,7 @@ void main() {
       find.widgetWithText(TextField, 'Product name *'),
       'Paracetamol',
     );
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('product-licence-type')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Drug Licence').last);
@@ -410,6 +412,7 @@ void main() {
         find.widgetWithText(TextFormField, 'Category code'), 'MEDICINE');
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Name'), 'Medicine');
+    await tester.pump();
     await tester.tap(find.text('DRUG · Drug Licence'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Save & Close'));

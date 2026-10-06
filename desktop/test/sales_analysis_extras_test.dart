@@ -283,6 +283,7 @@ void main() {
     await tester.tap(find.text('Save as...'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'My view');
+    await tester.pump();
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 

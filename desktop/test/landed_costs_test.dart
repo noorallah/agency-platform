@@ -215,12 +215,14 @@ void main() {
         find.byKey(const ValueKey('landed-charge-amount-0')), '1200');
     await tester.enterText(
         find.byKey(const ValueKey('landed-charge-bill-0')), 'TR-77');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('landed-add-charge')));
     await tester.pumpAndSettle();
     await tester.enterText(
         find.byKey(const ValueKey('landed-charge-description-1')), 'Clearing');
     await tester.enterText(
         find.byKey(const ValueKey('landed-charge-amount-1')), '300');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('landed-basis')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('By weight').last);
@@ -258,6 +260,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('selection-cancel')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Wrong receipt');
+    await tester.pump();
     await tester.tap(find.text('Cancel voucher'));
     await tester.pumpAndSettle();
     expect(api.cancelled, {'reason': 'Wrong receipt'});

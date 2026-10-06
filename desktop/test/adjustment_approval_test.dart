@@ -162,6 +162,7 @@ void main() {
 
     await tester.enterText(
         find.byKey(const ValueKey('adjustment-limit-amount-0')), '7500');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('adjustment-limits-save')));
     await tester.pumpAndSettle();
 
@@ -225,6 +226,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('submit-for-approval')), findsNothing);
     await tester.enterText(find.widgetWithText(TextField, 'Quantity'), '40');
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Write off'));
     await tester.pumpAndSettle();
 
@@ -293,6 +295,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('adjustment-reject')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'Count it again');
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Reject').last);
       await tester.pumpAndSettle();
 

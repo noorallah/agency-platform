@@ -299,6 +299,7 @@ void main() {
 
     await tester.enterText(
         find.byKey(const ValueKey('gst-deposit-cpin')), 'CPIN77');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('gst-deposit-save')));
     await tester.pumpAndSettle();
 
@@ -324,6 +325,7 @@ void main() {
         .tap(find.byKey(const ValueKey('gst-deposit-reverse-2026-07')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Wrong account');
+    await tester.pump();
     await tester.tap(find.text('Reverse').last);
     await tester.pumpAndSettle();
     expect(api.reversed, {'reason': 'Wrong account'});

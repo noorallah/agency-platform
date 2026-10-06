@@ -160,6 +160,7 @@ void main() {
     await tester.tap(find.text('Hold'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Awaiting the LC.');
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Hold'));
     await tester.pumpAndSettle();
 
@@ -173,6 +174,7 @@ void main() {
 
     await tester.tap(find.text('Hold'));
     await tester.pumpAndSettle();
+    // The button is disabled until a reason is typed (D-UI-23).
     await tester.tap(find.widgetWithText(FilledButton, 'Hold'));
     await tester.pumpAndSettle();
 

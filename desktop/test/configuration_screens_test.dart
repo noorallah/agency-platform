@@ -396,6 +396,7 @@ void main() {
       await tester.tap(find.widgetWithText(OutlinedButton, 'Reopen year'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'Audit adjustment');
+      await tester.pump();
       await tester.tap(find.widgetWithText(FilledButton, 'Reopen year'));
       await tester.pumpAndSettle();
 
@@ -415,6 +416,7 @@ void main() {
       expect(find.text('0-29, 30-59, 60-89, 90+'), findsOneWidget);
 
       await tester.enterText(find.byKey(box), '15, 45');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey<String>('ageing-save')));
       await tester.pumpAndSettle();
       expect(api.ageingSaves, [
@@ -423,6 +425,7 @@ void main() {
       expect(find.text('0-14, 15-44, 45+'), findsOneWidget);
 
       await tester.enterText(find.byKey(box), '15, abc');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey<String>('ageing-save')));
       await tester.pumpAndSettle();
       expect(api.ageingSaves.length, 1, reason: 'not a number: never sent');
@@ -430,6 +433,7 @@ void main() {
 
       api.ageingRefusal = 'Boundaries must rise.';
       await tester.enterText(find.byKey(box), '45 15');
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey<String>('ageing-save')));
       await tester.pumpAndSettle();
       expect(find.text('Boundaries must rise.'), findsOneWidget);

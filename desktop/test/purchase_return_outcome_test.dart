@@ -451,6 +451,7 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, 'Reverse'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Keyed twice');
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Reverse'));
     await tester.pumpAndSettle();
 

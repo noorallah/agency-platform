@@ -249,6 +249,7 @@ void main() {
         find.widgetWithText(TextField, 'Old bill number'), 'SI-OLD-9');
     await tester.enterText(
         find.widgetWithText(TextField, 'Amount owed'), '2500.00');
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
 
@@ -284,6 +285,7 @@ void main() {
       ),
       'Entered twice',
     );
+    await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Cancel bill'));
     await tester.pumpAndSettle();
 

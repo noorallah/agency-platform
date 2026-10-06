@@ -211,6 +211,7 @@ void main() {
 
     await tester.enterText(
         find.byKey(const ValueKey('promise-note')), 'After the festival');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('promise-save')));
     await tester.pumpAndSettle();
 
@@ -268,6 +269,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('selection-withdraw-promise')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Customer paid cash');
+    await tester.pump();
     await tester.tap(find.text('Withdraw').last);
     await tester.pumpAndSettle();
     expect(api.requested,

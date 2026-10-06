@@ -237,6 +237,7 @@ void main() {
     await _pick(tester, const ValueKey('contra-from'), 'HDFC Current');
     await _pick(tester, const ValueKey('contra-to'), 'HDFC Current');
     await tester.enterText(find.byKey(const ValueKey('contra-amount')), '10');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('contra-save')));
     await tester.pumpAndSettle();
 
@@ -256,6 +257,7 @@ void main() {
       isNot(contains('POST /api/v1/contra-vouchers/cv-1/cancel')),
     );
     await tester.enterText(find.byType(TextField).last, 'Wrong account');
+    await tester.pump();
     await tester.tap(find.text('Cancel voucher'));
     await tester.pumpAndSettle();
 

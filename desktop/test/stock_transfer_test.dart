@@ -486,6 +486,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('transfer-cancel')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'Truck broke down');
+      await tester.pump();
       await tester
           .tap(find.widgetWithText(FilledButton, 'Cancel transfer').last);
       await tester.pumpAndSettle();
