@@ -92,6 +92,12 @@ void main() {
       expect(gate.allows(DocumentLifecycleAction.cancel, 'CANCELLED'), isFalse);
     });
 
+    test('only a completed receipt can be closed (D-UI-44)', () {
+      expect(gate.allows(DocumentLifecycleAction.close, 'COMPLETED'), isTrue);
+      expect(gate.allows(DocumentLifecycleAction.close, 'DRAFT'), isFalse);
+      expect(gate.allows(DocumentLifecycleAction.close, 'CANCELLED'), isFalse);
+    });
+
     test('a receipt has no approval step', () {
       for (final String status in <String>['DRAFT', 'COMPLETED']) {
         expect(gate.allows(DocumentLifecycleAction.approve, status), isFalse);

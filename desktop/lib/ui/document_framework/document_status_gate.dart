@@ -72,7 +72,9 @@ class DocumentStatusGate {
   static const DocumentStatusGate goodsReceipt = DocumentStatusGate({
     DocumentLifecycleAction.complete: {'DRAFT'},
     DocumentLifecycleAction.cancel: {'DRAFT', 'COMPLETED'},
-    DocumentLifecycleAction.close: {'DRAFT', 'COMPLETED', 'CANCELLED'},
+    // "Only completed goods receipts can be closed." A draft has not begun
+    // its business and is cancelled instead (D-UI-44).
+    DocumentLifecycleAction.close: {'COMPLETED'},
   });
 
   /// Sales order — `approve_order`, `cancel_order`, `close_order`.
