@@ -6277,6 +6277,31 @@ Two cautions. **Remove only what this entry made dead**: a column that looks unu
 
 **And a guard so it stays clean** (owner 2026-10-07), added in the closing sweep: a unit test holding the list of names this entry removed -- the withdrawn feature codes, the dropped columns, the deleted functions and routes -- that fails the build when one of them appears again under `backend/app`, `backend/scripts` or `desktop/lib`. It reads the files as text and skips the migrations, which must go on naming what they dropped; the list sits in the test with one line each saying what replaced it. A clean-up nobody guards is undone by the first person who copies an old pattern from a migration or a doc.
 
+**Documentation and test cases are part of done too -- the owner's instruction, 2026-10-07.** Everything a person reads to understand, use or test this must say what is true after it, and be changed in the step that changes the behaviour, not at the end from memory. This holds for every enhancement from here on, not only this one.
+
+| Reader | What is brought up to date | With what |
+| --- | --- | --- |
+| Whoever builds next | `docs/BUSINESS_PROFILE_FRAMEWORK.md`, `docs/CUSTOM_FIELDS_FRAMEWORK.md`, `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, `docs/TABLE_CATALOGUE.md`, `docs/MODULE_STATUS.md`; `CLAUDE.md` in a session with the owner | The goods type, where a check now reads, what a profile still does, the tables added and dropped. What the old design did is removed from them, not left beside the new |
+| The user | `docs/APPLICATION_FEATURES_GUIDE.md` and `docs/FUNCTIONAL_GUIDE.md` (the product form, categories, Goods Types under Set up, custom fields, required fields by kind of customer and supplier, what a business profile is for); `docs/SMALL_FIRM_SETUP_GUIDE.md` and `docs/GO_LIVE_GUIDE.md` where setting up a firm changes; `docs/CONFIGURATION_SETTINGS_GUIDE.md` | Every path as the menu shows it, and "added on <date>, not yet tested by hand" on each new part until it has been |
+| QA | `docs/INDEPENDENT_TEST_CASES.md` -- the source the test book is generated from -- then `docs/qa` regenerated (`docs/qa/tools/generate_qa_suite.py`), chiefly `04_FIRMS_AND_CONFIGURATION`, `05_MASTERS`, `07_INVENTORY` and `14_TEST_DATA`; `docs/qa/SCREEN_TEST_CASES_BUY_SELL_PRICE.md` where the product form or a line's batch boxes moved; `docs/QA_FUNCTIONAL_WALKTHROUGH.md` | See the list below |
+| The customer | `docs/CUSTOMER_FEATURE_BROCHURE.md` and `docs/CUSTOMER_DEMO_SCRIPT.md` (untracked drafts of 2026-10-07; the slides wait for this entry) | *One firm or separate firms* and the demo preparation, against the new design |
+| The register | `docs/DEFECTS.md` for anything found on the way; the release notes of the release this ships in | One docs PR for the register rows, not one per fix |
+
+**Test cases this entry needs**, each written so it runs alone on its own data (the standing rule), with the refusals as well as the passes and more than one role on the same firm:
+
+1. **Goods type:** add one; a category takes it; a new product in that category starts with the type's switches, HSN, tax group and units; a product with no category is General.
+2. **One firm, three lines:** a medicine, a food item and a paint in one firm, each bought and sold: the medicine refused without a batch and expiry, the paint accepted without an expiry, the food item's expiry filled from its shelf life.
+3. **Override and its limit:** one product's switches changed away from its type; the same change refused once stock exists.
+4. **A category changes type:** existing products keep theirs, a new one takes the new type.
+5. **The product form:** only the type's properties shown; *Show all tracking options*; dependent fields follow their switch.
+6. **Extra fields:** a product field shown and required by goods type; a customer field required for one customer group and not asked of another; the same for a supplier type; a firm switching a catalogue field off and its values kept.
+7. **What the profile no longer does:** a firm on any profile uses serial numbers, expiry and territories without refusal; a new firm starts with its profile's goods types and can add another.
+8. **Roles:** who may add a goods type and who is refused; who may keep the required-field rules.
+9. **Regression:** the buying and selling cases that touch a batch, an expiry or a serial number, driven again.
+10. **Import:** a product file giving only the category takes the type's switches.
+
+The PDFs are rendered again only when a hand-over is built, not per step.
+
 **To settle before building.**
 
 | # | Question | Leaning |
