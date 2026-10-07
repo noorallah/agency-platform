@@ -848,7 +848,16 @@ class _SettlementsPageState extends State<SettlementsPage> {
       );
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() => _error = exception.message);
+      // Said where it cannot be missed, and the list read again: a refusal
+      // such as "already reversed" means the row on screen is out of date
+      // (D-UI-34).
+      NotificationService.show(
+        context,
+        refusalMessage(exception),
+        kind: AppNotificationKind.error,
+      );
+      if (mounted) setState(() => _loading = false);
+      await _load();
     } finally {
       if (mounted) setState(() => _loading = false);
     }

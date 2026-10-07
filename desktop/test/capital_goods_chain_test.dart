@@ -23,6 +23,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/new_purchase_order.dart';
+
 class _Api extends ApiClient {
   _Api()
       : super(
@@ -359,6 +361,11 @@ void main() {
         (tester) async {
       final _Api api = _Api();
       await _pumpOrder(tester, api);
+      await fillNewPurchaseOrder(
+        tester,
+        vendor: 'Acme Machines',
+        product: 'Packing machine',
+      );
       expect(_ticked(tester, 'purchase-order-capital--0'), isFalse);
       expect(
         find.textContaining('A fixed asset, not stock'),
@@ -377,6 +384,11 @@ void main() {
     testWidgets('an unticked line sends no such key', (tester) async {
       final _Api api = _Api();
       await _pumpOrder(tester, api);
+      await fillNewPurchaseOrder(
+        tester,
+        vendor: 'Acme Machines',
+        product: 'Packing machine',
+      );
       await _tap(tester, 'purchase-order-save');
       final Json line =
           (api.bodies['POST /api/v1/purchases']!['lines'] as List).first

@@ -5331,6 +5331,7 @@ class ApiClient {
             'PUT',
             '/api/v1/purchases/${order.id}',
             body: order.toUpdateJson(),
+            expectedVersion: order.version > 0 ? order.version : null,
           ),
         ),
       );

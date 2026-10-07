@@ -31,6 +31,7 @@ class SalesReturnEditorDialog extends StatefulWidget {
     required this.today,
     this.loadSerials,
     this.preview,
+    this.onSave,
   });
 
   final List<ReturnableDocument> documents;
@@ -52,12 +53,18 @@ class SalesReturnEditorDialog extends StatefulWidget {
   /// phase 2 screen calls it as lines are typed. Null leaves it unpriced.
   final Future<SalesReturnPreviewRecord> Function(Json draft)? preview;
 
+  /// Writes the return. Run inside the dialog (D-UI-37): a refusal leaves it
+  /// open with the server's sentence and everything typed. Null closes with
+  /// the payload for a caller that saves afterwards.
+  final Future<void> Function(Json payload)? onSave;
+
   @override
   State<SalesReturnEditorDialog> createState() =>
       _SalesReturnEditorDialogState();
 }
 
-class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
+class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog>
+    with SaveInDialog<SalesReturnEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   final TextEditingController _quantity = TextEditingController(text: '1');
   final TextEditingController _damaged = TextEditingController(text: '0');
@@ -274,7 +281,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
       saveLabel: 'Create draft',
       onSave: () {
         final Json? payload = _payload();
-        if (payload != null) Navigator.of(context).pop(payload);
+        if (payload != null) unawaited(submit(payload, widget.onSave));
       },
       body: widget.documents.isEmpty
           ? const StandardEmptyState(
@@ -290,6 +297,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    saveErrorBanner(),
                     DropdownButtonFormField<String>(
                       isExpanded: true,
                       initialValue: document?.id,

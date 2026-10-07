@@ -191,6 +191,9 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
       if (mounted) setState(() => _loading = false);
     }
     if (!mounted) return;
+    // Saved inside the editor, so a refusal leaves it open with the typing
+    // (D-UI-37); the return it made is kept here for the message.
+    SalesReturn? created;
     final Json? payload = await showDocument<Json>(
       context,
       title: 'New sales return',
@@ -203,23 +206,20 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
           sourceLineId: line.id,
         ),
         preview: widget.api.previewSalesReturn,
+        onSave: (Json payload) async {
+          created = await widget.api.createSalesReturn(payload);
+        },
       ),
     );
-    if (payload == null) return;
-    try {
-      final SalesReturn created = await widget.api.createSalesReturn(payload);
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '${created.returnNumber} created as a draft. Approving and completing '
-        'it is what takes the goods back and credits the customer.',
-        kind: AppNotificationKind.success,
-      );
-      await _load(requestedPage: 1);
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      setState(() => _error = exception.message);
-    }
+    final SalesReturn? made = created;
+    if (payload == null || made == null || !mounted) return;
+    NotificationService.show(
+      context,
+      '${made.returnNumber} created as a draft. Approving and completing '
+      'it is what takes the goods back and credits the customer.',
+      kind: AppNotificationKind.success,
+    );
+    await _load(requestedPage: 1);
   }
 
   /// The return's next steps -- Approve, Complete, Close, Cancel -- as its

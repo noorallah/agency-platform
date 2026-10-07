@@ -19,7 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Api extends ApiClient {
-  _Api({this.refuse = false})
+  _Api({this.refuse = false, this.conflict = false})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -29,6 +29,10 @@ class _Api extends ApiClient {
 
   /// Answer every save with the server's refusal.
   final bool refuse;
+
+  /// Answer an update with 409, as the server does for a stale version.
+  final bool conflict;
+  final Map<String, int?> versions = <String, int?>{};
   final List<String> calls = <String>[];
   final Map<String, Json?> bodies = <String, Json?>{};
 
@@ -45,6 +49,13 @@ class _Api extends ApiClient {
     final String call = '$method $path';
     calls.add(call);
     bodies[call] = body;
+    versions[call] = expectedVersion;
+    if (conflict && method == 'PUT') {
+      throw ApiException(
+        'This record changed since you loaded it.',
+        statusCode: 409,
+      );
+    }
     if (call == 'POST /api/v1/purchases' || call == 'PUT /api/v1/purchases/po-1') {
       if (refuse) {
         throw ApiException(
@@ -191,6 +202,22 @@ Finder get _currency => _keyed('purchase-order-currency');
 
 Finder get _rate => _keyed('purchase-order-exchange-rate');
 
+/// Choose the supplier, the product and the quantity of a new order, which
+/// opens empty (D-UI-40).
+Future<void> _complete(WidgetTester tester, {String quantity = '1'}) async {
+  await tester.tap(find.byKey(const ValueKey('purchase-order-vendor')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.textContaining('Northwind').last);
+  await tester.pumpAndSettle();
+  // The product box is keyed with the line epoch, so it is found by prefix.
+  await tester.tap(_keyed('purchase-order-line-product-').first);
+  await tester.pumpAndSettle();
+  await tester.tap(find.textContaining('Pain Relief').last);
+  await tester.pumpAndSettle();
+  await tester.enterText(_keyed('purchase-order-qty-').first, quantity);
+  await tester.pumpAndSettle();
+}
+
 Future<void> _save(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('purchase-order-save')));
   await tester.pumpAndSettle();
@@ -207,6 +234,7 @@ void main() {
   testWidgets('a USD order with its rate sends both keys', (tester) async {
     final _Api api = _Api();
     await _pumpOrder(tester, api);
+    await _complete(tester);
     expect(_rate, findsNothing);
 
     await tester.enterText(_currency, 'usd');
@@ -224,6 +252,7 @@ void main() {
   testWidgets('a rupee order sends neither key', (tester) async {
     final _Api api = _Api();
     await _pumpOrder(tester, api);
+    await _complete(tester);
     await _save(tester);
 
     final Json sent = api.bodies['POST /api/v1/purchases']!;
@@ -234,6 +263,7 @@ void main() {
   testWidgets('INR typed is rupees as well', (tester) async {
     final _Api api = _Api();
     await _pumpOrder(tester, api);
+    await _complete(tester);
     await tester.enterText(_currency, 'INR');
     await tester.pumpAndSettle();
     expect(_rate, findsNothing);
@@ -247,6 +277,7 @@ void main() {
       (tester) async {
     final _Api api = _Api();
     await _pumpOrder(tester, api);
+    await _complete(tester);
     await tester.enterText(_currency, 'USD');
     await tester.pumpAndSettle();
     await _save(tester);
@@ -266,6 +297,7 @@ void main() {
       (tester) async {
     final _Api api = _Api();
     await _pumpOrder(tester, api, supplierCurrency: 'EUR');
+    await _complete(tester);
     expect(_text(tester, _currency), 'EUR');
     expect(_rate, findsOneWidget);
     await tester.enterText(_rate, '90.5');
@@ -334,6 +366,7 @@ void main() {
       (tester) async {
     final _Api api = _Api(refuse: true);
     await _pumpOrder(tester, api);
+    await _complete(tester);
     await tester.enterText(_currency, 'USD');
     await tester.pumpAndSettle();
     await tester.enterText(_rate, '83');
@@ -342,6 +375,73 @@ void main() {
 
     expect(find.byType(PurchaseOrderEditorDialog), findsOneWidget);
     expect(find.textContaining('needs its exchange rate'), findsWidgets);
+  });
+
+  testWidgets('a new order opens empty and Save names the supplier',
+      (tester) async {
+    final _Api api = _Api();
+    await _pumpOrder(tester, api);
+    await _save(tester);
+
+    expect(api.calls, isNot(contains('POST /api/v1/purchases')));
+    expect(find.text('Choose the vendor.'), findsOneWidget);
+    expect(find.byType(PurchaseOrderEditorDialog), findsOneWidget);
+  });
+
+  testWidgets('with a supplier chosen Save names the product', (tester) async {
+    final _Api api = _Api();
+    await _pumpOrder(tester, api);
+    await tester.tap(find.byKey(const ValueKey('purchase-order-vendor')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Northwind').last);
+    await tester.pumpAndSettle();
+    await _save(tester);
+
+    expect(api.calls, isNot(contains('POST /api/v1/purchases')));
+    expect(find.text('Choose a product on line 1.'), findsOneWidget);
+  });
+
+  for (final String quantity in const ['0', '-4']) {
+    testWidgets('a line quantity of $quantity says what to enter and sends '
+        'nothing', (tester) async {
+      final _Api api = _Api();
+      await _pumpOrder(tester, api);
+      await _complete(tester, quantity: quantity);
+      await _save(tester);
+
+      expect(api.calls, isNot(contains('POST /api/v1/purchases')));
+      expect(find.text('Enter a quantity above zero.'), findsWidgets);
+      expect(find.textContaining('greater than or equal'), findsNothing);
+    });
+  }
+
+  testWidgets('a quantity of 0 beside free goods is still an order',
+      (tester) async {
+    final _Api api = _Api();
+    await _pumpOrder(tester, api);
+    await _complete(tester, quantity: '0');
+    await tester.enterText(_keyed('purchase-order-free-').first, '2');
+    await tester.pump();
+    await _save(tester);
+    expect(api.calls, contains('POST /api/v1/purchases'));
+  });
+
+  testWidgets('a save from a stale copy echoes the version and, refused, '
+      'keeps the editor and the typing', (tester) async {
+    final _Api api = _Api(conflict: true);
+    await _pumpOrder(
+      tester,
+      api,
+      mode: PurchaseDialogMode.edit,
+      order: PurchaseOrder.fromJson(_orderJson()..['version'] = 4),
+    );
+    await _save(tester);
+
+    expect(api.versions['PUT /api/v1/purchases/po-1'], 4);
+    expect(find.byType(PurchaseOrderEditorDialog), findsOneWidget);
+    expect(find.textContaining('Somebody else saved this purchase order'),
+        findsOneWidget);
+    expect(find.textContaining('Your changes are still here'), findsOneWidget);
   });
 
   // The phase 2 order editor already overflows the 800x600 window before this

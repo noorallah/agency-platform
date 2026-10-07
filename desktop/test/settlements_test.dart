@@ -11,6 +11,7 @@ import 'package:agency_desktop/ui/finance/record_settlement_dialog.dart';
 import 'package:agency_desktop/ui/finance/settlements_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Receipts and payments.
@@ -26,7 +27,11 @@ PermissionService _permissionsFor(List<String> perms) {
 }
 
 class _SettlementApi extends ApiClient {
-  _SettlementApi({this.rows = const [], this.outstanding = const []})
+  _SettlementApi({
+    this.rows = const [],
+    this.outstanding = const [],
+    this.reverseRefusal,
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -36,6 +41,13 @@ class _SettlementApi extends ApiClient {
 
   final List<Settlement> rows;
   final List<OutstandingInvoice> outstanding;
+
+  /// Answer a reversal with this refusal, as the server does for a receipt
+  /// somebody else already reversed.
+  final ApiException? reverseRefusal;
+
+  /// How many times the list was read.
+  int reads = 0;
   Json? recorded;
   String? reversedId;
   String? reversedReason;
@@ -50,8 +62,10 @@ class _SettlementApi extends ApiClient {
     String? partyId,
     String? settlementFrom,
     String? settlementTo,
-  }) async =>
-      PagedResult<Settlement>(items: rows, total: rows.length);
+  }) async {
+    reads++;
+    return PagedResult<Settlement>(items: rows, total: rows.length);
+  }
 
   /// What the party picker asked for, and what it was told.
   ///
@@ -106,6 +120,7 @@ class _SettlementApi extends ApiClient {
   }) async {
     reversedId = id;
     reversedReason = reason;
+    if (reverseRefusal != null) throw reverseRefusal!;
     return rows.first;
   }
 
@@ -1569,6 +1584,32 @@ void main() {
       expect(find.text('Reverse RC-2026-2027-000001'), findsOneWidget);
     });
 
+    testWidgets('reversing a receipt somebody else reversed says so and '
+        'reloads the list (D-UI-34)', (tester) async {
+      final _SettlementApi api = _SettlementApi(
+        rows: [_settlement()],
+        reverseRefusal: ApiException(
+          'RC-2026-2027-000001 has already been reversed.',
+          statusCode: 422,
+        ),
+      );
+      await _pump(tester, api, phase2: true);
+      await select(tester);
+      final int before = api.reads;
+      await tester.tap(find.byKey(const ValueKey('selection-reverse')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Why is it being reversed?'),
+        'Wrong customer',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Reverse'));
+      await tester.pumpAndSettle();
+
+      expect(api.reversedId, 'st-1');
+      expect(find.textContaining('has already been reversed'), findsOneWidget);
+      expect(api.reads, greaterThan(before), reason: 'the list was reloaded');
+    });
+
     testWidgets('money on account is offered Apply on the bar',
         (tester) async {
       await _pump(
@@ -1594,6 +1635,98 @@ void main() {
 
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('NEFT-9931'), findsOneWidget);
+    });
+  });
+
+  group('the money dialog closes and dates with care (D-UI-33, D-UI-32)', () {
+    bool? closed;
+
+    Future<void> open(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      closed = null;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (BuildContext context) => TextButton(
+                onPressed: () async {
+                  await showDialog<Settlement>(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (_) => RecordSettlementDialog(
+                      api: _SettlementApi(rows: [_settlement()]),
+                      direction: SettlementDirection.receipt,
+                      parties: const [
+                        PartyOption(id: 'c-1', code: 'C1', name: 'Kumar Stores'),
+                      ],
+                    ),
+                  );
+                  closed = true;
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Cancel with nothing typed closes at once', (tester) async {
+      await open(tester);
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Close without saving?'), findsNothing);
+      expect(closed, isTrue);
+    });
+
+    testWidgets('Cancel with an amount typed asks first, and Keep editing '
+        'keeps it', (tester) async {
+      await open(tester);
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '250');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Close without saving?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(closed, isNull);
+      expect(find.byType(RecordSettlementDialog), findsOneWidget);
+      expect(find.text('250'), findsOneWidget);
+    });
+
+    testWidgets('Escape asks the same, and Discard and close closes',
+        (tester) async {
+      await open(tester);
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '250');
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Close without saving?'), findsOneWidget);
+      await tester.tap(find.text('Discard and close'));
+      await tester.pumpAndSettle();
+      expect(closed, isTrue);
+      expect(find.byType(RecordSettlementDialog), findsNothing);
+    });
+
+    testWidgets('the date picker stops at today', (tester) async {
+      await open(tester);
+      await tester.tap(find.widgetWithText(InkWell, 'Date the money moved'));
+      await tester.pumpAndSettle();
+
+      final DateTime last =
+          tester.widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
+              .lastDate;
+      final DateTime now = DateTime.now();
+      expect(
+        DateTime(last.year, last.month, last.day),
+        DateTime(now.year, now.month, now.day),
+      );
     });
   });
 
