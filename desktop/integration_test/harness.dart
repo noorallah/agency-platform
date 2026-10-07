@@ -251,6 +251,11 @@ Future<void> typeInKeyed(
 
 /// Pick [label] from the picker with [key]: open it, tap the entry.
 Future<void> chooseIn(WidgetTester tester, String key, String label) async {
+  final Finder keyed = find.byKey(ValueKey<String>(key));
+  if (keyed.evaluate().isNotEmpty) {
+    await tester.ensureVisible(keyed.first);
+    await pumpFor(tester, const Duration(milliseconds: 300));
+  }
   await tapKey(tester, key);
   await pumpFor(tester, const Duration(milliseconds: 500));
   final Finder entry = find.textContaining(label);
@@ -416,8 +421,15 @@ class Server {
       for (final dynamic row in rows as List<dynamic>) row as Json,
     ];
     if (list.isEmpty) return null;
-    list.sort((Json a, Json b) =>
-        '${b['created_at']}'.compareTo('${a['created_at']}'));
+    String stamp(Json r) {
+      if (r['created_at'] != null) return '${r['created_at']}';
+      for (final MapEntry<String, dynamic> e in r.entries) {
+        if (e.key.endsWith('_number') && e.value != null) return '${e.value}';
+      }
+      return '';
+    }
+
+    list.sort((Json a, Json b) => stamp(b).compareTo(stamp(a)));
     return list.first;
   }
 

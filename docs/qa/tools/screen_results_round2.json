@@ -59,7 +59,7 @@
   "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "note: :: quantity-related text on screen after Save: Stock | Delivery Notes | New delivery note | New delivery note | Save delivery note | Line 1 delivers 99999 where SO-2026-2027-000107 has 1 left to deliver of the 1 ordered. Change the line to what is left. | Delivery date | Reserved",
+   "note: :: quantity-related text on screen after Save: Stock | Delivery Notes | New delivery note | New delivery note | Save delivery note | Line 1 delivers 99999 where SO-2026-2027-000218 has 1 left to deliver of the 2 ordered: DN-26-27-000138 delivers the rest. Change the line to what is left. | Delivery date | Reserved",
    "open=true, saved=0, said=\"Seventy nine lakh ninety nine thousand nine hundred twenty only | Value at the order's rates, before tax  79,99,920.00\""
   ],
   "pass": 1,
@@ -79,15 +79,14 @@
   "user": "tradeadmin"
  },
  "SC-DN-015": {
-  "fail": 1,
+  "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "note: :: server approved list has SO-2026-2027-000112; the box offers SO-2026-2027-000107  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000106  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000105  07-10-2026  Vijaya Stores t10069cwy first",
-   "an order approved after Delivery Notes was opened (SO-2026-2027-000112) is not in the order box (known SCRQ-27)",
-   "approved order offered=true, draft order offered=false; an order approved after the page opened offered=false"
+   "note: :: server approved list has SO-2026-2027-000219; the box offers SO-2026-2027-000219  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000218  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000217  07-10-2026  Vijaya Stores t10069cwy first",
+   "approved order offered=true, draft order offered=false; an order approved after the page opened offered=true"
   ],
   "pass": 1,
-  "result": "FAIL",
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
@@ -150,7 +149,7 @@
   "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "note status APPROVED; said \"SO-2026-2027-000113 is on hold and cannot be dispatched (\"dispatch test\"). Release it first.\""
+   "note status APPROVED; said \"SO-2026-2027-000220 is on hold and cannot be dispatched (\"dispatch test\"). Release it first.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -169,13 +168,13 @@
   "user": "tradeadmin"
  },
  "SC-DN-023": {
-  "fail": 1,
+  "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "Bad state: Cancel closed an editor holding a typed quantity without asking"
+   "editor closed=false, question=\"Close without saving? | What was changed in this document has not been saved and will be lost. | Keep editing | Discard and close\""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
@@ -194,7 +193,7 @@
   "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "Delivery Notes offered: false; menu areas sell, buy, stock, masters; list answers 403"
+   "Delivery Notes offered: true; menu areas sell, buy, stock, masters; list answers 200"
   ],
   "pass": 1,
   "result": "PASS",
@@ -234,6 +233,17 @@
   "skip": 0,
   "user": "tradeadmin"
  },
+ "SC-GR-001": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "columns present"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-GR-002": {
   "fail": 0,
   "file": "buying_flow_test.dart",
@@ -242,6 +252,315 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-GR-003": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "after 4: order PARTIALLY_RECEIVED; second receipt boxes PO-T10069CWY-S-HO-2026-2027-000136  07-10-2026 / 6 / 0 / 0 / 0; after the rest: order RECEIVED"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-004": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "the product is not batch-tracked in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-005": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "the product is not serial-tracked in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-006": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "MRP/PTR/PTS boxes need a batch-tracked product"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-007": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "quarantine needs Quality Inspection set on"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-008": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "status CLOSED, screen says \"Goods receipt GRN-T10069CWY-S-HO-2026-2027-000061 closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-009": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "transport boxes not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-010": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"Goods receipt GRN-T10069CWY-S-HO-2026-2027-000060 cancelled.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-011": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "file picker not drivable"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-012": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Choose the purchase order being received.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-013": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Goods receipt exceeds allowed quantity for PO line 1: 10 PIECE ordered, 0 PIECE already received, and this line receives 11 PIECE. | Six hundred sixty only | Value at the order's rates, before tax  660.00\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-014": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter a received quantity on at least one line. | Zero only | Value at the order's rates, before tax  0.00\"",
+   "open=true, saved=0, said=\"Enter a received quantity on at least one line. | Sixty only | Value at the order's rates, before tax  -60.00\""
+  ],
+  "pass": 2,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-015": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "Receipt date is a picker limited to today"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-016": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "needs a serial-tracked product"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-017": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "approved order offered=true, draft order offered=false"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-018": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "status COMPLETED, screen says \"Goods receipt GRN-T10069CWY-S-HO-2026-2027-000057 has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-019": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "Edit is absent on a Completed receipt"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-020": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "Close is enabled on a Draft receipt; pressed: status DRAFT, says \"Only completed goods receipts can be closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-021": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "needs stock consumed after the receipt"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-022": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-023": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: true; list 200; bills offered: false; returns offered: false; {+ New: enabled, New: absent, Approve: absent, Complete: enabled, Cancel: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-GR-024": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: true; list 200; bills offered: true; returns offered: true; {+ New: enabled, New: absent, Approve: absent, Complete: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-GR-025": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: true; list 200; bills offered: true; returns offered: true; {+ New: enabled, New: absent, Approve: absent, Complete: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-GR-026": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-GR-027": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: true; {+ New: absent, New: absent, Complete: absent, Approve: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-GR-028": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "covered by SC-GR-029 and the PO file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-029": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Goods receipt exceeds allowed quantity for PO line 1: 10 PIECE ordered, 10 PIECE already received, and this line receives 10 PIECE.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-030": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "a Completed receipt cannot be edited on screen"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
  },
  "SC-OF-002": {
   "fail": 0,
@@ -261,6 +580,18 @@
   "skip": 0,
   "user": ""
  },
+ "SC-PB-001": {
+  "fail": 1,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Goods Receipts | Purchase Invoices | Purchase Invoices | Total | 45 | Draft | 16 | Approved | 27 | Cancelled | 1 | Closed | 1 | All dates | + New | Invoice Number | Files | Supplier | Supplier Invoice | Invoice Date | Status | Grand Total | SUP-1791367369489744 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367367223083 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367363612204 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367361266674 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367359948833 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367358655817 | 2026-10-07 15:32 | Draft | 708.00 | SUP-1791367357700924 | 2026-10-07 15:32 | Draft | 708.00 | SUP-1791367356774468 | 2026-10-07 15:32 | Draft | 708.00 | SUP-1791367355449845",
+   "Bad state: not on screen: Due Date"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-PB-002": {
   "fail": 0,
   "file": "buying_flow_test.dart",
@@ -278,6 +609,358 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-PB-004": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status APPROVED; payments +1; screen says \"PI-T10069CWY-S-HO-2026-2027-000037 approved and posted to the books.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-005": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "the firm bills receipts only; a bill with no receipt cannot be started on screen"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-006": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no foreign-currency supplier in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-007": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no TDS section set up in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-008": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "TCS boxes not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-009": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "file picker not drivable"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-010": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status CLOSED, screen says \"PI-T10069CWY-S-HO-2026-2027-000044 closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-011": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"PI-T10069CWY-S-HO-2026-2027-000045 cancelled.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-012": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "Payables by Month report not reached"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-013": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "IRN dialog not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-014": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Choose the goods receipt being billed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-015": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Goods receipts to bill \u2014 Principal supplier t10069cwy | Goods receipt | Date | Order | Left to bill | GRN-T10069CWY-S-HO-2026-2027-000080 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000159 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000074 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000153 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000073 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000152 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000072 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000151 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000071 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000150 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000070 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000149 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000064 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000138 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000063 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000136 | 424.80 | GRN-T10069CWY-S-HO-2026-2027-000062 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000136 | 283.20 | Cancel | Bill 0 receipts\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-016": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Line 1: quantity exceeds what the receipt still has to be billed for (10). | More than received by\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-017": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "billed receipt GRN-T10069CWY-S-HO-2026-2027-000075 offered=false; unbilled GRN-T10069CWY-S-HO-2026-2027-000080 offered=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-018": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "Bill date is not a typed box"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-019": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no closed period in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-020": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no tolerance set in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-021": {
+  "fail": 1,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "Bad state: a duplicate number was accepted"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-022": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Approve PI-T10069CWY-S-HO-2026-2027-000038 | Bill PI-T10069CWY-S-HO-2026-2027-000038 owes 708.00, so 99999 cannot be paid against it now. Record an advance through Payments. | Approving posts the bill to the books. | Paid now | A cash purchase: record the payment in the same step. | Cash | Method | Cash | Mode | Amount | Blank pays the full bill. | Reference | Blank takes the bill date | Date paid | Cancel | Approve and pay | Bill PI-T10069CWY-S-HO-2026-2027-000038 owes 708.00, so 99999 cannot be paid against it now. Record an advance through Payments.\"; bill status DRAFT"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-024": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "Edit is absent on an Approved bill"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-025": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"PI-T10069CWY-S-HO-2026-2027-000042 cannot be cancelled while it has payment PY-2026-2027-000014. Reverse or cancel those first.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-026": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"PI-T10069CWY-S-HO-2026-2027-000043 cannot be cancelled while it has purchase return PR-T10069CWY-S-HO-2026-2027-000015. Reverse or cancel those first.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-027": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no capital goods line in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-028": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-029": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: enabled, New: absent, Approve: absent, Edit: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-PB-030": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "offered: true; Approve enabled; Pay now control shown=false"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-PB-031": {
+  "fail": 1,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "Purchase Invoices offered or not: contradicts the book (Payables offered to Accounts): offered: false; list 403; payables offered: false"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "qacct"
+ },
+ "SC-PB-032": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-PB-033": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "offered: true; {+ New: absent, New: absent, Edit: absent, Approve: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-PB-034": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "covered by the PO and PY files"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-035": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"Approve PI-T10069CWY-S-HO-2026-2027-000039 | Approving posts the bill to the books. | Paid now | A cash purchase: record the payment in the same step. | Cancel | Approve || Approve PI-T10069CWY-S-HO-2026-2027-000039 | Only draft purchase invoices can be approved. | Approving posts the bill to the books. | Paid now | A cash purchase: record the payment in the same step. | Cancel | Approve\" / \"Approve PI-T10069CWY-S-HO-2026-2027-000039 | Only draft purchase invoices can be approved. | Approving posts the bill to the books. | Paid now | A cash purchase: record the payment in the same step. | Cancel | Approve\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-036": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "a Draft bill has no Edit on screen (Open, Approve, Cancel, Close, Record IRN only), so there is no second session to race"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
  },
  "SC-PC-005": {
   "fail": 0,
@@ -305,6 +988,18 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-PO-001": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Purchase Orders | Purchase Orders | All | 132 | Draft | 26 | Open | 51 | Cancelled | 3 | Closed | 3 | History | + filter | Views | All dates | \u2026 | + New | PO Number | Vendor | Branch | Warehouse | Buyer | Purchase Date | Expected Delivery | Purchase Type | Priority | Status | Grand Total | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Received | 708.00 | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Received | 708.00 | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Submitted | 708.00 | Head Office | Main Warehouse",
+   "Bad state: not on screen: Draft Orders, Open Orders, Orders Today, Pending Delivery, Purchase Value"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
  },
  "SC-PO-002": {
   "fail": 0,
@@ -342,6 +1037,395 @@
   "skip": 0,
   "user": ""
  },
+ "SC-PO-006": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no rate contract in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-007": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no supplier scheme in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-008": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no foreign currency supplier"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-009": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status APPROVED, amend editor open=true, screen says \"\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-010": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "asked \"\"; sent_at 2026-10-07T15:19:32.725787+05:30, status APPROVED, screen says \"PO-T10069CWY-S-HO-2026-2027-000127 marked as sent.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-011": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "editor open=true, records 0 more"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-012": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status CLOSED, screen says \"Close purchase order... | Purchase order closed. || Purchase order closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-013": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Cancel: status CANCELLED, says \"Cancel purchase order... | Purchase order cancelled. || Purchase order cancelled.\"; Restore on the Cancelled row is absent (it is for deleted orders)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-014": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Restore brings back a deleted order, not a Cancelled one; there is no way back from Cancelled on screen"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-015": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "grid tick boxes not reached (same as SC-SO-013)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-016": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "dialog open=true: Below reorder level | Suggested is up to the maximum level, less what is available and what is already on order; without a maximum, the shortfall to the reorder level. One draft order is raised per supplier per warehouse. | Planning basis -- Typed levels per product. | Nothing is at or below its reorder level. | Close | Raise requisition | Raise draft orders (0)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-017": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "saved searches not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-018": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "note: :: newest order: PO-T10069CWY-S-HO-2026-2027-000133 vendor 4a737e55-f062-4871-b02a-089c7797c3a5 lines 1 status DRAFT",
+   "Save is refused: Bad state: N2: the editor closed; N3: 1 record(s) saved [open=false, saved=1, said=\"Purchase order created. | 1 selected\"]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-019": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Save is refused: Bad state: N2: the editor closed; N3: 1 record(s) saved [open=false, saved=1, said=\"Purchase order created. | 1 selected\"]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-020": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Bad state: N1: nothing on screen says why [open=true, saved=0, said=\"\"]",
+   "open=true, saved=0, said=\"The request validation failed. | lines 1, ordered_quantity: Input should be greater than or equal to 0\""
+  ],
+  "pass": 1,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-021": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Expected by is a date picker limited to future days; not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-022": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no inactive supplier in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-024": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Approve is absent on a Draft"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-025": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no budget set in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-026": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no approval limits set in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-027": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status RECEIVED, screen says \"Cancel purchase order | Reason | Optional remarks for the lifecycle action | Cancel | Confirm\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-028": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status RECEIVED, screen says \"Cancel purchase order | Reason | Optional remarks for the lifecycle action | Cancel | Confirm | Cancel purchase order...\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-029": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "note: :: after Edit: dialogs 1, save box 0, text \"Editing withdraws the approval | Cancel | Edit anyway\"; fresh: Editing withdraws the approval",
+   "warning shown=true; status after save DRAFT"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-030": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no rate contract in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-031": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-032": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: enabled, New: absent, Submit: absent, Approve: absent, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-PO-033": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "offered: true; {Approve: enabled, Amend: absent, Close: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-PO-034": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Purchase Orders offered or not: Bad state: menu (false) and server (200) disagree"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-PO-035": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Purchase Orders offered: false; buy menu null; list answers 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-PO-036": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "offered: true; {+ New: disabled, New: absent, Submit: absent, Approve: absent, Edit: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-PO-037": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "covered by SC-PO-039/040 and the GR file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-038": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Bad state: HIGH: a save from a stale copy went through over the other user's submit (status SUBMITTED)"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-039": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"PO-T10069CWY-S-HO-2026-2027-000128 approved.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-040": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "row reads: PO-T10069CWY-S-HO-2026-2027-000130 | Principal supplier t10069cwy | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Approved | 708.00"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-001": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Payments | Purchase Returns | Purchase Returns | Total | 22 | Draft | 10 | Approved | 8 | Completed | 0 | Cancelled | 1 | Closed | 3 | All dates | + New | Return Number | Supplier | Supplier Return | Outcome | Return Date | Status | Grand Total | Credit | 2026-10-07 15:58 | Draft | 70.80 | Credit | 2026-10-07 15:58 | Draft | 70.80 | Credit | 2026-10-07 15:58 | Closed | 70.80 | Credit | 2026-10-07 15:58 | Approved | 70.80 | Credit | 2026-10-07 15:58 | Draft | 70.80 | Credit",
+   "columns present"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-PR-002": {
   "fail": 0,
   "file": "buying_flow_test.dart",
@@ -360,6 +1444,294 @@
   "skip": 0,
   "user": ""
  },
+ "SC-PR-004": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Complete: COMPLETED (\"PR-T10069CWY-S-HO-2026-2027-000019 completed. The stock has gone back to the supplier.\"); Close: CLOSED (\"PR-T10069CWY-S-HO-2026-2027-000019 closed.\")"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-005": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Replace outcome needs a purchase order stage check; not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-006": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "credit on a paid bill is a report matter"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-007": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "no free goods in the fixture receipts"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-008": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "no batch-tracked product in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-009": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"PR-T10069CWY-S-HO-2026-2027-000021 cancelled.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-010": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Return quantity exceeds the available source quantity: line 1 can still send back 4 PIECE bought and 0 free. | More than received by\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-011": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Return quantity exceeds the available source quantity: line 1 can still send back 6 PIECE bought and 0 free. | More than received by\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-012": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter a return quantity on at least one line.\"",
+   "open=true, saved=0, said=\"Enter a return quantity on at least one line.\""
+  ],
+  "pass": 2,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-013": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Choose the goods receipt being sent back.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-014": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "completed receipt offered=true, draft receipt offered=false"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-015": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Return date is a picker; not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-016": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "would need stock sold after receipt"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-017": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "no capital goods line in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-018": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Edit is absent on an Approved return"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-019": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Complete is absent on a Draft return"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-020": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "buttons {Close: absent, Cancel: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-021": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-022": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: enabled, New: absent, Approve: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-PR-023": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "offered: true; {Approve: enabled, Complete: absent, Close: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-PR-024": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-PR-025": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "offered: true; {+ New: absent, New: absent, Approve: absent, Complete: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-PR-026": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "covered by SC-PR-027 and the PY file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-027": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"Only draft purchase returns can be approved.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-028": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "a Draft return has no Edit on screen to race"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-001": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Purchase Invoices | Payments | Payments | All dates | Supplier credits | Supplier refunds | \u2026 | + New | Number | Supplier | Date | Method | Cleared | Status | Amount | PY-2026-2027-000018 | 2026-10-07 | CASH | Reversed | 30.00 | PY-2026-2027-000017 | 2026-10-07 | CASH | Applied | 708.00 | PY-2026-2027-000016 | 2026-10-07 | CASH | Applied | 708.00 | PY-2026-2027-000015 | 2026-10-07 | CASH | Applied | 50.00 | PY-2026-2027-000014 | 2026-10-07 | CASH | Applied | 40.00 | PY-2026-2027-000013 | 2026-10-07 | CASH | Applied | 10.00 | PY-2026-2027-000012 | 2026-10-07 | CASH | Applied | 10.00 | PY-2026-2027-000011 | 2026-10-07 | CASH | Applied | 708.00",
+   "columns and chips present"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-PY-002": {
   "fail": 0,
   "file": "buying_flow_test.dart",
@@ -368,6 +1740,273 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-PY-003": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "saved 1; amount 400.00; allocated 400.0 over 1 bills"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-004": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "TDS section list not driven; no TDS master in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-005": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "cheque printing is a native print"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-006": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "no foreign-currency bill in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-007": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Payment Runs screen not reached"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-008": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "payment REVERSED; bill APPROVED outstanding null; screen says \"PY-2026-2027-000016 reversed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-009": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Print is native; Send and Files as in Receipts"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-010": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Post-dated Cheques screen not reached"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-011": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a payment | Money already paid. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Paid to | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By us | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Discount received | Leave blank when nothing was deducted. The amount above is what settles the supplier. | Apply to bills | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | PI-T10069CWY-S-HO-2026-2027-000005 | 2026-10-07 | 708.00 | 612.00 | PI-T10069CWY-S-HO-2026-2027-000006 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000007 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000009 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000011 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000013 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000014 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000015 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000016 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000026 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000027 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000028 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000029 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000030 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000031 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000032 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000033 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000034 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000035 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000037 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000039 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000041 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000042 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000043 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000044 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000053 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000056 | 2026-10-07 | 708.00 | 708.00 | Cancel | Record payment | Enter how much money moved.\"",
+   "open=true, saved=0, said=\"Record a payment | Money already paid. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Paid to | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By us | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Discount received | Leave blank when nothing was deducted. The amount above is what settles the supplier. | Apply to bills | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | PI-T10069CWY-S-HO-2026-2027-000005 | 2026-10-07 | 708.00 | 612.00 | PI-T10069CWY-S-HO-2026-2027-000006 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000007 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000009 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000011 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000013 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000014 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000015 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000016 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000026 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000027 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000028 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000029 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000030 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000031 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000032 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000033 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000034 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000035 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000037 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000039 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000041 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000042 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000043 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000044 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000053 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000056 | 2026-10-07 | 708.00 | 708.00 | Cancel | Record payment | Enter how much money moved.\"",
+   "open=true, saved=0, said=\"Record a payment | Money already paid. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Paid to | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By us | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Discount received | Leave blank when nothing was deducted. The amount above is what settles the supplier. | Apply to bills | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | PI-T10069CWY-S-HO-2026-2027-000005 | 2026-10-07 | 708.00 | 612.00 | PI-T10069CWY-S-HO-2026-2027-000006 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000007 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000009 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000011 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000013 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000014 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000015 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000016 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000026 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000027 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000028 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000029 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000030 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000031 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000032 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000033 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000034 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000035 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000037 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000039 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000041 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000042 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000043 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000044 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000053 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000056 | 2026-10-07 | 708.00 | 708.00 | Cancel | Record payment | Enter how much money moved.\""
+  ],
+  "pass": 3,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-012": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "note: :: the Payments screen accepts an amount with nothing applied as an advance to the supplier: true",
+   "advance notice shown=true; saved 1; newest unallocated 1234.00"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-013": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "future date not driven (see SC-RC-014)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-014": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "no closed period in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-015": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a payment | Money already paid. Recording it posts to the ledger. | Choose who the money is from or to. | Dismiss | Paid to | Type a code or a name to narrow the list. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By us | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Discount received | Leave blank when nothing was deducted. The amount above is what settles the supplier. | Apply to bills | 25.00 will be held as an advance, not applied to any bill | Choose a vendor to see what the firm owes them. | Cancel | Record payment | Choose who the money is from or to. | 25.00 will be held as an advance, not applied to any bill\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-016": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "no foreign bill in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-017": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Reverse is absent on a reversed payment"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-018": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Edit absent, Delete absent"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-019": {
+  "fail": 1,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Bad state: the dialog closed holding typing without asking (same family as known SCRQ-21/29)"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-020": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: enabled, Reverse: enabled}; Payment Runs offered: true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qacct"
+ },
+ "SC-PY-021": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-PY-022": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-PY-024": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: absent, Reverse: absent}; Payment Runs offered: true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-PY-025": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "covered by the PB file multi-user cases"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-026": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "second payment answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"An allocated invoice does not belong to this party, is not approved, or is already settled in full.\"},\"timestamp\":\"2026-10-07T10:19:04.16; bill outstanding null"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-027": {
+  "fail": 1,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Bad state: N1: the stale Reverse said nothing"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
  },
  "SC-QT-002": {
   "fail": 0,
@@ -423,6 +2062,18 @@
   "skip": 0,
   "user": ""
  },
+ "SC-RC-001": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Receipts | Receipts | All dates | Customer credits | + New | Number | Customer | Date | Method | Cleared | Status | Amount | RC-2026-2027-000045 | Vijaya Stores t10069cwy | 2026-11-15 | BANK | On account | 10.00 | RC-2026-2027-000053 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Reversed | 20.00 | RC-2026-2027-000052 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Applied | 50.00 | RC-2026-2027-000051 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Applied | 188.80 | RC-2026-2027-000050 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Applied | 188.80 | RC-2026-2027-000049 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Applied | 94.40 | RC-2026-2027-000048 | Vijaya Stores t10069cwy | 2026-10-07 | BANK | On account | 33.00 | RC-2026-2027-000047",
+   "Bad state: not on screen: On Account, Cash or Bank, Other Deductions"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-RC-002": {
   "fail": 0,
   "file": "selling_flow_test.dart",
@@ -431,6 +2082,319 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-RC-003": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "saved 1, 6 allocations summing 900.0, unallocated 0.00"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-004": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "advance notice shown=true, saved 1, newest unallocated 137.00"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-005": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "instrument date box shown=true, saved 1, mode CHEQUE, instrument date null"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-006": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "TDS section list not driven; the section dropdown holds no entries without a TDS master in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-007": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "no early-payment discount offered on any bill"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-008": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Bad state: Send absent; Files opened=true"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-009": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "receipt REVERSED; bill outstanding null of 188.8000; screen says \"RC-2026-2027-000050 reversed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-010": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "no payment promise recorded in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-011": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Collection Sheet is under All Sell screens; not reached"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-012": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Received from | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | SI-26-27-000010 | 2026-10-07 | 283.20 | 51.59 | SI-26-27-000013 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000014 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000015 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000016 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000017 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000019 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000020 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000023 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000024 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000025 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000026 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000027 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000029 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000030 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000039 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000042 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000043 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000044 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000045 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000046 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000048 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000049 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000050 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000052 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000054 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000055 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000056 | 2026-10-07 | 896.80 | 896.80 | SI-26-27-000057 | 2026-10-07 | 566.40 | 472.00 | SI-26-27-000058 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000059 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000060 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000061 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000064 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000065 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000068 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000069 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000070 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000071 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000072 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000074 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000077 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000078 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000079 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000080 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000081 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000083 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000086 | 2026-10-07 | 377.60 | 327.60 | Cancel | Record receipt | Enter how much money moved.\"",
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Received from | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | SI-26-27-000010 | 2026-10-07 | 283.20 | 51.59 | SI-26-27-000013 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000014 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000015 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000016 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000017 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000019 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000020 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000023 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000024 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000025 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000026 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000027 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000029 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000030 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000039 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000042 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000043 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000044 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000045 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000046 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000048 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000049 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000050 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000052 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000054 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000055 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000056 | 2026-10-07 | 896.80 | 896.80 | SI-26-27-000057 | 2026-10-07 | 566.40 | 472.00 | SI-26-27-000058 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000059 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000060 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000061 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000064 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000065 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000068 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000069 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000070 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000071 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000072 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000074 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000077 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000078 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000079 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000080 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000081 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000083 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000086 | 2026-10-07 | 377.60 | 327.60 | Cancel | Record receipt | Enter how much money moved.\""
+  ],
+  "pass": 2,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-013": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Received from | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | SI-26-27-000010 | 2026-10-07 | 283.20 | 51.59 | SI-26-27-000013 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000014 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000015 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000016 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000017 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000019 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000020 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000023 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000024 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000025 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000026 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000027 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000029 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000030 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000039 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000042 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000043 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000044 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000045 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000046 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000048 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000049 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000050 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000052 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000054 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000055 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000056 | 2026-10-07 | 896.80 | 896.80 | SI-26-27-000057 | 2026-10-07 | 566.40 | 472.00 | SI-26-27-000058 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000059 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000060 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000061 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000064 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000065 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000068 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000069 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000070 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000071 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000072 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000074 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000077 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000078 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000079 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000080 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000081 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000083 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000086 | 2026-10-07 | 377.60 | 327.60 | Cancel | Record receipt | Enter how much money moved.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-014": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "note: :: date picker open=true",
+   "note: :: date now reads 2026-11-15, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-11-15, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07",
+   "Bad state: N3: a future-dated receipt was saved [settlement_date=2026-11-15]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-015": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "no closed financial period in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-016": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Mode and account default to Cash; the dialog has no empty state for them"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-017": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "note: :: newest receipt after press: null customer null amount 10.00 created null",
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Choose who the money is from or to. | Dismiss | Received from | Type a code or a name to narrow the list. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | 25.00 will be held as an advance, not applied to any invoice | Choose a customer to see what they owe. | Cancel | Record receipt | Choose who the money is from or to. | 25.00 will be held as an advance, not applied to any invoice\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-018": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Choose the TDS section the deduction is filed under. | Dismiss | Received from | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Received in bank: 90.00. The amount above is what settles the customer. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | Oldest first | 100.00 will be held as an advance, not applied to any invoice | Invoice | Date | Total | Outstanding | Apply | SI-26-27-000010 | 2026-10-07 | 283.20 | 51.59 | SI-26-27-000013 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000014 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000015 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000016 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000017 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000019 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000020 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000023 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000024 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000025 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000026 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000027 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000029 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000030 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000039 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000042 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000043 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000044 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000045 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000046 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000048 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000049 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000050 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000052 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000054 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000055 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000056 | 2026-10-07 | 896.80 | 896.80 | SI-26-27-000057 | 2026-10-07 | 566.40 | 472.00 | SI-26-27-000058 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000059 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000060 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000061 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000064 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000065 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000068 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000069 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000070 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000071 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000072 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000074 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000077 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000078 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000079 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000080 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000081 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000083 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000086 | 2026-10-07 | 377.60 | 327.60 | Cancel | Record receipt | Choose the TDS section the deduction is filed under. | 100.00 will be held as an advance, not applied to any invoice\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-019": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "receipt REVERSED; bill outstanding null of 377.6000; screen says \"RC-2026-2027-000052 reversed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-020": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Reverse is absent on a reversed receipt"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-021": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Bad state: the dialog closed holding typing without asking (same family as known SCRQ-21/29)"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-022": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Edit absent, Delete absent"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-024": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Receipts offered: false; list answers 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-RC-025": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Receipts offered: false; list answers 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsmgr"
+ },
+ "SC-RC-026": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Receipts offered: true; list answers 200; {+ New: absent, Reverse: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-RC-027": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Receipts offered: true; list answers 200; New enabled, Reverse enabled"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qacct"
+ },
+ "SC-RC-028": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "needs the cashier user and the statement screen"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-029": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Bad state: N1: the stale Reverse said nothing"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-030": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "second receipt answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"An allocated invoice does not belong to this party, is not approved, or is already settled in full.\"},\"timestamp\":\"2026-10-07T08:42:45.16; bill outstanding null"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-001": {
+  "fail": 1,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "note: :: headers on screen: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | Selling t10069cwy | S( | Sales Invoices | Sales Invoices | All | 43 | Draft | 18 | Approved | 23 | Cancelled | 0 | Closed | 2 | Pending | 18 | Overdue | 1 | All dates | \u2026 | + New | Invoice Number | Files | Customer | Invoice Date | Reference | Status | Grand Total | SI-26-27-000043 | Vijaya Stores t10069cwy | 2026-10-07 03:35 | Draft | 188.80 | SI-26-27-000042 | Vijaya Stores t10069cwy | 2026-10-07 03:35 | Draft | 188.80 | SI-26-27-000041 | Vijaya Stores t10069cwy | 2026-10-07 03:35 | Draft | 188.80 | SI-26-27-000040 | Vijaya Stores t10069cwy | 2026-10-07 03:35 | Draft | 188.80",
+   "Bad state: not on screen: Payment Terms, Taxable Value, Tax"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
  },
  "SC-SB-002": {
   "fail": 0,
@@ -450,11 +2414,408 @@
   "skip": 0,
   "user": ""
  },
+ "SC-SB-004": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "saved 1, newest status APPROVED"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-005": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "chips 2, saved 1, lines 2"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-006": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "counter bill: the fixture firm bills notes; no Counter sale tick or scan field in this firm's stages"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-007": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-008": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-009": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-010": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "service line and delivery charge need a direct bill; notes carry only goods"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-011": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "Send opened=true; Attachments opened=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-012": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "coupon applies only on a direct bill of products"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-013": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "status CLOSED, screen says \"SI-26-27-000039 closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-014": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "row tick boxes of the grid not reached in two attempts (same as SC-SO-013)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-015": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-016": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Bill at least one line.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-017": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Delivery notes to bill \u2014 Vijaya Stores t10069cwy | Delivery note | Date | Order | Left to bill (before tax) | DN-26-27-000080 | 07-10-2026 | SO-2026-2027-000157 | 160.00 | DN-26-27-000079 | 07-10-2026 | SO-2026-2027-000156 | 240.00 | DN-26-27-000078 | 07-10-2026 | SO-2026-2027-000155 | 320.00 | DN-26-27-000068 | 07-10-2026 | SO-2026-2027-000145 | 160.00 | DN-26-27-000067 | 07-10-2026 | SO-2026-2027-000144 | 240.00 | DN-26-27-000066 | 07-10-2026 | SO-2026-2027-000143 | 320.00 | DN-26-27-000038 | 07-10-2026 | SO-2026-2027-000111 | 80.00 | DN-26-27-000033 | 07-10-2026 | SO-2026-2027-000103 | 80.00 | Cancel | Bill 0 notes\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-018": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Bill at least one line.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-019": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Bill at least one line. | Only 2.0 left to bill.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-020": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "billed note DN-26-27-000081 offered=false; unbilled DN-26-27-000078 offered=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-021": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "HTTP 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"This firm raises a sales order and a delivery note before it bills, so an invoice line must name the document it bills.\"},\"timestamp\":\"2026-10-06T22:08:24.526033Z\",\"requestId\":\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-022": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-023": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "no Cash sale customer in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-024": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "Invoice date is read-only (set to today by the screen); no input to type a future date into"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-025": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "no closed financial period in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-026": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "Edit is absent on an Approved bill"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-027": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"Only draft sales invoices can be approved.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-028": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"SI-26-27-000044 cannot be cancelled while it has money applied from RC-2026-2027-000010. Reverse or cancel those first.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-029": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"SI-26-27-000045 cannot be cancelled while it has sales return SR-26-27-000010. Reverse or cancel those first.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-030": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "Price Floor setting is off and a bill of notes carries the notes' prices; no rate can be typed"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-031": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "no customer with a credit limit in the fixture firm (see SC-SO-022)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-032": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-034": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "offered; buttons {+ New: enabled, New Invoice: absent, Approve: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-SB-036": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "buttons {Approve: enabled, Edit: enabled, Cancel: enabled} (the bill's rate cell is read-only text; override tested at HTTP level elsewhere)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsmgr"
+ },
+ "SC-SB-037": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "buttons {New Invoice: absent, + New: absent, Edit: absent, Approve: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-SB-038": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "qacct reads the journals 200 (the bill itself is not in the Accounts role)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-039": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "note: :: the refusal does not say the record changed or to reload: Somebody else saved this invoice while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs. | Dismiss",
+   "editor open=true; terms now NET 45; reference null; screen says \" || new on screen: Somebody else saved this invoice while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs. | Dismiss\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SB-040": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SB-041": {
+  "fail": 0,
+  "file": "sc_sb_test.dart",
+  "notes": [
+   "row reads: SI-26-27-000043 | Vijaya Stores t10069cwy | 2026-10-07 03:35 | Approved | 188.80"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-SO-001": {
   "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "columns present; cards: Draft, Approved, Cancelled, Closed, Draft, Draft"
+   "columns present; cards: Draft, Approved, Cancelled, Closed, Approved, Approved"
   ],
   "pass": 1,
   "result": "PASS",
@@ -503,7 +2864,7 @@
   "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "status APPROVED, on hold true, notice \"SO-2026-2027-000070 is on hold.\""
+   "status APPROVED, on hold true, notice \"SO-2026-2027-000221 is on hold.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -514,7 +2875,7 @@
   "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "status APPROVED, on hold false, notice \"SO-2026-2027-000070 released.\""
+   "status APPROVED, on hold false, notice \"SO-2026-2027-000221 released.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -525,7 +2886,7 @@
   "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "status CANCELLED, screen says \"SO-2026-2027-000075 cancelled. Its stock is released.\""
+   "status CANCELLED, screen says \"SO-2026-2027-000226 cancelled. Its stock is released.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -547,7 +2908,7 @@
   "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "open=true, saved=0, said=\"Check the fields marked below.\""
+   "open=true, saved=0, said=\"Choose the customer. | Enter the quantity.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -555,14 +2916,14 @@
   "user": "tradeadmin"
  },
  "SC-SO-018": {
-  "fail": 1,
+  "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "note: :: editor after the customer is chosen: S( | Sales Orders | New sales order | New sales order | Draft | Enter next field  \u00b7  Ctrl+Enter new line  \u00b7  Ctrl+S save | Cancel | Save & approve | Save draft | Customer (type code, name or phone) | Anand Agencies t10069cwy \u2014 T10069CWY-C02 | Vijaya Stores t10069cwy \u2014 T10069CWY-C01 | bal 0.00 | Order date | auto | 07-10-2026 | Wanted by | \u2014 | Place of supply | auto | \u2014 | Salesman | Nobody | Branch \u00b7 ships from | auto | HO | MAIN | Rate includes GST | Before tax | Customer's reference | their PO number | Our reference | Coupon | Payment terms | e.g. 30 days net | Credit days | blank takes the customer's 0 days | # | Product (code, name or barcode) | HSN | Qty | Free | Unit | Rate | Disc % | Disc amt | Taxable | GST | Amount | 1 | 80.00 | 80.00 | 2     + add a product (Ctrl+Enter) | Discount on the whole order % | Or an amount off the whole order | Delivery charge | Remarks | Totals follow as the lines are priced. | Taxable  80.00 | CGST  0.00 | SGST  0.00 | Total  80.00 | LINE 1 \u00b7 DETERGENT 1KG T10069CWY | Rate | 80.00 | from: Price list | Discount | \u2013 | blank takes any arrangement on file | Free: blank takes the offer; 0 refuses it.",
-   "refused: Bad state: N2: the editor closed; N3: 1 record(s) saved [open=false, saved=1, said=\"Order drafted. Approve it to commit the stock and the credit. | 2026-10-06 (entered 2026-10-07 01:21) | 2026-10-06 (entered 2026-10-07 01:19)\"]"
+   "note: :: editor after the customer is chosen: Selling t10069cwy | S( | Delivery Notes | Sales Orders | New sales order | New sales order | Draft | Enter next field  \u00b7  Ctrl+Enter new line  \u00b7  Ctrl+S save | Cancel | Save & approve | Save draft | Customer (type code, name or phone) | Anand Agencies t10069cwy \u2014 T10069CWY-C02 | Vijaya Stores t10069cwy \u2014 T10069CWY-C01 | bal 12,528.40 | Order date | auto | 07-10-2026 | Wanted by | \u2014 | Place of supply | auto | \u2014 | Salesman | Nobody | Branch \u00b7 ships from | auto | HO | MAIN | Rate includes GST | Before tax | Customer's reference | their PO number | Our reference | Coupon | Payment terms | e.g. 30 days net | Credit days | blank takes the customer's 0 days | # | Product (code, name or barcode) | HSN | Qty | Free | Unit | Rate | Disc % | Disc amt | Taxable | GST | Amount | 1 | 0.00 | 0.00 | 2     + add a product (Ctrl+Enter) | Discount on the whole order % | Or an amount off the whole order | Delivery charge | Remarks | Totals follow as the lines are priced. | Taxable  0.00 | CGST  0.00 | SGST  0.00 | Total  0.00 | LINE 1 \u00b7 | Rate | 0.00 | the product's selling price | Discount | \u2013",
+   "open=true, saved=0, said=\"Choose a product on line 1. | Enter the quantity. | Enter the price.\""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
@@ -638,7 +2999,7 @@
   "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "status APPROVED, screen says \"SO-2026-2027-000074 cannot be cancelled while delivery note DN-26-27-000019 stands against it. Cancel those first, or close the order to stop what is still to come.\""
+   "status APPROVED, screen says \"SO-2026-2027-000225 cannot be cancelled while delivery note DN-26-27-000140 stands against it. Cancel those first, or close the order to stop what is still to come.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -657,13 +3018,13 @@
   "user": "tradeadmin"
  },
  "SC-SO-027": {
-  "fail": 1,
+  "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "Bad state: N1: the dialog closed and nothing said a reason is needed"
+   "on hold=false, dialog still open: true, notice \"Hold SO-2026-2027-000221 | Nothing is unwound. The order keeps its status and its stock stays reserved \u2014 a hold says \"not yet\", not \"never\". It cannot be dispatched until it is released. | Reason | A reason is needed | Cancel | Hold\""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
@@ -679,14 +3040,14 @@
   "user": "tradeadmin"
  },
  "SC-SO-029": {
-  "fail": 1,
+  "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
    "Esc did nothing: the editor stayed open and asked nothing (the Cancel button is judged in the next step)",
-   "Bad state: the Cancel button closed an editor holding a customer and a quantity without asking"
+   "editor closed=false, question=\"Close without saving? | What was changed in this document has not been saved and will be lost. | Keep editing | Discard and close\", records saved 0"
   ],
-  "pass": 1,
-  "result": "FAIL",
+  "pass": 2,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
@@ -738,8 +3099,7 @@
   "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "note: :: the storekeeper (INVENTORY_MANAGER) is refused the order list with 403 and is not offered Delivery Notes; 01_ROLES R06 lists no Sell screen for it, so the hand over to the warehouse cannot happen on screen",
-   "warehouse list answered 403, holds the order: false"
+   "storekeeper GET /sales-orders?status=APPROVED answered 200 (HTTP re-check on the new build, D-UI-30); screen not re-driven this run (the run reached its time limit before this step)"
   ],
   "pass": 1,
   "result": "PASS",
@@ -750,7 +3110,7 @@
   "fail": 0,
   "file": "sc_so_test.dart",
   "notes": [
-   "status CANCELLED, on hold true, screen says \"SO-2026-2027-000076 cancelled. Its stock is released.\""
+   "status CANCELLED, on hold true, screen says \"SO-2026-2027-000227 cancelled. Its stock is released.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -762,6 +3122,18 @@
   "file": "sc_so_test.dart",
   "notes": [
    "row reads: SO-2026-2027-000078 | Vijaya Stores t10069cwy | 2026-10-07 02:03 | Approved | 94.40"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-001": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Receipts | Sales Returns | All dates | + New | Return Number | Files | Customer | Return Date | Quantity Returned | Status | Grand Total | SR-26-27-000042 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Approved | 94.40 | SR-26-27-000041 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Closed | 94.40 | SR-26-27-000040 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Approved | 94.40 | SR-26-27-000039 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Draft | 94.40 | SR-26-27-000038 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Draft | 94.40 | SR-26-27-000037 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1",
+   "columns and cards present"
   ],
   "pass": 1,
   "result": "PASS",
@@ -785,5 +3157,248 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-SR-004": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "status COMPLETED, screen says \"SR-26-27-000040 completed: 1.0000 back on the shelf and 94.4000 credited to the customer.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-005": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "status CLOSED, screen says \"SR-26-27-000040 closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-006": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"SR-26-27-000037 cancelled. The stock, the customer\u2019s balance and both journals have been put back.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-007": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "no service line on any bill in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-008": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "row tick boxes of the grid not reached in two attempts (same as SC-SO-013)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-009": {
+  "fail": 1,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Bad state: N2: the editor closed [open=false, saved=0, said=\"Return quantity exceeds what left on DN-26-27-000136 (9 sent, 7 already returned against it or the bill for it).\"]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-010": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter how many came back on at least one line.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-011": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter how many came back on at least one line.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-012": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter how many came back on at least one line.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-013": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Return date is read-only (set to today); no input to type a future date into"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-014": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "a return off a never-billed note: the credit is a report matter; not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-015": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Edit is absent on an Approved return; Approve absent, Complete enabled"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-016": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Complete is absent on a Draft return"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-017": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Cancel is absent on a Closed return"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-018": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "no credit note raised on a return in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-019": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-020": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "offered; {+ New: enabled, New Return: absent, Approve: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsmgr"
+ },
+ "SC-SR-021": {
+  "fail": 1,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "not offered, or readable with no New: Bad state: menu (false) and server (200) disagree"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-SR-022": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "buttons {New Return: absent, + New: absent, Approve: absent, Cancel: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-SR-023": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "note: :: the storekeeper is refused Complete (403); the return is completed by the Sales Manager instead",
+   "qstore Complete answered 403; qacct journals 200"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-024": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"SR-26-27-000038 approved. Nothing has moved yet \u2014 completing it takes the goods back.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-025": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "a Draft return has no Edit on screen, so there is no second session to race"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
  }
 }
