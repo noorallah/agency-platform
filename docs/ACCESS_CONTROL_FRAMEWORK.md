@@ -189,7 +189,7 @@ re-run the command under the tree below rather than trusting them.
 | `SALES_EXECUTIVE` | firm | 13 | Works a beat: view customers and territory, and **add a customer** (`CUSTOMER_CREATE`, D-SELL-57); raise quotation, order, invoice; reads products, branches, warehouses, tax profiles and units | approval (`CUSTOMER_APPROVE` included, so the outlet it adds waits where the firm asks), cancellation, every other master write |
 | `PURCHASE_MANAGER` | firm | 31 | The `purchase` codes less settings (receiving included), drafting debit notes, and **the vendor masters** (create, edit, retire, import, categories); reads products, branches, warehouses, tax profiles and units | `PURCHASE_MANAGE_SETTINGS`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_VIEW_FINANCIAL_DETAILS` |
 | `PURCHASE_EXECUTIVE` | firm | 17 | The same purchasing codes minus approval and inspection -- it raises and **completes goods receipts** (`PURCHASE_RECEIVE`); **reads** vendors, products, branches, warehouses, tax profiles and units | approval, every master write |
-| `INVENTORY_MANAGER` | firm | 27 | `inventory` + `batch_serial`, inspection, requisitions, and **receiving goods** (`PURCHASE_RECEIVE`: raise, edit and complete a goods receipt, read the receipts and the orders it receives against); reads products, branches, warehouses, tax profiles and units, vendors (requisition) and customers (a gift write-off names one) | `PURCHASE_CREATE` and `PURCHASE_VIEW` -- ordering, and the bills and returns; everything else |
+| `INVENTORY_MANAGER` | firm | 30 | `inventory` + `batch_serial`, inspection, requisitions, **receiving goods** (`PURCHASE_RECEIVE`: raise, edit and complete a goods receipt, read the receipts and the orders it receives against) and **dispatching them** (`DELIVERY_NOTE_VIEW`, `DELIVERY_NOTE_CREATE`, `DELIVERY_NOTE_DISPATCH`: raise, edit, approve, dispatch and cancel a delivery note, read the notes and the sales orders it delivers against); reads products, branches, warehouses, tax profiles and units, vendors (requisition) and customers (a gift write-off names one) | `PURCHASE_CREATE` and `PURCHASE_VIEW` -- ordering, and the bills and returns; every sales code -- writing an order, quotations, bills, returns, and Dispatch and invoice; everything else |
 | `CASHIER` | firm | 4 | `PAYMENT_CREATE`/`PAYMENT_VIEW`, `RECEIPT_CREATE`/`RECEIPT_VIEW` -- the money screens read their own party list, so no master is needed | see [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
 | `BILLING_EXECUTIVE` | firm | 5 | `SALES_INVOICE_CREATE`, `SALES_VIEW`, `DOCUMENT_SEND`; reads customers and products | everything else |
 | `CUSTOMER_SUPPORT` | firm | 3 | `CUSTOMER_VIEW`, `CUSTOMER_UPDATE`, `PRODUCT_VIEW` | everything else |
@@ -248,6 +248,21 @@ Three rules came with it:
   raises, beside `SALES_APPROVE` for the dispatch. Delivery notes themselves
   stay on `SALES_CREATE`/`SALES_UPDATE`: dispatch is the warehouse's and the
   sales manager's, and neither job role is meant to raise one.
+- **A delivery note has its own codes beside the sales ones (D-UI-30).** The
+  bullet above said dispatch was the warehouse's while every note route asked
+  a sales code Warehouse did not hold, so the role could neither see nor
+  dispatch a note (found on screen, SC-DN-025). Each note route now takes the
+  sales code it always took **or** `DELIVERY_NOTE_VIEW` (read the notes, the
+  pick list and loading sheet), `DELIVERY_NOTE_CREATE` (raise and edit a
+  draft, proof of delivery) or `DELIVERY_NOTE_DISPATCH` (approve, dispatch,
+  complete, close, cancel). `DELIVERY_NOTE_VIEW` also reads the sales order
+  list, one order, the sales stages and the pending-orders report -- the
+  orders a note is raised from, as `PURCHASE_RECEIVE` reads purchase orders --
+  and nothing else of selling. Dispatch and invoice stays on `SALES_APPROVE`
+  with `SALES_INVOICE_CREATE`: letting goods out approves no bill. Every role
+  holding `SALES_VIEW`, `SALES_CREATE` or `SALES_APPROVE` holds the note code
+  beside it (migration `20261007_0349` grants the same to a firm's own roles),
+  and Warehouse holds all three.
 
 A bill typed straight in while the order and delivery stages are switched off
 still raises them through `SalesChainService`, which checks no permission of
@@ -281,7 +296,7 @@ FIRM_ADMIN (197)          runs the firm and its people
     │   └── PURCHASE_EXECUTIVE (17)
     ├── ACCOUNTANT (33)
     │   └── CASHIER (4)
-    └── INVENTORY_MANAGER (27)
+    └── INVENTORY_MANAGER (30)
 
 VIEWER (43)               outside the tree
 ```
@@ -1009,7 +1024,7 @@ Computed from the catalogue and the seed, with the business-profile gate open.
 | `SALES_MANAGER` | 8 | Masters(5/16), Sales(15/16), the five sales documents, Reports(2/2) |
 | `SALES_EXECUTIVE` | 7 | Masters(3/16), Sales(8/16), the five sales documents |
 | `PURCHASE_MANAGER` / `PURCHASE_EXECUTIVE` | 4 | Purchases(4/4), Purchase Invoices, Purchase Returns, Goods Receipts(1/1) |
-| `INVENTORY_MANAGER` | 2 | Inventory(14/14), Goods Receipts(1/1) |
+| `INVENTORY_MANAGER` | 3 | Inventory(14/14), Goods Receipts(1/1), Delivery Notes(1/1) |
 | `CASHIER` | **0** | — see [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
 | `BILLING_EXECUTIVE` | 6 | Sales(1/16), the five sales documents |
 | `CUSTOMER_SUPPORT` | 1 | Masters(4/16) |

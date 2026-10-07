@@ -277,6 +277,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         subtitle_columns=("driver",),
         status_column="status",
         category="masters",
+        also_permissions=("DELIVERY_NOTE_VIEW",),
     ),
     SearchDefinition(
         "purchase_invoices",

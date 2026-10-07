@@ -22,6 +22,8 @@ import 'package:agency_desktop/ui/delivery_notes/delivery_note_management_page.d
 import 'package:agency_desktop/ui/tax/gst_documents_settings_dialog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
+import 'package:agency_desktop/ui/workspace/module_catalog.dart';
+import 'package:agency_desktop/ui/workspace/module_visibility.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -496,6 +498,63 @@ void main() {
           widget is ButtonStyleButton ? widget.onPressed : null,
           isNull,
         );
+      }
+    });
+
+    // D-UI-30: Warehouse picks, packs and dispatches under the note's own
+    // codes and holds no sales code at all.
+    const List<String> warehouse = <String>[
+      'DELIVERY_NOTE_VIEW',
+      'DELIVERY_NOTE_CREATE',
+      'DELIVERY_NOTE_DISPATCH',
+    ];
+
+    testWidgets('the note codes alone list the notes and dispatch one',
+        (tester) async {
+      final _GstApi api = _GstApi();
+      await _pumpPage(tester, api, codes: warehouse);
+
+      expect(find.text('+ New'), findsOneWidget);
+      await _tapDispatch(tester);
+      await tester.tap(find.byKey(const ValueKey('dispatch-anyway')));
+      await tester.pumpAndSettle();
+      expect(
+        api.calls,
+        contains('POST /api/v1/delivery-notes/dn-1/dispatch'),
+      );
+    });
+
+    testWidgets('the note codes do not offer Dispatch and invoice',
+        (tester) async {
+      final _GstApi api = _GstApi();
+      await _pumpPage(tester, api, codes: warehouse);
+
+      final Finder action =
+          find.byKey(const ValueKey('selection-dispatch-and-invoice'));
+      if (action.evaluate().isNotEmpty) {
+        final Widget widget = tester.widget(action);
+        expect(
+          widget is ButtonStyleButton ? widget.onPressed : null,
+          isNull,
+        );
+      }
+    });
+
+    test('the note codes open Delivery Notes and no other selling screen', () {
+      final ModuleVisibility view = ModuleVisibility(
+        permissions: _permissions(warehouse),
+      );
+      expect(
+        view.tabIds(ModuleCatalog.byId(AppModule.deliveryNotes)),
+        contains('delivery-notes'),
+      );
+      for (final AppModule module in <AppModule>[
+        AppModule.salesOrders,
+        AppModule.salesInvoices,
+        AppModule.quotations,
+      ]) {
+        expect(view.allows(ModuleCatalog.byId(module)), isFalse,
+            reason: '$module');
       }
     });
 
