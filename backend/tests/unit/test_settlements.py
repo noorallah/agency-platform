@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.common.audit.models import AuditLog
+from app.common.firm_metadata import firm_today
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.customers.models import Customer, CustomerReceivableTransaction
@@ -483,6 +484,36 @@ def test_a_receipt_for_an_unknown_customer_is_refused() -> None:
             firm_id=books.firm.id,
             actor_id=books.actor_id,
         )
+
+
+@pytest.mark.parametrize("service", [ReceiptService, PaymentService])
+def test_money_is_not_recorded_on_a_day_that_has_not_come(
+    service: type[ReceiptService] | type[PaymentService],
+) -> None:
+    """A receipt or payment dated ahead is refused, and nothing is written.
+
+    D-UI-32, found on screen on 2026-10-07 (SC-RC-014): the date picker
+    offered next month, and a receipt dated five weeks ahead was saved without
+    a word. A cheque dated ahead has its own register, which posts nothing
+    until the cheque is banked.
+    """
+    books = _Books(_session_factory()())
+    party = books.customer if service is ReceiptService else books.vendor
+    tomorrow = firm_today(books.session, books.firm.id) + timedelta(days=1)
+
+    with pytest.raises(ValidationError, match="future date"):
+        service(books.session).create(
+            SettlementCreate(
+                party_id=party.id,
+                settlement_date=tomorrow,
+                amount=Decimal("100.00"),
+                method=SettlementMethodEnum.CASH,
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+
+    assert books.session.scalars(select(Settlement)).all() == []
 
 
 def test_one_invoice_cannot_appear_twice_in_one_settlement() -> None:

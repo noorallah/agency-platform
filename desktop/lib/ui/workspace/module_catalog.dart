@@ -782,6 +782,8 @@ abstract final class ModuleCatalog {
       workspaceTemplate: WorkspaceTemplateType.transaction,
       requiredPermissions: [
         'SALES_VIEW',
+        // Whoever records the money against a bill reads it (D-UI-46).
+        'RECEIPT_VIEW',
         // A bill is raised under its own code (D-ROLE-2).
         'SALES_INVOICE_CREATE',
         'SALES_UPDATE',
@@ -795,7 +797,8 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'sales-invoices',
           label: 'Sales Invoices',
-          requiredPermissions: ['SALES_VIEW'],
+          requiredPermissions: ['SALES_VIEW', 'RECEIPT_VIEW'],
+          requiresAnyPermission: true,
         ),
       ],
     ),
@@ -950,6 +953,8 @@ abstract final class ModuleCatalog {
       workspaceTemplate: WorkspaceTemplateType.transaction,
       requiredPermissions: [
         'PURCHASE_VIEW',
+        // Whoever pays a supplier's bill reads it (D-UI-46).
+        'PAYMENT_VIEW',
         'PURCHASE_CREATE',
         'PURCHASE_UPDATE',
         'PURCHASE_IMPORT',

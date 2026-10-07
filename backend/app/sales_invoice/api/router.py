@@ -98,8 +98,11 @@ class ActionReasonRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
+#: Whoever records the money against a bill reads the bill (D-UI-46): Accounts
+#: holds `RECEIPT_VIEW` and none of the sales codes, and could collect on a
+#: bill it was refused sight of.
 SalesInvoiceViewScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_VIEW")
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "RECEIPT_VIEW")
 ]
 #: A report opens to whoever may read the module or holds `REPORT_VIEW`
 #: (D-RPT-4).
