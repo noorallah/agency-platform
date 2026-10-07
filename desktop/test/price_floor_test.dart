@@ -274,6 +274,7 @@ void main() {
       find.widgetWithText(TextField, 'Reason'),
       'Clearing short-dated stock.',
     );
+    await tester.pump();
     await tester.tap(find.text('Override').last);
     await tester.pumpAndSettle();
 
@@ -355,6 +356,7 @@ void main() {
     expect(find.textContaining('Per stock unit.'), findsOneWidget);
     await tester.ensureVisible(field);
     await tester.enterText(field, '97.50');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('product-save')));
     await tester.pumpAndSettle();
 

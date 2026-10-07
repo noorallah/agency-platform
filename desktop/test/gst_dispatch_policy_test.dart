@@ -22,6 +22,8 @@ import 'package:agency_desktop/ui/delivery_notes/delivery_note_management_page.d
 import 'package:agency_desktop/ui/tax/gst_documents_settings_dialog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
+import 'package:agency_desktop/ui/workspace/module_catalog.dart';
+import 'package:agency_desktop/ui/workspace/module_visibility.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -54,6 +56,17 @@ class _GstApi extends ApiClient {
   final String enforcement;
   final String? message;
 
+  /// Set to make Dispatch itself refuse, as the server does for a note
+  /// somebody else already dispatched.
+  String? dispatchRefusal;
+
+  /// How many times the list of notes was read.
+  int listReads = 0;
+
+  /// The approved orders the New note box offers, and how often they were read.
+  List<Json> approvedOrders = const <Json>[];
+  int orderReads = 0;
+
   /// What the settings read says about dispatch before invoice.
   final String storedDispatch;
 
@@ -83,6 +96,9 @@ class _GstApi extends ApiClient {
           'would_block': enforcement == 'BLOCK' && message != null,
         },
       };
+    }
+    if (method == 'POST' && path.endsWith('/dispatch') && dispatchRefusal != null) {
+      throw ApiException(dispatchRefusal!, statusCode: 422);
     }
     if (path.endsWith('/dispatch-and-invoice')) {
       return {
@@ -125,6 +141,7 @@ class _GstApi extends ApiClient {
       };
     }
     if (method == 'GET' && path == '/api/v1/delivery-notes') {
+      listReads += 1;
       return {
         'data': <Json>[
           {
@@ -166,7 +183,12 @@ class _GstApi extends ApiClient {
       // the notes themselves.
       resource == 'delivery-notes' && sortBy == 'delivery_date'
           ? await request('GET', '/api/v1/delivery-notes')
-          : const <String, dynamic>{'data': <dynamic>[]};
+          : resource == 'sales-orders'
+              ? () {
+                  orderReads += 1;
+                  return <String, dynamic>{'data': approvedOrders};
+                }()
+              : const <String, dynamic>{'data': <dynamic>[]};
 
   @override
   Future<PagedResult<InventoryRecord>> inventory({
@@ -290,6 +312,56 @@ Future<void> _openEditor(WidgetTester tester, _GstApi api) async {
 }
 
 void main() {
+  // D-UI-28: Dispatch pressed from a stale list on a note somebody else had
+  // already dispatched opened the dialog and then said nothing.
+  testWidgets('a refused dispatch says why and reads the list again',
+      (tester) async {
+    final _GstApi api = _GstApi()
+      ..dispatchRefusal = 'Only approved delivery notes can be dispatched.';
+    await _pumpPage(tester, api);
+    final int before = api.listReads;
+    await _tapDispatch(tester);
+    await tester.tap(find.byKey(const ValueKey('dispatch-anyway')));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Only approved delivery notes can be dispatched.'),
+      findsWidgets,
+    );
+    expect(api.listReads, greaterThan(before), reason: 'the row is refreshed');
+  });
+
+  // D-UI-27: the Sales order box was filled when the page opened, so an order
+  // approved afterwards was not offered until the page was reloaded.
+  testWidgets('New reads the approved orders when it is pressed',
+      (tester) async {
+    final _GstApi api = _GstApi();
+    await _pumpPage(
+      tester,
+      api,
+      codes: const ['SALES_VIEW', 'SALES_APPROVE', 'SALES_CREATE'],
+    );
+    expect(api.orderReads, 0, reason: 'nothing is read at page open');
+    // An order is approved while the page is open.
+    api.approvedOrders = <Json>[
+      {
+        'id': 'so-9',
+        'order_number': 'SO-0009',
+        'order_date': '2026-08-01',
+        'warehouse_id': 'wh-1',
+        'status': 'APPROVED',
+        'lines': <Json>[],
+      },
+    ];
+    await tester.tap(find.text('+ New'));
+    await tester.pumpAndSettle();
+    expect(api.orderReads, 1);
+    // The dialog is outside the page's Phase2Scope, so it is the box of the
+    // first design.
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SO-0009'), findsWidgets);
+  });
+
   group('the delivery note editor', () {
     testWidgets('sends Sale as the reason by default', (tester) async {
       final _GstApi api = _GstApi();
@@ -426,6 +498,63 @@ void main() {
           widget is ButtonStyleButton ? widget.onPressed : null,
           isNull,
         );
+      }
+    });
+
+    // D-UI-30: Warehouse picks, packs and dispatches under the note's own
+    // codes and holds no sales code at all.
+    const List<String> warehouse = <String>[
+      'DELIVERY_NOTE_VIEW',
+      'DELIVERY_NOTE_CREATE',
+      'DELIVERY_NOTE_DISPATCH',
+    ];
+
+    testWidgets('the note codes alone list the notes and dispatch one',
+        (tester) async {
+      final _GstApi api = _GstApi();
+      await _pumpPage(tester, api, codes: warehouse);
+
+      expect(find.text('+ New'), findsOneWidget);
+      await _tapDispatch(tester);
+      await tester.tap(find.byKey(const ValueKey('dispatch-anyway')));
+      await tester.pumpAndSettle();
+      expect(
+        api.calls,
+        contains('POST /api/v1/delivery-notes/dn-1/dispatch'),
+      );
+    });
+
+    testWidgets('the note codes do not offer Dispatch and invoice',
+        (tester) async {
+      final _GstApi api = _GstApi();
+      await _pumpPage(tester, api, codes: warehouse);
+
+      final Finder action =
+          find.byKey(const ValueKey('selection-dispatch-and-invoice'));
+      if (action.evaluate().isNotEmpty) {
+        final Widget widget = tester.widget(action);
+        expect(
+          widget is ButtonStyleButton ? widget.onPressed : null,
+          isNull,
+        );
+      }
+    });
+
+    test('the note codes open Delivery Notes and no other selling screen', () {
+      final ModuleVisibility view = ModuleVisibility(
+        permissions: _permissions(warehouse),
+      );
+      expect(
+        view.tabIds(ModuleCatalog.byId(AppModule.deliveryNotes)),
+        contains('delivery-notes'),
+      );
+      for (final AppModule module in <AppModule>[
+        AppModule.salesOrders,
+        AppModule.salesInvoices,
+        AppModule.quotations,
+      ]) {
+        expect(view.allows(ModuleCatalog.byId(module)), isFalse,
+            reason: '$module');
       }
     });
 

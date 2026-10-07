@@ -36,7 +36,7 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (!_saving) Navigator.pop(context, saved);
+          if (!_saving) leaveDocument(context, result: saved, saved: saved != null);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
           if (!_saving && saved == null) unawaited(_save());
@@ -60,7 +60,7 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
                 actions: [
                   TextButton(
                     onPressed:
-                        _saving ? null : () => Navigator.pop(context, saved),
+                        _saving ? null : () => leaveDocument(context, result: saved, saved: saved != null),
                     child: Text(saved == null ? 'Cancel' : 'Close'),
                   ),
                   if (saved != null)

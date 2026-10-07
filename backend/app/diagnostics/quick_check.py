@@ -91,6 +91,9 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
                 "proforma-invoices",
                 "receipts",
                 "refunds",
+                "collections",
+                "counter-shifts",
+                "customer-rebates",
             }
         ),
     ),

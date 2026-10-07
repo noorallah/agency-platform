@@ -140,12 +140,33 @@ class _DeliveryNoteManagementPageState
   Set<String> _ticked = <String>{};
   // Reference data the editor needs, loaded once with the workspace.
   List<Json> _deliverableOrders = const [];
+
+  /// Whether the bays, products and features were read; New waits for them.
+  bool _referenceLoaded = false;
   List<WarehouseRecord> _warehouses = const [];
   List<Product> _products = const [];
   // Unknown until the call returns, and unknown means every field is offered.
   BusinessFeatures _features = const BusinessFeatures.unknown();
 
-  bool get _canCreate => widget.permissions.hasPermission('SALES_CREATE');
+  /// A delivery note has its own codes beside the sales ones (D-UI-30): the
+  /// warehouse picks, packs and dispatches without holding `SALES_VIEW`.
+  /// Each action takes the sales code it always took **or** the note's own,
+  /// as the server's routes do.
+  bool _holdsAny(List<String> codes) =>
+      widget.permissions.hasAnyPermission(codes);
+
+  bool get _canView => _holdsAny(const ['SALES_VIEW', 'DELIVERY_NOTE_VIEW']);
+
+  bool get _canCreate =>
+      _holdsAny(const ['SALES_CREATE', 'DELIVERY_NOTE_CREATE']);
+
+  /// Proof of delivery and the signed challan: whoever raises a note keeps
+  /// it right.
+  bool get _canUpdate =>
+      _holdsAny(const ['SALES_UPDATE', 'DELIVERY_NOTE_CREATE']);
+
+  bool get _mayCancel =>
+      _holdsAny(const ['SALES_CANCEL', 'DELIVERY_NOTE_DISPATCH']);
 
   /// The lists the view dialog resolves a line's ids against. Read on their
   /// own, after the workspace's own data, so a failure here costs a name and
@@ -198,13 +219,19 @@ class _DeliveryNoteManagementPageState
   /// Whether the signed-in user may run this lifecycle action.
   ///
   /// The backend gates approve, close, complete and dispatch on
-  /// SALES_APPROVE and cancel on SALES_CANCEL. The toolbar used to enable
+  /// SALES_APPROVE and cancel on SALES_CANCEL -- or, for either, on
+  /// DELIVERY_NOTE_DISPATCH (D-UI-30). The toolbar used to enable
   /// every action for anyone holding SALES_VIEW, so a read-only user was
   /// offered buttons the server would refuse.
-  bool _mayApprove() => widget.permissions.hasPermission('SALES_APPROVE');
+  bool _mayApprove() =>
+      _holdsAny(const ['SALES_APPROVE', 'DELIVERY_NOTE_DISPATCH']);
 
-  /// Load what the editor needs: the orders that can still be delivered
-  /// against, the bays goods leave from, and product names.
+  /// Load what the editor needs that does not change under it: the bays
+  /// goods leave from, product names and the firm's features.
+  ///
+  /// The approved orders are not read here: an order approved after the page
+  /// opened would not be offered until the page was reloaded (D-UI-27), so
+  /// [_readDeliverableOrders] reads them when New is pressed.
   ///
   /// Failing here leaves the create action disabled rather than taking the
   /// workspace down; the list of notes is still readable without it.
@@ -212,39 +239,68 @@ class _DeliveryNoteManagementPageState
     if (!widget.hasActiveFirm || !_canCreate) return;
     try {
       final List<dynamic> results = await Future.wait<dynamic>([
-        widget.api.documentPage(
-          'sales-orders',
-          page: 1,
-          pageSize: 100,
-          sortBy: 'order_date',
-          descending: true,
-          additionalQuery: const {'status': 'APPROVED'},
-        ),
         widget.api.warehouses(page: 1, pageSize: 100),
         widget.api.products(page: 1, pageSize: 100),
         widget.api.activeBusinessFeatureCodes(),
       ]);
-      // A paginated body carries a list under `data`, so `_unwrap` returns the
-      // envelope rather than the payload here.
-      final dynamic data = (results[0] as Json)['data'];
       if (!mounted) return;
       setState(() {
-        _deliverableOrders = [
-          for (final dynamic order in data is List ? data : const [])
-            if (order is Map) Map<String, dynamic>.from(order),
-        ];
-        _warehouses = (results[1] as PagedResult<WarehouseRecord>).items;
-        _products = (results[2] as PagedResult<Product>).items;
-        _features = BusinessFeatures((results[3] as List<String>).toSet());
+        _warehouses = (results[0] as PagedResult<WarehouseRecord>).items;
+        _products = (results[1] as PagedResult<Product>).items;
+        _features = BusinessFeatures((results[2] as List<String>).toSet());
+        _referenceLoaded = true;
       });
     } on ApiException {
       if (!mounted) return;
-      setState(() => _deliverableOrders = const []);
+      setState(() => _referenceLoaded = false);
+    }
+  }
+
+  /// The orders that can still be delivered against, read now (one call).
+  /// Null where they could not be read.
+  Future<List<Json>?> _readDeliverableOrders() async {
+    try {
+      final Json page = await widget.api.documentPage(
+        'sales-orders',
+        page: 1,
+        pageSize: 100,
+        sortBy: 'order_date',
+        descending: true,
+        additionalQuery: const {'status': 'APPROVED'},
+      );
+      // A paginated body carries a list under `data`, so `_unwrap` returns the
+      // envelope rather than the payload here.
+      final dynamic data = page['data'];
+      return [
+        for (final dynamic order in data is List ? data : const [])
+          if (order is Map) Map<String, dynamic>.from(order),
+      ];
+    } on ApiException catch (error) {
+      if (mounted) {
+        NotificationService.show(
+          context,
+          refusalMessage(error),
+          kind: AppNotificationKind.error,
+        );
+      }
+      return null;
     }
   }
 
   /// Open the editor and reload if it saved a note.
   Future<void> _createNote() async {
+    final List<Json>? orders = await _readDeliverableOrders();
+    if (orders == null || !mounted) return;
+    if (orders.isEmpty) {
+      // A delivery note line needs an approved sales order line behind it.
+      NotificationService.show(
+        context,
+        'There is no approved sales order to deliver against.',
+        kind: AppNotificationKind.warning,
+      );
+      return;
+    }
+    _deliverableOrders = orders;
     final Object? outcome = await showDocument<Object>(
       context,
       title: 'New delivery note',
@@ -277,8 +333,7 @@ class _DeliveryNoteManagementPageState
     // Read before any await: whether to pick the first row (phase 1 only).
     final bool pickFirst =
         context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
-    if (!widget.hasActiveFirm ||
-        !widget.permissions.hasPermission('SALES_VIEW')) {
+    if (!widget.hasActiveFirm || !_canView) {
       return;
     }
     setState(() {
@@ -479,10 +534,9 @@ class _DeliveryNoteManagementPageState
           id: 'cancel',
           label: 'Cancel selected',
           icon: Icons.cancel_outlined,
-          onPressed:
-              _loading || !widget.permissions.hasPermission('SALES_CANCEL')
-                  ? null
-                  : () => unawaited(_bulkCancel()),
+          onPressed: _loading || !_mayCancel
+              ? null
+              : () => unawaited(_bulkCancel()),
         ),
       ];
 
@@ -628,11 +682,10 @@ class _DeliveryNoteManagementPageState
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
-              // A delivery note line needs an approved sales order line
-              // behind it, so nothing to deliver against is a disabled button
-              // rather than an empty dialog.
-              ToolbarAction.newItem =>
-                _canCreate && _deliverableOrders.isNotEmpty,
+              // The approved orders are read when New is pressed (D-UI-27),
+              // and an empty answer is said there rather than shown as a
+              // button that is dead for no visible reason.
+              ToolbarAction.newItem => _canCreate && _referenceLoaded,
               ToolbarAction.view => _selected != null && !_bulkMode,
               ToolbarAction.refresh => true,
               _ => false,
@@ -679,7 +732,7 @@ class _DeliveryNoteManagementPageState
                               kind: AttachableDocument.deliveryNote,
                               documentId: _selected!.id,
                               subtitle: _selected!.deliveryNoteNumber,
-                              canEdit: widget.permissions.hasPermission('SALES_UPDATE'),
+                              canEdit: _canUpdate,
                             ),
                           ),
                 ),
@@ -775,7 +828,7 @@ class _DeliveryNoteManagementPageState
       note != null &&
       (note.status.toUpperCase() == 'DISPATCHED' ||
           note.status.toUpperCase() == 'COMPLETED') &&
-      widget.permissions.hasPermission('SALES_UPDATE');
+      _canUpdate;
 
   /// Ask when, and by whom, the goods were received, and record it. The
   /// dialog makes the call, so a refusal leaves it open.
@@ -838,7 +891,8 @@ class _DeliveryNoteManagementPageState
   /// disagree about one note.
   ///
   /// The server gates approve, dispatch, complete and close on
-  /// `SALES_APPROVE` and cancel on `SALES_CANCEL`; the status gate is
+  /// `SALES_APPROVE` and cancel on `SALES_CANCEL`, or any of them on
+  /// `DELIVERY_NOTE_DISPATCH` (D-UI-30); the status gate is
   /// [DocumentStatusGate.deliveryNote]. Dispatch and Complete used to ask no
   /// code at all here and were refused after the press.
   late final List<DocumentStep<_DeliveryNoteRecord>> _steps = [
@@ -863,7 +917,7 @@ class _DeliveryNoteManagementPageState
     _lifecycleStep(
       DocumentToolbarAction.cancel,
       DocumentLifecycleAction.cancel,
-      permitted: widget.permissions.hasPermission('SALES_CANCEL'),
+      permitted: _mayCancel,
     ),
     _lifecycleStep(
       DocumentToolbarAction.close,
@@ -1034,6 +1088,8 @@ class _DeliveryNoteManagementPageState
   /// Dispatching and invoicing in one step takes both permissions: it
   /// approves the dispatch and creates the invoice -- under
   /// `SALES_INVOICE_CREATE`, the code a bill is raised under (D-ROLE-2).
+  /// `DELIVERY_NOTE_DISPATCH` does not stand in for `SALES_APPROVE` here:
+  /// the step approves a bill, which letting goods out does not confer.
   bool _mayDispatchAndInvoice() =>
       widget.permissions.hasPermission('SALES_APPROVE') &&
       widget.permissions.hasPermission('SALES_INVOICE_CREATE');
@@ -1064,12 +1120,20 @@ class _DeliveryNoteManagementPageState
       if (overrideReason != null) 'licence_override_reason': overrideReason,
       if (batchReason != null) 'batch_reason': batchReason,
     };
-    await widget.api.documentAction(
-      'delivery-notes',
-      note.id,
-      suffix,
-      query: query.isEmpty ? null : query,
-    );
+    try {
+      await widget.api.documentAction(
+        'delivery-notes',
+        note.id,
+        suffix,
+        query: query.isEmpty ? null : query,
+      );
+    } on ApiException {
+      // The list the person acted from may be stale (another user dispatched
+      // this note): read it again so the row shows where the note really is,
+      // and let the refusal go on to be said (D-UI-28).
+      if (mounted) unawaited(_load());
+      rethrow;
+    }
     final String step = suffix.substring(1);
     return DocumentStepDone(
       switch (step) {

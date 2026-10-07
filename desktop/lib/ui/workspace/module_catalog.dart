@@ -751,8 +751,12 @@ abstract final class ModuleCatalog {
       icon: Icons.local_shipping_outlined,
       description: 'Goods dispatch and inventory deduction workspace.',
       workspaceTemplate: WorkspaceTemplateType.transaction,
+      // `DELIVERY_NOTE_*` (D-UI-30): Warehouse picks, packs and dispatches
+      // without holding `SALES_VIEW`, and reads the notes under their own
+      // code -- as it reads goods receipts under `PURCHASE_RECEIVE`.
       requiredPermissions: [
         'SALES_VIEW',
+        'DELIVERY_NOTE_VIEW',
         'SALES_CREATE',
         'SALES_UPDATE',
         'SALES_IMPORT',
@@ -765,7 +769,8 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'delivery-notes',
           label: 'Delivery Notes',
-          requiredPermissions: ['SALES_VIEW'],
+          requiredPermissions: ['SALES_VIEW', 'DELIVERY_NOTE_VIEW'],
+          requiresAnyPermission: true,
         ),
       ],
     ),

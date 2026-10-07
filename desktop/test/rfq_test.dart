@@ -339,6 +339,7 @@ void main() {
     await tester.tap(find.text('RICE · Basmati rice').last);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('rfq-quantity-0')), '12');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('rfq-add-supplier-0')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Sri Ganesh Traders').last);
@@ -388,6 +389,7 @@ void main() {
 
     await _command(tester, 'cancel');
     await tester.enterText(find.byType(TextField).last, 'Bought elsewhere');
+    await tester.pump();
     await tester.tap(find.text('Cancel request'));
     await tester.pumpAndSettle();
     expect(api.bodies['POST /api/v1/rfqs/1/cancel'],
@@ -405,6 +407,7 @@ void main() {
     await tester.enterText(
         find.byKey(const ValueKey('quote-discount-0')), '5');
     await tester.enterText(find.byKey(const ValueKey('quote-lead-0')), '4');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('quote-save')));
     await tester.pumpAndSettle();
 
@@ -446,6 +449,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Not the lowest rate'), findsOneWidget);
     await tester.enterText(find.byType(TextField).last, 'Faster delivery');
+    await tester.pump();
     await tester.tap(find.text('Choose it'));
     await tester.pumpAndSettle();
 

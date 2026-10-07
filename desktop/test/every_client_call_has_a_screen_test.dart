@@ -120,6 +120,9 @@ const Map<String, String> _accepted = <String, String>{
 const Map<String, String> _knownGaps = <String, String>{
   'abcClasses': 'STK-6: the ABC class of each product by value moved; count plans '
       'select by class on the server, but no screen shows a product its class',
+  'reverseCustomerCreditApplication': 'D-PRC-75: a credit set against a bill '
+      'can be taken back over HTTP, but the Customer credits dialog only '
+      'applies one; it needs a row per application with a Take back button',
 };
 
 /// Every method name referenced from anywhere in `lib/` but the client itself.

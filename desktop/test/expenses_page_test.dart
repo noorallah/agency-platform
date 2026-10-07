@@ -168,6 +168,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Cancel EXP-2026-2027-000001'), findsOneWidget);
     await tester.enterText(find.byType(TextField).last, 'Typed twice');
+    await tester.pump();
     await tester.tap(find.text('Cancel expense'));
     await tester.pumpAndSettle();
 
@@ -232,6 +233,7 @@ void main() {
         find.byKey(const ValueKey('expense-payee')), 'Sharma Estates');
     await tester.enterText(
         find.byKey(const ValueKey('expense-reference')), 'RENT-SEP-26');
+    await tester.pump();
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
@@ -335,6 +337,7 @@ void main() {
     await tester.tap(find.text('1000 Cash').last);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('expense-amount')), '300');
+    await tester.pump();
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 

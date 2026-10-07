@@ -671,6 +671,7 @@ void main() {
       await _pick(tester, 'DEP-1');
       await _command(tester, 'cancel');
       await tester.enterText(find.byType(TextField).last, 'Wrong period');
+      await tester.pump();
       await tester.tap(find.text('Cancel the run'));
       await tester.pumpAndSettle();
       expect(api.bodies['POST /api/v1/fixed-assets/depreciation-runs/1/cancel'],

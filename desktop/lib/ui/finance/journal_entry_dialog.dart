@@ -299,7 +299,7 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
         subtitle: 'Saved as a draft. Posting it is a separate step.',
         icon: Icons.menu_book_outlined,
         loading: _saving,
-        onClose: _saving ? null : () => Navigator.pop(context),
+        onClose: _saving ? null : () => leaveDocument(context),
         onSave: _saving ? null : _save,
         footer: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -307,7 +307,7 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
             _balanceSummary(context),
             const Spacer(),
             TextButton(
-              onPressed: _saving ? null : () => Navigator.pop(context),
+              onPressed: _saving ? null : () => leaveDocument(context),
               child: const Text('Cancel'),
             ),
             const SizedBox(width: AppSpacing.md),

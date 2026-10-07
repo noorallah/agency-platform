@@ -8,6 +8,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/first_line.dart';
+
 /// The new-quotation screen in phase 2, as the owner approved it (wireframe
 /// view 7): one screen whose figures are the server's own preview, a side
 /// panel for the line being typed, and Save & print handed back to the list.
@@ -50,6 +52,16 @@ QuotationPreviewRecord _priced(Json draft) {
       },
     ],
   });
+}
+
+/// A new quotation starts with no customer and no product (D-UI-22): take
+/// the ones these tests were written against.
+Future<void> chooseCustomerAndProduct(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('quotation-customer')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.textContaining('Sri Murugan').last);
+  await tester.pumpAndSettle();
+  await fillFirstLine(tester, document: 'quotation', product: 'Tata Salt');
 }
 
 void main() {
@@ -131,7 +143,8 @@ void main() {
     ));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    // The first price is asked for as the screen opens.
+    await chooseCustomerAndProduct(tester);
+    // The first price is asked for once the customer and product are named.
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(asked, isNotEmpty);
@@ -240,6 +253,7 @@ void main() {
     ));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
+    if (existing == null) await chooseCustomerAndProduct(tester);
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     return asked;

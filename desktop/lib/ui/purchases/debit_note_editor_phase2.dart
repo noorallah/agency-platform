@@ -58,7 +58,7 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (!_saving) Navigator.of(context).pop(false);
+          if (!_saving) leaveDocument(context, result: false);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
           if (!_saving) unawaited(_save());
@@ -85,7 +85,7 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
                 actions: [
                   TextButton(
                     onPressed:
-                        _saving ? null : () => Navigator.of(context).pop(false),
+                        _saving ? null : () => leaveDocument(context, result: false),
                     child: const Text('Cancel'),
                   ),
                   FilledButton(

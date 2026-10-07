@@ -1019,7 +1019,7 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
             actions: [
               TextButton(
                 onPressed:
-                    _saving ? null : () => Navigator.of(context).pop(false),
+                    _saving ? null : () => leaveDocument(context, result: false),
                 child: const Text('Cancel'),
               ),
               FilledButton(

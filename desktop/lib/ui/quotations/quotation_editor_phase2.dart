@@ -93,11 +93,15 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
             : '');
     return CallbackShortcuts(
       bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            leaveDocument(context),
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
             _finish(print: false),
         const SingleActivator(LogicalKeyboardKey.enter, control: true): _newRow,
       },
-      child: Material(
+      child: Focus(
+        autofocus: true,
+        child: Material(
         color: scheme.surface,
         child: Form(
           key: _form,
@@ -115,7 +119,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
                     'Ctrl+S save',
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () => leaveDocument(context),
                     child: const Text('Cancel'),
                   ),
                   OutlinedButton(
@@ -171,6 +175,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
             ],
           ),
         ),
+      ),
       ),
     );
   }

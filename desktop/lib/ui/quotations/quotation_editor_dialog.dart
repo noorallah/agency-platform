@@ -266,8 +266,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       unawaited(_customFields!.start());
     }
     _rateIncludesTax = existing?.rateIncludesTax ?? widget.rateIncludesTax;
-    _customerId = existing?.customerId ??
-        (widget.customers.isEmpty ? null : widget.customers.first.id);
+    // No customer until one is chosen: the first of the list is nobody's
+    // choice (D-UI-22).
+    _customerId = existing?.customerId;
     // The firm's default branch and that branch's default warehouse -- the
     // order converted from this quotation ships from it, and approving that
     // order reserves the stock there. The first of each list was the newest,
@@ -440,13 +441,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     return trimmed;
   }
 
-  /// A fresh line, defaulted to the first product so the row is savable as it
-  /// stands rather than starting invalid.
-  _LineDraft _newLine() {
-    final String? productId =
-        widget.products.isEmpty ? null : widget.products.first.id;
-    return _LineDraft(productId: productId, unitPrice: _priceOf(productId));
-  }
+  /// A fresh line: no product and no quantity, so Save names what is missing
+  /// rather than quoting a product nobody chose (D-UI-22).
+  _LineDraft _newLine() =>
+      _LineDraft(productId: null, quantity: '', unitPrice: _priceOf(null));
 
   /// The chosen customer's standing discount, or empty where they have none.
   ///

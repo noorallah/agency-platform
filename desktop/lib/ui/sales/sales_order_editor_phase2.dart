@@ -97,6 +97,8 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
         _locked ? null : stepAfterSave(widget.steps);
     return CallbackShortcuts(
       bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            leaveDocument(context, result: _wrote, saved: _locked || _wrote),
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
           if (!_locked && !_saving) unawaited(_save());
         },
@@ -107,7 +109,9 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
           _schedulePreview();
         },
       },
-      child: Material(
+      child: Focus(
+        autofocus: true,
+        child: Material(
         color: scheme.surface,
         child: Form(
           key: _form,
@@ -127,7 +131,11 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                         'Ctrl+S save',
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.of(context).pop(_wrote),
+                    onPressed: () => leaveDocument(
+                      context,
+                      result: _wrote,
+                      saved: _locked || _wrote,
+                    ),
                     child: Text(_locked || _wrote ? 'Close' : 'Cancel'),
                   ),
                   DocumentStepStrip<Json>(
@@ -241,6 +249,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             ],
           ),
         ),
+      ),
       ),
     );
   }

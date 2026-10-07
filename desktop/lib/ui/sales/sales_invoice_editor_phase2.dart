@@ -117,6 +117,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     final DocumentStep<Json>? approve = stepAfterSave(widget.steps);
     return CallbackShortcuts(
       bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            leaveDocument(context, result: false),
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
           if (!_saving) unawaited(_save());
         },
@@ -158,7 +160,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                 actions: [
                   TextButton(
                     onPressed:
-                        _saving ? null : () => Navigator.of(context).pop(false),
+                        _saving ? null : () => leaveDocument(context, result: false),
                     child: const Text('Cancel'),
                   ),
                   // A saved draft's Cancel and Close (D-BUY-22); Approve is

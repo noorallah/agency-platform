@@ -77,7 +77,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
-            Navigator.of(context).pop(),
+            leaveDocument(context),
         const SingleActivator(LogicalKeyboardKey.keyS, control: true):
             _phase2Save,
       },
@@ -98,7 +98,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
                 hint: 'Enter next field  ·  Ctrl+S save',
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () => leaveDocument(context),
                     child: const Text('Cancel'),
                   ),
                   FilledButton(

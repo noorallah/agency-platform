@@ -203,6 +203,7 @@ Future<void> _saveWithReason(WidgetTester tester, String reason) async {
   await tester.tap(find.byKey(const ValueKey('purchase-order-save')));
   await tester.pumpAndSettle();
   await tester.enterText(find.byType(TextField).last, reason);
+  await tester.pump();
   await tester.tap(find.widgetWithText(FilledButton, 'Amend'));
   await tester.pumpAndSettle();
 }

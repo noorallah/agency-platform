@@ -317,6 +317,7 @@ void main() {
       expect(api.calls.any((call) => call.startsWith('POST')), isFalse);
 
       await tester.enterText(find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)), 'Customer asked for it');
+      await tester.pump();
       await tester.tap(find.text('Dispatch').last);
       await tester.pumpAndSettle();
 
@@ -380,6 +381,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.enterText(find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)), 'Agreed with buyer');
+      await tester.pump();
       await tester.tap(find.text('Dispatch').last);
       await tester.pumpAndSettle();
 

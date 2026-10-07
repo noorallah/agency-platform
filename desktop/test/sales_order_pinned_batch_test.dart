@@ -11,6 +11,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/first_line.dart';
+
 Json _batch(String id, String number, String expiry, String available,
         {bool expired = false}) =>
     <String, dynamic>{
@@ -215,6 +217,9 @@ Future<void> _open(WidgetTester tester, _OrderApi api, {String? id}) async {
   ));
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
+  if (id == null) {
+    await fillFirstLine(tester, document: 'sales-order', product: 'Syrup');
+  }
 }
 
 Future<void> _pickCustomer(WidgetTester tester) async {
