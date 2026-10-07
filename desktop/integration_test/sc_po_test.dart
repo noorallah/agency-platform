@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -70,13 +71,11 @@ void main() {
         await openOrders();
         final List<String> missing = <String>[
           for (final String h in <String>[
-            'Draft Orders',
-            'Open Orders',
-            'Orders Today',
-            'Pending Delivery',
+            'All',
+            'Draft',
+            'Open',
             'Cancelled',
             'Closed',
-            'Purchase Value',
             'Status'
           ])
             if (!screenHas(tester, h)) h,
@@ -122,6 +121,26 @@ void main() {
         });
         await closeOpenEditor(tester);
       }
+
+      await log.step('SC-PO-031 Esc after a click in a typed-in editor asks',
+          () async {
+        await newOrderWithVendor();
+        await chooseInKeyed(tester, 'purchase-order-line-product-', 'Detergent');
+        await typeInKeyed(tester, 'purchase-order-qty-', '7');
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await pumpFor(tester, const Duration(seconds: 1));
+        final String question = dialogText(tester);
+        final bool open = find
+            .byKey(const ValueKey<String>('purchase-order-save'))
+            .evaluate()
+            .isNotEmpty;
+        log.saw = 'editor open=$open, question="$question"';
+        if (question.isEmpty) {
+          throw StateError('Esc ${open ? 'did nothing' : 'closed the editor '
+              'without asking'} (open=$open)');
+        }
+      });
+      await closeOpenEditor(tester);
 
       await log.step('SC-PO-031 the Cancel button on a typed-in editor asks',
           () async {
@@ -283,8 +302,17 @@ void main() {
         log.saw = '${log.saw}; Restore on the Cancelled row is '
             '${buttonState(tester, 'Restore')} (it is for deleted orders)';
       });
-      log.skip('SC-PO-014', 'Restore brings back a deleted order, not a '
-          'Cancelled one; there is no way back from Cancelled on screen');
+      await log.step('SC-PO-014 Restore is not offered on a Cancelled order',
+          () async {
+        await openOrders();
+        await selectRow(tester, docNumber(forCancel));
+        final String restore = buttonState(tester, 'Restore');
+        log.saw = 'status ${await statusOf('${forCancel['id']}')}; Restore '
+            'is $restore on the Cancelled row';
+        if (restore == 'enabled') {
+          throw StateError('Restore is offered on a Cancelled order');
+        }
+      });
 
       await log.step('SC-PO-016 Below reorder level opens a dialog', () async {
         await openOrders();

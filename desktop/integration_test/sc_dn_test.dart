@@ -236,6 +236,10 @@ void main() {
           throw StateError('N1: Dispatch of a note another user had already '
               'dispatched said nothing after the dialog was confirmed');
         }
+        if (!said.contains('already')) {
+          throw StateError('the answer does not say the note had already '
+              'been dispatched: "$said"');
+        }
       });
 
       await log.step('SC-DN-021 order on hold: Dispatch is refused in words',

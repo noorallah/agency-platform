@@ -95,7 +95,7 @@ void main() {
           for (final String h in <String>[
             'Invoice Number',
             'Supplier',
-            'Due Date',
+            'Supplier Invoice',
             'Invoice Date',
             'Status',
             'Grand Total'
@@ -262,7 +262,17 @@ void main() {
         });
         log.saw = 'second bill with the same number answered ${r.status}: '
             '${r.text.length > 200 ? r.text.substring(0, 200) : r.text}';
-        if (r.status < 400) throw StateError('a duplicate number was accepted');
+        if (r.status >= 400) {
+          throw StateError('a repeated supplier number was refused; the book '
+              'says it is a warning');
+        }
+        final RegExpMatch? warned =
+            RegExp(r'"duplicate_warning":\s*"([^"]+)').firstMatch(r.text);
+        if (warned == null) {
+          throw StateError('accepted with no duplicate_warning on the answer');
+        }
+        log.saw = 'second bill with the same number answered ${r.status}, '
+            'warning "${warned.group(1)}"';
       });
 
       // -- Positive -------------------------------------------------------

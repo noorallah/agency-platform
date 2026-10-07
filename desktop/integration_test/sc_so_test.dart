@@ -104,9 +104,8 @@ void main() {
           await pumpFor(tester, const Duration(seconds: 1));
           final String question = dialogText(tester);
           if (question.isEmpty) {
-            log.saw = 'Esc did nothing: the editor stayed open and asked '
-                'nothing (the Cancel button is judged in the next step)';
-            return;
+            throw StateError('Esc did nothing: the editor stayed open and '
+                'asked nothing');
           }
           await tapKey(tester, 'document-keep-editing');
           if (!screenHasTyped(tester, 'Vijaya')) {
@@ -310,13 +309,14 @@ void main() {
         await openOrders();
         await selectRow(tester, docNumber(draftBig));
         await tapButton(tester, 'Approve');
-        await pumpFor(tester, const Duration(seconds: 3));
-        await confirmIfAsked(tester);
+        final String said = await watch(tester, seconds: 8);
         final String status = await statusOf('${draftBig['id']}');
-        final String said = noticeText(tester);
-        log.saw = 'status after Approve: $status, screen says "$said"; '
-            'Approve of a success is silent by design, and 500 units against '
-            'the stock on hand were accepted without a word';
+        log.saw = 'status after Approve: $status, screen says "$said"';
+        if (!said.contains('back order')) {
+          throw StateError('500 units against the stock on hand were '
+              'approved and nothing named what stays on back order '
+              '(status $status, said "$said")');
+        }
       });
 
       await log.step('SC-SO-024 Approve again from a stale list is refused '
