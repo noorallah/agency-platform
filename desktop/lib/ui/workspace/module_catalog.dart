@@ -272,6 +272,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['SETTINGS_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'goods-types',
+          label: 'Goods Types',
+          requiredPermissions: ['PRODUCT_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'firm-custom-fields',
           label: 'Custom Fields',
           requiredPermissions: ['CUSTOM_FIELD_VIEW'],
@@ -1613,6 +1618,7 @@ abstract final class ModuleCatalog {
         'conversion-rules',
         'industry-templates',
         'numbering-series',
+        'goods-types',
         'firm-custom-fields',
         'firm-custom-field-rules',
       ]))
@@ -1757,6 +1763,12 @@ abstract final class ModuleCatalog {
                 label: 'Numbering Series',
                 path: 'numbering-series',
                 icon: Icons.confirmation_number_outlined,
+              ),
+            if (visibleTabIds.contains('goods-types'))
+              const WorkspaceNavigationNode(
+                label: 'Goods Types',
+                path: 'goods-types',
+                icon: Icons.category_outlined,
               ),
             // The firm's own custom fields (MST-8).
             if (visibleTabIds.contains('firm-custom-fields'))

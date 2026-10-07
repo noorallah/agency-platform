@@ -1797,6 +1797,7 @@ store, so that half of the module runs on unit tests alone.
 | --- | --- |
 | Products | **Masters › Products** |
 | Categories, brands, principals | **Settings › Set up › Item lists › Product Categories, Principals, Brands** |
+| Goods types (Medicine, Food, Paint ...) and which the firm uses | **Settings › Firm › Goods Types** -- added on 2026-10-08, not yet tested by hand |
 | Custom fields and which are mandatory | **Settings › Business profile › Attribute Definitions, Mandatory Attributes**; a firm's own: **Settings › Firm › Custom Fields, Custom Field Rules** |
 | Batches, lots, serials, expiry | **Stock › Batches, Expiry Monitor**; **All Stock screens › Tracking** |
 

@@ -11,6 +11,7 @@ import 'identity/profile_dialog.dart';
 import 'identity/reset_password_dialog.dart';
 
 import '../core/api/api_client.dart';
+import '../core/api/concurrency.dart';
 import '../core/auth/session_controller.dart';
 import '../core/branding/agency_branding_cache.dart';
 import '../core/branding/branding_config.dart';
@@ -104,6 +105,7 @@ import 'sales/tcs_page.dart';
 import 'pricing/price_level_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
+import 'products/goods_type_defaults_dialog.dart';
 import 'products/product_management_page.dart';
 import 'purchases/purchase_analysis_page.dart';
 import 'purchases/purchase_rate_trend_page.dart';
@@ -178,6 +180,9 @@ const Map<String, String> _administrationDescriptions = {
   'attribute-definitions':
       'Define the custom fields a module carries, per business profile.',
   'profile-assignment': 'Assign a business profile to each firm.',
+  'goods-types':
+      'How a line of goods is tracked: batches, expiry, serial numbers. Take a '
+          "shared type into use, or add one of the firm's own.",
   'firm-custom-fields':
       'The extra fields this firm keeps on its own records, beside the shared '
           'ones the platform provides.',
@@ -2685,6 +2690,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'attribute-definitions',
           'category-attribute-rules',
           'profile-assignment',
+          'goods-types',
           'firm-custom-fields',
           'firm-custom-field-rules',
           'tax-configuration',
@@ -2799,6 +2805,15 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           definition: _businessModuleDefinition(
             widget.api,
             widget.permissions,
+            showFrame: false,
+          ),
+        ),
+      'goods-types' => ResourceManagementPage<GoodsTypeRecord>(
+          api: widget.api,
+          definition: goodsTypeDefinition(
+            widget.api,
+            widget.permissions,
+            context: context,
             showFrame: false,
           ),
         ),
@@ -6250,21 +6265,53 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
   bool licenceTypesLoaded = false;
   unawaited(api.tradeLicenceTypes().then((_) => licenceTypesLoaded = true));
 
+  // The goods types' names, read with the grid's first page so the column can
+  // say "Medicine" rather than an id. `goods_type_id` is sent only once the
+  // picker's options could be read, for the same reason as the licence type:
+  // a form built on nothing must not decide the category is General.
+  final Map<String, String> goodsTypeNames = <String, String>{};
+  bool goodsTypesLoaded = false;
+
   return ResourceDefinition(
     title: 'Product Categories',
     resource: 'products/categories',
     description: 'Group products into a tree, for the product form, '
         'reports and category rules.',
     searchHint: 'Search categories by code or name',
-    headers: const ['Code', 'Name', 'Path', 'Active'],
+    headers: const ['Code', 'Name', 'Path', 'Goods type', 'Active'],
     cells: (ProductCategoryRecord row) => [
       row.code,
       row.name,
       row.path,
+      row.goodsTypeId.isEmpty
+          ? 'General'
+          : (goodsTypeNames[row.goodsTypeId] ?? 'General'),
       row.isActive ? 'Yes' : 'No',
     ],
     id: (ProductCategoryRecord row) => row.id,
-    load: api.productCategoryPage,
+    load: ({
+      int page = 1,
+      String search = '',
+      String sortBy = 'code',
+      bool descending = false,
+    }) async {
+      if (!goodsTypesLoaded) {
+        try {
+          for (final GoodsTypeRecord type in await api.goodsTypes()) {
+            goodsTypeNames[type.id] = type.name;
+          }
+          goodsTypesLoaded = true;
+        } on ApiException {
+          // The grid still lists; the column reads General until it can.
+        }
+      }
+      return api.productCategoryPage(
+        page: page,
+        search: search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+    },
     canUseAction: (action, _) => _canUseResourceAction(
       permissions,
       action,
@@ -6297,6 +6344,15 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
             'or a category above it names one.',
       ),
       FieldSpec(
+        key: 'goods_type_id',
+        label: 'Goods type',
+        optionsResource: 'products/goods-types',
+        singleSelection: true,
+        helperText: 'Leave empty for General (no tracking). New products '
+            'filed here start with this type. Products already filed keep '
+            'theirs.',
+      ),
+      FieldSpec(
         key: 'inspection_required',
         label: 'Inspect on receipt',
         boolean: true,
@@ -6326,6 +6382,7 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
             'name': row.name,
             'parent_id': row.parentId,
             'required_licence_type_id': row.requiredLicenceTypeId,
+            'goods_type_id': row.goodsTypeId,
             'inspection_required': row.inspectionRequired,
             'expiry_stop_sale_days': row.expiryStopSaleDays?.toString() ?? '',
             'expiry_alert_days': row.expiryAlertDays?.toString() ?? '',
@@ -6343,6 +6400,9 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
       if (licenceTypesLoaded)
         'required_licence_type_id':
             _blankToNull(values['required_licence_type_id']),
+      // Null is General; sent only once the types were read.
+      if (goodsTypesLoaded)
+        'goods_type_id': _blankToNull(values['goods_type_id']),
       'inspection_required': values['inspection_required'] == true,
       // STK-5: blank inherits, so blank is sent as null.
       'expiry_stop_sale_days':
@@ -7065,6 +7125,194 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
         isCreating ? null : editing?.validationRule,
         values['allowed_values'],
       ),
+    },
+  );
+}
+
+/// How a line of goods is tracked -- the shared catalogue (Medicine, Food,
+/// Paint...) beside the firm's own types (backlog 89).
+///
+/// A shared row is kept by the platform: a firm can take it into use and set
+/// its own defaults, nothing more, so Edit and Delete are refused on it first
+/// and say why. The switches and defaults are all sent on an update, since
+/// the form shows every one of them.
+ResourceDefinition<GoodsTypeRecord> goodsTypeDefinition(
+  ApiClient api,
+  PermissionService permissions, {
+  required BuildContext context,
+  bool showFrame = true,
+}) {
+  bool canManage() => permissions.canUseAction(const ['CUSTOM_FIELD_MANAGE']);
+  return ResourceDefinition(
+    title: 'Goods Types',
+    resource: 'products/goods-types',
+    showFrame: showFrame,
+    recordNoun: 'goods type',
+    updateRecord: (type, body) => api.updateGoodsType(
+      type.id,
+      body,
+      expectedVersion: preconditionFor(type.version),
+    ),
+    deleteRecord: (type) => api.deleteGoodsType(
+      type.id,
+      expectedVersion: preconditionFor(type.version),
+    ),
+    description: 'How a line of goods is tracked: batches, expiry, serial '
+        'numbers. Take a shared type into use, or add one of the '
+        "firm's own.",
+    searchHint: 'Search goods types by code or name',
+    headers: const [
+      'Code',
+      'Name',
+      'Kind',
+      'Tracks',
+      'In use',
+      'Default HSN',
+      'Default tax group',
+      'Active',
+    ],
+    cells: (GoodsTypeRecord row) => [
+      row.code,
+      row.name,
+      row.isShared ? 'Shared' : 'Own',
+      row.tracks,
+      row.inUse ? 'Yes' : 'No',
+      row.defaultHsnSac,
+      row.defaultTaxProfileGroupCode,
+      row.isActive ? 'Yes' : 'No',
+    ],
+    id: (GoodsTypeRecord row) => row.id,
+    load: api.goodsTypesPage,
+    canEdit: (GoodsTypeRecord row) => !row.isShared,
+    editRefusal: (GoodsTypeRecord row) => row.isShared
+        ? 'A shared goods type cannot be changed. Add one of the firm\'s own.'
+        : null,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['PRODUCT_VIEW'],
+      create: const ['CUSTOM_FIELD_MANAGE'],
+      update: const ['CUSTOM_FIELD_MANAGE'],
+      delete: const ['CUSTOM_FIELD_MANAGE'],
+    ),
+    customActions: [
+      ResourceAction<GoodsTypeRecord>(
+        label: 'Use in this firm',
+        icon: Icons.playlist_add_check_outlined,
+        isVisible: (row) => row != null && canManage() && !row.inUse,
+        onInvoke: (row) async {
+          await api.useGoodsType(row!.id, {'in_use': true});
+          return '${row.name} is now in use.';
+        },
+      ),
+      ResourceAction<GoodsTypeRecord>(
+        label: 'Stop using',
+        icon: Icons.playlist_remove_outlined,
+        isVisible: (row) => row != null && canManage() && row.inUse,
+        onInvoke: (row) async {
+          await api.useGoodsType(row!.id, {'in_use': false});
+          return '${row.name} is no longer in use.';
+        },
+      ),
+      ResourceAction<GoodsTypeRecord>(
+        label: 'Set defaults',
+        icon: Icons.tune_outlined,
+        isVisible: (row) => row != null && canManage(),
+        onInvoke: (row) async {
+          final bool saved = await showGoodsTypeDefaultsDialog(
+            context,
+            api: api,
+            type: row!,
+          );
+          return saved ? 'Defaults saved for ${row.name}.' : '';
+        },
+      ),
+    ],
+    fields: const [
+      FieldSpec(
+        key: 'code',
+        label: 'Code',
+        required: true,
+        readOnlyWhenEditing: true,
+        helperText: '2-50 characters: A-Z, 0-9, underscore or hyphen.',
+      ),
+      FieldSpec(key: 'name', label: 'Name', required: true),
+      FieldSpec(key: 'description', label: 'Description', multiline: true),
+      FieldSpec(
+        key: 'track_batch',
+        label: 'Batches',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'track_expiry',
+        label: 'Expiry date',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'track_manufacturing_date',
+        label: 'Manufacturing date',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'track_serial',
+        label: 'Serial numbers',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'track_warranty',
+        label: 'Warranty',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'default_hsn_sac',
+        label: 'Default HSN code',
+        section: 'Defaults',
+        helperText: 'Filled into a new product of this type; the person can '
+            'change it.',
+      ),
+      FieldSpec(
+        key: 'default_tax_profile_group_code',
+        label: 'Default tax group',
+        section: 'Defaults',
+        helperText: 'Filled into a new product of this type; the person can '
+            'change it.',
+      ),
+      FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+    ],
+    initialValues: (GoodsTypeRecord? row) => row == null
+        ? <String, dynamic>{'is_active': true}
+        : <String, dynamic>{
+            'code': row.code,
+            'name': row.name,
+            'description': row.description,
+            'track_batch': row.trackBatch,
+            'track_expiry': row.trackExpiry,
+            'track_manufacturing_date': row.trackManufacturingDate,
+            'track_serial': row.trackSerial,
+            'track_warranty': row.trackWarranty,
+            'default_hsn_sac': row.defaultHsnSac,
+            'default_tax_profile_group_code': row.defaultTaxProfileGroupCode,
+            'is_active': row.isActive,
+          },
+    payload: (values, isCreating) => {
+      // The code is the type's identity and is read-only once it exists.
+      if (isCreating) 'code': values['code'],
+      'name': values['name'],
+      'description': _blankToNull(values['description']),
+      'track_batch': values['track_batch'] == true,
+      'track_expiry': values['track_expiry'] == true,
+      'track_manufacturing_date': values['track_manufacturing_date'] == true,
+      'track_serial': values['track_serial'] == true,
+      'track_warranty': values['track_warranty'] == true,
+      'default_hsn_sac': _blankToNull(values['default_hsn_sac']),
+      'default_tax_profile_group_code':
+          _blankToNull(values['default_tax_profile_group_code']),
+      'is_active': values['is_active'] != false,
     },
   );
 }

@@ -115,6 +115,7 @@ from app.inventory.models import (
     OpeningStockLine,
     StockLedgerEntry,
 )
+from app.products.goods_type_seed import seed_goods_types
 from app.products.models import (
     Product,
     ProductCategory,
@@ -638,6 +639,7 @@ def main() -> None:
             seed_system_rbac(session)
             seed_business_profiles(session)
             seed_uom_reference_data(session)
+            seed_goods_types(session)
             session.commit()
             if args.mode == "reset":
                 USERS_DOC_PATH.write_text(
@@ -872,6 +874,7 @@ def _reset_dedicated_store(url: str, schema: str) -> None:
             # hold a product. The platform pass does the same for its own
             # schema after the delete.
             seed_uom_reference_data(session)
+            seed_goods_types(session)
             session.commit()
     finally:
         engine.dispose()

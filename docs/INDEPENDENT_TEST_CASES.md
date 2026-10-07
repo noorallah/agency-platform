@@ -742,6 +742,38 @@ warehouse rename its capability flags.
 - **Expect:** each report lists the live parties whose PAN is missing or fails the format, with six columns; a party with a good PAN is not listed. The customer report needs CUSTOMER_VIEW and the supplier report VENDOR_VIEW.
 - **Leaves:** unchanged.
 
+### TC-MAST-017 — A goods type, a category that carries it, and a product that takes it
+
+*Added 2026-10-08 from the code (backlog 89, step 1); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it. Step 1 records the type on the product; the tracking switches are still the ones typed on the product form until step 2 lands.*
+
+- **Covers:** backlog 89 test group 1 (goods type)
+- **Fixture:** `product-master`
+- **Steps:** as the fixture's **Firm admin**: Settings > Firm > **Goods Types**. Read the list. On *Medicine* choose **Use in this firm**; then **Set defaults** → HSN `3004` and one of the firm's tax groups → Save. Add a type of the firm's own: code `<SUFFIX>-SEED`, name *Seeds*, Batches and Expiry date on → Save. Try to add another with code `MEDICINE`. Settings > Set up > Item lists > **Product Categories** → New *Tablets* → Goods type **Medicine** → Save; New *Sundries* leaving the type at *General (no tracking)*; New *Strips* under *Tablets* with no type of its own. Masters > Products → New in *Tablets*; another in *Tablets* > *Strips*; another in *Sundries*; another with no category. Read each product back over the API (`GET /api/v1/products/{id}`).
+- **Expect:** the list shows five shared types (Medicine, Food, Cosmetics and personal care, Paint, Electronics) marked *Shared*, none in use on a firm whose profile starts with none, and what each tracks. A shared row offers *Use in this firm* and *Set defaults* and neither Edit nor Delete; over the API a change to one is refused *is a shared goods type and cannot be changed here*. The firm's own type is saved, is in use at once and is listed *Own*; the code `MEDICINE` is refused *already exists*. The category picker offers only types the firm uses, plus General. The products in *Tablets* and in *Strips* carry Medicine's `goods_type_id`; the ones in *Sundries* and with no category carry null. A default tax group the firm does not have is refused.
+- **Leaves:** a goods type in use, a goods type of the firm's own, three categories, four products.
+
+### TC-MAST-018 — A category changes type, a product changes category, and a type in use cannot go
+
+*Added 2026-10-08 from the code (backlog 89, step 1); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 89 test group 4 (a category changes type)
+- **Fixture:** `product-master`
+- **Also needs:** Medicine, Food and Paint in use; a category *Syrups* carrying Medicine with one product in it; a category *Enamels* carrying Paint.
+- **Steps:** as the fixture's **Firm admin**: Product Categories → *Syrups* → rename it only → Save, and read its type. Change its goods type to **Food** → Save. Read the product that was already in it; create a second product in it. Move the first product to *Enamels*; then clear its category. Goods Types → on *Food* choose **Stop using**. Give *Syrups* the type *General*, then **Stop using** Food again. Add a type of the firm's own, file a category and a product under it, then delete the type; clear the category's type and delete again.
+- **Expect:** a rename leaves the category's type alone. After the change to Food the product already filed keeps Medicine and the new one takes Food. Moving the first product to *Enamels* gives it Paint; clearing its category makes it General (null). *Stop using* is refused while a category carries the type -- *is still the goods type of category Syrups* -- and accepted once none does; products that hold the type keep it. Deleting the firm's own type is refused while a category carries it and, after that is cleared, while the product still does (*is still the goods type of product ...; deactivate it instead*).
+- **Leaves:** categories and products with changed types; a goods type no longer in use.
+
+### TC-MAST-019 — Who keeps goods types, and what a new firm starts with
+
+*Added 2026-10-08 from the code (backlog 89, step 1); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 89 test groups 7 (what a new firm starts with) and 8 (roles)
+- **Fixture:** `firm-admin`
+- **Also needs:** on the same firm a **Firm manager** and a **Sales manager**; a second, new firm given the profile *Pharma Distribution* as its **first** profile, and a third given *General Agency Distribution*.
+- **Steps:** as the **Firm manager**: open Goods Types and Product Categories; over the API `POST /api/v1/products/goods-types` and `PUT /api/v1/products/goods-types/{id}/use`. As the **Sales manager**: `GET /api/v1/products/goods-types`. As the **Firm admin**: the same two writes. As the platform administrator: read the goods types of the two new firms; on the pharmacy firm **Stop using** Medicine, change its profile to another and back, and read again.
+- **Expect:** adding, changing, deleting and using a goods type need `CUSTOM_FIELD_MANAGE`: the firm administrator holds it and the writes succeed; the firm manager and the sales manager are refused 403 on the writes and can read the list (`PRODUCT_VIEW`). The pharmacy firm starts with Medicine in use and the agency firm with none. After Medicine is dropped and the profile is changed and changed back, Medicine is still not in use: a profile hands out its goods types once.
+- **Leaves:** two firms with their profiles.
+
 
 ---
 

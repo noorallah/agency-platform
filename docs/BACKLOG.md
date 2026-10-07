@@ -6170,6 +6170,8 @@ Not repeated: gift vouchers and a wallet (§87 row 24, skipped); batch-wise cost
 
 ## 89. A product's behaviour follows its goods type, not the firm's business profile -- decided, build after the test rounds
 
+**Build started 2026-10-08 on branch `feat/89-goods-types`: step 1 of the Order (the goods type, the two columns, the migration and the seeds) is built; `docs/GOODS_TYPES.md` says what the code does today and which steps remain. Four things step 1 decided from the code, each open to the owner's overruling:** (a) *General is the absence of a type* -- a null `goods_type_id`, no "General" row -- so no existing product was rewritten; (b) the default HSN code and tax group sit on the **firm's use of a type** (`firm_goods_types`), because a tax group is the firm's own code and a shared type serves every firm in a store; (c) no new permission code -- reading rides on `PRODUCT_VIEW` and keeping goods types on `CUSTOM_FIELD_MANAGE`, the firm administrator's code for custom fields; (d) the shared catalogue is Medicine, Food, Cosmetics and personal care, Paint and Electronics, and only `PHARMACY`, `FOOD`, `RESTAURANT` and `ELECTRONICS` hand a new firm a starting type.
+
 **Decided by the owner on 2026-10-07 (approach B below). Not started: it is built once the module test rounds are finished, and before the first release, because until then there is no customer data to migrate.** It touches the product form and the batch and serial checks, which the test rounds are still changing.
 
 **Why.** An agency can distribute any goods, and one firm often carries several lines: the customer that prompted this sells paints, medicines and food. Today the firm's one business profile is a ceiling over every product in it:

@@ -4351,6 +4351,66 @@ class ApiClient {
     return PagedResult(items: rows, total: rows.length);
   }
 
+  // Goods types: how a line of goods is tracked. The list is the shared
+  // catalogue (null `firm_id`, read-only) plus the firm's own, each flagged
+  // `in_use` for this firm. Unpaged, so wrapped into a page here as
+  // `brandsPage` is.
+  Future<List<GoodsTypeRecord>> goodsTypes() async => _unwrapList(
+        await request('GET', '/api/v1/products/goods-types'),
+        GoodsTypeRecord.fromJson,
+      );
+
+  Future<PagedResult<GoodsTypeRecord>> goodsTypesPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) async {
+    final String needle = search.trim().toLowerCase();
+    final List<GoodsTypeRecord> rows = (await goodsTypes())
+        .where((row) =>
+            needle.isEmpty ||
+            row.code.toLowerCase().contains(needle) ||
+            row.name.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return PagedResult(items: rows, total: rows.length);
+  }
+
+  Future<GoodsTypeRecord> createGoodsType(Json data) async =>
+      GoodsTypeRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/products/goods-types',
+        body: data,
+      )));
+
+  Future<Json> updateGoodsType(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) =>
+      request(
+        'PUT',
+        '/api/v1/products/goods-types/$id',
+        body: data,
+        expectedVersion: expectedVersion,
+      );
+
+  /// Take a goods type into use in this firm, or drop it, and set the firm's
+  /// two defaults. A default left out is left alone; an explicit null clears.
+  Future<GoodsTypeRecord> useGoodsType(String id, Json data) async =>
+      GoodsTypeRecord.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/products/goods-types/$id/use',
+        body: data,
+      )));
+
+  Future<void> deleteGoodsType(String id, {int? expectedVersion}) => request(
+        'DELETE',
+        '/api/v1/products/goods-types/$id',
+        expectedVersion: expectedVersion,
+      );
+
   // The transporter master (SG-5). Unpaged and without search, so wrapped into
   // a page here as `brandsPage` is; writes go through the generic
   // `create`/`update`/`delete` with `resource: 'delivery-notes/transporters'`.
@@ -5136,6 +5196,19 @@ class ApiClient {
               id: type.id,
               label: type.code,
               detail: type.name == type.code ? null : type.name,
+            ),
+      ];
+    }
+    // A category may only carry a goods type the firm has taken into use, and
+    // the server refuses any other, so the picker offers just those.
+    if (resource == 'products/goods-types') {
+      return [
+        for (final GoodsTypeRecord type in await goodsTypes())
+          if (type.inUse && type.isActive)
+            AssignmentOption(
+              id: type.id,
+              label: type.name,
+              detail: type.tracks == 'Nothing' ? null : type.tracks,
             ),
       ];
     }

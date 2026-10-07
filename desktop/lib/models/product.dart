@@ -77,12 +77,17 @@ class ProductCategoryRecord {
     this.expiryStopSaleDays,
     this.expiryAlertDays,
     this.expiryReturnDays,
+    this.goodsTypeId = '',
   });
 
   final String id;
   final String code;
   final String name;
   final String parentId;
+
+  /// The goods type products filed here start with; empty is General, which
+  /// tracks nothing.
+  final String goodsTypeId;
   final int level;
   final String path;
   final bool isActive;
@@ -114,6 +119,84 @@ class ProductCategoryRecord {
         expiryStopSaleDays: _optInt(json['expiry_stop_sale_days']),
         expiryAlertDays: _optInt(json['expiry_alert_days']),
         expiryReturnDays: _optInt(json['expiry_return_days']),
+        goodsTypeId: stringValue(json['goods_type_id']),
+      );
+}
+
+/// A goods type -- how a line of goods is tracked (Medicine, Food, Paint...).
+///
+/// A row with no [firmId] is the shared catalogue: a firm may take it into use
+/// and set its own defaults, but not change it.
+class GoodsTypeRecord {
+  const GoodsTypeRecord({
+    required this.id,
+    required this.firmId,
+    required this.code,
+    required this.name,
+    required this.description,
+    required this.trackBatch,
+    required this.trackExpiry,
+    required this.trackManufacturingDate,
+    required this.trackSerial,
+    required this.trackWarranty,
+    required this.isActive,
+    required this.inUse,
+    required this.defaultHsnSac,
+    required this.defaultTaxProfileGroupCode,
+    required this.version,
+  });
+
+  final String id;
+
+  /// Empty for a shared type.
+  final String firmId;
+  final String code;
+  final String name;
+  final String description;
+  final bool trackBatch;
+  final bool trackExpiry;
+  final bool trackManufacturingDate;
+  final bool trackSerial;
+  final bool trackWarranty;
+  final bool isActive;
+
+  /// Whether this firm has taken the type into use.
+  final bool inUse;
+  final String defaultHsnSac;
+  final String defaultTaxProfileGroupCode;
+  final int version;
+
+  bool get isShared => firmId.isEmpty;
+
+  /// The tracking switches in words, for the grid.
+  String get tracks {
+    final List<String> parts = <String>[
+      if (trackBatch) 'Batch',
+      if (trackExpiry) 'expiry',
+      if (trackManufacturingDate) 'manufacturing date',
+      if (trackSerial) 'serial numbers',
+      if (trackWarranty) 'warranty',
+    ];
+    return parts.isEmpty ? 'Nothing' : parts.join(', ');
+  }
+
+  factory GoodsTypeRecord.fromJson(Json json) => GoodsTypeRecord(
+        id: stringValue(json['id']),
+        firmId: stringValue(json['firm_id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        description: stringValue(json['description']),
+        trackBatch: boolValue(json['track_batch']),
+        trackExpiry: boolValue(json['track_expiry']),
+        trackManufacturingDate: boolValue(json['track_manufacturing_date']),
+        trackSerial: boolValue(json['track_serial']),
+        trackWarranty: boolValue(json['track_warranty']),
+        isActive: boolValue(json['is_active'], fallback: true),
+        inUse: boolValue(json['in_use']),
+        defaultHsnSac: stringValue(json['default_hsn_sac']),
+        defaultTaxProfileGroupCode:
+            stringValue(json['default_tax_profile_group_code']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 

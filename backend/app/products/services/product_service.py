@@ -68,6 +68,7 @@ from app.products.schemas import (
     ProductUpdate,
 )
 from app.products.schemas.product import ProductCategoryResponse
+from app.products.services.goods_types import GoodsTypeService
 from app.products.services.product_import import (
     ExistingRows,
     ImportReport,
@@ -357,6 +358,7 @@ class ProductService:
         self._brand_text(values, firm_id=firm_id)
         product = Product(
             **values,
+            goods_type_id=self._goods_type_of(firm_id, category, data.sub_category_id),
             firm_id=firm_id,
             created_by=actor_id,
             updated_by=actor_id,
@@ -498,8 +500,18 @@ class ProductService:
             "code": product.code,
             "category_id": str(product.category_id),
         }
+        moved = (category_id, sub_category_id) != (
+            product.category_id,
+            product.sub_category_id,
+        )
         for field, value in values.items():
             setattr(product, field, value)
+        if moved:
+            # Another category is the one thing that changes a product's
+            # goods type (backlog 89); its switches stay as they are.
+            product.goods_type_id = self._goods_type_of(
+                firm_scope, category, sub_category_id
+            )
         product.updated_by = actor_id
         if "attributes" in data.model_fields_set:
             self._store_attributes(
@@ -859,6 +871,7 @@ class ProductService:
     ) -> ProductCategory:
         parent = self._validate_category_reference(firm_id, data.parent_id)
         self._validate_licence_type(firm_id, data.required_licence_type_id)
+        GoodsTypeService(self._session).assert_offered(firm_id, data.goods_type_id)
         self._assert_category_free(
             firm_id, code=data.code, name=data.name, parent_id=data.parent_id
         )
@@ -877,6 +890,7 @@ class ProductService:
             expiry_stop_sale_days=data.expiry_stop_sale_days,
             expiry_alert_days=data.expiry_alert_days,
             expiry_return_days=data.expiry_return_days,
+            goods_type_id=data.goods_type_id,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -966,6 +980,17 @@ class ProductService:
             row.required_licence_type_id = data.required_licence_type_id
         if "inspection_required" in data.model_fields_set:
             row.inspection_required = data.inspection_required
+        # Only where the write moves it, so a category whose type the firm has
+        # since dropped still saves its name. Products already filed here keep
+        # the type they hold (backlog 89).
+        if (
+            "goods_type_id" in data.model_fields_set
+            and data.goods_type_id != row.goods_type_id
+        ):
+            GoodsTypeService(self._session).assert_offered(
+                firm_scope, data.goods_type_id
+            )
+            row.goods_type_id = data.goods_type_id
         for field in (
             "expiry_stop_sale_days",
             "expiry_alert_days",
@@ -1708,6 +1733,22 @@ class ProductService:
         values["brand"] = BrandService(self._session).brand_name(
             self._as_uuid(values["brand_id"]), firm_id=firm_id
         )
+
+    def _goods_type_of(
+        self,
+        firm_id: UUID,
+        category: ProductCategory | None,
+        sub_category_id: UUID | None,
+    ) -> UUID | None:
+        """Return the goods type a product filed here takes; None is General.
+
+        The sub-category speaks first, being the more particular of the two,
+        and either falls back on its parents.
+        """
+        filed_under = category
+        if sub_category_id is not None:
+            filed_under = self._stored_category(firm_id, sub_category_id) or category
+        return GoodsTypeService(self._session).type_for_category(firm_id, filed_under)
 
     @staticmethod
     def _as_uuid(value: object) -> UUID | None:

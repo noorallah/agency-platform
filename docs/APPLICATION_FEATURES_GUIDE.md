@@ -1651,7 +1651,11 @@ sale*.
 
 **Configuration** (*Settings → Set up → Item lists*):
 
-- *Product Categories*: a tree of categories.
+- *Product Categories*: a tree of categories. Each can carry a **goods
+  type** -- Medicine, Food, Paint and the like, kept under
+  *Settings → Firm → Goods Types* -- which a new product filed there
+  takes; *General (no tracking)* is the choice for goods that need none.
+  *Added on 2026-10-08, not yet tested by hand.*
 - *Principals* and *Brands*: the brand owners the firm
   distributes for and their brands; brand and principal are also ways to slice
   Sales Analysis.

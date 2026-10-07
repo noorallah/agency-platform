@@ -463,6 +463,18 @@ copy. `SHARED` is the mode every new firm gets by default.
 
 Be precise here — the framework is wired into more places than it *drives*.
 
+### A firm's starting goods types (2026-10-08)
+
+The first time a firm is given a profile it is handed that profile's
+**goods types** -- `PHARMACY` starts with Medicine, `FOOD` and `RESTAURANT`
+with Food, `ELECTRONICS` with Electronics, every other profile with none.
+This is a starter kit and not a ceiling: it acts once, a later change of
+profile adds nothing, and the firm's administrator adds and drops types from
+then on. `docs/GOODS_TYPES.md` is the reference. It is the first step of
+`docs/BACKLOG.md` §89, which goes on to take batches, expiry, serial numbers
+and the extra fields away from the profile; until those steps land,
+everything below is still how a profile governs a firm.
+
 ### Two enforcement shapes, and when to use which
 
 **`require_feature("CODE")` gates a whole endpoint.** Right when the feature
@@ -831,6 +843,7 @@ amendment? Treat it as its own design round.
 
 ## Related
 
+- `docs/GOODS_TYPES.md` — goods types, and the starting set a profile hands a new firm
 - `docs/FIRM_DOMAIN_MODEL.md` — where the profile sits among the firm's other entities, and which tier each one lives in
 - `app/business/gating.py` — capability resolution and both gate shapes
 - `app/business/services/attribute_service.py` — custom fields

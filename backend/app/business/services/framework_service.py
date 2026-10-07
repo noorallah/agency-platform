@@ -907,6 +907,17 @@ class BusinessProfileFrameworkService:
             self._session.add(row)
             action = "firm_business_profile.created"
             before: dict[str, object] | None = None
+            # A firm's first profile hands it that profile's goods types, once
+            # (backlog 89). A later change of profile hands it nothing: the
+            # firm's administrator adds and drops types from then on.
+            from app.products.goods_type_seed import start_firm_goods_types
+
+            start_firm_goods_types(
+                self._session,
+                firm_id=firm_id,
+                profile_code=self.get_profile(data.business_profile_id).code,
+                actor_id=actor_id,
+            )
         else:
             before = row_state(row)
             # The row is updated in place, so `effective_from` is the only

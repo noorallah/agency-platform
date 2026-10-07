@@ -78,6 +78,10 @@ class ProductCategoryCreate(ProductSchema):
     expiry_stop_sale_days: int | None = Field(default=None, ge=0, le=3650)
     expiry_alert_days: int | None = Field(default=None, ge=0, le=3650)
     expiry_return_days: int | None = Field(default=None, ge=0, le=3650)
+    #: The goods type a new product filed here takes (backlog 89); null is
+    #: General. On an update, absent leaves it alone and an explicit null
+    #: clears it. Products already filed here keep the type they hold.
+    goods_type_id: UUID | None = None
 
     @field_validator("code", mode="before")
     @classmethod
@@ -106,6 +110,7 @@ class ProductCategoryResponse(ProductSchema):
     expiry_stop_sale_days: int | None = None
     expiry_alert_days: int | None = None
     expiry_return_days: int | None = None
+    goods_type_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
     #: The concurrency counter, echoed as `If-Match` on the next edit.
@@ -303,6 +308,9 @@ class ProductResponse(ProductSchema):
     product_type: ProductType
     category_id: UUID | None
     sub_category_id: UUID | None
+    #: Taken from the category and stored (backlog 89); null is General.
+    #: Never sent: moving the product to another category is what changes it.
+    goods_type_id: UUID | None = None
     required_licence_type_id: UUID | None = None
     preferred_vendor_id: UUID | None = None
     unit: str | None

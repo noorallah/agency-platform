@@ -26,7 +26,12 @@ from app.common.file_import import (
 )
 from app.common.file_import import template_csv as columns_template_csv
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
-from app.core.concurrency import ExpectedVersion, assert_version, set_etag
+from app.core.concurrency import (
+    ExpectedVersion,
+    assert_version,
+    publish_version,
+    set_etag,
+)
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import AuthorizationError, ValidationError
@@ -52,6 +57,12 @@ from app.products.schemas import (
     ProductSummary,
     ProductUpdate,
 )
+from app.products.schemas.goods_type import (
+    GoodsTypeCreate,
+    GoodsTypeResponse,
+    GoodsTypeUpdate,
+    GoodsTypeUse,
+)
 from app.products.schemas.labels import ProductLabelRequest
 from app.products.services import ProductService
 from app.products.services.barcode_labels import (
@@ -65,6 +76,7 @@ from app.products.services.brands import (
     PrincipalResponse,
     PrincipalWrite,
 )
+from app.products.services.goods_types import GoodsTypeService
 from app.products.services.kits import (
     KitAssemblyWrite,
     KitComponentResponse,
@@ -132,6 +144,13 @@ ProductImportScope = Annotated[
 ]
 ProductExportScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PRODUCT_EXPORT")
+]
+#: Goods types shape what a firm's records look like, as its custom fields
+#: do, so the firm's administrator keeps both under the one code (backlog
+#: 89). Reading them rides on ``PRODUCT_VIEW``: the category and product
+#: forms need the list.
+GoodsTypeManageScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOM_FIELD_MANAGE")
 ]
 
 
@@ -496,6 +515,92 @@ def delete_brand(
         brand_id, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=None, message="Brand deleted.")
+
+
+@router.get("/goods-types", response_model=ApiResponse[list[GoodsTypeResponse]])
+def list_goods_types(
+    scope: ProductViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[GoodsTypeResponse]]:
+    """Return the shared goods types and the firm's own (backlog 89).
+
+    A row with ``firm_id`` is the firm's own and its to change; one without
+    is the shared catalogue, read-only here. ``in_use`` says whether this
+    firm trades in it.
+    """
+    return ApiResponse(data=GoodsTypeService(db).list_types(scope.firm_id))
+
+
+@router.post(
+    "/goods-types",
+    response_model=ApiResponse[GoodsTypeResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_goods_type(
+    data: GoodsTypeCreate,
+    scope: GoodsTypeManageScope,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GoodsTypeResponse]:
+    """Add a goods type of the firm's own (backlog 89)."""
+    row = GoodsTypeService(db).create(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
+
+
+@router.put(
+    "/goods-types/{goods_type_id}", response_model=ApiResponse[GoodsTypeResponse]
+)
+def update_goods_type(
+    goods_type_id: UUID,
+    data: GoodsTypeUpdate,
+    scope: GoodsTypeManageScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GoodsTypeResponse]:
+    """Change a goods type of the firm's own; products already saved keep theirs."""
+    row = GoodsTypeService(db).update(
+        goods_type_id,
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
+    )
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
+
+
+@router.put(
+    "/goods-types/{goods_type_id}/use", response_model=ApiResponse[GoodsTypeResponse]
+)
+def set_goods_type_use(
+    goods_type_id: UUID,
+    data: GoodsTypeUse,
+    scope: GoodsTypeManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GoodsTypeResponse]:
+    """Take a goods type into use or drop it, with the firm's defaults for it."""
+    return ApiResponse(
+        data=GoodsTypeService(db).set_use(
+            goods_type_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.delete("/goods-types/{goods_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_goods_type(
+    goods_type_id: UUID,
+    scope: GoodsTypeManageScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Remove a goods type of the firm's own that nothing carries."""
+    GoodsTypeService(db).delete(
+        goods_type_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/price-revisions/import-template")
