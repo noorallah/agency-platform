@@ -700,10 +700,68 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     }
   }
 
+  /// Whether anything has been chosen or typed, so closing would lose it.
+  bool get _touched =>
+      _partyId.isNotEmpty ||
+      <TextEditingController>[
+        _amount,
+        _reference,
+        _narration,
+        _tds,
+        _rounding,
+        _bankCharges,
+        _discount,
+      ].any((TextEditingController box) => box.text.trim().isNotEmpty) ||
+      _allocations.values.any(
+        (TextEditingController box) => box.text.trim().isNotEmpty,
+      );
+
+  /// Cancel, the cross and Escape all land here: a dialog with something in
+  /// it asks before it throws it away (D-UI-33).
+  Future<void> _askBeforeClosing(bool didPop, Object? result) async {
+    if (didPop || _busy) return;
+    if (!_touched) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final bool? discard = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Close without saving?'),
+        content: Text(
+          'The ${widget.direction.noun} has not been recorded and what was '
+          'typed will be lost.',
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('settlement-keep-editing'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Keep editing'),
+          ),
+          FilledButton(
+            key: const ValueKey('settlement-discard'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Discard and close'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final double amount = double.tryParse(_amount.text.trim()) ?? 0;
     final double unapplied = amount - _allocatedTotal;
+    return PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, Object? result) =>
+          unawaited(_askBeforeClosing(didPop, result)),
+      child: _dialog(context, amount, unapplied),
+    );
+  }
+
+  Widget _dialog(BuildContext context, double amount, double unapplied) {
     return WorkspaceDialog(
       title: 'Record a ${widget.direction.noun}',
       subtitle: switch (widget.direction) {
@@ -716,7 +774,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
               'in advance, and posts to the ledger.',
       },
       loading: _busy,
-      onClose: _busy ? null : () => Navigator.of(context).pop(),
+      onClose:
+          _busy ? null : () => unawaited(Navigator.of(context).maybePop()),
       onSave: _busy ? null : () => unawaited(_save()),
       saveLabel: 'Record ${widget.direction.noun}',
       body: LoadingOverlay(

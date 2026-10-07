@@ -11,6 +11,7 @@ import 'package:agency_desktop/ui/finance/record_settlement_dialog.dart';
 import 'package:agency_desktop/ui/finance/settlements_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Receipts and payments.
@@ -1634,6 +1635,83 @@ void main() {
 
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('NEFT-9931'), findsOneWidget);
+    });
+  });
+
+  group('the money dialog closes with care (D-UI-33)', () {
+    bool? closed;
+
+    Future<void> open(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      closed = null;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (BuildContext context) => TextButton(
+                onPressed: () async {
+                  await showDialog<Settlement>(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (_) => RecordSettlementDialog(
+                      api: _SettlementApi(rows: [_settlement()]),
+                      direction: SettlementDirection.receipt,
+                      parties: const [
+                        PartyOption(id: 'c-1', code: 'C1', name: 'Kumar Stores'),
+                      ],
+                    ),
+                  );
+                  closed = true;
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Cancel with nothing typed closes at once', (tester) async {
+      await open(tester);
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Close without saving?'), findsNothing);
+      expect(closed, isTrue);
+    });
+
+    testWidgets('Cancel with an amount typed asks first, and Keep editing '
+        'keeps it', (tester) async {
+      await open(tester);
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '250');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Close without saving?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(closed, isNull);
+      expect(find.byType(RecordSettlementDialog), findsOneWidget);
+      expect(find.text('250'), findsOneWidget);
+    });
+
+    testWidgets('Escape asks the same, and Discard and close closes',
+        (tester) async {
+      await open(tester);
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '250');
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Close without saving?'), findsOneWidget);
+      await tester.tap(find.text('Discard and close'));
+      await tester.pumpAndSettle();
+      expect(closed, isTrue);
+      expect(find.byType(RecordSettlementDialog), findsNothing);
     });
   });
 
