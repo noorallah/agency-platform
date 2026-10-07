@@ -146,6 +146,25 @@ class _SettlementApi extends ApiClient {
   Json? appliedCustomerCredit;
   String? customerCreditRefusal;
 
+  /// What a take-back sent, and a refusal to answer it with.
+  Json? takenBackCustomerCredit;
+  String? takeBackRefusal;
+
+  @override
+  Future<void> reverseCustomerCreditApplication({
+    required String applicationId,
+    required String reason,
+  }) async {
+    final String? refusal = takeBackRefusal;
+    if (refusal != null) {
+      throw ApiException(refusal, statusCode: 409);
+    }
+    takenBackCustomerCredit = <String, dynamic>{
+      'application_id': applicationId,
+      'reason': reason,
+    };
+  }
+
   @override
   Future<List<CustomerCredit>> customerCredits(String customerId) async =>
       customerCreditRows;
@@ -1179,6 +1198,96 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.appliedCustomerCredit!['source_id'], 'cn-1');
+    });
+
+    // A credit already set against a bill: 500.00 of 826.00 on SI-...031.
+    CustomerCredit applied() => CustomerCredit.fromJson({
+          'source_id': 'sr-1',
+          'source_type': 'SALES_RETURN',
+          'source_number': 'SR-2026-2027-000004',
+          'source_date': '2026-10-06',
+          'customer_id': 'c-1',
+          'credit_amount': '826.00',
+          'applied_amount': '500.00',
+          'refunded_amount': '0.00',
+          'available_amount': '326.00',
+          'held_amount': '326.00',
+          'applied_to': <String>['SI-2026-2027-000031'],
+          'applications': <Json>[
+            {
+              'id': 'app-1',
+              'target_type': 'SALES_INVOICE',
+              'target_id': 'si-2',
+              'target_number': 'SI-2026-2027-000031',
+              'amount': '500.00',
+              'applied_on': '2026-10-06',
+              'version': 1,
+            },
+            {
+              'id': 'app-2',
+              'target_type': 'REFUND',
+              'target_id': 'rf-1',
+              'target_number': 'RF-1',
+              'amount': '10.00',
+              'applied_on': '2026-10-06',
+              'version': 1,
+            },
+          ],
+        });
+
+    testWidgets('a credit set against a bill can be taken back with a reason',
+        (tester) async {
+      final _SettlementApi api = customerApi()..customerCreditRows = [applied()];
+      await open(tester, api);
+
+      expect(find.textContaining('326.00 left of 826.00'), findsOneWidget);
+      expect(
+        find.textContaining('500.00 on SI-2026-2027-000031'),
+        findsOneWidget,
+      );
+      // Money paid back is undone by reversing the refund, not here.
+      expect(find.byKey(const ValueKey('take-back-app-2')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('take-back-app-1')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'Wrong bill');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Take back'));
+      await tester.pumpAndSettle();
+
+      expect(api.takenBackCustomerCredit, <String, dynamic>{
+        'application_id': 'app-1',
+        'reason': 'Wrong bill',
+      });
+      expect(api.appliedCustomerCredit, isNull);
+    });
+
+    testWidgets('a refused take-back says why', (tester) async {
+      final _SettlementApi api = customerApi()
+        ..customerCreditRows = [applied()]
+        ..takeBackRefusal = 'SI-2026-2027-000031 has been cancelled.';
+      await open(tester, api);
+      await tester.tap(find.byKey(const ValueKey('take-back-app-1')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'Wrong bill');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Take back'));
+      await tester.pump();
+
+      expect(find.textContaining('has been cancelled'), findsOneWidget);
+      expect(api.takenBackCustomerCredit, isNull);
+      await tester.pumpAndSettle(const Duration(seconds: 6));
+    });
+
+    testWidgets('with a use standing, what is left can still be applied',
+        (tester) async {
+      final _SettlementApi api = customerApi()..customerCreditRows = [applied()];
+      await open(tester, api);
+      await tester.tap(find.byKey(const ValueKey('apply-credit-sr-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(api.appliedCustomerCredit!['amount'], '326.00');
     });
 
     testWidgets('a customer with no credit is told so', (tester) async {
