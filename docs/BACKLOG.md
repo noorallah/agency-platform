@@ -6195,12 +6195,20 @@ Performance did not decide it; the differences are small. Maintenance did: most 
 
 **What B is.**
 
-1. **A goods type** (Medicine, Food, Paint, Electronics, General ...) with its default tracking switches, the extra fields it shows and the ones it makes compulsory. Not called "product type": `product_type` already means stock, service or bundle.
+1. **A goods type** (Medicine, Food, Paint, Electronics, General ...) with its default tracking switches, the extra fields it shows and the ones it makes compulsory. Not called "product type": `product_type` already means stock, service or bundle. Goods types are kept the way custom fields already are (`app/business/services/firm_custom_fields.py`): a shared catalogue the platform keeps, offered to every firm and read-only to them, plus a firm's own types, added by its administrator.
 2. **The category carries the goods type; a new product takes it and stores it.** Changing a category's type later affects new products only. A product with no category, or a category with no type, is General: no tracking, nothing compulsory.
 3. **The type fills the product's own switches** (`track_batch`, `track_expiry`, `track_serial` and the rest, which stay as they are). One product can differ from its category by changing its switches; its type is changed only by moving it to another category, so the type stays a reliable grouping for reports.
 4. **Every check reads the product, never the firm.** "May this batch carry an expiry date" is the product's switch.
 5. **The product form shows only its type's properties**, already switched on, with *Show all tracking options* for the odd product; dependent fields (shelf life, expiry rules, batch issue rule) appear only while their switch is on. Receipt and bill lines follow the product's switches, as the purchase bill editor already does.
 6. **Menus follow the goods:** Batches, Serial Numbers and the Expiry Monitor appear when any goods type the firm uses needs them.
+
+**Extra fields on customers, suppliers and documents -- decided by the owner 2026-10-07.** A customer has no goods type, so point 1 does not reach these, and the same weakness applies: a firm on the pharmacy profile offers *Drug licence number* on its paint dealers too. The profile stops narrowing them as well:
+
+1. One list of the extra fields available for customers, suppliers and documents: the shared catalogue plus the firm's own.
+2. The profile ticks a starting set when the firm is created, and has no say after that.
+3. The firm's administrator switches a catalogue field on or off for the firm and adds the firm's own. Switching one off hides it and keeps its values; nothing is deleted.
+
+Adding a firm's own field exists already (MST-8); switching a shared field off for one firm is the part to build.
 
 **What it touches** (counted on 2026-10-07; re-count before building).
 
@@ -6209,23 +6217,30 @@ Performance did not decide it; the differences are small. Maintenance did: most 
 | Goods type | A table, a column on `product_categories` and on `products`, one migration, the seeds | S |
 | Product save | The type fills the switches; the four profile checks in `ProductService` (barcode, QR code, warranty, shelf life) go or move to the product | S |
 | Batch and serial | Nine routes in `app/batch_serial/api/router.py` and five service checks ask the product instead of the firm's profile | M |
-| Extra fields | `AttributeService` and `category_attribute_rules` key on the goods type alone; the two administration screens follow | M |
+| Extra fields on products | `AttributeService` and `category_attribute_rules` key on the goods type alone; the two administration screens follow | M |
+| Extra fields on customers, suppliers and documents | The profile filter comes out of the resolver; a per-firm on/off for a shared field, set from the profile when the firm is created; the firm's custom fields screen gains the switch | M |
 | Desktop | The product form, a goods type picker on the category form, a Goods Types list under Set up, the menu filter | M |
 | Import | The category gives the type, so the switch columns become optional in `app/products/services/product_import.py` | S |
 | Tests and docs | The profile tests for batch, expiry and fields rewritten; `docs/BUSINESS_PROFILE_FRAMEWORK.md` and `docs/CUSTOM_FIELDS_FRAMEWORK.md` brought up to date | M |
 
 Not touched: the document modules (they already read the product's switches), tax, pricing, the ledger and stock valuation.
 
-**Business profiles stay, smaller.** After this a profile no longer says what goods may look like. It keeps:
+**Business profiles stay, smaller.** After this a profile no longer says what goods may look like, nor which extra fields a record carries. What stays tied to it:
 
-- what a new firm **starts with**: its goods types, default units (`business_profile_uom_defaults`) and menus -- a starter kit, not a ceiling;
-- the features that are about the **firm**, not a product: attachments, vehicle details, drug and FSSAI licences on parties, territories, multiple warehouses, approvals;
-- the modules only some trades have (kitchen and recipes, projects and contracts).
+| Tied to the profile | When it acts | Can the firm change it afterwards |
+| --- | --- | --- |
+| The goods types a new firm starts with | Once, when the firm is created | Yes: add or drop a type |
+| The default units (`business_profile_uom_defaults`) | Once, when the firm is created | Yes |
+| The extra fields switched on for customers, suppliers and documents | Once, when the firm is created | Yes |
+| Which modules and menus the firm has, including the ones only some trades have (kitchen and recipes, projects and contracts) | Every sign-in | By the platform administrator, through the profile |
+| The features about the **firm**, not a product: attachments, vehicle details, drug and FSSAI licences on parties, territories, multiple warehouses, approvals | On each write that uses one | By the platform administrator, through the profile |
+
+So the first three rows are a starter kit, not a ceiling, and only the last two go on governing a firm after its first day.
 
 **The clean-up, in the same piece of work:**
 
 - Withdraw the product-behaviour features from `profile_features` and from the catalogue: batch, expiry, serial number, warranty, manufacturing date, shelf life. Barcode and QR code become plain product fields.
-- Drop `applicable_business_profile_id` from product attribute definitions and `business_profile_id` from `category_attribute_rules`, once the rules are re-keyed by goods type.
+- Drop `applicable_business_profile_id` from every attribute definition -- products, customers, suppliers and documents -- and `business_profile_id` from `category_attribute_rules`, once the rules are re-keyed by goods type and each firm's starting set is recorded.
 - Decide the three declared-but-ungated features (territory, approval workflow, multiple warehouses): gate them or stop listing them.
 - Remove the six features that have no code behind them (IMEI, kitchen, prescription, project, recipe, service contracts) unless one has been built by then.
 - Look at whether twelve profiles are still worth keeping once most differ only in their starting goods types; several may fold into one.
@@ -6234,8 +6249,8 @@ Not touched: the document modules (they already read the product's switches), ta
 
 | # | Question | Leaning |
 | --- | --- | --- |
-| 1 | Who may add a goods type: the firm's administrator or only the platform's | The firm: a growing firm adds a line without calling anyone |
-| 2 | Are goods types kept per firm or shared across a store, as attribute definitions are today | Per firm |
+| 1 | Who may add a goods type: the firm's administrator or only the platform's | **Settled 2026-10-07:** both -- the platform keeps the shared catalogue, the firm's administrator adds the firm's own |
+| 2 | Are goods types kept per firm or shared across a store | **Settled 2026-10-07:** a shared catalogue plus the firm's own, as custom fields are. (This row first said attribute definitions carry no firm; that was read from an older reference doc and is no longer so) |
 | 3 | Two checks in the customer service use the firm's expiry feature for a customer field | Read what they guard first, then keep on the firm or drop |
 | 4 | Some batch routes write a batch before a product is plainly in hand | Check each route names its product before moving the check |
 
