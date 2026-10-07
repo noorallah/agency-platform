@@ -61,11 +61,15 @@ void main() {
       final String number = docNumber(invoice);
       if (find.textContaining('$number ').evaluate().isEmpty &&
           find.textContaining(number).evaluate().isEmpty) {
-        await tester.tap(find.textContaining('— owes').first);
+        await tester.tap(find.textContaining('— owes').last);
         await pumpFor(tester, const Duration(milliseconds: 700));
+        // The customer's unpaid bills are a long list built as it scrolls.
         final Finder entry = find.textContaining(number);
-        await pumpUntil(tester, entry, waitingFor: 'bill $number in the list');
-        await tester.ensureVisible(entry.last);
+        if (entry.evaluate().isEmpty) {
+          await tester.scrollUntilVisible(entry, 320,
+              scrollable: find.byType(Scrollable).last, maxScrolls: 200);
+        }
+        await pumpFor(tester, const Duration(milliseconds: 400));
         await tester.tap(entry.last);
         await pumpFor(tester, const Duration(milliseconds: 700));
       }

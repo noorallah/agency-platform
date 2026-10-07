@@ -184,6 +184,28 @@ Future<void> rowThen(WidgetTester tester, String number, String label) async {
   await pumpFor(tester, const Duration(seconds: 2));
 }
 
+/// Type [text] into a list's search box (the box whose hint says "search")
+/// and submit it; an empty [text] clears the search.
+Future<void> searchList(WidgetTester tester, String text) async {
+  final Finder box = find.byWidgetPredicate((Widget w) =>
+      w is TextField &&
+      (w.decoration?.hintText ?? '').toLowerCase().contains('search') &&
+      !(w.decoration?.hintText ?? '').contains('jump'));
+  await pumpUntil(tester, box, waitingFor: 'a list search box');
+  await tester.tap(box.first);
+  await tester.enterText(box.first, text);
+  await tester.testTextInput.receiveAction(TextInputAction.done);
+  await pumpFor(tester, const Duration(seconds: 3));
+}
+
+/// What a banner across the top of a list says (a refused step on the older
+/// lists is a banner with Dismiss, not a toast), or ''.
+String bannerText(WidgetTester tester) => <String>[
+      for (final Text t in tester.widgetList<Text>(find.descendant(
+          of: find.byType(MaterialBanner), matching: find.byType(Text))))
+        if ((t.data ?? '').isNotEmpty && t.data != 'Dismiss') t.data!,
+    ].join(' | ');
+
 /// Press Refresh on a list, if the screen has one.
 Future<void> refreshList(WidgetTester tester) async {
   final Finder refresh = find.byTooltip('Refresh');

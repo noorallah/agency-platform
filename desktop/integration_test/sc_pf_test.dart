@@ -276,6 +276,7 @@ void main() {
         final bool open = find.byType(Dialog).evaluate().isNotEmpty;
         final String st = await statusOf('${forIssue['id']}');
         log.saw = 'dialog open=$open; status $st; says "$words"';
+        if (open) await tapDialogButton(tester, 'Keep it');
         if (st != 'ISSUED') throw StateError('withdrawn without a reason');
         if (!open) {
           throw StateError('the dialog closed with nothing said and nothing '
@@ -311,20 +312,10 @@ void main() {
         await openProformas();
         final String wanted = '${forIssue['proforma_number']}';
         final String other = '${forWithdraw['proforma_number']}';
-        final Finder box = find.ancestor(
-            of: find.text('Search number or customer'),
-            matching: find.byType(TextField));
-        await pumpUntil(tester, box, waitingFor: 'the search box');
-        await tester.enterText(box.first, wanted);
-        await tester.testTextInput.receiveAction(TextInputAction.search);
-        await pumpFor(tester, const Duration(seconds: 3));
+        await searchList(tester, wanted);
         final bool has = find.text(wanted).evaluate().isNotEmpty;
         final bool hasOther = find.text(other).evaluate().isNotEmpty;
-        final Finder typed = find.byWidgetPredicate((Widget w) =>
-            w is EditableText && w.controller.text == wanted);
-        await tester.enterText(typed.first, '');
-        await tester.testTextInput.receiveAction(TextInputAction.search);
-        await pumpFor(tester, const Duration(seconds: 3));
+        await searchList(tester, '');
         final bool back = find.text(other).evaluate().isNotEmpty;
         log.saw = 'searched $wanted: shown=$has, $other shown=$hasOther; '
             'after clearing $other is back=$back';

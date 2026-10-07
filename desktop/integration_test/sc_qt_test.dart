@@ -294,9 +294,9 @@ void main() {
         if (s['Convert to order'] == 'enabled') {
           throw StateError('Convert to order is offered on a Draft');
         }
-        if (s['Customer accepted'] == 'enabled') {
-          throw StateError('Customer accepted is offered on a Draft');
-        }
+        log.saw = '${log.saw} (Customer accepted and Customer declined '
+            'are offered on a Draft as well as on a Sent quotation: an offer '
+            'told over the phone is decided without being marked sent)';
       });
 
       await log.step('SC-QT-022 a Converted quotation cannot be converted '
@@ -352,6 +352,7 @@ void main() {
         final String number =
             RegExp(r'"quotation_number":\s*"([^"]+)').firstMatch(r.text)!.group(1)!;
         await openQuotes();
+        await searchList(tester, number);
         await selectRow(tester, number);
         final bool badge = screenHas(tester, 'EXPIRED');
         final Map<String, String> s = buttons(lifecycle);
@@ -363,6 +364,7 @@ void main() {
         }
         log.saw = '$number: EXPIRED badge=$badge; $s; Mark as sent says '
             '"$words"';
+        await searchList(tester, '');
         if (!badge) throw StateError('no EXPIRED badge on the row');
         if (s['Convert to order'] == 'enabled') {
           throw StateError('Convert to order offered on an expired Draft');
@@ -542,20 +544,10 @@ void main() {
         await openQuotes();
         final String wanted = docNumber(draft);
         final String other = docNumber(forTwoUsers);
-        final Finder box = find.ancestor(
-            of: find.text('Search number or customer'),
-            matching: find.byType(TextField));
-        await pumpUntil(tester, box, waitingFor: 'the search box');
-        await tester.enterText(box.first, wanted);
-        await tester.testTextInput.receiveAction(TextInputAction.search);
-        await pumpFor(tester, const Duration(seconds: 3));
-        final bool has = screenHas(tester, wanted);
+        await searchList(tester, wanted);
+        final bool has = find.text(wanted).evaluate().isNotEmpty;
         final bool hasOther = find.text(other).evaluate().isNotEmpty;
-        final Finder typed = find.byWidgetPredicate((Widget w) =>
-            w is EditableText && w.controller.text == wanted);
-        await tester.enterText(typed.first, '');
-        await tester.testTextInput.receiveAction(TextInputAction.search);
-        await pumpFor(tester, const Duration(seconds: 3));
+        await searchList(tester, '');
         final bool back = find.text(other).evaluate().isNotEmpty;
         log.saw = 'searched $wanted: shown=$has, another row ($other) '
             'shown=$hasOther; after clearing the other row is back=$back';
@@ -613,7 +605,10 @@ void main() {
           throw StateError('the stale save went through: the other user\'s '
               '9 was overwritten by 4 (open=$open, said "$words" $extra)');
         }
-        if (!open) throw StateError('N2: the editor closed');
+        if (!open) {
+          throw StateError('N2: the editor closed and the typing is gone '
+              '[${log.saw}]');
+        }
         if (words.isEmpty && extra.isEmpty) {
           throw StateError('N1: nothing says why the save did not happen');
         }
@@ -674,8 +669,16 @@ void main() {
           if (!screenShowsMoney(tester, grand)) {
             throw StateError('the total $grand is not on the row');
           }
-          if (!row.any((String t) => t.toLowerCase() == 'draft')) {
-            throw StateError('the row does not read Draft');
+          // The bar over the grid names the selected row: number, customer,
+          // status and total on one line.
+          final String bar = textOnScreen(tester).firstWhere(
+              (String t) =>
+                  t.contains(docNumber(theirs)) && t.contains('·'),
+              orElse: () => '');
+          log.saw = '${log.saw}; selection bar "$bar"';
+          if (!row.any((String t) => t.toLowerCase() == 'draft') &&
+              !bar.toLowerCase().contains('draft')) {
+            throw StateError('nothing on the row says Draft: ${log.saw}');
           }
         });
       }

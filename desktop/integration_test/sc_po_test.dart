@@ -186,7 +186,8 @@ void main() {
           () async {
         await openOrders();
         await selectRow(tester, docNumber(received));
-        final String said = await pressWithReason(tester, 'Cancel');
+        final String said =
+            '${await pressWithReason(tester, 'Cancel')} ${bannerText(tester)}';
         final String st = await statusOf('${received['id']}');
         log.saw = 'status $st, screen says "$said"';
         if (st == 'CANCELLED') {
@@ -205,7 +206,8 @@ void main() {
           () async {
         await openOrders();
         await selectRow(tester, docNumber(billedPo));
-        final String said = await pressWithReason(tester, 'Cancel');
+        final String said =
+            '${await pressWithReason(tester, 'Cancel')} ${bannerText(tester)}';
         final String st = await statusOf('${billedPo['id']}');
         log.saw = 'status $st, screen says "$said"';
         if (st == 'CANCELLED') {
