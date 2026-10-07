@@ -1402,11 +1402,13 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
 
   Widget _dateField(BuildContext context) => InkWell(
         onTap: () async {
+          // Money cannot have moved on a day that has not come (D-UI-32).
+          final DateTime today = DateTime.now();
           final DateTime? picked = await showDatePicker(
             context: context,
-            initialDate: _date,
+            initialDate: _date.isAfter(today) ? today : _date,
             firstDate: DateTime(2000),
-            lastDate: DateTime(2100),
+            lastDate: today,
           );
           if (picked == null) return;
           setState(() => _date = picked);

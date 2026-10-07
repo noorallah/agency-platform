@@ -1638,7 +1638,7 @@ void main() {
     });
   });
 
-  group('the money dialog closes with care (D-UI-33)', () {
+  group('the money dialog closes and dates with care (D-UI-33, D-UI-32)', () {
     bool? closed;
 
     Future<void> open(WidgetTester tester) async {
@@ -1712,6 +1712,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(closed, isTrue);
       expect(find.byType(RecordSettlementDialog), findsNothing);
+    });
+
+    testWidgets('the date picker stops at today', (tester) async {
+      await open(tester);
+      await tester.tap(find.widgetWithText(InkWell, 'Date the money moved'));
+      await tester.pumpAndSettle();
+
+      final DateTime last =
+          tester.widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
+              .lastDate;
+      final DateTime now = DateTime.now();
+      expect(
+        DateTime(last.year, last.month, last.day),
+        DateTime(now.year, now.month, now.day),
+      );
     });
   });
 
