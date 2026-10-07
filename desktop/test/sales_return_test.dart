@@ -12,6 +12,7 @@ import 'package:agency_desktop/ui/sales_returns/sales_return_management_page.dar
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/return_document.dart';
 
 /// Goods coming back from a customer.
 ///
@@ -445,6 +446,7 @@ void main() {
       await _pump(tester, api);
       await tester.tap(find.widgetWithText(FilledButton, 'New Return'));
       await tester.pumpAndSettle();
+      await chooseReturnDocument(tester, 'SI-2026-2027-000008');
 
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Quantity returned'),

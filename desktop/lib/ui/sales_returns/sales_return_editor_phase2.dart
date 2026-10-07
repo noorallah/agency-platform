@@ -183,7 +183,13 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
   /// coming back. Null (with the reason said) while it cannot be saved.
   Json? _phase2Payload({bool pricing = false}) {
     final ReturnableDocument? document = _document;
-    if (document == null) return null;
+    if (document == null) {
+      if (!pricing) {
+        _setState(() => _phase2Problem =
+            'Choose the delivery note or invoice the goods went out on.');
+      }
+      return null;
+    }
     final List<_ReturnLineDraft> sending = [
       for (final _ReturnLineDraft draft in _drafts)
         if (draft.returned > 0) draft,
@@ -596,9 +602,11 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
 
   Widget _returnSidePanel(BuildContext context) {
     if (_drafts.isEmpty) {
-      return const DocumentSidePanel(children: [
-        DocumentSideHeading('Returning'),
-        DocumentSideNote('the document chosen has no lines to return'),
+      return DocumentSidePanel(children: [
+        const DocumentSideHeading('Returning'),
+        DocumentSideNote(_document == null
+            ? 'choose the document the goods went out on'
+            : 'the document chosen has no lines to return'),
       ]);
     }
     final ColorScheme scheme = Theme.of(context).colorScheme;

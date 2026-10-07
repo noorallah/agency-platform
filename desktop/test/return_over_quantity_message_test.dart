@@ -7,6 +7,7 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/return_document.dart';
 
 ReturnableDocument _note() => ReturnableDocument.fromDeliveryNote({
       'id': 'dn-1',
@@ -73,6 +74,7 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
+    await chooseReturnDocument(tester, doc.value.number);
     await tester.enterText(
         find.byKey(ValueKey<String>('sales-return-returning-${doc.value.id}-0')),
         '9999');
