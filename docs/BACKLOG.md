@@ -6254,6 +6254,21 @@ So the first three rows are a starter kit, not a ceiling, and only the last two 
 - Remove the six features that have no code behind them (IMEI, kitchen, prescription, project, recipe, service contracts) unless one has been built by then.
 - Look at whether twelve profiles are still worth keeping once most differ only in their starting goods types; several may fold into one.
 
+**Clean-up is part of done -- the owner's instruction, 2026-10-07.** Nothing this entry replaces may be left behind: no column nobody writes, no table nobody reads, no function, route, schema field, screen, seed row or test that only served the old design. A step is not finished while the thing it replaced still exists, and the last step is not finished until every row below is answered with a command, not from memory.
+
+| What | How it is removed | How it is proved gone |
+| --- | --- | --- |
+| Columns and tables (`applicable_business_profile_id`, `category_attribute_rules.business_profile_id`, the withdrawn rows of `profile_features` and `business_features`, anything else found on the way) | A migration, idempotent and safe to replay, run through `scripts/migrate_all_stores.py` so every store drops it, with the model changed in the same PR. Data worth keeping is moved to its new home first, in the same migration | `grep` for the name under `backend/app`, `backend/scripts`, `backend/tests` and `desktop/lib` returns nothing; `tests/integration/test_multi_schema_tenancy.py` still passes (ORM against deployed schema) |
+| Feature codes no longer enforced | Their `require_feature` and `assert_feature_fields` calls deleted with the catalogue rows, not left pointing at a code that no longer exists | `grep -rn "CODE" app/ --include=*.py` for each withdrawn code returns nothing |
+| Backend code: resolver branches for the profile, private helpers, schema fields, response fields | Deleted in the PR that makes them dead | `ruff check` and `mypy app` clean; no function left with no caller (`grep` its name) |
+| Routes the old screens called | Deleted with the screen, or kept with a caller | `tests/unit/test_routes_have_a_caller.py` passes without a new pin added to excuse one |
+| Desktop: the profile-scoped parts of the Dynamic Attributes and Mandatory Attributes screens, switches the product form no longer offers, model fields, `api_client.dart` calls | Deleted in the PR that replaces them | `flutter analyze` clean; `desktop/test/reachable_features_test.dart` and `desktop/test/workspace_tab_bodies_test.dart` pass; no `api_client.dart` method left with no caller |
+| Seeds and demo data | The seed scripts and `system_seed` stop writing what was removed | The seeders run clean on a fresh store; a `grep` for the removed names in `backend/scripts` returns nothing |
+| Tests | A test of removed behaviour is deleted or rewritten for the new behaviour, never skipped or left asserting something that can no longer happen | No new `skip` or `xfail`; the rewritten files pass |
+| Docs | `docs/BUSINESS_PROFILE_FRAMEWORK.md`, `docs/CUSTOM_FIELDS_FRAMEWORK.md`, `docs/TABLE_CATALOGUE.md` and the features guide say what is true now; the rule in `CLAUDE.md` about required attributes is rewritten by a session with the owner, since the unattended run may not edit that file | `tests/unit/test_claude_md_names_real_things.py` passes |
+
+Two cautions. **Remove only what this entry made dead**: a column that looks unused but belongs to another feature is reported, not dropped. **And a drop is the last thing in its step**, after the code that read it has merged and the stores are migrated, so no running backend reads a column that has gone (the order that bit on 2026-10-06 with `entered_quantity`).
+
 **To settle before building.**
 
 | # | Question | Leaning |
@@ -6298,4 +6313,4 @@ Not taken up: relabelling a heading by trade (Marg only), and a company-level sw
 
 Everything else waits for a customer to ask. **Do not chase breadth:** the product is strongest where it is particular about distribution -- the buying and selling chain, schemes, routes, expiry and licences -- and a feature added only because a larger tool has it costs upkeep without giving anybody a reason to buy.
 
-**Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs. Each step merges on its own and leaves the application working.
+**Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs; (6) a closing sweep that answers every row of the clean-up table above and lists, in the PR, what was removed and what was found unused but left alone. Each step merges on its own and leaves the application working.
