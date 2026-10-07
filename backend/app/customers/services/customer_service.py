@@ -9,7 +9,6 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.business.gating import assert_feature_fields
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
@@ -170,13 +169,6 @@ class CustomerService:
                 None, code_column=Customer.code, firm_id=firm_id, actor_id=actor_id
             )
             data = data.model_copy(update={"code": issued})
-        # A shelf-life requirement is about expiry dates (backlog 79 row 6).
-        assert_feature_fields(
-            self._session,
-            firm_id,
-            feature="EXPIRY_TRACKING",
-            values={"minimum_shelf_life_days": data.minimum_shelf_life_days},
-        )
         pan = self._settled_pan(
             firm_id,
             pan=data.pan_number,
@@ -313,13 +305,6 @@ class CustomerService:
         rather than by the database at commit.
         """
         self._assert_unique(customer.firm_id, data, excluding_id=customer.id)
-        if "minimum_shelf_life_days" in data.model_fields_set:
-            assert_feature_fields(
-                self._session,
-                customer.firm_id,
-                feature="EXPIRY_TRACKING",
-                values={"minimum_shelf_life_days": data.minimum_shelf_life_days},
-            )
         # Partial on update: a field the caller never mentioned keeps what the
         # row holds. Every optional field on the write model has a default, so
         # dumping in full turns an omission into an instruction -- the shape

@@ -683,7 +683,10 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ),
-      if (widget.features.isEnabled('EXPIRY_TRACKING'))
+      // The product's own switches decide, not the firm's profile: the
+      // server refuses a date the product does not track. A product not in
+      // the list is unknown, and unknown is offered.
+      if (product == null || product.trackExpiry)
         DocumentField(
           label: line.expiryRequired ? 'Expiry date (required)' : 'Expiry date',
           width: 258,
@@ -697,7 +700,7 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
                 : () => _setState(() => line.expiryDate = ''),
           ),
         ),
-      if (widget.features.isEnabled('MANUFACTURING_DATE'))
+      if (product == null || product.trackManufacturingDate)
         DocumentField(
           label: 'Manufactured on',
           width: 258,

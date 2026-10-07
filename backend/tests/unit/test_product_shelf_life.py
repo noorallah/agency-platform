@@ -16,7 +16,6 @@ from sqlalchemy import select
 
 from app.batch_serial.models import BatchRecord
 from app.batch_serial.services.batch_serial_service import expiry_from_shelf_life
-from app.business.models import BusinessFeature
 from app.goods_receipt.models import GoodsReceiptLine
 from app.goods_receipt.services import GoodsReceiptService
 from app.products.schemas.product import ProductCreate
@@ -37,12 +36,14 @@ def _receive(fixture: _Fixture, **line: object) -> object:
     )
 
 
-def _enable(fixture: _Fixture, *codes: str) -> None:
-    """Turn features on for every profile in the store."""
-    for code in codes:
-        fixture.session.add(
-            BusinessFeature(code=code, name=code.title(), default_enabled=True)
-        )
+def _track(fixture: _Fixture, *switches: str) -> None:
+    """Switch tracking on for the fixture's product.
+
+    The product's own switches decide what its batch carries, never the
+    firm's profile (backlog 89).
+    """
+    for switch in switches:
+        setattr(fixture.product, switch, True)
     fixture.session.commit()
 
 
@@ -72,7 +73,7 @@ def test_the_expiry_is_the_manufacturing_date_plus_the_shelf_life(
 
 def test_a_receipt_with_only_a_manufacturing_date_gets_its_expiry() -> None:
     fixture = _Fixture(_session_factory()(), "SHL1")
-    _enable(fixture, "EXPIRY_TRACKING", "MANUFACTURING_DATE", "SHELF_LIFE")
+    _track(fixture, "track_expiry", "track_manufacturing_date")
     fixture.product.shelf_life_days = 180
     fixture.session.commit()
 
@@ -101,7 +102,7 @@ def test_a_receipt_with_only_a_manufacturing_date_gets_its_expiry() -> None:
 
 def test_a_typed_expiry_stands() -> None:
     fixture = _Fixture(_session_factory()(), "SHL2")
-    _enable(fixture, "EXPIRY_TRACKING")
+    _track(fixture, "track_expiry")
     fixture.product.shelf_life_days = 180
     fixture.session.commit()
 
@@ -118,7 +119,7 @@ def test_a_typed_expiry_stands() -> None:
 
 def test_a_product_with_no_shelf_life_fills_nothing() -> None:
     fixture = _Fixture(_session_factory()(), "SHL3")
-    _enable(fixture, "EXPIRY_TRACKING")
+    _track(fixture, "track_expiry")
 
     receipt = _receive(
         fixture, batch_number="B-803", manufacturing_date=date(2026, 8, 1)
@@ -128,8 +129,8 @@ def test_a_product_with_no_shelf_life_fills_nothing() -> None:
     assert line.expiry_date is None
 
 
-def test_a_firm_that_does_not_track_expiry_gets_none_filled() -> None:
-    """Filling an expiry the profile would then refuse would stop the receipt."""
+def test_a_product_that_does_not_track_expiry_gets_none_filled() -> None:
+    """Filling an expiry its batch would then be refused would stop the receipt."""
     fixture = _Fixture(_session_factory()(), "SHL4")
     fixture.product.shelf_life_days = 180
     fixture.session.commit()

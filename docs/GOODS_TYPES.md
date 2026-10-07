@@ -136,8 +136,8 @@ two saves in `ProductService` that call it.
 - **The firm's business profile is no longer asked about a product's own
   fields.** The four checks `ProductService` made on save -- barcode, QR
   code, warranty, shelf life -- are gone (step 2); a firm on any profile
-  records them. The batch and serial routes still ask the profile until
-  step 4.
+  records them. The batch and serial routes stopped asking the profile in
+  step 4 (2026-10-08): the product's own switches decide.
 - Every add, change, removal and change of use writes an audit row
   (`goods_type.created`, `.updated`, `.deleted`, `.use_changed`).
 
@@ -201,15 +201,15 @@ the list.
 | 1. The goods type, the two columns, the migration and the seeds | **Built 2026-10-08, not yet tested by hand** |
 | 2. Product save and the product form | **Built 2026-10-08, not yet tested by hand** |
 | 3. Unit sets and their picker on the product form | **Built 2026-10-08, not yet tested by hand** (`docs/UOM_FRAMEWORK.md`, *Unit sets*) |
-| 4. Batch and serial checks read the product | Not started: the firm's profile still decides whether batches, expiry and serial numbers may be used |
+| 4. Batch and serial checks read the product | **Built 2026-10-08, not yet tested by hand.** Adding a batch, lot or serial by hand needs the product's `track_batch` / `track_lot` / `track_serial`; expiry, manufacturing and warranty fields need `track_expiry`, `track_manufacturing_date`, `track_warranty`. Existing records can always be changed or removed. A goods receipt still creates its batch. The six profile features no longer enforce anything (`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, *What a product's switches allow*) |
 | 5. Extra fields and compulsory rules by goods type | Not started |
 | 6. Menus, import, the profile clean-up, the docs | Not started |
 | 7. Closing sweep | Not started |
 
-So after step 3 a goods type decides how a **new** product starts, what its
-form shows and which unit sets it is offered first. What a firm may record on a batch or a serial number is
-still the profile's to refuse until step 4, and extra fields are still
-resolved by profile and category until step 5.
+So after step 4 a goods type decides how a **new** product starts, what its
+form shows and which unit sets it is offered first, and the product's switches
+(not the profile) decide what may be recorded on a batch or a serial number.
+Extra fields are still resolved by profile and category until step 5.
 
 ## Related
 

@@ -20,8 +20,9 @@ WHOLESALE, ELECTRONICS and so on. That profile answers four questions:
 | What units does it buy and sell in? | **UOM defaults** |
 
 Nothing about an industry is hardcoded into an entity. A pharmacy tracks expiry
-dates because its profile enables `EXPIRY_TRACKING`, not because `BatchRecord`
-has a pharmacy branch in its code.
+dates because the product carries a `track_expiry` switch (since 2026-10-08;
+before that, because its profile enabled `EXPIRY_TRACKING`), not because
+`BatchRecord` has a pharmacy branch in its code.
 
 ## Why it is worth having
 
@@ -34,12 +35,14 @@ the same endpoints run a chemist and a garment wholesaler. Onboarding a new
 industry is a row in `business_profiles` plus its feature and module mappings —
 a migration, not a release branch.
 
-**A capability is declared once and enforced everywhere.** `EXPIRY_TRACKING` is
-a single row; the batch service, the product form and the desktop menu all read
-that one answer. Turning it off cannot leave a stray code path still accepting
-expiry dates — that defect actually happened, in `products`, when a private
-resolver filtered neither `is_active` nor `is_deleted` while every
-`require_feature` endpoint refused correctly. One resolver, one answer.
+**A capability is declared once and enforced everywhere.** A feature is a
+single row; the service, the form and the desktop menu all read that one
+answer. Turning it off cannot leave a stray code path still accepting the
+field — that defect actually happened, in `products`, when a private resolver
+filtered neither `is_active` nor `is_deleted` while every `require_feature`
+endpoint refused correctly. One resolver, one answer. (Batches, serial numbers
+and expiry dates were the example here; since 2026-10-08 the product's own
+switches decide those, and the profile no longer does.)
 
 **The server is authoritative, not the client.** The desktop's
 `/active-modules` filtering only hides menu entries. Gating lives in the
@@ -317,6 +320,8 @@ Read live from `profile_features` on 2026-08-12:
 | SERVICE | APPROVAL_WORKFLOW, ATTACHMENTS |
 | CUSTOM | *(none — configured per deployment)* |
 
+Since 2026-10-08 `BATCH_TRACKING`, `SERIAL_NUMBER`, `EXPIRY_TRACKING`, `MANUFACTURING_DATE`, `SHELF_LIFE` and `WARRANTY` in this table enforce nothing; the product's own switches decide, and backlog 89 step 6 removes the rows.
+
 Module counts run 10–12 per profile: RESTAURANT and SERVICE get 12 (they add
 `KITCHEN`/`RECIPES` and `PROJECTS`/`CONTRACTS`), ELECTRONICS and MANUFACTURING
 11, everyone else the 10 core workspaces.
@@ -472,8 +477,8 @@ everything below is still how a profile governs a firm.
 ### Two enforcement shapes, and when to use which
 
 **`require_feature("CODE")` gates a whole endpoint.** Right when the feature
-owns its own resource: a firm without `BATCH_TRACKING` has no business posting a
-batch at all. Applied as a route dependency, exactly like `require_permission`.
+owns its own resource (it once sat on every batch and serial write, until
+2026-10-08 moved that question to the product). Applied as a route dependency, exactly like `require_permission`.
 
 **`assert_feature_fields(...)` gates a capability, not a resource.** Most
 features are optional *fields* on a resource every firm uses. Gating the
@@ -488,46 +493,38 @@ freeze every record that already carried the field. A firm whose store resolves
 no profile *and* no default is never gated, because a configuration gap is not a
 decision.
 
-### Enforced as of 2026-08-12 — 11 of 21 features
+### Enforced as of 2026-08-12 (rows removed as steps of backlog 89 land)
 
 **Changed 2026-10-08 (backlog 89, step 2): the product save no longer asks
 the profile anything.** `BARCODE`, `QR_CODE`, and on a product `WARRANTY`
 (`track_warranty`) and `SHELF_LIFE` (`shelf_life_days`), are plain product
 fields; the rows for them are gone from the table below, which is why it
 now lists nine. The codes are still in the catalogue and on the profiles
-until §89's clean-up step withdraws them, and `batch_serial` still enforces
-its own rows until step 4. `docs/GOODS_TYPES.md` says what fills a product
-now.
+until §89's clean-up step withdraws them. `docs/GOODS_TYPES.md` says what
+fills a product now.
+
+**Changed 2026-10-08 (backlog 89, step 4, not yet tested by hand): batches,
+serial numbers and their dates no longer ask the profile either.**
+`BATCH_TRACKING`, `SERIAL_NUMBER`, `EXPIRY_TRACKING`, `MANUFACTURING_DATE`,
+`SHELF_LIFE` and `WARRANTY` are still recorded on the catalogue and on profiles
+but are **enforced nowhere**; step 6 of backlog 89 removes them. The question
+moved to the product's own switches (`track_batch`, `track_serial`,
+`track_expiry`, `track_manufacturing_date`, `track_warranty`), which
+`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md` and `docs/GOODS_TYPES.md` describe.
 
 | Feature | Shape | Where | Refused when |
 | --- | --- | --- | --- |
-| `BATCH_TRACKING` | endpoint | `batch_serial` (6 routes) | any batch write |
-| `SERIAL_NUMBER` | endpoint | `batch_serial` (3 routes) | any serial write |
-| `EXPIRY_TRACKING` | field | `batch_serial` | `expiry_date`, `best_before_date` |
-| `MANUFACTURING_DATE` | field | `batch_serial` | `manufacturing_date` |
-| `SHELF_LIFE` | field | `batch_serial` | `shelf_life_days` |
-| `WARRANTY` | field | `batch_serial` | warranty fields |
 | `DRUG_LICENSE` | field | `vendors` | licence fields |
+| `BATCH_PTR_PTS` | field | `batch_serial`, `goods_receipt`, `pricing` | `ptr`, `pts` |
 | `ATTACHMENTS` | field | all 7 transactional modules | `attachments` |
 | `VEHICLE_TRACKING` | field | `delivery_note`, `goods_receipt` | `vehicle`, `driver`, `vehicle_number` |
 
-Verified live against WHOLE01, whose WHOLESALE profile enables `BATCH_TRACKING`
-but not `EXPIRY_TRACKING`:
-
-```
-POST /api/v1/batch-serial/batches   {"batch_number":"…","quantity":"10"}
-  → 201 Created
-
-POST /api/v1/batch-serial/batches   {"batch_number":"…","quantity":"10",
-                                     "expiry_date":"2027-01-31"}
-  → 403 {"code":"authorization_denied",
-         "message":"This firm's business profile does not enable
-                    EXPIRY_TRACKING, so expiry_date cannot be set."}
-```
-
-The firm can still keep batches. It just cannot give one an expiry date, which
-is precisely what the feature is about. That is the distinction the two shapes
-exist to express.
+*Note, 2026-10-08.* This section used to show a live refusal on WHOLE01: a
+batch carrying an expiry date was answered 403 because the WHOLESALE profile
+lacked `EXPIRY_TRACKING`. That gate is gone. The same request is now judged by
+the product's `track_expiry` switch and answered 422 (see
+`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`). The two shapes above still stand
+for the features that remain.
 
 ### Declared but deliberately ungated — 3 features
 
@@ -850,8 +847,8 @@ amendment? Treat it as its own design round.
 
 *Moved out of `CLAUDE.md` on 2026-09-15 when that file passed the 150k-character limit.*
 
-- Enforce server-side with `require_feature("CODE")` / `require_module("CODE")` from `app/business/gating.py`, used exactly like `require_permission`. They are **write-only**: safe methods always pass, so enabling a gate can never hide data a firm already has. A firm with no profile resolves to the platform default (GENERIC). Those gate a whole **endpoint**, which only suits a feature that owns its own resource. Most features are optional *fields* on a resource every firm uses, so gating the endpoint would stop a firm creating products because it does not scan barcodes: for those call `assert_feature_fields(session, firm_id, feature=..., values={...})` from the service, which refuses the write only when it populates one of the named fields. Blank and unchanged always pass, and a firm with no resolvable profile is never gated — a configuration gap is not a decision. **Enforced as of 2026-08-12 — 11 of the 16 that exist, out of 22 declared:** `BATCH_TRACKING` and `SERIAL_NUMBER` (endpoints), plus `EXPIRY_TRACKING`, `MANUFACTURING_DATE`, `SHELF_LIFE`, `WARRANTY`, `BARCODE`, `QR_CODE`, `DRUG_LICENSE`, `ATTACHMENTS` (all seven transactional modules) and `VEHICLE_TRACKING` (`delivery_note`, `goods_receipt`) (fields). Gating makes the seeded profile assignments load-bearing: if a profile omits a feature its firms were using, they lose that field. **`TERRITORY` is deliberately still ungated** — only AGENCY and WHOLESALE enable it, so enforcing it would take territory and route management away from the other nine profiles including PHARMACY, FOOD and RETAIL, all of which plausibly sell by territory on a distribution platform. The seed assignment is the thing that looks wrong, not the code; deferred on 2026-08-10 pending a decision about which profiles should have it, or whether territory is core and should not be a switch at all. `APPROVAL_WORKFLOW` and `MULTIPLE_WAREHOUSES` are ungated for the same reason: each needs a product decision first.
+- Enforce server-side with `require_feature("CODE")` / `require_module("CODE")` from `app/business/gating.py`, used exactly like `require_permission`. They are **write-only**: safe methods always pass, so enabling a gate can never hide data a firm already has. A firm with no profile resolves to the platform default (GENERIC). Those gate a whole **endpoint**, which only suits a feature that owns its own resource. Most features are optional *fields* on a resource every firm uses, so gating the endpoint would stop a firm creating products because it does not scan barcodes: for those call `assert_feature_fields(session, firm_id, feature=..., values={...})` from the service, which refuses the write only when it populates one of the named fields. Blank and unchanged always pass, and a firm with no resolvable profile is never gated — a configuration gap is not a decision. **Enforced as of 2026-10-08 (backlog 89, steps 2 and 4):** only `DRUG_LICENSE`, `ATTACHMENTS` (all seven transactional modules), `VEHICLE_TRACKING` (`delivery_note`, `goods_receipt`) and `BATCH_PTR_PTS`, all fields. `BARCODE`, `QR_CODE`, `BATCH_TRACKING`, `SERIAL_NUMBER`, `EXPIRY_TRACKING`, `MANUFACTURING_DATE`, `SHELF_LIFE` and `WARRANTY` were enforced on 2026-08-12 and are not now; the product's own switches decide, and step 6 removes the rows. Gating makes the seeded profile assignments load-bearing: if a profile omits a feature its firms were using, they lose that field. **`TERRITORY` is deliberately still ungated** — only AGENCY and WHOLESALE enable it, so enforcing it would take territory and route management away from the other nine profiles including PHARMACY, FOOD and RETAIL, all of which plausibly sell by territory on a distribution platform. The seed assignment is the thing that looks wrong, not the code; deferred on 2026-08-10 pending a decision about which profiles should have it, or whether territory is core and should not be a switch at all. `APPROVAL_WORKFLOW` and `MULTIPLE_WAREHOUSES` are ungated for the same reason: each needs a product decision first.
 
 - The desktop's `/active-modules` filtering is cosmetic and is *not* a security boundary — it only hides menu entries.
 
-- A 2026-08-10 survey split the 21 declared features: **12 have backing code** and are gateable (`EXPIRY_TRACKING`, `MANUFACTURING_DATE`, `SHELF_LIFE`, `WARRANTY`, `DRUG_LICENSE`, `VEHICLE_TRACKING`, `TERRITORY`, `BARCODE`, `QR_CODE`, `ATTACHMENTS`, `APPROVAL_WORKFLOW`, `MULTIPLE_WAREHOUSES`), and **7 had none in either application** — `IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`, `COMMISSION`, `SERVICE_CONTRACTS`, `PROJECT_MANAGEMENT`. Those seven are kept as roadmap and carry `business_features.is_implemented = false` (`20260810_0059`), which the service refuses to enable. **Six now: `COMMISSION` came off the list on 2026-09-03** (`20260903_0107`), because `app/commission` shipped on 2026-08-23 and the flag outlived the fact, so an administrator was refused a feature the platform had — **a flag recording what the codebase does has to be revisited when the codebase does it**, and nothing but a survey will find the next one; the same migration withdrew the 17 profile claims that advertised them, including PHARMACY's `PRESCRIPTION_REQUIRED` and RESTAURANT's `KITCHEN_MANAGEMENT`. `is_implemented` is a fact about the codebase and is deliberately **not** `is_active`, which is an administrator's choice. **The catalogue lives in every firm store, not in `platform`** — migrate each firm target, and remember a firm's assignment is only visible from its own store (querying `firm_shared` makes the two dedicated-store firms look unassigned). Features and modules are toggled from the desktop administration workspace, which calls `setBusinessProfileFeatures` / `setBusinessProfileModules` on save. `docs/BUSINESS_PROFILE_FRAMEWORK.md` is verified against the running backend on 2026-08-12.
+- A 2026-08-10 survey split the 21 declared features: **12 have backing code** and are gateable (as of that survey; `EXPIRY_TRACKING`, `MANUFACTURING_DATE`, `SHELF_LIFE` and `WARRANTY` no longer are, see 2026-10-08 above) (`EXPIRY_TRACKING`, `MANUFACTURING_DATE`, `SHELF_LIFE`, `WARRANTY`, `DRUG_LICENSE`, `VEHICLE_TRACKING`, `TERRITORY`, `BARCODE`, `QR_CODE`, `ATTACHMENTS`, `APPROVAL_WORKFLOW`, `MULTIPLE_WAREHOUSES`), and **7 had none in either application** — `IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`, `COMMISSION`, `SERVICE_CONTRACTS`, `PROJECT_MANAGEMENT`. Those seven are kept as roadmap and carry `business_features.is_implemented = false` (`20260810_0059`), which the service refuses to enable. **Six now: `COMMISSION` came off the list on 2026-09-03** (`20260903_0107`), because `app/commission` shipped on 2026-08-23 and the flag outlived the fact, so an administrator was refused a feature the platform had — **a flag recording what the codebase does has to be revisited when the codebase does it**, and nothing but a survey will find the next one; the same migration withdrew the 17 profile claims that advertised them, including PHARMACY's `PRESCRIPTION_REQUIRED` and RESTAURANT's `KITCHEN_MANAGEMENT`. `is_implemented` is a fact about the codebase and is deliberately **not** `is_active`, which is an administrator's choice. **The catalogue lives in every firm store, not in `platform`** — migrate each firm target, and remember a firm's assignment is only visible from its own store (querying `firm_shared` makes the two dedicated-store firms look unassigned). Features and modules are toggled from the desktop administration workspace, which calls `setBusinessProfileFeatures` / `setBusinessProfileModules` on save. `docs/BUSINESS_PROFILE_FRAMEWORK.md` is verified against the running backend on 2026-08-12.

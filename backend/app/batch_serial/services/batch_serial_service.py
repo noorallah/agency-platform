@@ -29,8 +29,13 @@ from app.batch_serial.schemas.batch_serial import (
     SerialListFilters,
     SerialUpdate,
 )
+from app.batch_serial.services.product_tracking import (
+    assert_product_fields,
+    assert_product_keeps,
+    tracked_product,
+)
 from app.branches.models import Branch, Warehouse
-from app.business.gating import assert_feature_fields, feature_enabled
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
@@ -84,6 +89,15 @@ _AUDITED_FIELDS: dict[str, tuple[str, ...]] = {
         "current_owner",
     ),
 }
+
+
+def _changed(record: object, values: Mapping[str, object]) -> dict[str, object]:
+    """Return the submitted values that differ from what the record holds."""
+    return {
+        name: value
+        for name, value in values.items()
+        if getattr(record, name, None) != value
+    }
 
 
 def _snapshot(entity_type: str, record: object) -> dict[str, object]:
@@ -316,33 +330,33 @@ class BatchSerialService:
             raise ResourceNotFoundError(f"Batch {batch_id} not found.")
         return row
 
-    def _assert_batch_features(
-        self, firm_scope: UUID, values: Mapping[str, object]
+    def _assert_batch_fields(
+        self, firm_scope: UUID, product: Product, values: Mapping[str, object]
     ) -> None:
-        """Check the optional batch fields against the firm's profile.
+        """Check a batch's optional fields against what its product tracks.
 
-        A firm without EXPIRY_TRACKING can still record batches; it just
-        cannot date them. Gating the endpoint would have stopped it recording
-        batches at all, which is BATCH_TRACKING's job, not this one.
+        The dates are the product's own question (backlog 89): a paint that
+        tracks no expiry is refused an expiry date in a firm that also sells
+        medicines, and a medicine is allowed one whatever the firm's profile
+        says. The trade rates stay a feature of the firm, since which prices a
+        distributor keeps per batch is about its trade and not about one
+        product.
         """
-        for feature, fields in (
-            ("EXPIRY_TRACKING", ("expiry_date", "best_before_date")),
-            ("MANUFACTURING_DATE", ("manufacturing_date",)),
-            ("SHELF_LIFE", ("shelf_life_days",)),
-            ("BATCH_PTR_PTS", ("ptr", "pts")),
-        ):
-            assert_feature_fields(
-                self._session,
-                firm_scope,
-                feature=feature,
-                values={name: values.get(name) for name in fields},
-            )
+        assert_product_fields(product, values)
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="BATCH_PTR_PTS",
+            values={name: values.get(name) for name in ("ptr", "pts")},
+        )
 
     def create_batch(
         self, *, firm_scope: UUID, actor_id: UUID, data: BatchCreate
     ) -> BatchRecord:
-        """Record a batch of a product."""
-        self._assert_batch_features(firm_scope, data.model_dump())
+        """Record a batch of a product that is tracked by batch."""
+        product = tracked_product(self._session, firm_scope, data.product_id)
+        assert_product_keeps(product, "batch")
+        self._assert_batch_fields(firm_scope, product, data.model_dump())
         assert_trade_rates_within_mrp(mrp=data.mrp, ptr=data.ptr, pts=data.pts)
         record = BatchRecord(
             firm_id=firm_scope,
@@ -453,10 +467,11 @@ class BatchSerialService:
             )
             return existing
         assert_trade_rates_within_mrp(mrp=mrp, ptr=ptr, pts=pts)
-        self._assert_batch_features(
-            firm_scope,
-            {"expiry_date": expiry_date, "best_before_date": None},
-        )
+        product = tracked_product(self._session, firm_scope, product_id)
+        # Not asked whether the product is tracked by batch: goods that have
+        # arrived have to be receivable. Whether the batch may be dated is
+        # the product's own switch.
+        self._assert_batch_fields(firm_scope, product, {"expiry_date": expiry_date})
         record = BatchRecord(
             firm_id=firm_scope,
             product_id=product_id,
@@ -467,18 +482,12 @@ class BatchSerialService:
             expiry_date=expiry_date,
             # As typed off the carton, with the product's shelf life that
             # filled the expiry where only this date was given (STK-18) --
-            # each kept only where the firm's profile has the feature, since a
-            # receipt never refused them and must not start to.
+            # each kept only where the product tracks it, since a receipt
+            # never refused them and must not start to.
             manufacturing_date=(
-                manufacturing_date
-                if feature_enabled(self._session, firm_scope, "MANUFACTURING_DATE")
-                else None
+                manufacturing_date if product.track_manufacturing_date else None
             ),
-            shelf_life_days=(
-                shelf_life_days
-                if feature_enabled(self._session, firm_scope, "SHELF_LIFE")
-                else None
-            ),
+            shelf_life_days=shelf_life_days if product.track_expiry else None,
             mrp=mrp,
             selling_price=selling_price,
             ptr=ptr,
@@ -610,7 +619,13 @@ class BatchSerialService:
             "batch_number": record.batch_number,
         }
         update_data = data.model_dump(exclude_unset=True)
-        self._assert_batch_features(firm_scope, update_data)
+        # Only what this save changes is judged, so a batch dated before its
+        # product stopped tracking expiry can still be held or recalled.
+        self._assert_batch_fields(
+            firm_scope,
+            tracked_product(self._session, firm_scope, record.product_id),
+            _changed(record, update_data),
+        )
         # Judged on what the batch will hold, so lowering the MRP under a
         # standing PTR is refused as surely as raising the PTR over it.
         assert_trade_rates_within_mrp(
@@ -1065,13 +1080,10 @@ class BatchSerialService:
     def create_lot(
         self, *, firm_scope: UUID, actor_id: UUID, data: LotCreate
     ) -> LotRecord:
-        """Record a production lot."""
-        assert_feature_fields(
-            self._session,
-            firm_scope,
-            feature="EXPIRY_TRACKING",
-            values={"expiry_date": data.expiry_date},
-        )
+        """Record a production lot of a product tracked by lot or by batch."""
+        product = tracked_product(self._session, firm_scope, data.product_id)
+        assert_product_keeps(product, "lot")
+        assert_product_fields(product, {"expiry_date": data.expiry_date})
         record = LotRecord(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -1122,11 +1134,9 @@ class BatchSerialService:
         record = self.get_lot(firm_scope=firm_scope, lot_id=lot_id)
         assert_version(record.version, expected_version)
         update_data = data.model_dump(exclude_unset=True)
-        assert_feature_fields(
-            self._session,
-            firm_scope,
-            feature="EXPIRY_TRACKING",
-            values={"expiry_date": update_data.get("expiry_date")},
+        assert_product_fields(
+            tracked_product(self._session, firm_scope, record.product_id),
+            _changed(record, update_data),
         )
         for field, value in update_data.items():
             setattr(record, field, value)
@@ -1242,12 +1252,12 @@ class BatchSerialService:
     def create_serial(
         self, *, firm_scope: UUID, actor_id: UUID, data: SerialCreate
     ) -> SerialNumber:
-        """Record a serial number."""
-        assert_feature_fields(
-            self._session,
-            firm_scope,
-            feature="WARRANTY",
-            values={
+        """Record a serial number of a product tracked by serial."""
+        product = tracked_product(self._session, firm_scope, data.product_id)
+        assert_product_keeps(product, "serial number")
+        assert_product_fields(
+            product,
+            {
                 "warranty_start": data.warranty_start,
                 "warranty_end": data.warranty_end,
             },
@@ -1303,14 +1313,9 @@ class BatchSerialService:
         record = self.get_serial(firm_scope=firm_scope, serial_id=serial_id)
         assert_version(record.version, expected_version)
         update_data = data.model_dump(exclude_unset=True)
-        assert_feature_fields(
-            self._session,
-            firm_scope,
-            feature="WARRANTY",
-            values={
-                name: update_data.get(name)
-                for name in ("warranty_start", "warranty_end")
-            },
+        assert_product_fields(
+            tracked_product(self._session, firm_scope, record.product_id),
+            _changed(record, update_data),
         )
         for field, value in update_data.items():
             setattr(record, field, value)

@@ -1819,6 +1819,7 @@ def build_electronics_firm(built: Built) -> None:
             "sales_uom_id": piece,
             "purchase_uom_id": piece,
             "track_serial": True,
+            "track_warranty": True,
         },
     )
     opening = admin.call(

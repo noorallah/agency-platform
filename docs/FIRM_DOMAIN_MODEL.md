@@ -170,7 +170,7 @@ store by name rather than the caller's.
 
 | It decides | How | Enforced? |
 | --- | --- | --- |
-| Whether a write may populate a feature's fields | `assert_feature_fields` in the owning service; `require_feature` on the few endpoints that own a resource outright | Yes, for 11 of 22 declared features; reads always pass |
+| Whether a write may populate a feature's fields | `assert_feature_fields` in the owning service; `require_feature` on the few endpoints that own a resource outright | Yes, for 4 of the declared features (`DRUG_LICENSE`, `ATTACHMENTS`, `VEHICLE_TRACKING`, `BATCH_PTR_PTS`, as of 2026-10-08); reads always pass |
 | Which custom fields a form offers and a save accepts | `attribute_definitions.applicable_business_profile_id`: null means every profile, a value means that one | Yes, on every save |
 | Which fields are mandatory per product category | `category_attribute_rules` scoped to profile and category | Yes, on product save |
 | Which units a new product starts with | `unit_sets`, chosen on the new-product form (copied; `products.unit_set_id` records which) | Copied onto the product, not enforced; with no set chosen nothing is pre-filled (changed 2026-10-08, the profile no longer says anything about units) |

@@ -2366,6 +2366,17 @@ def _seed_products(
             if existing.track_serial != product.requires_serial:
                 existing.track_serial = product.requires_serial
                 changed = True
+            # The fifth: what a batch or a serial may carry is the product's
+            # own switch now, not the firm's profile (backlog 89). A traced
+            # product's batches are dated and a numbered one's units carry a
+            # warranty, so a store seeded before this is switched on here --
+            # only ever on, so a switch somebody set by hand is left alone.
+            if product.requires_batch and not existing.track_expiry:
+                existing.track_expiry = True
+                changed = True
+            if product.requires_serial and not existing.track_warranty:
+                existing.track_warranty = True
+                changed = True
             if not (existing.hsn_sac or "").strip() and product.hsn_sac:
                 existing.hsn_sac = product.hsn_sac
                 changed = True
@@ -2426,6 +2437,8 @@ def _seed_products(
                 status=ProductStatus.ACTIVE,
                 track_batch=product.requires_batch,
                 track_serial=product.requires_serial,
+                track_expiry=product.requires_batch,
+                track_warranty=product.requires_serial,
                 # Both sides. Opening stock carries a batch now, so a traced
                 # product has no untracked stock to strand: everything it holds
                 # arrived in a batch and can therefore leave from one.

@@ -807,6 +807,17 @@ warehouse rename its capability flags.
 - **Expect:** the list shows the eight shared sets marked Shared, with their goods types (*Bottle, carton of 24* under Medicine, Food and Cosmetics; *Piece, loose* as All goods). A shared set cannot be edited or deleted and says so. The firm's own set saves; the repeated name is refused by name; the factor between one and the same unit is refused. On *Tablets* the list offers Medicine's sets and the two tied to no type, and *Show all* adds the rest. Choosing a set fills the unit boxes, Allow decimal and the conversion box, all still editable. `US-1` has Strip/Box/Strip and its own rule 1 Box = 10 Strip; `US-2` 15; `US-3` Carton and 120 with the base unit still Strip. `US-4` saves with no refusal and no warning. `US-5` has no units and no rule; nothing was pre-filled. `US-6` has its own rule 1 Box = 12 Piece. The back-dated order line converts to 20 Strip. `US-7` keeps Case and 6 after the edit and after the delete; `US-8` took 12. Editing `US-1` shows *Units from: Strip, box of 10*, no unit set list and no conversion box. The sales manager reads the list and is refused the add. The second firm sees the shared sets and not *Jar, case of 6*. Opening the product form makes no call to `/uom-framework/unit-sets` and none for a profile's default units.
 - **Leaves:** eight products, one deleted unit set.
 
+### TC-MAST-023 — A batch, a serial and their dates are allowed by the product's switches, not the firm's profile
+
+*Added 2026-10-08 from the code (backlog 89, step 4); **not yet run** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 89 test group on batch and serial checks
+- **Fixture:** `product-master`
+- **Also needs:** a **Sales manager** (or any user without `BATCH_CREATE`) on the same firm. The firm's profile does not matter and may have none of the expiry, batch or serial features.
+- **Steps:** as the **Firm admin**: create three products. `TR-MED`: batch, expiry and manufacturing date tracking on. `TR-PAINT`: batch tracking on, expiry off. `TR-PHONE`: serial and warranty tracking on, batch off. Then, through Inventory > Batches and Serial Numbers: (a) add a batch with an expiry date for `TR-MED`; (b) add a batch with an expiry date for `TR-PAINT`, then the same batch without the expiry; (c) add a batch for `TR-PHONE`; (d) add a serial with warranty dates for `TR-PHONE`, then a serial for `TR-PAINT`; (e) set the `TR-PAINT` batch from (b) on hold; (f) Masters > Customers: save a customer with a minimum shelf life of 90 days. As the **Sales manager**: (g) repeat (a) with a new batch number.
+- **Expect:** (a) accepted. (b) the first is refused with 422 naming `TR-PAINT` and expiry ("does not track expiry dates, so expiry_date cannot be set. Switch it on for the product first."); the second is accepted. (c) refused with 422: `TR-PHONE` is not tracked by batch. (d) the phone's serial is accepted; the paint's is refused with 422, not tracked by serial. (e) accepted, although the product's switch could now be off: an existing batch can always be held. (f) accepted on a firm whose profile has no expiry feature. (g) refused with 403 for the missing permission, and no batch is written.
+- **Leaves:** three products, two batches, one serial, one customer.
+
 
 ---
 

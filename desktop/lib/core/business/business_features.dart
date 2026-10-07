@@ -1,7 +1,7 @@
 /// Which optional fields the firm's business profile turns on.
 ///
-/// The server refuses a gated field it has not enabled -- a receipt carrying an
-/// expiry date at a firm without `EXPIRY_TRACKING` comes back 403 naming the
+/// The server refuses a gated field it has not enabled -- a receipt carrying a
+/// vehicle number at a firm without `VEHICLE_TRACKING` comes back 403 naming the
 /// feature -- and until now the client offered the field anyway, so the first
 /// anybody heard of it was a refusal on save.
 ///

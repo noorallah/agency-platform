@@ -19,7 +19,7 @@ from app.batch_serial.services.batch_serial_service import (
     expiry_from_shelf_life,
 )
 from app.branches.models import Warehouse, WarehouseStorageNode
-from app.business.gating import assert_feature_fields, feature_enabled
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.report_names import (
     branch_names,
@@ -1739,15 +1739,13 @@ class GoodsReceiptService(TransactionalDocumentService):
             # Only the manufacturing date typed: the product's shelf life
             # fills the expiry (STK-18). A typed expiry always stands.
             expiry_date = line.expiry_date
-            if (
-                expiry_date is None
-                and line.manufacturing_date is not None
-                # Never fill what the firm's profile would then refuse.
-                and feature_enabled(self._session, firm_id, "EXPIRY_TRACKING")
-            ):
+            if expiry_date is None and line.manufacturing_date is not None:
+                # Only for a product that tracks expiry: never fill what its
+                # batch would then be refused (backlog 89).
                 shelf_life = self._session.scalar(
                     select(Product.shelf_life_days).where(
-                        Product.id == purchase_line.product_id
+                        Product.id == purchase_line.product_id,
+                        Product.track_expiry.is_(True),
                     )
                 )
                 expiry_date = expiry_from_shelf_life(

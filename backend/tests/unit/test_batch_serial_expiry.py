@@ -65,6 +65,13 @@ def _firm(session: Session, code: str) -> Firm:
 
 
 def _product(session: Session, firm_id: UUID, code: str = "SKU-BS-001") -> Product:
+    """Return a product with every tracking switch on.
+
+    What a batch, a lot or a serial may carry is the product's own switch
+    (backlog 89), so the register these tests exercise needs a product that
+    tracks all of it. The refusals for one that does not are in
+    ``test_batch_checks_read_the_product.py``.
+    """
     actor_id = uuid4()
     p = Product(
         firm_id=firm_id,
@@ -72,6 +79,12 @@ def _product(session: Session, firm_id: UUID, code: str = "SKU-BS-001") -> Produ
         name=f"Product {code}",
         product_type="STOCK_ITEM",
         status="ACTIVE",
+        track_batch=True,
+        track_lot=True,
+        track_serial=True,
+        track_expiry=True,
+        track_manufacturing_date=True,
+        track_warranty=True,
         created_by=actor_id,
         updated_by=actor_id,
     )

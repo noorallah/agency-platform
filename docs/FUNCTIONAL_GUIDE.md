@@ -887,10 +887,12 @@ Modules run 10–12 per profile: RESTAURANT and SERVICE add kitchen/recipes and
 projects/contracts, ELECTRONICS and MANUFACTURING get 11, everyone else the ten
 core workspaces.
 
-**Eleven of twenty-one features are actually enforced.** `BATCH_TRACKING` and
-`SERIAL_NUMBER` gate whole endpoints; `EXPIRY_TRACKING`, `MANUFACTURING_DATE`,
-`SHELF_LIFE`, `WARRANTY`, `BARCODE`, `QR_CODE`, `DRUG_LICENSE`, `ATTACHMENTS`
-and `VEHICLE_TRACKING` gate fields. `TERRITORY`, `APPROVAL_WORKFLOW` and
+**Only four features are enforced now** (as of 2026-10-08, backlog 89):
+`DRUG_LICENSE`, `ATTACHMENTS`, `VEHICLE_TRACKING` and `BATCH_PTR_PTS` gate
+fields. `BATCH_TRACKING`, `SERIAL_NUMBER`, `EXPIRY_TRACKING`,
+`MANUFACTURING_DATE`, `SHELF_LIFE`, `WARRANTY`, `BARCODE` and `QR_CODE` were
+enforced earlier and are not now: the product's own switches decide, and the
+rows go in step 6. `TERRITORY`, `APPROVAL_WORKFLOW` and
 `MULTIPLE_WAREHOUSES` have working code and are deliberately ungated pending a
 product decision — enforcing `TERRITORY` today would take routes away from
 PHARMACY, FOOD and RETAIL, which plausibly sell by territory. Six of the
@@ -1782,11 +1784,10 @@ Read attributes for a list of records with `values_for_many`, **never per row**.
 `require_serial_on_issue` · `allow_negative_stock` · `allow_fraction` ·
 `allow_decimal`
 
-Several are gated by the business profile: setting `track_expiry` on a firm
-whose profile does not enable `EXPIRY_TRACKING` is refused **when the field is
-populated**, not when the endpoint is called — blank and unchanged always pass,
-so a firm cannot be stopped from creating a product because it does not scan
-barcodes.
+A product's own switches are no longer gated by the business profile (since
+2026-10-08): any firm may set `track_expiry` and the rest. They decide what a
+batch or serial number may carry -- an expiry date is refused on a batch of a
+product that does not track expiry (`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`).
 
 ## Batch, lot and serial
 

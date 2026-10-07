@@ -511,8 +511,8 @@ record only (no reason asked), as before.
 
 ### A customer's minimum shelf life (backlog 79 row 6)
 
-`customers.minimum_shelf_life_days` (migration 0223; the field needs the
-firm's EXPIRY_TRACKING feature) is how many days goods must have left when they
+`customers.minimum_shelf_life_days` (migration 0223; any firm may record it,
+and it only bites on goods whose product tracks expiry) is how many days goods must have left when they
 reach the customer -- a hospital or a chain often asks for six months. It is
 read on the delivery note's date as a date the goods must last to. Earliest-
 expiry allocation **passes over** a batch expiring before it, exactly as it
@@ -666,6 +666,50 @@ price, ahead of the price list. The server takes the rate it is sent, as for
 any rate.
 
 §79 is complete.
+
+### What a product's switches allow (backlog 89, 2026-10-08)
+
+Added 2026-10-08, not yet tested by hand. Whether a batch, a serial number, an
+expiry date, a manufacturing date, a shelf life or a warranty may be recorded is
+decided by **the product's own switches, never by the firm's business profile**.
+Before this, `require_feature("BATCH_TRACKING")` sat on the batch and lot writes,
+`require_feature("SERIAL_NUMBER")` on the serial writes, and
+`assert_feature_fields` refused the date fields by profile. All of that is gone.
+The rules live in `app/batch_serial/services/product_tracking.py`
+(`tracked_product`, `assert_product_keeps`, `assert_product_fields`,
+`FIELD_SWITCHES`, `RECORD_SWITCHES`).
+
+| Record or field | Product switch | Asked when | Refusal |
+| --- | --- | --- | --- |
+| Add a batch by hand | `track_batch` | `POST /batches` | 422 "<CODE> is not tracked by batch, so a batch cannot be added for it. Switch batch tracking on for the product first." |
+| Add a lot by hand | `track_lot` or `track_batch` | `POST /lots` | 422, same shape |
+| Add a serial by hand | `track_serial` | `POST /serials` | 422, same shape |
+| `expiry_date`, `best_before_date`, `shelf_life_days` | `track_expiry` | the field is filled | 422 "<CODE> does not track expiry dates, so expiry_date cannot be set. Switch it on for the product first." |
+| `manufacturing_date` | `track_manufacturing_date` | the field is filled | 422, same shape |
+| `warranty_start`, `warranty_end` | `track_warranty` | the field is filled | 422, same shape |
+
+- A field is judged only when it is filled (blank always passes), and on an
+  update only when the save actually changes it.
+- A batch, lot or serial that already exists can always be changed or removed,
+  whatever the switch says now, so a batch can still be held or recalled.
+- A goods receipt still creates its batch whatever `track_batch` says (goods that
+  arrived must be receivable; `require_batch_on_receipt` still refuses a line
+  with no batch). The receipt's batch is refused an expiry date if the product
+  does not track expiry (when the receipt completes, as before). The batch keeps
+  the manufacturing date only where the product has `track_manufacturing_date`
+  and the shelf life only where it has `track_expiry`. The line's expiry is
+  filled from manufacturing date plus the product's shelf life only for a
+  product with `track_expiry`.
+- The desktop goods receipt editors show Expiry date where the line's product
+  has `track_expiry` and Manufactured on where it has `track_manufacturing_date`;
+  a product not in the loaded list is offered both.
+- `BATCH_PTR_PTS` (price to retailer and stockist on a batch) is unchanged: it is
+  still a feature of the firm's profile, as are ATTACHMENTS, VEHICLE_TRACKING and
+  DRUG_LICENSE.
+- The feature rows `BATCH_TRACKING`, `SERIAL_NUMBER`, `EXPIRY_TRACKING`,
+  `MANUFACTURING_DATE`, `SHELF_LIFE` and `WARRANTY` still exist on the catalogue
+  and on profiles until step 6 of backlog 89 removes them. Nothing enforces them.
+  See `docs/GOODS_TYPES.md`.
 
 ### Batch-wise PTR / PTS (PG-14, backlog 86 #22, 55 G5)
 

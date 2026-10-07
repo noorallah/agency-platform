@@ -35,7 +35,6 @@ from app.batch_serial.schemas.batch_serial import ReturnDueResponse, SerialTrail
 from app.batch_serial.services import BatchSalePolicyService, BatchSerialService
 from app.batch_serial.services.expiry_rules import expiry_rules, returns_due
 from app.batch_serial.services.serial_history import serial_trail
-from app.business.gating import require_feature
 from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
@@ -259,7 +258,6 @@ def get_batch(
     "/batches",
     response_model=ApiResponse[BatchResponse],
     status_code=status.HTTP_201_CREATED,
-    dependencies=[require_feature("BATCH_TRACKING")],
 )
 def create_batch(
     data: BatchCreate,
@@ -277,7 +275,6 @@ def create_batch(
 @router.put(
     "/batches/{batch_id}",
     response_model=ApiResponse[BatchResponse],
-    dependencies=[require_feature("BATCH_TRACKING")],
 )
 def update_batch(
     batch_id: UUID,
@@ -303,7 +300,6 @@ def update_batch(
 @router.delete(
     "/batches/{batch_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[require_feature("BATCH_TRACKING")],
 )
 def delete_batch(
     batch_id: UUID,
@@ -364,7 +360,6 @@ def list_lots(
     "/lots",
     response_model=ApiResponse[LotResponse],
     status_code=status.HTTP_201_CREATED,
-    dependencies=[require_feature("BATCH_TRACKING")],
 )
 def create_lot(
     data: LotCreate,
@@ -392,7 +387,6 @@ def get_lot(
 @router.put(
     "/lots/{lot_id}",
     response_model=ApiResponse[LotResponse],
-    dependencies=[require_feature("BATCH_TRACKING")],
 )
 def update_lot(
     lot_id: UUID,
@@ -417,7 +411,6 @@ def update_lot(
 @router.delete(
     "/lots/{lot_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[require_feature("BATCH_TRACKING")],
 )
 def delete_lot(
     lot_id: UUID,
@@ -480,7 +473,6 @@ def list_serials(
     "/serials",
     response_model=ApiResponse[SerialResponse],
     status_code=status.HTTP_201_CREATED,
-    dependencies=[require_feature("SERIAL_NUMBER")],
 )
 def create_serial(
     data: SerialCreate,
@@ -522,7 +514,6 @@ def get_serial_trail(
 @router.put(
     "/serials/{serial_id}",
     response_model=ApiResponse[SerialResponse],
-    dependencies=[require_feature("SERIAL_NUMBER")],
 )
 def update_serial(
     serial_id: UUID,
@@ -547,7 +538,6 @@ def update_serial(
 @router.delete(
     "/serials/{serial_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[require_feature("SERIAL_NUMBER")],
 )
 def delete_serial(
     serial_id: UUID,

@@ -296,6 +296,15 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
 
   static String _today() => DateTime.now().toIso8601String().split('T').first;
 
+  /// Whether the line's product has a tracking switch on. A product that is
+  /// not in the list is unknown, and unknown is offered.
+  bool _tracks(String productId, bool Function(Product) on) {
+    for (final Product product in widget.products) {
+      if (product.id == productId) return on(product);
+    }
+    return true;
+  }
+
   String _productLabel(String productId) {
     for (final Product product in widget.products) {
       if (product.id == productId) return '${product.code} — ${product.name}';
@@ -862,11 +871,11 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
                         (value) => line.batchNumber = value,
                         width: 200,
                       ),
-                      // Only offered where the firm's profile enables them.
-                      // The server refuses a receipt carrying one otherwise --
-                      // a 403 naming the feature, on save, after the whole
-                      // document has been keyed.
-                      if (widget.features.isEnabled('EXPIRY_TRACKING'))
+                      // Only offered where the line's product tracks them.
+                      // The server refuses a date the product does not track,
+                      // when the receipt completes, after the whole document
+                      // has been keyed.
+                      if (_tracks(line.productId, (p) => p.trackExpiry))
                         _lineField(
                           line.expiryRequired ? 'Expiry Date *' : 'Expiry Date',
                           line.expiryDate,
@@ -874,7 +883,8 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
                           width: 180,
                           hint: 'YYYY-MM-DD',
                         ),
-                      if (widget.features.isEnabled('MANUFACTURING_DATE'))
+                      if (_tracks(
+                          line.productId, (p) => p.trackManufacturingDate))
                         _lineField(
                           'Manufacturing Date',
                           line.manufacturingDate,

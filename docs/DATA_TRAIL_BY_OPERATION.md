@@ -1283,7 +1283,8 @@ below is in the pharmacy firm's schema, `fx_<suffix>_p`.
   `batch_id`, `manufactured_date`, `current_owner`, `asset_reference` null (the
   request may name the first two; the fixture does not). Audit action
   **`CREATE`**, entity `serial_number`, no `after_data`. Warranty dates are
-  refused on a profile without the `WARRANTY` feature; Electronics has it.
+  refused (422) for a product without `track_warranty` (since 2026-10-08;
+  before that, on a profile without the `WARRANTY` feature).
 - **The screen reads** `GET /batch-serial/serials` — search is `ilike` on
   `serial_number`, the Status filter exact on `status` (`AVAILABLE`,
   `RESERVED`, `SOLD`, `INSTALLED`, `RETURNED`, `REPAIRED`, `SCRAPPED`, `LOST`).
@@ -4116,13 +4117,13 @@ caller has selected.
   | `_profile_id` (`attribute_service.py`) | the custom fields a form offers and a save demands | no profile-scoped field applies |
 
   Every store has a default today, so the three agree on the ground (D-CFG-19).
-- **The gate is write-only and field-level.** `require_feature` stops a
-  POST/PUT/DELETE on `batch-serial` endpoints (`BATCH_TRACKING`,
-  `SERIAL_NUMBER`); `assert_feature_fields` refuses a write that *fills* a
-  field of a feature the profile lacks (`EXPIRY_TRACKING`, `WARRANTY`,
-  `BARCODE`, `DRUG_LICENSE`, `ATTACHMENTS`, `VEHICLE_TRACKING`, …) — "This
-  firm's business profile does not enable WARRANTY, so warranty_end, warranty_start cannot
-  be set." **`require_module` is applied to no route**, so a module's
+- **The gate is write-only and field-level.** `assert_feature_fields` refuses
+  a write that *fills* a field of a feature the profile lacks (`DRUG_LICENSE`,
+  `ATTACHMENTS`, `VEHICLE_TRACKING`, `BATCH_PTR_PTS`) -- "This firm's business
+  profile does not enable ATTACHMENTS, so attachments cannot be set." Since
+  2026-10-08 the batch and serial routes no longer use `require_feature`, and
+  batch, serial, expiry, manufacturing and warranty fields are judged by the
+  product's own switches (`app/batch_serial/services/product_tracking.py`). **`require_module` is applied to no route**, so a module's
   endpoints answer whatever the profile says; the desktop hiding the module
   is the only effect (`docs/BUSINESS_PROFILE_FRAMEWORK.md`, "Status").
 - **`/active-features?firm_id=` reads the named firm's assignment in the
