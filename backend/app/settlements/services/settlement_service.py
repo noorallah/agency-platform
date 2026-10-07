@@ -24,7 +24,7 @@ from sqlalchemy import null as sa_null
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import firm_day_after
+from app.common.firm_metadata import firm_day_after, firm_today
 from app.common.report_names import customers_matching, vendors_matching
 from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.database.batch import children_by_parent
@@ -1253,6 +1253,16 @@ class SettlementService(TransactionalDocumentService):
             raise ValidationError(
                 "A refund returns money held on account, so it is not "
                 "applied to an invoice."
+            )
+        if data.settlement_date > firm_today(self._session, firm_id):
+            # D-UI-32: the screen's date picker offered next month and the
+            # money was recorded as moved on a day that had not come. A cheque
+            # dated ahead is held in its own register and posts nothing until
+            # it is banked, so nothing legitimate arrives here dated ahead.
+            raise ValidationError(
+                "Money cannot be recorded on a future date. A cheque dated "
+                "ahead goes in the post-dated cheques register and is recorded "
+                "the day it is banked."
             )
         _, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id

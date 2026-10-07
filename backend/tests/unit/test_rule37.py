@@ -37,6 +37,19 @@ DAY_180 = date(2027, 1, 29)
 LATER = date(2027, 2, 10)
 
 
+@pytest.fixture(autouse=True)
+def _the_story_is_told_from_march_2027(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stand where the payments are in the past.
+
+    The 180 days of a bill dated August 2026 end in 2027, and money is not
+    recorded on a day that has not come (D-UI-32).
+    """
+    monkeypatch.setattr(
+        "app.settlements.services.settlement_service.firm_today",
+        lambda *_: date(2027, 3, 31),
+    )
+
+
 def _mode(session: Session, firm_id: UUID, mode: str) -> None:
     session.add(GstComplianceSettings(firm_id=firm_id, rule37_mode=mode))
     session.commit()

@@ -345,6 +345,7 @@ able to switch the control off.**
 | `FIRM_MANAGER` | `user` / `role` / `permission` | Operating the firm and deciding who may operate it are different jobs |
 | `ACCOUNTANT` | *(holds)* `CUSTOMER_MANAGE_SETTINGS` | Credit policy governs receivables, so it belongs to the role that owns them rather than to the role it constrains |
 | `ACCOUNTANT` | *(holds)* `VENDOR_VIEW_FINANCIAL_DETAILS`, **not** `VENDOR_MANAGE_BANK_DETAILS` | Whoever pays a supplier has to read the account the money goes to, and must not be the one who says where it goes. The vendor router withholds the bank accounts without the read code and refuses a change to them without the manage code (D-MST-10); `VIEWER` holds neither, so a read-only user is served a vendor with no accounts |
+| `ACCOUNTANT`, `CASHIER` | **not** `SALES_VIEW` or `PURCHASE_VIEW`, yet they open the two bill lists | Whoever records the money against a bill reads the bill. The read routes of `/sales-invoices` take `SALES_VIEW` **or** `RECEIPT_VIEW`, and those of `/purchase-invoices` take `PURCHASE_VIEW` **or** `PAYMENT_VIEW` (D-UI-46, found on screen 2026-10-07); the module codes themselves would have opened the orders, quotations, rate contracts and supplier schemes too. Raising, changing and approving a bill still need the module's own codes. `tests/unit/test_accounts_reads_the_bills_it_settles.py` pins both halves |
 
 ## Custom roles
 

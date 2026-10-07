@@ -95,8 +95,11 @@ class ActionReasonRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
+#: Whoever pays a supplier's bill reads the bill (D-UI-46): Accounts holds
+#: `PAYMENT_VIEW` and none of the purchase codes, and `PURCHASE_VIEW` itself
+#: would have opened the orders, quotations and rate contracts with it.
 PurchaseInvoiceViewScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("PURCHASE_VIEW")
+    ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "PAYMENT_VIEW")
 ]
 #: A report opens to whoever may read the module or holds `REPORT_VIEW`
 #: (D-RPT-4).
