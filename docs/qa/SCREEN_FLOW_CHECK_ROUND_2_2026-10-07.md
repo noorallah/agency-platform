@@ -31,7 +31,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SCRQ-36 | Low | SC-RC-001 | Sell > Receipts, grid | Columns are Number, Customer, Date, Method, Cleared, Status, Amount; "Cash or Bank", "On Account", "Other Deductions" are not on screen | the book's columns, or the book says they are hidden | receipts grid definition |
 | SCRQ-37 | Medium | SC-SR-009 | New sales return editor, Save with more than can come back | The server refuses ("Return quantity exceeds what left on DN-... (9 sent, 7 already returned ...)") but the editor has already closed: the sentence is shown and everything typed is lost | The editor stays open with the typing kept (N2) | `lib/ui/sales/` sales return editor save handler |
 | SCRQ-38 | Low | SC-SR-021, SC-PO-034 | Menu, Field Sales | Sales Returns is not offered, yet `GET /sales-returns` answers 200 for the role (it holds the view code); the screen hides what the role may read | the menu offers a screen the role can read, or the code is withheld | role seed for `SALES_EXECUTIVE` / catalog tab codes |
-| SCRQ-39 | Low | SC-SR-025, SC-PB-036 | Sales returns, a Draft return; Purchase Invoices, a Draft bill | A Draft return (and a Draft supplier bill: Open, Approve, Cancel, Close, Record IRN only) has no Edit button; a wrong quantity can only be fixed by Cancel and raising a new return (so the stale-save race the book describes cannot happen) | Edit on a Draft, as the book assumes, or the book drops SR-025 | `lib/ui/sales/sales_return_management_page.dart` toolbar |
+| SCRQ-39 | Low | SC-SR-025, SC-PB-036, SC-PR-028 | Sales returns, a Draft return; Purchase Invoices, a Draft bill | A Draft return (and a Draft supplier bill: Open, Approve, Cancel, Close, Record IRN only) has no Edit button; a wrong quantity can only be fixed by Cancel and raising a new return (so the stale-save race the book describes cannot happen) | Edit on a Draft, as the book assumes, or the book drops SR-025 | `lib/ui/sales/sales_return_management_page.dart` toolbar |
 | SCRQ-40 | Medium | SC-PO-018, SC-PO-019 | New purchase order editor | The editor opens with a supplier and one product line already chosen. Press Save with nothing touched: "Purchase order created." and a Draft order for a supplier and product nobody picked is saved. Same family as SCRQ-22 for sales | An empty new order that Save refuses, naming the supplier as missing (N2, N3) | `lib/ui/purchases/` purchase order editor (first vendor / first product taken as defaults) |
 | SCRQ-41 | Medium | SC-PO-020 | New purchase order, line quantity | Quantity 0: Save does nothing and says nothing (editor open, no message). Quantity -4: the message is the raw validation text "lines 1, ordered_quantity: Input should be greater than or equal to 0" | A sentence naming the quantity ("Enter a quantity above zero") for both | purchase order editor line validation |
 | SCRQ-42 | High | SC-PO-038 | Purchase order editor, Save from a stale copy | Draft order opened for Edit; another user submits it; the first user changes the quantity to 13 and presses Save: the save goes through, the editor closes, nothing is said. The book expects "This record changed since you loaded it. Reload and try again." with the typing kept | The stale save refused (the editor should echo the ETag it loaded, `If-Match`) | `lib/ui/purchases/purchase_management_page.dart` (update call sends no version) |
@@ -95,7 +95,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | PC | Positive PASS: 1 |
 | PL | Positive PASS: 2 |
 | PO | Multi-user FAIL: 1, Multi-user PASS: 2, Multi-user SKIP: 1, Negative FAIL: 3, Negative PASS: 5, Negative SKIP: 5, Positive FAIL: 1, Positive PASS: 10, Positive SKIP: 6, Role FAIL: 1, Role PASS: 4 |
-| PR | Positive PASS: 2 |
+| PR | Multi-user PASS: 1, Multi-user SKIP: 2, Negative PASS: 9, Negative SKIP: 3, Positive PASS: 5, Positive SKIP: 4, Role PASS: 4 |
 | PY | Multi-user FAIL: 1, Multi-user PASS: 1, Multi-user SKIP: 1, Negative FAIL: 1, Negative PASS: 5, Negative SKIP: 3, Positive PASS: 4, Positive SKIP: 6, Role PASS: 4 |
 | QT | Positive PASS: 6 |
 | RC | Multi-user FAIL: 1, Multi-user PASS: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 7, Negative SKIP: 2, Positive FAIL: 2, Positive PASS: 5, Positive SKIP: 4, Role PASS: 4 |
@@ -238,8 +238,34 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-PO-038 | Multi-user | FAIL | Bad state: HIGH: a save from a stale copy went through over the other user's submit (status SUBMITTED) | `sc_po_test.dart` (tradeadmin) |
 | SC-PO-039 | Multi-user | PASS | status APPROVED, screen says "PO-T10069CWY-S-HO-2026-2027-000128 approved." | `sc_po_test.dart` (tradeadmin) |
 | SC-PO-040 | Multi-user | PASS | row reads: PO-T10069CWY-S-HO-2026-2027-000130 / Principal supplier t10069cwy / Head Office / Main Warehouse / Q acct (t10069cwy) / 2026-10-07 / STANDARD PURCHASE / Normal / Approved / 708.00 | `sc_po_test.dart` (tradeadmin) |
+| SC-PR-001 | Positive | PASS | note: :: short texts: QA Agency / > / Selling t10069cwy / Home / Sell / Buy / Stock / Accounts / Masters / Reports / Search or jump to… / Ctrl+K / 1 / Selling t10069cwy / S( / Payments / Purchase Returns / Purchase Returns / Total / 22 / Draft / 10 / Approved / 8 / Completed / 0 / Cancelled / 1 / Closed / 3 / All dates / + New / Return Number / Supplier / Supplier Return / Outcome / Return Date / Status / Grand Total / Credit / 2026-10-07 15:58 / Draft / 70.80 / Credit / 2026-10-07 15:58 / Draft / 70.80 / Credit / 2026-10-07 15:58 / Closed / 70.80 / Credit / 2026-10-07 15:58 / Approved / 70... | `sc_pr_test.dart` (tradeadmin) |
 | SC-PR-002 | Positive | PASS | - | `buying_flow_test.dart` |
 | SC-PR-003 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PR-004 | Positive | PASS | Complete: COMPLETED ("PR-T10069CWY-S-HO-2026-2027-000019 completed. The stock has gone back to the supplier."); Close: CLOSED ("PR-T10069CWY-S-HO-2026-2027-000019 closed.") | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-005 | Positive | SKIP | Replace outcome needs a purchase order stage check; not driven | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-006 | Positive | SKIP | credit on a paid bill is a report matter | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-007 | Positive | SKIP | no free goods in the fixture receipts | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-008 | Positive | SKIP | no batch-tracked product in the fixture | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-009 | Positive | PASS | status CANCELLED, screen says "PR-T10069CWY-S-HO-2026-2027-000021 cancelled." | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-010 | Negative | PASS | open=true, saved=0, said="Return quantity exceeds the available source quantity: line 1 can still send back 4 PIECE bought and 0 free. / More than received by" | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-011 | Negative | PASS | open=true, saved=0, said="Return quantity exceeds the available source quantity: line 1 can still send back 6 PIECE bought and 0 free. / More than received by" | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-012 | Negative | PASS | open=true, saved=0, said="Enter a return quantity on at least one line."; open=true, saved=0, said="Enter a return quantity on at least one line." | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-013 | Negative | PASS | open=true, saved=0, said="Choose the goods receipt being sent back." | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-014 | Negative | PASS | completed receipt offered=true, draft receipt offered=false | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-015 | Negative | SKIP | Return date is a picker; not driven | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-016 | Negative | SKIP | would need stock sold after receipt | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-017 | Negative | SKIP | no capital goods line in the fixture | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-018 | Negative | PASS | Edit is absent on an Approved return | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-019 | Negative | PASS | Complete is absent on a Draft return | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-020 | Negative | PASS | buttons {Close: absent, Cancel: absent} | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-021 | Negative | PASS | editor closed=false, asked=true | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-022 | Role | PASS | offered: true; list 200; {+ New: enabled, New: absent, Approve: absent} | `sc_pr_test.dart` (qpexe) |
+| SC-PR-023 | Role | PASS | offered: true; {Approve: enabled, Complete: absent, Close: enabled, Cancel: enabled} | `sc_pr_test.dart` (qpmgr) |
+| SC-PR-024 | Role | PASS | offered: false; list 403 | `sc_pr_test.dart` (qstore) |
+| SC-PR-025 | Role | PASS | offered: true; {+ New: absent, New: absent, Approve: absent, Complete: absent, Cancel: absent, Close: absent} | `sc_pr_test.dart` (qro) |
+| SC-PR-026 | Multi-user | SKIP | covered by SC-PR-027 and the PY file | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-027 | Multi-user | PASS | status APPROVED, screen says "Only draft purchase returns can be approved." | `sc_pr_test.dart` (tradeadmin) |
+| SC-PR-028 | Multi-user | SKIP | a Draft return has no Edit on screen to race | `sc_pr_test.dart` (tradeadmin) |
 | SC-PY-001 | Positive | PASS | note: :: short texts: QA Agency / > / Selling t10069cwy / Home / Sell / Buy / Stock / Accounts / Masters / Reports / Search or jump to… / Ctrl+K / 1 / Selling t10069cwy / S( / Purchase Invoices / Payments / Payments / All dates / Supplier credits / Supplier refunds / … / + New / Number / Supplier / Date / Method / Cleared / Status / Amount / PY-2026-2027-000018 / 2026-10-07 / CASH / Reversed / 30.00 / PY-2026-2027-000017 / 2026-10-07 / CASH / Applied / 708.00 / PY-2026-2027-000016 / 2026-10-07 / CASH / Applied / 708.00 / PY-2026-2027-000015 / 2026-10-07 / CASH / Applied / 50.00 / PY-2026-20... | `sc_py_test.dart` (tradeadmin) |
 | SC-PY-002 | Positive | PASS | - | `buying_flow_test.dart` |
 | SC-PY-003 | Positive | PASS | saved 1; amount 400.00; allocated 400.0 over 1 bills | `sc_py_test.dart` (tradeadmin) |

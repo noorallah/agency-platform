@@ -1415,6 +1415,18 @@
   "skip": 0,
   "user": "tradeadmin"
  },
+ "SC-PR-001": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Payments | Purchase Returns | Purchase Returns | Total | 22 | Draft | 10 | Approved | 8 | Completed | 0 | Cancelled | 1 | Closed | 3 | All dates | + New | Return Number | Supplier | Supplier Return | Outcome | Return Date | Status | Grand Total | Credit | 2026-10-07 15:58 | Draft | 70.80 | Credit | 2026-10-07 15:58 | Draft | 70.80 | Credit | 2026-10-07 15:58 | Closed | 70.80 | Credit | 2026-10-07 15:58 | Approved | 70.80 | Credit | 2026-10-07 15:58 | Draft | 70.80 | Credit",
+   "columns present"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-PR-002": {
   "fail": 0,
   "file": "buying_flow_test.dart",
@@ -1432,6 +1444,282 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-PR-004": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Complete: COMPLETED (\"PR-T10069CWY-S-HO-2026-2027-000019 completed. The stock has gone back to the supplier.\"); Close: CLOSED (\"PR-T10069CWY-S-HO-2026-2027-000019 closed.\")"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-005": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Replace outcome needs a purchase order stage check; not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-006": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "credit on a paid bill is a report matter"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-007": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "no free goods in the fixture receipts"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-008": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "no batch-tracked product in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-009": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"PR-T10069CWY-S-HO-2026-2027-000021 cancelled.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-010": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Return quantity exceeds the available source quantity: line 1 can still send back 4 PIECE bought and 0 free. | More than received by\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-011": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Return quantity exceeds the available source quantity: line 1 can still send back 6 PIECE bought and 0 free. | More than received by\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-012": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter a return quantity on at least one line.\"",
+   "open=true, saved=0, said=\"Enter a return quantity on at least one line.\""
+  ],
+  "pass": 2,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-013": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Choose the goods receipt being sent back.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-014": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "completed receipt offered=true, draft receipt offered=false"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-015": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Return date is a picker; not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-016": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "would need stock sold after receipt"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-017": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "no capital goods line in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-018": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Edit is absent on an Approved return"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-019": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "Complete is absent on a Draft return"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-020": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "buttons {Close: absent, Cancel: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-021": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-022": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: enabled, New: absent, Approve: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-PR-023": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "offered: true; {Approve: enabled, Complete: absent, Close: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-PR-024": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-PR-025": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "offered: true; {+ New: absent, New: absent, Approve: absent, Complete: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-PR-026": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "covered by SC-PR-027 and the PY file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PR-027": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"Only draft purchase returns can be approved.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PR-028": {
+  "fail": 0,
+  "file": "sc_pr_test.dart",
+  "notes": [
+   "a Draft return has no Edit on screen to race"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
  },
  "SC-PY-001": {
   "fail": 0,
