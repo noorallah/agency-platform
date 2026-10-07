@@ -3979,18 +3979,20 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       PurchaseOrderLine(
         id: '',
         lineNumber: lines.length + 1,
-        productId: widget.products.firstOrNull?.id ?? '',
+        // Like the first line of a new order (D-UI-40): no product, no
+        // quantity, no discount -- nothing nobody chose gets ordered.
+        productId: '',
         description: '',
         vendorProductCode: '',
         purchaseUomId: '',
         inventoryUomId: '',
         conversionFactor: '1',
         conversionVersion: null,
-        orderedQuantity: '1',
+        orderedQuantity: '',
         freeQuantity: '',
         baseQuantity: '0',
         unitPrice: '0',
-        discountPercent: '0',
+        discountPercent: '',
         discountAmount: '0',
         grossAmount: '0',
         taxProfileId: '',

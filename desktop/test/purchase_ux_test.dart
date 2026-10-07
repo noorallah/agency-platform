@@ -471,6 +471,63 @@ void main() {
     expect(outcome?.saved, isTrue);
   });
 
+  testWidgets('a line added with Add line starts as empty as the first',
+      (tester) async {
+    // Add line still gave the new line the first product, quantity 1 and a
+    // discount of 0 after the first line of a new order stopped (D-UI-40):
+    // the second line ordered something nobody chose, and its typed 0
+    // refused whatever discount the supplier's terms would have given.
+    _setDesktopSurface(tester);
+    final _PricingPurchaseApi api = _PricingPurchaseApi();
+    final PermissionService permissions = PermissionService()
+      ..applyAccessToken(_accessToken({
+        'permissions': ['PURCHASE_VIEW', 'PURCHASE_CREATE'],
+      }));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: PurchaseOrderEditorDialog(
+            api: api,
+            permissions: permissions,
+            mode: PurchaseDialogMode.create,
+            order: null,
+            vendors: const [_vendor],
+            branches: const [_branch],
+            warehouses: const [_warehouse],
+            products: const [_product],
+            buyers: const [],
+            taxProfiles: const [],
+            storageNodes: const [],
+            canSubmit: true,
+            canApprove: false,
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    List<String> boxes(int line) => tester
+        .widgetList<EditableText>(find.descendant(
+          of: find.byKey(ValueKey<String>('purchase-order-line-$line')),
+          matching: find.byType(EditableText),
+        ))
+        .map((EditableText box) => box.controller.text)
+        .toList();
+
+    final List<String> first = boxes(0);
+    await tester.tap(find.byKey(const ValueKey('document-add-line')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    final List<String> added = boxes(1);
+    expect(added, first, reason: 'the added line reads like a new first line');
+    expect(added.any((String text) => text.contains(_product.name)), isFalse,
+        reason: 'no product was chosen for it');
+    expect(added, isNot(contains('1')), reason: 'no quantity was typed');
+  });
+
   testWidgets('an approved order shows what came in, went back and was billed',
       (tester) async {
     final _UpdatingPurchaseApi api = _UpdatingPurchaseApi();
