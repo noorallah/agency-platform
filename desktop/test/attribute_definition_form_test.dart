@@ -1,9 +1,8 @@
 // The attribute definition update endpoint replaces the whole record, so any
 // column the form does not send reverts to its default. The form carried seven
 // of eleven and hardcoded two of those to '', so saving an edit wiped the
-// description and default value, reset `entity_type` to PRODUCT, and cleared
-// `applicable_business_profile_id` — quietly turning a pharmacy-only field
-// into one every industry sees.
+// description and default value, reset `entity_type` to PRODUCT and dropped
+// the category limit.
 //
 // It also offered `data_type` and `applicable_category` as free text. A bad
 // data type is answered with a 422; a mistyped category matches no product
@@ -136,7 +135,7 @@ void main() {
         'default_value': 'NA',
         'validation_rule': {'max_length': 20},
         'applicable_category': 'MEDICINE',
-        'applicable_business_profile_id': 'profile-pharmacy',
+        'enabled_for_firm': false,
         'is_active': true,
       });
 
@@ -148,9 +147,9 @@ void main() {
         reason: 'an omitted entity_type reverts the record to PRODUCT',
       );
       expect(
-        record.applicableBusinessProfileId,
-        'profile-pharmacy',
-        reason: 'losing this un-scopes the field to every industry',
+        record.enabledForFirm,
+        isFalse,
+        reason: 'a shared field switched off for the firm must read as off',
       );
       expect(record.validationRule, {'max_length': 20});
     });
@@ -169,7 +168,7 @@ void main() {
 
       expect(record.description, '');
       expect(record.defaultValue, '');
-      expect(record.applicableBusinessProfileId, '');
+      expect(record.enabledForFirm, isTrue);
       expect(record.applicableCategory, '');
       expect(record.validationRule, isNull);
     });

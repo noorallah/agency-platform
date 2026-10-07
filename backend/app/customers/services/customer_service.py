@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
-from app.business.services import AttributeInput, AttributeService
+from app.business.services import AttributeInput, AttributeService, RecordKind
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.common.master_code_series import MasterCodeNumbering
@@ -769,6 +769,9 @@ class CustomerService:
             ],
             firm_id=customer.firm_id,
             actor_id=actor_id,
+            # A field tied to a customer group is this customer's only while
+            # the customer is in that group (backlog 89).
+            kind=RecordKind(customer_group_id=customer.customer_group_id),
         )
 
     def attribute_responses(self, customer: Customer) -> list[AttributeValueResponse]:

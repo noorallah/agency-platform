@@ -39,6 +39,7 @@ from app.core.security.authorization import Principal, require_platform_admin
 from app.core.security.jwt import TokenClaims
 from app.firms.models import Firm
 from app.identity.models import UserFirm
+from app.products.models import GoodsType
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -667,8 +668,8 @@ def test_renaming_the_default_profile_does_not_demote_it() -> None:
 
 def _rule_fixture(
     service: BusinessProfileFrameworkService, actor: UUID, *, code: str
-) -> tuple[UUID, UUID]:
-    """Create one attribute and one profile, and return their ids."""
+) -> UUID:
+    """Create one shared attribute and return its id."""
     attribute = service.create_attribute(
         AttributeDefinitionCreate(
             code=code,
@@ -678,16 +679,7 @@ def _rule_fixture(
         ),
         actor,
     )
-    profile = service.create_profile(
-        BusinessProfileCreate(
-            code=f"PROFILE_{code}",
-            name=f"Profile {code}",
-            industry_type="GENERIC",
-            description="For the rule to be scoped to.",
-        ),
-        actor,
-    )
-    return attribute.id, profile.id
+    return attribute.id
 
 
 def test_the_rule_list_pages_and_searches() -> None:
@@ -701,12 +693,11 @@ def test_the_rule_list_pages_and_searches() -> None:
     session = _session_factory()()
     actor = uuid4()
     service = BusinessProfileFrameworkService(session)
-    attribute_id, profile_id = _rule_fixture(service, actor, code="EXPIRY")
+    attribute_id = _rule_fixture(service, actor, code="EXPIRY")
 
     for category in ("MEDICINE", "SYRUP", "TABLET"):
         service.create_category_rule(
             CategoryAttributeRuleCreate(
-                business_profile_id=profile_id,
                 category_code=category,
                 attribute_definition_id=attribute_id,
             ),
@@ -735,12 +726,14 @@ def test_a_rule_answers_with_the_names_behind_its_ids() -> None:
     session = _session_factory()()
     actor = uuid4()
     service = BusinessProfileFrameworkService(session)
-    attribute_id, profile_id = _rule_fixture(service, actor, code="BATCH")
+    attribute_id = _rule_fixture(service, actor, code="BATCH")
 
+    medicine = GoodsType(code="MEDICINE", name="Medicine")
+    session.add(medicine)
+    session.commit()
     scoped = service.create_category_rule(
         CategoryAttributeRuleCreate(
-            business_profile_id=profile_id,
-            category_code="MEDICINE",
+            goods_type_id=medicine.id,
             attribute_definition_id=attribute_id,
         ),
         actor,
@@ -754,8 +747,9 @@ def test_a_rule_answers_with_the_names_behind_its_ids() -> None:
     )
 
     described = service.describe_category_rules([scoped, everywhere])
-    assert described[scoped.id] == ("BATCH", "Batch field", "PROFILE_BATCH")
-    assert described[everywhere.id] == ("BATCH", "Batch field", None), (
-        "a rule with no profile holds for every industry, and says so by "
-        "carrying no profile code rather than an empty one"
-    )
+    assert described[scoped.id] == ("BATCH", "Batch field", "Goods type: Medicine")
+    assert described[everywhere.id] == (
+        "BATCH",
+        "Batch field",
+        "Category: SYRUP",
+    ), "a grid of rules says what each one names, in words"

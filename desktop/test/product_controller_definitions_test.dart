@@ -27,7 +27,6 @@ AttributeDefinitionRecord _def(String id, String code) =>
       applicableCategory: 'CORE_PRODUCTS',
       description: '',
       defaultValue: '',
-      applicableBusinessProfileId: '',
     );
 
 class _Api extends ApiClient {

@@ -6848,16 +6848,13 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
     title: 'Mandatory Attributes',
     resource: 'business-framework/category-attribute-rules',
     description:
-        'Say which attribute a product category must carry, for one industry '
-        'or for all of them.',
-    headers: const ['Category', 'Attribute', 'Business profile', 'Required'],
-    sortFields: const ['category_code', null, null, null],
+        'Say which attribute a product category, or a shared goods type, '
+        'must carry.',
+    headers: const ['Applies to', 'Attribute', 'Required'],
+    sortFields: const [null, null, null],
     cells: (rule) => [
-      rule.categoryCode,
+      rule.appliesTo.isEmpty ? rule.categoryCode : rule.appliesTo,
       rule.attributeName.isEmpty ? rule.attributeCode : rule.attributeName,
-      rule.businessProfileCode.isEmpty
-          ? 'Every industry'
-          : rule.businessProfileCode,
       rule.isMandatory ? 'Yes' : 'No',
     ],
     id: (rule) => rule.id,
@@ -6870,19 +6867,9 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
       update: const ['PLATFORM_SETTINGS'],
       delete: const ['PLATFORM_SETTINGS'],
     ),
-    fields: const [
-      FieldSpec(
-        key: 'category_code',
-        label: 'Product category',
-        required: true,
-        optionsResource: 'products/categories',
-        singleSelection: true,
-        // Matched against the category's code, not its id -- an id stored
-        // here matches no category and the rule silently never applies.
-        submitsCode: true,
-        helperText: 'Which category of product this requirement is about.',
-      ),
-      FieldSpec(
+    fields: [
+      ..._ruleTargetFields(firmRules: false),
+      const FieldSpec(
         key: 'attribute_definition_id',
         label: 'Attribute',
         required: true,
@@ -6891,15 +6878,7 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
         helperText: 'The field that must be filled in. Define it first under '
             'Dynamic Attributes.',
       ),
-      FieldSpec(
-        key: 'business_profile_id',
-        label: 'Limit to business profile',
-        optionsResource: 'business-framework/profiles',
-        singleSelection: true,
-        section: 'Where it applies',
-        helperText: 'Leave empty and the requirement holds for every industry.',
-      ),
-      FieldSpec(
+      const FieldSpec(
         key: 'is_mandatory',
         label: 'Required',
         boolean: true,
@@ -6910,18 +6889,16 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
     initialValues: (rule) {
       editing = rule;
       return rule == null
-          ? {'is_mandatory': true}
+          ? {'is_mandatory': true, 'rule_kind': 'CATEGORY'}
           : {
-              'category_code': rule.categoryCode,
+              ..._ruleTargetValues(rule),
               'attribute_definition_id': rule.attributeDefinitionId,
-              'business_profile_id': rule.businessProfileId,
               'is_mandatory': rule.isMandatory,
             };
     },
     payload: (values, isCreating) => {
-      'category_code': values['category_code'],
+      ..._ruleTargetPayload(values),
       'attribute_definition_id': values['attribute_definition_id'],
-      'business_profile_id': _blankToNull(values['business_profile_id']),
       'is_mandatory': values['is_mandatory'],
       // Round-tripped, not edited. Omitting it would null an override the
       // form never showed.
@@ -6931,18 +6908,121 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
   );
 }
 
+/// What a field rule names. A rule names exactly one of these; the server
+/// refuses none or several with a 422, so the payload carries just one key.
+const Map<String, String> _ruleKindLabels = {
+  'CATEGORY': 'Product category',
+  'GOODS_TYPE': 'Goods type',
+  'CUSTOMER_GROUP': 'Customer group',
+  'VENDOR_TYPE': 'Supplier type',
+};
+
+String _ruleKind(Map<String, dynamic> values) =>
+    (values['rule_kind'] as String?)?.isNotEmpty == true
+        ? values['rule_kind'] as String
+        : 'CATEGORY';
+
+/// The "what does the rule name" controls shared by the shared-rule and the
+/// firm-rule dialogs. A shared rule may name a category or a shared goods
+/// type only; a firm's own may also name a customer group or a supplier type.
+List<FieldSpec> _ruleTargetFields({required bool firmRules}) => [
+      FieldSpec(
+        key: 'rule_kind',
+        label: 'The rule is about',
+        required: true,
+        choices: [
+          'CATEGORY',
+          'GOODS_TYPE',
+          if (firmRules) ...['CUSTOMER_GROUP', 'VENDOR_TYPE'],
+        ],
+        choiceLabels: _ruleKindLabels,
+        helperText: firmRules
+            ? 'A goods type needs a product field, a customer group a customer '
+                'field and a supplier type a supplier field. Tying a field to '
+                'one shows it only on records of that kind.'
+            : 'A category makes a product field compulsory there; a goods type '
+                'ties the field to that kind of goods.',
+      ),
+      FieldSpec(
+        key: 'category_code',
+        label: 'Product category',
+        required: true,
+        optionsResource: 'products/categories',
+        singleSelection: true,
+        // Matched against the category's code, not its id -- an id stored
+        // here matches no category and the rule silently never applies.
+        submitsCode: true,
+        helperText: 'Which category of product this requirement is about.',
+        visibleWhen: (values) => _ruleKind(values) == 'CATEGORY',
+      ),
+      FieldSpec(
+        key: 'goods_type_id',
+        label: 'Goods type',
+        required: true,
+        optionsResource: 'products/goods-types',
+        singleSelection: true,
+        visibleWhen: (values) => _ruleKind(values) == 'GOODS_TYPE',
+      ),
+      if (firmRules) ...[
+        FieldSpec(
+          key: 'customer_group_id',
+          label: 'Customer group',
+          required: true,
+          optionsResource: 'customers/groups',
+          singleSelection: true,
+          visibleWhen: (values) => _ruleKind(values) == 'CUSTOMER_GROUP',
+        ),
+        FieldSpec(
+          key: 'vendor_type_id',
+          label: 'Supplier type',
+          required: true,
+          optionsResource: 'vendors/types',
+          singleSelection: true,
+          visibleWhen: (values) => _ruleKind(values) == 'VENDOR_TYPE',
+        ),
+      ],
+    ];
+
+/// The dialog values for a rule being edited.
+Map<String, dynamic> _ruleTargetValues(CategoryAttributeRuleRecord rule) {
+  if (rule.goodsTypeId.isNotEmpty) {
+    return {'rule_kind': 'GOODS_TYPE', 'goods_type_id': rule.goodsTypeId};
+  }
+  if (rule.customerGroupId.isNotEmpty) {
+    return {
+      'rule_kind': 'CUSTOMER_GROUP',
+      'customer_group_id': rule.customerGroupId,
+    };
+  }
+  if (rule.vendorTypeId.isNotEmpty) {
+    return {'rule_kind': 'VENDOR_TYPE', 'vendor_type_id': rule.vendorTypeId};
+  }
+  return {'rule_kind': 'CATEGORY', 'category_code': rule.categoryCode};
+}
+
+/// The one key the chosen kind sends -- never two, never none.
+Map<String, dynamic> _ruleTargetPayload(Map<String, dynamic> values) =>
+    switch (_ruleKind(values)) {
+      'GOODS_TYPE' => {'goods_type_id': values['goods_type_id']},
+      'CUSTOMER_GROUP' => {'customer_group_id': values['customer_group_id']},
+      'VENDOR_TYPE' => {'vendor_type_id': values['vendor_type_id']},
+      _ => {'category_code': values['category_code']},
+    };
+
 /// The firm's own custom fields beside the shared catalogue (MST-8).
 ///
 /// A shared row (null `firm_id`) is kept by the platform: the server answers
 /// 404 to a write on one, so the grid refuses it first and says why. The
 /// update replaces the whole record, so what the form does not edit -- the
-/// validation rule and the business profile -- is echoed back from the row.
+/// validation rule -- is echoed back from the row. A shared field can be
+/// switched off for the firm (it stays in the catalogue and keeps its values).
 ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
 }) {
   AttributeDefinitionRecord? editing;
+  bool canManage() => permissions.canUseAction(const ['CUSTOM_FIELD_MANAGE']);
   return ResourceDefinition(
     title: 'Custom Fields',
     resource: 'business-framework/firm-custom-fields',
@@ -6957,6 +7037,7 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
       'Type',
       'Mandatory',
       'Active',
+      'In use',
       'Owner',
     ],
     cells: (field) => [
@@ -6966,10 +7047,33 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
       field.dataType,
       field.mandatory ? 'Yes' : 'No',
       field.isActive ? 'Yes' : 'No',
+      field.enabledForFirm ? 'Yes' : 'No',
       field.isShared ? 'Shared' : 'This firm',
     ],
     id: (field) => field.id,
     load: api.firmCustomFieldsPage,
+    customActions: [
+      ResourceAction<AttributeDefinitionRecord>(
+        label: 'Switch off for this firm',
+        icon: Icons.visibility_off_outlined,
+        isVisible: (row) =>
+            row != null && canManage() && row.isShared && row.enabledForFirm,
+        onInvoke: (row) async {
+          await api.useFirmCustomField(row!.id, enabled: false);
+          return '${row.name} is switched off for this firm.';
+        },
+      ),
+      ResourceAction<AttributeDefinitionRecord>(
+        label: 'Switch on for this firm',
+        icon: Icons.visibility_outlined,
+        isVisible: (row) =>
+            row != null && canManage() && row.isShared && !row.enabledForFirm,
+        onInvoke: (row) async {
+          await api.useFirmCustomField(row!.id, enabled: true);
+          return '${row.name} is switched on for this firm.';
+        },
+      ),
+    ],
     canEdit: (field) => !field.isShared,
     editRefusal: (field) =>
         field.isShared ? 'Shared fields are kept by the platform.' : null,
@@ -7083,10 +7187,6 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
       'entity_type': values['entity_type'],
       'data_type': values['data_type'],
       'applicable_category': _blankToNull(values['applicable_category']),
-      // Not on this form; echoed so an update does not clear it.
-      'applicable_business_profile_id': isCreating
-          ? null
-          : _blankToNull(editing?.applicableBusinessProfileId),
       'mandatory': values['mandatory'],
       'show_on_print': values['show_on_print'] == true,
       'description': _blankToNull(values['description']),
@@ -7522,11 +7622,12 @@ ResourceDefinition<CategoryAttributeRuleRecord> firmCustomFieldRuleDefinition(
       title: 'Custom Field Rules',
       resource: 'business-framework/firm-custom-field-rules',
       showFrame: showFrame,
-      description: 'Say which custom field a product category must carry. To '
+      description: 'Say which kind of record a custom field belongs to: a '
+          'product category, goods type, customer group or supplier type. To '
           'change a rule, delete it and add another.',
-      headers: const ['Category', 'Field', 'Required'],
+      headers: const ['Applies to', 'Field', 'Required'],
       cells: (rule) => [
-        rule.categoryCode,
+        rule.appliesTo.isEmpty ? rule.categoryCode : rule.appliesTo,
         rule.attributeName.isEmpty ? rule.attributeCode : rule.attributeName,
         rule.isMandatory ? 'Yes' : 'No',
       ],
@@ -7542,40 +7643,33 @@ ResourceDefinition<CategoryAttributeRuleRecord> firmCustomFieldRuleDefinition(
               update: const ['CUSTOM_FIELD_MANAGE'],
               delete: const ['CUSTOM_FIELD_MANAGE'],
             ),
-      fields: const [
-        FieldSpec(
-          key: 'category_code',
-          label: 'Product category',
-          required: true,
-          optionsResource: 'products/categories',
-          singleSelection: true,
-          submitsCode: true,
-          helperText: 'Which category of product this requirement is about.',
-        ),
-        FieldSpec(
+      fields: [
+        ..._ruleTargetFields(firmRules: true),
+        const FieldSpec(
           key: 'attribute_definition_id',
           label: 'Custom field',
           required: true,
           optionsResource: 'business-framework/firm-custom-fields',
           singleSelection: true,
-          helperText: 'The field that must be filled in.',
+          helperText: 'The field the rule is about.',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'is_mandatory',
           label: 'Required',
           boolean: true,
-          helperText: 'Off records the pairing without enforcing it.',
+          helperText: 'On makes the field compulsory there; off only shows it '
+              'on that kind of record.',
         ),
       ],
       initialValues: (rule) => rule == null
-          ? {'is_mandatory': true}
+          ? {'is_mandatory': true, 'rule_kind': 'CATEGORY'}
           : {
-              'category_code': rule.categoryCode,
+              ..._ruleTargetValues(rule),
               'attribute_definition_id': rule.attributeDefinitionId,
               'is_mandatory': rule.isMandatory,
             },
       payload: (values, isCreating) => {
-        'category_code': values['category_code'],
+        ..._ruleTargetPayload(values),
         'attribute_definition_id': values['attribute_definition_id'],
         'is_mandatory': values['is_mandatory'],
       },
@@ -7663,14 +7757,6 @@ ResourceDefinition<AttributeDefinitionRecord> attributeDefinitionDefinition(
       ),
       FieldSpec(key: 'is_active', label: 'Active', boolean: true),
       FieldSpec(
-        key: 'applicable_business_profile_id',
-        label: 'Limit to business profile',
-        optionsResource: 'business-framework/profiles',
-        singleSelection: true,
-        section: 'Where it applies',
-        helperText: 'Leave empty to offer this field to every industry.',
-      ),
-      FieldSpec(
         key: 'applicable_category',
         label: 'Limit to product category',
         optionsResource: 'products/categories',
@@ -7696,8 +7782,6 @@ ResourceDefinition<AttributeDefinitionRecord> attributeDefinitionDefinition(
               'entity_type': attribute.entityType,
               'data_type': attribute.dataType,
               'applicable_category': attribute.applicableCategory,
-              'applicable_business_profile_id':
-                  attribute.applicableBusinessProfileId,
               'mandatory': attribute.mandatory,
               'description': attribute.description,
               'default_value': attribute.defaultValue,
@@ -7711,8 +7795,6 @@ ResourceDefinition<AttributeDefinitionRecord> attributeDefinitionDefinition(
       'entity_type': values['entity_type'],
       'data_type': values['data_type'],
       'applicable_category': _blankToNull(values['applicable_category']),
-      'applicable_business_profile_id':
-          _blankToNull(values['applicable_business_profile_id']),
       'mandatory': values['mandatory'],
       'description': _blankToNull(values['description']),
       'default_value': _blankToNull(values['default_value']),

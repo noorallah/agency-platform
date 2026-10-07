@@ -26,7 +26,7 @@ from app.business.models import (
     AttributeEntityType,
     BusinessProfile,
 )
-from app.business.services import AttributeInput, AttributeService
+from app.business.services import AttributeInput, AttributeService, RecordKind
 from app.common.audit.services import record_audit, record_change, row_state
 from app.common.firm_metadata import FirmMetadataReader
 from app.common.master_code_series import MasterCodeNumbering
@@ -1466,13 +1466,19 @@ class ProductService:
         )
         required: set[UUID] = set()
         applicable: dict[UUID, AttributeDefinition] = {}
-        for spelling in spellings:
-            required |= attributes.mandatory_ids(
-                entity_type, firm_id=firm_id, category_code=spelling
+        # The goods type a new product in this category would take: its
+        # fields are offered and its compulsory ones marked (backlog 89).
+        kind = RecordKind(
+            goods_type_id=GoodsTypeService(self._session).type_for_category(
+                firm_id, category
             )
-            for definition in attributes.definitions_for(
-                entity_type, firm_id=firm_id, category_code=spelling
-            ):
+        )
+        for spelling in spellings:
+            applied = attributes.applied(
+                entity_type, firm_id=firm_id, category_code=spelling, kind=kind
+            )
+            required |= applied.required
+            for definition in applied.definitions:
                 applicable[definition.id] = definition
         if category is None:
             # A product with no category yet is offered the fields that need
@@ -1525,6 +1531,9 @@ class ProductService:
             firm_id=product.firm_id,
             actor_id=actor_id,
             category_code=category.code if category is not None else None,
+            # The type the product stores, not its category's today: a
+            # category that changed type left this product where it was.
+            kind=RecordKind(goods_type_id=product.goods_type_id),
         )
 
     def attribute_responses_for_many(

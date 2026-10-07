@@ -786,11 +786,15 @@ industry (PHARMACY, ELECTRONICS, WHOLESALE …) that switches on:
 - **features** — optional capabilities such as expiry tracking, serial numbers,
   barcodes, warranty, drug licence;
 - **modules** — which workspaces the firm operates and in what menu order;
-- **custom fields** — extra fields on products, customers, vendors and other
-  masters, and which of them are mandatory for a given product category.
+- **custom fields** — no longer part of the profile. Extra fields on products,
+  customers, vendors and other masters, and which of them are shown or
+  compulsory, are set by goods type, customer group, supplier type and product
+  category, and each firm may switch a shared field off (see D below; changed
+  2026-10-08, not yet tested by hand).
 
 A firm is assigned exactly one profile. Change the profile and the firm's
-fields, menus and refusals change with it — no code change, no migration.
+features, menus and refusals change with it — no code change, no migration.
+Its extra fields and stored values do not move.
 
 ## Configure first
 
@@ -841,14 +845,24 @@ products because it does not scan barcodes.
 
 | # | Step | Permission | Result |
 | --- | --- | --- | --- |
-| 1 | Define an attribute — name, data type, entity type, optionally scoped to one profile | `PLATFORM-ADMIN` | Row in `attribute_definitions` |
-| 2 | Make it mandatory for a profile + product category | `PLATFORM-ADMIN` | Row in `category_attribute_rules` |
+| 1 | Define an attribute — name, data type, entity type. A shared one is kept by the platform; a firm's administrator may define its own | `PLATFORM-ADMIN` for a shared field, `CUSTOM_FIELD_MANAGE` for a firm's own | Row in `attribute_definitions` |
+| 2 | Tie it to a goods type, customer group or supplier type, or make it compulsory for a product category | `PLATFORM-ADMIN` for a shared rule (a category code or a shared goods type), `CUSTOM_FIELD_MANAGE` for a firm's own rule (any of the four) | Row in `category_attribute_rules` |
+| 2a | A firm switches a shared field off or on for itself (added on 2026-10-08, not yet tested by hand) | `CUSTOM_FIELD_MANAGE` | Row in `firm_attribute_switches`; off hides the field and keeps every stored value |
 | 3 | Users fill it on the record | the module's own code | Value stored in that module's `*_attribute_values` table, in a typed column. Products, customers and vendors carry a **Custom fields** tab and branches and warehouses a section at the foot of the form; UOMs and tax profiles take `attributes` on the API and have no form for it yet |
 
-**Mandatory is stated per profile and category, never globally.** Four
-attributes were once globally mandatory, which asked a pharmacy for an IMEI and
-an electronics distributor for an expiry date — and blocked product creation on
-any freshly migrated database.
+**Mandatory is stated per kind of record, never globally** (changed 2026-10-08,
+backlog 89 step 5, not yet tested by hand: it used to be per profile and
+category). Four attributes were once globally mandatory, which asked a pharmacy
+for an IMEI and an electronics distributor for an expiry date — and blocked
+product creation on any freshly migrated database.
+
+A rule on a goods type, a customer group or a supplier type shows the field only
+on that kind, and says whether it must be filled there. A field with no such rule
+is shown on every record of its sort. A product with no goods type, a customer
+in no group, a supplier with no type and every document are shown no tied field.
+A rule on a product category only makes the field compulsory. Moving a customer
+to another group or a supplier to another type deletes nothing; the old value
+stays, and the new kind's required fields are asked for at the next save.
 
 ## How to use it
 
@@ -859,8 +873,8 @@ Under **Settings** (the gear), each needing `PLATFORM_VIEW`:
 | Create industries, set what each enables | **Platform › Firms › Business Profiles** |
 | The feature catalogue | **Business profile › Feature Management** |
 | The module catalogue, menu order and visibility | **Business profile › Module Configuration** |
-| Define custom fields | **Business profile › Attribute Definitions** |
-| Make a field mandatory for a category | **Business profile › Mandatory Attributes** |
+| Define shared custom fields | **Business profile › Attribute Definitions** |
+| Make a field compulsory for a category, or show it only on a goods type | **Business profile › Mandatory Attributes** |
 | Point a firm at an industry | **Business profile › Profile Assignment** (`FIRM_VIEW` + `PLATFORM_VIEW`) |
 | Unit sets (a named bundle of a product's units) | **Settings › Set up › Item lists › Unit Sets** |
 
@@ -912,8 +926,9 @@ Every one is **firm-owned** — it exists once per store.
 | `profile_features` | Which features an industry enables | `is_enabled` (overrides `default_enabled`), `configuration` |
 | `profile_modules` | Which modules an industry enables | `is_enabled`, `is_visible`, `display_order` |
 | `firm_business_profiles` | **The assignment** — firm → industry | `is_active` |
-| `attribute_definitions` | Custom field definitions | `entity_type` (`PRODUCT`, `CUSTOMER`, `VENDOR`…), optional profile scope, data type |
-| `category_attribute_rules` | Which fields are mandatory | `business_profile_id` (**NULL = every profile**), `category_code`, `is_mandatory` |
+| `attribute_definitions` | Custom field definitions | `entity_type` (`PRODUCT`, `CUSTOMER`, `VENDOR`…), `firm_id` (NULL = shared), data type |
+| `category_attribute_rules` | Which fields are tied to a kind, and which are compulsory | `firm_id` (NULL = shared), exactly one of `category_code`, `goods_type_id`, `customer_group_id`, `vendor_type_id`, and `is_mandatory` |
+| `firm_attribute_switches` | A firm's switch for one shared field (added on 2026-10-08, not yet tested by hand) | `firm_id`, `attribute_definition_id`, `is_enabled`; no row means on |
 | `<module>_attribute_values` | The values themselves | Typed columns — `value_text`, `value_number`, `value_date`, `value_boolean`, never JSON |
 
 **How a capability is resolved:** firm → its assignment → else the default
@@ -936,8 +951,9 @@ profile → else enforce nothing. Then per catalogue entry: an explicit
 - **The desktop's menu filtering is cosmetic, not a security boundary.** It
   hides entries; the server's `require_feature` / `require_module` is the
   boundary.
-- **Mandatory attributes must be scoped.** A global `mandatory` flag asks every
-  industry for every field.
+- **Mandatory attributes must be scoped** to a category, goods type, customer
+  group or supplier type. A global `mandatory` flag asks every industry for every
+  field.
 - **Renaming the default profile once demoted it**, leaving the store with no
   default and therefore no gating at all for unassigned firms. Fixed, but it is
   the shape to watch when editing a profile.
@@ -1760,9 +1776,10 @@ A product saved without a factor between its units cannot be received.
 ## Custom fields, not columns
 
 A module gains industry-specific fields through `AttributeService`, **never** by
-adding columns. An `AttributeDefinition` targets an `entity_type` and is
-optionally scoped to one business profile, so a pharmacy firm carries fields a
-food firm does not.
+adding columns. An `AttributeDefinition` targets an `entity_type`. It is not
+scoped to a business profile (changed 2026-10-08, not yet tested by hand): a
+rule ties it to a goods type, customer group or supplier type, so a medicine
+carries fields a biscuit does not, and a firm may switch a shared field off.
 
 **The catalogue is shared; value storage is per module.** Each module owns a
 small table extending `AttributeValueBase` — `product_attribute_values` is the
@@ -1805,7 +1822,7 @@ store, so that half of the module runs on unit tests alone.
 | Products | **Masters › Products** |
 | Categories, brands, principals | **Settings › Set up › Item lists › Product Categories, Principals, Brands** |
 | Goods types (Medicine, Food, Paint ...) and which the firm uses | **Settings › Firm › Goods Types** -- added on 2026-10-08, not yet tested by hand |
-| Custom fields and which are mandatory | **Settings › Business profile › Attribute Definitions, Mandatory Attributes**; a firm's own: **Settings › Firm › Custom Fields, Custom Field Rules** |
+| Custom fields and which are mandatory | **Settings › Business profile › Attribute Definitions, Mandatory Attributes**; a firm's own, and its shared-field switches and rules by goods type, customer group and supplier type: **Settings › Firm › Custom Fields, Custom Field Rules** |
 | Batches, lots, serials, expiry | **Stock › Batches, Expiry Monitor**; **All Stock screens › Tracking** |
 
 ## Tables
@@ -1820,8 +1837,8 @@ store, so that half of the module runs on unit tests alone.
    an IMEI and an electronics distributor for an expiry date — and
    `AttributeService` refuses the write, so it **blocked product creation on
    any freshly-migrated database**. `20260815_0087` clears it. Where an
-   attribute really is required, say so in `category_attribute_rules`, scoped
-   to a business profile and a category.
+   attribute really is required, say so in `category_attribute_rules`, naming
+   a category, a goods type, a customer group or a supplier type.
 2. **A master field added later never reaches a store already seeded.** The
    batch flags were the first instance, the HSN code the second,
    `tax_profile_group_code` the third. Expect another every time a master gains

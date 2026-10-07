@@ -810,11 +810,17 @@ class ApplicableAttributesRecord {
     required this.entityType,
     required this.definitions,
     required this.mandatoryIds,
+    this.kindRules = const [],
   });
 
   final String entityType;
   final List<AttributeDefinitionRecord> definitions;
+
+  /// Fields required whatever the kind of record.
   final List<String> mandatoryIds;
+
+  /// The rules tying a field to a goods type, customer group or supplier type.
+  final List<KindRuleRecord> kindRules;
 
   factory ApplicableAttributesRecord.fromJson(Json json) =>
       ApplicableAttributesRecord(
@@ -827,5 +833,34 @@ class ApplicableAttributesRecord {
         mandatoryIds: (json['mandatory_ids'] as List? ?? const [])
             .map((item) => stringValue(item))
             .toList(),
+        kindRules: (json['kind_rules'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => KindRuleRecord.fromJson(
+                Map<String, dynamic>.from(item)))
+            .toList(),
+      );
+}
+
+/// One rule tying a custom field to a kind of record: the field is shown only
+/// on records of the kinds its rules name, and [isMandatory] says whether it
+/// must be filled there. Exactly one of the three ids is set.
+class KindRuleRecord {
+  const KindRuleRecord({
+    required this.attributeDefinitionId,
+    this.goodsTypeId = '',
+    this.customerGroupId = '',
+    this.vendorTypeId = '',
+    this.isMandatory = false,
+  });
+
+  final String attributeDefinitionId, goodsTypeId, customerGroupId, vendorTypeId;
+  final bool isMandatory;
+
+  factory KindRuleRecord.fromJson(Json json) => KindRuleRecord(
+        attributeDefinitionId: stringValue(json['attribute_definition_id']),
+        goodsTypeId: stringValue(json['goods_type_id']),
+        customerGroupId: stringValue(json['customer_group_id']),
+        vendorTypeId: stringValue(json['vendor_type_id']),
+        isMandatory: boolValue(json['is_mandatory']),
       );
 }

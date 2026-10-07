@@ -1068,7 +1068,7 @@ operate, not what any one firm does.
 | Which features a profile enables | Administration › Feature Management | `PUT /business-framework/profiles/{id}/features` |
 | Which modules a profile operates | Administration › Module Configuration | `PUT /business-framework/profiles/{id}/modules` |
 | Custom-field definitions | Administration › Attribute Definitions | `/business-framework/attribute-definitions` |
-| Which fields a category makes mandatory | Administration › Mandatory Attributes | `/business-framework/category-attribute-rules` |
+| Which fields a category makes mandatory, or a shared goods type shows (a profile no longer scopes them; changed 2026-10-08) | Administration › Mandatory Attributes | `/business-framework/category-attribute-rules` |
 | **Which profile a firm gets** | Administration › Profile Assignment, or Masters › Firm Settings | `PUT /business-framework/firms/{id}/profile-assignment` |
 | Firms, and their storage provisioning | Masters › Firms | `/api/v1/firms`, `POST /firms/{id}/provision` |
 | Attaching people to firms | Administration › User-Firm Assignments | `PUT /api/v1/users/{id}/firms` |

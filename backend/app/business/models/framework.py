@@ -176,9 +176,12 @@ class AttributeDataType(StrEnum):
 class AttributeDefinition(BaseEntity):
     """Define one configurable field that extends a record for some industry.
 
-    A definition is scoped by ``entity_type`` (which record it extends) and
-    optionally by ``applicable_business_profile_id`` (which industries see it),
-    so a pharmacy firm can carry a drug-licence field that a food firm does not.
+    A definition is scoped by ``entity_type`` (which record it extends). A
+    shared one is offered to every firm unless that firm switched it off
+    (``firm_attribute_switches``), and a rule naming a kind of record --
+    a goods type, a customer group, a supplier type -- ties it to records of
+    that kind (``category_attribute_rules``). The firm's business profile has
+    no say (backlog 89).
     """
 
     __tablename__ = "attribute_definitions"
@@ -242,32 +245,86 @@ class AttributeDefinition(BaseEntity):
         return [str(item) for item in raw if str(item).strip()]
 
     applicable_category: Mapped[str | None] = mapped_column(String(100))
-    applicable_business_profile_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(), ForeignKey("business_profiles.id")
-    )
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
 
 
+#: The columns of a rule that name a kind of record, and the entity type
+#: each one belongs to. A field with a rule on one of them is *tied*: it is
+#: offered only on records of the kinds its rules name.
+RULE_KIND_COLUMNS: dict[str, str] = {
+    "goods_type_id": "PRODUCT",
+    "customer_group_id": "CUSTOMER",
+    "vendor_type_id": "VENDOR",
+}
+
+
+def _rule_key(column: str) -> Index:
+    """Return the key holding one live rule per firm, kind and field."""
+    return Index(
+        f"UQ_category_attribute_rules_{column.removesuffix('_id')}_active",
+        "firm_id",
+        column,
+        "attribute_definition_id",
+        unique=True,
+        postgresql_where=text(f"is_deleted = false AND {column} IS NOT NULL"),
+        sqlite_where=text(f"is_deleted = 0 AND {column} IS NOT NULL"),
+    )
+
+
 class CategoryAttributeRule(BaseEntity):
-    """Define category-scoped mandatory-attribute rules by business profile."""
+    """Say which records a field belongs to, and where it is compulsory.
+
+    A rule names exactly one thing: a product category by its code, a goods
+    type, a customer group or a supplier type. A category rule only makes the
+    field compulsory there. A rule on one of the three kinds also ties the
+    field to that kind -- it is offered on records of the kinds its rules
+    name and on no other -- and ``is_mandatory`` says whether it must be
+    filled. The business profile no longer takes part (backlog 89).
+
+    The keys guard a firm's own rules. A shared rule has no ``firm_id``, which
+    no unique index compares, so the service refuses its duplicate.
+    """
 
     __tablename__ = "category_attribute_rules"
     __table_args__ = (
-        UniqueConstraint(
-            "business_profile_id",
-            "category_code",
-            "attribute_definition_id",
-        ),
+        _rule_key("category_code"),
+        _rule_key("goods_type_id"),
+        _rule_key("customer_group_id"),
+        _rule_key("vendor_type_id"),
     )
 
-    business_profile_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(), ForeignKey("business_profiles.id")
-    )
     #: The firm whose own rule this is (MST-8); null for a shared rule.
     firm_id: Mapped[UUID | None] = mapped_column(UUIDType(), index=True)
-    category_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    category_code: Mapped[str | None] = mapped_column(String(100))
+    goods_type_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "goods_types.id",
+            name="FK_category_attribute_rules_goods_type_id",
+            ondelete="CASCADE",
+        ),
+        index=True,
+    )
+    customer_group_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "customer_groups.id",
+            name="FK_category_attribute_rules_customer_group_id",
+            ondelete="CASCADE",
+        ),
+        index=True,
+    )
+    vendor_type_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "vendor_types.id",
+            name="FK_category_attribute_rules_vendor_type_id",
+            ondelete="CASCADE",
+        ),
+        index=True,
+    )
     attribute_definition_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("attribute_definitions.id"), nullable=False
     )
@@ -275,6 +332,42 @@ class CategoryAttributeRule(BaseEntity):
         Boolean, nullable=False, default=True, server_default="true"
     )
     validation_override: Mapped[dict[str, object] | None] = mapped_column(JSON)
+
+
+class FirmAttributeSwitch(BaseEntity):
+    """One firm's on or off for a field of the shared catalogue.
+
+    No row means on. Switching a shared field off hides it from that firm's
+    forms and keeps every value already stored; a firm's own field has its
+    ``is_active`` for the same purpose and never a row here.
+    """
+
+    __tablename__ = "firm_attribute_switches"
+    __table_args__ = (
+        Index(
+            "UQ_firm_attribute_switches_firm_field_active",
+            "firm_id",
+            "attribute_definition_id",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    attribute_definition_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "attribute_definitions.id",
+            name="FK_firm_attribute_switches_attribute_definition_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
 
 
 class FirmBusinessProfile(BaseEntity):

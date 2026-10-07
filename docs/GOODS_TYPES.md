@@ -202,14 +202,16 @@ the list.
 | 2. Product save and the product form | **Built 2026-10-08, not yet tested by hand** |
 | 3. Unit sets and their picker on the product form | **Built 2026-10-08, not yet tested by hand** (`docs/UOM_FRAMEWORK.md`, *Unit sets*) |
 | 4. Batch and serial checks read the product | **Built 2026-10-08, not yet tested by hand.** Adding a batch, lot or serial by hand needs the product's `track_batch` / `track_lot` / `track_serial`; expiry, manufacturing and warranty fields need `track_expiry`, `track_manufacturing_date`, `track_warranty`. Existing records can always be changed or removed. A goods receipt still creates its batch. The six profile features no longer enforce anything (`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, *What a product's switches allow*) |
-| 5. Extra fields and compulsory rules by goods type | Not started |
+| 5. Extra fields and compulsory rules by goods type | **Built 2026-10-08, not yet tested by hand.** A rule ties a field to a goods type, a customer group or a supplier type and says whether it is compulsory there; a firm switches a shared field off for itself; the two profile columns are dropped by `20261008_0352` (`docs/CUSTOM_FIELDS_FRAMEWORK.md`, *Fields by kind of record*) |
 | 6. Menus, import, the profile clean-up, the docs | Not started |
 | 7. Closing sweep | Not started |
 
 So after step 4 a goods type decides how a **new** product starts, what its
 form shows and which unit sets it is offered first, and the product's switches
 (not the profile) decide what may be recorded on a batch or a serial number.
-Extra fields are still resolved by profile and category until step 5.
+After step 5 its extra fields follow it too: a field a rule ties to Medicine
+is offered on Medicine products and on no other, and the firm's profile is
+asked nothing.
 
 ## Related
 

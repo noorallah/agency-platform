@@ -107,15 +107,16 @@ void main() {
         'attribute_definition_id': 'attr-1',
         'attribute_code': 'EXPIRY_DATE',
         'attribute_name': 'Expiry date',
-        'business_profile_id': 'profile-1',
-        'business_profile_code': 'PHARMACY',
+        'applies_to': 'Category: MEDICINE',
+        'firm_id': 'firm-1',
         'is_mandatory': true,
         'validation_override': {'min_days': 30},
       });
 
       expect(rule.categoryCode, 'MEDICINE');
       expect(rule.attributeName, 'Expiry date');
-      expect(rule.businessProfileCode, 'PHARMACY');
+      expect(rule.appliesTo, 'Category: MEDICINE');
+      expect(rule.firmId, 'firm-1');
       expect(rule.isMandatory, isTrue);
       expect(
         rule.validationOverride,
@@ -124,19 +125,23 @@ void main() {
       );
     });
 
-    test('a rule with no profile reads as one that holds everywhere', () {
+    test('a rule names one kind and the other ids read as empty', () {
       final CategoryAttributeRuleRecord rule =
           CategoryAttributeRuleRecord.fromJson(const {
         'id': 'rule-2',
-        'category_code': 'SYRUP',
+        'goods_type_id': 'gt-1',
         'attribute_definition_id': 'attr-1',
         'attribute_code': 'BATCH_NUMBER',
         'attribute_name': 'Batch number',
+        'applies_to': 'Goods type: Medicine',
         'is_mandatory': true,
       });
 
-      expect(rule.businessProfileId, '');
-      expect(rule.businessProfileCode, '');
+      expect(rule.goodsTypeId, 'gt-1');
+      expect(rule.categoryCode, '');
+      expect(rule.customerGroupId, '');
+      expect(rule.vendorTypeId, '');
+      expect(rule.firmId, isNull);
       expect(rule.validationOverride, isNull);
     });
 
@@ -217,13 +222,72 @@ void main() {
 
       expect(find.text('Product category'), findsWidgets);
       expect(find.text('Attribute'), findsWidgets);
-      expect(find.text('Limit to business profile'), findsWidgets);
+      expect(find.text('The rule is about'), findsWidgets);
+      expect(find.text('Limit to business profile'), findsNothing);
       expect(find.text('Required'), findsWidgets);
       expect(
         find.byType(TextFormField),
         findsNothing,
-        reason: 'nothing here is free text -- all four are pickers or a switch',
+        reason: 'nothing here is free text -- all are pickers or a switch',
       );
+    });
+
+    test('a rule payload names exactly one kind and never a profile', () {
+      final _RuleApi api = _RuleApi();
+      final ResourceDefinition<CategoryAttributeRuleRecord> definition =
+          categoryAttributeRuleDefinition(api, _permissions());
+
+      final Map<String, dynamic> category = definition.payload({
+        'rule_kind': 'CATEGORY',
+        'category_code': 'MEDICINE',
+        'goods_type_id': 'stale-from-an-earlier-choice',
+        'attribute_definition_id': 'attr-1',
+        'is_mandatory': true,
+      }, true);
+      expect(category['category_code'], 'MEDICINE');
+      expect(category.containsKey('goods_type_id'), isFalse);
+      expect(category.containsKey('business_profile_id'), isFalse);
+
+      final Map<String, dynamic> goodsType = definition.payload({
+        'rule_kind': 'GOODS_TYPE',
+        'category_code': 'MEDICINE',
+        'goods_type_id': 'gt-1',
+        'attribute_definition_id': 'attr-1',
+        'is_mandatory': false,
+      }, true);
+      expect(goodsType['goods_type_id'], 'gt-1');
+      expect(goodsType.containsKey('category_code'), isFalse);
+      expect(goodsType['is_mandatory'], isFalse);
+    });
+
+    test('a shared rule cannot be pointed at a customer group', () {
+      final ResourceDefinition<CategoryAttributeRuleRecord> definition =
+          categoryAttributeRuleDefinition(_RuleApi(), _permissions());
+      final FieldSpec kind =
+          definition.fields.firstWhere((field) => field.key == 'rule_kind');
+
+      expect(kind.choices, ['CATEGORY', 'GOODS_TYPE']);
+      expect(
+        definition.fields.any((field) => field.key == 'customer_group_id'),
+        isFalse,
+      );
+    });
+
+    test('editing a goods-type rule opens on that kind', () {
+      final ResourceDefinition<CategoryAttributeRuleRecord> definition =
+          categoryAttributeRuleDefinition(_RuleApi(), _permissions());
+      final Map<String, dynamic> values = definition.initialValues(
+        CategoryAttributeRuleRecord.fromJson(const {
+          'id': 'rule-9',
+          'goods_type_id': 'gt-1',
+          'attribute_definition_id': 'attr-1',
+          'is_mandatory': true,
+        }),
+      );
+
+      expect(values['rule_kind'], 'GOODS_TYPE');
+      expect(values['goods_type_id'], 'gt-1');
+      expect(values.containsKey('category_code'), isFalse);
     });
   });
 }

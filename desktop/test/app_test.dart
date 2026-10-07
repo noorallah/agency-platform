@@ -1013,7 +1013,6 @@ class _ProductApi extends ApiClient {
             applicableCategory: 'MEDICINE',
             description: '',
             defaultValue: '',
-            applicableBusinessProfileId: '',
           )
         ],
         total: 1,

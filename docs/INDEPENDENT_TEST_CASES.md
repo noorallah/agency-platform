@@ -818,6 +818,28 @@ warehouse rename its capability flags.
 - **Expect:** (a) accepted. (b) the first is refused with 422 naming `TR-PAINT` and expiry ("does not track expiry dates, so expiry_date cannot be set. Switch it on for the product first."); the second is accepted. (c) refused with 422: `TR-PHONE` is not tracked by batch. (d) the phone's serial is accepted; the paint's is refused with 422, not tracked by serial. (e) accepted, although the product's switch could now be off: an existing batch can always be held. (f) accepted on a firm whose profile has no expiry feature. (g) refused with 403 for the missing permission, and no batch is written.
 - **Leaves:** three products, two batches, one serial, one customer.
 
+### TC-MAST-024 — An extra field is shown and required by goods type, customer group and supplier type
+
+*Added 2026-10-08 from the code (backlog 89, step 5); **not yet run** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 89 test group 6 (extra fields) and group 8 (who may keep the rules)
+- **Fixture:** `product-master`
+- **Also needs:** goods types *Medicine* and *Paint* in use, category *Tablets* (Medicine), *Emulsions* (Paint) and *Sundries* (no type); customer groups *Contractors* and *Retailers*; supplier types *Importer* and *Local*; a **Firm manager** on the same firm. The firm's profile does not matter.
+- **Steps:** as the **Firm admin**, under Set up > Custom Fields: add the firm's own fields `SHADE_CODE` (product), `CONTRACTOR_REG_NO` (customer) and `IMPORT_EXPORT_CODE` (supplier). Add three rules: `SHADE_CODE` for goods type *Paint*, not compulsory; `CONTRACTOR_REG_NO` for customer group *Contractors*, compulsory; `IMPORT_EXPORT_CODE` for supplier type *Importer*, compulsory. Then: (a) open a new product and pick *Emulsions*, then *Tablets*, then *Sundries*; (b) save a customer in *Contractors* with the registration number empty, then filled; (c) save a customer in *Retailers*, and one in no group; (d) send, over the API, a *Retailers* customer carrying a value for `CONTRACTOR_REG_NO`; (e) move the customer of (b) to *Retailers* and save; (f) save a supplier of type *Importer* without the code, then with it, and one of type *Local* without it; (g) add the *Contractors* rule a second time; (h) add a rule for `SHADE_CODE` naming customer group *Contractors*. As the **Firm manager**: (i) add any rule.
+- **Expect:** (a) *Shade Code* is offered for *Emulsions*, optional, and is not offered for *Tablets* or *Sundries*. (b) the first save is refused, "Required attributes are missing"; the second is accepted and the value reads back. (c) both accepted; neither form shows the field. (d) refused with 422, "do not apply". (e) accepted; the registration number the customer already held is still stored and still shown. (f) refused, then accepted; the *Local* supplier is accepted without it. (g) refused with 409, "already exists". (h) refused with 422: a product field cannot name a customer group. (i) refused with 403, and no rule is written.
+- **Leaves:** three fields, three rules, one product at most, three customers, two suppliers.
+
+### TC-MAST-025 — A firm switches a shared extra field off, and its values are kept
+
+*Added 2026-10-08 from the code (backlog 89, step 5); **not yet run** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 89 test group 6 (a firm switching a catalogue field off) and group 7 (what the profile no longer does)
+- **Fixture:** `product-master`
+- **Also needs:** one **shared** customer field (added by the platform administrator under Platform > Dynamic Attributes, for example `TRADE_LICENCE_NO`); a second firm in the same store; a **Firm manager** on the first firm.
+- **Steps:** as the **Firm admin** of the first firm: (a) save a customer with a value in the shared field; (b) under Set up > Custom Fields, switch the shared field off for this firm; (c) open that customer, and open a new customer; (d) send, over the API, a new customer carrying a value for the field; (e) open a new customer in the **second** firm; (f) switch the field on again and open the first customer; (g) try the switch on one of the firm's **own** fields. As the **Firm manager**: (h) switch the shared field off.
+- **Expect:** (b) accepted; the list shows the field as off for this firm. (c) the existing customer still shows the value it holds; the new customer is not offered the field. (d) refused with 422, "do not apply". (e) the second firm is still offered the field. (f) the value saved in (a) is there, unchanged. (g) refused with 404: a firm's own field is retired by making it inactive. (h) refused with 403. The audit trail of the first firm holds two `firm_custom_field.use_changed` rows, off then on.
+- **Leaves:** one shared field, two customers.
+
 
 ---
 

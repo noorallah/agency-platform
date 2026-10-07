@@ -193,7 +193,6 @@ class AttributeDefinitionCreate(BusinessFrameworkSchema):
     default_value: str | None = None
     validation_rule: dict[str, object] | None = None
     applicable_category: str | None = Field(default=None, max_length=100)
-    applicable_business_profile_id: UUID | None = None
     is_active: bool = True
 
     @field_validator("code", "data_type", mode="before")
@@ -258,8 +257,10 @@ class AttributeDefinitionResponse(BusinessFrameworkSchema):
     #: The fixed choices a TEXT field is limited to; empty means free text.
     allowed_values: list[str] = Field(default_factory=list)
     applicable_category: str | None
-    applicable_business_profile_id: UUID | None
     is_active: bool
+    #: False where the caller's firm has switched this shared field off.
+    #: Only the firm's custom fields list fills it; elsewhere it is True.
+    enabled_for_firm: bool = True
     #: Optimistic-concurrency counter, echoed back as ``If-Match``.
     version: int
     created_at: datetime
@@ -294,33 +295,78 @@ class AttributeValueResponse(BusinessFrameworkSchema):
     updated_at: datetime
 
 
+class AttributeKindRule(BusinessFrameworkSchema):
+    """One rule tying a field to a goods type, customer group or supplier type."""
+
+    attribute_definition_id: UUID
+    goods_type_id: UUID | None = None
+    customer_group_id: UUID | None = None
+    vendor_type_id: UUID | None = None
+    is_mandatory: bool
+
+
 class ApplicableAttributesResponse(BusinessFrameworkSchema):
     """The custom fields one entity type carries in the caller's firm.
 
-    Resolved the way a save resolves them -- unscoped definitions plus the
-    ones scoped to the firm's business profile -- so a form offers exactly
-    the fields a save would accept. `mandatory_ids` is what the save will
-    refuse without.
+    Resolved the way a save resolves them -- the firm's own fields and the
+    shared ones it has not switched off -- so a form offers exactly the
+    fields a save would accept. `mandatory_ids` is what the save will refuse
+    without, whatever kind the record is.
+
+    `kind_rules` are the rules that tie a field to a kind of record: a field
+    named by one is shown only while the record is of a kind its rules name,
+    and is required there when the rule says so. They arrive here so a form
+    whose record changes kind -- a customer moved to another group -- need
+    not ask again.
     """
 
     entity_type: AttributeEntityType
     definitions: list[AttributeDefinitionResponse]
     mandatory_ids: list[UUID]
+    kind_rules: list[AttributeKindRule] = Field(default_factory=list)
+
+
+class FirmFieldUse(BusinessFrameworkSchema):
+    """Switch one shared field on or off for the caller's firm."""
+
+    is_enabled: bool
 
 
 class CategoryAttributeRuleCreate(BusinessFrameworkSchema):
-    """Payload for creating one category attribute rule."""
+    """Payload for creating one field rule.
 
-    business_profile_id: UUID | None = None
-    category_code: str = Field(min_length=2, max_length=100)
+    It names exactly one thing: a product category by code, a goods type, a
+    customer group or a supplier type.
+    """
+
+    category_code: str | None = Field(default=None, min_length=2, max_length=100)
+    goods_type_id: UUID | None = None
+    customer_group_id: UUID | None = None
+    vendor_type_id: UUID | None = None
     attribute_definition_id: UUID
     is_mandatory: bool = True
     validation_override: dict[str, object] | None = None
 
     @field_validator("category_code", mode="before")
     @classmethod
-    def _normalize_code(cls, value: str) -> str:
-        return value.strip().upper()
+    def _normalize_code(cls, value: str | None) -> str | None:
+        return value.strip().upper() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _names_one_thing(self) -> "CategoryAttributeRuleCreate":
+        """Refuse a rule naming nothing, or more than one thing."""
+        named = [
+            self.category_code,
+            self.goods_type_id,
+            self.customer_group_id,
+            self.vendor_type_id,
+        ]
+        if sum(item is not None for item in named) != 1:
+            raise ValueError(
+                "A rule names exactly one of: a category code, a goods type, "
+                "a customer group, a supplier type."
+            )
+        return self
 
 
 class CategoryAttributeRuleUpdate(CategoryAttributeRuleCreate):
@@ -330,17 +376,21 @@ class CategoryAttributeRuleUpdate(CategoryAttributeRuleCreate):
 class CategoryAttributeRuleResponse(BusinessFrameworkSchema):
     """Category attribute rule API response.
 
-    The three ids are what the rule is made of, and the two names beside them
-    are what a screen can show. Resolving them client-side would mean loading
-    the whole attribute catalogue to render one column, and a grid of raw
-    UUIDs tells the person reading it nothing at all.
+    The ids are what the rule is made of, and the names beside them are
+    what a screen can show. Resolving them client-side would mean loading the
+    whole attribute catalogue to render one column, and a grid of raw UUIDs
+    tells the person reading it nothing at all.
     """
 
     id: UUID
-    business_profile_id: UUID | None
-    #: The profile's code, or None where the rule holds for every industry.
-    business_profile_code: str | None = None
-    category_code: str
+    #: The firm whose own rule this is; null for a shared one.
+    firm_id: UUID | None = None
+    category_code: str | None
+    goods_type_id: UUID | None = None
+    customer_group_id: UUID | None = None
+    vendor_type_id: UUID | None = None
+    #: What the rule names, as a person reads it: "Goods type: Medicine".
+    applies_to: str | None = None
     attribute_definition_id: UUID
     #: The attribute's code and name, as the catalogue spells them.
     attribute_code: str | None = None

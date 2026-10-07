@@ -804,6 +804,19 @@ class ApiClient {
         body: data,
       )));
 
+  /// Switch a shared field on or off for this firm. Off hides it from the
+  /// firm's forms and keeps the stored values. A firm's own field answers 404:
+  /// it is retired with its own Active flag.
+  Future<AttributeDefinitionRecord> useFirmCustomField(
+    String id, {
+    required bool enabled,
+  }) async =>
+      AttributeDefinitionRecord.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/business-framework/firm-custom-fields/$id/use',
+        body: {'is_enabled': enabled},
+      )));
+
   Future<void> deleteFirmCustomField(String id) => request(
         'DELETE',
         '/api/v1/business-framework/firm-custom-fields/$id',

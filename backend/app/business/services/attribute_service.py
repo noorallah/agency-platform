@@ -3,8 +3,9 @@
 A module gains industry-specific fields by calling this service rather than by
 adding columns. The flow is the same everywhere:
 
-* an administrator defines an :class:`AttributeDefinition` for an entity type,
-  optionally scoped to one business profile;
+* an administrator defines an :class:`AttributeDefinition` for an entity type;
+* a rule may tie it to a kind of record -- a goods type, a customer group, a
+  supplier type -- and say whether it is compulsory there;
 * the module calls :meth:`AttributeService.replace_values` when saving a record
   and :meth:`AttributeService.values_for` when reading one.
 
@@ -22,12 +23,13 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.business.gating import resolve_profile_id
 from app.business.models import (
+    RULE_KIND_COLUMNS,
     AttributeDataType,
     AttributeDefinition,
     AttributeValueBase,
     CategoryAttributeRule,
+    FirmAttributeSwitch,
 )
 from app.common.audit.services import audit_value, changed_fields, record_audit
 from app.core.exceptions import ValidationError
@@ -43,6 +45,36 @@ class AttributeInput:
 
     attribute_definition_id: UUID
     value: AttributeValue
+
+
+@dataclass(frozen=True, slots=True)
+class RecordKind:
+    """The kind of record a field is being resolved for.
+
+    A product has a goods type, a customer a group and a supplier a type; a
+    record with none -- a General product, a customer in no group, every
+    document -- is ``RecordKind()``, and is offered no field tied to a kind.
+    """
+
+    goods_type_id: UUID | None = None
+    customer_group_id: UUID | None = None
+    vendor_type_id: UUID | None = None
+
+    def matches(self, rule: CategoryAttributeRule) -> bool:
+        """Return whether a rule names this record's kind."""
+        return any(
+            getattr(rule, column) is not None
+            and getattr(rule, column) == getattr(self, column)
+            for column in RULE_KIND_COLUMNS
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AppliedFields:
+    """What one record may carry and what it must: one read, used by both."""
+
+    definitions: list[AttributeDefinition]
+    required: set[UUID]
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,37 +102,12 @@ class AttributeService:
         *,
         firm_id: UUID,
         category_code: str | None = None,
+        kind: RecordKind | None = None,
     ) -> list[AttributeDefinition]:
-        """Return the attributes that apply to one entity type for a firm.
-
-        A definition applies when it targets the entity type and is either
-        unscoped or scoped to the firm's active business profile.
-        """
-        profile_id = self._profile_id(firm_id)
-        statement = select(AttributeDefinition).where(
-            AttributeDefinition.entity_type == entity_type,
-            AttributeDefinition.is_active.is_(True),
-            AttributeDefinition.is_deleted.is_(False),
-            # The shared catalogue and this firm's own, never another firm's
-            # (MST-8): several firms share one store.
-            or_(
-                AttributeDefinition.firm_id.is_(None),
-                AttributeDefinition.firm_id == firm_id,
-            ),
-        )
-        rows = list(self._session.scalars(statement).all())
-        applicable = [
-            row
-            for row in rows
-            if row.applicable_business_profile_id in (None, profile_id)
-        ]
-        if category_code is not None:
-            applicable = [
-                row
-                for row in applicable
-                if row.applicable_category in (None, category_code)
-            ]
-        return sorted(applicable, key=lambda row: row.code)
+        """Return the fields one record of this type may carry, by code."""
+        return self.applied(
+            entity_type, firm_id=firm_id, category_code=category_code, kind=kind
+        ).definitions
 
     def mandatory_ids(
         self,
@@ -108,30 +115,106 @@ class AttributeService:
         *,
         firm_id: UUID,
         category_code: str | None = None,
+        kind: RecordKind | None = None,
     ) -> set[UUID]:
         """Return the attribute ids a record of this type must carry."""
-        definitions = self.definitions_for(
-            entity_type, firm_id=firm_id, category_code=category_code
-        )
+        return self.applied(
+            entity_type, firm_id=firm_id, category_code=category_code, kind=kind
+        ).required
+
+    def applied(
+        self,
+        entity_type: str,
+        *,
+        firm_id: UUID,
+        category_code: str | None = None,
+        kind: RecordKind | None = None,
+    ) -> AppliedFields:
+        """Return what one record may carry and what it must.
+
+        A field applies when it is the firm's own or a shared one the firm has
+        not switched off, it is not scoped to another product category, and it
+        is either tied to no kind or tied to this record's. It is required by
+        its own flag, by a rule on the record's category, or by a rule on its
+        kind. The firm's business profile is not asked (backlog 89).
+        """
+        fields = self.offered(entity_type, firm_id=firm_id)
+        rules = self.rules_for(firm_id, [row.id for row in fields])
+        record = kind or RecordKind()
+        tied = {rule.attribute_definition_id for rule in rules if names_a_kind(rule)}
+        mine = {rule.attribute_definition_id for rule in rules if record.matches(rule)}
+        definitions = [
+            row
+            for row in fields
+            if (row.id not in tied or row.id in mine)
+            and (
+                category_code is None
+                or row.applicable_category in (None, category_code)
+            )
+        ]
+        allowed = {row.id for row in definitions}
         required = {row.id for row in definitions if row.mandatory}
-        if category_code is not None:
-            profile_id = self._profile_id(firm_id)
-            allowed = {row.id for row in definitions}
-            rules = self._session.scalars(
+        for rule in rules:
+            if not rule.is_mandatory or rule.attribute_definition_id not in allowed:
+                continue
+            by_category = (
+                category_code is not None and rule.category_code == category_code
+            )
+            if by_category or record.matches(rule):
+                required.add(rule.attribute_definition_id)
+        return AppliedFields(definitions=definitions, required=required)
+
+    def offered(self, entity_type: str, *, firm_id: UUID) -> list[AttributeDefinition]:
+        """Return every field of one entity type the firm uses, by code.
+
+        The firm's own and the shared catalogue, never another firm's (MST-8:
+        several firms share one store), less the shared ones this firm has
+        switched off. Fields tied to a kind are all here: a form whose record
+        can change kind needs them, and :meth:`applied` narrows them.
+        """
+        hidden = select(FirmAttributeSwitch.attribute_definition_id).where(
+            FirmAttributeSwitch.firm_id == firm_id,
+            FirmAttributeSwitch.is_enabled.is_(False),
+            FirmAttributeSwitch.is_deleted.is_(False),
+        )
+        return list(
+            self._session.scalars(
+                select(AttributeDefinition)
+                .where(
+                    AttributeDefinition.entity_type == entity_type,
+                    AttributeDefinition.is_active.is_(True),
+                    AttributeDefinition.is_deleted.is_(False),
+                    or_(
+                        AttributeDefinition.firm_id.is_(None),
+                        AttributeDefinition.firm_id == firm_id,
+                    ),
+                    AttributeDefinition.id.not_in(hidden),
+                )
+                .order_by(AttributeDefinition.code.asc())
+            ).all()
+        )
+
+    def rules_for(
+        self, firm_id: UUID, definition_ids: list[UUID]
+    ) -> list[CategoryAttributeRule]:
+        """Return the live rules on some fields: the shared and the firm's own.
+
+        One statement for however many fields, so a form reads its rules once.
+        """
+        if not definition_ids:
+            return []
+        return list(
+            self._session.scalars(
                 select(CategoryAttributeRule).where(
-                    CategoryAttributeRule.category_code == category_code,
-                    CategoryAttributeRule.is_mandatory.is_(True),
+                    CategoryAttributeRule.attribute_definition_id.in_(definition_ids),
                     CategoryAttributeRule.is_deleted.is_(False),
+                    or_(
+                        CategoryAttributeRule.firm_id.is_(None),
+                        CategoryAttributeRule.firm_id == firm_id,
+                    ),
                 )
             ).all()
-            required |= {
-                rule.attribute_definition_id
-                for rule in rules
-                if rule.business_profile_id in (None, profile_id)
-                and rule.firm_id in (None, firm_id)
-                and rule.attribute_definition_id in allowed
-            }
-        return required
+        )
 
     # ------------------------------------------------------------------
     # Values
@@ -146,16 +229,15 @@ class AttributeService:
         firm_id: UUID,
         actor_id: UUID,
         category_code: str | None = None,
+        kind: RecordKind | None = None,
     ) -> None:
         """Validate and store the complete attribute set for one record."""
         stored_before = self._audit_state(model, owner_id, firm_id=firm_id)
         entity_type = model.ENTITY_TYPE.value
-        definitions = {
-            row.id: row
-            for row in self.definitions_for(
-                entity_type, firm_id=firm_id, category_code=category_code
-            )
-        }
+        applied = self.applied(
+            entity_type, firm_id=firm_id, category_code=category_code, kind=kind
+        )
+        definitions = {row.id: row for row in applied.definitions}
         submitted = {item.attribute_definition_id for item in inputs}
 
         existing = {
@@ -191,9 +273,7 @@ class AttributeService:
         # is as mandatory as the definition's own flag -- reading only the
         # flag at the value check let a rule-required field be stored with
         # every value column null by sending it blank.
-        required = self.mandatory_ids(
-            entity_type, firm_id=firm_id, category_code=category_code
-        )
+        required = applied.required
         missing = sorted(str(item) for item in required - submitted)
         if missing:
             raise ValidationError(
@@ -425,9 +505,10 @@ class AttributeService:
     ) -> dict[UUID, AttributeDefinition]:
         """Return definitions the record already carries but no longer offers.
 
-        A definition that has been deactivated, or scoped away from the record's
-        profile or category, stays writable for a record that already holds a
-        value for it. Anything else the caller submitted remains an error.
+        A definition that has been deactivated, switched off for the firm, or
+        tied to a kind or a category the record is no longer in, stays
+        writable for a record that already holds a value for it. Anything
+        else the caller submitted remains an error.
         """
         candidates = {
             item
@@ -539,10 +620,7 @@ class AttributeService:
             details={"attribute_code": definition.code, "received": str(value)},
         )
 
-    def _profile_id(self, firm_id: UUID) -> UUID | None:
-        """Return the profile the gate resolves for the firm, or None.
 
-        Delegated to ``resolve_profile_id`` so custom fields, the gate and
-        ``/active-features`` give one answer (D-CFG-19).
-        """
-        return resolve_profile_id(self._session, firm_id)
+def names_a_kind(rule: CategoryAttributeRule) -> bool:
+    """Return whether a rule ties its field to a kind of record."""
+    return any(getattr(rule, column) is not None for column in RULE_KIND_COLUMNS)

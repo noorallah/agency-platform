@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**333 tables**, of which **17** live only in the platform store.
+**334 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -117,12 +117,13 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `attribute_definitions` | firm store ¹ | Define one configurable field that extends a record for some industry. | `business_profiles` |
+| `attribute_definitions` | firm store ¹ | Define one configurable field that extends a record: shared (no `firm_id`) or one firm's own. No longer scoped to a business profile (`applicable_business_profile_id` dropped, `20261008_0352`). |  |
 | `business_features` | firm store ¹ | Define one configurable framework feature flag. |  |
 | `business_modules` | firm store ¹ | Define one configurable module in the ERP workspace. |  |
 | `business_profiles` | firm store ¹ | Define one industry/business operating profile. |  |
-| `category_attribute_rules` | firm store ¹ | Define category-scoped mandatory-attribute rules by business profile. | `business_profiles`, `attribute_definitions` |
+| `category_attribute_rules` | firm store ¹ | Tie a field to a goods type, customer group or supplier type, or make it compulsory for a product category: shared (no `firm_id`) or a firm's own; names exactly one of the four (`business_profile_id` dropped, `20261008_0352`). | `goods_types`, `customer_groups`, `vendor_types`, `attribute_definitions` |
 | `delivery_note_attribute_values` | firm store ¹ | Store one custom field value for a delivery note. | `delivery_notes`, `firms`, `attribute_definitions` |
+| `firm_attribute_switches` | firm store ¹ | Switch one shared field off or on for one firm; no row means on (added on 2026-10-08, not yet tested by hand). | `attribute_definitions` |
 | `firm_business_profiles` | firm store ¹ | Assign exactly one active business profile to a firm. | `firms`, `business_profiles` |
 | `profile_features` | firm store ¹ | Store per-profile feature enablement and optional configuration. | `business_profiles`, `business_features` |
 | `profile_modules` | firm store ¹ | Store per-profile module visibility and workflow configuration. | `business_profiles`, `business_modules` |

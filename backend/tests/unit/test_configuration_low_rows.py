@@ -315,10 +315,14 @@ def test_no_resolvable_profile_is_ungated_not_some_other_profile() -> None:
     # answer PHARMA's list, a profile the firm is not on.
     codes = {feature.code for feature, _ in framework.active_features(firm.id)}
     assert "BARCODE" in codes
-    assert AttributeService(session)._profile_id(firm.id) is None
 
 
-def test_the_three_callers_agree_on_an_assigned_profile() -> None:
+def test_the_callers_agree_on_an_assigned_profile() -> None:
+    """The gate and the feature list give one answer.
+
+    Custom fields were the third caller until backlog 89 step 5; they no
+    longer ask for a profile at all.
+    """
     session = _session()
     firm = _firm(session)
     framework = BusinessProfileFrameworkService(session)
@@ -339,7 +343,9 @@ def test_the_three_callers_agree_on_an_assigned_profile() -> None:
     session.commit()
 
     assert resolve_profile_id(session, firm.id) == profile.id
-    assert AttributeService(session)._profile_id(firm.id) == profile.id
+    codes = {feature.code for feature, _ in framework.active_features(firm.id)}
+    assert codes == set(), "the assigned profile's list, which holds nothing"
+    assert not hasattr(AttributeService, "_profile_id")
 
 
 # ---------------------------------------------------------------------------

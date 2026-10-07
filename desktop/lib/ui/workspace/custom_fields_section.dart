@@ -47,8 +47,55 @@ class CustomFieldsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Every definition the server returned, shown or not.
   List<AttributeDefinitionRecord> definitions = const [];
   Set<String> mandatoryIds = const {};
+  List<KindRuleRecord> kindRules = const [];
+
+  String? _customerGroupId;
+  String? _vendorTypeId;
+
+  /// Tells the controller which kind the record is now: the form passes the
+  /// selected customer group or supplier type on load and on every change, and
+  /// the fields are re-evaluated here without another server call. A form with
+  /// no kind (any document) never calls it, so fields tied to a kind stay hidden.
+  void setKind({String? customerGroupId, String? vendorTypeId}) {
+    final String? group =
+        customerGroupId == null || customerGroupId.isEmpty ? null : customerGroupId;
+    final String? type =
+        vendorTypeId == null || vendorTypeId.isEmpty ? null : vendorTypeId;
+    if (group == _customerGroupId && type == _vendorTypeId) return;
+    _customerGroupId = group;
+    _vendorTypeId = type;
+    if (!_disposed) notifyListeners();
+  }
+
+  Iterable<KindRuleRecord> _rulesFor(String definitionId) =>
+      kindRules.where((rule) => rule.attributeDefinitionId == definitionId);
+
+  bool _matches(KindRuleRecord rule) =>
+      (_customerGroupId != null && rule.customerGroupId == _customerGroupId) ||
+      (_vendorTypeId != null && rule.vendorTypeId == _vendorTypeId);
+
+  /// Whether the field is tied to a kind of record by any rule.
+  bool isTied(String definitionId) => _rulesFor(definitionId).isNotEmpty;
+
+  /// A field in no kind rule is always shown; a tied one is shown when a rule
+  /// matches the record's kind, or when the record already holds a value for it
+  /// (the server keeps accepting a value the record carries).
+  bool isVisible(AttributeDefinitionRecord definition) {
+    if (!isTied(definition.id)) return true;
+    if (_rulesFor(definition.id).any(_matches)) return true;
+    return (_stored[definition.id] ?? '').isNotEmpty;
+  }
+
+  /// Required whatever the kind, or by the rule matching the record's kind.
+  bool isRequired(String definitionId) =>
+      mandatoryIds.contains(definitionId) ||
+      _rulesFor(definitionId).any((rule) => rule.isMandatory && _matches(rule));
+
+  List<AttributeDefinitionRecord> get visibleDefinitions =>
+      [for (final AttributeDefinitionRecord d in definitions) if (isVisible(d)) d];
   final Map<String, AttributeFieldController> controllers = {};
   bool loaded = false;
   bool loading = false;
@@ -72,6 +119,7 @@ class CustomFieldsController extends ChangeNotifier {
       if (_disposed) return;
       definitions = answer.definitions;
       mandatoryIds = answer.mandatoryIds.toSet();
+      kindRules = answer.kindRules;
       for (final AttributeDefinitionRecord definition in definitions) {
         controllers.putIfAbsent(
           definition.id,
@@ -106,11 +154,12 @@ class CustomFieldsController extends ChangeNotifier {
   /// the firm defined at least one. A document sends no `attributes` at all
   /// otherwise, so a firm that never used the feature sees no change on the
   /// wire.
-  bool get hasFields => loaded && definitions.isNotEmpty;
+  bool get hasFields => loaded && visibleDefinitions.isNotEmpty;
 
-  /// The `attributes` list for the payload: every filled field.
+  /// The `attributes` list for the payload: every filled field that is shown.
+  /// A hidden field with no stored value is never sent.
   List<Json> payload() => [
-        for (final AttributeDefinitionRecord definition in definitions)
+        for (final AttributeDefinitionRecord definition in visibleDefinitions)
           if (!(controllers[definition.id]?.isEmpty ?? true))
             {
               'attribute_definition_id': definition.id,
@@ -120,10 +169,10 @@ class CustomFieldsController extends ChangeNotifier {
 
   /// The first validation message across the fields, or null.
   String? validate() {
-    for (final AttributeDefinitionRecord definition in definitions) {
+    for (final AttributeDefinitionRecord definition in visibleDefinitions) {
       final AttributeFieldController? controller = controllers[definition.id];
       if (controller == null) continue;
-      if (mandatoryIds.contains(definition.id) && controller.isEmpty) {
+      if (isRequired(definition.id) && controller.isEmpty) {
         return '${definition.name} is required.';
       }
       final String? message = controller.validate();
@@ -186,7 +235,7 @@ class AdditionalDetailsSection extends StatelessWidget {
         builder: (context, _) {
           if (controller.loading) return const SizedBox.shrink();
           if (controller.error == null &&
-              (!controller.loaded || controller.definitions.isEmpty)) {
+              (!controller.loaded || controller.visibleDefinitions.isEmpty)) {
             return const SizedBox.shrink();
           }
           Widget block = Column(
@@ -270,7 +319,7 @@ class CustomFieldsSection extends StatelessWidget {
               ),
             );
           }
-          if (controller.definitions.isEmpty) {
+          if (controller.visibleDefinitions.isEmpty) {
             return Padding(
               padding: const EdgeInsets.all(8),
               child: Text(
@@ -286,10 +335,10 @@ class CustomFieldsSection extends StatelessWidget {
             runSpacing: 12,
             children: [
               for (final AttributeDefinitionRecord definition
-                  in controller.definitions)
+                  in controller.visibleDefinitions)
                 AttributeFormField(
                   controller: controller.controllers[definition.id]!,
-                  required: controller.mandatoryIds.contains(definition.id),
+                  required: controller.isRequired(definition.id),
                   readOnly: readOnly,
                   onChanged: onChanged,
                 ),

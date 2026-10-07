@@ -1,6 +1,7 @@
 """Business profile framework persistence models."""
 
 from app.business.models.framework import (
+    RULE_KIND_COLUMNS,
     AttributeDataType,
     AttributeDefinition,
     AttributeEntityType,
@@ -9,6 +10,7 @@ from app.business.models.framework import (
     BusinessModule,
     BusinessProfile,
     CategoryAttributeRule,
+    FirmAttributeSwitch,
     FirmBusinessProfile,
     ProfileFeature,
     ProfileModule,
@@ -23,6 +25,8 @@ __all__ = [
     "BusinessProfile",
     "CategoryAttributeRule",
     "AttributeValueBase",
+    "FirmAttributeSwitch",
+    "RULE_KIND_COLUMNS",
     "FirmBusinessProfile",
     "ProfileFeature",
     "ProfileModule",

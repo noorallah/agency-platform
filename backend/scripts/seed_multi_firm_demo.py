@@ -1403,7 +1403,7 @@ def _seed_customers(
 
 
 def _seed_business_framework(
-    session: Session, blueprint: FirmBlueprint, actor_id: UUID
+    session: Session, blueprint: FirmBlueprint, actor_id: UUID, *, firm_id: UUID
 ) -> dict[str, AttributeDefinition]:
     profile = _business_profile(session, blueprint.profile_code)
     feature_definitions = {
@@ -1702,7 +1702,9 @@ def _seed_business_framework(
         attribute_definition = definitions[code]
         rule = session.scalar(
             select(CategoryAttributeRule).where(
-                CategoryAttributeRule.business_profile_id == profile.id,
+                # The firm's own rule: a rule no longer names a profile
+                # (backlog 89), and several demo firms can share a store.
+                CategoryAttributeRule.firm_id == firm_id,
                 CategoryAttributeRule.category_code == "CORE_PRODUCTS",
                 CategoryAttributeRule.attribute_definition_id
                 == attribute_definition.id,
@@ -1711,7 +1713,7 @@ def _seed_business_framework(
         )
         if rule is None:
             rule = CategoryAttributeRule(
-                business_profile_id=profile.id,
+                firm_id=firm_id,
                 category_code="CORE_PRODUCTS",
                 attribute_definition_id=attribute_definition.id,
                 is_mandatory=code in rule_targets["required"],
@@ -2308,7 +2310,9 @@ def _seed_products(
     session: Session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
 ) -> None:
     service = ProductService(session)
-    attribute_definitions = _seed_business_framework(session, blueprint, actor_id)
+    attribute_definitions = _seed_business_framework(
+        session, blueprint, actor_id, firm_id=firm.id
+    )
     category = session.scalar(
         select(ProductCategory).where(
             ProductCategory.firm_id == firm.id,

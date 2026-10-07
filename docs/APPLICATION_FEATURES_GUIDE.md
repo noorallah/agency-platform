@@ -96,8 +96,11 @@ them, quietly (2, 11.3).
 
 **It adapts to the trade.** Each firm is given a *business profile*
 (pharmacy, electronics, wholesale, general ...) that decides which features it
-uses (expiry dates, serial numbers, drug licence ...), which menus it sees,
-and which extra fields its products and customers carry.
+uses (drug licence, vehicle tracking ...) and which menus it sees. Which extra
+fields its products, customers and suppliers carry is set separately, per goods
+type, customer group and supplier type, and the firm switches the platform's
+shared fields off or on for itself (changed 2026-10-08, not yet tested by
+hand).
 
 **How it is installed.** One PC is the *server*: it holds the database and
 runs the server program. Every other PC runs only the app and connects to the
@@ -283,7 +286,7 @@ several of them with one click.
 | --- | --- | --- | --- |
 | 1 | Create the firm: name, code, GST, PAN, address, financial-year start, and where its data is kept | Settings → Platform → Firms → Firms → + New | Where the data is kept cannot be changed later |
 | 2 | Prepare its storage (only if it has a section or database of its own) | Set up panel → Provision storage | Nothing can be recorded for the firm until this is done |
-| 3 | Give it a business profile | Set up panel → Business profile → Assign | Decides its features, menus and extra fields |
+| 3 | Give it a business profile | Set up panel → Business profile → Assign | Decides its features and menus. It no longer decides extra fields (those follow the firm's own Custom Fields and Custom Field Rules) |
 | 4 | **Open the books** | Set up panel → Open the books | Creates the chart of accounts, the current financial year with twelve monthly periods, and the accounts each document posts to. **Without it, no invoice, delivery or receipt can be approved** |
 | 5 | Apply the GST template | Set up panel → Apply GST template | The tax rates and rules for Indian GST |
 | 6 | Create a head office and a main warehouse | Set up panel → Create head office and main warehouse | Every document names a branch; all stock sits in a warehouse |
@@ -1640,9 +1643,9 @@ restore actions.
 
 **Products.** Code, name, category, HSN code and tax group, units (buying,
 stock and selling), prices, preferred supplier, reorder level, barcode, and,
-where the profile
-switches them on, batch, expiry, serial number and warranty tracking, plus
-any extra fields the profile adds. Products can be imported from a file
+where the product switches them on, batch, expiry, serial number and warranty
+tracking, plus any extra fields that apply to it: those tied to its goods type,
+and those the firm has not switched off. Products can be imported from a file
 (checked before anything is saved) and exported. A product also carries its
 **brand** (and through it the **principal**), its **price levels**, a **price
 history** (a new price with an effective date, also loadable from a file), the
@@ -1885,12 +1888,12 @@ Opening a card that is a screen opens it as a tab.
 | Group | Screens | What they set |
 | --- | --- | --- |
 | This PC and me | My Preferences | Start in firm, first screen, theme, text size, date format (2) |
-| Firm | Firm Settings, Financial Years, Numbering Series, Custom Fields, Custom Field Rules, My Branch and Warehouse, Messaging, Approval Levels | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; the firm's own **custom fields**, and **extra fields on documents** (quotation, order, delivery note, invoice, purchase order, goods receipt) carried from one document to the next and printed when marked *Show on print*; **approval levels** (5.2); **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts; overdue reminders stop 90 days past due unless the firm sets another window) |
+| Firm | Firm Settings, Financial Years, Numbering Series, Custom Fields (a firm's own, and switching a shared field off or on for the firm), Custom Field Rules (a field shown only on one goods type, customer group or supplier type, and whether it is compulsory there; added on 2026-10-08, not yet tested by hand), My Branch and Warehouse, Messaging, Approval Levels | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; the firm's own **custom fields**, and **extra fields on documents** (quotation, order, delivery note, invoice, purchase order, goods receipt) carried from one document to the next and printed when marked *Show on print*; **approval levels** (5.2); **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts; overdue reminders stop 90 days past due unless the firm sets another window) |
 | Selling | Sales Stages, Credit Control, Price Floor, Discount Limits, Loyalty Scheme, TCS Settings | Which stages of a sale the firm's people type, and whether *Rate includes GST* starts on; the credit warning and whether it blocks; the lowest price and each role's discount limit; points; tax collected at source |
 | Buying | Purchase Settings, Approval Limits, Purchase Budgets | Purchasing defaults and approval, the **reorder planning** choice (typed levels or from sales), the order-multiple, bill-matching and budget policies, and the budgets |
 | Stock | Inventory Settings, Adjustment Reasons, Adjustment Limits, Batch Rules | The firm's stock defaults; **Batch Rules**: the near-expiry window (30 days), whether a near-expiry batch or one passing over an earlier batch needs a reason, the minimum-shelf-life policy (block or warn), near-expiry stock below the price floor, and *Price from batch*; the firm's adjustment reasons; each role's adjustment limit; whether returns are held for checking |
 | Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings, GST Documents, TDS on Purchases (194Q) | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided; **GST Documents**: the dispatch-before-invoice policy, whether route sales need the invoice first, the dates e-invoicing and the 30-day limit start, the e-invoice route (sandbox or offline) and the e-way bill limit, whether GSTR-3B claims every bill or only those matched to GSTR-2B, the 2B tolerance, the rule 37 mode, whether a bill from an e-invoicing supplier with no IRN is warned about, the Rule 42 mode, and monthly or quarterly return filing (read with *Tax view*, changed with the tax-settings permission) |
-| Business profile | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Unit Sets | What each industry switches on, which extra fields exist and which are mandatory for which product category, and which profile each firm has |
+| Business profile | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Unit Sets | What each industry switches on, which shared extra fields exist and which are compulsory for or shown only on which product category or goods type, and which profile each firm has. A profile no longer scopes the extra fields |
 
 **How tax is chosen.** Tax is not a rate stored on a product. The product
 brings its tax group, category and type; the document brings the branch, the

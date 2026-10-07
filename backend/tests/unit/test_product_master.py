@@ -38,7 +38,7 @@ from app.products.api.router import (
     list_products,
     restore_product,
 )
-from app.products.models import ProductAttributeValue
+from app.products.models import GoodsType, ProductAttributeValue
 from app.products.schemas import (
     ProductAttributeInput,
     ProductCategoryCreate,
@@ -178,13 +178,10 @@ def test_product_service_enforces_category_attribute_rules() -> None:
         created_by=actor_id,
         updated_by=actor_id,
     )
-    profile_id = session.scalar(select(BusinessProfile.id))
-    assert profile_id is not None
     session.add(definition)
     session.flush()
     session.add(
         CategoryAttributeRule(
-            business_profile_id=profile_id,
             category_code="MEDICINE",
             attribute_definition_id=definition.id,
             is_mandatory=True,
@@ -390,7 +387,6 @@ def _definition(
     *,
     code: str,
     mandatory: bool = False,
-    profile_id: UUID | None = None,
     category: str | None = None,
 ) -> AttributeDefinition:
     """Add one PRODUCT attribute definition and return it."""
@@ -402,7 +398,6 @@ def _definition(
         data_type="TEXT",
         mandatory=mandatory,
         is_active=True,
-        applicable_business_profile_id=profile_id,
         applicable_category=category,
         created_by=actor_id,
         updated_by=actor_id,
@@ -466,13 +461,16 @@ def test_a_mandatory_definition_is_offered_before_it_is_demanded() -> None:
     assert bin_code.id in without_category.required_attribute_definition_ids
 
 
-def test_a_rule_naming_another_profiles_field_is_not_demanded_of_this_one() -> None:
+def test_a_rule_naming_another_goods_types_field_is_not_demanded_here() -> None:
     """The category nobody could save.
 
-    `mandatory_ids` intersects the rules against what applies, so the save
-    accepted a product without the field; the metadata did not, so the form
-    refused the empty box -- and filling it was refused by the server as an
-    attribute that does not apply. Both halves now ask the same question.
+    A field tied to Medicine does not apply to a General product, so a
+    category rule that names it must not make it compulsory there: the save
+    accepted a product without the field while the metadata demanded it, so
+    the form refused the empty box -- and filling it was refused by the
+    server as an attribute that does not apply. Both halves ask the same
+    question. (Written when the field was scoped by profile; the goods type
+    scopes it since backlog 89.)
     """
     session = _session_factory()()
     firm = _firm(session, "INERT")
@@ -484,31 +482,27 @@ def test_a_rule_naming_another_profiles_field_is_not_demanded_of_this_one() -> N
         firm_id=firm.id,
         actor_id=actor_id,
     )
-    elsewhere = BusinessProfile(
-        code="PHARMACY",
-        name="Pharmacy",
-        industry_type="PHARMACY",
-        status="ACTIVE",
-        is_default=False,
-        default_settings={},
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    session.add(elsewhere)
+    medicine = GoodsType(code="MEDICINE", name="Medicine", track_batch=True)
+    session.add(medicine)
     session.flush()
-    rx = _definition(session, code="RX_CLASS", profile_id=elsewhere.id)
-    this_profile = session.scalar(
-        select(BusinessProfile.id).where(BusinessProfile.code == "GENERIC")
-    )
-    session.add(
-        CategoryAttributeRule(
-            business_profile_id=this_profile,
-            category_code="GEN",
-            attribute_definition_id=rx.id,
-            is_mandatory=True,
-            created_by=actor_id,
-            updated_by=actor_id,
-        )
+    rx = _definition(session, code="RX_CLASS")
+    session.add_all(
+        [
+            CategoryAttributeRule(
+                goods_type_id=medicine.id,
+                attribute_definition_id=rx.id,
+                is_mandatory=False,
+                created_by=actor_id,
+                updated_by=actor_id,
+            ),
+            CategoryAttributeRule(
+                category_code="GEN",
+                attribute_definition_id=rx.id,
+                is_mandatory=True,
+                created_by=actor_id,
+                updated_by=actor_id,
+            ),
+        ]
     )
     session.commit()
 

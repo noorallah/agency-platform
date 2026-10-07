@@ -10,14 +10,19 @@ stores, not written from memory.
 ## The idea
 
 A firm is assigned exactly one **business profile** — PHARMACY, FOOD,
-WHOLESALE, ELECTRONICS and so on. That profile answers four questions:
+WHOLESALE, ELECTRONICS and so on. That profile answers two questions:
 
 | Question | Answered by |
 | --- | --- |
 | What capabilities does this firm operate with? | **Features** |
 | Which workspaces does it see and use? | **Modules** |
-| What extra fields do its records carry? | **Attribute definitions** |
-| What units does it buy and sell in? | **UOM defaults** |
+
+It used to answer two more. Which extra fields a firm's records carry left the
+profile on 2026-10-08 (backlog 89, step 5, not yet tested by hand): the firm's
+own rules and its goods types decide that now, see
+[How a firm resolves its attributes](#how-a-firm-resolves-its-attributes). Units
+left it the same day: a new product's units come from a unit set the user
+picks.
 
 Nothing about an industry is hardcoded into an entity. A pharmacy tracks expiry
 dates because the product carries a `track_expiry` switch (since 2026-10-08;
@@ -72,25 +77,26 @@ an accident, not a decision.
                   │  business_profiles  │   12 — the industries
                   └──────────┬──────────┘
                              │
-     ┌───────────────┬───────┴────────┬──────────────────┐
-     │               │                │                  │
-┌────▼─────────┐ ┌───▼──────────┐ ┌───▼───────────────┐ ┌▼─────────────────────┐
-│profile_      │ │profile_      │ │attribute_         │ │business_profile_     │
-│features      │ │modules       │ │definitions        │ │uom_defaults          │
-│75            │ │130           │ │13                 │ │5                     │
-└────┬─────────┘ └───┬──────────┘ └───┬───────────────┘ └──────────────────────┘
-     │               │                │
-┌────▼─────────┐ ┌───▼──────────┐ ┌───▼───────────────────┐
-│business_     │ │business_     │ │ per-module value      │
-│features      │ │modules       │ │ tables, e.g.          │
-│21            │ │14            │ │ product_attribute_    │
-└──────────────┘ └──────────────┘ │ values                │
-                                  └───────────┬───────────┘
-                                  ┌───────────▼───────────┐
-                                  │category_attribute_    │
-                                  │rules   7              │
-                                  └───────────────────────┘
+     ┌───────────────┴────────┐
+     │                        │
+┌────▼─────────┐ ┌────────────▼─┐
+│profile_      │ │profile_      │
+│features      │ │modules       │
+│75            │ │130           │
+└────┬─────────┘ └───┬──────────┘
+     │               │
+┌────▼─────────┐ ┌───▼──────────┐
+│business_     │ │business_     │
+│features      │ │modules       │
+│21            │ │14            │
+└──────────────┘ └──────────────┘
 ```
+
+The extra-field tables (`attribute_definitions`, `category_attribute_rules`,
+`firm_attribute_switches` and the per-module value tables) used to hang off the
+profile in this picture. They no longer do: no column in them names a profile
+(backlog 89, step 5, migration `20261008_0352`). They are described under
+[Custom fields](#custom-fields).
 
 ### The catalogue exists once per firm store, not once per platform
 
@@ -120,7 +126,7 @@ Two consequences that have each cost time:
 
 ## Table reference
 
-Sixteen tables in four layers. Every one also carries the `BaseEntity` columns
+Sixteen tables in four layers, plus `firm_attribute_switches` (added on 2026-10-08). Every one also carries the `BaseEntity` columns
 (`id`, `created_at`/`created_by`, `updated_at`/`updated_by`, `version`,
 `is_deleted`, `deleted_at`/`deleted_by`), so only the columns each table *owns*
 are listed. Row counts are from `firm_shared` on 2026-08-12.
@@ -191,12 +197,12 @@ The custom-field catalogue — the *definition*, never the value.
 | Column | Stores |
 | --- | --- |
 | `code`, `name`, `description` | `EXPIRY_DATE`, `FSSAI_NUMBER` |
+| `firm_id` | NULL is a shared field, kept by the platform. Otherwise the firm's own field |
 | `entity_type` | Which record it extends: `PRODUCT`, `CUSTOMER`, `VENDOR`, `BRANCH`, `WAREHOUSE`, `TAX_PROFILE`, `UOM` |
 | `data_type` | `TEXT` / `NUMBER` / `DATE` / `BOOLEAN` — decides which value column is used |
 | `mandatory` | Required on every record of that type |
 | `default_value` | Pre-filled value |
 | `applicable_category` | Narrows to one product category; NULL means all |
-| `applicable_business_profile_id` | Narrows to one industry; NULL means all |
 | `is_active` | Hides it without deleting |
 | `validation_rule` | JSON. **Unused** — the natural home for an allowed-values list |
 
@@ -223,33 +229,69 @@ Profile × module. **Two different booleans:**
 | `display_order` | Sidebar sort position |
 | `configuration` | JSON, per-profile module settings |
 
-#### `category_attribute_rules` — 7 rows
+#### `category_attribute_rules`
 
-Makes an attribute mandatory for a **profile + product category** pair — finer
-than `attribute_definitions.mandatory`, which is global. Read by
-`AttributeService.mandatory_ids` on save and by `GET /api/v1/products/metadata`
-to tell a client which fields to render.
+*Rewritten 2026-10-08 (backlog 89, step 5, added on 2026-10-08, not yet tested
+by hand).* A rule no longer names a business profile: `business_profile_id` was
+dropped (migration `20261008_0352`). A rule now names **one thing** and a field,
+and says what the rule does there. Read by `AttributeService.applied` and by
+`GET /api/v1/products/metadata` to tell a client which fields to render.
 
 This is the *only* way a requirement can be stated, since `20260815_0087`
-cleared the four global flags that asked a pharmacy for an IMEI. **Edited from
-Administration › Business Profiles › Mandatory Attributes** as of 2026-08-22 —
-before that the endpoints existed and nothing called them, so for a week no
-firm could make any attribute mandatory. The list is paginated and searchable
-like every other list in this module, and each row carries the attribute and
-profile *names* beside their ids, because a grid of three UUIDs says nothing to
-the person reading it.
+cleared the four global flags that asked a pharmacy for an IMEI. The list is
+paginated and searchable like every other list in this module, and each row
+carries the attribute *name* beside its id.
 
 | Column | Stores |
 | --- | --- |
-| `business_profile_id` | **Nullable** — NULL means the rule applies to every profile |
-| `category_code` | NOT NULL — `MEDICINE`, `FOOD`, `ELECTRONICS` |
+| `firm_id` | NULL is a shared rule, kept by the platform. Otherwise the firm's own rule |
+| `category_code` | A product category code. Now optional |
+| `goods_type_id` | A goods type |
+| `customer_group_id` | A customer group |
+| `vendor_type_id` | A supplier type |
 | `attribute_definition_id` | Which field |
-| `is_mandatory` | The rule |
+| `is_mandatory` | Whether the field must be filled there |
 | `validation_override` | JSON, per-category validation. Unused |
 
-Seeded: PHARMACY/MEDICINE requires `BATCH_NUMBER`, `EXPIRY_DATE` and
-`MANUFACTURER`; FOOD/FOOD requires `EXPIRY_DATE` and `SHELF_LIFE_DAYS`;
-ELECTRONICS requires `IMEI` and `WARRANTY_MONTHS`.
+A rule names **exactly one** of `category_code`, `goods_type_id`,
+`customer_group_id` and `vendor_type_id`. There is one live rule per firm, field
+and thing named, held by four partial unique indexes,
+`UQ_category_attribute_rules_<category_code|goods_type|customer_group|vendor_type>_active`.
+
+What a rule does depends on what it names:
+
+- A category rule only makes a field **compulsory** for products in that
+  category, as before.
+- A rule on a goods type, a customer group or a supplier type **ties the field
+  to that kind**. The field is shown only on products of that goods type, on
+  customers in that group or on suppliers of that type, and `is_mandatory` says
+  whether it must be filled there. A field with no such rule is shown on every
+  record of its sort.
+- A product with no goods type (General), a customer in no group, a supplier
+  with no type and every document are shown no tied field.
+
+Shared rules, kept on the platform's Category Attribute Rules screen, may name a
+category code or a shared goods type. A firm's administrator keeps the firm's own
+rules on the firm's Custom Fields rules screen and may name any of the four. The
+permission is `CUSTOM_FIELD_MANAGE`; no new code was added.
+
+The migration turned the seven seeded shared rules (on category codes MEDICINE,
+FOOD and ELECTRONICS) into rules on the shared goods types Medicine, Food and
+Electronics. They now only **show** their fields on those products; they no
+longer make them compulsory. A firm that wants one compulsory adds its own rule.
+
+#### `firm_attribute_switches`
+
+*Added on 2026-10-08, not yet tested by hand.* One row per firm and field of the
+**shared** catalogue: `firm_id`, `attribute_definition_id`, `is_enabled`. One
+live row per firm and field. No row means the field is on. A firm's
+administrator switches a shared field off or on for their own firm with
+`PUT /api/v1/business-framework/firm-custom-fields/{field_id}/use`, sending
+`{"is_enabled": false}`. Off hides the field on that firm's forms and **keeps
+every stored value**; on shows them again. A firm's own field is retired with its
+own Active flag instead. The audit action is `firm_custom_field.use_changed`.
+The code is `FirmCustomFieldService.set_use` in
+`app/business/services/firm_custom_fields.py`.
 
 Default units left the profile on 2026-10-08: the `business_profile_uom_defaults`
 table is gone, and a business profile no longer says anything about units. A
@@ -378,31 +420,43 @@ Current assignments — all four firms now carry a real profile:
 
 ## How a firm resolves its attributes
 
-The section above resolves *features and modules*. Custom fields resolve
-separately, through `AttributeService`, and the rules are not the same — a
-feature is a switch the profile owns, while an attribute is a row that
-*names* a profile.
+*Rewritten 2026-10-08 (backlog 89, step 5, added on 2026-10-08, not yet tested
+by hand).* The section above resolves *features and modules*, and the profile
+owns those. Custom fields no longer have anything to do with the profile. They
+resolve separately, through one resolver, `AttributeService.applied`
+(`app/business/services/attribute_service.py`):
 
 ```
-X-Firm-ID header
-   └─> firm_business_profiles → the firm's profile
-         └─> if none assigned: business_profiles WHERE is_default → GENERIC
-               └─> attribute_definitions WHERE
-                     entity_type   = the record being edited (PRODUCT, CUSTOMER, …)
-                     is_active     = true
-                     applicable_business_profile_id IN (NULL, that profile)
-                     applicable_category            IN (NULL, the category)
+AttributeService.applied(entity_type, firm_id=, category_code=, kind=RecordKind(...))
+   └─> attribute_definitions WHERE
+         entity_type = the record being edited (PRODUCT, CUSTOMER, ...)
+         is_active   = true
+         shared (firm_id NULL) or the firm's own
+         applicable_category IN (NULL, the category)
+   └─> drop a shared field the firm has switched off (firm_attribute_switches)
+   └─> category_attribute_rules, shared and the firm's own:
+         a rule on the record's goods type / customer group / supplier type
+           ties the field to that kind (shown there, nowhere else)
+         a rule on the product's category code makes the field compulsory
 ```
 
-`AttributeService.definitions_for` is the implementation and
-`_profile_id` the fallback, which is the same "default profile, then nothing"
-ladder the capability resolver uses.
+`app/business/services/field_rules.py` holds what a rule may name. The
+`RecordKind` is the record's goods type, customer group or supplier type. A
+field with no rule that ties it is shown on every record of its sort. A product
+with no goods type (General), a customer in no group, a supplier with no type,
+and every document, are shown no tied field.
 
-**NULL means every profile, not none.** That is the whole grammar of the
-table: a field every firm needs carries NULL, and a pharmacy-only field
-carries the PHARMACY id. The same reading applies to `applicable_category`.
-Get it backwards and a field written for one industry appears in all of them,
-which is how `20260801_0011` came to ask a pharmacy for an IMEI.
+**NULL on `applicable_category` means every category, not none.** A field every
+product needs carries NULL. Get it backwards and a field written for one kind of
+goods appears on all of them, which is how `20260801_0011` came to ask a pharmacy
+for an IMEI. (It used to be the same for `applicable_business_profile_id`. That
+column was removed by backlog 89 step 5.)
+
+`GET /api/v1/business-framework/attribute-definitions/applicable?entity_type=...`
+also returns `kind_rules`, so a customer or supplier form can show and hide
+fields when the group or type changes, without another call. The product form
+still gets its fields from `/products/metadata`, resolved by the category's goods
+type.
 
 ### Two independent ways a field becomes mandatory
 
@@ -411,20 +465,19 @@ enough that choosing the wrong one is a bug rather than a preference.
 
 | | `attribute_definitions.mandatory` | `category_attribute_rules.is_mandatory` |
 | --- | --- | --- |
-| Scope | **every** category the definition applies to | one `category_code` |
-| Profile scope | inherited from the definition | its own `business_profile_id`, NULL for all |
-| Screen | Dynamic Attributes | Mandatory Attributes |
-| Use when | the field is required wherever it appears | the field is required only for some goods |
+| Scope | **every** record the definition applies to | the one thing the rule names: a category code, a goods type, a customer group or a supplier type |
+| Screen | Dynamic Attributes | Mandatory Attributes (shared), Custom Fields rules (a firm's own) |
+| Use when | the field is required wherever it appears | the field is required only for some goods, customers or suppliers |
 
-Two properties worth knowing before using either. A category rule can only
-make mandatory something **already in the applicable set** — `mandatory_ids`
-intersects the rules against `definitions_for`, so a rule naming a field this
-firm's profile does not get is inert rather than an error. And the blunt flag
+Two properties worth knowing before using either. A rule can only make
+mandatory something **already in the applicable set** — `mandatory_ids`
+intersects the rules against the applicable definitions, so a rule naming a field
+this firm has switched off is inert rather than an error. And the blunt flag
 is the one with a history: `20260801_0011` set it on EXPIRY_DATE,
-BATCH_NUMBER, MANUFACTURER and IMEI with **no** profile or category scope, so
+BATCH_NUMBER, MANUFACTURER and IMEI with **no** category scope, so
 `AttributeService` refused every product write on a freshly migrated database
 until `20260815_0087` cleared it. Where a field really is required, say so in
-`category_attribute_rules`, scoped.
+`category_attribute_rules`.
 
 Either way, **mandatory means a value, not merely a key in the request.** The
 same union decides both refusals in `replace_values`: the field must be sent,
@@ -436,27 +489,33 @@ client did.
 
 ### What changing a firm's profile does to existing data
 
-Nothing to the rows, and everything to what is read. Values live in
-`product_attribute_values` and its siblings keyed by
-`attribute_definition_id`, with no profile on them — so a definition that
-stops applying takes its values out of every read while they sit in the table.
-The reverse also holds: assigning a profile can make fields appear on records
-created before it, blank.
+*Changed 2026-10-08 (backlog 89, step 5, not yet tested by hand).* Nothing. A
+profile no longer decides which extra fields a firm sees or which are
+compulsory, so assigning or changing one takes no extra-field value out of any
+read and makes no field appear on old records. Before that change a definition
+that stopped applying took its values out of every read while they sat in the
+table; that is gone with `applicable_business_profile_id`.
 
-Neither direction is warned about today. `docs/BACKLOG.md` §16 is the proposal
-to gate it, and records the three other unguarded edits in the same area — a
-changed `data_type` strands values in the wrong typed column, a deleted
-definition is a bare soft delete with no check for values, and the mandatory
-flag blocks the next save of every record missing one.
+Moving a customer to another group, or a supplier to another type, deletes
+nothing either. The old kind's stored value stays and can still be saved back.
+The new kind's required fields are asked for at the next save that sends custom
+fields.
 
-### A shared store shares the definitions
+Switching a shared field off for a firm hides it and keeps every value; see
+`firm_attribute_switches`. `docs/BACKLOG.md` §16 records the unguarded edits that
+remain in this area: a changed `data_type` strands values in the wrong typed
+column, a deleted definition is a bare soft delete with no check for values, and
+the mandatory flag blocks the next save of every record missing one.
 
-`attribute_definitions` and `category_attribute_rules` carry **no `firm_id`**,
-and neither is in `_PLATFORM_TABLES` — so the rows live once per *store* while
-being identified per *profile*. Two firms in `firm_shared` therefore edit one
-set: measured on 2026-09-06, FOOD01 and MEDI01 did not merely show the same
-counts, they shared the rows. A firm in its own schema or database has its own
-copy. `SHARED` is the mode every new firm gets by default.
+### A shared store shares the shared catalogue
+
+A definition or a rule with no `firm_id` is **shared**: it lives once per *store*
+and is kept by the platform. Two firms in `firm_shared` therefore see one shared
+set (measured on 2026-09-06, FOOD01 and MEDI01 shared the rows). A firm's own
+definitions and rules carry its `firm_id` and are its own. The shared set is
+what `firm_attribute_switches` lets a firm turn off. A firm in its own schema or
+database has its own copy of the shared set. `SHARED` is the mode every new firm
+gets by default.
 
 ## What the profile actually changes today
 
@@ -471,8 +530,9 @@ This is a starter kit and not a ceiling: it acts once, a later change of
 profile adds nothing, and the firm's administrator adds and drops types from
 then on. `docs/GOODS_TYPES.md` is the reference. It is the first step of
 `docs/BACKLOG.md` §89, which goes on to take batches, expiry, serial numbers
-and the extra fields away from the profile; until those steps land,
-everything below is still how a profile governs a firm.
+and the extra fields away from the profile. The extra fields have left it
+(step 5, 2026-10-08); the rest of this section is how a profile governs a firm
+now.
 
 ### Two enforcement shapes, and when to use which
 
@@ -635,10 +695,14 @@ and their own indexes. A single polymorphic value table was built first and
 rejected: it lost referential integrity, forced every index to lead with a
 discriminator, and encouraged per-row lookups instead of joins.
 
-Mandatory rules are scoped by profile **and** product category
-(`category_attribute_rules`): `BATCH_NUMBER`, `EXPIRY_DATE` and `MANUFACTURER`
-for PHARMACY/MEDICINE; `EXPIRY_DATE` and `SHELF_LIFE_DAYS` for FOOD/FOOD; `IMEI`
-and `WARRANTY_MONTHS` for ELECTRONICS.
+Which records show a field, and which fields are compulsory, is stated in
+`category_attribute_rules`, by category code, goods type, customer group or
+supplier type, and no longer by profile (backlog 89 step 5, 2026-10-08, not yet
+tested by hand). The seeded shared rules are on the shared goods types:
+Medicine shows `BATCH_NUMBER`, `EXPIRY_DATE` and `MANUFACTURER`; Food shows
+`EXPIRY_DATE` and `SHELF_LIFE_DAYS`; Electronics shows `IMEI` and
+`WARRANTY_MONTHS`. They only show the fields. A firm that wants one compulsory
+adds its own rule.
 
 **`UOM` is the exception to the pattern and worth reading before copying it.**
 Every other owning table is firm-owned, so the owner id alone identifies one
@@ -690,13 +754,16 @@ its default. The desktop form sent seven of eleven and hardcoded two of those
 to `''`, so until 2026-08-12 saving an edit wiped the description and default
 value, reset `entity_type` to `PRODUCT`, and cleared
 `applicable_business_profile_id` — turning a pharmacy-only field into one every
-industry offers, with nothing reported. Anything editing a definition must send
-every column, `validation_rule` included; it has no editor and is round-tripped.
+industry offers, with nothing reported. (That column was removed by backlog 89
+step 5; the rule that a replacing endpoint needs every column still stands.)
+Anything editing a definition must send every column, `validation_rule`
+included; it has no editor and is round-tripped.
 
-The two narrowing controls — `entity_type` and `applicable_business_profile_id`
+The narrowing controls — `entity_type` and, then, `applicable_business_profile_id`
 — were also missing from the form, so a CUSTOMER attribute or an industry-scoped
-one could not be created from the desktop at all. Both are dropdowns now, along
-with `data_type`; `applicable_category` is a picker over the firm's product
+one could not be created from the desktop at all. `entity_type` and `data_type`
+are dropdowns now (the profile control went with the column);
+`applicable_category` is a picker over the firm's product
 categories that submits the category's **code**, since an id stored there
 matches no category and the definition silently never applies.
 
@@ -706,7 +773,8 @@ matches no category and the definition silently never applies.
 | --- | --- | --- |
 | `/api/v1/business-framework/profiles`, `/features`, `/modules` | platform admin | the catalogue, full CRUD |
 | `…/profiles/{id}/configuration`, `…/features`, `…/modules` | platform admin | which features and modules a profile enables |
-| `…/attribute-definitions`, `…/category-rules` | platform admin | custom field catalogue |
+| `…/attribute-definitions`, `…/category-rules` | platform admin | the shared custom field catalogue and its shared rules (a category code or a shared goods type) |
+| `…/firm-custom-fields/{field_id}/use` (PUT, `{"is_enabled": false}`) | firm administrator, `CUSTOM_FIELD_MANAGE` | switch a shared field off or on for this firm (added on 2026-10-08, not yet tested by hand) |
 | `…/firms/{id}/profile` | platform admin | assign a profile to a firm |
 | `…/active-features`, `…/active-modules` | any authenticated user | what *this* firm resolves to |
 
@@ -753,7 +821,7 @@ level implemented — worth suspecting wherever a nullable scope column means
 
 Also fixed on 2026-08-12: the Attribute Definitions form dropped four columns
 into a full-replace update, so editing a definition wiped its description and
-un-scoped it from its business profile. The lesson generalises — **a form
+un-scoped it from its business profile (the column was removed by backlog 89 step 5). The lesson generalises — **a form
 backed by a replacing endpoint must carry every column, including the ones it
 does not show.**
 
@@ -836,7 +904,9 @@ amendment? Treat it as its own design round.
 - `docs/GOODS_TYPES.md` — goods types, and the starting set a profile hands a new firm
 - `docs/FIRM_DOMAIN_MODEL.md` — where the profile sits among the firm's other entities, and which tier each one lives in
 - `app/business/gating.py` — capability resolution and both gate shapes
-- `app/business/services/attribute_service.py` — custom fields
+- `app/business/services/attribute_service.py` — custom fields (`AttributeService.applied` is the one resolver)
+- `app/business/services/field_rules.py` — what a rule may name
+- `app/business/services/firm_custom_fields.py` — a firm's own fields, rules and the shared-field switch
 - `app/business/services/framework_service.py` — profile administration API
 - `docs/MULTI_INDUSTRY_ERP_ARCHITECTURE.md` — the original design intent
 - `docs/MODULE_REVIEW_CHECKLIST.md` — the per-module review checklist
