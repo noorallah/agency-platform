@@ -423,6 +423,18 @@
   "skip": 0,
   "user": ""
  },
+ "SC-RC-001": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Receipts | Receipts | All dates | Customer credits | + New | Number | Customer | Date | Method | Cleared | Status | Amount | RC-2026-2027-000045 | Vijaya Stores t10069cwy | 2026-11-15 | BANK | On account | 10.00 | RC-2026-2027-000053 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Reversed | 20.00 | RC-2026-2027-000052 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Applied | 50.00 | RC-2026-2027-000051 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Applied | 188.80 | RC-2026-2027-000050 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Applied | 188.80 | RC-2026-2027-000049 | Vijaya Stores t10069cwy | 2026-10-07 | CASH | Applied | 94.40 | RC-2026-2027-000048 | Vijaya Stores t10069cwy | 2026-10-07 | BANK | On account | 33.00 | RC-2026-2027-000047",
+   "Bad state: not on screen: On Account, Cash or Bank, Other Deductions"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-RC-002": {
   "fail": 0,
   "file": "selling_flow_test.dart",
@@ -431,6 +443,307 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-RC-003": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "saved 1, 6 allocations summing 900.0, unallocated 0.00"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-004": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "advance notice shown=true, saved 1, newest unallocated 137.00"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-005": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "instrument date box shown=true, saved 1, mode CHEQUE, instrument date null"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-006": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "TDS section list not driven; the section dropdown holds no entries without a TDS master in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-007": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "no early-payment discount offered on any bill"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-008": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Bad state: Send absent; Files opened=true"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-009": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "receipt REVERSED; bill outstanding null of 188.8000; screen says \"RC-2026-2027-000050 reversed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-010": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "no payment promise recorded in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-011": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Collection Sheet is under All Sell screens; not reached"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-012": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Received from | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | SI-26-27-000010 | 2026-10-07 | 283.20 | 51.59 | SI-26-27-000013 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000014 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000015 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000016 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000017 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000019 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000020 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000023 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000024 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000025 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000026 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000027 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000029 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000030 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000039 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000042 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000043 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000044 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000045 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000046 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000048 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000049 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000050 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000052 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000054 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000055 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000056 | 2026-10-07 | 896.80 | 896.80 | SI-26-27-000057 | 2026-10-07 | 566.40 | 472.00 | SI-26-27-000058 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000059 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000060 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000061 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000064 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000065 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000068 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000069 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000070 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000071 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000072 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000074 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000077 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000078 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000079 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000080 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000081 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000083 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000086 | 2026-10-07 | 377.60 | 327.60 | Cancel | Record receipt | Enter how much money moved.\"",
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Received from | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | SI-26-27-000010 | 2026-10-07 | 283.20 | 51.59 | SI-26-27-000013 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000014 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000015 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000016 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000017 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000019 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000020 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000023 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000024 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000025 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000026 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000027 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000029 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000030 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000039 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000042 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000043 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000044 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000045 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000046 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000048 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000049 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000050 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000052 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000054 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000055 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000056 | 2026-10-07 | 896.80 | 896.80 | SI-26-27-000057 | 2026-10-07 | 566.40 | 472.00 | SI-26-27-000058 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000059 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000060 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000061 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000064 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000065 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000068 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000069 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000070 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000071 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000072 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000074 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000077 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000078 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000079 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000080 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000081 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000083 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000086 | 2026-10-07 | 377.60 | 327.60 | Cancel | Record receipt | Enter how much money moved.\""
+  ],
+  "pass": 2,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-013": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Received from | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | SI-26-27-000010 | 2026-10-07 | 283.20 | 51.59 | SI-26-27-000013 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000014 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000015 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000016 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000017 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000019 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000020 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000023 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000024 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000025 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000026 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000027 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000029 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000030 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000039 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000042 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000043 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000044 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000045 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000046 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000048 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000049 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000050 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000052 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000054 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000055 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000056 | 2026-10-07 | 896.80 | 896.80 | SI-26-27-000057 | 2026-10-07 | 566.40 | 472.00 | SI-26-27-000058 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000059 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000060 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000061 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000064 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000065 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000068 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000069 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000070 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000071 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000072 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000074 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000077 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000078 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000079 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000080 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000081 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000083 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000086 | 2026-10-07 | 377.60 | 327.60 | Cancel | Record receipt | Enter how much money moved.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-014": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "note: :: date picker open=true",
+   "note: :: date now reads 2026-11-15, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-11-15, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07, 2026-10-07",
+   "Bad state: N3: a future-dated receipt was saved [settlement_date=2026-11-15]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-015": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "no closed financial period in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-016": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Mode and account default to Cash; the dialog has no empty state for them"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-017": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "note: :: newest receipt after press: null customer null amount 10.00 created null",
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Choose who the money is from or to. | Dismiss | Received from | Type a code or a name to narrow the list. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | 25.00 will be held as an advance, not applied to any invoice | Choose a customer to see what they owe. | Cancel | Record receipt | Choose who the money is from or to. | 25.00 will be held as an advance, not applied to any invoice\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-018": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a receipt | Money already received. Recording it posts to the ledger. | Choose the TDS section the deduction is filed under. | Dismiss | Received from | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By the customer | TDS section | Received in bank: 90.00. The amount above is what settles the customer. | Deductions | Rounding / short paid | Bank charges | Discount allowed | Leave blank when nothing was deducted. The amount above is what settles the customer. | Against order (optional) | A note about why the money arrived. Cancelling the order does not take the deposit back. | Apply to invoices | Oldest first | 100.00 will be held as an advance, not applied to any invoice | Invoice | Date | Total | Outstanding | Apply | SI-26-27-000010 | 2026-10-07 | 283.20 | 51.59 | SI-26-27-000013 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000014 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000015 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000016 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000017 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000019 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000020 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000023 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000024 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000025 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000026 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000027 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000029 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000030 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000039 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000042 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000043 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000044 | 2026-10-07 | 188.80 | 138.80 | SI-26-27-000045 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000046 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000048 | 2026-10-07 | 94.40 | 94.40 | SI-26-27-000049 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000050 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000052 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000054 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000055 | 2026-10-07 | 94.40 | 84.40 | SI-26-27-000056 | 2026-10-07 | 896.80 | 896.80 | SI-26-27-000057 | 2026-10-07 | 566.40 | 472.00 | SI-26-27-000058 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000059 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000060 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000061 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000064 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000065 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000068 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000069 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000070 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000071 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000072 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000074 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000077 | 2026-10-07 | 377.60 | 327.60 | SI-26-27-000078 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000079 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000080 | 2026-10-07 | 188.80 | 188.80 | SI-26-27-000081 | 2026-10-07 | 377.60 | 377.60 | SI-26-27-000083 | 2026-10-07 | 283.20 | 283.20 | SI-26-27-000086 | 2026-10-07 | 377.60 | 327.60 | Cancel | Record receipt | Choose the TDS section the deduction is filed under. | 100.00 will be held as an advance, not applied to any invoice\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-019": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "receipt REVERSED; bill outstanding null of 377.6000; screen says \"RC-2026-2027-000052 reversed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-020": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Reverse is absent on a reversed receipt"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-021": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Bad state: the dialog closed holding typing without asking (same family as known SCRQ-21/29)"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-022": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Edit absent, Delete absent"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-024": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Receipts offered: false; list answers 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-RC-025": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Receipts offered: false; list answers 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsmgr"
+ },
+ "SC-RC-026": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Receipts offered: true; list answers 200; {+ New: absent, Reverse: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-RC-027": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Receipts offered: true; list answers 200; New enabled, Reverse enabled"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qacct"
+ },
+ "SC-RC-028": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "needs the cashier user and the statement screen"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-RC-029": {
+  "fail": 1,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "Bad state: N1: the stale Reverse said nothing"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-RC-030": {
+  "fail": 0,
+  "file": "sc_rc_test.dart",
+  "notes": [
+   "second receipt answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"An allocated invoice does not belong to this party, is not approved, or is already settled in full.\"},\"timestamp\":\"2026-10-07T08:42:45.16; bill outstanding null"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
  },
  "SC-SB-001": {
   "fail": 1,
