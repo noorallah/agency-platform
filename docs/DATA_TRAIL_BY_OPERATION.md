@@ -3974,8 +3974,8 @@ restarted. Where #500 changes what a receipt does, the text says so.
 
   | Tables | `firm_id`? | So in `firm_shared` |
   | --- | --- | --- |
-  | `business_profiles`, `business_features`, `business_modules`, `profile_features`, `profile_modules`, `attribute_definitions`, `category_attribute_rules`, `uoms`, `uom_groups`, `uom_group_units`, `packaging_types`, `uom_industry_templates`, `geo_countries` … `geo_localities` | **no** | one set for MEDI01, FOOD01, TESTSH1 and TESTSH2 together — an edit made "in" one of them is made in all four |
-  | `firm_business_profiles`, `*_attribute_values`, `document_*`, `uom_conversion_rules`, `product_packaging_levels`, `business_profile_uom_defaults` (a firm's own row), `sales_workflow_settings`, `credit_control_settings`, `loyalty_settings`, `sales_hierarchy_configs` | yes | per firm |
+  | `business_profiles`, `business_features`, `business_modules`, `profile_features`, `profile_modules`, `attribute_definitions`, `category_attribute_rules`, `uoms`, `uom_groups`, `uom_group_units`, `packaging_types`, `geo_countries` … `geo_localities` | **no** | one set for MEDI01, FOOD01, TESTSH1 and TESTSH2 together — an edit made "in" one of them is made in all four |
+  | `firm_business_profiles`, `*_attribute_values`, `document_*`, `uom_conversion_rules`, `product_packaging_levels`, `unit_sets` (a firm's own rows; shared rows have no `firm_id`), `unit_set_goods_types`, `sales_workflow_settings`, `credit_control_settings`, `loyalty_settings`, `sales_hierarchy_configs` | yes | per firm |
   | `user_preferences` | per **user** | `platform` only |
 
   A dedicated store has its own copy of every catalogue, so "the WHOLESALE
@@ -4406,13 +4406,12 @@ enforced nowhere. One commit per call.
 - **Units** — `POST` / `PUT` / `DELETE /uoms`: one `uoms` row (`code`,
   `name`, `dimension`, `is_decimal_allowed`, `status`, …), **no `firm_id`**.
   Edit is partial; delete is refused while a conversion rule, group, packaging
-  level, a product's seven unit slots or a profile default names the unit —
+  level or a product's seven unit slots names the unit —
   not while only a document line does (D-CFG-21). **No audit row** for any of
   them.
 - **Groups** (`uom_groups`; `uom_group_units` has no endpoint), **packaging
-  types** (`packaging_types`) and **industry templates**
-  (`uom_industry_templates`, which nothing reads) — the same shape, shared,
-  unaudited. In `firm_shared` any firm's administrator edits them for all
+  types** (`packaging_types`) — the same shape, shared,
+  unaudited. (The industry-templates catalogue was removed on 2026-10-08.) In `firm_shared` any firm's administrator edits them for all
   four firms (D-CFG-9).
 - **Whole-number units are not enforced.** `is_decimal_allowed` on a unit and
   a product's `allow_fraction` / `allow_decimal` are stored and read by no
@@ -4442,10 +4441,9 @@ enforced nowhere. One commit per call.
   written through the API and not one audit row for a unit, group, type or
   level in any store; no level on another firm's product.
 
-### 14.11 Conversion rules and default units (TC-CONF-006)
+### 14.11 Conversion rules and unit sets (TC-CONF-006)
 
-UOM & Packaging → **Conversion Rules**, and Business Profiles → **Default
-units**.
+UOM & Packaging → **Conversion Rules**, and Settings → **Unit Sets**.
 
 - **Create** inserts `uom_conversion_rules` (`firm_id`, `product_id` or NULL
   for firm-wide, `from_uom_id`, `to_uom_id`, `conversion_factor`,
@@ -4466,14 +4464,16 @@ units**.
   the stock another (D-CFG-1). Audit `uom.conversion.updated`, **no data**;
   delete is a soft delete, audit `uom.conversion.deleted` with `before_data`
   `status` and `version` (the version *number*).
-- **Default units** — `PUT /profiles/{id}/defaults?apply_to=FIRM|PROFILE`:
-  one `business_profile_uom_defaults` row, the firm's own (`firm_id` set,
-  `CONVERSION_RULE_MANAGE`) or the profile's (`firm_id` NULL,
-  `PLATFORM_SETTINGS` too). The profile-wide row reaches only firms in **the
-  caller's store**, though the endpoint's docstring and
-  `docs/UOM_FRAMEWORK.md` say every firm on the profile (D-CFG-21). Audit
-  `uom.profile_default.created` / `.updated`, no data. They reach a product
-  only by pre-filling its form.
+- **Unit sets** (added 2026-10-08) — `GET|POST /uom-framework/unit-sets`,
+  `PUT|DELETE /uom-framework/unit-sets/{id}` (`UOM_VIEW` / `UOM_MANAGE`): a row in
+  `unit_sets` (no `firm_id` = the shared catalogue, which a firm cannot change; a
+  `firm_id` = the firm's own) with its goods-type ordering in
+  `unit_set_goods_types`. Choosing a set on a **new** product copies its units
+  onto the product and writes its factor as the product's own
+  `uom_conversion_rules` row in the same transaction; `products.unit_set_id`
+  records which set, for reference only. Editing or deleting a set changes no
+  product. The old profile default units (`business_profile_uom_defaults`) were
+  removed the same day.
 - **Check:**
   ```sql
   select p.code as product, fu.code as from_uom, tu.code as to_uom, r.conversion_factor,

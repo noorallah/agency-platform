@@ -10,8 +10,6 @@ the modules then numbered from under one another's prefix.
 # ruff: noqa: D103
 
 import importlib
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -66,12 +64,8 @@ from app.sales.schemas.territory import (
     HierarchyUpdateRequest,
 )
 from app.sales.services import SalesTerritoryService
-from app.uom.models import BusinessProfileUomDefault, Uom
 from app.uom.schemas.uom import (
-    BusinessProfileUomDefaultUpsert,
     ConversionRuleUpdate,
-    IndustryTemplateCreate,
-    IndustryTemplateUpdate,
     UomCreate,
     UomUpdate,
 )
@@ -631,47 +625,6 @@ def test_a_place_code_is_unique_per_parent_and_an_edit_keeps_what_it_omits() -> 
     assert kept.iso2 == "IN"
 
 
-def test_a_profile_wide_default_reaches_every_firms_store(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    caller_store = _session()
-    other_store = _session()
-    platform = _session()
-    caller = _firm(platform, "HOME")
-    elsewhere = _firm(platform, "AWAY")
-    for store in (caller_store, other_store):
-        store.add(
-            BusinessProfile(
-                code="FOOD", name="Food", industry_type="FOOD", status="ACTIVE"
-            )
-        )
-        store.commit()
-    home_profile = caller_store.scalar(select(BusinessProfile))
-    assert home_profile is not None
-
-    @contextmanager
-    def stores(request: object, firm_id: UUID) -> Iterator[Session]:
-        assert firm_id == elsewhere.id
-        yield other_store
-
-    monkeypatch.setattr(uom_router, "firm_store_session", stores)
-    unreached = uom_router._write_profile_default_in_every_store(
-        request=None,  # type: ignore[arg-type]
-        db=caller_store,
-        platform_db=platform,
-        caller_firm_id=caller.id,
-        profile_id=home_profile.id,
-        data=BusinessProfileUomDefaultUpsert(allow_fraction=True),
-        actor_id=ACTOR,
-    )
-
-    assert unreached == []
-    row = other_store.scalar(select(BusinessProfileUomDefault))
-    assert row is not None
-    assert row.firm_id is None
-    assert row.allow_fraction is True
-
-
 # ---------------------------------------------------------------------------
 # D-CFG-22 -- the demo seeder's series
 # ---------------------------------------------------------------------------
@@ -711,49 +664,3 @@ def test_the_seeded_series_pass_the_check_a_persons_would() -> None:
 # ---------------------------------------------------------------------------
 # D-CFG-23 -- industry templates and profile defaults are audited
 # ---------------------------------------------------------------------------
-
-
-def test_industry_templates_and_profile_defaults_write_the_change() -> None:
-    session = _session()
-    firm = _firm(session)
-    service = UomService(session)
-    template = service.create_industry_template(
-        IndustryTemplateCreate(code="FOOD", name="Food", industry_type="FOOD"),
-        actor_id=ACTOR,
-    )
-    service.update_industry_template(
-        template.id, IndustryTemplateUpdate(name="Food and grocery"), actor_id=ACTOR
-    )
-    service.delete_industry_template(template.id, actor_id=ACTOR)
-    assert len(_rows(session, "uom.industry_template.created")) == 1
-    [updated] = _rows(session, "uom.industry_template.updated")
-    assert (updated.after_data or {})["name"] == "Food and grocery"
-    assert len(_rows(session, "uom.industry_template.deleted")) == 1
-
-    unit = session.scalar(select(Uom)) or service.create_uom(
-        UomCreate(code="KG", name="Kilogram"), actor_id=ACTOR
-    )
-    profile = BusinessProfile(
-        code="FOOD", name="Food", industry_type="FOOD", status="ACTIVE"
-    )
-    session.add(profile)
-    session.commit()
-    for _ in range(2):
-        service.upsert_profile_default(
-            firm_scope=firm.id,
-            profile_id=profile.id,
-            data=BusinessProfileUomDefaultUpsert(base_uom_id=unit.id),
-            actor_id=ACTOR,
-        )
-    assert len(_rows(session, "uom.profile_default.created")) == 1
-    # The same units again moved nothing, so no second row.
-    assert _rows(session, "uom.profile_default.updated") == []
-    service.upsert_profile_default(
-        firm_scope=firm.id,
-        profile_id=profile.id,
-        data=BusinessProfileUomDefaultUpsert(base_uom_id=unit.id, allow_fraction=True),
-        actor_id=ACTOR,
-    )
-    [changed] = _rows(session, "uom.profile_default.updated")
-    assert (changed.after_data or {})["allow_fraction"] is True
-    assert changed.firm_id == firm.id

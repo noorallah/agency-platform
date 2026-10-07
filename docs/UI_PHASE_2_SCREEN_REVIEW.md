@@ -40,7 +40,7 @@ journal, counts and every screen built on `ResourceManagementPage` pass.
 | Accounts | E-Invoice | Sandbox notice box; per-row action column still drawn; Withdraw / Try again reachable only there |
 | Accounts | TCS | Policy sentence as the search; Settings takes "+ New"'s place; no Period, rows cannot be picked |
 | Accounts | Control Accounts | Sentence band; raw table with a button on every row |
-| Masters | Units, UOM Groups, Packaging Types, Conversion Rules, Industry Templates | Edit/Delete only by right-click, double-click does nothing; the bar appears with nothing on it |
+| Masters | Units, UOM Groups, Packaging Types, Conversion Rules, Unit Sets | Edit/Delete only by right-click, double-click does nothing; the bar appears with nothing on it |
 | Masters | Packaging Levels | Product picker with helper text and an error line above the grid; scan card in the search slot |
 | Masters | Storage Areas | Always the first warehouse; no way to reach another warehouse's storage |
 | Masters | Places | The level trail (the only way back up) is hidden under "+ filter" |

@@ -385,8 +385,8 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['CONVERSION_RULE_MANAGE'],
         ),
         ModuleTabDefinition(
-          id: 'industry-templates',
-          label: 'Industry Templates',
+          id: 'unit-sets',
+          label: 'Unit Sets',
           requiredPermissions: ['UOM_VIEW'],
         ),
       ],
@@ -1616,7 +1616,7 @@ abstract final class ModuleCatalog {
         'packaging-types',
         'packaging-levels',
         'conversion-rules',
-        'industry-templates',
+        'unit-sets',
         'numbering-series',
         'goods-types',
         'firm-custom-fields',
@@ -1714,7 +1714,7 @@ abstract final class ModuleCatalog {
               'packaging-types',
               'packaging-levels',
               'conversion-rules',
-              'industry-templates',
+              'unit-sets',
             ]))
               WorkspaceNavigationNode(
                 label: 'UOM & Packaging',
@@ -1745,10 +1745,10 @@ abstract final class ModuleCatalog {
                       label: 'Conversion Rules',
                       path: 'conversion-rules',
                     ),
-                  if (visibleTabIds.contains('industry-templates'))
+                  if (visibleTabIds.contains('unit-sets'))
                     const WorkspaceNavigationNode(
-                      label: 'Industry Templates',
-                      path: 'industry-templates',
+                      label: 'Unit Sets',
+                      path: 'unit-sets',
                     ),
                 ],
               ),

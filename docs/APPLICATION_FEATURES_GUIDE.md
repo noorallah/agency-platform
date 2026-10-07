@@ -1673,6 +1673,11 @@ sale*.
 - *Units of Measure*, *UOM Groups*, *Conversion Rules*: a product can be
   bought by the carton, held in boxes and sold in pieces; the conversion is
   applied on every document line.
+- *Unit Sets*: a named bundle of units, such as "Strip, box of 10", chosen on a
+  new product to fill its units and its conversion factor in one step. The set is
+  copied, so editing or deleting it later changes no existing product, and "Show
+  all unit sets" offers sets of other goods types. Added on 2026-10-08, not yet
+  tested by hand.
 - *Packaging Types* and *Packaging Levels*: the packing hierarchy (piece,
   box, carton) with a barcode at each level.
 
@@ -1885,7 +1890,7 @@ Opening a card that is a screen opens it as a tab.
 | Buying | Purchase Settings, Approval Limits, Purchase Budgets | Purchasing defaults and approval, the **reorder planning** choice (typed levels or from sales), the order-multiple, bill-matching and budget policies, and the budgets |
 | Stock | Inventory Settings, Adjustment Reasons, Adjustment Limits, Batch Rules | The firm's stock defaults; **Batch Rules**: the near-expiry window (30 days), whether a near-expiry batch or one passing over an earlier batch needs a reason, the minimum-shelf-life policy (block or warn), near-expiry stock below the price floor, and *Price from batch*; the firm's adjustment reasons; each role's adjustment limit; whether returns are held for checking |
 | Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings, GST Documents, TDS on Purchases (194Q) | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided; **GST Documents**: the dispatch-before-invoice policy, whether route sales need the invoice first, the dates e-invoicing and the 30-day limit start, the e-invoice route (sandbox or offline) and the e-way bill limit, whether GSTR-3B claims every bill or only those matched to GSTR-2B, the 2B tolerance, the rule 37 mode, whether a bill from an e-invoicing supplier with no IRN is warned about, the Rule 42 mode, and monthly or quarterly return filing (read with *Tax view*, changed with the tax-settings permission) |
-| Business profile | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates | What each industry switches on, which extra fields exist and which are mandatory for which product category, and which profile each firm has |
+| Business profile | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Unit Sets | What each industry switches on, which extra fields exist and which are mandatory for which product category, and which profile each firm has |
 
 **How tax is chosen.** Tax is not a rate stored on a product. The product
 brings its tax group, category and type; the document brings the branch, the

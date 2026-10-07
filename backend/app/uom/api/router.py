@@ -1,53 +1,45 @@
 """Firm-scoped REST endpoints for enterprise UOM and packaging framework."""
 
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.business.models import BusinessProfile
 from app.common.scope import (
     RequiredFirmScope,
     ResolvedFirmScope,
     firm_permission_scope,
 )
-from app.core.concurrency import ExpectedVersion, set_etag
+from app.core.concurrency import ExpectedVersion, publish_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import (
-    firm_store_session,
     get_db,
-    get_platform_db,
 )
-from app.core.exceptions import ApplicationError, AuthorizationError
+from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.security.authorization import Principal, require_platform_admin
-from app.firms.models import Firm
 from app.uom.models import Uom
 from app.uom.schemas import (
     BarcodeLookupResponse,
-    BusinessProfileUomDefaultResponse,
-    BusinessProfileUomDefaultUpsert,
     ConversionRequest,
     ConversionResponse,
     ConversionRuleCreate,
     ConversionRuleListFilters,
     ConversionRuleResponse,
     ConversionRuleUpdate,
-    IndustryTemplateCreate,
-    IndustryTemplateResponse,
-    IndustryTemplateUpdate,
     PackagingLevelCreate,
     PackagingLevelResponse,
     PackagingLevelUpdate,
     PackagingTypeCreate,
     PackagingTypeResponse,
     PackagingTypeUpdate,
+    UnitSetCreate,
+    UnitSetResponse,
+    UnitSetUpdate,
     UomCreate,
     UomGroupCreate,
     UomGroupResponse,
@@ -55,7 +47,7 @@ from app.uom.schemas import (
     UomResponse,
     UomUpdate,
 )
-from app.uom.services import UomService
+from app.uom.services import UnitSetService, UomService
 
 router = APIRouter(
     prefix="/api/v1/uom-framework",
@@ -72,8 +64,8 @@ PackagingManageScope = Annotated[
 ConversionManageScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("CONVERSION_RULE_MANAGE")
 ]
-#: The shared unit catalogue -- units, groups, packaging types and industry
-#: templates. None of them carries a firm, so in `firm_shared` one row serves
+#: The shared unit catalogue -- units, groups and packaging types. None of
+#: them carries a firm, so in `firm_shared` one row serves
 #: every firm there: a firm administrator renaming BOX, or making it
 #: whole-number, did it for MEDI01 and FOOD01 as well (D-CFG-9). Reference
 #: data like the geography masters, so the same designation writes it.
@@ -393,162 +385,6 @@ def convert(
 
 
 @router.get(
-    "/profile-defaults",
-    response_model=ApiResponse[BusinessProfileUomDefaultResponse | None],
-)
-def get_firm_profile_defaults(
-    scope: UomViewScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[BusinessProfileUomDefaultResponse | None]:
-    """Return the default units this firm's own business profile carries.
-
-    The per-profile route needs a profile id, and every route that reveals one
-    is platform-admin only, so a firm client could not reach the defaults
-    intended for it. This resolves the profile from the firm context instead,
-    the way ``/business-framework/active-features`` does.
-    """
-    row = UomService(db).resolve_firm_profile_default(firm_scope=scope.firm_id)
-    return ApiResponse(
-        data=BusinessProfileUomDefaultResponse.model_validate(row) if row else None
-    )
-
-
-@router.get(
-    "/profiles/{profile_id}/defaults",
-    response_model=ApiResponse[BusinessProfileUomDefaultResponse | None],
-)
-def get_profile_defaults(
-    profile_id: UUID,
-    scope: UomViewScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[BusinessProfileUomDefaultResponse | None]:
-    """Read a business profile's default unit behaviour."""
-    row = UomService(db).get_profile_default(
-        firm_scope=scope.firm_id, profile_id=profile_id
-    )
-    return ApiResponse(
-        data=BusinessProfileUomDefaultResponse.model_validate(row) if row else None
-    )
-
-
-@router.put(
-    "/profiles/{profile_id}/defaults",
-    response_model=ApiResponse[BusinessProfileUomDefaultResponse],
-)
-def upsert_profile_defaults(
-    profile_id: UUID,
-    data: BusinessProfileUomDefaultUpsert,
-    scope: ConversionManageScope,
-    request: Request,
-    apply_to: Annotated[Literal["FIRM", "PROFILE"], Query()] = "FIRM",
-    db: Session = Depends(get_db),
-    platform_db: Session = Depends(get_platform_db),
-) -> ApiResponse[BusinessProfileUomDefaultResponse]:
-    """Store default unit behaviour for this firm, or for the whole profile.
-
-    ``apply_to=FIRM`` writes this firm's override and is the default, so a
-    client that does not know about the distinction cannot change another
-    firm's units by accident. ``apply_to=PROFILE`` writes the row every firm on
-    the profile inherits, which is how a newly created profile gets units at
-    all -- until this existed, only the seed could write one, so a profile
-    added through the API could never carry defaults for the firms put on it.
-
-    That write reaches every firm on the profile, so it needs platform
-    authority (`PLATFORM_SETTINGS`) rather than the firm-level permission that
-    governs a firm's own override.
-    """
-    if apply_to == "PROFILE" and not scope.principal.has_permission(
-        "PLATFORM_SETTINGS"
-    ):
-        raise AuthorizationError(
-            "Setting the units every firm on this profile inherits needs "
-            "platform settings permission."
-        )
-    row = UomService(db).upsert_profile_default(
-        firm_scope=None if apply_to == "PROFILE" else scope.firm_id,
-        profile_id=profile_id,
-        data=data,
-        actor_id=scope.actor_id,
-        audit_firm_id=scope.firm_id,
-    )
-    response = BusinessProfileUomDefaultResponse.model_validate(row)
-    if apply_to != "PROFILE":
-        return ApiResponse(data=response)
-    unreached = _write_profile_default_in_every_store(
-        request,
-        db,
-        platform_db,
-        caller_firm_id=scope.firm_id,
-        profile_id=profile_id,
-        data=data,
-        actor_id=scope.actor_id,
-    )
-    message = (
-        "Saved for every firm on the profile."
-        if not unreached
-        else "Saved, but not reached: " + "; ".join(unreached) + "."
-    )
-    return ApiResponse(data=response, message=message)
-
-
-def _write_profile_default_in_every_store(
-    request: Request,
-    db: Session,
-    platform_db: Session,
-    *,
-    caller_firm_id: UUID,
-    profile_id: UUID,
-    data: BusinessProfileUomDefaultUpsert,
-    actor_id: UUID,
-) -> list[str]:
-    """Write a profile-wide default into every firm's store, not only the caller's.
-
-    The row is reference data held per store, so writing it through ``get_db``
-    reached the caller's store alone, while this endpoint and
-    ``docs/UOM_FRAMEWORK.md`` promised every firm on the profile (D-CFG-21).
-    Profiles are matched by code, because each store seeds its own catalogue.
-    A store that already holds the same values writes no audit row, which is
-    what a shared schema visited once per firm needs. A firm whose store cannot
-    be reached, or has no such profile, is named rather than skipped silently.
-
-    Returns:
-        One description per firm the write did not reach.
-
-    """
-    profile = db.get(BusinessProfile, profile_id)
-    if profile is None:
-        return []
-    unreached: list[str] = []
-    firms = platform_db.scalars(
-        select(Firm)
-        .where(Firm.is_deleted.is_(False), Firm.id != caller_firm_id)
-        .order_by(Firm.code.asc())
-    ).all()
-    for firm in firms:
-        try:
-            with firm_store_session(request, firm.id) as store:
-                target = store.scalar(
-                    select(BusinessProfile.id).where(
-                        BusinessProfile.code == profile.code,
-                        BusinessProfile.is_deleted.is_(False),
-                    )
-                )
-                if target is None:
-                    unreached.append(f"{firm.code} has no {profile.code} profile")
-                    continue
-                UomService(store).upsert_profile_default(
-                    firm_scope=None,
-                    profile_id=target,
-                    data=data,
-                    actor_id=actor_id,
-                    audit_firm_id=firm.id,
-                )
-        except (ApplicationError, SQLAlchemyError) as error:
-            unreached.append(f"{firm.code}: {error}")
-    return unreached
-
-
-@router.get(
     "/barcode-lookup",
     response_model=ApiResponse[BarcodeLookupResponse],
 )
@@ -654,70 +490,72 @@ def delete_packaging_level(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get(
-    "/industry-templates", response_model=ApiResponse[list[IndustryTemplateResponse]]
-)
-def list_industry_templates(
+@router.get("/unit-sets", response_model=ApiResponse[list[UnitSetResponse]])
+def list_unit_sets(
     scope: UomViewScope,
     include_inactive: bool = False,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[IndustryTemplateResponse]]:
-    """List the industry UOM templates."""
-    rows = UomService(db).list_industry_templates(include_inactive=include_inactive)
+) -> ApiResponse[list[UnitSetResponse]]:
+    """Return the shared unit sets and the firm's own (backlog 89).
+
+    A row with ``firm_id`` is the firm's own and its to change; one without
+    is the shared catalogue, read-only here.
+    """
     return ApiResponse(
-        data=[IndustryTemplateResponse.model_validate(row) for row in rows]
+        data=UnitSetService(db).list_sets(
+            scope.firm_id, include_inactive=include_inactive
+        )
     )
 
 
 @router.post(
-    "/industry-templates",
-    response_model=ApiResponse[IndustryTemplateResponse],
+    "/unit-sets",
+    response_model=ApiResponse[UnitSetResponse],
     status_code=status.HTTP_201_CREATED,
 )
-def create_industry_template(
-    data: IndustryTemplateCreate,
-    _: PlatformPrincipal,
-    scope: RequiredFirmScope,
+def create_unit_set(
+    data: UnitSetCreate,
+    scope: UomManageScope,
+    response: Response,
     db: Session = Depends(get_db),
-) -> ApiResponse[IndustryTemplateResponse]:
-    """Add an industry UOM template."""
-    row = UomService(db).create_industry_template(data, actor_id=scope.actor_id)
-    return ApiResponse(data=IndustryTemplateResponse.model_validate(row))
+) -> ApiResponse[UnitSetResponse]:
+    """Add a unit set of the firm's own (backlog 89)."""
+    row = UnitSetService(db).create(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
 
 
-@router.put(
-    "/industry-templates/{template_id}",
-    response_model=ApiResponse[IndustryTemplateResponse],
-)
-def update_industry_template(
-    template_id: UUID,
-    data: IndustryTemplateUpdate,
-    _: PlatformPrincipal,
-    scope: RequiredFirmScope,
+@router.put("/unit-sets/{unit_set_id}", response_model=ApiResponse[UnitSetResponse])
+def update_unit_set(
+    unit_set_id: UUID,
+    data: UnitSetUpdate,
+    scope: UomManageScope,
     response: Response,
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
-) -> ApiResponse[IndustryTemplateResponse]:
-    """Change an industry UOM template."""
-    row = UomService(db).update_industry_template(
-        template_id,
+) -> ApiResponse[UnitSetResponse]:
+    """Change a unit set of the firm's own; products made from it keep theirs."""
+    row = UnitSetService(db).update(
+        unit_set_id,
         data,
+        firm_id=scope.firm_id,
         actor_id=scope.actor_id,
         expected_version=expected_version,
     )
-    set_etag(response, row)
-    return ApiResponse(data=IndustryTemplateResponse.model_validate(row))
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
 
 
-@router.delete(
-    "/industry-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT
-)
-def delete_industry_template(
-    template_id: UUID,
-    _: PlatformPrincipal,
-    scope: RequiredFirmScope,
+@router.delete("/unit-sets/{unit_set_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_unit_set(
+    unit_set_id: UUID,
+    scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
-    """Remove an industry UOM template."""
-    UomService(db).delete_industry_template(template_id, actor_id=scope.actor_id)
+    """Remove a unit set of the firm's own."""
+    UnitSetService(db).delete(
+        unit_set_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -796,6 +796,17 @@ warehouse rename its capability flags.
 - **Expect:** with no category the line reads *Goods type: General*, the tracking section reads *No tracking for this goods type.* and offers only *Show all tracking options*. On *Tablets*: *Goods type: Medicine* (not a control), *Track batch*, *Track expiry* and *Track manufacturing date* on, *Require batch on receipt* and *on issue* on, no serial or warranty switch, HSN `3004` and the default tax group filled. *Show all* adds lot, serial and warranty and hides them again while they are off. *Track expiry* off hides shelf life and the three expiry rule boxes; *Track batch* off hides the issue rule and both *Require batch* switches, and they come back **off**. *Phones* shows serial and warranty and clears the HSN the type had filled; *Sundries* shows the hint. The typed `9999` survives the change back to *Tablets*. The barcode box accepts typing on any profile. The saved product reopens with the switches it was saved with and its stored goods type; the duplicate opens with the same switches. The sales manager sees the form read-only, as before. Opening a new product makes no server call of its own and each category picked makes one (`/products/metadata`); nothing calls `/products/goods-types`.
 - **Leaves:** one product.
 
+### TC-MAST-022 — A unit set fills a new product's units and its own conversion rule
+
+*Added 2026-10-08 from the code (backlog 89, step 3); **not yet driven through a fixture or on screen** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 89 test group 11 (unit sets)
+- **Fixture:** `product-master`
+- **Also needs:** the goods types and categories of TC-MAST-020 (*Tablets* is Medicine, *Emulsions* is Paint, *Sundries* has no type); a **Sales manager** and a second firm in the same store.
+- **Steps:** as the **Firm admin**: Set up > Unit Sets; read the list. Try to edit *Strip, box of 10*. Add *Jar, case of 6* (stock and sales unit Jar, purchase unit Case, factor 6, goods type Food). Add a second set with the same name; add one with a factor and the purchase unit equal to the stock unit. Masters > Products > New: choose *Tablets*, open the **Unit set** list; tick **Show all unit sets**; choose *Strip, box of 10*; save as `US-1`. New: *Tablets*, *Strip, box of 15*, save as `US-2`. New: *Tablets*, *Strip, box of 10*, then change the purchase unit to Carton and the conversion to 120, save as `US-3`. New: *Emulsions*; read the list; through *Show all* choose *Strip, box of 10*; save as `US-4`. New: *Sundries*, no unit set, save as `US-5`. New: no unit set, base unit Piece, purchase unit Box, conversion 12, save as `US-6`. Buy 2 Box of `US-1` on an order dated last year. Save a product `US-7` from *Jar, case of 6*, edit the set to factor 12, save `US-8` from it, delete the set, open `US-7`. Open `US-1` for editing. As the **Sales manager**: open Unit Sets and try to add one. As the second firm's admin: read the Unit Sets list.
+- **Expect:** the list shows the eight shared sets marked Shared, with their goods types (*Bottle, carton of 24* under Medicine, Food and Cosmetics; *Piece, loose* as All goods). A shared set cannot be edited or deleted and says so. The firm's own set saves; the repeated name is refused by name; the factor between one and the same unit is refused. On *Tablets* the list offers Medicine's sets and the two tied to no type, and *Show all* adds the rest. Choosing a set fills the unit boxes, Allow decimal and the conversion box, all still editable. `US-1` has Strip/Box/Strip and its own rule 1 Box = 10 Strip; `US-2` 15; `US-3` Carton and 120 with the base unit still Strip. `US-4` saves with no refusal and no warning. `US-5` has no units and no rule; nothing was pre-filled. `US-6` has its own rule 1 Box = 12 Piece. The back-dated order line converts to 20 Strip. `US-7` keeps Case and 6 after the edit and after the delete; `US-8` took 12. Editing `US-1` shows *Units from: Strip, box of 10*, no unit set list and no conversion box. The sales manager reads the list and is refused the add. The second firm sees the shared sets and not *Jar, case of 6*. Opening the product form makes no call to `/uom-framework/unit-sets` and none for a profile's default units.
+- **Leaves:** eight products, one deleted unit set.
+
 
 ---
 
@@ -5455,7 +5466,7 @@ section 27. Cases name the firms that must be there, never how many.
   | **Settings > Platform > System** | Audit Logs · Diagnostics · Licensing · Backups · Platform Dashboard |
   | **Settings > This PC and me** | My Preferences |
 
-  **No** Sell, Buy, Stock, Accounts, Masters or Reports menu, and none of the firm's own Settings (Numbering Series, Tax, Units of Measure, Industry Templates ...) — those live in a firm's own store and need a firm.
+  **No** Sell, Buy, Stock, Accounts, Masters or Reports menu, and none of the firm's own Settings (Numbering Series, Tax, Units of Measure, Unit Sets ...) — those live in a firm's own store and need a firm.
 - **Why:** `requiresFirm` on a module *and* on a tab hides what needs a firm when none is selected. A platform administrator's token carries every code, so permissions alone would offer everything.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** a platform administrator.

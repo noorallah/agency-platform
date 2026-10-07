@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.products.schemas.goods_type import ProductGoodsTypeOption
+from app.uom.schemas.unit_set import ProductUnitSetOption
 
 
 class ProductType(StrEnum):
@@ -252,6 +253,15 @@ class ProductCreate(ProductWrite):
     code: str | None = Field(  # type: ignore[assignment]
         default=None, min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$"
     )
+    #: The unit set to copy the units from (backlog 89). A unit named beside
+    #: it is the caller's; one left out takes the set's. Create only: the
+    #: units are the product's own afterwards.
+    unit_set_id: UUID | None = None
+    #: One purchase unit is this many stock units; becomes the product's own
+    #: conversion rule in the same transaction. Left out, the set's is used.
+    unit_conversion_factor: Decimal | None = Field(
+        default=None, gt=0, max_digits=24, decimal_places=10
+    )
 
 
 class ProductUpdate(ProductWrite):
@@ -313,6 +323,8 @@ class ProductResponse(ProductSchema):
     #: Taken from the category and stored (backlog 89); null is General.
     #: Never sent: moving the product to another category is what changes it.
     goods_type_id: UUID | None = None
+    #: The unit set its units were copied from, for reference (backlog 89).
+    unit_set_id: UUID | None = None
     required_licence_type_id: UUID | None = None
     preferred_vendor_id: UUID | None = None
     unit: str | None
@@ -460,6 +472,9 @@ class ProductMetadataResponse(ProductSchema):
     #: The type a product filed under the category asked about takes; null is
     #: General, and what an ask naming no category gets.
     goods_type_id: UUID | None = None
+    #: Every unit set a new product may take, each with the goods types it
+    #: suits; the form offers the product's own type's first (backlog 89).
+    unit_sets: list[ProductUnitSetOption] = Field(default_factory=list)
 
 
 class BulkProductRequest(ProductSchema):

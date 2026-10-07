@@ -14,7 +14,6 @@ enum UomManagementSection {
   uomGroups,
   packagingTypes,
   conversionRules,
-  industryTemplates,
 }
 
 class UomManagementPage extends StatefulWidget {
@@ -49,7 +48,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
   List<UomGroupRecord> _groups = const [];
   List<PackagingTypeRecord> _packaging = const [];
   List<ConversionRuleRecord> _conversions = const [];
-  List<IndustryTemplateRecord> _templates = const [];
 
   /// The firm's products, read beside the conversion rules so a rule can name
   /// its product by code and the grid can show one.
@@ -95,7 +93,7 @@ class _UomManagementPageState extends State<UomManagementPage> {
     super.dispose();
   }
 
-  /// Units, groups, packaging types and industry templates carry no firm: in
+  /// Units, groups and packaging types carry no firm: in
   /// a shared store one row serves every firm there, so only a platform
   /// administrator may write them (D-CFG-9) -- the server refuses anybody
   /// else, and offering the buttons would only lead to that refusal.
@@ -137,11 +135,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
           // them. The grid showed raw ids and the dialog asked for them.
           _uoms = await widget.api.uoms(includeInactive: true);
           _products = (await widget.api.products(pageSize: 100)).items;
-          break;
-        case UomManagementSection.industryTemplates:
-          _templates =
-              await widget.api.industryTemplates(includeInactive: true);
-          _total = _templates.length;
           break;
       }
     } on ApiException catch (exception) {
@@ -250,12 +243,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
         delete
             ? await _deleteConversion(row)
             : await _openConversionDialog(existing: row);
-      case UomManagementSection.industryTemplates:
-        final IndustryTemplateRecord? row = pick(_templates, (r) => r.id);
-        if (row == null) return;
-        delete
-            ? await _deleteTemplate(row)
-            : await _openTemplateDialog(existing: row);
     }
   }
 
@@ -269,7 +256,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
         UomManagementSection.uomGroups => 'Manage unit groups.',
         UomManagementSection.packagingTypes => 'Manage packaging types.',
         UomManagementSection.conversionRules => 'Manage conversion rules.',
-        UomManagementSection.industryTemplates => 'Manage industry templates.',
       };
 
   Widget _buildContent() {
@@ -283,7 +269,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
       UomManagementSection.uomGroups => _buildGroupGrid(),
       UomManagementSection.packagingTypes => _buildPackagingGrid(),
       UomManagementSection.conversionRules => _buildConversionGrid(),
-      UomManagementSection.industryTemplates => _buildTemplateGrid(),
     };
   }
 
@@ -452,43 +437,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
     );
   }
 
-  Widget _buildTemplateGrid() {
-    if (_templates.isEmpty) {
-      return const StandardEmptyState(type: EmptyStateType.noRecords);
-    }
-    return EnterpriseDataGrid<IndustryTemplateRecord>(
-      items: _templates,
-      total: _templates.length,
-      pageOffset: 0,
-      rowsPerPage: _templates.length > 50 ? 50 : _templates.length,
-      selectedId: _selectedId,
-      columns: const [
-        GridColumn(key: 'code', label: 'Code'),
-        GridColumn(key: 'name', label: 'Name'),
-        GridColumn(key: 'industry_type', label: 'Industry'),
-        GridColumn(key: 'status', label: 'Status'),
-      ],
-      id: (row) => row.id,
-      cells: (row) => [row.code, row.name, row.industryType, row.status],
-      onSelect: (row) => setState(() => _selectedId = row.id),
-      // Phase 2: double-click opens the row to edit, as every list.
-      onOpen: Phase2Scope.of(context) && _canCreateCurrent
-          ? (row) {
-              setState(() => _selectedId = row.id);
-              _actOnSelected(delete: false);
-            }
-          : null,
-      onPageChanged: (_) {},
-      contextActions: _catalogueActions,
-      onContextAction: (action, row) {
-        if (action == WorkspaceContextAction.edit) {
-          _openTemplateDialog(existing: row);
-        }
-        if (action == WorkspaceContextAction.delete) _deleteTemplate(row);
-      },
-    );
-  }
-
   Future<void> _openCreateDialog() async {
     switch (widget.section) {
       case UomManagementSection.uoms:
@@ -502,9 +450,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
         break;
       case UomManagementSection.conversionRules:
         await _openConversionDialog();
-        break;
-      case UomManagementSection.industryTemplates:
-        await _openTemplateDialog();
         break;
     }
   }
@@ -662,38 +607,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
     await _load();
   }
 
-  Future<void> _openTemplateDialog({IndustryTemplateRecord? existing}) async {
-    final Json? payload = await _simpleDialog(
-      title: existing == null
-          ? 'Create Industry Template'
-          : 'Edit Industry Template',
-      fields: [
-        _FieldSpec('code', 'Code', existing?.code ?? ''),
-        _FieldSpec('name', 'Name', existing?.name ?? ''),
-        _FieldSpec('industry_type', 'Industry Type',
-            existing?.industryType ?? 'GENERIC'),
-        _FieldSpec('status', 'Status', existing?.status ?? 'ACTIVE'),
-      ],
-      extra: {'template_payload': const <String, dynamic>{}},
-      save: (Json payload) async {
-        if (existing == null) {
-          await widget.api.createIndustryTemplate(payload);
-        } else {
-          await widget.api.updateIndustryTemplate(existing.id, payload);
-        }
-      },
-    );
-    if (payload == null) return;
-    if (mounted) {
-      NotificationService.show(
-        context,
-        'Industry template saved.',
-        kind: AppNotificationKind.success,
-      );
-    }
-    await _load();
-  }
-
   Future<void> _deleteUom(UomRecord row) async {
     try {
       await widget.api.deleteUom(row.id);
@@ -754,21 +667,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
     }
   }
 
-  Future<void> _deleteTemplate(IndustryTemplateRecord row) async {
-    try {
-      await widget.api.deleteIndustryTemplate(row.id);
-      await _load();
-    } on ApiException catch (e) {
-      if (mounted) {
-        NotificationService.show(
-          context,
-          e.message,
-          kind: AppNotificationKind.error,
-        );
-      }
-    }
-  }
-
   Widget _detailsPanel() => DetailsPanel(title: 'Details', lines: _detailLines());
 
   /// The picked record as labelled lines, for the side pane (phase 1) and
@@ -811,16 +709,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
                 DetailLine('To UOM', row.toUomId),
                 DetailLine('Factor', row.conversionFactor),
                 DetailLine('Version', row.version.toString()),
-                DetailLine('Status', row.status),
-              ])
-          .cast<List<DetailLine>>()
-          .firstWhere((_) => true, orElse: () => const []),
-      UomManagementSection.industryTemplates => _templates
-          .where((row) => row.id == _selectedId)
-          .map((row) => [
-                DetailLine('Code', row.code),
-                DetailLine('Name', row.name),
-                DetailLine('Industry', row.industryType),
                 DetailLine('Status', row.status),
               ])
           .cast<List<DetailLine>>()

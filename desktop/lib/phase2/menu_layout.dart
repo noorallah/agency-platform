@@ -611,8 +611,7 @@ abstract final class MenuLayout {
           'Mandatory Attributes'),
       MenuItemSpec(
           AppModule.administration, 'profile-assignment', 'Profile Assignment'),
-      MenuItemSpec(
-          AppModule.administration, 'industry-templates', 'Industry Templates'),
+      MenuItemSpec(AppModule.administration, 'unit-sets', 'Unit Sets'),
     ]),
     // SET UP: the lists the menus carried under CONFIGURATION until the
     // light menu (backlog 72), each section exactly one of those groups.

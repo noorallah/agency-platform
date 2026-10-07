@@ -123,7 +123,7 @@ from app.supplier_schemes.models import supplier_scheme  # noqa: F401
 from app.tax.models import tax_framework  # noqa: F401
 from app.tcs.models import tcs  # noqa: F401
 from app.trade_licences.models import trade_licence  # noqa: F401
-from app.uom.models import uom  # noqa: F401
+from app.uom.models import unit_set, uom  # noqa: F401
 from app.vendors.models import (  # noqa: F401
     opening_bill,
     supplier_gift,

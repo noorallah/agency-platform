@@ -299,6 +299,7 @@ class ProductMetadataRecord {
     required this.optionalAttributeDefinitionIds,
     this.goodsTypes = const [],
     this.goodsTypeId = '',
+    this.unitSets = const [],
   });
 
   final String profileCode;
@@ -315,6 +316,18 @@ class ProductMetadataRecord {
   /// The type a product filed under the asked category takes; empty is
   /// General (also empty when no category was asked).
   final String goodsTypeId;
+
+  /// The active unit sets the firm may pick (shared and its own), by name.
+  /// Empty from an older server.
+  final List<ProductUnitSetOption> unitSets;
+
+  ProductUnitSetOption? unitSetById(String id) {
+    if (id.isEmpty) return null;
+    for (final ProductUnitSetOption set in unitSets) {
+      if (set.id == id) return set;
+    }
+    return null;
+  }
 
   ProductGoodsTypeOption? goodsTypeById(String id) {
     if (id.isEmpty) return null;
@@ -346,6 +359,59 @@ class ProductMetadataRecord {
             .map(ProductGoodsTypeOption.fromJson)
             .toList(),
         goodsTypeId: stringValue(json['goods_type_id']),
+        unitSets: _objects(json['unit_sets'])
+            .map(ProductUnitSetOption.fromJson)
+            .toList(),
+      );
+}
+
+/// A unit set as the product form reads it from the metadata call. An empty
+/// unit id is a slot the set leaves alone; empty [goodsTypeIds] means the set
+/// is offered to every product.
+class ProductUnitSetOption {
+  const ProductUnitSetOption({
+    required this.id,
+    required this.name,
+    this.baseUomId = '',
+    this.inventoryUomId = '',
+    this.purchaseUomId = '',
+    this.salesUomId = '',
+    this.minimumSalesUomId = '',
+    this.defaultReceivingUomId = '',
+    this.defaultDispatchUomId = '',
+    this.allowDecimal = true,
+    this.conversionFactor = '',
+    this.goodsTypeIds = const [],
+  });
+
+  final String id;
+  final String name;
+  final String baseUomId;
+  final String inventoryUomId;
+  final String purchaseUomId;
+  final String salesUomId;
+  final String minimumSalesUomId;
+  final String defaultReceivingUomId;
+  final String defaultDispatchUomId;
+  final bool allowDecimal;
+
+  /// "1 purchase unit = N stock units"; empty when the set carries none.
+  final String conversionFactor;
+  final List<String> goodsTypeIds;
+
+  factory ProductUnitSetOption.fromJson(Json json) => ProductUnitSetOption(
+        id: stringValue(json['id']),
+        name: stringValue(json['name']),
+        baseUomId: stringValue(json['base_uom_id']),
+        inventoryUomId: stringValue(json['inventory_uom_id']),
+        purchaseUomId: stringValue(json['purchase_uom_id']),
+        salesUomId: stringValue(json['sales_uom_id']),
+        minimumSalesUomId: stringValue(json['minimum_sales_uom_id']),
+        defaultReceivingUomId: stringValue(json['default_receiving_uom_id']),
+        defaultDispatchUomId: stringValue(json['default_dispatch_uom_id']),
+        allowDecimal: boolValue(json['allow_decimal'], fallback: true),
+        conversionFactor: stringValue(json['conversion_factor']),
+        goodsTypeIds: stringList(json['goods_type_ids']),
       );
 }
 
@@ -462,9 +528,14 @@ class Product {
     this.stockOnHand = '',
     this.lowStock = false,
     this.goodsTypeId = '',
+    this.unitSetId = '',
   });
 
   final String id;
+
+  /// The unit set the product's units were filled from when it was created
+  /// (read-only; never sent on an update). Empty when none.
+  final String unitSetId;
 
   /// The goods type the product stores (read-only here; it changes only by
   /// moving the product to another category). Empty is General.
@@ -676,6 +747,7 @@ class Product {
         stockOnHand: stringValue(json['stock_on_hand']),
         lowStock: boolValue(json['low_stock']),
         goodsTypeId: stringValue(json['goods_type_id']),
+        unitSetId: stringValue(json['unit_set_id']),
       );
 }
 

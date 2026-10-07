@@ -119,7 +119,6 @@ import 'tax/tax_configuration_page.dart';
 import 'tax/tax_management_page.dart';
 import 'tax/tax_rule_simulator_page.dart';
 import 'tax/tax_rules_page.dart';
-import 'uom/profile_uom_defaults_dialog.dart';
 import 'uom/packaging_levels_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
@@ -2702,7 +2701,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'uom-groups',
           'packaging-types',
           'conversion-rules',
-          'industry-templates',
+          'unit-sets',
         ].firstWhere(
           visibleTabIds.contains,
           // Not every visible tab is listed above, so a valid permission set can
@@ -2788,7 +2787,6 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           definition: _businessProfileDefinition(
             widget.api,
             widget.permissions,
-            context: context,
             showFrame: false,
           ),
         ),
@@ -2909,11 +2907,13 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
           section: UomManagementSection.conversionRules,
         ),
-      'industry-templates' => UomManagementPage(
+      'unit-sets' => ResourceManagementPage<UnitSet>(
           api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: UomManagementSection.industryTemplates,
+          definition: unitSetDefinition(
+            widget.api,
+            widget.permissions,
+            showFrame: false,
+          ),
         ),
       _ => const WorkspaceEmptyState(
           title: 'User Audit is coming soon',
@@ -5928,41 +5928,12 @@ ResourceDefinition<Permission> permissionDefinition(
 ResourceDefinition<BusinessProfileRecord> _businessProfileDefinition(
   ApiClient api,
   PermissionService permissions, {
-  BuildContext? context,
   bool showFrame = true,
 }) =>
     ResourceDefinition(
       title: 'Business Profiles',
       resource: 'business-framework/profiles',
       showFrame: showFrame,
-      // Default units are not fields on the profile: the profile is
-      // platform-wide while units are firm-owned, so they have their own
-      // endpoint. The action lives here because this is the only screen that
-      // lists profiles, and it is where someone configuring one looks for
-      // them.
-      customActions: [
-        if (context != null)
-          ResourceAction<BusinessProfileRecord>(
-            label: 'Default units',
-            icon: Icons.straighten_outlined,
-            isVisible: (_) => permissions.hasPermission('UOM_VIEW'),
-            onInvoke: (profile) async {
-              if (!context.mounted) return '';
-              await showDialog<BusinessProfileUomDefaults>(
-                context: context,
-                builder: (_) => ProfileUomDefaultsDialog(
-                  api: api,
-                  permissions: permissions,
-                  profileId: profile!.id,
-                  profileName: profile.name,
-                ),
-              );
-              // The dialog announces its own result; saying anything here
-              // would also congratulate someone who just closed it.
-              return '';
-            },
-          ),
-      ],
       description:
           'Configure industry profiles that control modules, feature flags, and validations.',
       headers: const ['Code', 'Name', 'Industry', 'Status', 'Default'],
@@ -7313,6 +7284,228 @@ ResourceDefinition<GoodsTypeRecord> goodsTypeDefinition(
       'default_tax_profile_group_code':
           _blankToNull(values['default_tax_profile_group_code']),
       'is_active': values['is_active'] != false,
+    },
+  );
+}
+
+/// A named template of units that fills a new product's unit fields in one
+/// choice (backlog 89, unit sets).
+///
+/// A shared set is kept by the platform, so Edit and Delete are refused on it
+/// first and say why. The conversion box appears once the purchase unit and
+/// the stock unit (inventory, else base) are both chosen and differ.
+ResourceDefinition<UnitSet> unitSetDefinition(
+  ApiClient api,
+  PermissionService permissions, {
+  bool showFrame = true,
+}) {
+  const List<String> unitKeys = [
+    'base_uom_id',
+    'inventory_uom_id',
+    'purchase_uom_id',
+    'sales_uom_id',
+    'minimum_sales_uom_id',
+    'default_receiving_uom_id',
+    'default_dispatch_uom_id',
+  ];
+  bool showsConversion(Map<String, dynamic> values) {
+    final String inventory = values['inventory_uom_id']?.toString() ?? '';
+    final String stock =
+        inventory.isEmpty ? values['base_uom_id']?.toString() ?? '' : inventory;
+    final String purchase = values['purchase_uom_id']?.toString() ?? '';
+    return purchase.isNotEmpty && stock.isNotEmpty && purchase != stock;
+  }
+
+  // Unit and goods type names for the grid, read once with the first page.
+  final Map<String, String> unitNames = <String, String>{};
+  final Map<String, String> goodsTypeNames = <String, String>{};
+  bool namesLoaded = false;
+  String unitName(String id) => id.isEmpty ? '' : (unitNames[id] ?? '');
+  String conversionText(UnitSet row) {
+    final String factor = row.conversionFactor;
+    if (factor.isEmpty || row.purchaseUomId.isEmpty) return 'none';
+    final String stock =
+        row.inventoryUomId.isEmpty ? row.baseUomId : row.inventoryUomId;
+    final String plain = factor.contains('.')
+        ? factor
+            .replaceFirst(RegExp(r'0+$'), '')
+            .replaceFirst(RegExp(r'\.$'), '')
+        : factor;
+    return '1 ${unitName(row.purchaseUomId)} = $plain ${unitName(stock)}';
+  }
+
+  return ResourceDefinition(
+    title: 'Unit Sets',
+    resource: 'uom-framework/unit-sets',
+    showFrame: showFrame,
+    recordNoun: 'unit set',
+    updateRecord: (set, body) => api.updateUnitSet(
+      set.id,
+      body,
+      expectedVersion: preconditionFor(set.version),
+    ),
+    deleteRecord: (set) => api.deleteUnitSet(
+      set.id,
+      expectedVersion: preconditionFor(set.version),
+    ),
+    description: 'A named set of units that fills a new product in one '
+        'choice: stock, purchase and sales units, and how they convert.',
+    searchHint: 'Search unit sets by name',
+    headers: const [
+      'Name',
+      'Stock unit',
+      'Purchase unit',
+      'Sales unit',
+      'Conversion',
+      'Goods types',
+      'Kind',
+      'Active',
+    ],
+    cells: (UnitSet row) => [
+      row.name,
+      unitName(row.inventoryUomId.isEmpty ? row.baseUomId : row.inventoryUomId),
+      unitName(row.purchaseUomId),
+      unitName(row.salesUomId),
+      conversionText(row),
+      row.goodsTypeIds.isEmpty
+          ? 'All goods'
+          : row.goodsTypeIds
+              .map((id) => goodsTypeNames[id] ?? '')
+              .where((name) => name.isNotEmpty)
+              .join(', '),
+      row.isShared ? 'Shared' : 'Own',
+      row.isActive ? 'Yes' : 'No',
+    ],
+    id: (UnitSet row) => row.id,
+    load: ({
+      int page = 1,
+      String search = '',
+      String sortBy = 'name',
+      bool descending = false,
+    }) async {
+      if (!namesLoaded) {
+        try {
+          for (final UomRecord unit in await api.uoms(includeInactive: true)) {
+            unitNames[unit.id] = unit.name;
+          }
+          for (final GoodsTypeRecord type in await api.goodsTypes()) {
+            goodsTypeNames[type.id] = type.name;
+          }
+          namesLoaded = true;
+        } on ApiException {
+          // The grid still lists the sets; a name it could not read shows
+          // blank and the next load tries again.
+        }
+      }
+      return api.unitSetsPage(
+        page: page,
+        search: search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+    },
+    saveRefusal: (values, isCreating) =>
+        (values['base_uom_id']?.toString() ?? '').isEmpty
+            ? 'Choose the base unit the set is counted in.'
+            : null,
+    canEdit: (UnitSet row) => !row.isShared,
+    editRefusal: (UnitSet row) => row.isShared
+        ? 'A shared unit set cannot be changed or deleted. Add one of the '
+            "firm's own."
+        : null,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['UOM_VIEW'],
+      create: const ['UOM_MANAGE'],
+      update: const ['UOM_MANAGE'],
+      delete: const ['UOM_MANAGE'],
+    ),
+    fields: [
+      const FieldSpec(key: 'name', label: 'Name', required: true),
+      const FieldSpec(
+          key: 'description', label: 'Description', multiline: true),
+      for (final (String key, String label) in const [
+        ('base_uom_id', 'Base unit'),
+        ('inventory_uom_id', 'Stock (inventory) unit'),
+        ('purchase_uom_id', 'Purchase unit'),
+        ('sales_uom_id', 'Sales unit'),
+        ('minimum_sales_uom_id', 'Minimum sales unit'),
+        ('default_receiving_uom_id', 'Default receiving unit'),
+        ('default_dispatch_uom_id', 'Default dispatch unit'),
+      ])
+        FieldSpec(
+          key: key,
+          label: label,
+          optionsResource: 'uom-framework/uoms',
+          singleSelection: true,
+          section: 'Units',
+        ),
+      const FieldSpec(
+        key: 'allow_decimal',
+        label: 'Allow decimal quantities',
+        boolean: true,
+        section: 'Units',
+      ),
+      FieldSpec(
+        key: 'conversion_factor',
+        label: 'Conversion: 1 purchase unit = ? stock units',
+        helperText: 'How many stock units one purchase unit holds, e.g. 10 '
+            'for 1 Box = 10 Strip. Optional.',
+        section: 'Units',
+        visibleWhen: showsConversion,
+      ),
+      const FieldSpec(
+        key: 'goods_type_ids',
+        label: 'Goods types',
+        optionsResource: 'products/goods-types',
+        helperText: 'Offered first for these goods types. Leave empty to '
+            'offer it to every product.',
+        section: 'Offered for',
+      ),
+      const FieldSpec(
+        key: 'is_active',
+        label: 'Active',
+        boolean: true,
+        section: 'Offered for',
+      ),
+    ],
+    initialValues: (UnitSet? row) => row == null
+        ? <String, dynamic>{'allow_decimal': true, 'is_active': true}
+        : <String, dynamic>{
+            'name': row.name,
+            'description': row.description,
+            'base_uom_id': row.baseUomId,
+            'inventory_uom_id': row.inventoryUomId,
+            'purchase_uom_id': row.purchaseUomId,
+            'sales_uom_id': row.salesUomId,
+            'minimum_sales_uom_id': row.minimumSalesUomId,
+            'default_receiving_uom_id': row.defaultReceivingUomId,
+            'default_dispatch_uom_id': row.defaultDispatchUomId,
+            'allow_decimal': row.allowDecimal,
+            'conversion_factor': row.conversionFactor,
+            'goods_type_ids': row.goodsTypeIds.join(','),
+            'is_active': row.isActive,
+          },
+    payload: (values, isCreating) {
+      final double? factor =
+          double.tryParse(values['conversion_factor']?.toString() ?? '');
+      return {
+        'name': values['name'],
+        'description': _blankToNull(values['description']),
+        for (final String key in unitKeys) key: _blankToNull(values[key]),
+        'allow_decimal': values['allow_decimal'] != false,
+        'conversion_factor':
+            showsConversion(values) && factor != null && factor > 0
+                ? values['conversion_factor'].toString().trim()
+                : null,
+        'goods_type_ids': (values['goods_type_ids']?.toString() ?? '')
+            .split(',')
+            .map((id) => id.trim())
+            .where((id) => id.isNotEmpty)
+            .toList(),
+        'is_active': values['is_active'] != false,
+      };
     },
   );
 }

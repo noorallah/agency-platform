@@ -3132,54 +3132,6 @@ class ApiClient {
   Future<void> deleteUomGroup(String id) =>
       request('DELETE', '/api/v1/uom-framework/uom-groups/$id');
 
-  /// The default units the active firm's own business profile carries.
-  ///
-  /// Keyed off the firm context rather than a profile id, because every route
-  /// that reveals a profile id is platform-admin only. Returns null when the
-  /// firm's profile has no defaults, or when the caller may not read units.
-  Future<BusinessProfileUomDefaults?> firmUomDefaults() async {
-    final Json response =
-        await request('GET', '/api/v1/uom-framework/profile-defaults');
-    final dynamic data = response['data'];
-    if (data is! Map) return null;
-    return BusinessProfileUomDefaults.fromJson(Map<String, dynamic>.from(data));
-  }
-
-  /// The default units a business profile carries, for the active firm.
-  ///
-  /// Returns null when neither the firm nor the profile has any defaults set.
-  /// A returned record with a null `firmId` is the profile-wide default the
-  /// firm inherits rather than one it has chosen.
-  Future<BusinessProfileUomDefaults?> businessProfileUomDefaults(
-      String profileId) async {
-    final Json response = await request(
-      'GET',
-      '/api/v1/uom-framework/profiles/$profileId/defaults',
-    );
-    final dynamic data = response['data'];
-    if (data is! Map) return null;
-    return BusinessProfileUomDefaults.fromJson(Map<String, dynamic>.from(data));
-  }
-
-  /// Store default units for a business profile.
-  ///
-  /// [forEveryFirm] writes the row every firm on the profile inherits, which
-  /// needs platform settings permission. The default writes only the active
-  /// firm's own override.
-  Future<BusinessProfileUomDefaults> updateBusinessProfileUomDefaults(
-    String profileId,
-    Json data, {
-    bool forEveryFirm = false,
-  }) async =>
-      BusinessProfileUomDefaults.fromJson(
-        _unwrapMap(await request(
-          'PUT',
-          '/api/v1/uom-framework/profiles/$profileId/defaults',
-          query: {'apply_to': forEveryFirm ? 'PROFILE' : 'FIRM'},
-          body: data,
-        )),
-      );
-
   Future<List<PackagingTypeRecord>> packagingTypes() async {
     final Json response =
         await request('GET', '/api/v1/uom-framework/packaging-types');
@@ -3319,43 +3271,57 @@ class ApiClient {
   Future<void> deleteConversionRule(String id) =>
       request('DELETE', '/api/v1/uom-framework/conversion-rules/$id');
 
-  Future<List<IndustryTemplateRecord>> industryTemplates(
-      {bool includeInactive = false}) async {
-    final Json response = await request(
-      'GET',
-      '/api/v1/uom-framework/industry-templates',
-      query: {if (includeInactive) 'include_inactive': 'true'},
-    );
-    final dynamic data = response['data'];
-    if (data is! List) return const [];
-    return data
-        .whereType<Map>()
-        .map((item) =>
-            IndustryTemplateRecord.fromJson(Map<String, dynamic>.from(item)))
-        .toList();
+  // Unit sets: a named template that fills a new product's units in one
+  // choice. `firm_id` null is the shared catalogue, read-only to the firm.
+  Future<List<UnitSet>> unitSets({bool includeInactive = false}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/uom-framework/unit-sets',
+          query: {'include_inactive': includeInactive ? 'true' : 'false'},
+        ),
+        UnitSet.fromJson,
+      );
+
+  Future<PagedResult<UnitSet>> unitSetsPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) async {
+    final String needle = search.trim().toLowerCase();
+    final List<UnitSet> rows = (await unitSets(includeInactive: true))
+        .where((row) =>
+            needle.isEmpty || row.name.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return PagedResult(items: rows, total: rows.length);
   }
 
-  Future<IndustryTemplateRecord> createIndustryTemplate(Json data) async =>
-      IndustryTemplateRecord.fromJson(
-        _unwrapMap(await request(
-          'POST',
-          '/api/v1/uom-framework/industry-templates',
-          body: data,
-        )),
+  Future<UnitSet> createUnitSet(Json data) async =>
+      UnitSet.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/uom-framework/unit-sets',
+        body: data,
+      )));
+
+  Future<Json> updateUnitSet(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) =>
+      request(
+        'PUT',
+        '/api/v1/uom-framework/unit-sets/$id',
+        body: data,
+        expectedVersion: expectedVersion,
       );
 
-  Future<IndustryTemplateRecord> updateIndustryTemplate(
-          String id, Json data) async =>
-      IndustryTemplateRecord.fromJson(
-        _unwrapMap(await request(
-          'PUT',
-          '/api/v1/uom-framework/industry-templates/$id',
-          body: data,
-        )),
+  Future<void> deleteUnitSet(String id, {int? expectedVersion}) => request(
+        'DELETE',
+        '/api/v1/uom-framework/unit-sets/$id',
+        expectedVersion: expectedVersion,
       );
-
-  Future<void> deleteIndustryTemplate(String id) =>
-      request('DELETE', '/api/v1/uom-framework/industry-templates/$id');
 
   Future<InventorySummaryRecord> inventorySummary({
     bool includeDeleted = false,
@@ -5210,6 +5176,18 @@ class ApiClient {
               label: type.name,
               detail: type.tracks == 'Nothing' ? null : type.tracks,
             ),
+      ];
+    }
+    // The units list is not paged, so the paged walk below does not suit it;
+    // a unit set offers only units that are still active.
+    if (resource == 'uom-framework/uoms') {
+      return [
+        for (final UomRecord unit in await uoms())
+          AssignmentOption(
+            id: unit.id,
+            label: unit.name,
+            detail: unit.code == unit.name ? null : unit.code,
+          ),
       ];
     }
     const int pageSize = 100;

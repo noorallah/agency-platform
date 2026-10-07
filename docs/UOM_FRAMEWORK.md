@@ -23,8 +23,8 @@ packaging_types         box / carton / pallet tokens
 uom_conversion_rules    from → to × factor, versioned and effective-dated
 products.*_uom_id       per product: stock / purchase / sales / receipt / dispatch unit
 product_packaging_levels the physical hierarchy, each level with its own barcode
-business_profile_uom_defaults   what an industry starts with
-uom_industry_templates  reusable industry payloads
+unit_sets               a named template for a product's units ("Strip, box of 10")
+  └ unit_set_goods_types  which goods types a set suits; orders the picker only
 ```
 
 A `Uom` carries a `dimension` (`COUNT`, `WEIGHT`, `VOLUME`, `LENGTH`) and
@@ -42,7 +42,7 @@ invoice and return, sales order, delivery note, sales invoice and return) and
 on every stock movement that brings a quantity in, through
 `InventoryService._resolve_base_quantity`; releasing a reservation is exempt,
 because it only gives back what was held. A product's `allow_fraction` is
-**not** read: it is false on every product and every profile default, so
+**not** read: it is false on every product, so
 enforcing it would refuse every 2.5 KG a firm records today, and nothing says
 how it differs from `allow_decimal`. Driven on `fx_t0919duz7_r`: 1.5 PACK was
 ordered, received and stocked before the fix.
@@ -55,7 +55,7 @@ saved first claim the attribute and lock every other firm in that store out of
 setting it. Reads must pass `firm_id` to `AttributeService` for the same reason.
 
 **So the shared catalogue is the platform's to write (D-CFG-9, 2026-09-19).**
-Units, groups, packaging types and industry templates carry no firm, and their
+Units, groups and packaging types carry no firm, and their
 writes needed only `UOM_MANAGE` / `PACKAGING_MANAGE`, which every firm
 administrator holds: in `firm_shared` TESTSH1's administrator created, renamed
 and deleted a unit TESTSH2 was offered, with no audit row. Creating, changing
@@ -401,103 +401,87 @@ is the unit its quantity is in (the line billed), and `invoice_uom_id` the
 unit it was typed in. A unit typed against a line that names none is
 converted into the product's stock unit, never taken as the same thing.
 
-`business_profile_uom_defaults` supplies the starting point for a firm's
-industry (base, inventory, purchase and sales units, plus the two fraction
-flags), with `firm_id` nullable so a platform default can be overridden per
-firm.
+## Unit sets (backlog 89, step 3 -- built 2026-10-08, not yet tested by hand)
 
-**Resolution is two-level, and only the second level used to exist.** NULL
-`firm_id` is the profile-wide default every firm on that profile inherits; a
-set `firm_id` is that firm's own override, and it wins. `get_profile_default`
-filtered on the caller's firm alone until 2026-08-12, so it never matched the
-seeded rows: `GET /api/v1/uom-framework/profiles/{id}/defaults` answered `null`
-for a profile whose row was sitting in the same store, and all five industry
-defaults shipped invisible. The rank is now explicit —
-`case((firm_id.is_(None), 1), else_=0)` — rather than an `ORDER BY firm_id`,
-because PostgreSQL sorts NULLs first in DESC and SQLite last, which is exactly
-how a firm-wide conversion rule once outranked a product's own factor in
-production while the unit suite saw the right answer.
+A product's units were up to seven slots typed one by one, plus a conversion
+rule that, when forgotten, was found only when a document line was refused. A
+**unit set** is a named template -- *Strip, box of 10* -- that fills them in
+one choice on a **new** product.
 
-### Writing either level
+| Table | Holds |
+| --- | --- |
+| `unit_sets` | The name, the seven unit slots as the product names them, `allow_decimal`, `conversion_factor` (one purchase unit is this many stock units; null where nothing converts) and `is_active`. A row without `firm_id` is the shared catalogue; a row with one is that firm's own |
+| `unit_set_goods_types` | One row per set and goods type, unique on the pair. Replaced by delete and insert, never soft-deleted |
+| `products.unit_set_id` | The set a product's units were copied from. Reference only: nothing reads the set again |
 
-`PUT /profiles/{id}/defaults` takes `apply_to`:
+**The rules.**
 
-| `apply_to` | Writes | Needs |
-| --- | --- | --- |
-| `FIRM` *(default)* | this firm's override | `CONVERSION_RULE_MANAGE` |
-| `PROFILE` | the row every firm on the profile inherits | `PLATFORM_SETTINGS` |
+- **A set is copied, never linked.** `UnitSetService.starting_units` hands
+  `ProductService.stage_product` the units and the factor; the units are
+  written onto the product and the factor becomes the product's **own**
+  conversion rule (purchase unit to stock unit, `product_id` set) through
+  `UomService.stage_conversion_rule`, in the product's transaction. Editing or
+  deleting a set afterwards changes no product: document lines go on reading
+  the product's own columns and its own rule, with no extra join.
+- **What the caller names is the caller's.** A unit slot, `allow_decimal` or
+  `unit_conversion_factor` named in the create body wins over the set's, blank
+  included; one left out takes the set's. The desktop form sends every unit
+  after showing the set's, so the form decides; an import or API client naming
+  only `unit_set_id` gets the set as it stands. A slot the set leaves empty
+  fills nothing.
+- **The factor.** Named, it must sit between a purchase unit and a different
+  stock unit (inventory unit, else base unit) or the save is refused; named
+  `null` it means no rule. A set's factor is dropped quietly when the units as
+  saved no longer need one. A factor typed with **no** set chosen makes the
+  product's own rule all the same. The rule holds from 2000-01-01, so an
+  opening bill dated before the product was typed in still converts.
+- **The goods type only orders the picker.** The product form offers the sets
+  tied to the product's goods type and the sets tied to none; *Show all unit
+  sets* reaches the rest. Nothing is refused on save for a set of another
+  type. The goods type itself carries no units and no default set.
+- **Nothing is pre-filled silently.** With no set chosen the units are typed
+  by hand, as before.
+- **Shared and own.** The shared sets are read-only to a firm; its
+  administrator adds, changes and removes the firm's own (`UOM_MANAGE`). A
+  firm's name may not repeat a shared one. `ProductUpdate` accepts neither
+  `unit_set_id` nor `unit_conversion_factor`: after creation the units are
+  the product's own and are changed as a product's units always were.
+- **Every write is audited:** `unit_set.created`, `unit_set.updated`,
+  `unit_set.goods_types_changed`, `unit_set.deleted`, and
+  `uom.conversion.created` for the product's rule.
 
-`FIRM` is the default so a client that does not know about the distinction
-cannot change another firm's units by accident. `PROFILE` needs platform
-authority because it reaches every firm on the profile, not just the caller's —
-that is a different decision from "what units does *my* firm trade in", and the
-role that makes it is different too.
+**Routes.** `GET|POST /api/v1/uom-framework/unit-sets` and `PUT|DELETE
+/api/v1/uom-framework/unit-sets/{unit_set_id}` (`UOM_VIEW` to read). The
+product form does not call them: the sets arrive as `unit_sets` in `GET
+/api/v1/products/metadata`, the call it already makes, and the form makes one
+call fewer than before because it no longer asks for the profile's units.
+Screen: **Unit Sets**, where Industry Templates used to be.
 
-Until `apply_to` existed, only `seed_uom_reference_data` could write a
-profile-wide row, so a profile created through the API could never carry
-defaults for the firms put on it: each firm had to set its own copy. Only five
-profiles are seeded with defaults (GENERIC, AGENCY, PHARMACY, FOOD, WHOLESALE);
-the other seven start empty and are filled in this way.
+**The shared catalogue** (`backend/app/uom/unit_set_seed.py`, written into
+existing stores by `20261008_0351`):
 
-Both levels are audited (`uom.profile_default.created` / `.updated`). A
-profile-wide row has no owning firm, so the entry is written against the firm
-whose store the change happened in — otherwise the trail would lose it.
+| Unit set | Stock | Purchase | Factor | Listed under |
+| --- | --- | --- | --- | --- |
+| Strip, box of 10 | STRIP | BOX | 10 | Medicine |
+| Strip, box of 15 | STRIP | BOX | 15 | Medicine |
+| Bottle, carton of 24 | BOTTLE | CARTON | 24 | Medicine, Food, Cosmetics |
+| Tube, box of 20 | TUBE | BOX | 20 | Medicine, Cosmetics |
+| Pack, carton of 12 | PACK | CARTON | 12 | Food |
+| Litre, loose | L | L | none | Paint |
+| Piece, loose | PIECE | PIECE | none | every product |
+| Unit, box of 10 | UNIT | BOX | 10 | every product |
 
-**A `PROFILE` write reaches every store, not only the caller's** (D-CFG-21).
-The row is reference data held per store, so it is written into each firm's
-store in turn, matched to the profile there by code, since each store seeds
-its own catalogue. A firm whose store cannot be reached, or has no such
-profile, is named in the response's message rather than skipped silently. A
-store that already holds the same units writes no audit row, which is what a
-shared schema visited once per firm needs; both levels record the units
-before and after (D-CFG-23).
+**What a profile gives a new firm.** No rows of its own: the profile's
+starting goods types (`docs/GOODS_TYPES.md`) decide which shared sets the
+firm's products are offered first, and there is no per-firm "in use" table for
+unit sets. The firm adds its own from there.
 
-**The unit catalogue's baseline is the same everywhere; what is added is
-not.** The 19 units in `SEED_UOMS` are in every store and reseeded on every
-reset. A unit an administrator adds lives in the store it was added in, like
-any master, so two stores can legitimately hold different totals. Units,
-groups and packaging types are keyed on their code among **live** rows
-(`UQ_uoms_code_active` and its siblings, `20260924_0160`), so a deleted code
-can be used again. A unit recorded on any document line or stock movement
-cannot be deleted: every column ending in `uom_id` is asked, found from the
-schema rather than listed.
-
-`UQ_business_profile_uom_defaults_firm_profile` covers `(firm_id,
-business_profile_id)` and PostgreSQL treats NULLs as distinct, so it constrains
-overrides and not profile-wide rows. That did not matter while only the seed
-could write one; `20260812_0066` adds the partial unique index now that the API
-can, because two administrators saving at once would otherwise each insert one
-and a firm would inherit whichever the query happened to return.
-
-Edit both from **Administration → Business Profiles → Default units**
-(`ui/uom/profile_uom_defaults_dialog.dart`). The dialog says which level it is
-showing, and offers the profile-wide switch only to someone who holds
-`PLATFORM_SETTINGS`; it defaults to off.
-
-### How the defaults reach a product
-
-**By pre-filling the create form, not by filling them in on the server.** A
-unit the user can see and change before saving is one they can disagree with; a
-unit applied silently is noticed only when a conversion comes out wrong three
-documents later. So `ProductService` still stores exactly what it is sent, and
-`products/product_management_page.dart` seeds a *new* product's base,
-inventory, purchase and sales units — plus `allow_fraction` / `allow_decimal` —
-from the firm's profile, saying so above the fields.
-
-Two rules the widget tests pin:
-
-- **Only a product being created.** Defaulting an edit would put the profile's
-  units back on a product whose units someone had deliberately cleared.
-- **A default naming a withdrawn unit is dropped.** A stored default can point
-  at a deactivated unit, and a dropdown throws when its value is absent from
-  its items.
-
-A firm reads its own defaults from `GET /api/v1/uom-framework/profile-defaults`
-— no profile id, because every route that reveals one is platform-admin only,
-which is why a client previously had no way to reach the defaults meant for it.
-The profile is resolved through `app.business.gating.resolve_profile_id`, so
-the units a firm is offered come from the same assignment its feature gates
-use.
+**What this replaced, removed on 2026-10-08.** The per-profile default units
+(a table, three routes, the *Default units* dialog and the product form's
+silent pre-fill): `20261008_0351` turned each firm's own row into that firm's
+unit set *Firm default units*, tied to no goods type, and dropped the table.
+And the industry templates, a JSON catalogue with a screen and four routes
+that nothing ever applied: dropped with no successor.
 
 ## Conversion happens on the line, only when the units differ
 
@@ -657,10 +641,11 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
 
 | Concern | File |
 | --- | --- |
-| Tables | `backend/app/uom/models/uom.py` |
+| Tables | `backend/app/uom/models/uom.py`, `backend/app/uom/models/unit_set.py` |
 | Conversion and configuration | `backend/app/uom/services/uom_service.py` |
 | Endpoints (`/api/v1/uom-framework`) | `backend/app/uom/api/router.py` |
 | Demo conversions | `backend/scripts/seed_multi_firm_demo.py` (`_seed_sales_conversion_rule`) |
+| Unit sets | `backend/app/uom/services/unit_sets.py`, `backend/app/uom/repositories/unit_set_repository.py`, `backend/tests/unit/test_unit_sets.py`, `desktop/test/product_unit_set_form_test.dart`, `desktop/test/unit_sets_test.dart` |
 | Unit tests | `backend/tests/unit/test_uom_packaging_framework.py` |
 | NULL-ordering guard | `backend/tests/integration/test_uom_conversion_resolution.py` |
 | Desktop UI | `desktop/lib/ui/uom/uom_management_page.dart` |

@@ -16,7 +16,7 @@ import app.identity.models.identity  # noqa: F401
 import app.inventory.models.inventory  # noqa: F401
 import app.uom.models.uom  # noqa: F401
 from app.branches.models import branch_warehouse as _branch_models  # noqa: F401
-from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.business.models import BusinessProfile
 from app.business.models import framework as _business_models  # noqa: F401
 from app.business.system_seed import seed_business_profiles
 from app.common.audit.models import AuditLog
@@ -38,16 +38,13 @@ from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.api.router import update_uom
 from app.uom.models.uom import (
-    BusinessProfileUomDefault,
     ConversionRule,
-    IndustryTemplate,
     PackagingType,
     ProductPackagingLevel,
     Uom,
     UomGroup,
 )
 from app.uom.schemas import (
-    BusinessProfileUomDefaultUpsert,
     ConversionRequest,
     ConversionRuleCreate,
     ConversionRuleUpdate,
@@ -276,7 +273,7 @@ def test_delete_conversion_rule_records_audit_entry() -> None:
     assert audit.firm_id == firm.id
 
 
-def test_seed_uom_reference_data_prefills_catalogs_and_profile_defaults() -> None:
+def test_seed_uom_reference_data_prefills_the_catalogues() -> None:
     """The baseline seed fills the catalogues every profile expects."""
     session = _session_factory()()
 
@@ -301,29 +298,10 @@ def test_seed_uom_reference_data_prefills_catalogs_and_profile_defaults() -> Non
             select(PackagingType).where(PackagingType.is_deleted.is_(False))
         ).all()
     }
-    template_codes = {
-        row.code
-        for row in session.scalars(
-            select(IndustryTemplate).where(IndustryTemplate.is_deleted.is_(False))
-        ).all()
-    }
-    defaults = session.scalars(
-        select(BusinessProfileUomDefault).where(
-            BusinessProfileUomDefault.firm_id.is_(None),
-            BusinessProfileUomDefault.is_deleted.is_(False),
-        )
-    ).all()
 
     assert {"UNIT", "STRIP", "BOX", "CARTON", "KG", "L"}.issubset(uom_codes)
     assert {"DIST_COUNT", "PHARMA_PACK", "FOOD_PACK"}.issubset(group_codes)
     assert {"UNIT", "BOX", "CARTON", "PALLET"}.issubset(packaging_codes)
-    assert {
-        "AGENCY_DISTRIBUTION",
-        "PHARMA_DISTRIBUTION",
-        "FOOD_DISTRIBUTION",
-        "WHOLESALE_DISTRIBUTION",
-    }.issubset(template_codes)
-    assert len(defaults) >= 5
 
 
 def _rule_setup(
@@ -588,224 +566,6 @@ def test_a_packaging_type_in_use_cannot_be_deleted() -> None:
 
     with pytest.raises(ValidationError):
         service.delete_packaging_type(packaging.id, actor_id=actor_id)
-
-
-def test_a_firm_without_an_override_reads_the_profile_wide_default() -> None:
-    """The seeded ``firm_id IS NULL`` row is what an industry default means.
-
-    ``get_profile_default`` used to filter on the caller's firm alone, so every
-    seeded industry default was unreachable: the endpoint answered ``null`` for
-    a profile whose row was sitting in the same store.
-    """
-    session = _session_factory()()
-    seed_business_profiles(session)
-    seed_uom_reference_data(session)
-    session.commit()
-    firm = _firm(session, "UOMD")
-    profile_id = session.scalar(
-        select(BusinessProfileUomDefault.business_profile_id).where(
-            BusinessProfileUomDefault.firm_id.is_(None),
-            BusinessProfileUomDefault.is_deleted.is_(False),
-        )
-    )
-    assert profile_id is not None
-
-    row = UomService(session).get_profile_default(
-        firm_scope=firm.id, profile_id=profile_id
-    )
-    assert row is not None
-    # firm_id None tells the caller this is inherited, not the firm's own.
-    assert row.firm_id is None
-
-
-def test_a_firms_own_override_outranks_the_profile_wide_default() -> None:
-    """A firm's row wins, and the rank must not depend on NULL sort order."""
-    session = _session_factory()()
-    seed_business_profiles(session)
-    seed_uom_reference_data(session)
-    session.commit()
-    firm = _firm(session, "UOME")
-    other = _firm(session, "UOMG")
-    profile_id = session.scalar(
-        select(BusinessProfileUomDefault.business_profile_id).where(
-            BusinessProfileUomDefault.firm_id.is_(None),
-            BusinessProfileUomDefault.is_deleted.is_(False),
-        )
-    )
-    assert profile_id is not None
-    unit = session.scalar(select(Uom).where(Uom.code == "UNIT"))
-    assert unit is not None
-    service = UomService(session)
-    service.upsert_profile_default(
-        firm_scope=firm.id,
-        profile_id=profile_id,
-        data=BusinessProfileUomDefaultUpsert(base_uom_id=unit.id, allow_fraction=True),
-        actor_id=uuid4(),
-    )
-
-    mine = service.get_profile_default(firm_scope=firm.id, profile_id=profile_id)
-    assert mine is not None
-    assert mine.firm_id == firm.id
-    assert mine.allow_fraction is True
-    # Another firm in the same store still sees the profile-wide row, not mine.
-    theirs = service.get_profile_default(firm_scope=other.id, profile_id=profile_id)
-    assert theirs is not None
-    assert theirs.firm_id is None
-
-
-def test_a_firm_resolves_its_own_profile_defaults_without_a_profile_id() -> None:
-    """A firm client cannot learn its profile id, so it must not need one.
-
-    Every route that reveals a profile id is platform-admin only, which left
-    the defaults meant for a firm unreachable by that firm.
-    """
-    session = _session_factory()()
-    seed_business_profiles(session)
-    seed_uom_reference_data(session)
-    session.commit()
-    firm = _firm(session, "UOMH")
-    profile = session.scalar(
-        select(BusinessProfile).where(BusinessProfile.code == "PHARMACY")
-    )
-    assert profile is not None
-    session.add(
-        FirmBusinessProfile(
-            firm_id=firm.id,
-            business_profile_id=profile.id,
-            is_active=True,
-            effective_from=date(2026, 4, 1),
-        )
-    )
-    session.commit()
-
-    row = UomService(session).resolve_firm_profile_default(firm_scope=firm.id)
-    assert row is not None
-    assert row.business_profile_id == profile.id
-    # Inherited, because the firm has not overridden it.
-    assert row.firm_id is None
-
-
-def test_a_profile_wide_write_reaches_every_firm_on_the_profile() -> None:
-    """``firm_scope=None`` writes the row all firms on a profile inherit.
-
-    Until this existed only the seed could write one, so a profile created
-    through the API could never carry defaults for the firms put on it.
-    """
-    session = _session_factory()()
-    seed_business_profiles(session)
-    seed_uom_reference_data(session)
-    session.commit()
-    first = _firm(session, "UOMI")
-    second = _firm(session, "UOMJ")
-    profile = _new_profile(session)
-    for firm in (first, second):
-        session.add(
-            FirmBusinessProfile(
-                firm_id=firm.id,
-                business_profile_id=profile.id,
-                is_active=True,
-                effective_from=date(2026, 4, 1),
-            )
-        )
-    session.commit()
-    service = UomService(session)
-    # GARMENTS is seeded without defaults, which is the state a newly created
-    # profile is in.
-    assert service.resolve_firm_profile_default(firm_scope=first.id) is None
-
-    piece = session.scalar(select(Uom).where(Uom.code == "UNIT"))
-    assert piece is not None
-    service.upsert_profile_default(
-        firm_scope=None,
-        profile_id=profile.id,
-        data=BusinessProfileUomDefaultUpsert(base_uom_id=piece.id),
-        actor_id=uuid4(),
-        audit_firm_id=first.id,
-    )
-
-    for firm in (first, second):
-        inherited = service.resolve_firm_profile_default(firm_scope=firm.id)
-        assert inherited is not None
-        assert inherited.firm_id is None
-        assert inherited.base_uom_id == piece.id
-
-
-def test_a_firm_override_still_wins_over_a_profile_wide_write() -> None:
-    """The two levels must not collapse into whichever was written last."""
-    session = _session_factory()()
-    seed_business_profiles(session)
-    seed_uom_reference_data(session)
-    session.commit()
-    firm = _firm(session, "UOMK")
-    other = _firm(session, "UOML")
-    profile = _new_profile(session)
-    for row in (firm, other):
-        session.add(
-            FirmBusinessProfile(
-                firm_id=row.id,
-                business_profile_id=profile.id,
-                is_active=True,
-                effective_from=date(2026, 4, 1),
-            )
-        )
-    session.commit()
-    service = UomService(session)
-    units = {
-        code: session.scalar(select(Uom).where(Uom.code == code))
-        for code in ("UNIT", "BOX")
-    }
-    actor_id = uuid4()
-    service.upsert_profile_default(
-        firm_scope=firm.id,
-        profile_id=profile.id,
-        data=BusinessProfileUomDefaultUpsert(base_uom_id=units["BOX"].id),
-        actor_id=actor_id,
-    )
-    # Written second, and must not displace the override above.
-    service.upsert_profile_default(
-        firm_scope=None,
-        profile_id=profile.id,
-        data=BusinessProfileUomDefaultUpsert(base_uom_id=units["UNIT"].id),
-        actor_id=actor_id,
-        audit_firm_id=firm.id,
-    )
-
-    mine = service.resolve_firm_profile_default(firm_scope=firm.id)
-    assert mine is not None
-    assert mine.base_uom_id == units["BOX"].id
-    theirs = service.resolve_firm_profile_default(firm_scope=other.id)
-    assert theirs is not None
-    assert theirs.base_uom_id == units["UNIT"].id
-
-
-def test_writing_profile_defaults_leaves_an_audit_entry() -> None:
-    """A change reaching every firm on a profile must be attributable."""
-    session = _session_factory()()
-    seed_business_profiles(session)
-    seed_uom_reference_data(session)
-    session.commit()
-    firm = _firm(session, "UOMM")
-    profile = _new_profile(session)
-    actor_id = uuid4()
-
-    row = UomService(session).upsert_profile_default(
-        firm_scope=None,
-        profile_id=profile.id,
-        data=BusinessProfileUomDefaultUpsert(),
-        actor_id=actor_id,
-        audit_firm_id=firm.id,
-    )
-
-    audit = session.scalar(
-        select(AuditLog).where(
-            AuditLog.entity_id == row.id,
-            AuditLog.action == "uom.profile_default.created",
-        )
-    )
-    assert audit is not None
-    # The row has no firm, so the trail would otherwise lose the store it
-    # happened in.
-    assert audit.firm_id == firm.id
 
 
 def test_a_stale_write_is_refused_and_a_current_one_is_not() -> None:

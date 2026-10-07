@@ -200,14 +200,14 @@ the list.
 | --- | --- |
 | 1. The goods type, the two columns, the migration and the seeds | **Built 2026-10-08, not yet tested by hand** |
 | 2. Product save and the product form | **Built 2026-10-08, not yet tested by hand** |
-| 3. Unit sets | Not started |
+| 3. Unit sets and their picker on the product form | **Built 2026-10-08, not yet tested by hand** (`docs/UOM_FRAMEWORK.md`, *Unit sets*) |
 | 4. Batch and serial checks read the product | Not started: the firm's profile still decides whether batches, expiry and serial numbers may be used |
 | 5. Extra fields and compulsory rules by goods type | Not started |
 | 6. Menus, import, the profile clean-up, the docs | Not started |
 | 7. Closing sweep | Not started |
 
-So after step 2 a goods type decides how a **new** product starts and what
-its form shows. What a firm may record on a batch or a serial number is
+So after step 3 a goods type decides how a **new** product starts, what its
+form shows and which unit sets it is offered first. What a firm may record on a batch or a serial number is
 still the profile's to refuse until step 4, and extra fields are still
 resolved by profile and category until step 5.
 

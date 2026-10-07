@@ -200,9 +200,6 @@ _EXPECTED = frozenset(
         ("POST", "/api/v1/uom-framework/packaging-types"),
         ("PUT", "/api/v1/uom-framework/packaging-types/{packaging_type_id}"),
         ("DELETE", "/api/v1/uom-framework/packaging-types/{packaging_type_id}"),
-        ("POST", "/api/v1/uom-framework/industry-templates"),
-        ("PUT", "/api/v1/uom-framework/industry-templates/{template_id}"),
-        ("DELETE", "/api/v1/uom-framework/industry-templates/{template_id}"),
     }
 )
 

@@ -161,6 +161,13 @@ class Product(BaseEntity):
             ondelete="RESTRICT",
         ),
     )
+    #: The unit set its units were copied from when it was created, kept for
+    #: reference only (backlog 89): the units and the conversion rule are the
+    #: product's own and nothing reads the set again.
+    unit_set_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("unit_sets.id", name="FK_products_unit_set_id", ondelete="SET NULL"),
+    )
     #: The trade licence this product needs, overriding its category's; null
     #: takes the category's (backlog 54).
     required_licence_type_id: Mapped[UUID | None] = mapped_column(

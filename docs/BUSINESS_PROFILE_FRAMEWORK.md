@@ -248,16 +248,10 @@ Seeded: PHARMACY/MEDICINE requires `BATCH_NUMBER`, `EXPIRY_DATE` and
 `MANUFACTURER`; FOOD/FOOD requires `EXPIRY_DATE` and `SHELF_LIFE_DAYS`;
 ELECTRONICS requires `IMEI` and `WARRANTY_MONTHS`.
 
-#### `business_profile_uom_defaults` — 5 rows
-
-Default units per industry.
-
-| Column | Stores |
-| --- | --- |
-| `business_profile_id` | NOT NULL — the industry |
-| `firm_id` | **Nullable, and this is the point.** NULL is the profile-wide default; a set value is one firm's override of it, and it wins. The rank is explicit, never an `ORDER BY firm_id` — NULLs sort first in PostgreSQL and last in SQLite |
-| `base_uom_id`, `inventory_uom_id`, `purchase_uom_id`, `sales_uom_id` | The four unit slots |
-| `allow_fraction`, `allow_decimal` | Whether part-units are permitted |
+Default units left the profile on 2026-10-08: the `business_profile_uom_defaults`
+table is gone, and a business profile no longer says anything about units. A
+new product's units come from a unit set the user picks; see
+`docs/UOM_FRAMEWORK.md`, *Unit sets*.
 
 ### Layer 3 — Assignment: which firm gets what
 
@@ -580,21 +574,13 @@ progress silently re-enable something a firm had turned off.
 `delivery_note`, `purchase_invoice` and others. Useful for reporting on "which
 operating model produced this record"; it changes no behaviour.
 
-### Applied by pre-filling, not by the server
+### Units are not applied by the profile
 
-`business_profile_uom_defaults` reaches a product through the **form**: a new
-product's base, inventory, purchase and sales units are seeded from the firm's
-profile and can be changed before saving. `ProductService` still stores exactly
-what it is sent. A unit the user can see is one they can disagree with; a unit
-applied silently is noticed only when a conversion comes out wrong. A firm
-reads its own defaults from `GET /api/v1/uom-framework/profile-defaults`, which
-takes no profile id.
-
-Units are deliberately **not** fields on the create-profile form — the row must
-exist before anything can be keyed to its id, and the profile is platform-wide
-while a firm's units are its own. They live on their own endpoint and resolve in
-two levels: the profile-wide row (`firm_id IS NULL`) every firm on the profile
-inherits, and the firm's own override, which wins.
+Until 2026-10-08 a firm's business profile pre-filled a new product's units. That
+is removed. A new product copies its units from a **unit set** the user chooses
+(`unit_sets`, `products.unit_set_id`); with none chosen nothing is pre-filled.
+`ProductService` still stores exactly what it is sent. See `docs/UOM_FRAMEWORK.md`,
+*Unit sets*.
 
 Both levels are writable from **Administration → Business Profiles → Default
 units**, and the dialog states which one it is showing — "PHARMACY sells in

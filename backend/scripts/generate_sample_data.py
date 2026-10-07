@@ -228,7 +228,6 @@ from app.tax.services.place_of_supply import (
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import (
-    BusinessProfileUomDefault,
     ConversionRule,
     PackagingType,
     ProductPackagingLevel,
@@ -237,6 +236,7 @@ from app.uom.models import (
     UomGroupUnit,
 )
 from app.uom.system_seed import seed_uom_reference_data
+from app.uom.unit_set_seed import seed_unit_sets
 from app.vendors.models import (
     Vendor,
 )
@@ -640,6 +640,7 @@ def main() -> None:
             seed_business_profiles(session)
             seed_uom_reference_data(session)
             seed_goods_types(session)
+            seed_unit_sets(session)
             session.commit()
             if args.mode == "reset":
                 USERS_DOC_PATH.write_text(
@@ -875,6 +876,7 @@ def _reset_dedicated_store(url: str, schema: str) -> None:
             # schema after the delete.
             seed_uom_reference_data(session)
             seed_goods_types(session)
+            seed_unit_sets(session)
             session.commit()
     finally:
         engine.dispose()
@@ -3695,29 +3697,6 @@ def _seed_uom_inventory_and_documents(
     pkg_unit = packaging_by_code["UNIT"]
     pkg_box = packaging_by_code["BOX"]
     pkg_carton = packaging_by_code["CARTON"]
-
-    profile_defaults = session.scalar(
-        select(BusinessProfileUomDefault).where(
-            BusinessProfileUomDefault.firm_id == firm_id,
-            BusinessProfileUomDefault.business_profile_id == context.profile.id,
-            BusinessProfileUomDefault.is_deleted.is_(False),
-        )
-    )
-    if profile_defaults is None:
-        session.add(
-            BusinessProfileUomDefault(
-                firm_id=firm_id,
-                business_profile_id=context.profile.id,
-                base_uom_id=uom_unit.id,
-                inventory_uom_id=uom_unit.id,
-                purchase_uom_id=uom_box.id,
-                sales_uom_id=uom_unit.id,
-                allow_fraction=False,
-                allow_decimal=True,
-                created_by=actor_id,
-                updated_by=actor_id,
-            )
-        )
 
     for index, product in enumerate(products[:6], start=1):
         product.base_uom_id = uom_unit.id

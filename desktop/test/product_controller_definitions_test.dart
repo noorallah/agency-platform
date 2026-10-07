@@ -83,8 +83,6 @@ class _Api extends ApiClient {
   @override
   Future<List<UomRecord>> uoms({bool includeInactive = false}) async =>
       const [];
-  @override
-  Future<BusinessProfileUomDefaults?> firmUomDefaults() async => null;
 }
 
 void main() {

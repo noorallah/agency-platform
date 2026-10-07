@@ -5,6 +5,7 @@
 import csv
 import io
 from collections.abc import Iterable
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from typing import Any, Literal, cast
@@ -76,6 +77,8 @@ from app.products.services.product_import import (
 from app.tax.models import TaxProfile
 from app.trade_licences.models import TradeLicenceType
 from app.uom.models import Uom
+from app.uom.schemas import ConversionRuleCreate
+from app.uom.services import UnitSetService, UomService
 
 #: The product fields that are somebody's separate duty, by the code that owns
 #: them, with what each is called in a refusal. A price decides what the firm
@@ -105,6 +108,10 @@ PRODUCT_DUTIES: frozenset[str] = frozenset(PRODUCT_DUTY_FIELDS) | {ATTRIBUTE_DUT
 
 #: The fields that say how a product's stock is counted and traced, and what
 #: each is called in a refusal. Changing one under stock is refused (D-MST-7).
+#: A product's own pack size holds from before any document that can name
+#: it: an opening bill is dated before the day the product was typed in, and
+#: a rule starting "today" would refuse its line.
+_PACK_SIZE_SINCE = date(2000, 1, 1)
 _STOCK_SHAPE_FIELDS = {
     "base_uom_id": "base unit",
     "inventory_uom_id": "inventory unit",
@@ -362,6 +369,14 @@ class ProductService:
                 firm_id, goods_type_id, sent=data.model_fields_set, values=values
             )
         )
+        # The unit set is copied, never linked: its units land on the product
+        # and its factor becomes the product's own rule below, so a set
+        # edited later changes nothing here (backlog 89).
+        units, set_factor = UnitSetService(self._session).starting_units(
+            firm_id, data.unit_set_id, sent=data.model_fields_set
+        )
+        values.update(units)
+        pack = self._own_conversion(data, values, set_factor=set_factor)
         product = Product(
             **values,
             goods_type_id=goods_type_id,
@@ -374,6 +389,12 @@ class ProductService:
         ]
         self._session.add(product)
         self._session.flush()
+        if pack is not None:
+            UomService(self._session).stage_conversion_rule(
+                pack.model_copy(update={"product_id": product.id}),
+                firm_scope=firm_id,
+                actor_id=actor_id,
+            )
         self._store_attributes(
             product, data.attributes, category=category, actor_id=actor_id
         )
@@ -882,6 +903,7 @@ class ProductService:
             goods_type_id=goods_types.type_for_category(
                 firm_scope, self._stored_category(firm_scope, category_id)
             ),
+            unit_sets=UnitSetService(self._session).product_options(firm_scope),
         )
 
     def create_category(
@@ -1702,6 +1724,46 @@ class ProductService:
             )
 
     @staticmethod
+    def _own_conversion(
+        data: ProductCreate, values: dict[str, object], *, set_factor: Decimal | None
+    ) -> ConversionRuleCreate | None:
+        """Return the product's own purchase-to-stock rule, still unowned.
+
+        The factor the caller named, else the unit set's. A set's factor is
+        dropped quietly where the units as saved no longer need one -- the
+        person changed them after applying the set -- while a factor typed
+        between no two units is a mistake and is refused.
+
+        Raises:
+            ValidationError: If a factor was named and the product has no
+                purchase unit differing from its stock unit.
+
+        """
+        named = "unit_conversion_factor" in data.model_fields_set
+        factor = data.unit_conversion_factor if named else set_factor
+        if factor is None:
+            return None
+        stock = values.get("inventory_uom_id") or values.get("base_uom_id")
+        purchase = values.get("purchase_uom_id")
+        if not isinstance(stock, UUID) or not isinstance(purchase, UUID):
+            stock = purchase = None
+        if stock is None or purchase is None or stock == purchase:
+            if named:
+                raise ValidationError(
+                    "A conversion factor needs a purchase unit that differs "
+                    "from the stock unit. Choose the two units, or leave the "
+                    "factor blank."
+                )
+            return None
+        return ConversionRuleCreate(
+            from_uom_id=purchase,
+            to_uom_id=stock,
+            conversion_factor=factor,
+            effective_from=_PACK_SIZE_SINCE,
+            reason="Set when the product was created.",
+        )
+
+    @staticmethod
     def _product_values(
         data: ProductCreate | ProductUpdate, *, partial: bool = False
     ) -> dict[str, object]:
@@ -1712,7 +1774,9 @@ class ProductService:
         value to store.
         """
         payload = data.model_dump(
-            exclude={"attributes", "media"}, mode="python", exclude_unset=partial
+            exclude={"attributes", "media", "unit_conversion_factor"},
+            mode="python",
+            exclude_unset=partial,
         )
         payload["product_type"] = data.product_type.value
         if "status" in payload:

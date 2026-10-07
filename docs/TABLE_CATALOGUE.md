@@ -674,14 +674,14 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `business_profile_uom_defaults` | firm store ¹ | Default UOM behavior by business profile (and optional firm override). | `firms`, `business_profiles`, `uoms` |
 | `packaging_types` | firm store ¹ | Define one packaging type token (box/carton/pallet/etc.). |  |
 | `product_packaging_levels` | firm store ¹ | Store unlimited product packaging hierarchy levels. | `firms`, `products`, `packaging_types`, `uoms` |
+| `unit_set_goods_types` | firm store ¹ | Order a unit set among the sets offered for one goods type (a set tied to none is offered to every product). | `unit_sets`, `goods_types` |
+| `unit_sets` | firm store ¹ | A named template of a product's seven unit slots and conversion factor; no `firm_id` is the shared catalogue, read-only to firms. | `firms`, `uoms` |
 | `uom_attribute_values` | firm store ¹ | Store one configurable attribute value for a unit of measure. | `uoms`, `firms`, `attribute_definitions` |
 | `uom_conversion_rules` | firm store ¹ | Versioned UOM conversion rule with historical effectivity. | `firms`, `business_profiles`, `products`, `uoms` |
 | `uom_group_units` | firm store ¹ | Map UOMs into UOM groups with base-unit selection. | `uom_groups`, `uoms` |
 | `uom_groups` | firm store ¹ | Group related UOMs for conversions and product assignment. |  |
-| `uom_industry_templates` | firm store ¹ | Store reusable industry UOM/packaging templates. |  |
 | `uoms` | firm store ¹ | Define one reusable unit of measure. |  |
 
 ### `app/vendors`

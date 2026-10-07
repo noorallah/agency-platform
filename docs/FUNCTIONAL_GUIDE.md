@@ -387,7 +387,7 @@ An older path in this guide translates as:
 | Administration › Users, Roles & Permissions, User Templates, User-Firm Assignments | Settings › Platform › People › Users, Roles, Permissions, User Templates, User-Firm Assignments |
 | Administration › Firms, Masters › Firms | Settings › Platform › Firms › Firms |
 | Administration › Business Profiles | Settings › Platform › Firms › Business Profiles |
-| Administration › Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates | Settings › Business profile › the same names |
+| Administration › Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Unit Sets | Settings › Business profile › the same names |
 | Settings › Audit Log(s), Diagnostics; Administration › Licensing | Settings › Platform › System › Audit Logs, Diagnostics, Licensing |
 | Masters › Firm Settings, Financial Years; Settings › Numbering Series | Settings › Firm › Firm Settings, Financial Years, Numbering Series |
 | Tax configuration, rules, simulator, log, settings | Settings › Tax › the same names |
@@ -862,7 +862,7 @@ Under **Settings** (the gear), each needing `PLATFORM_VIEW`:
 | Define custom fields | **Business profile › Attribute Definitions** |
 | Make a field mandatory for a category | **Business profile › Mandatory Attributes** |
 | Point a firm at an industry | **Business profile › Profile Assignment** (`FIRM_VIEW` + `PLATFORM_VIEW`) |
-| The industry templates | **Business profile › Industry Templates** |
+| Unit sets (a named bundle of a product's units) | **Settings › Set up › Item lists › Unit Sets** |
 
 ## What each profile enables today
 
@@ -912,7 +912,6 @@ Every one is **firm-owned** — it exists once per store.
 | `firm_business_profiles` | **The assignment** — firm → industry | `is_active` |
 | `attribute_definitions` | Custom field definitions | `entity_type` (`PRODUCT`, `CUSTOMER`, `VENDOR`…), optional profile scope, data type |
 | `category_attribute_rules` | Which fields are mandatory | `business_profile_id` (**NULL = every profile**), `category_code`, `is_mandatory` |
-| `business_profile_uom_defaults` | Default units per industry | `firm_id` **NULL = the profile-wide default**; a firm's own row wins |
 | `<module>_attribute_values` | The values themselves | Typed columns — `value_text`, `value_number`, `value_date`, `value_boolean`, never JSON |
 
 **How a capability is resolved:** firm → its assignment → else the default
@@ -1563,6 +1562,13 @@ scanner reads.
 | `default_receiving_uom_id` | What a goods receipt defaults to |
 | `default_dispatch_uom_id` | What a delivery note defaults to |
 
+On a new product these can be filled in one step by choosing a **unit set** (for
+example "Strip, box of 10"): the set's units are copied onto the product and its
+factor becomes the product's own conversion rule. Changing or deleting the set
+later changes no product. With no set chosen nothing is pre-filled, and a set of
+another goods type can be picked through "Show all unit sets". Added on
+2026-10-08, not yet tested by hand.
+
 ## Configure first
 
 UOM groups and their units, then conversion rules. A product with no factor
@@ -1600,8 +1606,8 @@ one scan is**.
 ## Tables
 
 `uoms` · `uom_groups` · `uom_group_units` · `uom_conversion_rules` ·
-`packaging_types` · `product_packaging_levels` · `uom_industry_templates` ·
-`business_profile_uom_defaults` · `uom_attribute_values`
+`packaging_types` · `product_packaging_levels` · `unit_sets` ·
+`unit_set_goods_types` · `uom_attribute_values`
 
 ## Rules that bite
 
