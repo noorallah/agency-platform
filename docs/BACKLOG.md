@@ -6269,6 +6269,14 @@ So the first three rows are a starter kit, not a ceiling, and only the last two 
 
 Two cautions. **Remove only what this entry made dead**: a column that looks unused but belongs to another feature is reported, not dropped. **And a drop is the last thing in its step**, after the code that read it has merged and the stores are migrated, so no running backend reads a column that has gone (the order that bit on 2026-10-06 with `entered_quantity`).
 
+**Who checks it -- agreed with the owner 2026-10-07.** Three layers, so the build does not mark its own work:
+
+1. **Each step's PR shows its proof**: the commands from the table and what they returned. A step whose proof is missing is not merged.
+2. **The guards that already run with the tests** catch what comes back: the ORM against the deployed schema, a route with no caller, a screen nothing opens, a tab with no body, lint and types.
+3. **An independent pass in a session with the owner**, after the closing sweep and before the module rounds resume: every search in the table run again rather than read off the PRs, the deployed tables and columns compared with what this entry said to remove, a read of the changed areas for code that is still called but no longer does anything -- which no search can find -- and one short report: removed, found unused but left alone, still left behind.
+
+**And a guard so it stays clean** (owner 2026-10-07), added in the closing sweep: a unit test holding the list of names this entry removed -- the withdrawn feature codes, the dropped columns, the deleted functions and routes -- that fails the build when one of them appears again under `backend/app`, `backend/scripts` or `desktop/lib`. It reads the files as text and skips the migrations, which must go on naming what they dropped; the list sits in the test with one line each saying what replaced it. A clean-up nobody guards is undone by the first person who copies an old pattern from a migration or a doc.
+
 **To settle before building.**
 
 | # | Question | Leaning |
@@ -6313,4 +6321,4 @@ Not taken up: relabelling a heading by trade (Marg only), and a company-level sw
 
 Everything else waits for a customer to ask. **Do not chase breadth:** the product is strongest where it is particular about distribution -- the buying and selling chain, schemes, routes, expiry and licences -- and a feature added only because a larger tool has it costs upkeep without giving anybody a reason to buy.
 
-**Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs; (6) a closing sweep that answers every row of the clean-up table above and lists, in the PR, what was removed and what was found unused but left alone. Each step merges on its own and leaves the application working.
+**Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs; (6) a closing sweep that answers every row of the clean-up table above adds the guard test for the removed names, and lists, in the PR, what was removed and what was found unused but left alone; then the independent pass with the owner. Each step merges on its own and leaves the application working.
