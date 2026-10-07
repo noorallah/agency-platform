@@ -59,7 +59,7 @@
   "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "note: :: quantity-related text on screen after Save: Stock | Delivery Notes | New delivery note | New delivery note | Save delivery note | Line 1 delivers 99999 where SO-2026-2027-000107 has 1 left to deliver of the 1 ordered. Change the line to what is left. | Delivery date | Reserved",
+   "note: :: quantity-related text on screen after Save: Stock | Delivery Notes | New delivery note | New delivery note | Save delivery note | Line 1 delivers 99999 where SO-2026-2027-000218 has 1 left to deliver of the 2 ordered: DN-26-27-000138 delivers the rest. Change the line to what is left. | Delivery date | Reserved",
    "open=true, saved=0, said=\"Seventy nine lakh ninety nine thousand nine hundred twenty only | Value at the order's rates, before tax  79,99,920.00\""
   ],
   "pass": 1,
@@ -79,15 +79,14 @@
   "user": "tradeadmin"
  },
  "SC-DN-015": {
-  "fail": 1,
+  "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "note: :: server approved list has SO-2026-2027-000112; the box offers SO-2026-2027-000107  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000106  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000105  07-10-2026  Vijaya Stores t10069cwy first",
-   "an order approved after Delivery Notes was opened (SO-2026-2027-000112) is not in the order box (known SCRQ-27)",
-   "approved order offered=true, draft order offered=false; an order approved after the page opened offered=false"
+   "note: :: server approved list has SO-2026-2027-000219; the box offers SO-2026-2027-000219  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000218  07-10-2026  Vijaya Stores t10069cwy / SO-2026-2027-000217  07-10-2026  Vijaya Stores t10069cwy first",
+   "approved order offered=true, draft order offered=false; an order approved after the page opened offered=true"
   ],
   "pass": 1,
-  "result": "FAIL",
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
@@ -150,7 +149,7 @@
   "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "note status APPROVED; said \"SO-2026-2027-000113 is on hold and cannot be dispatched (\"dispatch test\"). Release it first.\""
+   "note status APPROVED; said \"SO-2026-2027-000220 is on hold and cannot be dispatched (\"dispatch test\"). Release it first.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -169,13 +168,13 @@
   "user": "tradeadmin"
  },
  "SC-DN-023": {
-  "fail": 1,
+  "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "Bad state: Cancel closed an editor holding a typed quantity without asking"
+   "editor closed=false, question=\"Close without saving? | What was changed in this document has not been saved and will be lost. | Keep editing | Discard and close\""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
@@ -194,7 +193,7 @@
   "fail": 0,
   "file": "sc_dn_test.dart",
   "notes": [
-   "Delivery Notes offered: false; menu areas sell, buy, stock, masters; list answers 403"
+   "Delivery Notes offered: true; menu areas sell, buy, stock, masters; list answers 200"
   ],
   "pass": 1,
   "result": "PASS",
