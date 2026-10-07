@@ -18,6 +18,8 @@ import 'package:agency_desktop/ui/sales/sales_order_editor_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/first_line.dart';
+
 ApplicableAttributesRecord _applicable(String entityType, {bool any = true}) =>
     ApplicableAttributesRecord.fromJson(<String, dynamic>{
       'entity_type': entityType,
@@ -209,6 +211,13 @@ Future<void> _openSalesOrder(WidgetTester tester, _SalesOrderApi api) async {
   await tester.pumpAndSettle();
   await tester.tap(find.textContaining('Anand Agencies').last);
   await tester.pumpAndSettle();
+  // A new order starts with an empty line (D-UI-22), and one is needed to
+  // save. It sits below the fold at this size.
+  await tester.ensureVisible(
+    find.byKey(const ValueKey<String>('sales-order-line-product-0')),
+  );
+  await tester.pumpAndSettle();
+  await fillFirstLine(tester, document: 'sales-order', product: 'Shampoo');
 }
 
 Future<void> _openPurchaseInvoice(
