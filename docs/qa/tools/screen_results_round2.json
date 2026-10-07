@@ -898,13 +898,13 @@
   "user": "qpmgr"
  },
  "SC-PB-031": {
-  "fail": 0,
+  "fail": 1,
   "file": "sc_pb_test.dart",
   "notes": [
-   "offered: false; list 403; payables offered: false"
+   "Purchase Invoices offered or not: contradicts the book (Payables offered to Accounts): offered: false; list 403; payables offered: false"
   ],
-  "pass": 1,
-  "result": "PASS",
+  "pass": 0,
+  "result": "FAIL",
   "skip": 0,
   "user": "qacct"
  },

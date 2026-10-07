@@ -91,7 +91,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | DN | Multi-user FAIL: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 5, Negative SKIP: 4, Positive PASS: 4, Role PASS: 3 |
 | GR | Multi-user PASS: 1, Multi-user SKIP: 2, Negative PASS: 8, Negative SKIP: 3, Positive PASS: 5, Positive SKIP: 6, Role PASS: 5 |
 | OF | Positive PASS: 2 |
-| PB | Multi-user PASS: 1, Multi-user SKIP: 2, Negative FAIL: 1, Negative PASS: 9, Negative SKIP: 4, Positive FAIL: 1, Positive PASS: 5, Positive SKIP: 7, Role PASS: 5 |
+| PB | Multi-user PASS: 1, Multi-user SKIP: 2, Negative FAIL: 1, Negative PASS: 9, Negative SKIP: 4, Positive FAIL: 1, Positive PASS: 5, Positive SKIP: 7, Role FAIL: 1, Role PASS: 4 |
 | PC | Positive PASS: 1 |
 | PL | Positive PASS: 2 |
 | PO | Multi-user FAIL: 1, Multi-user PASS: 2, Multi-user SKIP: 1, Negative FAIL: 3, Negative PASS: 5, Negative SKIP: 5, Positive FAIL: 1, Positive PASS: 10, Positive SKIP: 6, Role FAIL: 1, Role PASS: 4 |
@@ -190,7 +190,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-PB-028 | Negative | PASS | editor closed=false, asked=true | `sc_pb_test.dart` (tradeadmin) |
 | SC-PB-029 | Role | PASS | offered: true; list 200; {+ New: enabled, New: absent, Approve: absent, Edit: absent} | `sc_pb_test.dart` (qpexe) |
 | SC-PB-030 | Role | PASS | offered: true; Approve enabled; Pay now control shown=false | `sc_pb_test.dart` (qpmgr) |
-| SC-PB-031 | Role | PASS | offered: false; list 403; payables offered: false | `sc_pb_test.dart` (qacct) |
+| SC-PB-031 | Role | FAIL | Purchase Invoices offered or not: contradicts the book (Payables offered to Accounts): offered: false; list 403; payables offered: false | `sc_pb_test.dart` (qacct) |
 | SC-PB-032 | Role | PASS | offered: false; list 403 | `sc_pb_test.dart` (qstore) |
 | SC-PB-033 | Role | PASS | offered: true; {+ New: absent, New: absent, Edit: absent, Approve: absent, Cancel: absent, Close: absent} | `sc_pb_test.dart` (qro) |
 | SC-PB-034 | Multi-user | SKIP | covered by the PO and PY files | `sc_pb_test.dart` (tradeadmin) |
