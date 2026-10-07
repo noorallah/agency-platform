@@ -120,9 +120,29 @@ Future<Json> apiDraftReturn(Server server, Json invoice,
 
 /// Press the toolbar button [label] and, if it asks for a reason, give one and
 /// confirm. Returns every notice or dialog text seen over the next [seconds].
+/// Press [label] where it is a button on the page, or else in the "..." menu
+/// the toolbar keeps its less used commands behind.
+Future<void> tapButtonOrMenu(WidgetTester tester, String label) async {
+  final Finder direct = find.ancestor(
+      of: find.text(label),
+      matching: find.byWidgetPredicate((Widget w) => w is ButtonStyleButton));
+  if (direct.evaluate().isNotEmpty) {
+    await tapButton(tester, label);
+    return;
+  }
+  final Finder more = find.text('…');
+  if (more.evaluate().isNotEmpty) {
+    await tester.tap(more.first);
+    await pumpFor(tester, const Duration(milliseconds: 600));
+  }
+  await pumpUntil(tester, find.text(label), waitingFor: 'menu entry "$label"');
+  await tester.tap(find.text(label).last);
+  await pumpFor(tester, const Duration(milliseconds: 400));
+}
+
 Future<String> pressWithReason(WidgetTester tester, String label,
     {String reason = 'screen case', int seconds = 5}) async {
-  await tapButton(tester, label);
+  await tapButtonOrMenu(tester, label);
   await pumpFor(tester, const Duration(milliseconds: 900));
   final Finder dialog = find.byType(Dialog);
   final Set<String> seen = <String>{};

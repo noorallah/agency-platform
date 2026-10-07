@@ -306,6 +306,18 @@
   "skip": 0,
   "user": ""
  },
+ "SC-PO-001": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Purchase Orders | Purchase Orders | All | 132 | Draft | 26 | Open | 51 | Cancelled | 3 | Closed | 3 | History | + filter | Views | All dates | \u2026 | + New | PO Number | Vendor | Branch | Warehouse | Buyer | Purchase Date | Expected Delivery | Purchase Type | Priority | Status | Grand Total | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Received | 708.00 | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Received | 708.00 | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Submitted | 708.00 | Head Office | Main Warehouse",
+   "Bad state: not on screen: Draft Orders, Open Orders, Orders Today, Pending Delivery, Purchase Value"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-PO-002": {
   "fail": 0,
   "file": "buying_flow_test.dart",
@@ -341,6 +353,383 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-PO-006": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no rate contract in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-007": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no supplier scheme in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-008": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no foreign currency supplier"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-009": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status APPROVED, amend editor open=true, screen says \"\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-010": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "asked \"\"; sent_at 2026-10-07T15:19:32.725787+05:30, status APPROVED, screen says \"PO-T10069CWY-S-HO-2026-2027-000127 marked as sent.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-011": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "editor open=true, records 0 more"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-012": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status CLOSED, screen says \"Close purchase order... | Purchase order closed. || Purchase order closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-013": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Cancel: status CANCELLED, says \"Cancel purchase order... | Purchase order cancelled. || Purchase order cancelled.\"; Restore on the Cancelled row is absent (it is for deleted orders)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-014": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Restore brings back a deleted order, not a Cancelled one; there is no way back from Cancelled on screen"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-015": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "grid tick boxes not reached (same as SC-SO-013)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-016": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "dialog open=true: Below reorder level | Suggested is up to the maximum level, less what is available and what is already on order; without a maximum, the shortfall to the reorder level. One draft order is raised per supplier per warehouse. | Planning basis -- Typed levels per product. | Nothing is at or below its reorder level. | Close | Raise requisition | Raise draft orders (0)"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-017": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "saved searches not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-018": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "note: :: newest order: PO-T10069CWY-S-HO-2026-2027-000133 vendor 4a737e55-f062-4871-b02a-089c7797c3a5 lines 1 status DRAFT",
+   "Save is refused: Bad state: N2: the editor closed; N3: 1 record(s) saved [open=false, saved=1, said=\"Purchase order created. | 1 selected\"]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-019": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Save is refused: Bad state: N2: the editor closed; N3: 1 record(s) saved [open=false, saved=1, said=\"Purchase order created. | 1 selected\"]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-020": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Bad state: N1: nothing on screen says why [open=true, saved=0, said=\"\"]",
+   "open=true, saved=0, said=\"The request validation failed. | lines 1, ordered_quantity: Input should be greater than or equal to 0\""
+  ],
+  "pass": 1,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-021": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Expected by is a date picker limited to future days; not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-022": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no inactive supplier in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-024": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Approve is absent on a Draft"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-025": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no budget set in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-026": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no approval limits set in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-027": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status RECEIVED, screen says \"Cancel purchase order | Reason | Optional remarks for the lifecycle action | Cancel | Confirm\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-028": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status RECEIVED, screen says \"Cancel purchase order | Reason | Optional remarks for the lifecycle action | Cancel | Confirm | Cancel purchase order...\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-029": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "note: :: after Edit: dialogs 1, save box 0, text \"Editing withdraws the approval | Cancel | Edit anyway\"; fresh: Editing withdraws the approval",
+   "warning shown=true; status after save DRAFT"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-030": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "no rate contract in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-031": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-032": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: enabled, New: absent, Submit: absent, Approve: absent, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-PO-033": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "offered: true; {Approve: enabled, Amend: absent, Close: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-PO-034": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Purchase Orders offered or not: Bad state: menu (false) and server (200) disagree"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-PO-035": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Purchase Orders offered: false; buy menu null; list answers 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-PO-036": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "offered: true; {+ New: disabled, New: absent, Submit: absent, Approve: absent, Edit: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-PO-037": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "covered by SC-PO-039/040 and the GR file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PO-038": {
+  "fail": 1,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "Bad state: HIGH: a save from a stale copy went through over the other user's submit (status SUBMITTED)"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-039": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"PO-T10069CWY-S-HO-2026-2027-000128 approved.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PO-040": {
+  "fail": 0,
+  "file": "sc_po_test.dart",
+  "notes": [
+   "row reads: PO-T10069CWY-S-HO-2026-2027-000130 | Principal supplier t10069cwy | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Approved | 708.00"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
  },
  "SC-PR-002": {
   "fail": 0,
