@@ -6233,7 +6233,7 @@ Not touched: the document modules (they already read the product's switches), ta
 | The default units (`business_profile_uom_defaults`) | Once, when the firm is created | Yes |
 | The extra fields switched on for customers, suppliers and documents | Once, when the firm is created | Yes |
 | Which modules and menus the firm has, including the ones only some trades have (kitchen and recipes, projects and contracts) | Every sign-in | By the platform administrator, through the profile |
-| The features about the **firm**, not a product: attachments, vehicle details, drug and FSSAI licences on parties, territories, multiple warehouses, approvals | On each write that uses one | By the platform administrator, through the profile |
+| The features about the **firm**, not a product, that are really enforced: attachments, vehicle details, drug and FSSAI licences on parties | On each write that uses one | By the platform administrator, through the profile |
 
 So the first three rows are a starter kit, not a ceiling, and only the last two go on governing a firm after its first day.
 
@@ -6241,7 +6241,7 @@ So the first three rows are a starter kit, not a ceiling, and only the last two 
 
 - Withdraw the product-behaviour features from `profile_features` and from the catalogue: batch, expiry, serial number, warranty, manufacturing date, shelf life. Barcode and QR code become plain product fields.
 - Drop `applicable_business_profile_id` from every attribute definition -- products, customers, suppliers and documents -- and `business_profile_id` from `category_attribute_rules`, once the rules are re-keyed by goods type and each firm's starting set is recorded.
-- Decide the three declared-but-ungated features (territory, approval workflow, multiple warehouses): gate them or stop listing them.
+- **Take territory, multiple warehouses and approval workflow off the profiles and out of the feature catalogue -- decided by the owner 2026-10-07.** All three are listed on some profiles and enforced nowhere, so every firm uses them already and the listing only claims a control that does not exist. Nothing a user sees changes: territories and routes, and a second warehouse, are ordinary parts of a distribution product that a firm simply uses or leaves empty; approvals are already the firm's own settings (the sales and purchase stages, approval levels, stock adjustment limits), which a profile flag could only contradict. Check before deleting that nothing reads the three codes -- `grep -rn "TERRITORY\|MULTIPLE_WAREHOUSES\|APPROVAL_WORKFLOW" app/ --include=*.py` -- and that the desktop does not hide a screen on them.
 - Remove the six features that have no code behind them (IMEI, kitchen, prescription, project, recipe, service contracts) unless one has been built by then.
 - Look at whether twelve profiles are still worth keeping once most differ only in their starting goods types; several may fold into one.
 
