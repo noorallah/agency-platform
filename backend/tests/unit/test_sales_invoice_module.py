@@ -361,7 +361,6 @@ def test_sales_invoice_router_enforces_seeded_sales_permissions() -> None:
     text = Path(source).read_text(encoding="utf-8")
     assert '"sales_invoice:' not in text
     for code in (
-        "SALES_VIEW",
         # A bill is raised under its own code (D-ROLE-2).
         "SALES_INVOICE_CREATE",
         "SALES_APPROVE",
@@ -371,6 +370,10 @@ def test_sales_invoice_router_enforces_seeded_sales_permissions() -> None:
     ):
         assert f'firm_permission_scope("{code}")' in text
         assert code in catalogue
+    # Reading takes `SALES_VIEW`, or the code of whoever records the money
+    # against the bill (D-UI-46).
+    assert 'firm_any_permission_scope("SALES_VIEW", "RECEIPT_VIEW")' in text
+    assert {"SALES_VIEW", "RECEIPT_VIEW"} <= catalogue
     # Editing takes `SALES_UPDATE`, or the create code for the caller's draft.
     assert 'firm_any_permission_scope("SALES_UPDATE", "SALES_INVOICE_CREATE")' in text
 
