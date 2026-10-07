@@ -143,6 +143,8 @@ class _SettlementApi extends ApiClient {
   /// What `/receipts/customer-credits` answers, what was applied, and a
   /// refusal to answer the apply with.
   List<CustomerCredit> customerCreditRows = const [];
+  int customerCreditReads = 0;
+  bool customerCreditReadFails = false;
   Json? appliedCustomerCredit;
   String? customerCreditRefusal;
 
@@ -166,8 +168,13 @@ class _SettlementApi extends ApiClient {
   }
 
   @override
-  Future<List<CustomerCredit>> customerCredits(String customerId) async =>
-      customerCreditRows;
+  Future<List<CustomerCredit>> customerCredits(String customerId) async {
+    customerCreditReads++;
+    if (customerCreditReadFails) {
+      throw ApiException('no access', statusCode: 403);
+    }
+    return customerCreditRows;
+  }
 
   @override
   Future<CustomerCredit> applyCustomerCredit({
@@ -1587,6 +1594,109 @@ void main() {
 
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('NEFT-9931'), findsOneWidget);
+    });
+  });
+
+  group('the money dialog and customer credit (D-PRC-75 follow-ups)', () {
+    CustomerCredit credit(String id, String number, String left) =>
+        CustomerCredit.fromJson({
+          'source_id': id,
+          'source_type': 'SALES_RETURN',
+          'source_number': number,
+          'source_date': '2026-10-06',
+          'credit_amount': left,
+          'applied_amount': '0.00',
+          'refunded_amount': '0.00',
+          'available_amount': left,
+          'held_amount': left,
+          'applied_to': <String>[],
+          'applications': <Json>[],
+        });
+
+    Future<void> open(
+      WidgetTester tester,
+      _SettlementApi api,
+      SettlementDirection direction,
+    ) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RecordSettlementDialog(
+              api: api,
+              direction: direction,
+              parties: const [
+                PartyOption(id: 'c-1', code: 'C1', name: 'Kumar Stores'),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _chooseParty(tester, 'Kumar Stores');
+    }
+
+    const Key notice = ValueKey('settlement-customer-credit-notice');
+
+    testWidgets('a receipt says the customer holds credit, read once',
+        (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()])
+        ..customerCreditRows = [credit('sr-1', 'SR-1', '826.00')];
+      await open(tester, api, SettlementDirection.receipt);
+      expect(find.byKey(notice), findsOneWidget);
+      expect(find.textContaining('holds 826.00 of credit'), findsOneWidget);
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '100');
+      await tester.pumpAndSettle();
+      expect(api.customerCreditReads, 1);
+    });
+
+    testWidgets('no line without credit, and a failed read does not block',
+        (tester) async {
+      final _SettlementApi none = _SettlementApi(rows: [_settlement()]);
+      await open(tester, none, SettlementDirection.receipt);
+      expect(find.byKey(notice), findsNothing);
+
+      final _SettlementApi failing = _SettlementApi(rows: [_settlement()])
+        ..customerCreditReadFails = true;
+      await open(tester, failing, SettlementDirection.receipt);
+      expect(find.byKey(notice), findsNothing);
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '100');
+      await tester.tap(find.widgetWithText(FilledButton, 'Record receipt'));
+      await tester.pumpAndSettle();
+      expect(failing.recorded?['amount'], '100');
+    });
+
+    testWidgets('a refund names the credit it pays back', (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()])
+        ..customerCreditRows = [
+          credit('sr-1', 'SR-1', '826.00'),
+          credit('sr-2', 'SR-2', '100.00'),
+        ];
+      await open(tester, api, SettlementDirection.refund);
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '50');
+      await tester.tap(find.byKey(const ValueKey('settlement-credit-source')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Return SR-2').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Record refund'));
+      await tester.pumpAndSettle();
+      expect(api.recorded?['credit_source_id'], 'sr-2');
+    });
+
+    testWidgets('a refund that names none sends no credit_source_id',
+        (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()])
+        ..customerCreditRows = [credit('sr-1', 'SR-1', '826.00')];
+      await open(tester, api, SettlementDirection.refund);
+      expect(find.byKey(const ValueKey('settlement-credit-source')),
+          findsOneWidget);
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '50');
+      await tester.tap(find.widgetWithText(FilledButton, 'Record refund'));
+      await tester.pumpAndSettle();
+      expect(api.recorded, isNotNull);
+      expect(api.recorded!.containsKey('credit_source_id'), isFalse);
     });
   });
 }

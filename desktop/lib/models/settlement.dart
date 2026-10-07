@@ -428,6 +428,8 @@ class CustomerCredit {
 
   bool get isCreditNote => sourceType == 'CREDIT_NOTE';
 
+  double get availableValue => double.tryParse(availableAmount) ?? 0;
+
   /// "Return SR-1" or "Credit note CN-1", so the two kinds can be told apart.
   String get label =>
       '${isCreditNote ? 'Credit note' : 'Return'} $sourceNumber';
