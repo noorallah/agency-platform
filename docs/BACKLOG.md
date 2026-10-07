@@ -6210,6 +6210,14 @@ Performance did not decide it; the differences are small. Maintenance did: most 
 
 Adding a firm's own field exists already (MST-8); switching a shared field off for one firm is the part to build.
 
+**A field required for one kind of customer or supplier -- decided by the owner 2026-10-07.** A product's rule can name its category, and under this entry its goods type. A customer or a supplier has no such rule: `CustomerService` and `VendorService` pass no type to `AttributeService`, so a field is required for every customer or for none, and *Contractor registration number, required for contractors only* cannot be said. The same rule table and the same check are given the party's type:
+
+1. A rule names a kind of customer (a customer group) or a kind of supplier (a supplier type) and the fields required for it.
+2. A field tied to a kind is shown only on parties of that kind, as a product's is by goods type.
+3. The firm's administrator keeps the rules, beside the firm's custom fields.
+
+Which list a rule keys on is chosen at build time: customers have groups and a trade class, suppliers have types and categories, and it was not checked on 2026-10-07 which carries the meaning best. Moving a party to another kind follows the rule for a category's type: nothing already stored is removed, and the new kind's required fields are asked for at the next save. **Drug and FSSAI licences are not custom fields** and stay on their own screens with the licence check (§54); this is for everything else a firm wants to insist on.
+
 **What it touches** (counted on 2026-10-07; re-count before building).
 
 | Area | Change | Size |
@@ -6219,6 +6227,7 @@ Adding a firm's own field exists already (MST-8); switching a shared field off f
 | Batch and serial | Nine routes in `app/batch_serial/api/router.py` and five service checks ask the product instead of the firm's profile | M |
 | Extra fields on products | `AttributeService` and `category_attribute_rules` key on the goods type alone; the two administration screens follow | M |
 | Extra fields on customers, suppliers and documents | The profile filter comes out of the resolver; a per-firm on/off for a shared field, set from the profile when the firm is created; the firm's custom fields screen gains the switch | M |
+| Fields required by kind of customer or supplier | The party's kind passed to `AttributeService` from the customer and supplier save; `category_attribute_rules` (or a sibling) able to name a customer group or a supplier type; the rule screen and the two party forms follow | S-M |
 | Desktop | The product form, a goods type picker on the category form, a Goods Types list under Set up, the menu filter | M |
 | Import | The category gives the type, so the switch columns become optional in `app/products/services/product_import.py` | S |
 | Tests and docs | The profile tests for batch, expiry and fields rewritten; `docs/BUSINESS_PROFILE_FRAMEWORK.md` and `docs/CUSTOM_FIELDS_FRAMEWORK.md` brought up to date | M |
@@ -6253,5 +6262,6 @@ So the first three rows are a starter kit, not a ceiling, and only the last two 
 | 2 | Are goods types kept per firm or shared across a store | **Settled 2026-10-07:** a shared catalogue plus the firm's own, as custom fields are. (This row first said attribute definitions carry no firm; that was read from an older reference doc and is no longer so) |
 | 3 | Two checks in the customer service use the firm's expiry feature for a customer field | Read what they guard first, then keep on the firm or drop |
 | 4 | Some batch routes write a batch before a product is plainly in hand | Check each route names its product before moving the check |
+| 5 | Which list a party's required-field rule keys on: customer group or trade class; supplier type or category | Read how each is used first; one per side, not both |
 
 **Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs. Each step merges on its own and leaves the application working.
