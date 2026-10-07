@@ -105,7 +105,8 @@ _DOCUMENTS: tuple[tuple[str, str, frozenset[str], tuple[str, ...]], ...] = (
     (
         "delivery note",
         "POST /api/v1/delivery-notes",
-        frozenset({"SALES_CREATE"}),
+        # D-UI-30: the note has its own create code, which Warehouse holds.
+        frozenset({"SALES_CREATE", "DELIVERY_NOTE_CREATE"}),
         ("warehouses", "products", "tax profiles", "units"),
     ),
     (

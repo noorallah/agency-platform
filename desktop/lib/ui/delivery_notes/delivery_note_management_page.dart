@@ -148,7 +148,25 @@ class _DeliveryNoteManagementPageState
   // Unknown until the call returns, and unknown means every field is offered.
   BusinessFeatures _features = const BusinessFeatures.unknown();
 
-  bool get _canCreate => widget.permissions.hasPermission('SALES_CREATE');
+  /// A delivery note has its own codes beside the sales ones (D-UI-30): the
+  /// warehouse picks, packs and dispatches without holding `SALES_VIEW`.
+  /// Each action takes the sales code it always took **or** the note's own,
+  /// as the server's routes do.
+  bool _holdsAny(List<String> codes) =>
+      widget.permissions.hasAnyPermission(codes);
+
+  bool get _canView => _holdsAny(const ['SALES_VIEW', 'DELIVERY_NOTE_VIEW']);
+
+  bool get _canCreate =>
+      _holdsAny(const ['SALES_CREATE', 'DELIVERY_NOTE_CREATE']);
+
+  /// Proof of delivery and the signed challan: whoever raises a note keeps
+  /// it right.
+  bool get _canUpdate =>
+      _holdsAny(const ['SALES_UPDATE', 'DELIVERY_NOTE_CREATE']);
+
+  bool get _mayCancel =>
+      _holdsAny(const ['SALES_CANCEL', 'DELIVERY_NOTE_DISPATCH']);
 
   /// The lists the view dialog resolves a line's ids against. Read on their
   /// own, after the workspace's own data, so a failure here costs a name and
@@ -201,10 +219,12 @@ class _DeliveryNoteManagementPageState
   /// Whether the signed-in user may run this lifecycle action.
   ///
   /// The backend gates approve, close, complete and dispatch on
-  /// SALES_APPROVE and cancel on SALES_CANCEL. The toolbar used to enable
+  /// SALES_APPROVE and cancel on SALES_CANCEL -- or, for either, on
+  /// DELIVERY_NOTE_DISPATCH (D-UI-30). The toolbar used to enable
   /// every action for anyone holding SALES_VIEW, so a read-only user was
   /// offered buttons the server would refuse.
-  bool _mayApprove() => widget.permissions.hasPermission('SALES_APPROVE');
+  bool _mayApprove() =>
+      _holdsAny(const ['SALES_APPROVE', 'DELIVERY_NOTE_DISPATCH']);
 
   /// Load what the editor needs that does not change under it: the bays
   /// goods leave from, product names and the firm's features.
@@ -313,8 +333,7 @@ class _DeliveryNoteManagementPageState
     // Read before any await: whether to pick the first row (phase 1 only).
     final bool pickFirst =
         context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
-    if (!widget.hasActiveFirm ||
-        !widget.permissions.hasPermission('SALES_VIEW')) {
+    if (!widget.hasActiveFirm || !_canView) {
       return;
     }
     setState(() {
@@ -515,10 +534,9 @@ class _DeliveryNoteManagementPageState
           id: 'cancel',
           label: 'Cancel selected',
           icon: Icons.cancel_outlined,
-          onPressed:
-              _loading || !widget.permissions.hasPermission('SALES_CANCEL')
-                  ? null
-                  : () => unawaited(_bulkCancel()),
+          onPressed: _loading || !_mayCancel
+              ? null
+              : () => unawaited(_bulkCancel()),
         ),
       ];
 
@@ -714,7 +732,7 @@ class _DeliveryNoteManagementPageState
                               kind: AttachableDocument.deliveryNote,
                               documentId: _selected!.id,
                               subtitle: _selected!.deliveryNoteNumber,
-                              canEdit: widget.permissions.hasPermission('SALES_UPDATE'),
+                              canEdit: _canUpdate,
                             ),
                           ),
                 ),
@@ -810,7 +828,7 @@ class _DeliveryNoteManagementPageState
       note != null &&
       (note.status.toUpperCase() == 'DISPATCHED' ||
           note.status.toUpperCase() == 'COMPLETED') &&
-      widget.permissions.hasPermission('SALES_UPDATE');
+      _canUpdate;
 
   /// Ask when, and by whom, the goods were received, and record it. The
   /// dialog makes the call, so a refusal leaves it open.
@@ -873,7 +891,8 @@ class _DeliveryNoteManagementPageState
   /// disagree about one note.
   ///
   /// The server gates approve, dispatch, complete and close on
-  /// `SALES_APPROVE` and cancel on `SALES_CANCEL`; the status gate is
+  /// `SALES_APPROVE` and cancel on `SALES_CANCEL`, or any of them on
+  /// `DELIVERY_NOTE_DISPATCH` (D-UI-30); the status gate is
   /// [DocumentStatusGate.deliveryNote]. Dispatch and Complete used to ask no
   /// code at all here and were refused after the press.
   late final List<DocumentStep<_DeliveryNoteRecord>> _steps = [
@@ -898,7 +917,7 @@ class _DeliveryNoteManagementPageState
     _lifecycleStep(
       DocumentToolbarAction.cancel,
       DocumentLifecycleAction.cancel,
-      permitted: widget.permissions.hasPermission('SALES_CANCEL'),
+      permitted: _mayCancel,
     ),
     _lifecycleStep(
       DocumentToolbarAction.close,
@@ -1069,6 +1088,8 @@ class _DeliveryNoteManagementPageState
   /// Dispatching and invoicing in one step takes both permissions: it
   /// approves the dispatch and creates the invoice -- under
   /// `SALES_INVOICE_CREATE`, the code a bill is raised under (D-ROLE-2).
+  /// `DELIVERY_NOTE_DISPATCH` does not stand in for `SALES_APPROVE` here:
+  /// the step approves a bill, which letting goods out does not confer.
   bool _mayDispatchAndInvoice() =>
       widget.permissions.hasPermission('SALES_APPROVE') &&
       widget.permissions.hasPermission('SALES_INVOICE_CREATE');

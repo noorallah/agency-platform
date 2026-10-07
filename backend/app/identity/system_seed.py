@@ -168,6 +168,17 @@ PERMISSION_GROUPS = {
         "SALES_UPDATE",
         "SALES_IMPORT",
         "SALES_EXPORT",
+        # Delivery notes on their own codes (D-UI-30): picking, packing and
+        # dispatching are the warehouse's work, and the sales codes above would
+        # hand it the orders, quotations and bills with them. Reading the
+        # notes, the pick list and the approved orders a note is raised from;
+        # raising and editing a draft note; and approving, dispatching,
+        # completing, closing and cancelling one. Every note route takes
+        # either the sales code it always took or one of these -- the split
+        # ERPNext draws with Stock User and Tally with the godown keeper.
+        "DELIVERY_NOTE_VIEW",
+        "DELIVERY_NOTE_CREATE",
+        "DELIVERY_NOTE_DISPATCH",
         # Which of quotation, sales order and delivery note this firm raises by
         # hand. Subtracted from `SALES_MANAGER` below, beside the credit block
         # and for the same reason.
@@ -748,6 +759,9 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "SALES_ORDER_CREATE",
             "SALES_INVOICE_CREATE",
             "SALES_VIEW",
+            # Held by every role that holds `SALES_VIEW`, which already reads
+            # the notes (D-UI-30).
+            "DELIVERY_NOTE_VIEW",
             # Sees why a line needing a licence is flagged on a customer.
             "TRADE_LICENCE_VIEW",
             # D-ROLE-1: a quotation and an order are typed from the product
@@ -820,6 +834,16 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "PURCHASE_RECEIVE",
             "TAX_VIEW",
             "UOM_VIEW",
+            # D-UI-30: and it "picks and dispatches", so it reads the delivery
+            # notes and the approved orders they are raised from, raises and
+            # edits a draft note, and approves, dispatches and cancels one --
+            # under the note's own codes, not `SALES_VIEW`/`SALES_APPROVE`, so
+            # sales orders, quotations and bills stay out of its reach. It
+            # holds no `SALES_INVOICE_CREATE`: plain Dispatch, never Dispatch
+            # and invoice.
+            "DELIVERY_NOTE_VIEW",
+            "DELIVERY_NOTE_CREATE",
+            "DELIVERY_NOTE_DISPATCH",
             # D-ROLE-1: an adjustment, a transfer, a count, a repack and a
             # requisition are typed from `/products`, `/branches` and
             # `/warehouses`; a requisition loads `/vendors` with them, and
@@ -843,6 +867,8 @@ _SEEDED_ROLE_PERMISSION_CODES = {
         {
             "SALES_INVOICE_CREATE",
             "SALES_VIEW",
+            # As `SALES_EXECUTIVE`: beside the `SALES_VIEW` that reads them.
+            "DELIVERY_NOTE_VIEW",
             "DOCUMENT_SEND",
             # D-ROLE-1: the invoice editor reads `/customers` and `/products`.
             "CUSTOMER_VIEW",

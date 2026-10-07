@@ -95,10 +95,25 @@ class ActionReasonRequest(BaseModel):
 
 
 SalesOrderViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_VIEW")]
+#: The order list, one order and the firm's sales stages are also read by
+#: whoever delivers against orders (D-UI-30): Warehouse raises delivery notes
+#: under `DELIVERY_NOTE_VIEW`/`DELIVERY_NOTE_CREATE` and is not given
+#: `SALES_VIEW`, which would open the quotations, bills and returns to it --
+#: as `PURCHASE_RECEIVE` reads the purchase orders it receives against.
+SalesOrderDeliverScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "DELIVERY_NOTE_VIEW")
+]
 #: A report opens to whoever may read the module or holds `REPORT_VIEW`
 #: (D-RPT-4).
 SalesOrderReportScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
+]
+#: The pending-orders report is what Home's "Orders to deliver" counts, so
+#: whoever delivers against orders may read it (D-UI-30) -- this report only,
+#: as `PURCHASE_RECEIVE` reads the pending purchase orders and no other.
+SalesOrderPendingReportScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW", "DELIVERY_NOTE_VIEW"),
 ]
 #: An order is written under its own code, as a quotation is under
 #: `SALES_QUOTATION_CREATE`. `SALES_EXECUTIVE` held `SALES_ORDER_CREATE` from the
@@ -164,7 +179,7 @@ def _filters(
 
 @router.get("", response_model=PaginatedResponse[SalesOrderResponse])
 def list_sales_orders(
-    scope: SalesOrderViewScope,
+    scope: SalesOrderDeliverScope,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
@@ -287,7 +302,7 @@ def export_sales_orders(
     response_model=ApiResponse[SalesWorkflowSettingsResponse],
 )
 def get_sales_workflow_settings(
-    scope: SalesOrderViewScope,
+    scope: SalesOrderDeliverScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesWorkflowSettingsResponse]:
     """Report which sales stages this firm fills in by hand."""
@@ -644,7 +659,7 @@ def print_sales_order(
 @router.get("/{order_id}", response_model=ApiResponse[SalesOrderResponse])
 def get_sales_order(
     order_id: UUID,
-    scope: SalesOrderViewScope,
+    scope: SalesOrderDeliverScope,
     response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
@@ -695,7 +710,7 @@ def sales_order_register(
     "/reports/pending", response_model=ApiResponse[list[SalesOrderPendingRecord]]
 )
 def pending_sales_orders(
-    scope: SalesOrderReportScope,
+    scope: SalesOrderPendingReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderPendingRecord]]:
     """List orders still open: draft or approved, not yet closed."""

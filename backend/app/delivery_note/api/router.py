@@ -102,25 +102,44 @@ BatchReason = Annotated[
 ]
 
 
+#: A delivery note has its own codes beside the sales ones (D-UI-30): the
+#: warehouse picks, packs and dispatches without `SALES_VIEW`, which would
+#: open the orders, quotations and bills to it. Each scope takes the sales
+#: code the route always took **or** the note's own, so nobody who could act
+#: before lost anything.
 DeliveryNoteViewScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_VIEW")
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "DELIVERY_NOTE_VIEW")
 ]
 #: A report opens to whoever may read the module or holds `REPORT_VIEW`
-#: (D-RPT-4).
+#: (D-RPT-4); the notes' own reports to whoever reads the notes.
 DeliveryNoteReportScope = Annotated[
-    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW", "DELIVERY_NOTE_VIEW"),
 ]
 DeliveryNoteCreateScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_CREATE")
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_CREATE", "DELIVERY_NOTE_CREATE"),
 ]
+#: Editing a draft, the proof of delivery, the signed challan and the
+#: transporter list: whoever raises a note keeps it right.
 DeliveryNoteUpdateScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_UPDATE")
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_UPDATE", "DELIVERY_NOTE_CREATE"),
 ]
+#: Approve, dispatch, complete and close.
 DeliveryNoteApproveScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_APPROVE", "DELIVERY_NOTE_DISPATCH"),
 ]
 DeliveryNoteCancelScope = Annotated[
-    ResolvedFirmScope, firm_permission_scope("SALES_CANCEL")
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_CANCEL", "DELIVERY_NOTE_DISPATCH"),
+]
+#: Dispatch and invoice approves a **bill** as well as the dispatch, so it
+#: stays on `SALES_APPROVE` alone: `DELIVERY_NOTE_DISPATCH` lets the goods out
+#: and approves no invoice (maker-checker on the bill, D-ROLE-2).
+DeliveryNoteDispatchAndInvoiceScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")
 ]
 DeliveryNoteExportScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_EXPORT")
@@ -528,7 +547,7 @@ def check_delivery_note_dispatch(
 )
 def dispatch_and_invoice_delivery_note(
     note_id: UUID,
-    scope: DeliveryNoteApproveScope,
+    scope: DeliveryNoteDispatchAndInvoiceScope,
     db: Session = Depends(get_db),
     batch_reason: BatchReason = None,
 ) -> ApiResponse[SalesInvoiceResponse]:
@@ -537,7 +556,8 @@ def dispatch_and_invoice_delivery_note(
     Backlog 77 row 2: the invoice exists when the goods leave (CGST s.31).
     Dispatching and approving a bill both take SALES_APPROVE; raising the bill
     takes SALES_INVOICE_CREATE as well, the code `POST /sales-invoices` asks
-    for (D-ROLE-2).
+    for (D-ROLE-2). DELIVERY_NOTE_DISPATCH does not open this: it lets goods
+    out and approves no bill (D-UI-30).
     """
     if not scope.principal.has_permission("SALES_INVOICE_CREATE"):
         raise AuthorizationError(
@@ -582,9 +602,10 @@ def record_delivery_proof(
 ) -> ApiResponse[DeliveryNoteResponse]:
     """Record that the customer received a dispatched note (backlog 67 row 6).
 
-    SALES_UPDATE, not SALES_APPROVE: a proof records a fact the paper
-    shows -- who signed for the goods, and when -- and the clerk who files
-    the signed challan is not the person who approves sales.
+    SALES_UPDATE or DELIVERY_NOTE_CREATE, not an approving code: a proof
+    records a fact the paper shows -- who signed for the goods, and when --
+    and the clerk who files the signed challan is not the person who approves
+    sales.
     """
     service = DeliveryNoteService(db)
     row = service.record_delivery_proof(
