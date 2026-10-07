@@ -311,7 +311,21 @@ void main() {
         await tapButton(tester, 'Approve');
         final String said = await watch(tester, seconds: 8);
         final String status = await statusOf('${draftBig['id']}');
-        log.saw = 'status after Approve: $status, screen says "$said"';
+        // The server's own report of what this order could not be given.
+        final List<dynamic> report = (await admin
+            .get('/api/v1/sales-orders/reports/back-orders')) as List<dynamic>;
+        final List<String> short = <String>[
+          for (final dynamic r in report)
+            if ('${(r as Json)['order_id']}' == '${draftBig['id']}')
+              '${r['back_order_quantity']} of ${r['requested_quantity']}',
+        ];
+        log.saw = 'status after Approve: $status, screen says "$said"; the '
+            'back-order report has ${report.length} rows, for this order: '
+            '$short (keys ${report.isEmpty ? '' : (report.first as Json).keys.take(12).join(',')})';
+        if (short.isEmpty) {
+          throw StateError('the order of 500 is not on the back-order report '
+              'at all, so the case has no shortage to speak of: ${log.saw}');
+        }
         if (!said.contains('back order')) {
           throw StateError('500 units against the stock on hand were '
               'approved and nothing named what stays on back order '

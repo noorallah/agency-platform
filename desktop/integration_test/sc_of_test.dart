@@ -385,6 +385,10 @@ void main() {
             'through the order screen; see the report notes)');
       }
     }
+    if (itHandle == 'tradeadmin') {
+      log.info('leftovers', 'offers of this run retired: '
+          '${await retireOffersOf(admin, stamp)}');
+    }
     log.finish();
   });
 }

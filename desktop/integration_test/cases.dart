@@ -18,6 +18,23 @@ const String fixturePassword = 'Fixture@2026pw';
 Future<Server> asUser(String handle) =>
     Server.connectAs('t10069cwy.$handle@fixtures.local', fixturePassword);
 
+/// Retire the offers a flow raised in this run: every promotion still in
+/// force (or in draft) whose code carries the run's own [stamp]. An offer left
+/// active discounts every later sale of the fixture firm, and they stack.
+Future<int> retireOffersOf(Server admin, String stamp) async {
+  final dynamic rows = await admin.get('/api/v1/promotions?page_size=100');
+  int retired = 0;
+  for (final dynamic row in rows as List<dynamic>) {
+    final Json offer = row as Json;
+    if (!'${offer['code']}'.endsWith(stamp)) continue;
+    if (offer['status'] != 'ACTIVE' && offer['status'] != 'DRAFT') continue;
+    final ({int status, String text}) r = await admin.attempt(
+        'DELETE', '/api/v1/promotions/${offer['id']}', null);
+    if (r.status < 400) retired++;
+  }
+  return retired;
+}
+
 /// Number of records a collection holds, as the server counts them.
 Future<int> totalOf(Server server, String collection) =>
     server.total('/api/v1/$collection');

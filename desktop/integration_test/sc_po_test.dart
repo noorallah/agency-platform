@@ -192,7 +192,13 @@ void main() {
         if (st == 'CANCELLED') {
           throw StateError('an order with goods received was cancelled');
         }
-        if (said.isEmpty) throw StateError('N1: refusal said nothing');
+        // The reason dialog's own labels are not a refusal: the sentence has
+        // to name what stands in the way.
+        if (!RegExp(r'received|receipt|cannot|GRN', caseSensitive: false)
+            .hasMatch(said)) {
+          throw StateError('N1: nothing says the goods received stand in '
+              'the way (said "$said")');
+        }
       });
 
       await log.step('SC-PO-028 Cancel with a bill raised on the order',
@@ -205,7 +211,12 @@ void main() {
         if (st == 'CANCELLED') {
           throw StateError('an order with a bill on it was cancelled');
         }
-        if (said.isEmpty) throw StateError('N1: refusal said nothing');
+        if (!RegExp(r'invoice|bill|received|receipt|cannot',
+                caseSensitive: false)
+            .hasMatch(said)) {
+          throw StateError('N1: nothing says the bill stands in the way '
+              '(said "$said")');
+        }
       });
 
       await log.step('SC-PO-029 editing an Approved order withdraws approval',

@@ -267,7 +267,7 @@ void main() {
           final String dlg = await settingsSave();
           log.saw = 'offered=$offered $s; $dlg (Adjust points needs '
               'LOYALTY_MANAGE_SETTINGS, which SM does not hold, so it is '
-              'greyed out; the book expects it offered)';
+              'greyed out, as the book says)';
           if (!offered) throw StateError('Loyalty not offered to SM');
           if (dlg.contains('Save enabled')) {
             throw StateError('SM can save the scheme');
