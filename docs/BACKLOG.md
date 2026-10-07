@@ -6210,9 +6210,27 @@ Performance did not decide it; the differences are small. Maintenance did: most 
 | Goods type | Categories | Many: Tablets and Syrups are Medicine, Emulsions and Enamels are Paint | Chosen once on the category |
 | Category | Products | Many | Chosen on the product, which takes and stores the category's type |
 
-Creating a product: (1) pick the category; (2) the form shows *Goods type: Medicine* read-only; (3) that type's tracking switches appear, already on; (4) its extra fields appear, the required ones marked; (5) HSN code, tax group and units are filled from the type and can be changed; (6) name, price, save. Picking *Emulsions* instead shows Paint's set: batch, the shade code, no expiry.
+Creating a product: (1) pick the category; (2) the form shows *Goods type: Medicine* read-only; (3) that type's tracking switches appear, already on; (4) its extra fields appear, the required ones marked; (5) HSN code and tax group are filled from the type and can be changed; (6) pick a unit set, which fills the units and the conversion, any of which can then be changed; (7) name, price, save. Picking *Emulsions* instead shows Paint's set: batch, the shade code, no expiry.
 
 **The goods type is not chosen on the product** (owner 2026-10-07). Letting it be picked there, with the category only suggesting it, was weighed and turned down: every product needs a category anyway, so the type costs the person nothing; a tablet cannot be saved as Paint by mistake; an import needs only the category column; and reports by goods type stay reliable. The one product that differs changes its switches under *Show all tracking options*, not its type.
+
+**Unit sets: a template for a product's units, independent of the goods type -- decided by the owner 2026-10-07.** Today a product's units are up to seven slots typed one by one, plus a conversion rule that, when forgotten, is found only when a document line is refused. A unit set is a named template that fills them in one choice:
+
+| Unit set | Stock unit | Purchase unit | Sales unit | Conversion |
+| --- | --- | --- | --- | --- |
+| Strip, box of 10 | Strip | Box | Strip | 1 Box = 10 Strips |
+| Strip, box of 15 | Strip | Box | Strip | 1 Box = 15 Strips |
+| Bottle, carton of 24 | Bottle | Carton | Bottle | 1 Carton = 24 Bottles |
+| Tin, loose | Tin | Tin | Tin | none |
+
+1. **A unit set is not tied to a goods type** (the owner's correction: the first draft gave each goods type a default unit set). Medicines alone come as strips of 10, strips of 15, bottles and tubes, so a type cannot say how its goods are packed. The product form offers every unit set of the firm, whatever the product's type, and a goods type carries no units at all.
+2. **It is applied as a copy, never a link.** Choosing a set writes its units onto the product and creates the product's own conversion rule. Changing a unit set later reaches only products created afterwards; a product with stock on the shelf never converts differently because a template was edited. The product keeps the name of the set it came from, for reference only.
+3. **The product form can override it.** After a set is applied every unit and the factor can be changed before saving, and afterwards as a product's units can be changed today.
+4. **What a set holds:** the base, stock, purchase and sales units, the smallest sales unit, the receiving and dispatch units, whether decimals are allowed, and the conversion factor between the purchase and stock units. **Not** prices (price lists and levels) and not barcodes (each product's own pack).
+5. **Kept like goods types:** a shared catalogue the platform keeps plus the firm's own, added by its administrator. A profile gives a new firm its starting unit sets.
+6. **Import:** one *unit set* column instead of the unit columns and a separate rule; a row may still give its own units.
+
+A product with no unit set chosen is typed by hand as today; nothing is pre-filled silently. `uom_industry_templates` already exists in `app/uom` and may be the home for this or may be dead: read it first, and either build on it or remove it under the clean-up rule below.
 
 **Extra fields on customers, suppliers and documents -- decided by the owner 2026-10-07.** A customer has no goods type, so point 1 does not reach these, and the same weakness applies: a firm on the pharmacy profile offers *Drug licence number* on its paint dealers too. The profile stops narrowing them as well:
 
@@ -6234,7 +6252,8 @@ Which list a rule keys on is chosen at build time: customers have groups and a t
 
 | Area | Change | Size |
 | --- | --- | --- |
-| Goods type | A table, a column on `product_categories` and on `products`, one migration, the seeds. The type also carries a default HSN code, tax group and units for a new product (market gap 1 below) | S |
+| Goods type | A table, a column on `product_categories` and on `products`, one migration, the seeds. The type also carries a default HSN code and tax group for a new product (market gap 1 below); it carries no units | S |
+| Unit sets | A table (or `uom_industry_templates` if it fits), the firm's-own and shared split, a picker on the product form that fills the unit slots and creates the product's conversion rule, a Unit Sets list under Set up, the import column. `business_profile_uom_defaults` becomes each profile's starting unit sets and the form's silent pre-fill from the profile goes | S-M |
 | Product save | The type fills the switches; the four profile checks in `ProductService` (barcode, QR code, warranty, shelf life) go or move to the product | S |
 | Batch and serial | Nine routes in `app/batch_serial/api/router.py` and five service checks ask the product instead of the firm's profile | M |
 | Extra fields on products | `AttributeService` and `category_attribute_rules` key on the goods type alone; the two administration screens follow | M |
@@ -6251,7 +6270,7 @@ Not touched: the document modules (they already read the product's switches), ta
 | Tied to the profile | When it acts | Can the firm change it afterwards |
 | --- | --- | --- |
 | The goods types a new firm starts with | Once, when the firm is created | Yes: add or drop a type |
-| The default units (`business_profile_uom_defaults`) | Once, when the firm is created | Yes |
+| The unit sets a new firm starts with (today `business_profile_uom_defaults`, which pre-fills every new product's units) | Once, when the firm is created | Yes: add, change or drop a unit set |
 | The extra fields switched on for customers, suppliers and documents | Once, when the firm is created | Yes |
 | Which modules and menus the firm has, including the ones only some trades have (kitchen and recipes, projects and contracts) | Every sign-in | By the platform administrator, through the profile |
 | The features about the **firm**, not a product, that are really enforced: attachments, vehicle details, drug and FSSAI licences on parties | On each write that uses one | By the platform administrator, through the profile |
@@ -6301,7 +6320,8 @@ Two cautions. **Remove only what this entry made dead**: a column that looks unu
 
 **Test cases this entry needs**, each written so it runs alone on its own data (the standing rule), with the refusals as well as the passes and more than one role on the same firm:
 
-1. **Goods type:** add one; a category takes it; a new product in that category starts with the type's switches, HSN, tax group and units; a product with no category is General.
+1. **Goods type:** add one; a category takes it; a new product in that category starts with the type's switches, HSN and tax group; a product with no category is General.
+11. **Unit sets:** add one; a product takes it and gets its units and its own conversion rule; the units changed on the form before saving; the set edited afterwards and the earlier product unchanged; two medicines in one category on different unit sets; a product saved with no unit set.
 2. **One firm, three lines:** a medicine, a food item and a paint in one firm, each bought and sold: the medicine refused without a batch and expiry, the paint accepted without an expiry, the food item's expiry filled from its shelf life.
 3. **Override and its limit:** one product's switches changed away from its type; the same change refused once stock exists.
 4. **A category changes type:** existing products keep theirs, a new one takes the new type.
@@ -6341,7 +6361,7 @@ What it found that is not here:
 
 | # | Gap | Who has it | Today | Decision |
 | --- | --- | --- | --- | --- |
-| 1 | **The goods type or category also gives a new product its HSN code, tax group and units** | Tally (GST and HSN on the stock group), ERPNext (tax template and defaults on the item group) | A category carries expiry rules, inspection and a licence, but no tax or unit defaults; every product is typed in full | **Build inside this entry** (decided by Claude 2026-10-07): three defaults on the goods type, never overwriting a product that has its own. S. **For units, keep the rule the product already follows** (`docs/UOM_FRAMEWORK.md`, *How the defaults reach a product*): the create form is pre-filled, where the person sees and can change the units before saving, and the server stores what it is sent -- today from `business_profile_uom_defaults`, after this from the goods type, with the profile's defaults left as the fallback for a product with no type. An import is the one place the server fills them, for a row that leaves the unit columns blank. The four units given are base, stock, purchase and sales; conversion rules are not part of a goods type and stay per product or firm-wide |
+| 1 | **The goods type or category also gives a new product its HSN code and tax group** | Tally (GST and HSN on the stock group), ERPNext (tax template and defaults on the item group) | A category carries expiry rules, inspection and a licence, but no tax defaults; every product is typed in full | **Build inside this entry** (decided by Claude 2026-10-07): two defaults on the goods type, shown on the create form where the person can change them, never overwriting a product that has its own. S. **Units are not among them** (owner 2026-10-07): this row first gave the goods type the units too, and they went to *unit sets* above, which are independent of the type |
 | 2 | **One product in several sizes or shades** (a paint in 1 L, 4 L, 10 L and 20 L) from one template | ERPNext, Zoho (up to three attributes), Odoo | Each pack is its own product, as in Tally and Marg; that works, and the pack size can be an extra field | **Later** (owner 2026-10-07). M-L. Build when a firm asks, or will plainly keep hundreds of such families |
 | 3 | **More than one barcode on a product** (a new pack, a second supplier's code) | ERPNext (a barcode table), Marg (several barcodes, with different MRPs) | **Corrected 2026-10-07 -- this row first said "one `barcode` column on the product", which was wrong.** A product has its own barcode *and* one barcode, GTIN, EAN and UPC on each of its packaging levels (`product_packaging_levels`), and `GET /api/v1/uom-framework/barcode-lookup` resolves a code across all of them to the product and the number of base units one scan stands for (`docs/UOM_FRAMEWORK.md`, *Packaging levels*). What is missing is narrower: on the desktop only the Packaging Levels screen calls that lookup, so check whether the counter bill and the other scanning screens read a pack's code or only the product's own; and one pack cannot hold two codes (a second supplier's label on the same box) | **Build, second** (owner 2026-10-07), and smaller than first sized: S. First find what scanning reads today; then make every scanning screen use the one lookup, and allow a second code on a level only if a firm needs it |
 | 4 | **More that a custom field can say about itself:** shown in a list or as a filter, read-only or hidden by role, shown only when another field has a value | ERPNext (all of these), Zoho (role access, show in PDFs) | Type, required, allowed values, shown on prints | **Not now** (owner 2026-10-07). M. An administrator's comfort; nobody chooses a product for it |
@@ -6358,4 +6378,4 @@ Not taken up: relabelling a heading by trade (Marg only), and a company-level sw
 
 Everything else waits for a customer to ask. **Do not chase breadth:** the product is strongest where it is particular about distribution -- the buying and selling chain, schemes, routes, expiry and licences -- and a feature added only because a larger tool has it costs upkeep without giving anybody a reason to buy.
 
-**Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs; (6) a closing sweep that answers every row of the clean-up table above adds the guard test for the removed names, and lists, in the PR, what was removed and what was found unused but left alone; then the independent pass with the owner. Each step merges on its own and leaves the application working.
+**Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) unit sets and their picker on the product form; (4) batch and serial checks; (5) extra fields and compulsory rules; (6) menus, import, the profile clean-up and the docs; (7) a closing sweep that answers every row of the clean-up table above, adds the guard test for the removed names, and lists, in the PR, what was removed and what was found unused but left alone; then the independent pass with the owner. Each step merges on its own and leaves the application working.
