@@ -224,6 +224,47 @@ void main() {
       await expectAsks(tester, () => esc(tester));
     });
 
+    // On Windows a click outside a text box takes the focus off it, and it
+    // fell to the tab's own route -- above the editor's shortcuts, so Esc
+    // (and Ctrl+S) reached nothing. The default test platform never does
+    // that, which is how the test above passed while the screen did nothing.
+    testWidgets(
+        'Esc asks after a refused save has taken focus off the line',
+        variant: TargetPlatformVariant.only(TargetPlatform.windows),
+        (tester) async {
+      // SC-SO-029 as driven on screen: a customer, a product, quantity 0,
+      // Save (refused), then Esc.
+      await open(tester, editor);
+      await chooseCustomer(tester);
+      await tester
+          .tap(find.byKey(const ValueKey('sales-order-line-product-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Shampoo 180ml').last);
+      await tester.pumpAndSettle();
+      final Finder boxes = find.descendant(
+        of: find.byKey(const ValueKey<String>('sales-order-line-0')),
+        matching: find.byType(EditableText),
+      );
+      await tester.enterText(boxes.at(1), '0');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(tabs.documents, hasLength(1), reason: 'the save was refused');
+      await expectAsks(tester, () => esc(tester));
+    });
+
+    testWidgets(
+        'Esc closes at once when nothing was touched',
+        variant: TargetPlatformVariant.only(TargetPlatform.windows),
+        (tester) async {
+      await open(tester, editor);
+      await esc(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Close without saving?'), findsNothing);
+      expect(tabs.documents, isEmpty);
+    });
+
     testWidgets('Cancel closes at once when nothing was touched',
         (tester) async {
       await open(tester, editor);

@@ -109,7 +109,11 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
           _schedulePreview();
         },
       },
-      child: Focus(
+      // A scope, not a plain Focus: on Windows a click outside a text box
+      // unfocuses it, and the focus then falls to the nearest scope. That
+      // was the tab's route, above these shortcuts, so Esc and Ctrl+S did
+      // nothing after any click on the page (SC-SO-029).
+      child: FocusScope(
         autofocus: true,
         child: Material(
         color: scheme.surface,
