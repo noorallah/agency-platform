@@ -581,6 +581,18 @@
   "skip": 0,
   "user": ""
  },
+ "SC-PB-001": {
+  "fail": 1,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Goods Receipts | Purchase Invoices | Purchase Invoices | Total | 45 | Draft | 16 | Approved | 27 | Cancelled | 1 | Closed | 1 | All dates | + New | Invoice Number | Files | Supplier | Supplier Invoice | Invoice Date | Status | Grand Total | SUP-1791367369489744 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367367223083 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367363612204 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367361266674 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367359948833 | 2026-10-07 15:32 | Approved | 708.00 | SUP-1791367358655817 | 2026-10-07 15:32 | Draft | 708.00 | SUP-1791367357700924 | 2026-10-07 15:32 | Draft | 708.00 | SUP-1791367356774468 | 2026-10-07 15:32 | Draft | 708.00 | SUP-1791367355449845",
+   "Bad state: not on screen: Due Date"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-PB-002": {
   "fail": 0,
   "file": "buying_flow_test.dart",
@@ -598,6 +610,358 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-PB-004": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status APPROVED; payments +1; screen says \"PI-T10069CWY-S-HO-2026-2027-000037 approved and posted to the books.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-005": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "the firm bills receipts only; a bill with no receipt cannot be started on screen"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-006": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no foreign-currency supplier in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-007": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no TDS section set up in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-008": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "TCS boxes not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-009": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "file picker not drivable"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-010": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status CLOSED, screen says \"PI-T10069CWY-S-HO-2026-2027-000044 closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-011": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"PI-T10069CWY-S-HO-2026-2027-000045 cancelled.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-012": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "Payables by Month report not reached"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-013": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "IRN dialog not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-014": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Choose the goods receipt being billed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-015": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Goods receipts to bill \u2014 Principal supplier t10069cwy | Goods receipt | Date | Order | Left to bill | GRN-T10069CWY-S-HO-2026-2027-000080 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000159 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000074 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000153 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000073 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000152 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000072 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000151 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000071 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000150 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000070 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000149 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000064 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000138 | 708.00 | GRN-T10069CWY-S-HO-2026-2027-000063 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000136 | 424.80 | GRN-T10069CWY-S-HO-2026-2027-000062 | 07-10-2026 | PO-T10069CWY-S-HO-2026-2027-000136 | 283.20 | Cancel | Bill 0 receipts\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-016": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Line 1: quantity exceeds what the receipt still has to be billed for (10). | More than received by\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-017": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "billed receipt GRN-T10069CWY-S-HO-2026-2027-000075 offered=false; unbilled GRN-T10069CWY-S-HO-2026-2027-000080 offered=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-018": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "Bill date is not a typed box"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-019": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no closed period in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-020": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no tolerance set in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-021": {
+  "fail": 1,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "Bad state: a duplicate number was accepted"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-022": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Approve PI-T10069CWY-S-HO-2026-2027-000038 | Bill PI-T10069CWY-S-HO-2026-2027-000038 owes 708.00, so 99999 cannot be paid against it now. Record an advance through Payments. | Approving posts the bill to the books. | Paid now | A cash purchase: record the payment in the same step. | Cash | Method | Cash | Mode | Amount | Blank pays the full bill. | Reference | Blank takes the bill date | Date paid | Cancel | Approve and pay | Bill PI-T10069CWY-S-HO-2026-2027-000038 owes 708.00, so 99999 cannot be paid against it now. Record an advance through Payments.\"; bill status DRAFT"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-024": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "Edit is absent on an Approved bill"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-025": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"PI-T10069CWY-S-HO-2026-2027-000042 cannot be cancelled while it has payment PY-2026-2027-000014. Reverse or cancel those first.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-026": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"PI-T10069CWY-S-HO-2026-2027-000043 cannot be cancelled while it has purchase return PR-T10069CWY-S-HO-2026-2027-000015. Reverse or cancel those first.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-027": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "no capital goods line in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-028": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-029": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: enabled, New: absent, Approve: absent, Edit: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-PB-030": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "offered: true; Approve enabled; Pay now control shown=false"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-PB-031": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "offered: false; list 403; payables offered: false"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qacct"
+ },
+ "SC-PB-032": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-PB-033": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "offered: true; {+ New: absent, New: absent, Edit: absent, Approve: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-PB-034": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "covered by the PO and PY files"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PB-035": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"Approve PI-T10069CWY-S-HO-2026-2027-000039 | Approving posts the bill to the books. | Paid now | A cash purchase: record the payment in the same step. | Cancel | Approve || Approve PI-T10069CWY-S-HO-2026-2027-000039 | Only draft purchase invoices can be approved. | Approving posts the bill to the books. | Paid now | A cash purchase: record the payment in the same step. | Cancel | Approve\" / \"Approve PI-T10069CWY-S-HO-2026-2027-000039 | Only draft purchase invoices can be approved. | Approving posts the bill to the books. | Paid now | A cash purchase: record the payment in the same step. | Cancel | Approve\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PB-036": {
+  "fail": 0,
+  "file": "sc_pb_test.dart",
+  "notes": [
+   "a Draft bill has no Edit on screen (Open, Approve, Cancel, Close, Record IRN only), so there is no second session to race"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
  },
  "SC-PC-005": {
   "fail": 0,

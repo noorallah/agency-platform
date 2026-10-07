@@ -31,12 +31,15 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SCRQ-36 | Low | SC-RC-001 | Sell > Receipts, grid | Columns are Number, Customer, Date, Method, Cleared, Status, Amount; "Cash or Bank", "On Account", "Other Deductions" are not on screen | the book's columns, or the book says they are hidden | receipts grid definition |
 | SCRQ-37 | Medium | SC-SR-009 | New sales return editor, Save with more than can come back | The server refuses ("Return quantity exceeds what left on DN-... (9 sent, 7 already returned ...)") but the editor has already closed: the sentence is shown and everything typed is lost | The editor stays open with the typing kept (N2) | `lib/ui/sales/` sales return editor save handler |
 | SCRQ-38 | Low | SC-SR-021, SC-PO-034 | Menu, Field Sales | Sales Returns is not offered, yet `GET /sales-returns` answers 200 for the role (it holds the view code); the screen hides what the role may read | the menu offers a screen the role can read, or the code is withheld | role seed for `SALES_EXECUTIVE` / catalog tab codes |
-| SCRQ-39 | Low | SC-SR-025 | Sales returns, a Draft return | A Draft return has no Edit button; a wrong quantity can only be fixed by Cancel and raising a new return (so the stale-save race the book describes cannot happen) | Edit on a Draft, as the book assumes, or the book drops SR-025 | `lib/ui/sales/sales_return_management_page.dart` toolbar |
+| SCRQ-39 | Low | SC-SR-025, SC-PB-036 | Sales returns, a Draft return; Purchase Invoices, a Draft bill | A Draft return (and a Draft supplier bill: Open, Approve, Cancel, Close, Record IRN only) has no Edit button; a wrong quantity can only be fixed by Cancel and raising a new return (so the stale-save race the book describes cannot happen) | Edit on a Draft, as the book assumes, or the book drops SR-025 | `lib/ui/sales/sales_return_management_page.dart` toolbar |
 | SCRQ-40 | Medium | SC-PO-018, SC-PO-019 | New purchase order editor | The editor opens with a supplier and one product line already chosen. Press Save with nothing touched: "Purchase order created." and a Draft order for a supplier and product nobody picked is saved. Same family as SCRQ-22 for sales | An empty new order that Save refuses, naming the supplier as missing (N2, N3) | `lib/ui/purchases/` purchase order editor (first vendor / first product taken as defaults) |
 | SCRQ-41 | Medium | SC-PO-020 | New purchase order, line quantity | Quantity 0: Save does nothing and says nothing (editor open, no message). Quantity -4: the message is the raw validation text "lines 1, ordered_quantity: Input should be greater than or equal to 0" | A sentence naming the quantity ("Enter a quantity above zero") for both | purchase order editor line validation |
 | SCRQ-42 | High | SC-PO-038 | Purchase order editor, Save from a stale copy | Draft order opened for Edit; another user submits it; the first user changes the quantity to 13 and presses Save: the save goes through, the editor closes, nothing is said. The book expects "This record changed since you loaded it. Reload and try again." with the typing kept | The stale save refused (the editor should echo the ETag it loaded, `If-Match`) | `lib/ui/purchases/purchase_management_page.dart` (update call sends no version) |
 | SCRQ-43 | Low | SC-PO-001, SC-PO-014 | Purchase Orders list; Cancelled order | Cards read All, Draft, Open, Cancelled, Closed (the book: Draft Orders, Open Orders, Orders Today, Pending Delivery, Purchase Value are not there). Restore is offered only for a deleted order; nothing brings a Cancelled order back | the book's cards, or the book corrected to what the screen offers | `purchase_management_page.dart` cards and toolbar |
 | SCRQ-44 | Low | SC-GR-020 | Goods receipts, a Draft receipt | Close is enabled on a Draft receipt; pressing it answers "Only completed goods receipts can be closed." (refused in words, nothing changed) | Close greyed out until the receipt is Completed | `lib/ui/purchases/` goods receipt toolbar enablement |
+| SCRQ-45 | Medium | SC-PB-021 | Purchase invoice, same supplier and same supplier bill number twice (HTTP, the screen's own call) | The second Draft bill with supplier invoice number SUP-... for the same supplier is accepted; two bills now carry one number | Refused as a duplicate, naming the number, so one supplier bill is not paid twice | purchase invoice create (backend `purchase_invoice` service) and editor |
+| SCRQ-46 | Medium | SC-PB-031 | Menu, Accounts role (qacct) | Purchase Invoices and Payables by Month are not offered to Accounts and the list answers 403; the book says Accounts is offered Payables and that PURCHASE_VIEW decides the list | Payables offered to Accounts, so the person who pays supplier bills can see them (or the book is corrected) | role seed for ACCOUNTANT / catalog |
+| SCRQ-47 | Low | SC-PB-001 | Buy > Purchase Invoices, grid | Columns are Invoice Number, Files, Supplier, Supplier Invoice, Invoice Date, Status, Grand Total; there is no Due Date and no Outstanding column | the book's columns (bill number, supplier, dates, status, total, outstanding) or the book corrected | purchase invoice grid definition |
 <!-- /HAND:FINDINGS -->
 
 ## Established behaviour (the book should say this)
@@ -88,7 +91,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | DN | Multi-user FAIL: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 5, Negative SKIP: 4, Positive PASS: 4, Role PASS: 3 |
 | GR | Multi-user PASS: 1, Multi-user SKIP: 2, Negative PASS: 8, Negative SKIP: 3, Positive PASS: 5, Positive SKIP: 6, Role PASS: 5 |
 | OF | Positive PASS: 2 |
-| PB | Positive PASS: 2 |
+| PB | Multi-user PASS: 1, Multi-user SKIP: 2, Negative FAIL: 1, Negative PASS: 9, Negative SKIP: 4, Positive FAIL: 1, Positive PASS: 5, Positive SKIP: 7, Role PASS: 5 |
 | PC | Positive PASS: 1 |
 | PL | Positive PASS: 2 |
 | PO | Multi-user FAIL: 1, Multi-user PASS: 2, Multi-user SKIP: 1, Negative FAIL: 3, Negative PASS: 5, Negative SKIP: 5, Positive FAIL: 1, Positive PASS: 10, Positive SKIP: 6, Role FAIL: 1, Role PASS: 4 |
@@ -158,8 +161,41 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-GR-030 | Multi-user | SKIP | a Completed receipt cannot be edited on screen | `sc_gr_test.dart` (tradeadmin) |
 | SC-OF-002 | Positive | PASS | - | `pricing_flow_test.dart` |
 | SC-OF-012 | Positive | PASS | - | `pricing_flow_test.dart` |
+| SC-PB-001 | Positive | FAIL | note: :: short texts: QA Agency / > / Selling t10069cwy / Home / Sell / Buy / Stock / Accounts / Masters / Reports / Search or jump to… / Ctrl+K / 1 / Selling t10069cwy / S( / Goods Receipts / Purchase Invoices / Purchase Invoices / Total / 45 / Draft / 16 / Approved / 27 / Cancelled / 1 / Closed / 1 / All dates / + New / Invoice Number / Files / Supplier / Supplier Invoice / Invoice Date / Status / Grand Total / SUP-1791367369489744 / 2026-10-07 15:32 / Approved / 708.00 / SUP-1791367367223083 / 2026-10-07 15:32 / Approved / 708.00 / SUP-1791367363612204 / 2026-10-07 15:32 / Approved / 708... | `sc_pb_test.dart` (tradeadmin) |
 | SC-PB-002 | Positive | PASS | - | `buying_flow_test.dart` |
 | SC-PB-003 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PB-004 | Positive | PASS | status APPROVED; payments +1; screen says "PI-T10069CWY-S-HO-2026-2027-000037 approved and posted to the books." | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-005 | Positive | SKIP | the firm bills receipts only; a bill with no receipt cannot be started on screen | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-006 | Positive | SKIP | no foreign-currency supplier in the fixture | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-007 | Positive | SKIP | no TDS section set up in the fixture | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-008 | Positive | SKIP | TCS boxes not driven | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-009 | Positive | SKIP | file picker not drivable | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-010 | Positive | PASS | status CLOSED, screen says "PI-T10069CWY-S-HO-2026-2027-000044 closed." | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-011 | Positive | PASS | status CANCELLED, screen says "PI-T10069CWY-S-HO-2026-2027-000045 cancelled." | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-012 | Positive | SKIP | Payables by Month report not reached | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-013 | Positive | SKIP | IRN dialog not driven | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-014 | Negative | PASS | open=true, saved=0, said="Choose the goods receipt being billed." | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-015 | Negative | PASS | open=true, saved=0, said="Goods receipts to bill — Principal supplier t10069cwy / Goods receipt / Date / Order / Left to bill / GRN-T10069CWY-S-HO-2026-2027-000080 / 07-10-2026 / PO-T10069CWY-S-HO-2026-2027-000159 / 708.00 / GRN-T10069CWY-S-HO-2026-2027-000074 / 07-10-2026 / PO-T10069CWY-S-HO-2026-2027-000153 / 708.00 / GRN-T10069CWY-S-HO-2026-2027-000073 / 07-10-2026 / PO-T10069CWY-S-HO-2026-2027-000152 / 708.00 / GRN-T10069CWY-S-HO-2026-2027-000072 / 07-10-2026 / PO-T10069CWY-S-HO-2026-2027-000151 / 708.00 / GRN-T10069CWY-S-HO-2026-2027-000071 / 07-10-2026 / PO-T10069CWY-S-HO-2026-2027-00... | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-016 | Negative | PASS | open=true, saved=0, said="Line 1: quantity exceeds what the receipt still has to be billed for (10). / More than received by" | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-017 | Negative | PASS | billed receipt GRN-T10069CWY-S-HO-2026-2027-000075 offered=false; unbilled GRN-T10069CWY-S-HO-2026-2027-000080 offered=true | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-018 | Negative | SKIP | Bill date is not a typed box | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-019 | Negative | SKIP | no closed period in the fixture firm | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-020 | Negative | SKIP | no tolerance set in the fixture firm | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-021 | Negative | FAIL | Bad state: a duplicate number was accepted | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-022 | Negative | PASS | open=true, saved=0, said="Approve PI-T10069CWY-S-HO-2026-2027-000038 / Bill PI-T10069CWY-S-HO-2026-2027-000038 owes 708.00, so 99999 cannot be paid against it now. Record an advance through Payments. / Approving posts the bill to the books. / Paid now / A cash purchase: record the payment in the same step. / Cash / Method / Cash / Mode / Amount / Blank pays the full bill. / Reference / Blank takes the bill date / Date paid / Cancel / Approve and pay / Bill PI-T10069CWY-S-HO-2026-2027-000038 owes 708.00, so 99999 cannot be paid against it now. Record an advance through Payments."; bill statu... | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-024 | Negative | PASS | Edit is absent on an Approved bill | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-025 | Negative | PASS | status APPROVED, screen says "PI-T10069CWY-S-HO-2026-2027-000042 cannot be cancelled while it has payment PY-2026-2027-000014. Reverse or cancel those first." | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-026 | Negative | PASS | status APPROVED, screen says "PI-T10069CWY-S-HO-2026-2027-000043 cannot be cancelled while it has purchase return PR-T10069CWY-S-HO-2026-2027-000015. Reverse or cancel those first." | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-027 | Negative | SKIP | no capital goods line in the fixture | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-028 | Negative | PASS | editor closed=false, asked=true | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-029 | Role | PASS | offered: true; list 200; {+ New: enabled, New: absent, Approve: absent, Edit: absent} | `sc_pb_test.dart` (qpexe) |
+| SC-PB-030 | Role | PASS | offered: true; Approve enabled; Pay now control shown=false | `sc_pb_test.dart` (qpmgr) |
+| SC-PB-031 | Role | PASS | offered: false; list 403; payables offered: false | `sc_pb_test.dart` (qacct) |
+| SC-PB-032 | Role | PASS | offered: false; list 403 | `sc_pb_test.dart` (qstore) |
+| SC-PB-033 | Role | PASS | offered: true; {+ New: absent, New: absent, Edit: absent, Approve: absent, Cancel: absent, Close: absent} | `sc_pb_test.dart` (qro) |
+| SC-PB-034 | Multi-user | SKIP | covered by the PO and PY files | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-035 | Multi-user | PASS | status APPROVED, screen says "Approve PI-T10069CWY-S-HO-2026-2027-000039 / Approving posts the bill to the books. / Paid now / A cash purchase: record the payment in the same step. / Cancel / Approve // Approve PI-T10069CWY-S-HO-2026-2027-000039 / Only draft purchase invoices can be approved. / Approving posts the bill to the books. / Paid now / A cash purchase: record the payment in the same step. / Cancel / Approve" / "Approve PI-T10069CWY-S-HO-2026-2027-000039 / Only draft purchase invoices can be approved. / Approving posts the bill to the books. / Paid now / A cash purchase: record the... | `sc_pb_test.dart` (tradeadmin) |
+| SC-PB-036 | Multi-user | SKIP | a Draft bill has no Edit on screen (Open, Approve, Cancel, Close, Record IRN only), so there is no second session to race | `sc_pb_test.dart` (tradeadmin) |
 | SC-PC-005 | Positive | PASS | - | `pricing_flow_test.dart` |
 | SC-PL-002 | Positive | PASS | - | `pricing_flow_test.dart` |
 | SC-PL-003 | Positive | PASS | - | `pricing_flow_test.dart` |
