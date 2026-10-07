@@ -1460,7 +1460,12 @@ class DeliveryNoteService(TransactionalDocumentService):
         """
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.DISPATCHED.value:
-            return row
+            # Said in words, not answered 200 with the note as it was: a
+            # person dispatching from a stale list was told nothing (D-UI-28).
+            # Both bills that ship a note ask for an APPROVED one first.
+            raise ValidationError(
+                f"{row.delivery_note_number} has already been dispatched."
+            )
         if row.status != DeliveryNoteStatus.APPROVED.value:
             raise ValidationError("Only approved delivery notes can be dispatched.")
         order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
@@ -1528,7 +1533,9 @@ class DeliveryNoteService(TransactionalDocumentService):
         """Complete one delivery note."""
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.COMPLETED.value:
-            return row
+            raise ValidationError(
+                f"{row.delivery_note_number} has already been completed."
+            )
         if row.status in {
             DeliveryNoteStatus.CANCELLED.value,
             DeliveryNoteStatus.CLOSED.value,
@@ -1766,7 +1773,9 @@ class DeliveryNoteService(TransactionalDocumentService):
         """
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.CLOSED.value:
-            return row
+            raise ValidationError(
+                f"{row.delivery_note_number} has already been closed."
+            )
         if not goods_have_left(row):
             raise ValidationError(
                 f"Only dispatched or completed delivery notes can be closed; "

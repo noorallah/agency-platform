@@ -18,6 +18,7 @@ from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.utils.dates import as_utc
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.schemas import (
@@ -2799,3 +2800,80 @@ def test_the_dated_reports_take_a_window_and_a_page() -> None:
         "/api/v1/delivery-notes/reports/by-salesman",
         "/api/v1/delivery-notes/reports/by-warehouse",
     )
+
+
+def test_a_second_dispatch_complete_or_close_is_refused_in_words() -> None:
+    """A repeated action is refused by name, not answered with the note as-is.
+
+    D-UI-28, screen case SC-DN-030 (2026-10-07): a second dispatch of a note
+    already DISPATCHED answered 200 with the same version, the same
+    ``dispatched_at`` and the same stock movement, so a person dispatching
+    from a stale list was told nothing. Completing a completed note and
+    closing a closed one did the same.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    note = _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+    service = DeliveryNoteService(session)
+    number = note.delivery_note_number
+    dispatched_at = note.dispatched_at
+
+    def _dispatches() -> int:
+        """Count the stock movements this note's dispatch wrote."""
+        return len(
+            session.scalars(
+                select(InventoryTransaction).where(
+                    InventoryTransaction.reference_type == "DELIVERY_NOTE",
+                    InventoryTransaction.reference_number == number,
+                    InventoryTransaction.transaction_type == "DISPATCH",
+                )
+            ).all()
+        )
+
+    assert _dispatches() == 1
+    with pytest.raises(ValidationError, match=f"{number} has already been dispatched"):
+        service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
+    session.refresh(note)
+    assert note.status == DeliveryNoteStatus.DISPATCHED.value
+    assert as_utc(note.dispatched_at) == as_utc(dispatched_at)
+    assert _dispatches() == 1
+
+    service.complete_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    with pytest.raises(ValidationError, match=f"{number} has already been completed"):
+        service.complete_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
+    # A note that is no longer approved still gets the general refusal.
+    with pytest.raises(ValidationError, match="Only approved delivery notes"):
+        service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
+
+    service.close_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    with pytest.raises(ValidationError, match=f"{number} has already been closed"):
+        service.close_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
+    assert _dispatches() == 1

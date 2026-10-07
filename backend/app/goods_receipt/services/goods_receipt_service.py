@@ -497,7 +497,9 @@ class GoodsReceiptService(TransactionalDocumentService):
         """
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status == GoodsReceiptStatus.COMPLETED.value:
-            return row
+            # In words rather than a silent 200 (D-UI-28); the bill that
+            # completes its own receipt asks only for a DRAFT one.
+            raise ValidationError(f"{row.grn_number} has already been completed.")
         if row.status in {
             GoodsReceiptStatus.CANCELLED.value,
             GoodsReceiptStatus.CLOSED.value,
