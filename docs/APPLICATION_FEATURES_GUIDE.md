@@ -95,12 +95,15 @@ Settings > Platform > Agency > Branding; the product's own name stays beside
 them, quietly (2, 11.3).
 
 **It adapts to the trade.** Each firm is given a *business profile*
-(pharmacy, electronics, wholesale, general ...) that decides which features it
-uses (drug licence, vehicle tracking ...) and which menus it sees. Which extra
-fields its products, customers and suppliers carry is set separately, per goods
-type, customer group and supplier type, and the firm switches the platform's
-shared fields off or on for itself (changed 2026-10-08, not yet tested by
-hand).
+(pharmacy, electronics, wholesale, general ...) that decides which menus and
+modules it sees, which goods types it starts with, and a handful of features
+about the firm itself (drug licence, vehicle details, attachments, commission,
+batch PTR and PTS). It does not decide how a product is tracked: batch, expiry,
+serial number and warranty are each product's own switches, filled from its
+goods type, so one firm can sell medicines, paint and food. Which extra fields
+its products, customers and suppliers carry is set separately, per goods type,
+customer group and supplier type, and the firm switches the platform's shared
+fields off or on for itself (changed 2026-10-08, not yet tested by hand).
 
 **How it is installed.** One PC is the *server*: it holds the database and
 runs the server program. Every other PC runs only the app and connects to the
@@ -1300,7 +1303,15 @@ And two documents:
 *Batches* and *Expiry Monitor* are in the Stock drop-down; *Lots* and *Serial
 Numbers* are under *Stock → All Stock screens → Tracking*.
 
-Used when the firm's business profile switches them on:
+These tabs are shown only when the firm's goods need them (added on 2026-10-08,
+not yet tested by hand): *Batches* and *Lots* when any goods type the firm uses,
+or any live product, is tracked by batch; *Serial Numbers* when one
+is tracked by serial number; *Expiry Monitor* when one is tracked by expiry. A
+firm that trades only in goods tracked by none of these sees none of the four.
+The menu is read at sign-in and when the firm is switched, so after a firm takes
+its first tracked goods type into use the tabs appear at the next sign-in or
+firm switch. A user without the permission to view them does not see them
+whatever the goods.
 
 - **Batches** and **Lots**: stock held by batch, with manufacturing and
   expiry dates; deliveries pick the batch earliest expiry first, or the
@@ -1646,7 +1657,9 @@ stock and selling), prices, preferred supplier, reorder level, barcode, and,
 where the product switches them on, batch, expiry, serial number and warranty
 tracking, plus any extra fields that apply to it: those tied to its goods type,
 and those the firm has not switched off. Products can be imported from a file
-(checked before anything is saved) and exported. A product also carries its
+(checked before anything is saved; the check lists warnings that do not stop the
+import, and the tracking columns and the UnitSet column are optional, a blank
+tracking cell taking the category's goods type) and exported. A product also carries its
 **brand** (and through it the **principal**), its **price levels**, a **price
 history** (a new price with an effective date, also loadable from a file), the
 expiry, shelf-life and issue rules (7.3), *Inspect on receipt* and *Not for
@@ -1774,7 +1787,8 @@ time is required, and a person whose access is removed is signed out at once.
 ## 11.2 Firms (*Settings → Platform → Firms*)
 
 - **Firms**: create a firm, edit its details, and **Set up** (section 3).
-- **Business Profiles**: the industries on offer and what each switches on.
+- **Business Profiles**: the industries on offer and what each switches on
+  (modules, the firm features, the goods types a new firm starts with).
   Which profile a firm has is set under *Settings → Business profile →
   Profile Assignment* or on the firm's Set up panel.
 

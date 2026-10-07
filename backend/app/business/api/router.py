@@ -1067,12 +1067,15 @@ def get_active_modules(
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveModuleResponse]]:
     resolved_firm = _resolve_firm_scope(principal, platform_db, x_firm_id, firm_id)
-    rows = _read_in_firm_store(
+    rows, tracking = _read_in_firm_store(
         request,
         db,
         x_firm_id,
         resolved_firm,
-        lambda service: service.active_modules(resolved_firm),
+        lambda service: (
+            service.active_modules(resolved_firm),
+            service.goods_tracking(resolved_firm),
+        ),
     )
     return ApiResponse(
         data=[
@@ -1082,6 +1085,7 @@ def get_active_modules(
                 name=module.name,
                 ui_route=module.ui_route,
                 display_order=display_order,
+                goods_tracking=tracking if module.code == "INVENTORY" else None,
             )
             for module, display_order in rows
         ]

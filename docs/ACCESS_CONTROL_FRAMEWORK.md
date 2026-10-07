@@ -38,10 +38,11 @@ raised `UndefinedTable` for every firm outside the platform store.
 
 Gate 5 is the only one that is *not* a security boundary in the desktop: the
 client hides menu entries a firm has switched off, but the server is what
-refuses the write (`require_feature` / `require_module`, and
-`assert_feature_fields` for features that are optional fields rather than whole
-endpoints; batches, serials and their dates are no longer among them, the
-product's own switches decide).
+refuses the write (`assert_feature_fields` for features that are optional fields
+rather than whole endpoints; `require_feature` and `require_module` exist for a
+feature or module that owns a whole endpoint but no route uses them today;
+batches, serials and their dates are not features, the product's own switches
+decide).
 
 ---
 

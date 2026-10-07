@@ -132,16 +132,16 @@ def test_pharmacy_profile_resolves_its_own_capabilities() -> None:
     pharmacy = _profile(
         session,
         "PHARMACY",
-        features=("BATCH_TRACKING", "EXPIRY_TRACKING"),
+        features=("COMMISSION", "VEHICLE_TRACKING"),
         modules=("SALES", "INVENTORY"),
     )
     _assign(session, firm, pharmacy)
 
     capabilities = resolve_capabilities(session, firm.id)
     assert capabilities.profile_code == "PHARMACY"
-    assert capabilities.has_feature("BATCH_TRACKING")
-    assert capabilities.has_feature("EXPIRY_TRACKING")
-    assert not capabilities.has_feature("RECIPE_MANAGEMENT")
+    assert capabilities.has_feature("COMMISSION")
+    assert capabilities.has_feature("VEHICLE_TRACKING")
+    assert not capabilities.has_feature("LOYALTY_KIOSK")
     assert capabilities.has_module("INVENTORY")
 
 
@@ -153,27 +153,27 @@ def test_profiles_are_isolated_between_firms() -> None:
     _assign(
         session,
         pharma_firm,
-        _profile(session, "PHARMACY", features=("DRUG_LICENSE", "BATCH_TRACKING")),
+        _profile(session, "PHARMACY", features=("DRUG_LICENSE", "COMMISSION")),
     )
-    _assign(session, food_firm, _profile(session, "FOOD", features=("SHELF_LIFE",)))
+    _assign(session, food_firm, _profile(session, "FOOD", features=("BATCH_PTR_PTS",)))
 
     pharma = resolve_capabilities(session, pharma_firm.id)
     food = resolve_capabilities(session, food_firm.id)
     assert pharma.has_feature("DRUG_LICENSE")
     assert not food.has_feature("DRUG_LICENSE")
-    assert food.has_feature("SHELF_LIFE")
-    assert not pharma.has_feature("SHELF_LIFE")
+    assert food.has_feature("BATCH_PTR_PTS")
+    assert not pharma.has_feature("BATCH_PTR_PTS")
 
 
 def test_unassigned_firm_falls_back_to_the_default_profile() -> None:
     """A firm with no profile resolves to the platform default."""
     session = _session()
     firm = _firm(session, "ELEC")
-    _profile(session, "GENERIC", features=("BARCODE",), is_default=True)
+    _profile(session, "GENERIC", features=("ATTACHMENTS",), is_default=True)
 
     capabilities = resolve_capabilities(session, firm.id)
     assert capabilities.profile_code == "GENERIC"
-    assert capabilities.has_feature("BARCODE")
+    assert capabilities.has_feature("ATTACHMENTS")
 
 
 def test_missing_configuration_enforces_nothing() -> None:
@@ -189,15 +189,15 @@ def test_disabled_feature_blocks_writes_but_not_reads() -> None:
     """Gating applies to mutations only, so existing data stays readable."""
     session = _session()
     firm = _firm(session, "FOOD")
-    _assign(session, firm, _profile(session, "FOOD", features=("SHELF_LIFE",)))
+    _assign(session, firm, _profile(session, "FOOD", features=("BATCH_PTR_PTS",)))
     capabilities = resolve_capabilities(session, firm.id)
 
-    gate = require_feature("BATCH_TRACKING")
+    gate = require_feature("COMMISSION")
     for method in sorted(SAFE_METHODS):
         assert _call(gate, _Request(method), capabilities) is capabilities
 
     for method in ("POST", "PUT", "PATCH", "DELETE"):
-        with pytest.raises(AuthorizationError, match="does not enable: BATCH_TRACKING"):
+        with pytest.raises(AuthorizationError, match="does not enable: COMMISSION"):
             _call(gate, _Request(method), capabilities)
 
 
@@ -205,9 +205,9 @@ def test_enabled_feature_permits_writes() -> None:
     """An enabled feature lets mutations through untouched."""
     session = _session()
     firm = _firm(session, "MEDI")
-    _assign(session, firm, _profile(session, "PHARMACY", features=("BATCH_TRACKING",)))
+    _assign(session, firm, _profile(session, "PHARMACY", features=("COMMISSION",)))
     capabilities = resolve_capabilities(session, firm.id)
-    gate = require_feature("BATCH_TRACKING")
+    gate = require_feature("COMMISSION")
     assert _call(gate, _Request("POST"), capabilities) is capabilities
 
 
@@ -215,14 +215,14 @@ def test_multiple_required_features_report_every_missing_code() -> None:
     """The error names all missing capabilities, not just the first."""
     session = _session()
     firm = _firm(session, "FOOD")
-    _assign(session, firm, _profile(session, "FOOD", features=("BARCODE",)))
+    _assign(session, firm, _profile(session, "FOOD", features=("ATTACHMENTS",)))
     capabilities = resolve_capabilities(session, firm.id)
 
-    gate = require_feature("IMEI", "WARRANTY")
+    gate = require_feature("DRUG_LICENSE", "BATCH_PTR_PTS")
     with pytest.raises(AuthorizationError) as error:
         _call(gate, _Request("POST"), capabilities)
-    assert "IMEI" in str(error.value)
-    assert "WARRANTY" in str(error.value)
+    assert "DRUG_LICENSE" in str(error.value)
+    assert "BATCH_PTR_PTS" in str(error.value)
 
 
 def test_module_gate_blocks_writes_for_a_disabled_module() -> None:
@@ -252,7 +252,7 @@ def test_capabilities_are_typed_frozen_sets() -> None:
     """Guard the immutability the dependency relies on."""
     session = _session()
     firm = _firm(session, "MEDI")
-    _assign(session, firm, _profile(session, "PHARMACY", features=("BATCH_TRACKING",)))
+    _assign(session, firm, _profile(session, "PHARMACY", features=("COMMISSION",)))
     capabilities = resolve_capabilities(session, firm.id)
     assert isinstance(capabilities.features, frozenset)
     assert isinstance(capabilities.modules, frozenset)
@@ -268,18 +268,22 @@ def test_a_missing_mapping_row_inherits_the_catalogue_default() -> None:
     """
     session = _session()
     firm = _firm(session, "REST")
-    profile = _profile(session, "RESTAURANT", features=("EXPIRY_TRACKING",))
-    session.add(BusinessFeature(code="BARCODE", name="Barcode", default_enabled=True))
-    session.add(BusinessFeature(code="IMEI", name="IMEI", default_enabled=False))
+    profile = _profile(session, "RESTAURANT", features=("VEHICLE_TRACKING",))
+    session.add(
+        BusinessFeature(code="ATTACHMENTS", name="Barcode", default_enabled=True)
+    )
+    session.add(
+        BusinessFeature(code="DRUG_LICENSE", name="DRUG_LICENSE", default_enabled=False)
+    )
     session.commit()
     _assign(session, firm, profile)
 
     capabilities = resolve_capabilities(session, firm.id)
-    assert capabilities.has_feature("BARCODE")
-    assert capabilities.has_feature("EXPIRY_TRACKING")
-    assert not capabilities.has_feature("IMEI")
+    assert capabilities.has_feature("ATTACHMENTS")
+    assert capabilities.has_feature("VEHICLE_TRACKING")
+    assert not capabilities.has_feature("DRUG_LICENSE")
     # The gate must now agree with what the screen was told.
-    assert _call(require_feature("BARCODE"), _Request("POST"), capabilities) is (
+    assert _call(require_feature("ATTACHMENTS"), _Request("POST"), capabilities) is (
         capabilities
     )
 
@@ -289,7 +293,7 @@ def test_an_explicit_mapping_row_beats_the_catalogue_default() -> None:
     session = _session()
     firm = _firm(session, "SERV")
     profile = _profile(session, "SERVICE")
-    feature = BusinessFeature(code="BARCODE", name="Barcode", default_enabled=True)
+    feature = BusinessFeature(code="ATTACHMENTS", name="Barcode", default_enabled=True)
     session.add(feature)
     session.flush()
     session.add(
@@ -303,9 +307,9 @@ def test_an_explicit_mapping_row_beats_the_catalogue_default() -> None:
     _assign(session, firm, profile)
 
     capabilities = resolve_capabilities(session, firm.id)
-    assert not capabilities.has_feature("BARCODE")
-    with pytest.raises(AuthorizationError, match="does not enable: BARCODE"):
-        _call(require_feature("BARCODE"), _Request("POST"), capabilities)
+    assert not capabilities.has_feature("ATTACHMENTS")
+    with pytest.raises(AuthorizationError, match="does not enable: ATTACHMENTS"):
+        _call(require_feature("ATTACHMENTS"), _Request("POST"), capabilities)
 
 
 def test_a_deactivated_feature_is_withdrawn_despite_a_permissive_default() -> None:
@@ -315,13 +319,13 @@ def test_a_deactivated_feature_is_withdrawn_despite_a_permissive_default() -> No
     profile = _profile(session, "CUSTOM")
     session.add(
         BusinessFeature(
-            code="BARCODE", name="Barcode", default_enabled=True, is_active=False
+            code="ATTACHMENTS", name="Barcode", default_enabled=True, is_active=False
         )
     )
     session.commit()
     _assign(session, firm, profile)
 
-    assert not resolve_capabilities(session, firm.id).has_feature("BARCODE")
+    assert not resolve_capabilities(session, firm.id).has_feature("ATTACHMENTS")
 
 
 def test_module_visibility_does_not_decide_whether_a_write_is_refused() -> None:

@@ -68,12 +68,13 @@ class BusinessFeature(BaseEntity):
     #: that could never happen. They stay in the catalogue as roadmap, and this
     #: flag stops them being switched on.
     #:
-    #: Six remain -- IMEI, PRESCRIPTION_REQUIRED, RECIPE_MANAGEMENT,
-    #: KITCHEN_MANAGEMENT, SERVICE_CONTRACTS and PROJECT_MANAGEMENT.
-    #: ``COMMISSION`` came off the list on 2026-09-03, because `app/commission`
-    #: shipped on 2026-08-23 and the flag outlived the fact. **A flag recording
-    #: what the codebase does has to be revisited when the codebase does it**,
-    #: or it goes on refusing a feature the platform has.
+    #: None is left: ``COMMISSION`` came off the list on 2026-09-03, because
+    #: `app/commission` shipped on 2026-08-23 and the flag outlived the fact,
+    #: and `20261008_0353` withdrew the other six with the features a goods
+    #: type now decides (backlog 89). The flag stays for a feature an
+    #: administrator adds ahead of its code. **A flag recording what the
+    #: codebase does has to be revisited when the codebase does it**, or it
+    #: goes on refusing a feature the platform has.
     is_implemented: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )

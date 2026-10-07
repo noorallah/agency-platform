@@ -24,6 +24,7 @@ class ModuleVisibility {
   const ModuleVisibility({
     required this.permissions,
     this.activeBusinessModules,
+    this.goodsTracking,
     this.salesStages = SalesWorkflowSettings.wholeChain,
     this.purchaseStages = PurchaseWorkflowSettings.wholeChain,
     this.hasActiveFirm = true,
@@ -51,6 +52,15 @@ class ModuleVisibility {
   /// whole application because one request timed out is worse than briefly
   /// offering a module it has turned off.
   final Set<String>? activeBusinessModules;
+
+  /// The kinds of tracking this firm's goods need (`BATCH`, `EXPIRY`,
+  /// `SERIAL`), or null while unknown.
+  ///
+  /// Null is **show everything**, for the same reason as
+  /// [activeBusinessModules]: a failed fetch must not hide screens. A tab
+  /// naming [ModuleTabDefinition.requiresTracking] is offered only when the
+  /// set holds it.
+  final Set<String>? goodsTracking;
 
   /// Which stages of a sale this firm types by hand.
   final SalesWorkflowSettings salesStages;
@@ -114,7 +124,12 @@ class ModuleVisibility {
     if (!allows(module)) {
       return const {};
     }
-    return tabsFor(module, permissions, hasActiveFirm: hasActiveFirm)
+    return tabsFor(
+      module,
+      permissions,
+      hasActiveFirm: hasActiveFirm,
+      goodsTracking: goodsTracking,
+    )
         .map((tab) => tab.id)
         // Purchase orders are a tab of Purchases rather than a module, and
         // the module also holds Purchase Settings -- where the switch that
@@ -142,11 +157,18 @@ class ModuleVisibility {
     ModuleDefinition module,
     PermissionService permissions, {
     required bool hasActiveFirm,
+    Set<String>? goodsTracking,
   }) =>
       module.tabs
           // A tab declared `available: false` has no workspace behind it, so
           // showing it routes the user to an unrelated screen.
           .where((tab) => tab.available)
+          // A tracking screen is offered only to a firm whose goods need
+          // that tracking; unknown (null) offers everything.
+          .where((tab) =>
+              goodsTracking == null ||
+              tab.requiresTracking == null ||
+              goodsTracking.contains(tab.requiresTracking))
           // Administration holds tabs of both kinds, so a module that opens
           // without a firm still hides the tabs that need one.
           .where((tab) => hasActiveFirm || !tab.requiresFirm)

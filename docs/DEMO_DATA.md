@@ -82,6 +82,31 @@ problem first. Expect this every time a master gains a field the demo needs.
 
 **The demo reaches the five paths nothing had exercised, as of 2026-09-08.** `docs/MODULE_STATUS.md` had listed them: 42 of 182 tables held no live row anywhere, and five of those were whole code paths the demo could not reach. Each is now one deliberate choice on one blueprint rather than a setting everywhere, so the ordinary case sits beside the exceptional one. **FOOD01 leaves the delivery note to the service** (`ships_by_hand=False` → `sales_workflow_settings.delivery_note_stage`), so every one of its invoices is billed off the order and `SalesChainService` dispatches the goods -- the one path that moves stock from an invoice, and one that had never run on a store; `generate_transaction_history.sell()` branches on the firm's setting and the two paths share the same deposit, points, collection, return and credit note tail, because the first cut returned early after the invoice and quietly produced a firm with zero returns. **MEDI01 blocks on credit** (`credit_enforcement=BLOCK`, warn 80, block 100) and CityMed Clinic sits on a 20,000 limit the history crosses, so refused approvals appear in the seeder's notes and the refused orders stay unapproved on the grid -- 40,000 was the first figure and refused nothing in two years, because three bills in four are collected and the exposure peaks near 25,000; the other firms get a WARN row rather than none, so `credit_control_settings` is configured everywhere. **ELEC01's mixer grinder is serialised** (`requires_serial=True` → `track_serial`, tracking only, so receipts and issues do not demand the numbers and the history is unaffected) and up to twenty serials with warranty dates are laid onto the inventory record the history left; that needed `SERIAL_NUMBER` and `WARRANTY` on the ELECTRONICS profile, which the feature seed backfills (since 2026-10-08 it needs `track_warranty` on the product instead, which the seeder switches on, also on a store already seeded). **Each firm's first product carries a `Case` packaging level** with a barcode, and **each firm has two cost centres, two profit centres and one posted manual journal naming them** -- a manual expense, since the automatic postings name no centre and a seeded account that required one would refuse them. The seeder prints a `once-empty paths` line per firm with the five counts, so a store that seeded without one is visible from the entry point. `lots` still holds nothing.
 
+## Goods types and the firm features in the demo, as of 2026-10-08
+
+Changed in `backend/scripts/seed_multi_firm_demo.py` on 2026-10-08 (backlog 89,
+step 6). **The seeder was changed and has not been run since**: no reseed was
+allowed in that pass, so every statement below is what the code does when it is
+next run, not something observed in a store.
+
+- **It writes no withdrawn feature.** The eighteen codes `20261008_0353` removed
+  (the tracking, barcode, territory and roadmap features and `SERIAL_TRACKING`)
+  are not written; the seeder switches on `ATTACHMENTS` only.
+- **Each demo firm is handed its profile's starting goods types**
+  (`start_firm_goods_types` in `app/products/goods_type_seed.py`), only for a firm
+  holding none. A firm already holding one is left as it is.
+- **Each firm's one product category, `CORE_PRODUCTS`, carries the profile's
+  goods type**: Medicine for the pharmacy firm, Food for the food firm,
+  Electronics for the electronics firm; the wholesale firm's stays General (no
+  type). It is backfilled only where the category has none, never overwriting,
+  and the products already filed there are given the type with it. This is the
+  "a master field added later never reaches a store already seeded" rule applied
+  to a new column.
+- **`backend/scripts/generate_sample_data.py` is not changed**: its categories
+  still carry no goods type. Its products name no switches, so giving its
+  categories a type would change what its receipts must carry; it is left for a
+  pass that can run it.
+
 ## What the seeders do not yet exercise, as of 2026-10-02
 
 The night of 2026-10-02 added eight features and **no seeder drives any of

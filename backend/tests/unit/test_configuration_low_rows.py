@@ -307,14 +307,16 @@ def test_no_resolvable_profile_is_ungated_not_some_other_profile() -> None:
         ),
         ACTOR,
     )
-    session.add(BusinessFeature(code="BARCODE", name="Barcode", default_enabled=False))
+    session.add(
+        BusinessFeature(code="ATTACHMENTS", name="Barcode", default_enabled=False)
+    )
     session.commit()
 
     assert resolve_profile_id(session, firm.id) is None
     # The gate refuses nothing, so the list offers everything -- it used to
     # answer PHARMA's list, a profile the firm is not on.
     codes = {feature.code for feature, _ in framework.active_features(firm.id)}
-    assert "BARCODE" in codes
+    assert "ATTACHMENTS" in codes
 
 
 def test_the_callers_agree_on_an_assigned_profile() -> None:

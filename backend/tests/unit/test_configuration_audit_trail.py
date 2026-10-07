@@ -206,7 +206,7 @@ def test_switching_a_feature_names_the_feature() -> None:
         ACTOR,
     )
     barcode = service.create_feature(
-        BusinessFeatureCreate(code="BARCODE", name="Barcode"), ACTOR
+        BusinessFeatureCreate(code="ATTACHMENTS", name="Barcode"), ACTOR
     )
     batches = service.create_feature(
         BusinessFeatureCreate(code="BATCHES", name="Batches"), ACTOR
@@ -218,9 +218,9 @@ def test_switching_a_feature_names_the_feature() -> None:
 
     rows = _rows(session, "business_profile.features.updated")
     assert len(rows) == 2
-    assert _data(rows[1].before_data)["features"] == ["BARCODE"]
+    assert _data(rows[1].before_data)["features"] == ["ATTACHMENTS"]
     assert _data(rows[1].after_data)["enabled"] == ["BATCHES"]
-    assert _data(rows[1].after_data)["disabled"] == ["BARCODE"]
+    assert _data(rows[1].after_data)["disabled"] == ["ATTACHMENTS"]
 
 
 def test_a_profile_change_keeps_the_profile_it_replaced() -> None:

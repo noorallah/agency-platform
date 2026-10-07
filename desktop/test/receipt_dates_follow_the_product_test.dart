@@ -96,7 +96,7 @@ void main() {
     await _openReceipt(
       tester,
       product: {'track_expiry': false, 'track_manufacturing_date': false},
-      features: const BusinessFeatures({'EXPIRY_TRACKING', 'MANUFACTURING_DATE'}),
+      features: const BusinessFeatures({'ATTACHMENTS', 'COMMISSION'}),
     );
 
     expect(find.byKey(_expiry), findsNothing);

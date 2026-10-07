@@ -12,15 +12,15 @@ The category carries the type and a product takes it from there:
 
 from uuid import UUID
 
-from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit, record_change, row_state
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.products.models import Product, ProductCategory
+from app.products.models import ProductCategory
 from app.products.models.goods_type import FirmGoodsType, GoodsType
+from app.products.repositories import GoodsTypeRepository
 from app.products.schemas.goods_type import (
     GoodsTypeCreate,
     GoodsTypeResponse,
@@ -28,7 +28,6 @@ from app.products.schemas.goods_type import (
     GoodsTypeUse,
     ProductGoodsTypeOption,
 )
-from app.tax.models import TaxProfile
 
 _DEFAULTS = ("default_hsn_sac", "default_tax_profile_group_code")
 #: The switches a type holds, which a new product of it starts with.
@@ -56,20 +55,24 @@ class GoodsTypeService:
     def __init__(self, session: Session) -> None:
         """Bind the service to the firm's store session."""
         self._session = session
+        self._repository = GoodsTypeRepository(session)
 
     # -- reading --------------------------------------------------------
     def list_types(self, firm_id: UUID) -> list[GoodsTypeResponse]:
         """Return the shared types and the firm's own, by name; two reads."""
-        rows = self._session.scalars(
-            select(GoodsType)
-            .where(
-                GoodsType.is_deleted.is_(False),
-                or_(GoodsType.firm_id.is_(None), GoodsType.firm_id == firm_id),
-            )
-            .order_by(GoodsType.name.asc(), GoodsType.code.asc())
-        ).all()
         uses = self._uses(firm_id)
-        return [self._response(row, uses.get(row.id)) for row in rows]
+        return [
+            self._response(row, uses.get(row.id))
+            for row in self._repository.visible(firm_id)
+        ]
+
+    def tracking_in_use(self, firm_id: UUID) -> list[str]:
+        """Return which of BATCH, EXPIRY and SERIAL the firm's goods need.
+
+        What the Batches, Serial Numbers and Expiry Monitor menus follow: a
+        goods type the firm uses, or a product it already holds.
+        """
+        return self._repository.tracking_in_use(firm_id)
 
     def type_for_category(
         self, firm_id: UUID, category: ProductCategory | None
@@ -85,17 +88,7 @@ class GoodsTypeService:
             return category.goods_type_id
         codes = category.path.split("/")
         ancestors = ["/".join(codes[:depth]) for depth in range(1, len(codes))]
-        return self._session.scalar(
-            select(ProductCategory.goods_type_id)
-            .where(
-                ProductCategory.firm_id == firm_id,
-                ProductCategory.path.in_(ancestors),
-                ProductCategory.is_deleted.is_(False),
-                ProductCategory.goods_type_id.is_not(None),
-            )
-            .order_by(ProductCategory.level.desc())
-            .limit(1)
-        )
+        return self._repository.inherited_type(firm_id, ancestors)
 
     @staticmethod
     def product_switches(row: GoodsType) -> dict[str, bool]:
@@ -112,17 +105,9 @@ class GoodsTypeService:
         ``tax_groups`` is the firm's live ones: a default naming a group the
         firm has since retired is not offered, as it is not filled on a save.
         """
-        rows = self._session.scalars(
-            select(GoodsType)
-            .where(
-                GoodsType.is_deleted.is_(False),
-                or_(GoodsType.firm_id.is_(None), GoodsType.firm_id == firm_id),
-            )
-            .order_by(GoodsType.name.asc(), GoodsType.code.asc())
-        ).all()
         uses = self._uses(firm_id)
         options: list[ProductGoodsTypeOption] = []
-        for row in rows:
+        for row in self._repository.visible(firm_id):
             use = uses.get(row.id)
             tax_group = None if use is None else use.default_tax_profile_group_code
             options.append(
@@ -158,11 +143,7 @@ class GoodsTypeService:
         tax group the firm no longer has is passed over rather than refused.
         General fills nothing.
         """
-        row = (
-            None
-            if goods_type_id is None
-            else self._session.get(GoodsType, goods_type_id)
-        )
+        row = None if goods_type_id is None else self._repository.find(goods_type_id)
         if row is None:
             return {}
         filled: dict[str, object] = {
@@ -196,7 +177,7 @@ class GoodsTypeService:
         """
         if goods_type_id is None:
             return
-        row = self._session.get(GoodsType, goods_type_id)
+        row = self._repository.find(goods_type_id)
         if (
             row is None
             or row.is_deleted
@@ -223,7 +204,7 @@ class GoodsTypeService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(row)
+        self._repository.add(row)
         self._session.flush()
         use = FirmGoodsType(
             firm_id=firm_id,
@@ -233,7 +214,7 @@ class GoodsTypeService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(use)
+        self._repository.add(use)
         self._session.flush()
         record_change(
             self._session,
@@ -306,15 +287,7 @@ class GoodsTypeService:
         """
         row = self._own(goods_type_id, firm_id)
         self._assert_no_category(row, firm_id, verb="deleted")
-        held = self._session.scalar(
-            select(Product.code)
-            .where(
-                Product.firm_id == firm_id,
-                Product.goods_type_id == row.id,
-                Product.is_deleted.is_(False),
-            )
-            .limit(1)
-        )
+        held = self._repository.product_holding(row.id, firm_id)
         if held is not None:
             raise ConflictError(
                 f"{row.name} is still the goods type of product {held}, so it "
@@ -391,15 +364,7 @@ class GoodsTypeService:
     # -- internals ------------------------------------------------------
     def _uses(self, firm_id: UUID) -> dict[UUID, FirmGoodsType]:
         """Return the firm's live use rows by goods type."""
-        return {
-            use.goods_type_id: use
-            for use in self._session.scalars(
-                select(FirmGoodsType).where(
-                    FirmGoodsType.firm_id == firm_id,
-                    FirmGoodsType.is_deleted.is_(False),
-                )
-            )
-        }
+        return self._repository.uses(firm_id)
 
     def _write_use(
         self,
@@ -417,7 +382,7 @@ class GoodsTypeService:
             use = FirmGoodsType(
                 firm_id=firm_id, goods_type_id=row.id, created_by=actor_id
             )
-            self._session.add(use)
+            self._repository.add(use)
         for name, value in defaults.items():
             setattr(use, name, value)
         use.updated_by = actor_id
@@ -425,7 +390,7 @@ class GoodsTypeService:
 
     def _visible(self, goods_type_id: UUID, firm_id: UUID) -> GoodsType:
         """Return a shared type or one of the firm's own."""
-        row = self._session.get(GoodsType, goods_type_id)
+        row = self._repository.find(goods_type_id)
         if row is None or row.is_deleted or row.firm_id not in (None, firm_id):
             raise ResourceNotFoundError("Goods type not found.")
         return row
@@ -442,15 +407,7 @@ class GoodsTypeService:
 
     def _assert_no_category(self, row: GoodsType, firm_id: UUID, *, verb: str) -> None:
         """Refuse while a live category of the firm carries the type."""
-        held = self._session.scalar(
-            select(ProductCategory.name)
-            .where(
-                ProductCategory.firm_id == firm_id,
-                ProductCategory.goods_type_id == row.id,
-                ProductCategory.is_deleted.is_(False),
-            )
-            .limit(1)
-        )
+        held = self._repository.category_holding(row.id, firm_id)
         if held is not None:
             raise ConflictError(
                 f"{row.name} is still the goods type of category {held}, so it "
@@ -461,14 +418,7 @@ class GoodsTypeService:
         self, code: str, *, firm_id: UUID, current: UUID | None = None
     ) -> None:
         """Refuse a code the firm or the shared catalogue already uses."""
-        statement = select(GoodsType.id).where(
-            GoodsType.code == code,
-            GoodsType.is_deleted.is_(False),
-            or_(GoodsType.firm_id.is_(None), GoodsType.firm_id == firm_id),
-        )
-        if current is not None:
-            statement = statement.where(GoodsType.id != current)
-        if self._session.scalar(statement) is not None:
+        if self._repository.code_taken(code, firm_id, current=current):
             raise ConflictError(f"A goods type with code {code} already exists.")
 
     def _assert_tax_group(self, firm_id: UUID, group_code: str | None) -> None:
@@ -480,17 +430,7 @@ class GoodsTypeService:
 
     def _has_tax_group(self, firm_id: UUID, group_code: str) -> bool:
         """Say whether the firm has a live tax profile in this group."""
-        found = self._session.scalar(
-            select(TaxProfile.id)
-            .where(
-                TaxProfile.firm_id == firm_id,
-                TaxProfile.group_code == group_code,
-                TaxProfile.is_deleted.is_(False),
-                TaxProfile.status == "ACTIVE",
-            )
-            .limit(1)
-        )
-        return found is not None
+        return self._repository.has_tax_group(firm_id, group_code)
 
     @staticmethod
     def _response(row: GoodsType, use: FirmGoodsType | None) -> GoodsTypeResponse:

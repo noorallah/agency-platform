@@ -672,9 +672,8 @@ any rate.
 Added 2026-10-08, not yet tested by hand. Whether a batch, a serial number, an
 expiry date, a manufacturing date, a shelf life or a warranty may be recorded is
 decided by **the product's own switches, never by the firm's business profile**.
-Before this, `require_feature("BATCH_TRACKING")` sat on the batch and lot writes,
-`require_feature("SERIAL_NUMBER")` on the serial writes, and
-`assert_feature_fields` refused the date fields by profile. All of that is gone.
+Before this, the batch and lot writes, the serial writes and the date fields were
+gated by catalogue features on the profile. All of that is gone.
 The rules live in `app/batch_serial/services/product_tracking.py`
 (`tracked_product`, `assert_product_keeps`, `assert_product_fields`,
 `FIELD_SWITCHES`, `RECORD_SWITCHES`).
@@ -706,10 +705,16 @@ The rules live in `app/batch_serial/services/product_tracking.py`
 - `BATCH_PTR_PTS` (price to retailer and stockist on a batch) is unchanged: it is
   still a feature of the firm's profile, as are ATTACHMENTS, VEHICLE_TRACKING and
   DRUG_LICENSE.
-- The feature rows `BATCH_TRACKING`, `SERIAL_NUMBER`, `EXPIRY_TRACKING`,
-  `MANUFACTURING_DATE`, `SHELF_LIFE` and `WARRANTY` still exist on the catalogue
-  and on profiles until step 6 of backlog 89 removes them. Nothing enforces them.
+- The feature rows for these switches (and for barcode and QR code) were removed
+  from the catalogue and from every profile on 2026-10-08 by `20261008_0353`.
   See `docs/GOODS_TYPES.md`.
+- **The menus follow the goods.** Batches and Lots show in the desktop only when
+  a goods type the firm uses, or a live product of the firm, has `track_batch`;
+  Serial Numbers on `track_serial`; Expiry Monitor on `track_expiry`. The server
+  answers it as `goods_tracking` on the INVENTORY row of
+  `GET /api/v1/business-framework/active-modules`
+  (`GoodsTypeRepository.tracking_in_use`); added on 2026-10-08, not yet tested by
+  hand. See `docs/BUSINESS_PROFILE_FRAMEWORK.md`, *Menus follow the goods*.
 
 ### Batch-wise PTR / PTS (PG-14, backlog 86 #22, 55 G5)
 

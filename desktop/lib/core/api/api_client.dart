@@ -177,6 +177,19 @@ int pagedTotal(Json page, {required int fallback}) {
       fallback;
 }
 
+/// What `GET /business-framework/active-modules` answers: the module codes
+/// the firm has switched on and, from the INVENTORY row, the kinds of goods
+/// tracking (`BATCH`, `EXPIRY`, `SERIAL`) its goods need.
+///
+/// [goodsTracking] is null when the server gave no answer, which means
+/// "unknown" and shows every tracking screen; an empty set means "none".
+class ActiveBusinessModules {
+  const ActiveBusinessModules({required this.codes, this.goodsTracking});
+
+  final Set<String> codes;
+  final Set<String>? goodsTracking;
+}
+
 class ApiClient {
   ApiClient({
     required this.baseUrl,
@@ -10355,18 +10368,33 @@ class ApiClient {
         },
       );
 
-  Future<List<String>> activeBusinessModuleCodes() async {
+  /// The modules the firm's business profile has switched on, and which
+  /// kinds of tracking its goods need, from the one request.
+  Future<ActiveBusinessModules> activeBusinessModules() async {
     final Json response = await request(
       'GET',
       '/api/v1/business-framework/active-modules',
     );
     final dynamic data = response['data'];
-    if (data is! List) return const [];
-    return data
-        .whereType<Map>()
-        .map((value) => stringValue(value['code']).toUpperCase())
-        .where((code) => code.isNotEmpty)
-        .toList();
+    if (data is! List) {
+      return const ActiveBusinessModules(codes: <String>{});
+    }
+    final List<Map> rows = data.whereType<Map>().toList();
+    Set<String>? tracking;
+    for (final Map row in rows) {
+      final dynamic raw = row['goods_tracking'];
+      if (raw is List) {
+        tracking = raw.map((value) => stringValue(value).toUpperCase()).toSet();
+        break;
+      }
+    }
+    return ActiveBusinessModules(
+      codes: rows
+          .map((value) => stringValue(value['code']).toUpperCase())
+          .where((code) => code.isNotEmpty)
+          .toSet(),
+      goodsTracking: tracking,
+    );
   }
 
   /// The feature codes the firm's business profile has switched on.

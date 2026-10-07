@@ -347,6 +347,7 @@ class _DesktopShellState extends State<DesktopShell> {
   /// change made from inside a page belongs to.
   String? _shownPath;
   Set<String>? _activeBusinessModuleCodes;
+  Set<String>? _goodsTracking;
 
   /// Which sales stages this firm types. The whole chain until told otherwise,
   /// which is both the platform default and the safe answer on a failed read.
@@ -949,13 +950,19 @@ class _DesktopShellState extends State<DesktopShell> {
 
   Future<void> _refreshBusinessModules() async {
     try {
-      final List<String> moduleCodes =
-          await widget.session.api.activeBusinessModuleCodes();
+      final ActiveBusinessModules active =
+          await widget.session.api.activeBusinessModules();
       if (!mounted) return;
-      setState(() => _activeBusinessModuleCodes = moduleCodes.toSet());
+      setState(() {
+        _activeBusinessModuleCodes = active.codes;
+        _goodsTracking = active.goodsTracking;
+      });
     } on ApiException {
       if (!mounted) return;
-      setState(() => _activeBusinessModuleCodes = null);
+      setState(() {
+        _activeBusinessModuleCodes = null;
+        _goodsTracking = null;
+      });
     }
   }
 
@@ -1001,6 +1008,7 @@ class _DesktopShellState extends State<DesktopShell> {
   ModuleVisibility get _visibility => ModuleVisibility(
         permissions: widget.permissions,
         activeBusinessModules: _activeBusinessModuleCodes,
+        goodsTracking: _goodsTracking,
         salesStages: _salesStages,
         purchaseStages: _purchaseStages,
         hasActiveFirm: widget.session.currentFirm != null,
@@ -2412,6 +2420,7 @@ class _DesktopShellState extends State<DesktopShell> {
             preferences: widget.preferences,
             permissions: widget.permissions,
             router: _router,
+            goodsTracking: _goodsTracking,
           ),
         AppModule.purchases => _PurchaseWorkspace(
             key: ValueKey('purchases-${widget.session.firmContextVersion}'),
@@ -3959,12 +3968,16 @@ class _InventoryWorkspace extends StatefulWidget {
     required this.preferences,
     required this.permissions,
     required this.router,
+    this.goodsTracking,
   });
 
   final ApiClient api;
   final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final WorkspaceRouter router;
+
+  /// The tracking the firm's goods need; null while unknown (show all).
+  final Set<String>? goodsTracking;
 
   @override
   State<_InventoryWorkspace> createState() => _InventoryWorkspaceState();
@@ -3978,6 +3991,7 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
       module,
       widget.permissions,
       hasActiveFirm: widget.api.activeFirmId?.call() != null,
+      goodsTracking: widget.goodsTracking,
     );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(

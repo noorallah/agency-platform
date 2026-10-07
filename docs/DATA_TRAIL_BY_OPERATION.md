@@ -3981,7 +3981,8 @@ restarted. Where #500 changes what a receipt does, the text says so.
 
   A dedicated store has its own copy of every catalogue, so "the WHOLESALE
   profile" is a different row, possibly with different features, in each
-  store: WHOLE01's enables `SERIAL_NUMBER`, the fixture stores' does not.
+  store (that was how the `SERIAL_NUMBER` feature differed between WHOLE01 and the
+  fixture stores before `20261008_0353` withdrew it on 2026-10-08).
 - **Where the audit rows go, and one kind nobody can read.** Every write
   here audits into the store the request's session opened — the firm's own —
   except preferences (`platform`). But the business-framework catalogue
@@ -4036,10 +4037,11 @@ Each call commits on its own.
 - **Refused, nothing written:** a code already used; deleting a profile a
   live firm is assigned; deleting a feature or module a profile still
   enables; enabling a feature whose `is_implemented` is false — "These
-  features are not implemented yet and cannot be enabled: IMEI." (the six:
-  `IMEI`, `KITCHEN_MANAGEMENT`, `PRESCRIPTION_REQUIRED`, `PROJECT_MANAGEMENT`,
-  `RECIPE_MANAGEMENT`, `SERVICE_CONTRACTS`). `is_implemented` is not on the
-  write schema, so it cannot be switched through the API.
+  features are not implemented yet and cannot be enabled: IMEI." (observed
+  before 2026-10-08, when six features carried the flag; `20261008_0353` removed
+  those six, and all five remaining features are implemented, so this refusal has
+  no feature to name today). `is_implemented` is not on the write schema, so it
+  cannot be switched through the API.
 - **Which features a profile enables** — Profiles → edit → Enabled features,
   `PUT /profiles/{id}/features` with the whole list of ids. Existing
   `profile_features` rows are set `is_enabled` true or false in place; ids not
@@ -4114,7 +4116,7 @@ caller has selected.
   | --- | --- | --- |
   | `resolve_profile` (`gating.py`) | `require_feature`, `assert_feature_fields`, tax, UOM, products, territory | nothing enforced |
   | `_resolved_profile_id` (`framework_service.py`) | `/active-features`, `/active-modules` — what the desktop renders | **any ACTIVE profile**, whichever the database returns first |
-  | `_profile_id` (`attribute_service.py`) | the custom fields a form offers and a save demands | no profile-scoped field applies |
+  | `_profile_id` (`attribute_service.py`) | (removed 2026-10-08: custom fields no longer read the profile) | — |
 
   Every store has a default today, so the three agree on the ground (D-CFG-19).
 - **The gate is write-only and field-level.** `assert_feature_fields` refuses

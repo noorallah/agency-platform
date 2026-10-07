@@ -140,7 +140,7 @@ def test_profile_feature_module_assignment_and_runtime_resolution() -> None:
     )
     feature = service.create_feature(
         BusinessFeatureCreate(
-            code="PROJECT_MANAGEMENT",
+            code="DRUG_LICENSE",
             name="Project Management",
             default_enabled=False,
         ),
@@ -160,7 +160,7 @@ def test_profile_feature_module_assignment_and_runtime_resolution() -> None:
 
     active_features = service.active_features(None)
     active_modules = service.active_modules(None)
-    assert any(item[0].code == "PROJECT_MANAGEMENT" for item in active_features)
+    assert any(item[0].code == "DRUG_LICENSE" for item in active_features)
     assert any(item[0].code == "PROJECTS" for item in active_modules)
 
 
@@ -221,7 +221,9 @@ def test_seed_business_profiles_prefills_distribution_profiles() -> None:
     assert profiles["GENERIC"].is_default is True
     assert profiles["AGENCY"].default_settings["business_model"] == "distributor"
     assert profiles["AGENCY"].default_settings["route_management"] is True
-    assert profiles["PHARMACY"].default_settings["expiry_required"] is True
+    assert profiles["PHARMACY"].default_settings["mrp_control"] is True
+    # What goods look like is the goods type's to say, not the profile's.
+    assert "expiry_required" not in profiles["PHARMACY"].default_settings
     assert profiles["FOOD"].default_settings["near_expiry_alert_days"] == 30
     assert profiles["WHOLESALE"].default_settings["bulk_pricing"] is True
 
@@ -299,10 +301,10 @@ def test_a_roadmap_feature_is_listed_but_cannot_be_switched_on() -> None:
         actor,
     )
     built = service.create_feature(
-        BusinessFeatureCreate(code="BARCODE", name="Barcode"), actor
+        BusinessFeatureCreate(code="ATTACHMENTS", name="Barcode"), actor
     )
     roadmap = service.create_feature(
-        BusinessFeatureCreate(code="RECIPE_MANAGEMENT", name="Recipes"), actor
+        BusinessFeatureCreate(code="LOYALTY_KIOSK", name="Recipes"), actor
     )
     roadmap.is_implemented = False
     session.commit()
@@ -318,11 +320,11 @@ def test_a_roadmap_feature_is_listed_but_cannot_be_switched_on() -> None:
             descending=False,
         )[0]
     }
-    assert "RECIPE_MANAGEMENT" in codes
+    assert "LOYALTY_KIOSK" in codes
 
     with pytest.raises(ValidationError) as error:
         service.set_profile_features(profile.id, [built.id, roadmap.id], actor)
-    assert "RECIPE_MANAGEMENT" in str(error.value)
+    assert "LOYALTY_KIOSK" in str(error.value)
 
     # And nothing was stored, including the feature that was implemented.
     assert service.active_features(None) == []
@@ -336,7 +338,7 @@ def test_a_feature_is_presumed_implemented_when_it_is_created() -> None:
     session = _session_factory()()
     service = BusinessProfileFrameworkService(session)
     feature = service.create_feature(
-        BusinessFeatureCreate(code="WARRANTY", name="Warranty"), uuid4()
+        BusinessFeatureCreate(code="BATCH_PTR_PTS", name="Warranty"), uuid4()
     )
 
     assert feature.is_implemented is True
@@ -353,7 +355,7 @@ def _profile_with(session: Session, *codes: str) -> None:
     )
     session.add(profile)
     session.flush()
-    for code in ("EXPIRY_TRACKING", "BARCODE", "DRUG_LICENSE"):
+    for code in ("VEHICLE_TRACKING", "ATTACHMENTS", "DRUG_LICENSE"):
         feature = BusinessFeature(code=code, name=code.title())
         session.add(feature)
         session.flush()
@@ -377,21 +379,21 @@ def test_a_disabled_feature_blocks_only_the_field_it_owns() -> None:
     creating batches at all.
     """
     session = _session_factory()()
-    _profile_with(session, "BARCODE")
+    _profile_with(session, "ATTACHMENTS")
     firm = uuid4()
 
     # The field belonging to the disabled feature is refused...
-    with pytest.raises(AuthorizationError, match="EXPIRY_TRACKING"):
+    with pytest.raises(AuthorizationError, match="VEHICLE_TRACKING"):
         assert_feature_fields(
             session,
             firm,
-            feature="EXPIRY_TRACKING",
+            feature="VEHICLE_TRACKING",
             values={"expiry_date": date(2027, 1, 1)},
         )
 
     # ...while the rest of the write is untouched.
     assert_feature_fields(
-        session, firm, feature="BARCODE", values={"barcode": "890100001"}
+        session, firm, feature="ATTACHMENTS", values={"barcode": "890100001"}
     )
 
 
@@ -407,7 +409,7 @@ def test_leaving_a_gated_field_blank_is_always_allowed() -> None:
 
     for value in (None, "", False):
         assert_feature_fields(
-            session, firm, feature="EXPIRY_TRACKING", values={"expiry_date": value}
+            session, firm, feature="VEHICLE_TRACKING", values={"expiry_date": value}
         )
 
 
@@ -421,7 +423,7 @@ def test_the_message_names_every_field_that_was_refused() -> None:
         assert_feature_fields(
             session,
             firm,
-            feature="EXPIRY_TRACKING",
+            feature="VEHICLE_TRACKING",
             values={
                 "expiry_date": date(2027, 1, 1),
                 "best_before_date": date(2026, 12, 1),
@@ -445,7 +447,7 @@ def test_a_firm_with_no_profile_at_all_is_not_locked_out() -> None:
     assert_feature_fields(
         session,
         uuid4(),
-        feature="EXPIRY_TRACKING",
+        feature="VEHICLE_TRACKING",
         values={"expiry_date": date(2027, 1, 1)},
     )
 
@@ -464,14 +466,14 @@ def test_an_empty_collection_is_blank_and_never_refused() -> None:
 
     for blank in ([], {}, (), "", None, False):
         assert_feature_fields(
-            session, firm, feature="EXPIRY_TRACKING", values={"attachments": blank}
+            session, firm, feature="VEHICLE_TRACKING", values={"attachments": blank}
         )
 
     with pytest.raises(AuthorizationError):
         assert_feature_fields(
             session,
             firm,
-            feature="EXPIRY_TRACKING",
+            feature="VEHICLE_TRACKING",
             values={"attachments": ["invoice.pdf"]},
         )
 
@@ -485,7 +487,7 @@ def test_zero_counts_as_a_value_somebody_typed() -> None:
         assert_feature_fields(
             session,
             uuid4(),
-            feature="EXPIRY_TRACKING",
+            feature="VEHICLE_TRACKING",
             values={"shelf_life_days": 0},
         )
 
@@ -598,7 +600,7 @@ def test_an_update_that_omits_a_field_leaves_it_alone() -> None:
     service = BusinessProfileFrameworkService(session)
     feature = service.create_feature(
         BusinessFeatureCreate(
-            code="BARCODE",
+            code="ATTACHMENTS",
             name="Barcode",
             description="Scan a barcode.",
             category="OPERATIONS",
@@ -612,9 +614,9 @@ def test_an_update_that_omits_a_field_leaves_it_alone() -> None:
     service.update_feature(
         feature.id,
         BusinessFeatureUpdate.model_construct(
-            **BusinessFeatureUpdate(code="BARCODE", name="Barcode scanning").model_dump(
-                include={"code", "name"}
-            )
+            **BusinessFeatureUpdate(
+                code="ATTACHMENTS", name="Barcode scanning"
+            ).model_dump(include={"code", "name"})
         ),
         actor,
     )

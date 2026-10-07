@@ -538,3 +538,39 @@ def test_the_product_metadata_carries_the_unit_sets_in_its_one_call() -> None:
     created = _create(session, firm.id, "P-1", unit_set_id=str(option.id))
     assert created.purchase_uom_id == option.purchase_uom_id
     assert created.inventory_uom_id == option.inventory_uom_id
+
+
+def test_a_copy_converts_as_its_source_does_and_keeps_the_sets_name() -> None:
+    session = _units_store()
+    firm = _firm(session, "ONE")
+    jars = _own_set(session, firm.id)
+    # The source overrode the set: a case of eight, not six.
+    source = _create(
+        session,
+        firm.id,
+        "P-1",
+        unit_set_id=str(jars.id),
+        unit_conversion_factor="8",
+    )
+    products = ProductService(session)
+
+    copy = products.duplicate_product(source.id, firm_scope=firm.id, actor_id=ACTOR)
+
+    assert copy.unit_set_id == jars.id
+    assert copy.purchase_uom_id == _unit(session, "CASE")
+    [rule] = _rules(session, copy.id)
+    assert rule.conversion_factor == Decimal("8")
+
+    # A product typed by hand, with one unit throughout, copies with no rule.
+    plain = _create(session, firm.id, "P-2")
+    plain_copy = products.duplicate_product(
+        plain.id, firm_scope=firm.id, actor_id=ACTOR
+    )
+    assert plain_copy.unit_set_id is None and not _rules(session, plain_copy.id)
+
+    # The set is gone: the copy still converts, and names no set.
+    UnitSetService(session).delete(jars.id, firm_id=firm.id, actor_id=ACTOR)
+    late = products.duplicate_product(source.id, firm_scope=firm.id, actor_id=ACTOR)
+    assert late.unit_set_id is None
+    assert late.purchase_uom_id == _unit(session, "CASE")
+    assert _rules(session, late.id)[0].conversion_factor == Decimal("8")

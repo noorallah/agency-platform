@@ -50,7 +50,7 @@ def _store() -> Session:
     """Return a store holding the shared catalogue and a profile."""
     session = _session_factory()()
     seed_goods_types(session)
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     session.commit()
     return session
 
@@ -422,6 +422,12 @@ def test_a_firms_first_profile_hands_it_the_starting_types_once() -> None:
     assert [
         row.code for row in GoodsTypeService(session).list_types(firm.id) if row.in_use
     ] == ["MEDICINE"]
+    handed = session.scalars(
+        select(AuditLog).where(AuditLog.action == "goods_type.starting_set")
+    ).all()
+    assert [(row.entity_id, row.after_data) for row in handed] == [
+        (firm.id, {"profile": "PHARMACY", "goods_types": ["MEDICINE"]})
+    ]
 
     # Dropped by the firm, then the profile changed and changed back: the
     # profile is a starter kit and has no say after the first day.
@@ -437,6 +443,15 @@ def test_a_firms_first_profile_hands_it_the_starting_types_once() -> None:
     assert not [
         row for row in GoodsTypeService(session).list_types(firm.id) if row.in_use
     ]
+    # ... and a hand-over that gave nothing wrote nothing to the trail.
+    assert (
+        len(
+            session.scalars(
+                select(AuditLog).where(AuditLog.action == "goods_type.starting_set")
+            ).all()
+        )
+        == 1
+    )
 
 
 def test_the_firms_administrator_keeps_goods_types_and_the_manager_does_not() -> None:
@@ -688,3 +703,36 @@ def test_the_product_metadata_carries_the_goods_types_in_its_one_call() -> None:
     assert {name: getattr(created, name) for name in option.switches} == (
         option.switches
     )
+
+
+def test_the_menus_follow_the_goods_a_firm_trades_in() -> None:
+    session = _store()
+    firm = _firm(session, "MIX")
+    other = _firm(session, "OTH")
+    service = GoodsTypeService(session)
+    framework = BusinessProfileFrameworkService(session)
+
+    # A firm trading in nothing tracked needs none of the three screens.
+    assert service.tracking_in_use(firm.id) == []
+
+    # A type taken into use is enough: no product has to exist yet.
+    paint = _use(session, firm.id, "PAINT")
+    assert service.tracking_in_use(firm.id) == ["BATCH"]
+    _use(session, firm.id, "ELECTRONICS")
+    assert service.tracking_in_use(firm.id) == ["BATCH", "SERIAL"]
+    assert service.tracking_in_use(other.id) == []
+
+    # A product keeps its own switches: one filed before goods types
+    # existed, or differing from its line, still needs its screen.
+    _product(session, other.id, "OLD-1", track_batch=True, track_expiry=True)
+    assert service.tracking_in_use(other.id) == ["BATCH", "EXPIRY"]
+
+    # A type dropped stops asking, unless a product still does.
+    service.set_use(
+        paint.id, GoodsTypeUse(in_use=False), firm_id=firm.id, actor_id=uuid4()
+    )
+    assert service.tracking_in_use(firm.id) == ["SERIAL"]
+
+    # It rides on the answer the shell already reads, and no firm says nothing.
+    assert framework.goods_tracking(firm.id) == ["SERIAL"]
+    assert framework.goods_tracking(None) is None

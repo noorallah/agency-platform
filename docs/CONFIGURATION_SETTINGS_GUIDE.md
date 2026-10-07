@@ -173,18 +173,23 @@ dialog open with the server's message. There is no *Rows per page* in 1.3.0.
 **Where:** Settings > Firm > Firm Settings. Changing needs `FIRM_UPDATE`.
 
 **Why:** a pharmacy, an electronics distributor and an FMCG agency need
-different features. The **business profile** decides which features and
-modules this firm operates -- batches and expiry, serial numbers, vehicle
-tracking and so on -- so that nobody is asked for fields their trade does not
-use.
+different menus. The **business profile** decides which modules this firm
+operates, the few features that are about the firm itself (attachments, vehicle
+details, drug licence, commission, batch PTR and PTS), and the goods types a new
+firm starts with.
 
 **What happens:** choose a profile and press **Apply profile**. Menus and
-the optional features follow it. A firm with no profile runs as *Generic* and a
+the five firm features follow it. The first time a firm is given a profile it is
+also handed that profile's starting goods types; the firm's administrator adds
+and drops types afterwards. A firm with no profile runs as *Generic* and a
 warning says so. The firm's name, GSTIN and address are not here; they are on
 the platform **Firms** screen (Settings > Platform > Firms).
 
-**What a profile no longer does:** it does not decide which extra fields the
-firm sees, or which are compulsory. Changing the profile takes no stored value
+**What a profile no longer does:** it does not decide whether a product is
+tracked by batch, expiry or serial number (each product's own switches, filled by
+its goods type, do), and the Inventory tabs Batches, Lots, Serial Numbers and
+Expiry Monitor follow the firm's goods rather than its profile. It does not decide
+which extra fields the firm sees, or which are compulsory. Changing the profile takes no stored value
 out of any record. That moved to the custom field screens below (changed on
 2026-10-08, not yet tested by hand).
 

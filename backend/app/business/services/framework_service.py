@@ -1162,6 +1162,20 @@ class BusinessProfileFrameworkService:
                 result.append((module, assignment.display_order if assignment else 0))
         return sorted(result, key=lambda item: (item[1], item[0].name))
 
+    def goods_tracking(self, firm_id: UUID | None) -> list[str] | None:
+        """Return which of BATCH, EXPIRY and SERIAL the firm's goods need.
+
+        The Batches, Serial Numbers and Expiry Monitor menus follow the goods
+        a firm trades in, never its profile (backlog 89). It rides on the
+        active-modules answer the shell already reads, so the menu costs no
+        call of its own. No firm means no answer, and no answer hides nothing.
+        """
+        if firm_id is None:
+            return None
+        from app.products.services.goods_types import GoodsTypeService
+
+        return GoodsTypeService(self._session).tracking_in_use(firm_id)
+
     def _require_firm(self, firm_id: UUID) -> None:
         """Confirm the firm exists, via the platform store.
 

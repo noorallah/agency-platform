@@ -42,11 +42,17 @@ class ModuleTabDefinition {
     this.requiresFirm = true,
     this.requiresPlatformAdmin = false,
     this.group,
+    this.requiresTracking,
   });
 
   final String id;
   final String label;
   final bool available;
+
+  /// The goods tracking (`BATCH`, `EXPIRY` or `SERIAL`) a firm's goods must
+  /// need for this tab to be offered, or null for a tab every firm gets.
+  /// Applied by `ModuleVisibility.tabsFor` against the server's answer.
+  final String? requiresTracking;
   final List<String> requiredPermissions;
   final bool requiresAnyPermission;
 
@@ -1113,21 +1119,25 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'batches',
           label: 'Batches',
+          requiresTracking: 'BATCH',
           requiredPermissions: ['BATCH_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'lots',
           label: 'Lots',
+          requiresTracking: 'BATCH',
           requiredPermissions: ['BATCH_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'serials',
           label: 'Serial Numbers',
+          requiresTracking: 'SERIAL',
           requiredPermissions: ['SERIAL_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'expiry-monitor',
           label: 'Expiry Monitor',
+          requiresTracking: 'EXPIRY',
           requiredPermissions: ['BATCH_VIEW'],
         ),
       ],

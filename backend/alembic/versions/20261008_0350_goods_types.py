@@ -260,8 +260,11 @@ def _seed_shared() -> dict[str, UUID]:
             )
         ).all()
     }
+    # A shared type that was retired keeps its row and its id: it is neither
+    # written again on a replay nor handed to a firm as a starting type.
+    kept = set(bind.execute(sa.select(_types.c.id)).scalars())
     for raw_id, code, name, description, switches in _SHARED:
-        if code in held:
+        if code in held or UUID(raw_id) in kept:
             continue
         held[code] = UUID(raw_id)
         bind.execute(

@@ -12,10 +12,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.business.models import (
     AttributeDefinition,
-    BusinessFeature,
     BusinessProfile,
     CategoryAttributeRule,
-    ProfileFeature,
 )
 from app.business.services import AttributeService
 from app.common.audit.models import AuditLog
@@ -100,7 +98,7 @@ def _principal(user_id: UUID, permissions: set[str]) -> Principal:
     )
 
 
-def _seed_profile(session: Session, *, with_barcode_feature: bool) -> None:
+def _seed_profile(session: Session) -> None:
     profile = BusinessProfile(
         code="GENERIC",
         name="Generic",
@@ -113,26 +111,6 @@ def _seed_profile(session: Session, *, with_barcode_feature: bool) -> None:
     )
     session.add(profile)
     session.flush()
-    if with_barcode_feature:
-        feature = BusinessFeature(
-            code="BARCODE",
-            name="Barcode",
-            default_enabled=False,
-            is_active=True,
-            created_by=uuid4(),
-            updated_by=uuid4(),
-        )
-        session.add(feature)
-        session.flush()
-        session.add(
-            ProfileFeature(
-                business_profile_id=profile.id,
-                feature_id=feature.id,
-                is_enabled=True,
-                created_by=uuid4(),
-                updated_by=uuid4(),
-            )
-        )
     session.commit()
 
 
@@ -156,7 +134,7 @@ def test_product_service_enforces_category_attribute_rules() -> None:
     """Require category attributes from profile-driven category rules."""
     session = _session_factory()()
     firm = _firm(session, "MED")
-    _seed_profile(session, with_barcode_feature=True)
+    _seed_profile(session)
     actor_id = uuid4()
     service = ProductService(session)
     category = service.create_category(
@@ -223,7 +201,7 @@ def test_a_products_own_fields_are_not_the_profiles_to_refuse() -> None:
     """
     session = _session_factory()()
     firm = _firm(session, "NOBC")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     service = ProductService(session)
 
     payload = _base_payload().model_copy(
@@ -265,7 +243,7 @@ def test_product_api_applies_permissions_and_soft_delete_restore() -> None:
     user_id = uuid4()
     setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
     setup.commit()
-    _seed_profile(setup, with_barcode_feature=True)
+    _seed_profile(setup)
     setup.close()
 
     permissions = {
@@ -319,7 +297,7 @@ def test_product_cost_price_is_hidden_without_permission() -> None:
     user_id = uuid4()
     session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
     session.commit()
-    _seed_profile(session, with_barcode_feature=True)
+    _seed_profile(session)
 
     creator_scope = _firm_scope(
         _principal(
@@ -353,7 +331,7 @@ def test_bulk_product_operations_are_audited() -> None:
     """
     session = _session_factory()()
     firm = _firm(session, "PBULK")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     actor_id = uuid4()
     service = ProductService(session)
     first = service.create_product(
@@ -417,7 +395,7 @@ def test_the_product_form_is_offered_a_field_that_simply_applies() -> None:
     """
     session = _session_factory()()
     firm = _firm(session, "APPLIES")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     service = ProductService(session)
     category = service.create_category(
         data=ProductCategoryCreate(code="GEN", name="General", is_active=True),
@@ -442,7 +420,7 @@ def test_a_mandatory_definition_is_offered_before_it_is_demanded() -> None:
     """
     session = _session_factory()()
     firm = _firm(session, "MUSTHAVE")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     service = ProductService(session)
     category = service.create_category(
         data=ProductCategoryCreate(code="GEN", name="General", is_active=True),
@@ -474,7 +452,7 @@ def test_a_rule_naming_another_goods_types_field_is_not_demanded_here() -> None:
     """
     session = _session_factory()()
     firm = _firm(session, "INERT")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     service = ProductService(session)
     actor_id = uuid4()
     category = service.create_category(

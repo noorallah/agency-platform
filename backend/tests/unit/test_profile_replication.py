@@ -330,7 +330,7 @@ def test_a_profiles_features_follow_it_and_a_missing_feature_is_named() -> None:
             db.add(
                 BusinessFeature(
                     id=feature_id,
-                    code="BATCH_TRACKING",
+                    code="COMMISSION",
                     name="Batch tracking",
                     is_implemented=True,
                 )

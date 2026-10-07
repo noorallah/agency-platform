@@ -76,7 +76,7 @@ from app.products.services.product_import import (
 )
 from app.tax.models import TaxProfile
 from app.trade_licences.models import TradeLicenceType
-from app.uom.models import Uom
+from app.uom.models import ConversionRule, Uom
 from app.uom.schemas import ConversionRuleCreate
 from app.uom.services import UnitSetService, UomService
 
@@ -608,6 +608,7 @@ class ProductService:
         duplicated = ProductCreate.model_validate(
             {
                 **self._product_values_from_model(source),
+                **self._pack_of(source, firm_scope),
                 "code": self._next_duplicate_code(firm_scope, source.code),
                 "attributes": self._attribute_inputs_for(source),
                 "media": [
@@ -1924,6 +1925,42 @@ class ProductService:
                 row.deleted_at = now
                 row.deleted_by = actor_id
                 row.updated_by = actor_id
+
+    def _pack_of(self, source: Product, firm_id: UUID) -> dict[str, object]:
+        """Return the unit set and the pack size a copy of ``source`` takes.
+
+        The copy converts as its source does today: the source's own
+        purchase-to-stock rule, not the unit set's factor, which may have
+        been edited since or overridden on the source. The set is kept by
+        name only while it is still offered; the units are sent with the
+        copy, so the set fills nothing.
+        """
+        offered = {
+            option.id
+            for option in UnitSetService(self._session).product_options(firm_id)
+        }
+        stock = source.inventory_uom_id or source.base_uom_id
+        factor = None
+        if source.purchase_uom_id is not None and stock is not None:
+            factor = self._session.scalar(
+                select(ConversionRule.conversion_factor)
+                .where(
+                    ConversionRule.product_id == source.id,
+                    ConversionRule.from_uom_id == source.purchase_uom_id,
+                    ConversionRule.to_uom_id == stock,
+                    ConversionRule.is_deleted.is_(False),
+                    ConversionRule.status == "ACTIVE",
+                )
+                .order_by(ConversionRule.effective_from.desc())
+                .limit(1)
+            )
+        return {
+            "unit_set_id": (
+                source.unit_set_id if source.unit_set_id in offered else None
+            ),
+            # Named even when there is none, so the set's factor is not used.
+            "unit_conversion_factor": factor,
+        }
 
     def _product_values_from_model(self, product: Product) -> dict[str, object]:
         return {

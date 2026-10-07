@@ -75,6 +75,7 @@ FileImportReport _report({
   int updated = 1,
   bool imported = false,
   List<FileImportIssue> issues = const [],
+  List<FileImportIssue> warnings = const [],
 }) =>
     FileImportReport(
       rows: created + updated,
@@ -84,6 +85,7 @@ FileImportReport _report({
       columnsUsed: const ['code', 'name'],
       columnsIgnored: const ['colour'],
       issues: issues,
+      warnings: warnings,
       imported: imported,
     );
 
@@ -194,6 +196,61 @@ void main() {
     expect(api.calls.map((c) => c.apply), [false, true]);
     expect(api.calls.last.update, isFalse);
     expect(find.text('Import products'), findsNothing);
+  });
+
+  testWidgets('a warning is shown and does not stop the import',
+      (tester) async {
+    // Backlog 89: a unit set marked for another goods type is said, never
+    // refused. The file is clean, so Import stays offered.
+    const String said = "Row 3 (ENM-1): UnitSet: 'Piece, box of 10' is marked "
+        "for other goods types than this product's. It is imported as written.";
+    final _Api api = _Api(
+      checkReport: _report(warnings: const [
+        FileImportIssue(
+          row: 3,
+          code: 'ENM-1',
+          column: 'UnitSet',
+          message: 'is marked for other goods types',
+          text: said,
+        ),
+      ]),
+      applyReport: _report(imported: true),
+    );
+    await _open(tester, api, _permissions(['PRODUCT_IMPORT']))();
+    await _chooseFile(tester);
+    await tester.tap(find.text('Check file'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(said), findsOneWidget);
+    expect(
+      find.text('1 to look at. These do not stop the import.'),
+      findsOneWidget,
+    );
+    expect(find.text('No problems found.'), findsOneWidget);
+    expect(_import(tester).onPressed, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('a report without warnings reads as none, and with them as a list', () {
+    final Map<String, dynamic> base = <String, dynamic>{
+      'rows': 1,
+      'to_create': 1,
+      'to_update': 0,
+      'skipped_blank': 0,
+      'columns_used': ['Code'],
+      'columns_ignored': <String>[],
+      'issues': <Map<String, dynamic>>[],
+      'imported': false,
+    };
+    expect(FileImportReport.fromJson(base).warnings, isEmpty);
+    final FileImportReport warned = FileImportReport.fromJson({
+      ...base,
+      'warnings': [
+        {'row': 2, 'code': 'A', 'column': 'UnitSet', 'message': 'm', 'text': 't'},
+      ],
+    });
+    expect(warned.warnings.single.text, 't');
+    expect(warned.isClean, isTrue);
   });
 
   testWidgets('changing the update choice needs a fresh check and is sent',

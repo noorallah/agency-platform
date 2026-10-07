@@ -2,8 +2,8 @@
 // 21 in one flat list is hard to read and hard to reason about, so the picker
 // groups them — but it could only group by the leading word of the code, which
 // suits permissions (`CUSTOMER_VIEW` under "Customer") and is useless for
-// features: `BARCODE` and `IMEI` have no underscore at all, and `BATCH_TRACKING`
-// and `EXPIRY_TRACKING` would each land in a bucket of one.
+// features: `ATTACHMENTS` has no underscore at all, and `VEHICLE_TRACKING`
+// and `BATCH_PTR_PTS` would each land in a bucket of one.
 //
 // Features carry a category, so the picker now groups by that when the API
 // names one and falls back to the old behaviour when it does not.
@@ -114,12 +114,10 @@ void main() {
   testWidgets('features are grouped under the categories the API names',
       (tester) async {
     final api = _OptionsApi(catalogue: const {
-      'BATCH_TRACKING': 'TRACEABILITY',
-      'EXPIRY_TRACKING': 'TRACEABILITY',
-      'SERIAL_NUMBER': 'TRACEABILITY',
+      'VEHICLE_TRACKING': 'TRACEABILITY',
+      'BATCH_PTR_PTS': 'TRACEABILITY',
       'DRUG_LICENSE': 'COMPLIANCE',
-      'BARCODE': 'CATALOGUE',
-      'IMEI': 'TRACEABILITY',
+      'ATTACHMENTS': 'CATALOGUE',
     });
 
     await _openCreateForm(tester, api, 'business-framework/features');
@@ -128,10 +126,10 @@ void main() {
     expect(find.text('Compliance'), findsOneWidget);
     expect(find.text('Catalogue'), findsOneWidget);
     // The old heuristic would have produced these one-row buckets instead,
-    // and dropped BARCODE and IMEI — which have no underscore — into a
+    // and dropped ATTACHMENTS — which has no underscore — into a
     // catch-all. ("General" itself is not asserted on: the form's own first
     // section is called that.)
-    for (final String derived in ['Batch', 'Expiry', 'Serial', 'Drug']) {
+    for (final String derived in ['Vehicle', 'Batch', 'Drug']) {
       expect(find.text(derived), findsNothing);
     }
   });
@@ -141,8 +139,8 @@ void main() {
     // Fewer than the nine that used to be required before grouping kicked in:
     // a named category is a decision, not a crowd-control measure.
     final api = _OptionsApi(catalogue: const {
-      'BARCODE': 'CATALOGUE',
-      'QR_CODE': 'CATALOGUE',
+      'ATTACHMENTS': 'CATALOGUE',
+      'VEHICLE_TRACKING': 'CATALOGUE',
       'COMMISSION': 'SALES',
     });
 

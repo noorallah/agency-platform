@@ -840,6 +840,61 @@ warehouse rename its capability flags.
 - **Expect:** (b) accepted; the list shows the field as off for this firm. (c) the existing customer still shows the value it holds; the new customer is not offered the field. (d) refused with 422, "do not apply". (e) the second firm is still offered the field. (f) the value saved in (a) is there, unchanged. (g) refused with 404: a firm's own field is retired by making it inactive. (h) refused with 403. The audit trail of the first firm holds two `firm_custom_field.use_changed` rows, off then on.
 - **Leaves:** one shared field, two customers.
 
+### TC-MAST-026 — The Inventory menu shows only the tracking the firm's goods need
+
+*Added 2026-10-08, not yet run; from the code (backlog 89, step 6). Drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 89 point 6 (menus follow the goods); `docs/BUSINESS_PROFILE_FRAMEWORK.md`, *Menus follow the goods*
+- **Fixture:** `product-master`
+- **Also needs:** a firm of its own with **no** goods type in use, no category carrying a type, and no product with a tracking switch on; the shared goods types *Paint* (batch only), *Electronics* (serial and warranty) and *Medicine*; a second user on the firm whose role lacks `BATCH_VIEW`; a second firm in the same store holding one product with *Track batch* on and no goods type (the old kind, filed before goods types existed).
+- **Steps:** as the **Firm admin** of the first firm: (a) sign in and open the Inventory menu (Stock, and All Stock screens > Tracking). (b) Set up > Goods Types: **Use in this firm** on *Paint*; file a category *Enamels* under it. Without signing out, read the menu; then sign out and in again and read it. (c) Use *Electronics* the same way, sign out and in. (d) Stop using both types after clearing the categories' types; sign out and in. (e) As the user without `BATCH_VIEW`: with Paint in use again, sign in and read the menu. (f) As the **Firm admin** of the second firm: sign in and read the menu. (g) Switch from the first firm to the second and back through the firm switcher. (h) Read `GET /api/v1/business-framework/active-modules` with no `X-Firm-ID` header, then with each firm.
+- **Expect:** (a) Batches, Lots, Serial Numbers and Expiry Monitor are all absent; the rest of Stock is there. (b) before signing in again the menu is unchanged (the answer is read at sign-in and at a firm switch); after it Batches and Lots show and Serial Numbers and Expiry Monitor do not. (c) Serial Numbers is added; Expiry Monitor is still absent, Paint and Electronics track no expiry. (d) all four are gone again. (e) the user without `BATCH_VIEW` does not see Batches or Lots although the firm's goods need them. (f) Batches and Lots show, because a live product has *Track batch* on although the firm uses no goods type; Serial Numbers does not. (g) the menu changes with the firm each time, with no further sign-in. (h) the INVENTORY row carries `goods_tracking` as a list (for the first firm `BATCH` while Paint is in use, `BATCH` and `SERIAL` once Electronics is too); every other row carries null; with no `X-Firm-ID` every row carries null. Opening the menu makes no extra request beyond the `active-modules` call the shell already makes at start.
+- **Leaves:** two goods types used then dropped, one category.
+
+### TC-MAST-027 — A product import with no switch columns takes its category's goods type
+
+*Added 2026-10-08, not yet run; from the code (backlog 89, step 6).*
+
+- **Covers:** backlog 89 import point (a); `docs/FUNCTIONAL_GUIDE.md`, products
+- **Fixture:** `product-master`
+- **Also needs:** categories *Tablets* (goods type Medicine), *Emulsions* (Paint), *Sundries* (no type) and *Strips* under *Tablets* with no type of its own; a user on the same firm whose role lacks `PRODUCT_IMPORT`.
+- **Steps:** as the **Firm admin**: Masters > Products > Import > download the template and read the columns. Build a file from the template that **omits** the TrackBatch, TrackExpiry and TrackSerial columns, with four new products: `IM-MED` in *Tablets*, `IM-SUB` in *Tablets* with sub category *Strips*, `IM-PAINT` in *Emulsions*, `IM-GEN` in *Sundries*. Check, then Import; open the four products. Build a second file with the three columns present: `IM-NO` in *Tablets* with TrackExpiry **No** and the other two blank; `IM-YES` in *Sundries* with TrackBatch **Yes**; `IM-BAD` in *Sundries* with TrackBatch `maybe`. Check; read the problems; remove the bad row; Import; open the products. As the user without `PRODUCT_IMPORT`: open the Products screen and call the import check over the API.
+- **Expect:** the template lists the three tracking columns as optional ("Blank takes the goods type of the product's category.") and a UnitSet column. The first check is clean and the import writes four products: `IM-MED` and `IM-SUB` track batch, expiry and manufacturing date (the sub category with no type takes its parent's); `IM-PAINT` tracks batch only; `IM-GEN` tracks nothing. In the second file `IM-NO` tracks batch and manufacturing date but not expiry (a cell saying No wins); `IM-YES` tracks batch only (the file's Yes) and nothing else although the category has no type; `IM-BAD` is named in the check by row and column and the file does not import until it is removed. The user without `PRODUCT_IMPORT` has no Import button, and the same call over the API answers 403.
+- **Leaves:** seven products.
+
+### TC-MAST-028 — The UnitSet column fills a new product's units and its pack rule
+
+*Added 2026-10-08, not yet run; from the code (backlog 89, step 6).*
+
+- **Covers:** backlog 89 import point (b), unit sets in an import
+- **Fixture:** `product-master`
+- **Also needs:** the shared unit sets (*Strip, box of 10* is tied to Medicine, *Tin, loose* is tied to no type); categories *Tablets* (Medicine) and *Emulsions* (Paint); one existing product `UX-OLD` in *Tablets* with its own units.
+- **Steps:** as the **Firm admin**: download the template and read the Lists sheet. Build a file with a UnitSet column: (1) `UX-1` in *Tablets*, UnitSet `Strip, box of 10`, no Unit; (2) `UX-2` in *Tablets*, UnitSet `Strip, box of 10`, Unit `Box`; (3) `UX-3` in *Tablets*, UnitSet `Blister, box of 99`; (4) `UX-4` in *Emulsions*, UnitSet `Strip, box of 10`; (5) `UX-5` in *Emulsions*, UnitSet `Tin, loose`; (6) `UX-OLD` again, UnitSet `Strip, box of 10`. Check. Remove row 3 and check again, then Import. Open each product. Repeat the file with the column headed `Pack size`.
+- **Expect:** the Lists sheet has a Unit set column holding every set offered to the firm. The first check names row 3 as a problem on UnitSet ("'Blister, box of 99' is not an active unit set.") and imports nothing. After row 3 is removed the check is clean in problems but lists two warnings under "2 to look at. These do not stop the import.": row 4 ("is marked for other goods types than this product's. It is imported as written.") and row 6 ("is passed over: a unit set fills a new product only, and this product keeps its units."). Import writes `UX-1` with the set's units and its own pack conversion (1 Box = 10 Strip), `UX-2` with the same conversion but the row's own Unit kept, `UX-4` with the Strip set as written, `UX-5` with Tin and no conversion. `UX-OLD` keeps its units and gains no conversion. The `Pack size` heading is read as the UnitSet column.
+- **Leaves:** four new products, one unchanged.
+
+### TC-MAST-029 — What a business profile no longer does
+
+*Added 2026-10-08, not yet run; from the code (backlog 89, step 6).*
+
+- **Covers:** backlog 89 "Business profiles stay, smaller"; `docs/BUSINESS_PROFILE_FRAMEWORK.md`
+- **Fixture:** `product-master`, plus a platform administrator
+- **Also needs:** a firm on the **Generic** business profile (nothing but `ATTACHMENTS`); a **Firm manager** on it; a second firm on the **Pharmacy** profile.
+- **Steps:** as the platform administrator: Settings > Business profile > Feature Management; read the list. Open the Generic profile and read its features. As the **Firm admin** of the Generic firm: (a) save a product with a barcode and a QR code; (b) on a product with *Track serial* and *Track warranty* on, add a serial number with warranty dates; (c) on a product with *Track expiry* on, add a batch with an expiry date; (d) Masters > Territory: create a route; (e) Masters > Warehouses: add a second warehouse; (f) record a vehicle number on a delivery note; (g) attach a file to a sales order. As the **Firm manager** of the same firm: repeat (c). As the platform administrator: assign the **Pharmacy** profile to the Generic firm and read the goods types of the firm; then assign the Generic profile again; read the goods types of the pharmacy firm.
+- **Expect:** the feature list holds five rows -- Attachments, Vehicle Tracking, Drug License, Commission and Batch PTR / PTS -- and none of Batch Tracking, Expiry Tracking, Serial Number, Warranty, Barcode, QR Code, Territory, Multiple Warehouses or Approval Workflow. The Generic profile lists Attachments only. (a) to (e) are accepted with no refusal naming a profile or a feature. (f) is refused with 403 ("This firm's business profile does not enable VEHICLE_TRACKING, so ... cannot be set."): vehicle details are one of the five firm features and Generic does not map it. (g) is accepted. The firm manager's batch is refused for the missing permission when the role lacks `BATCH_CREATE`, and for no reason to do with the profile otherwise. Assigning Pharmacy to a firm that holds no goods type puts Medicine in use once, with one `goods_type.starting_set` audit row; assigning Generic back changes nothing, and the pharmacy firm's goods types are unchanged by the round trip.
+- **Leaves:** a product, a route, a warehouse, a batch, a serial, a delivery note, an attachment.
+
+### TC-MAST-030 — Copying a product keeps its pack size
+
+*Added 2026-10-08, not yet run; from the code (backlog 89, step 6).*
+
+- **Covers:** backlog 89, `ProductService.duplicate_product`
+- **Fixture:** `product-master`
+- **Also needs:** a product `CP-SET` created from the unit set *Strip, box of 10*, then given its own conversion of 12 (1 Box = 12 Strip); a product `CP-HAND` with units typed by hand and no unit set; a user on the same firm whose role lacks `PRODUCT_CREATE`.
+- **Steps:** as the **Firm admin**: Duplicate `CP-SET`, save the copy as `CP-SET-2`. Duplicate `CP-HAND`, save as `CP-HAND-2`. Stop offering the set *Strip, box of 10* (deactivate it if it is the firm's own, or use a firm-made copy of it), then duplicate `CP-SET` again as `CP-SET-3`. As the user without `PRODUCT_CREATE`: try to duplicate `CP-SET`.
+- **Expect:** `CP-SET-2` shows *Units from: Strip, box of 10* and has its own pack conversion at the **source's** factor, 12, not the set's 10. `CP-HAND-2` has no unit set and the same units as its source, with a conversion only if the source had one. `CP-SET-3` keeps the units and the conversion but not the set's name, because the set is no longer offered. Over all three the source product is unchanged. The user without `PRODUCT_CREATE` is refused (403) and no product is written.
+- **Leaves:** three copies.
+
 
 ---
 

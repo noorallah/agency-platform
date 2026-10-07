@@ -170,16 +170,15 @@ store by name rather than the caller's.
 
 | It decides | How | Enforced? |
 | --- | --- | --- |
-| Whether a write may populate a feature's fields | `assert_feature_fields` in the owning service; `require_feature` on the few endpoints that own a resource outright | Yes, for 4 of the declared features (`DRUG_LICENSE`, `ATTACHMENTS`, `VEHICLE_TRACKING`, `BATCH_PTR_PTS`, as of 2026-10-08); reads always pass |
-| Which custom fields a form offers and a save accepts | `attribute_definitions.applicable_business_profile_id`: null means every profile, a value means that one | Yes, on every save |
-| Which fields are mandatory per product category | `category_attribute_rules` scoped to profile and category | Yes, on product save |
+| Whether a write may populate a feature's fields | `assert_feature_fields` in the owning service; `require_feature` on the few endpoints that own a resource outright | Yes, for 4 of the 5 declared features (`DRUG_LICENSE`, `ATTACHMENTS`, `VEHICLE_TRACKING`, `BATCH_PTR_PTS`; `COMMISSION` has no field check), as of 2026-10-08; reads always pass |
+| Which custom fields a form offers and a save accepts | `category_attribute_rules` naming a goods type, customer group or supplier type, and the firm's `firm_attribute_switches`; the profile no longer says anything (changed 2026-10-08) | Yes, on every save |
+| Which fields are mandatory | `category_attribute_rules`, naming a category code, goods type, customer group or supplier type | Yes, on save |
 | Which units a new product starts with | `unit_sets`, chosen on the new-product form (copied; `products.unit_set_id` records which) | Copied onto the product, not enforced; with no set chosen nothing is pre-filled (changed 2026-10-08, the profile no longer says anything about units) |
 | Which tax profiles and rules apply | `tax_profiles.business_profile_id`, `tax_rules.business_profile_id`, optional scoping | Yes, in rule matching |
 | Which modules the desktop shows | `profile_modules`, read through `/active-modules` | **No** -- cosmetic; the server does not gate a module |
 
-Six declared features carry `is_implemented = false` and cannot be switched
-on. `TERRITORY`, `APPROVAL_WORKFLOW` and `MULTIPLE_WAREHOUSES` work for every
-firm and are deliberately ungated pending a product decision.
+The catalogue holds five features since 2026-10-08. Territory, more than one
+warehouse and approval workflow are not features: they work for every firm.
 [`BUSINESS_PROFILE_FRAMEWORK.md`](BUSINESS_PROFILE_FRAMEWORK.md) is the
 reference.
 

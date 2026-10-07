@@ -199,7 +199,7 @@ class _AttributeFormFieldState extends State<AttributeFormField> {
                 key: ValueKey('attribute-${controller.definition.id}'),
                 // Always tristate, including when required. Defaulting a
                 // required flag to "No" would let it be submitted without ever
-                // being answered, which for something like PRESCRIPTION_REQUIRED
+                // being answered, which for something like a prescription flag
                 // is a wrong answer rather than a missing one. Leaving it unset
                 // lets the save-time required check refuse it instead.
                 tristate: true,

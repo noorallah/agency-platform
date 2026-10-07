@@ -470,6 +470,9 @@ class ActiveModuleResponse(BusinessFrameworkSchema):
     name: str
     ui_route: str | None
     display_order: int
+    #: Which of BATCH, EXPIRY and SERIAL the goods of the firm need, on the
+    #: INVENTORY row alone; null where the row or the caller says nothing.
+    goods_tracking: list[str] | None = None
 
 
 class BusinessProfileConfigurationResponse(BusinessFrameworkSchema):

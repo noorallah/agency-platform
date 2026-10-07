@@ -14,6 +14,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.audit.services import record_audit
 from app.products.models.goods_type import FirmGoodsType, GoodsType
 
 
@@ -133,4 +134,15 @@ def start_firm_goods_types(
             )
         )
     session.flush()
-    return sorted(code for _id, code in rows)
+    codes = sorted(code for _id, code in rows)
+    if codes:
+        record_audit(
+            session,
+            action="goods_type.starting_set",
+            entity_type="firm",
+            entity_id=firm_id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={"profile": profile_code, "goods_types": codes},
+        )
+    return codes

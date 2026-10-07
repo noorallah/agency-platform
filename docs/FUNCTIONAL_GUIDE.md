@@ -781,20 +781,29 @@ the panel names the screen for.
 One installation serves a pharmacy, an electronics distributor and a food
 wholesaler. They need different fields, different rules and different menus —
 and none of that is hardcoded per industry. A **business profile** is a named
-industry (PHARMACY, ELECTRONICS, WHOLESALE …) that switches on:
+industry (PHARMACY, ELECTRONICS, WHOLESALE …). Since 2026-10-08 (backlog 89,
+not yet tested by hand) it is small, and it does three things:
 
-- **features** — optional capabilities such as expiry tracking, serial numbers,
-  barcodes, warranty, drug licence;
-- **modules** — which workspaces the firm operates and in what menu order;
-- **custom fields** — no longer part of the profile. Extra fields on products,
-  customers, vendors and other masters, and which of them are shown or
-  compulsory, are set by goods type, customer group, supplier type and product
-  category, and each firm may switch a shared field off (see D below; changed
-  2026-10-08, not yet tested by hand).
+- **starting goods types** — the first time a firm is given a profile it is
+  handed that profile's goods types (Medicine for PHARMACY, Food for FOOD and
+  RESTAURANT, Electronics for ELECTRONICS, none for the others). It acts once;
+  the firm's administrator adds and drops types afterwards;
+- **modules** — which workspaces the firm operates and in what menu order,
+  including the ones only some trades have (kitchen and recipes, projects and
+  contracts);
+- **features about the firm**, five in all: attachments, vehicle details, the
+  drug licence, commission and batch PTR / PTS.
+
+It does **not** decide what goods look like. Batch, expiry, serial number,
+warranty, manufacturing date, shelf life, barcode and QR code are the product's
+own switches and fields, filled by its goods type (module 9). Nor does it decide
+which extra fields a record carries: those are set by goods type, customer group,
+supplier type and product category, and each firm may switch a shared field off
+(see D below).
 
 A firm is assigned exactly one profile. Change the profile and the firm's
-features, menus and refusals change with it — no code change, no migration.
-Its extra fields and stored values do not move.
+modules, menus and the five features change with it — no code change, no
+migration. Its goods types, extra fields and stored values do not move.
 
 ## Configure first
 
@@ -817,7 +826,7 @@ the platform schema leaves those stores without the catalogue entirely. Use
 | # | Step | Permission | Result |
 | --- | --- | --- | --- |
 | 1 | Create or pick a profile | `PLATFORM-ADMIN` | Row in `business_profiles`; one is flagged the default |
-| 2 | Switch its features on or off | `PLATFORM-ADMIN` | Rows in `profile_features`. A feature marked `is_implemented = false` is **refused** |
+| 2 | Switch its features on or off (the five firm features) | `PLATFORM-ADMIN` | Rows in `profile_features`. A feature marked `is_implemented = false` is **refused** |
 | 3 | Switch its modules on or off, set menu order | `PLATFORM-ADMIN` | Rows in `profile_modules` — two booleans: `is_enabled` (may use) and `is_visible` (appears in the menu) |
 
 ### B. Give a firm its industry
@@ -832,14 +841,14 @@ the platform schema leaves those stores without the catalogue entirely. Use
 | Situation | What happens |
 | --- | --- |
 | Reads anything | Always allowed. **The gates are write-only**, so switching a feature on can never hide data a firm already has |
-| Writes to a feature-owned endpoint | Refused outright if the feature is off — e.g. batches and serials |
+| Writes to a feature-owned endpoint | Refused outright if the feature is off (no route uses this gate today) |
 | Writes a feature-owned **field** on a shared resource | The write is refused only if it *populates* that field. Blank and unchanged always pass |
 | Has no profile at all | Falls back to the platform default (GENERIC). A configuration gap is not treated as a decision |
 
 The distinction in the middle two rows is the design: gating the whole endpoint
 suits a feature that owns its resource, but most features are optional *fields*
 on a resource every firm uses — gating the endpoint would stop a firm creating
-products because it does not scan barcodes.
+a delivery note because it does not record a vehicle.
 
 ### D. Custom fields
 
@@ -880,39 +889,33 @@ Under **Settings** (the gear), each needing `PLATFORM_VIEW`:
 
 ## What each profile enables today
 
-Read live from `profile_features`:
+Derived on 2026-10-08 from the migrations and the seed, not read from a live
+store (the full table, with the reasoning, is in
+`docs/BUSINESS_PROFILE_FRAMEWORK.md`):
 
-| Profile | Features |
-| --- | --- |
-| PHARMACY | ATTACHMENTS, BARCODE, BATCH_TRACKING, DRUG_LICENSE, EXPIRY_TRACKING, MANUFACTURING_DATE, SHELF_LIFE |
-| FOOD | ATTACHMENTS, BARCODE, BATCH_TRACKING, EXPIRY_TRACKING, MANUFACTURING_DATE, SHELF_LIFE |
-| MANUFACTURING | APPROVAL_WORKFLOW, ATTACHMENTS, BARCODE, BATCH_TRACKING, MANUFACTURING_DATE, MULTIPLE_WAREHOUSES |
-| WHOLESALE | ATTACHMENTS, BARCODE, BATCH_TRACKING, MULTIPLE_WAREHOUSES, TERRITORY |
-| AGENCY | ATTACHMENTS, BARCODE, MULTIPLE_WAREHOUSES, TERRITORY |
-| ELECTRONICS | ATTACHMENTS, BARCODE, SERIAL_NUMBER, WARRANTY |
-| RETAIL | ATTACHMENTS, BARCODE, EXPIRY_TRACKING, QR_CODE |
-| GARMENTS | ATTACHMENTS, BARCODE, QR_CODE |
-| RESTAURANT | ATTACHMENTS, EXPIRY_TRACKING, SHELF_LIFE |
-| GENERIC | ATTACHMENTS, BARCODE |
-| SERVICE | APPROVAL_WORKFLOW, ATTACHMENTS |
-| CUSTOM | *(none — configured per deployment)* |
+| Profile | Features | Modules beyond the ten core | Starting goods types |
+| --- | --- | --- | --- |
+| PHARMACY | ATTACHMENTS, DRUG_LICENSE, BATCH_PTR_PTS | — | Medicine |
+| FOOD | ATTACHMENTS, BATCH_PTR_PTS | — | Food |
+| WHOLESALE | ATTACHMENTS, BATCH_PTR_PTS | — | — |
+| RESTAURANT | ATTACHMENTS | kitchen, recipes | Food |
+| ELECTRONICS | ATTACHMENTS | contracts | Electronics |
+| MANUFACTURING | ATTACHMENTS | recipes | — |
+| SERVICE | ATTACHMENTS | projects, contracts | — |
+| GENERIC, AGENCY, RETAIL, GARMENTS | ATTACHMENTS | — | — |
+| CUSTOM | *(none mapped)* | — | — |
 
-Modules run 10–12 per profile: RESTAURANT and SERVICE add kitchen/recipes and
-projects/contracts, ELECTRONICS and MANUFACTURING get 11, everyone else the ten
-core workspaces.
-
-**Only four features are enforced now** (as of 2026-10-08, backlog 89):
-`DRUG_LICENSE`, `ATTACHMENTS`, `VEHICLE_TRACKING` and `BATCH_PTR_PTS` gate
-fields. `BATCH_TRACKING`, `SERIAL_NUMBER`, `EXPIRY_TRACKING`,
-`MANUFACTURING_DATE`, `SHELF_LIFE`, `WARRANTY`, `BARCODE` and `QR_CODE` were
-enforced earlier and are not now: the product's own switches decide, and the
-rows go in step 6. `TERRITORY`, `APPROVAL_WORKFLOW` and
-`MULTIPLE_WAREHOUSES` have working code and are deliberately ungated pending a
-product decision — enforcing `TERRITORY` today would take routes away from
-PHARMACY, FOOD and RETAIL, which plausibly sell by territory. Six of the
-remaining codes have no backing code and stay `is_implemented = false`:
-`IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`,
-`SERVICE_CONTRACTS` and `PROJECT_MANAGEMENT`.
+**Five features remain** (`business_features` holds five rows since
+2026-10-08): `ATTACHMENTS`, `VEHICLE_TRACKING`, `DRUG_LICENSE`, `COMMISSION` and
+`BATCH_PTR_PTS`. `ATTACHMENTS`, `VEHICLE_TRACKING`, `DRUG_LICENSE` and
+`BATCH_PTR_PTS` gate fields; `COMMISSION` has no field check (the commission
+screens are guarded by their permissions). The other seventeen were withdrawn
+by migration `20261008_0353`: what goods look like (batch, expiry, serial
+number, warranty, manufacturing date, shelf life, barcode, QR code) is the
+product's own, territory, multiple warehouses and approval workflow were
+enforced nowhere so every firm already used them, and six had no code behind
+them. Territory, warehouses and approvals are reached through the firm's
+modules and the roles' permissions.
 
 ## Tables
 
@@ -921,7 +924,7 @@ Every one is **firm-owned** — it exists once per store.
 | Table | Holds | Columns that carry the meaning |
 | --- | --- | --- |
 | `business_profiles` | The industries | `code`, `is_default` (the fallback for unassigned firms) |
-| `business_features` | The capability catalogue | `code`, `default_enabled`, `is_implemented` |
+| `business_features` | The capability catalogue (five rows) | `code`, `default_enabled`, `is_implemented` |
 | `business_modules` | The workspace catalogue | `code`, `default_enabled` |
 | `profile_features` | Which features an industry enables | `is_enabled` (overrides `default_enabled`), `configuration` |
 | `profile_modules` | Which modules an industry enables | `is_enabled`, `is_visible`, `display_order` |
@@ -949,8 +952,8 @@ profile → else enforce nothing. Then per catalogue entry: an explicit
   for every firm on that profile** — writes those firms made yesterday start
   being rejected.
 - **The desktop's menu filtering is cosmetic, not a security boundary.** It
-  hides entries; the server's `require_feature` / `require_module` is the
-  boundary.
+  hides entries; the server's `assert_feature_fields` and permission checks are
+  the boundary (`require_module` is built but applied to no route).
 - **Mandatory attributes must be scoped** to a category, goods type, customer
   group or supplier type. A global `mandatory` flag asks every industry for every
   field.
@@ -1801,10 +1804,26 @@ Read attributes for a list of records with `values_for_many`, **never per row**.
 `require_serial_on_issue` · `allow_negative_stock` · `allow_fraction` ·
 `allow_decimal`
 
-A product's own switches are no longer gated by the business profile (since
-2026-10-08): any firm may set `track_expiry` and the rest. They decide what a
-batch or serial number may carry -- an expiry date is refused on a batch of a
-product that does not track expiry (`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`).
+A product's own switches are not gated by the business profile (since
+2026-10-08): any firm may set `track_expiry` and the rest, and a new product
+takes them from its category's goods type. They decide what a batch or serial
+number may carry -- an expiry date is refused on a batch of a product that does
+not track expiry (`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`). Barcode and QR
+code are plain product fields any firm may fill.
+
+**Importing products from a file** (added on 2026-10-08, not yet tested by
+hand). The columns *TrackBatch*, *TrackExpiry* and *TrackSerial* are optional:
+leave a cell blank, or leave the column out, and the product takes the switches
+of its category's goods type (a sub category with no type takes its parent's; a
+category with no type tracks nothing). A cell that says Yes or No is the file's
+own answer and wins. A new optional column, *UnitSet* (also read from the
+headings "unit set", "packing" and "pack size"), names a unit set: on a **new**
+product it fills the units and creates the product's own pack conversion, and a
+*Unit* on the same row is kept. A name that does not exist stops the file. On a
+product that already exists the cell is passed over with a warning. A set marked
+for other goods types than the product's is imported as written, with a warning.
+The check lists such warnings under "N to look at. These do not stop the
+import." beside the problems; a file with warnings alone is clean and imports.
 
 ## Batch, lot and serial
 
@@ -1823,7 +1842,7 @@ store, so that half of the module runs on unit tests alone.
 | Categories, brands, principals | **Settings › Set up › Item lists › Product Categories, Principals, Brands** |
 | Goods types (Medicine, Food, Paint ...) and which the firm uses | **Settings › Firm › Goods Types** -- added on 2026-10-08, not yet tested by hand |
 | Custom fields and which are mandatory | **Settings › Business profile › Attribute Definitions, Mandatory Attributes**; a firm's own, and its shared-field switches and rules by goods type, customer group and supplier type: **Settings › Firm › Custom Fields, Custom Field Rules** |
-| Batches, lots, serials, expiry | **Stock › Batches, Expiry Monitor**; **All Stock screens › Tracking** |
+| Batches, lots, serials, expiry | **Stock › Batches, Expiry Monitor**; **All Stock screens › Tracking** (shown only when the firm's goods need them: Batches and Lots for batch tracking, Serial Numbers for serial tracking, Expiry Monitor for expiry tracking) |
 
 ## Tables
 
@@ -2169,9 +2188,9 @@ in `visit_sequence` order. That is the ordinary case and needs no rows at all.
    *every* attempt to name a salesman was refused on every customer of every
    firm, which is how three `select(User)` defects survived months of green
    tests.
-5. **`TERRITORY` is deliberately ungated.** Only AGENCY and WHOLESALE enable
-   the feature, so enforcing it would take routes and beats away from PHARMACY,
-   FOOD and RETAIL. The seeded assignment looks more wrong than the code does.
+5. **Territory is not a feature.** The `TERRITORY` feature row was withdrawn
+   on 2026-10-08: it was enforced nowhere and every firm already used routes and
+   beats. Reaching them is the firm's modules and the roles' permissions.
 
 ---
 

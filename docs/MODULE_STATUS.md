@@ -151,7 +151,7 @@ no seeded row satisfies.
 
 | Module | Routes | Reports | State | Notes |
 | --- | ---: | ---: | --- | --- |
-| Business profiles `app/business` | 38 *(re-counted 10-03)* | 0 | **Partial** | **22 features declared, 6 of them flagged unbuilt.** Of the 16 that exist, 11 are gated (see `BUSINESS_PROFILE_FRAMEWORK.md`) and 3 are deliberately ungated pending a decision. Custom fields extend any module without a migration. Extra fields on six documents (MST-6) and a firm's own custom fields (MST-8); features and modules created at runtime reach every store (MST-7). |
+| Business profiles `app/business` | 38 *(re-counted 10-03)* | 0 | **Partial** | **5 features declared** (`ATTACHMENTS`, `VEHICLE_TRACKING`, `DRUG_LICENSE`, `COMMISSION`, `BATCH_PTR_PTS`), all implemented; the other 17 were withdrawn on 2026-10-08 by `20261008_0353` (what goods look like is each product's own switches, filled by its goods type). A profile now decides modules, menus, the five features and the goods types a new firm starts with (see `BUSINESS_PROFILE_FRAMEWORK.md`, which also lists which profiles are now identical). Custom fields extend any module without a migration. Extra fields on six documents (MST-6) and a firm's own custom fields (MST-8); features and modules created at runtime reach every store (MST-7). |
 | Tax framework `app/tax` | 54 *(re-counted 10-03)* | 0 | Built | Rules attach to the transaction, never the product. First match wins and evaluation stops. The tax rule that taxed a line is kept on it (GST-8). |
 | Document framework `app/document_framework` | 17 | 0 | Built | Types, states, print templates and numbering. A firm administers its own series as of 2026-09-05. |
 | Identity and roles `app/identity` | 25 | 0 | Built | 232 permission codes in 38 groups on 2026-10-05 (count `PERMISSION_GROUPS` rather than trusting this), all seeded, and all visible to the guard that checks they are. |
@@ -247,15 +247,10 @@ merged on its own targeted tests. As of this refresh:
 
 ## Waiting on a product decision
 
-**Three features that work but are not gated.** Each is enforceable today;
-enforcing it would take the feature away from firms currently using it, which
-is a call about who should have it rather than a piece of work.
-
-| Feature | Why it is still open |
-| --- | --- |
-| `TERRITORY` | Only AGENCY and WHOLESALE enable it, so gating it would take routes and beats away from PHARMACY, FOOD and RETAIL — all of which plausibly sell by territory on a distribution platform. The seeded profile assignment looks more wrong than the code does. |
-| `APPROVAL_WORKFLOW` | Needs a product decision about which documents it governs before it can gate anything. |
-| `MULTIPLE_WAREHOUSES` | Same shape: the flag exists, the behaviour it would switch off has not been agreed. |
+**Three features that were not gated are gone (2026-10-08).** `TERRITORY`,
+`APPROVAL_WORKFLOW` and `MULTIPLE_WAREHOUSES` were enforced nowhere, so every
+firm already used them; `20261008_0353` withdrew the three catalogue rows. Nothing
+is left waiting on that decision.
 
 **Three accounting questions deliberately left unanswered.** Each is defensible
 as it stands and each would move real money if changed.
@@ -273,18 +268,16 @@ as it stands and each would move real money if changed.
 
 ## Declared, not built
 
-Six industry features carry `business_features.is_implemented = false`, so the
-service refuses to enable them and no profile advertises them. They are honest
-placeholders rather than half-written code.
+Nothing. The six industry features that carried `is_implemented = false` (`IMEI`,
+`PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`,
+`SERVICE_CONTRACTS`, `PROJECT_MANAGEMENT`) were withdrawn from the catalogue on
+2026-10-08 by `20261008_0353`, with every profile's mapping to them. All five
+features that remain are implemented. The business modules KITCHEN, RECIPES,
+PROJECTS and CONTRACTS are untouched.
 
-`IMEI` · `PRESCRIPTION_REQUIRED` · `RECIPE_MANAGEMENT` · `KITCHEN_MANAGEMENT` ·
-`SERVICE_CONTRACTS` · `PROJECT_MANAGEMENT`
-
-`COMMISSION` came off this list on 2026-09-03: `app/commission` had shipped ten
-days earlier and the flag outlived the fact, so an administrator was being
-refused a feature the platform had. **A flag recording what the codebase does
-has to be revisited when the codebase does it**, and nothing but a survey finds
-the next one.
+**A flag recording what the codebase does has to be revisited when the codebase
+does it**: `COMMISSION` once outlived its flag (2026-09-03), and nothing but a
+survey finds the next one.
 
 ## Built, but nothing exercises it
 
