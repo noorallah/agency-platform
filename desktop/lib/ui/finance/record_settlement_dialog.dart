@@ -143,6 +143,15 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   /// not yet set against a bill. Said before the money goes, because paying a bill
   /// in full while a credit stands pays the supplier twice (D-FIN-19).
   List<SupplierCredit> _credits = const [];
+
+  /// What the chosen customer's returns and credit notes left on their
+  /// account (D-PRC-75). A receipt says so; a refund may name which one it
+  /// pays back. Advice, never a gate.
+  List<CustomerCredit> _customerCredits = const [];
+
+  /// The credit a refund pays back; blank is "not from a particular credit",
+  /// which the server reads as the oldest first.
+  String _creditSourceId = '';
   bool _busy = false;
   String? _error;
 
@@ -334,6 +343,70 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       // payment being recorded.
     }
   }
+
+  /// Read once per customer chosen, never per keystroke.
+  Future<void> _loadCustomerCredits(String partyId) async {
+    try {
+      final List<CustomerCredit> rows =
+          await widget.api.customerCredits(partyId);
+      if (!mounted || _partyId != partyId) return;
+      setState(() => _customerCredits = [
+            for (final CustomerCredit credit in rows)
+              if (credit.availableValue > 0) credit,
+          ]);
+    } on Exception {
+      // Advice, not a gate: failing to read it must not stop the money
+      // being recorded.
+    }
+  }
+
+  /// One plain line on a receipt when the customer holds credit.
+  Widget _customerCreditNotice(BuildContext context) {
+    if (_customerCredits.isEmpty) return const SizedBox.shrink();
+    final double total = _customerCredits.fold<double>(
+        0, (sum, credit) => sum + credit.availableValue);
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Text(
+        'This customer holds ${total.toStringAsFixed(2)} of credit from '
+        'returns and credit notes. Use Customer credits to set it against '
+        'a bill.',
+        key: const ValueKey('settlement-customer-credit-notice'),
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    );
+  }
+
+  /// Which credit a refund pays back, where the customer holds any.
+  Widget _creditSourcePicker() => Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.md),
+        child: DropdownButtonFormField<String>(
+          key: const ValueKey('settlement-credit-source'),
+          initialValue: _creditSourceId,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Pays back credit (optional)',
+            helperText: 'Blank takes the oldest credit the customer holds '
+                'first.',
+          ),
+          items: [
+            const DropdownMenuItem<String>(
+              value: '',
+              child: Text('Not from a particular credit'),
+            ),
+            for (final CustomerCredit credit in _customerCredits)
+              DropdownMenuItem<String>(
+                value: credit.sourceId,
+                child: Text(
+                  '${credit.label} - ${credit.availableAmount} left',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: (value) =>
+              setState(() => _creditSourceId = value ?? ''),
+        ),
+      );
 
   /// Spread the amount over the oldest invoices, the way it is done by hand.
   void _autoAllocate() {
@@ -574,6 +647,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
           // Only where one was named: blank is "no particular order", which
           // is what most receipts are.
           if (_orderId.isNotEmpty) 'sales_order_id': _orderId,
+          if (widget.direction == SettlementDirection.refund &&
+              _creditSourceId.isNotEmpty)
+            'credit_source_id': _creditSourceId,
           'settlement_date':
               _date.toIso8601String().substring(0, 10),
           'amount': _amount.text.trim(),
@@ -713,7 +789,11 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                 const SizedBox(height: AppSpacing.md),
                 _orderPicker(),
                 _tcsNotice(context),
+                _customerCreditNotice(context),
               ],
+              if (widget.direction == SettlementDirection.refund &&
+                  _customerCredits.isNotEmpty)
+                _creditSourcePicker(),
               const SizedBox(height: AppSpacing.lg),
               // A refund returns money held on account, which is the
               // opposite of settling a document -- so there is nothing
@@ -1099,6 +1179,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       _orderId = '';
       _orders = const <Json>[];
       _offers = const <Json>[];
+      _customerCredits = const [];
+      _creditSourceId = '';
       _tcs = null;
       // The previous supplier's 194Q position is not this one's.
       _tds194q = null;
@@ -1125,6 +1207,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     // The notice was read only when the amount changed, so a customer chosen
     // after the amount cleared it and nothing brought it back (plan item
     // 9.19, 2026-09-13).
+    if (widget.direction.isCustomer) {
+      unawaited(_loadCustomerCredits(party.id));
+    }
     if (widget.direction == SettlementDirection.receipt) {
       unawaited(_loadTcs());
       unawaited(_loadOrders(party.id));

@@ -9,6 +9,7 @@ import 'package:agency_desktop/ui/delivery_notes/delivery_note_editor_dialog.dar
 import 'package:agency_desktop/ui/sales_returns/sales_return_editor_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/return_document.dart';
 
 /// The storekeeper picks which serialised units go, and which come back.
 ///
@@ -218,6 +219,7 @@ Future<Json?> _raiseReturn(
   );
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
+  await chooseReturnDocument(tester, 'DN-2026-000001');
   for (final String id in pick) {
     await tester.tap(find.byKey(ValueKey<String>('serial-back-$id')));
     await tester.pumpAndSettle();

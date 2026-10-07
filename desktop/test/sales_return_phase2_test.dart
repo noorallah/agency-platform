@@ -12,6 +12,7 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/return_document.dart';
 
 /// A dispatched note of two lines: 5 toothpaste at 50, 3 soap at 30.
 ReturnableDocument _note() => ReturnableDocument.fromDeliveryNote({
@@ -148,6 +149,7 @@ Future<void> _openEditor(
   ));
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
+  await chooseReturnDocument(tester, 'DN-2026-000001');
 }
 
 void main() {
@@ -183,6 +185,7 @@ void main() {
     saved.clear();
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
+    await chooseReturnDocument(tester, 'DN-2026-000001');
     await tester.enterText(
         find.byKey(const ValueKey<String>('sales-return-returning-dn-1-0')),
         '1');
@@ -297,6 +300,7 @@ void main() {
     ));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
+    await chooseReturnDocument(tester, 'DN-2026-000001');
     expect(tester.takeException(), isNull);
 
     // Both lines are on screen and nothing is coming back yet.

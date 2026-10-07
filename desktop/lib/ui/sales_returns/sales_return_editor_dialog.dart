@@ -118,7 +118,8 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
   @override
   void initState() {
     super.initState();
-    if (widget.documents.isNotEmpty) _selectDocument(widget.documents.first);
+    // Nothing chosen until a person chooses: the first document is nobody's
+    // choice (D-UI-22); Save says what is missing.
     // The firm's default warehouse, or the only one; with several and no
     // single default the form asks. The first of the list was the newest,
     // so returned goods landed in whichever warehouse was added last
@@ -229,7 +230,12 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
   Json? _payload() {
     final ReturnableDocument? document = _document;
     final ReturnableLine? line = _line;
-    if (document == null || line == null || _warehouseId == null) return null;
+    if (document == null) {
+      // Run the validators so the dropdown says what is missing.
+      _form.currentState?.validate();
+      return null;
+    }
+    if (line == null || _warehouseId == null) return null;
     final bool formValid = _form.currentState?.validate() ?? false;
     final String? serialProblem = _serialValidation();
     setState(() => _serialProblem = serialProblem);
@@ -291,6 +297,9 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                         labelText: 'Returned against',
                         helperText: 'The document the goods went out on.',
                       ),
+                      validator: (value) => value == null
+                          ? 'Choose the document the goods went out on.'
+                          : null,
                       items: [
                         for (final ReturnableDocument item in widget.documents)
                           DropdownMenuItem(
