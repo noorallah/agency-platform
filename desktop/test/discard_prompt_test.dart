@@ -184,6 +184,18 @@ void main() {
     expect(api.written, isEmpty);
   });
 
+  testWidgets('an untouched coupon closes without a question', (tester) async {
+    await _open(
+      tester,
+      CouponDialog(api: _Api(), promotions: <PromotionRecord>[_offer()]),
+    );
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Close without saving?'), findsNothing);
+    expect(find.text('New coupon'), findsNothing);
+  });
+
   testWidgets('a typed coupon asks before Cancel throws it away',
       (tester) async {
     await _open(
