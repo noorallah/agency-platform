@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.products.schemas.goods_type import ProductGoodsTypeOption
+
 
 class ProductType(StrEnum):
     """Supported product type classifications."""
@@ -452,6 +454,12 @@ class ProductMetadataResponse(ProductSchema):
     tax_profiles: list[ProductTaxProfileOption]
     required_attribute_definition_ids: list[UUID]
     optional_attribute_definition_ids: list[UUID]
+    #: Every goods type the firm can see, with what a new product of each
+    #: starts with (backlog 89).
+    goods_types: list[ProductGoodsTypeOption] = Field(default_factory=list)
+    #: The type a product filed under the category asked about takes; null is
+    #: General, and what an ask naming no category gets.
+    goods_type_id: UUID | None = None
 
 
 class BulkProductRequest(ProductSchema):

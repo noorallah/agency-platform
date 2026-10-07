@@ -43,6 +43,7 @@ from app.products.schemas import (
     ProductAttributeInput,
     ProductCategoryCreate,
     ProductCreate,
+    ProductUpdate,
 )
 from app.products.services import ProductService
 
@@ -215,54 +216,48 @@ def test_product_service_enforces_category_attribute_rules() -> None:
     assert stored[0].value == date(2028, 12, 31)
 
 
-def test_product_service_enforces_feature_gated_fields() -> None:
-    """Reject feature-gated payload fields when the profile disables them.
+def test_a_products_own_fields_are_not_the_profiles_to_refuse() -> None:
+    """A barcode, a QR code, a warranty and a shelf life are plain fields.
 
-    Raises AuthorizationError, not ValidationError: the payload is well
-    formed, the firm is simply not entitled to that field. That is what every
-    other feature gate raises, and it now goes through the same resolver
-    instead of a private query that ignored ``is_active`` and ``is_deleted``.
+    The firm's business profile used to be asked whether a product might
+    carry each of them, so a firm on one trade's profile was refused a field
+    its second line of goods needed. What a product carries follows the
+    product (backlog 89); a profile that lists none of the four refuses none.
     """
     session = _session_factory()()
     firm = _firm(session, "NOBC")
     _seed_profile(session, with_barcode_feature=False)
     service = ProductService(session)
 
-    payload = _base_payload()
-    payload.barcode = "890100001"
-    with pytest.raises(AuthorizationError, match="BARCODE"):
-        service.create_product(payload, firm_id=firm.id, actor_id=uuid4())
-
-
-def test_deactivating_a_feature_disables_it_for_products_too() -> None:
-    """One resolver, one answer.
-
-    Products resolved features through a private query filtering neither
-    ``is_active`` nor ``is_deleted``, so an administrator who deactivated
-    BARCODE found every require_feature endpoint refusing while the product
-    form still accepted barcodes.
-    """
-    session = _session_factory()()
-    firm = _firm(session, "DEACT")
-    _seed_profile(session, with_barcode_feature=True)
-    service = ProductService(session)
-
-    payload = _base_payload()
-    payload.barcode = "890100002"
-    service.create_product(payload, firm_id=firm.id, actor_id=uuid4())
-
-    feature = session.scalar(
-        select(BusinessFeature).where(BusinessFeature.code == "BARCODE")
+    payload = _base_payload().model_copy(
+        update={
+            "barcode": "890100001",
+            "qr_code": "QR-890100001",
+            "track_warranty": True,
+            "shelf_life_days": 365,
+        }
     )
-    assert feature is not None
-    feature.is_active = False
-    session.commit()
+    created = service.create_product(payload, firm_id=firm.id, actor_id=uuid4())
 
-    second = _base_payload()
-    second.code = "P-SECOND"
-    second.barcode = "890100003"
-    with pytest.raises(AuthorizationError, match="BARCODE"):
-        service.create_product(second, firm_id=firm.id, actor_id=uuid4())
+    assert created.barcode == "890100001"
+    assert created.qr_code == "QR-890100001"
+    assert created.track_warranty is True
+    assert created.shelf_life_days == 365
+
+    changed = service.update_product(
+        created.id,
+        ProductUpdate.model_validate(
+            {
+                "code": created.code,
+                "name": created.name,
+                "product_type": "STOCK_ITEM",
+                "barcode": "890100009",
+            }
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+    assert changed.barcode == "890100009"
 
 
 def test_product_api_applies_permissions_and_soft_delete_restore() -> None:

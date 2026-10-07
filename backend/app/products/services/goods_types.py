@@ -26,10 +26,28 @@ from app.products.schemas.goods_type import (
     GoodsTypeResponse,
     GoodsTypeUpdate,
     GoodsTypeUse,
+    ProductGoodsTypeOption,
 )
 from app.tax.models import TaxProfile
 
 _DEFAULTS = ("default_hsn_sac", "default_tax_profile_group_code")
+#: The switches a type holds, which a new product of it starts with.
+_SWITCHES = (
+    "track_batch",
+    "track_expiry",
+    "track_manufacturing_date",
+    "track_serial",
+    "track_warranty",
+)
+#: The product's "must be named" rules, and the switch each one follows: a
+#: line tracked by batch is one whose goods may not arrive or leave without
+#: one. The type holds no column for these; they are its switch said twice.
+_FOLLOWERS = {
+    "require_batch_on_receipt": "track_batch",
+    "require_batch_on_issue": "track_batch",
+    "require_serial_on_receipt": "track_serial",
+    "require_serial_on_issue": "track_serial",
+}
 
 
 class GoodsTypeService:
@@ -78,6 +96,95 @@ class GoodsTypeService:
             .order_by(ProductCategory.level.desc())
             .limit(1)
         )
+
+    @staticmethod
+    def product_switches(row: GoodsType) -> dict[str, bool]:
+        """Return every switch a new product of this type starts with."""
+        switches = {name: bool(getattr(row, name)) for name in _SWITCHES}
+        switches.update({name: switches[lead] for name, lead in _FOLLOWERS.items()})
+        return switches
+
+    def product_options(
+        self, firm_id: UUID, *, tax_groups: set[str]
+    ) -> list[ProductGoodsTypeOption]:
+        """Return each type as the product form needs it; two reads.
+
+        ``tax_groups`` is the firm's live ones: a default naming a group the
+        firm has since retired is not offered, as it is not filled on a save.
+        """
+        rows = self._session.scalars(
+            select(GoodsType)
+            .where(
+                GoodsType.is_deleted.is_(False),
+                or_(GoodsType.firm_id.is_(None), GoodsType.firm_id == firm_id),
+            )
+            .order_by(GoodsType.name.asc(), GoodsType.code.asc())
+        ).all()
+        uses = self._uses(firm_id)
+        options: list[ProductGoodsTypeOption] = []
+        for row in rows:
+            use = uses.get(row.id)
+            tax_group = None if use is None else use.default_tax_profile_group_code
+            options.append(
+                ProductGoodsTypeOption(
+                    id=row.id,
+                    code=row.code,
+                    name=row.name,
+                    switches=self.product_switches(row),
+                    default_hsn_sac=None if use is None else use.default_hsn_sac,
+                    default_tax_profile_group_code=(
+                        tax_group if tax_group in tax_groups else None
+                    ),
+                )
+            )
+        return options
+
+    def starting_values(
+        self,
+        firm_id: UUID,
+        goods_type_id: UUID | None,
+        *,
+        sent: set[str],
+        values: dict[str, object],
+    ) -> dict[str, object]:
+        """Return what the type fills on a product being created.
+
+        ``sent`` is the fields the caller named and ``values`` what they hold.
+        A switch the caller named is theirs, on or off: that is how one
+        product differs from its line. The rest take the type's, and a
+        "must be named" rule follows its switch as it ends up, so a product
+        sent with batch tracking off is not left demanding a batch. The HSN
+        code and tax group are filled only where the product has none, and a
+        tax group the firm no longer has is passed over rather than refused.
+        General fills nothing.
+        """
+        row = (
+            None
+            if goods_type_id is None
+            else self._session.get(GoodsType, goods_type_id)
+        )
+        if row is None:
+            return {}
+        filled: dict[str, object] = {
+            name: bool(getattr(row, name)) for name in _SWITCHES if name not in sent
+        }
+        for name, lead in _FOLLOWERS.items():
+            if name not in sent:
+                tracked = filled[lead] if lead in filled else values.get(lead)
+                filled[name] = bool(getattr(row, lead)) and bool(tracked)
+        use = self._uses(firm_id).get(row.id)
+        if use is None:
+            return filled
+        if values.get("hsn_sac") is None and use.default_hsn_sac:
+            filled["hsn_sac"] = use.default_hsn_sac
+        tax_group = use.default_tax_profile_group_code
+        if (
+            values.get("tax_profile_group_code") is None
+            and tax_group
+            and self._has_tax_group(firm_id, tax_group)
+        ):
+            filled["tax_profile_group_code"] = tax_group
+        return filled
 
     def assert_offered(self, firm_id: UUID, goods_type_id: UUID | None) -> None:
         """Refuse a type a category of this firm may not carry.
@@ -366,20 +473,24 @@ class GoodsTypeService:
 
     def _assert_tax_group(self, firm_id: UUID, group_code: str | None) -> None:
         """Refuse a default tax group the firm does not have."""
-        if group_code is None:
-            return
+        if group_code is not None and not self._has_tax_group(firm_id, group_code):
+            raise ValidationError(
+                "No active tax profile found for the given group code."
+            )
+
+    def _has_tax_group(self, firm_id: UUID, group_code: str) -> bool:
+        """Say whether the firm has a live tax profile in this group."""
         found = self._session.scalar(
-            select(TaxProfile.id).where(
+            select(TaxProfile.id)
+            .where(
                 TaxProfile.firm_id == firm_id,
                 TaxProfile.group_code == group_code,
                 TaxProfile.is_deleted.is_(False),
                 TaxProfile.status == "ACTIVE",
             )
+            .limit(1)
         )
-        if found is None:
-            raise ValidationError(
-                "No active tax profile found for the given group code."
-            )
+        return found is not None
 
     @staticmethod
     def _response(row: GoodsType, use: FirmGoodsType | None) -> GoodsTypeResponse:

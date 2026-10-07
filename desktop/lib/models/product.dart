@@ -297,6 +297,8 @@ class ProductMetadataRecord {
     required this.taxProfiles,
     required this.requiredAttributeDefinitionIds,
     required this.optionalAttributeDefinitionIds,
+    this.goodsTypes = const [],
+    this.goodsTypeId = '',
   });
 
   final String profileCode;
@@ -305,6 +307,22 @@ class ProductMetadataRecord {
   final List<ProductTaxProfileRecord> taxProfiles;
   final List<String> requiredAttributeDefinitionIds;
   final List<String> optionalAttributeDefinitionIds;
+
+  /// Every goods type the firm can see, with what a new product of the type
+  /// starts with. Empty from an older server.
+  final List<ProductGoodsTypeOption> goodsTypes;
+
+  /// The type a product filed under the asked category takes; empty is
+  /// General (also empty when no category was asked).
+  final String goodsTypeId;
+
+  ProductGoodsTypeOption? goodsTypeById(String id) {
+    if (id.isEmpty) return null;
+    for (final ProductGoodsTypeOption type in goodsTypes) {
+      if (type.id == id) return type;
+    }
+    return null;
+  }
 
   bool featureEnabled(String code) =>
       features.any((item) => item.code.toUpperCase() == code && item.enabled);
@@ -324,7 +342,50 @@ class ProductMetadataRecord {
             stringList(json['required_attribute_definition_ids']),
         optionalAttributeDefinitionIds:
             stringList(json['optional_attribute_definition_ids']),
+        goodsTypes: _objects(json['goods_types'])
+            .map(ProductGoodsTypeOption.fromJson)
+            .toList(),
+        goodsTypeId: stringValue(json['goods_type_id']),
       );
+}
+
+/// A goods type as the product form reads it from the metadata call.
+class ProductGoodsTypeOption {
+  const ProductGoodsTypeOption({
+    required this.id,
+    required this.code,
+    required this.name,
+    this.switches = const {},
+    this.defaultHsnSac = '',
+    this.defaultTaxProfileGroupCode = '',
+  });
+
+  final String id;
+  final String code;
+  final String name;
+
+  /// What a new product of this type starts with, applied verbatim.
+  final Map<String, bool> switches;
+  final String defaultHsnSac;
+  final String defaultTaxProfileGroupCode;
+
+  factory ProductGoodsTypeOption.fromJson(Json json) {
+    final Object? raw = json['switches'];
+    return ProductGoodsTypeOption(
+      id: stringValue(json['id']),
+      code: stringValue(json['code']),
+      name: stringValue(json['name']),
+      switches: raw is Map
+          ? {
+              for (final MapEntry<dynamic, dynamic> entry in raw.entries)
+                entry.key.toString(): entry.value == true,
+            }
+          : const {},
+      defaultHsnSac: stringValue(json['default_hsn_sac']),
+      defaultTaxProfileGroupCode:
+          stringValue(json['default_tax_profile_group_code']),
+    );
+  }
 }
 
 class Product {
@@ -400,9 +461,14 @@ class Product {
     required this.media,
     this.stockOnHand = '',
     this.lowStock = false,
+    this.goodsTypeId = '',
   });
 
   final String id;
+
+  /// The goods type the product stores (read-only here; it changes only by
+  /// moving the product to another category). Empty is General.
+  final String goodsTypeId;
 
   /// The optimistic-concurrency version this record was read at, sent back
   /// as `If-Match` on save so a concurrent edit is refused rather than
@@ -609,6 +675,7 @@ class Product {
             _objects(json['media']).map(ProductMediaRecord.fromJson).toList(),
         stockOnHand: stringValue(json['stock_on_hand']),
         lowStock: boolValue(json['low_stock']),
+        goodsTypeId: stringValue(json['goods_type_id']),
       );
 }
 

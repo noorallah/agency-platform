@@ -496,6 +496,15 @@ decision.
 
 ### Enforced as of 2026-08-12 — 11 of 21 features
 
+**Changed 2026-10-08 (backlog 89, step 2): the product save no longer asks
+the profile anything.** `BARCODE`, `QR_CODE`, and on a product `WARRANTY`
+(`track_warranty`) and `SHELF_LIFE` (`shelf_life_days`), are plain product
+fields; the rows for them are gone from the table below, which is why it
+now lists nine. The codes are still in the catalogue and on the profiles
+until §89's clean-up step withdraws them, and `batch_serial` still enforces
+its own rows until step 4. `docs/GOODS_TYPES.md` says what fills a product
+now.
+
 | Feature | Shape | Where | Refused when |
 | --- | --- | --- | --- |
 | `BATCH_TRACKING` | endpoint | `batch_serial` (6 routes) | any batch write |
@@ -503,9 +512,7 @@ decision.
 | `EXPIRY_TRACKING` | field | `batch_serial` | `expiry_date`, `best_before_date` |
 | `MANUFACTURING_DATE` | field | `batch_serial` | `manufacturing_date` |
 | `SHELF_LIFE` | field | `batch_serial` | `shelf_life_days` |
-| `WARRANTY` | field | `batch_serial`, `products` | warranty fields, `track_warranty` |
-| `BARCODE` | field | `products` | `barcode` |
-| `QR_CODE` | field | `products` | `qr_code` |
+| `WARRANTY` | field | `batch_serial` | warranty fields |
 | `DRUG_LICENSE` | field | `vendors` | licence fields |
 | `ATTACHMENTS` | field | all 7 transactional modules | `attachments` |
 | `VEHICLE_TRACKING` | field | `delivery_note`, `goods_receipt` | `vehicle`, `driver`, `vehicle_number` |

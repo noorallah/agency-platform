@@ -17,7 +17,6 @@ from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.business.gating import (
-    assert_feature_fields,
     resolve_capabilities,
     resolve_profile,
 )
@@ -353,12 +352,19 @@ class ProductService:
         self._validate_licence_type(firm_id, data.required_licence_type_id)
         self._validate_preferred_vendor(firm_id, data.preferred_vendor_id)
         self._validate_uom_references(data)
-        self._validate_feature_gated_fields(data, firm_id)
         values = self._product_values(data)
         self._brand_text(values, firm_id=firm_id)
+        goods_type_id = self._goods_type_of(firm_id, category, data.sub_category_id)
+        # The line the product belongs to fills what the caller left unsaid
+        # (backlog 89); from here on the product's own switches are the rule.
+        values.update(
+            GoodsTypeService(self._session).starting_values(
+                firm_id, goods_type_id, sent=data.model_fields_set, values=values
+            )
+        )
         product = Product(
             **values,
-            goods_type_id=self._goods_type_of(firm_id, category, data.sub_category_id),
+            goods_type_id=goods_type_id,
             firm_id=firm_id,
             created_by=actor_id,
             updated_by=actor_id,
@@ -493,7 +499,6 @@ class ProductService:
         ):
             self._validate_preferred_vendor(firm_scope, data.preferred_vendor_id)
         self._validate_uom_references(data)
-        self._validate_feature_gated_fields(data, firm_scope)
         self._assert_stock_shape_unchanged(product, self._product_values(data))
         self._assert_price_within_mrp(product, values)
         before: dict[str, object] = {
@@ -836,6 +841,16 @@ class ProductService:
         required_ids, optional_ids = self._category_attribute_ids(
             firm_scope, category_id
         )
+        tax_profiles = self._session.scalars(
+            select(TaxProfile)
+            .where(
+                TaxProfile.firm_id == firm_scope,
+                TaxProfile.is_deleted.is_(False),
+                TaxProfile.status == "ACTIVE",
+            )
+            .order_by(TaxProfile.display_order.asc(), TaxProfile.code.asc())
+        ).all()
+        goods_types = GoodsTypeService(self._session)
         return ProductMetadataResponse(
             profile_code=profile.code,
             features=[
@@ -852,18 +867,21 @@ class ProductService:
                     label=item.label,
                     tax_system_id=item.tax_system_id,
                 )
-                for item in self._session.scalars(
-                    select(TaxProfile)
-                    .where(
-                        TaxProfile.firm_id == firm_scope,
-                        TaxProfile.is_deleted.is_(False),
-                        TaxProfile.status == "ACTIVE",
-                    )
-                    .order_by(TaxProfile.display_order.asc(), TaxProfile.code.asc())
-                ).all()
+                for item in tax_profiles
             ],
             required_attribute_definition_ids=required_ids,
             optional_attribute_definition_ids=optional_ids,
+            # In the call the form already makes, so opening it costs no
+            # more round trips than before goods types (backlog 89).
+            goods_types=goods_types.product_options(
+                firm_scope,
+                tax_groups={
+                    item.group_code for item in tax_profiles if item.group_code
+                },
+            ),
+            goods_type_id=goods_types.type_for_category(
+                firm_scope, self._stored_category(firm_scope, category_id)
+            ),
         )
 
     def create_category(
@@ -1449,27 +1467,6 @@ class ProductService:
             [row.id for row in ordered if row.id in required],
             [row.id for row in ordered if row.id not in required],
         )
-
-    def _validate_feature_gated_fields(
-        self, data: ProductCreate | ProductUpdate, firm_id: UUID
-    ) -> None:
-        """Check the optional product fields against the firm's profile.
-
-        This used to resolve the firm's features through a private query that
-        filtered neither ``is_active`` nor ``is_deleted``, so deactivating or
-        deleting BARCODE in the catalogue left barcodes still accepted here
-        while every ``require_feature`` endpoint correctly refused. One
-        resolver, one answer.
-        """
-        for feature, fields in (
-            ("BARCODE", {"barcode": data.barcode}),
-            ("QR_CODE", {"qr_code": data.qr_code}),
-            ("WARRANTY", {"track_warranty": data.track_warranty}),
-            ("SHELF_LIFE", {"shelf_life_days": data.shelf_life_days}),
-        ):
-            assert_feature_fields(
-                self._session, firm_id, feature=feature, values=fields
-            )
 
     def _attribute_inputs_for(self, product: Product) -> list[dict[str, object]]:
         """Return a product's attributes shaped for ProductCreate validation."""

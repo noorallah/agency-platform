@@ -115,3 +115,21 @@ class GoodsTypeResponse(GoodsTypeSchema):
     default_tax_profile_group_code: str | None
     #: The concurrency counter, echoed as ``If-Match`` on the next edit.
     version: int
+
+
+class ProductGoodsTypeOption(GoodsTypeSchema):
+    """One goods type as the product form needs it.
+
+    Rides in the product metadata so the form opens on the call it already
+    makes.
+    """
+
+    id: UUID
+    code: str
+    name: str
+    #: Every tracking switch a new product of the type starts with, by the
+    #: product's own field name, for the form to apply as they stand.
+    switches: dict[str, bool]
+    default_hsn_sac: str | None
+    #: Only ever a tax group the firm has today.
+    default_tax_profile_group_code: str | None

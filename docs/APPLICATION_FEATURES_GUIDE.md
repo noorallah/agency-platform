@@ -1656,6 +1656,17 @@ sale*.
   *Settings → Firm → Goods Types* -- which a new product filed there
   takes; *General (no tracking)* is the choice for goods that need none.
   *Added on 2026-10-08, not yet tested by hand.*
+- On the **product form**, picking the category shows *Goods type:
+  Medicine* (read-only: it changes only by moving the product to another
+  category), switches that type's tracking on -- batch, expiry and
+  manufacturing date for a medicine, with *Require batch on receipt* and
+  *on issue* -- and fills the HSN code and tax group from the type's
+  defaults, all of which can be changed before saving. Only the type's
+  tracking switches are shown; **Show all tracking options** reveals the
+  others for the odd product. Shelf life and the expiry rules appear while
+  *Track expiry* is on, the batch issue rule while *Track batch* is on.
+  Barcode and QR code can be typed by every firm. *Added on 2026-10-08, not
+  yet tested by hand.*
 - *Principals* and *Brands*: the brand owners the firm
   distributes for and their brands; brand and principal are also ways to slice
   Sales Analysis.

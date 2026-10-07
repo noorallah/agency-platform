@@ -744,7 +744,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-017 — A goods type, a category that carries it, and a product that takes it
 
-*Added 2026-10-08 from the code (backlog 89, step 1); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it. Step 1 records the type on the product; the tracking switches are still the ones typed on the product form until step 2 lands.*
+*Added 2026-10-08 from the code (backlog 89, step 1); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it. What the type fills on the product is TC-MAST-020.*
 
 - **Covers:** backlog 89 test group 1 (goods type)
 - **Fixture:** `product-master`
@@ -773,6 +773,28 @@ warehouse rename its capability flags.
 - **Steps:** as the **Firm manager**: open Goods Types and Product Categories; over the API `POST /api/v1/products/goods-types` and `PUT /api/v1/products/goods-types/{id}/use`. As the **Sales manager**: `GET /api/v1/products/goods-types`. As the **Firm admin**: the same two writes. As the platform administrator: read the goods types of the two new firms; on the pharmacy firm **Stop using** Medicine, change its profile to another and back, and read again.
 - **Expect:** adding, changing, deleting and using a goods type need `CUSTOM_FIELD_MANAGE`: the firm administrator holds it and the writes succeed; the firm manager and the sales manager are refused 403 on the writes and can read the list (`PRODUCT_VIEW`). The pharmacy firm starts with Medicine in use and the agency firm with none. After Medicine is dropped and the profile is changed and changed back, Medicine is still not in use: a profile hands out its goods types once.
 - **Leaves:** two firms with their profiles.
+
+### TC-MAST-020 — A new product starts with its goods type's switches, HSN code and tax group
+
+*Added 2026-10-08 from the code (backlog 89, step 2); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 89 test groups 1 (what a new product starts with), 3 (override and its limit) and 7 (what the profile no longer refuses)
+- **Fixture:** `product-master`
+- **Also needs:** Medicine in use with defaults HSN `3004` and one of the firm's tax groups; Electronics in use with no defaults; categories *Tablets* (Medicine), *Phones* (Electronics) and *Sundries* (General); a warehouse to receive into.
+- **Steps:** as the fixture's **Firm admin**, over the API: `POST /api/v1/products` in *Tablets* naming no switch, no HSN and no tax group (P1); in *Tablets* with `"track_batch": false` (P2); in *Tablets* with `"hsn_sac": "3003"` and another of the firm's tax groups (P3); in *Phones* naming no switch (P4); in *Sundries* naming no switch (P5); in *Sundries* with a `barcode`, a `qr_code`, `"track_warranty": true` and `"shelf_life_days": 365` (P6). Read each back. `GET /api/v1/products/metadata?category_id=<Tablets>`. `PUT` P5 moving it to *Tablets* and read it. `POST /api/v1/products/{P1}/duplicate`. Receive P1 on a goods receipt with no batch number, then with one; then `PUT` P1 with `"track_batch": false`.
+- **Expect:** P1 has `track_batch`, `track_expiry`, `track_manufacturing_date`, `require_batch_on_receipt` and `require_batch_on_issue` true, serial and warranty false, `hsn_sac` `3004` and the default tax group. P2 has `track_batch` false, **both `require_batch_*` false**, and `track_expiry` still true. P3 keeps `3003` and its own tax group. P4 has `track_serial`, `track_warranty` and both `require_serial_*` true and no batch switch. P5 has every tracking switch false and no HSN. P6 is saved on any profile -- none of the four fields is refused with *does not enable*. The metadata names Medicine in `goods_type_id` and lists each type's nine `switches`. Moved to *Tablets*, P5 carries Medicine's `goods_type_id` and **its switches are unchanged**. The copy of P1 carries P1's switches. The receipt of P1 with no batch is refused *must be received with a batch number* and accepted with one; switching P1's batch tracking off is then refused because it holds stock.
+- **Leaves:** six products and a copy, one with stock in a batch.
+
+### TC-MAST-021 — The product form shows its goods type's properties and no others
+
+*Added 2026-10-08 from the code (backlog 89, step 2); **not yet driven on screen** -- drive it and correct the expectation before relying on it.*
+
+- **Covers:** backlog 89 test group 5 (the product form)
+- **Fixture:** `product-master`
+- **Also needs:** the goods types, defaults and categories of TC-MAST-020; a **Sales manager** on the same firm.
+- **Steps:** as the **Firm admin**: Masters > Products > New. Read the form before choosing a category. Choose *Tablets*; read the goods type line, the tracking section, HSN and tax group. Switch **Show all tracking options** on, then off. Switch *Track expiry* off and on; switch *Track batch* off and on. Change the category to *Phones*, then to *Sundries*. Type HSN `9999`, choose *Tablets* again. Type a barcode. Save. Open the saved product; open **Duplicate** on it. As the **Sales manager**: open the same product.
+- **Expect:** with no category the line reads *Goods type: General*, the tracking section reads *No tracking for this goods type.* and offers only *Show all tracking options*. On *Tablets*: *Goods type: Medicine* (not a control), *Track batch*, *Track expiry* and *Track manufacturing date* on, *Require batch on receipt* and *on issue* on, no serial or warranty switch, HSN `3004` and the default tax group filled. *Show all* adds lot, serial and warranty and hides them again while they are off. *Track expiry* off hides shelf life and the three expiry rule boxes; *Track batch* off hides the issue rule and both *Require batch* switches, and they come back **off**. *Phones* shows serial and warranty and clears the HSN the type had filled; *Sundries* shows the hint. The typed `9999` survives the change back to *Tablets*. The barcode box accepts typing on any profile. The saved product reopens with the switches it was saved with and its stored goods type; the duplicate opens with the same switches. The sales manager sees the form read-only, as before. Opening a new product makes no server call of its own and each category picked makes one (`/products/metadata`); nothing calls `/products/goods-types`.
+- **Leaves:** one product.
 
 
 ---

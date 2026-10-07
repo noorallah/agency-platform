@@ -1,4 +1,4 @@
-"""Goods types (backlog 89, step 1).
+"""Goods types (backlog 89, steps 1 and 2).
 
 A goods type says how a line of goods is tracked. The platform keeps a shared
 catalogue and a firm adds its own; the firm says which it trades in; a
@@ -298,9 +298,8 @@ def test_a_product_takes_its_categorys_type_and_none_is_general() -> None:
     assert under_tins.goods_type_id == paint.id
     assert _product(session, firm.id, "P-4", category_id=plain).goods_type_id is None
     assert _product(session, firm.id, "P-5").goods_type_id is None
-    # Step 1 stores the type; the switches are the product's own until the
-    # product save fills them from it.
-    assert under_strips.track_batch is False
+    # A product that takes no type is filled with nothing.
+    assert _product(session, firm.id, "P-6", category_id=plain).track_batch is False
 
 
 def test_a_category_changing_type_reaches_new_products_only() -> None:
@@ -468,3 +467,224 @@ def test_the_firms_administrator_keeps_goods_types_and_the_manager_does_not() ->
         ("DELETE", "/goods-types/{goods_type_id}"),
     ):
         assert enforced(method, path) == "CUSTOM_FIELD_MANAGE"
+
+
+def _tax_group(session: Session, firm_id: object, group_code: str) -> TaxProfile:
+    """Give the firm one live tax profile in a group."""
+    row = TaxProfile(
+        firm_id=firm_id,
+        tax_system_id=uuid4(),
+        code=group_code,
+        name=group_code,
+        group_code=group_code,
+        label=group_code,
+        status="ACTIVE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def _defaults(session: Session, firm_id: object, code: str) -> GoodsTypeResponse:
+    """Take a shared type into use with an HSN code and a tax group."""
+    return GoodsTypeService(session).set_use(
+        _by_code(session, firm_id, code).id,
+        GoodsTypeUse(
+            in_use=True, default_hsn_sac="3004", default_tax_profile_group_code="GST12"
+        ),
+        firm_id=firm_id,  # type: ignore[arg-type]
+        actor_id=uuid4(),
+    )
+
+
+_REQUIRE = (
+    "require_batch_on_receipt",
+    "require_batch_on_issue",
+    "require_serial_on_receipt",
+    "require_serial_on_issue",
+)
+
+
+def test_the_type_fills_a_new_products_switches() -> None:
+    session = _store()
+    firm = _firm(session, "ONE")
+    medicine = _use(session, firm.id, "MEDICINE")
+    electronics = _use(session, firm.id, "ELECTRONICS")
+    tablets = _category(session, firm.id, "TABLETS", goods_type_id=medicine.id)
+    phones = _category(session, firm.id, "PHONES", goods_type_id=electronics.id)
+
+    tablet = _product(session, firm.id, "P-1", category_id=tablets)
+    phone = _product(session, firm.id, "P-2", category_id=phones)
+
+    assert (tablet.track_batch, tablet.track_expiry) == (True, True)
+    assert tablet.track_manufacturing_date is True
+    assert (tablet.track_serial, tablet.track_warranty) == (False, False)
+    # Tracked by batch means its goods neither arrive nor leave without one.
+    assert [getattr(tablet, name) for name in _REQUIRE] == [True, True, False, False]
+    assert (phone.track_serial, phone.track_warranty) == (True, True)
+    assert (phone.track_batch, phone.track_expiry) == (False, False)
+    assert [getattr(phone, name) for name in _REQUIRE] == [False, False, True, True]
+    # Not a switch the type holds, so never one it fills.
+    assert tablet.track_lot is False
+
+
+def test_a_switch_the_caller_names_is_theirs_on_or_off() -> None:
+    """One product may differ from its line; ``False`` sent is not silence."""
+    session = _store()
+    firm = _firm(session, "ONE")
+    medicine = _use(session, firm.id, "MEDICINE")
+    tablets = _category(session, firm.id, "TABLETS", goods_type_id=medicine.id)
+
+    loose = _product(session, firm.id, "P-1", category_id=tablets, track_batch=False)
+    # Its expiry was not mentioned, so that still follows the type; and with
+    # batch tracking off it is not left demanding a batch on a receipt.
+    assert (loose.track_batch, loose.track_expiry) == (False, True)
+    assert (loose.require_batch_on_receipt, loose.require_batch_on_issue) == (
+        False,
+        False,
+    )
+
+    lenient = _product(
+        session, firm.id, "P-2", category_id=tablets, require_batch_on_issue=False
+    )
+    assert (lenient.track_batch, lenient.require_batch_on_receipt) == (True, True)
+    assert lenient.require_batch_on_issue is False
+
+    serialled = _product(
+        session, firm.id, "P-3", category_id=tablets, track_serial=True
+    )
+    # Medicine is not a serial line, so naming the switch brings no rule.
+    assert serialled.track_serial is True
+    assert serialled.require_serial_on_receipt is False
+
+
+def test_the_type_fills_hsn_and_tax_group_only_where_the_product_has_none() -> None:
+    session = _store()
+    firm = _firm(session, "ONE")
+    _tax_group(session, firm.id, "GST12")
+    _tax_group(session, firm.id, "GST5")
+    medicine = _defaults(session, firm.id, "MEDICINE")
+    tablets = _category(session, firm.id, "TABLETS", goods_type_id=medicine.id)
+
+    filled = _product(session, firm.id, "P-1", category_id=tablets)
+    own = _product(
+        session,
+        firm.id,
+        "P-2",
+        category_id=tablets,
+        hsn_sac="3003",
+        tax_profile_group_code="GST5",
+    )
+    general = _product(session, firm.id, "P-3")
+
+    assert (filled.hsn_sac, filled.tax_profile_group_code) == ("3004", "GST12")
+    assert (own.hsn_sac, own.tax_profile_group_code) == ("3003", "GST5")
+    assert (general.hsn_sac, general.tax_profile_group_code) == (None, None)
+
+
+def test_a_default_tax_group_the_firm_no_longer_has_is_passed_over() -> None:
+    session = _store()
+    firm = _firm(session, "ONE")
+    profile = _tax_group(session, firm.id, "GST12")
+    medicine = _defaults(session, firm.id, "MEDICINE")
+    tablets = _category(session, firm.id, "TABLETS", goods_type_id=medicine.id)
+    profile.status = "INACTIVE"
+    session.commit()
+
+    product = _product(session, firm.id, "P-1", category_id=tablets)
+    offered = ProductService(session).metadata(
+        firm_scope=firm.id,
+        category_id=tablets,  # type: ignore[arg-type]
+    )
+
+    # Saved without a tax group rather than refused for a default it did not
+    # choose, and the form is not offered a group its list does not hold.
+    assert (product.hsn_sac, product.tax_profile_group_code) == ("3004", None)
+    option = next(row for row in offered.goods_types if row.code == "MEDICINE")
+    assert (option.default_hsn_sac, option.default_tax_profile_group_code) == (
+        "3004",
+        None,
+    )
+
+
+def test_an_update_and_a_copy_leave_the_products_switches_alone() -> None:
+    session = _store()
+    firm = _firm(session, "ONE")
+    medicine = _use(session, firm.id, "MEDICINE")
+    tablets = _category(session, firm.id, "TABLETS", goods_type_id=medicine.id)
+    plain = _category(session, firm.id, "SUNDRIES")
+    service = ProductService(session)
+    sundry = _product(session, firm.id, "P-1", category_id=plain)
+    differing = _product(
+        session, firm.id, "P-2", category_id=tablets, track_expiry=False
+    )
+
+    # Moved under Medicine: it takes the type, and keeps its own switches.
+    moved = service.update_product(
+        sundry.id,
+        ProductUpdate.model_validate(
+            {
+                "code": "P-1",
+                "name": sundry.name,
+                "product_type": "STOCK_ITEM",
+                "category_id": str(tablets),
+            }
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+    assert moved.goods_type_id == medicine.id
+    assert (moved.track_batch, moved.require_batch_on_receipt) == (False, False)
+
+    copied = service.duplicate_product(
+        differing.id, firm_scope=firm.id, actor_id=uuid4()
+    )
+    assert copied.goods_type_id == medicine.id
+    assert (copied.track_batch, copied.track_expiry) == (True, False)
+
+
+def test_the_product_metadata_carries_the_goods_types_in_its_one_call() -> None:
+    session = _store()
+    firm = _firm(session, "ONE")
+    medicine = _use(session, firm.id, "MEDICINE")
+    tablets = _category(session, firm.id, "TABLETS", goods_type_id=medicine.id)
+    strips = _category(session, firm.id, "STRIPS", parent_id=tablets)
+    plain = _category(session, firm.id, "SUNDRIES")
+    service = ProductService(session)
+
+    under_strips = service.metadata(
+        firm_scope=firm.id,
+        category_id=strips,  # type: ignore[arg-type]
+    )
+    under_plain = service.metadata(
+        firm_scope=firm.id,
+        category_id=plain,  # type: ignore[arg-type]
+    )
+    unasked = service.metadata(firm_scope=firm.id)
+
+    # The parent's type, resolved by the server so the form walks no tree.
+    assert under_strips.goods_type_id == medicine.id
+    assert under_plain.goods_type_id is None
+    assert unasked.goods_type_id is None
+    assert sorted(row.code for row in unasked.goods_types) == sorted(
+        str(seed["code"]) for seed in SHARED_GOODS_TYPES
+    )
+    option = next(row for row in unasked.goods_types if row.code == "MEDICINE")
+    assert option.switches == {
+        "track_batch": True,
+        "track_expiry": True,
+        "track_manufacturing_date": True,
+        "track_serial": False,
+        "track_warranty": False,
+        "require_batch_on_receipt": True,
+        "require_batch_on_issue": True,
+        "require_serial_on_receipt": False,
+        "require_serial_on_issue": False,
+    }
+    # What the form is told is what a save with nothing named does.
+    created = _product(session, firm.id, "P-1", category_id=tablets)
+    assert {name: getattr(created, name) for name in option.switches} == (
+        option.switches
+    )

@@ -2121,8 +2121,74 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       widget.onSaveLevelRates != null;
   bool get _mayEditLevelRates =>
       !_readOnly && widget.canManageLevelRates && _levelRatesLoaded;
-  bool get _barcodeEnabled => _metadata.featureEnabled('BARCODE');
-  bool get _qrEnabled => _metadata.featureEnabled('QR_CODE');
+
+  /// Only a brand-new product takes its goods type's switches; an existing
+  /// product, and a duplicate of one, keep exactly what they carry.
+  bool get _appliesGoodsType => widget.product == null && widget.copyOf == null;
+
+  /// The type shown: the one a stored product holds, else the one the
+  /// selected category gives. Empty is General.
+  String get _goodsTypeId =>
+      widget.product?.goodsTypeId ?? _metadata.goodsTypeId;
+
+  /// Whether the goods type of this product switches [key] on.
+  bool _typeSwitch(String key) =>
+      _metadata.goodsTypeById(_goodsTypeId)?.switches[key] == true;
+
+  /// What the type filled into the HSN and tax boxes last, so a later
+  /// category change replaces only that and never what a person typed.
+  String _filledHsn = '';
+  String _filledTaxGroup = '';
+  bool _showAllTracking = false;
+
+  /// Start a new product on [type]'s switches (General sets them all off) and
+  /// fill HSN and tax group where the person has typed nothing of their own.
+  void _applyGoodsType(ProductGoodsTypeOption? type) {
+    final Map<String, bool> on = type?.switches ?? const {};
+    _trackBatch = on['track_batch'] == true;
+    _trackExpiry = on['track_expiry'] == true;
+    _trackManufacturingDate = on['track_manufacturing_date'] == true;
+    _trackSerial = on['track_serial'] == true;
+    _trackWarranty = on['track_warranty'] == true;
+    _requireBatchOnReceipt = on['require_batch_on_receipt'] == true;
+    _requireBatchOnIssue = on['require_batch_on_issue'] == true;
+    _requireSerialOnReceipt = on['require_serial_on_receipt'] == true;
+    _requireSerialOnIssue = on['require_serial_on_issue'] == true;
+    final String hsn = type?.defaultHsnSac ?? '';
+    if (_hsn.text.isEmpty || _hsn.text == _filledHsn) {
+      _hsn.text = hsn;
+      _filledHsn = hsn;
+    }
+    final String wanted = type?.defaultTaxProfileGroupCode ?? '';
+    final bool offered = wanted.isNotEmpty &&
+        _metadata.taxProfiles.any((profile) =>
+            (profile.groupCode.isEmpty ? profile.code : profile.groupCode) ==
+            wanted);
+    final String group = offered ? wanted : '';
+    if (_taxProfileGroupCode.isEmpty ||
+        _taxProfileGroupCode == _filledTaxGroup) {
+      _taxProfileGroupCode = group;
+      _filledTaxGroup = group;
+    }
+  }
+
+  /// The read-only goods type line; the type changes only by moving the
+  /// product to another category.
+  Widget _goodsTypeLine() {
+    final String name =
+        _metadata.goodsTypeById(_goodsTypeId)?.name ?? 'General';
+    return SizedBox(
+      width: 260,
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          helperText: 'Set by the category',
+          border: InputBorder.none,
+        ),
+        child: Text('Goods type: $name',
+            key: const ValueKey('product-goods-type')),
+      ),
+    );
+  }
   List<String> get _visibleTabs {
     final List<String> tabs = List<String>.from(_coreTabs);
     if (_allowedAttributeIds.isEmpty) {
@@ -2573,12 +2639,17 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                       setState(() {
                         _categoryId = value;
                         _metadata = metadata;
+                        if (_appliesGoodsType) {
+                          _applyGoodsType(
+                              metadata.goodsTypeById(metadata.goodsTypeId));
+                        }
                         _syncAttributeControllers();
                         _normalizeTabSelection();
                       });
                     },
             ),
           ),
+          _goodsTypeLine(),
           SizedBox(
             width: 260,
             child: DropdownButtonFormField<String>(
@@ -2618,22 +2689,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           _field(_model, 'Model'),
           _field(_remarks, 'Remarks', width: 520),
           _field(_description, 'Description', width: 760, lines: 3),
-          _field(
-            _barcode,
-            'Barcode',
-            readOnly: _readOnly || !_barcodeEnabled,
-            helper: _barcodeEnabled
-                ? null
-                : 'Disabled by feature flag for current profile.',
-          ),
-          _field(
-            _qrCode,
-            'QR Code',
-            readOnly: _readOnly || !_qrEnabled,
-            helper: _qrEnabled
-                ? null
-                : 'Disabled by feature flag for current profile.',
-          ),
+          _field(_barcode, 'Barcode', readOnly: _readOnly),
+          _field(_qrCode, 'QR Code', readOnly: _readOnly),
         ],
       );
 
@@ -2946,60 +3003,98 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 : (value) => setState(() => _allowDecimal = value),
           ),
         ),
+        // Only the tracking the goods type has (or the product already
+        // carries) is offered; the toggle reveals the rest.
+        if (!_anyTrackingShown)
+          const SizedBox(
+            width: 320,
+            child: Text('No tracking for this goods type.',
+                key: ValueKey('product-no-tracking-hint')),
+          ),
         SizedBox(
           width: 320,
           child: SwitchListTile.adaptive(
+            key: const ValueKey('product-show-all-tracking'),
             contentPadding: EdgeInsets.zero,
-            title: const Text('Track batch'),
-            value: _trackBatch,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackBatch = value),
+            title: const Text('Show all tracking options'),
+            value: _showAllTracking,
+            onChanged: (value) => setState(() => _showAllTracking = value),
           ),
         ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track lot'),
-            value: _trackLot,
-            onChanged:
-                _readOnly ? null : (value) => setState(() => _trackLot = value),
+        if (_showTracking('track_batch', _trackBatch))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track batch'),
+              value: _trackBatch,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() {
+                        _trackBatch = value;
+                        if (!value) {
+                          _requireBatchOnReceipt = false;
+                          _requireBatchOnIssue = false;
+                        }
+                      }),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track serial'),
-            value: _trackSerial,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackSerial = value),
+        if (_showTracking('track_lot', _trackLot))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track lot'),
+              value: _trackLot,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _trackLot = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track expiry'),
-            value: _trackExpiry,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackExpiry = value),
+        if (_showTracking('track_serial', _trackSerial))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              key: const ValueKey('product-track-serial'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track serial'),
+              value: _trackSerial,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() {
+                        _trackSerial = value;
+                        if (!value) {
+                          _requireSerialOnReceipt = false;
+                          _requireSerialOnIssue = false;
+                        }
+                      }),
+            ),
           ),
-        ),
+        if (_showTracking('track_expiry', _trackExpiry))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track expiry'),
+              value: _trackExpiry,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _trackExpiry = value),
+            ),
+          ),
         // STK-18: a receipt typed with only the manufacturing date gets its
         // expiry from this.
-        _field(
-          _shelfLife,
-          'Shelf life (days)',
-          width: 320,
-          helper: "Fills a batch's expiry from its manufacturing date",
-        ),
+        if (_trackExpiry)
+          _field(
+            _shelfLife,
+            'Shelf life (days)',
+            width: 320,
+            helper: "Fills a batch's expiry from its manufacturing date",
+          ),
         // STK-5: expiry rules; blank inherits.
-        _expiryGroup(),
+        if (_trackExpiry) _expiryGroup(),
         // STK-11: which batch the goods leave from.
+        if (_trackBatch)
         SizedBox(
           width: 320,
           child: DropdownButtonFormField<String>(
@@ -3018,28 +3113,31 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 : (value) => setState(() => _issueRule = value ?? ''),
           ),
         ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track manufacturing date'),
-            value: _trackManufacturingDate,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackManufacturingDate = value),
+        if (_showTracking(
+            'track_manufacturing_date', _trackManufacturingDate))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track manufacturing date'),
+              value: _trackManufacturingDate,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _trackManufacturingDate = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track warranty'),
-            value: _trackWarranty,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackWarranty = value),
+        if (_showTracking('track_warranty', _trackWarranty))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track warranty'),
+              value: _trackWarranty,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _trackWarranty = value),
+            ),
           ),
-        ),
         SizedBox(
           width: 320,
           child: SwitchListTile.adaptive(
@@ -3100,53 +3198,84 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 : (value) => setState(() => _freeIssueOnly = value ?? false),
           ),
         ),
-        SizedBox(
-          width: 360,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Require batch on receipt'),
-            value: _requireBatchOnReceipt,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _requireBatchOnReceipt = value),
+        if (_trackBatch)
+          SizedBox(
+            width: 360,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Require batch on receipt'),
+              value: _requireBatchOnReceipt,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _requireBatchOnReceipt = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 360,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Require batch on issue'),
-            value: _requireBatchOnIssue,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _requireBatchOnIssue = value),
+        if (_trackBatch)
+          SizedBox(
+            width: 360,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Require batch on issue'),
+              value: _requireBatchOnIssue,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _requireBatchOnIssue = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 360,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Require serial on receipt'),
-            value: _requireSerialOnReceipt,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _requireSerialOnReceipt = value),
+        if (_trackSerial)
+          SizedBox(
+            width: 360,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Require serial on receipt'),
+              value: _requireSerialOnReceipt,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _requireSerialOnReceipt = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 360,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Require serial on issue'),
-            value: _requireSerialOnIssue,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _requireSerialOnIssue = value),
+        if (_trackSerial)
+          SizedBox(
+            width: 360,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Require serial on issue'),
+              value: _requireSerialOnIssue,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _requireSerialOnIssue = value),
+            ),
           ),
-        ),
       ],
     );
   }
+
+  static const List<String> _trackingKeys = [
+    'track_batch',
+    'track_lot',
+    'track_serial',
+    'track_expiry',
+    'track_manufacturing_date',
+    'track_warranty',
+  ];
+
+  bool _stateOf(String key) => switch (key) {
+        'track_batch' => _trackBatch,
+        'track_lot' => _trackLot,
+        'track_serial' => _trackSerial,
+        'track_expiry' => _trackExpiry,
+        'track_manufacturing_date' => _trackManufacturingDate,
+        _ => _trackWarranty,
+      };
+
+  /// A tracking switch is offered when it is on, when the goods type has it,
+  /// or when the person asked to see them all.
+  bool _showTracking(String key, bool on) =>
+      _showAllTracking || on || (key != 'track_lot' && _typeSwitch(key));
+
+  bool get _anyTrackingShown =>
+      _showAllTracking ||
+      _trackingKeys.any((key) => _showTracking(key, _stateOf(key)));
 
   Widget _taxSection() => Wrap(
         spacing: 16,
@@ -3156,6 +3285,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           SizedBox(
             width: 320,
             child: DropdownButtonFormField<String>(
+              // Keyed on the value so a code the goods type fills in shows.
+              key: ValueKey('product-tax-profile-$_taxProfileGroupCode'),
               isExpanded: true,
               initialValue:
                   _taxProfileGroupCode.isEmpty ? null : _taxProfileGroupCode,
@@ -3655,12 +3786,6 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         in _attributeControllers.values) {
       final String? problem = controller.validate();
       if (problem != null) issues.add(problem);
-    }
-    if (!_barcodeEnabled && _barcode.text.trim().isNotEmpty) {
-      issues.add('Barcode is disabled by the current profile feature flags.');
-    }
-    if (!_qrEnabled && _qrCode.text.trim().isNotEmpty) {
-      issues.add('QR code is disabled by the current profile feature flags.');
     }
     final double? selling = double.tryParse(_sellingPrice.text.trim());
     final double? mrp = double.tryParse(_mrp.text.trim());

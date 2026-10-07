@@ -111,6 +111,33 @@ two saves in `ProductService` that call it.
   from use is refused while a live category of the firm carries it; deleting
   one of the firm's own is refused while a category or a live product does.
 - **A default tax group must be one the firm has**, as on a product.
+- **The type fills a new product, and only a new one.** On create
+  (`GoodsTypeService.starting_values`, called from
+  `ProductService.stage_product`, so the form, the copy and every import go
+  through it):
+  - each of the type's five switches the caller **did not name** takes the
+    type's value. A switch the caller named is theirs, on or off -- `false`
+    sent is a decision, not silence -- which is how one product differs from
+    its line;
+  - the four "must be named" rules follow their switch:
+    `require_batch_on_receipt` and `require_batch_on_issue` are on when the
+    type tracks batches **and** the product ends up tracking them;
+    `require_serial_on_receipt` and `require_serial_on_issue` the same for
+    serial numbers. The type holds no column for these. So a new medicine
+    cannot be received or issued without a batch, and a medicine saved with
+    batch tracking off is not left demanding one;
+  - `hsn_sac` and `tax_profile_group_code` take the firm's defaults for the
+    type **where the product has none**. A value sent is kept. A default tax
+    group the firm has since retired is passed over, not refused;
+  - General fills nothing, and `track_lot` is never filled.
+  An update, a move to another category and a copy leave the product's
+  switches as they are; the rule that a tracking mode is not changed under
+  stock (`_assert_stock_shape_unchanged`) is unchanged.
+- **The firm's business profile is no longer asked about a product's own
+  fields.** The four checks `ProductService` made on save -- barcode, QR
+  code, warranty, shelf life -- are gone (step 2); a firm on any profile
+  records them. The batch and serial routes still ask the profile until
+  step 4.
 - Every add, change, removal and change of use writes an audit row
   (`goods_type.created`, `.updated`, `.deleted`, `.use_changed`).
 
@@ -126,6 +153,41 @@ Under `/api/v1/products`, declared before `/{product_id}`.
 | `PUT /goods-types/{id}/use` | Take a shared or own type into use, drop it, set its two defaults | `CUSTOM_FIELD_MANAGE` |
 | `DELETE /goods-types/{id}` | Remove one of the firm's own that nothing carries | `CUSTOM_FIELD_MANAGE` |
 
+`GET /api/v1/products/metadata` -- the call the product form already makes,
+on opening and on each change of category -- carries what the form needs, so
+the form makes **no call of its own for goods types**:
+
+| Key | Holds |
+| --- | --- |
+| `goods_types` | Every live type the firm can see: `id`, `code`, `name`, `switches` (all nine product switches a new product of it starts with, by the product's field name, for the form to apply as they stand), `default_hsn_sac`, `default_tax_profile_group_code` (only ever a group the firm has today) |
+| `goods_type_id` | The type a product filed under the `category_id` asked about takes, parents already resolved; null is General, and what an ask naming no category gets |
+
+## The product form
+
+`desktop/lib/ui/products/product_management_page.dart`. Added 2026-10-08,
+not yet tested by hand.
+
+- **Goods type: X** is shown read-only beside the category (*Set by the
+  category*). A new product shows its category's type; a stored product the
+  type it holds.
+- Picking a category on a **new** product applies that type's switches and
+  fills HSN and tax group -- only where the box is empty or still holds what
+  the previous category's type filled, so nothing typed is overwritten.
+  Opening a stored product, or a copy of one, applies nothing.
+- The tracking section shows a switch only when it is on, or on in the
+  product's type; **Show all tracking options** reveals the rest. A General
+  product with none on reads *No tracking for this goods type.*
+- Dependent fields follow their switch: shelf life and the expiry rules
+  while *Track expiry* is on; the batch issue rule and the two *Require
+  batch* switches while *Track batch* is on; the two *Require serial*
+  switches while *Track serial* is on. Switching batch or serial off
+  switches its *Require* pair off with it.
+- Barcode and QR code are plain boxes, no longer disabled by the profile.
+- Calls: opening a new product makes none (the page's metadata is handed
+  in); each category picked is one metadata call; a stored product or a copy
+  makes its one metadata call for its category. The same as before goods
+  types.
+
 No new permission code. Goods types shape what a firm's records look like, as
 its custom fields do, so the firm's administrator keeps both under
 `CUSTOM_FIELD_MANAGE` -- held by `FIRM_ADMIN` and not by `FIRM_MANAGER`.
@@ -137,15 +199,17 @@ the list.
 | Step of §89's order | State |
 | --- | --- |
 | 1. The goods type, the two columns, the migration and the seeds | **Built 2026-10-08, not yet tested by hand** |
-| 2. Product save and the product form | Not started: a product **stores** its type today, and its tracking switches are still the ones typed on the form |
+| 2. Product save and the product form | **Built 2026-10-08, not yet tested by hand** |
 | 3. Unit sets | Not started |
 | 4. Batch and serial checks read the product | Not started: the firm's profile still decides whether batches, expiry and serial numbers may be used |
 | 5. Extra fields and compulsory rules by goods type | Not started |
 | 6. Menus, import, the profile clean-up, the docs | Not started |
 | 7. Closing sweep | Not started |
 
-So after step 1 a goods type groups products and is recorded on them, and
-changes nothing yet about what a product may or must carry.
+So after step 2 a goods type decides how a **new** product starts and what
+its form shows. What a firm may record on a batch or a serial number is
+still the profile's to refuse until step 4, and extra fields are still
+resolved by profile and category until step 5.
 
 ## Related
 
