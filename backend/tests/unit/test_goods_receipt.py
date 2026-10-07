@@ -2037,3 +2037,34 @@ def test_the_list_finds_a_receipt_by_its_supplier_and_names_them() -> None:
     response = service.receipt_response(receipt)
     assert response.vendor_name == fixture.vendor.display_name
     assert response.vendor_code == fixture.vendor.code
+
+
+def test_completing_a_completed_receipt_is_refused_in_words() -> None:
+    """A second completion is refused by number, not answered as though new.
+
+    D-UI-28 (2026-10-07): the delivery note's second dispatch answered 200
+    with the note unchanged, and the receipt's ``complete`` had the same
+    early return -- a person completing from a stale list was told nothing.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-TWICE")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("4"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    number = receipt.grn_number
+
+    with pytest.raises(ValidationError, match=f"{number} has already been completed"):
+        service.complete_receipt(
+            receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+        )
+
+    session.rollback()
+    session.expire_all()
+    assert _stock(session, fixture.firm.id, fixture.product.id) == Decimal("4")
+    assert len(session.scalars(select(InventoryTransaction)).all()) == 1
