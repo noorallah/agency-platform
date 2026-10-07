@@ -1952,6 +1952,16 @@ class ApiClient {
         ),
       );
 
+  /// The open order lines the warehouse cannot fill today, firm-wide: the
+  /// back-order report's rows as the server sends them (`order_id`,
+  /// `product_name`, `requested_quantity`, `back_order_quantity`). What an
+  /// approval reads to say an order went through for more than the stock
+  /// (D-UI-48); the approve response itself cannot say it.
+  Future<List<Json>> salesOrderBackOrders() async => _unwrapList(
+        await request('GET', '/api/v1/sales-orders/reports/back-orders'),
+        (Json row) => row,
+      );
+
   /// The same for a sales invoice.
   Future<PriceFloorCheck> salesInvoicePriceCheck(String id) async =>
       PriceFloorCheck.fromJson(
