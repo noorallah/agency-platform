@@ -6222,7 +6222,7 @@ Which list a rule keys on is chosen at build time: customers have groups and a t
 
 | Area | Change | Size |
 | --- | --- | --- |
-| Goods type | A table, a column on `product_categories` and on `products`, one migration, the seeds | S |
+| Goods type | A table, a column on `product_categories` and on `products`, one migration, the seeds. The type also carries a default HSN code, tax group and units for a new product (market gap 1 below) | S |
 | Product save | The type fills the switches; the four profile checks in `ProductService` (barcode, QR code, warranty, shelf life) go or move to the product | S |
 | Batch and serial | Nine routes in `app/batch_serial/api/router.py` and five service checks ask the product instead of the firm's profile | M |
 | Extra fields on products | `AttributeService` and `category_attribute_rules` key on the goods type alone; the two administration screens follow | M |
@@ -6260,8 +6260,34 @@ So the first three rows are a starter kit, not a ceiling, and only the last two 
 | --- | --- | --- |
 | 1 | Who may add a goods type: the firm's administrator or only the platform's | **Settled 2026-10-07:** both -- the platform keeps the shared catalogue, the firm's administrator adds the firm's own |
 | 2 | Are goods types kept per firm or shared across a store | **Settled 2026-10-07:** a shared catalogue plus the firm's own, as custom fields are. (This row first said attribute definitions carry no firm; that was read from an older reference doc and is no longer so) |
-| 3 | Two checks in the customer service use the firm's expiry feature for a customer field | Read what they guard first, then keep on the firm or drop |
+| 3 | Two checks in the customer service use the firm's expiry feature for a customer field | **Settled 2026-10-07 (decided by Claude from the code):** they guard `minimum_shelf_life_days`, a customer who refuses goods too near expiry. Drop the profile check; any firm may record it, and it only bites on products that track expiry |
 | 4 | Some batch routes write a batch before a product is plainly in hand | Check each route names its product before moving the check |
-| 5 | Which list a party's required-field rule keys on: customer group or trade class; supplier type or category | Read how each is used first; one per side, not both |
+| 5 | Which list a party's required-field rule keys on: customer group or trade class; supplier type or category | **Settled 2026-10-07 (decided by Claude from the code):** `customer_group_id` for customers -- `trade_class` is retailer or stockist and belongs to pricing, `customer_type` is individual or business -- and `vendor_type_id` for suppliers |
+| 6 | Do attachments, vehicle details and the licence features stay with the platform administrator, through the profile, or become the firm's own settings | **The owner's, and commercial rather than technical:** it matters only if features are ever charged for separately. Leave with the platform until licensing is taken up (§2) |
+
+The three profile codes to be removed were looked for on 2026-10-07: nothing under `backend/app` or `desktop/lib` reads `TERRITORY`, `MULTIPLE_WAREHOUSES` or `APPROVAL_WORKFLOW` as a feature. Look again before deleting.
+
+**Compared with the market, 2026-10-07.** A web study of how TallyPrime, Zoho Inventory and Books, ERPNext, Busy and Marg handle the same area (Odoo in brief). **It is a reading study: nothing was run, several pages could not be reached, and Busy and Tally are thin. Do not quote its cells to a customer without checking.**
+
+What it confirms about this design:
+
+- **Tracking sits on the item in every tool read**, with a company-level switch that only shows or hides the feature (Tally, Zoho, Busy, Odoo). That is this design, with *menus follow the goods* doing the company switch's job.
+- **No tool was found whose industry template goes on governing a company after it is created.** Zoho's only suggests a chart of accounts. The profile as a starter kit matches the market.
+- **Tracking switches are locked once stock exists** in ERPNext; here `ProductService` already refuses the change while stock exists, and the per-product override in point 3 above stays inside that rule.
+
+What the study listed and the product already has, so not a gap: expiry filled from the manufacturing date and shelf life; earliest-expiry-first issue and expiry alerts; several units per product with conversion; MRP, PTR and PTS per batch; price lists and price levels by customer and group; product images; a field shown on prints and limited to allowed values; a licence required by product category, held by the party and checked at approval (§54) -- which only Marg does among the tools read.
+
+What it found that is not here:
+
+| # | Gap | Who has it | Today | Decision |
+| --- | --- | --- | --- | --- |
+| 1 | **The goods type or category also gives a new product its HSN code, tax group and units** | Tally (GST and HSN on the stock group), ERPNext (tax template and defaults on the item group) | A category carries expiry rules, inspection and a licence, but no tax or unit defaults; every product is typed in full | **Build inside this entry** (decided by Claude 2026-10-07): three default columns on the goods type, copied to a new product like the switches, never overwriting a product that has its own. S |
+| 2 | **One product in several sizes or shades** (a paint in 1 L, 4 L, 10 L and 20 L) from one template | ERPNext, Zoho (up to three attributes), Odoo | Each pack is its own product, as in Tally and Marg; that works, and the pack size can be an extra field | Its own item, after this one. M-L. **For the owner:** worth it only if a firm will keep hundreds of such families |
+| 3 | **More than one barcode on a product** (a new pack, a second supplier's code) | ERPNext (a barcode table), Marg (several barcodes, with different MRPs) | One `barcode` column on the product | Its own item. S-M. Recommended: counter billing by scanning already exists and a re-packed product breaks it |
+| 4 | **More that a custom field can say about itself:** shown in a list or as a filter, read-only or hidden by role, shown only when another field has a value | ERPNext (all of these), Zoho (role access, show in PDFs) | Type, required, allowed values, shown on prints | Its own item. M. Not needed for go-live |
+| 5 | **Substitutes: another product offered when one is out of stock**, by composition for medicines | Marg (by salt), ERPNext (alternative items) | None; listed as *Later* in §87 row 17 | Stays there |
+| 6 | **Schedule H, H1 and narcotic registers** | Marg only | The licence check covers who may buy; no register report | Not a gap by the two-tool rule. **For the owner** if a pharmacy wholesaler is the first customer |
+
+Not taken up: relabelling a heading by trade (Marg only), and a company-level switch that hides batch fields firm-wide, which *menus follow the goods* and the product form already do.
 
 **Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs. Each step merges on its own and leaves the application working.
