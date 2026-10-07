@@ -234,6 +234,17 @@
   "skip": 0,
   "user": "tradeadmin"
  },
+ "SC-GR-001": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "columns present"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-GR-002": {
   "fail": 0,
   "file": "buying_flow_test.dart",
@@ -242,6 +253,315 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-GR-003": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "after 4: order PARTIALLY_RECEIVED; second receipt boxes PO-T10069CWY-S-HO-2026-2027-000136  07-10-2026 / 6 / 0 / 0 / 0; after the rest: order RECEIVED"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-004": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "the product is not batch-tracked in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-005": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "the product is not serial-tracked in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-006": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "MRP/PTR/PTS boxes need a batch-tracked product"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-007": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "quarantine needs Quality Inspection set on"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-008": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "status CLOSED, screen says \"Goods receipt GRN-T10069CWY-S-HO-2026-2027-000061 closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-009": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "transport boxes not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-010": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"Goods receipt GRN-T10069CWY-S-HO-2026-2027-000060 cancelled.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-011": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "file picker not drivable"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-012": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Choose the purchase order being received.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-013": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Goods receipt exceeds allowed quantity for PO line 1: 10 PIECE ordered, 0 PIECE already received, and this line receives 11 PIECE. | Six hundred sixty only | Value at the order's rates, before tax  660.00\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-014": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter a received quantity on at least one line. | Zero only | Value at the order's rates, before tax  0.00\"",
+   "open=true, saved=0, said=\"Enter a received quantity on at least one line. | Sixty only | Value at the order's rates, before tax  -60.00\""
+  ],
+  "pass": 2,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-015": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "Receipt date is a picker limited to today"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-016": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "needs a serial-tracked product"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-017": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "approved order offered=true, draft order offered=false"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-018": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "status COMPLETED, screen says \"Goods receipt GRN-T10069CWY-S-HO-2026-2027-000057 has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-019": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "Edit is absent on a Completed receipt"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-020": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "Close is enabled on a Draft receipt; pressed: status DRAFT, says \"Only completed goods receipts can be closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-021": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "needs stock consumed after the receipt"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-022": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-023": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: true; list 200; bills offered: false; returns offered: false; {+ New: enabled, New: absent, Approve: absent, Complete: enabled, Cancel: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qstore"
+ },
+ "SC-GR-024": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: true; list 200; bills offered: true; returns offered: true; {+ New: enabled, New: absent, Approve: absent, Complete: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-GR-025": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: true; list 200; bills offered: true; returns offered: true; {+ New: enabled, New: absent, Approve: absent, Complete: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-GR-026": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-GR-027": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "offered: true; {+ New: absent, New: absent, Complete: absent, Approve: absent, Cancel: absent, Close: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-GR-028": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "covered by SC-GR-029 and the PO file"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-GR-029": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Goods receipt exceeds allowed quantity for PO line 1: 10 PIECE ordered, 10 PIECE already received, and this line receives 10 PIECE.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-GR-030": {
+  "fail": 0,
+  "file": "sc_gr_test.dart",
+  "notes": [
+   "a Completed receipt cannot be edited on screen"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
  },
  "SC-OF-002": {
   "fail": 0,

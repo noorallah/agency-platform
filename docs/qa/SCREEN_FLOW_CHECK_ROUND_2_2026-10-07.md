@@ -36,6 +36,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SCRQ-41 | Medium | SC-PO-020 | New purchase order, line quantity | Quantity 0: Save does nothing and says nothing (editor open, no message). Quantity -4: the message is the raw validation text "lines 1, ordered_quantity: Input should be greater than or equal to 0" | A sentence naming the quantity ("Enter a quantity above zero") for both | purchase order editor line validation |
 | SCRQ-42 | High | SC-PO-038 | Purchase order editor, Save from a stale copy | Draft order opened for Edit; another user submits it; the first user changes the quantity to 13 and presses Save: the save goes through, the editor closes, nothing is said. The book expects "This record changed since you loaded it. Reload and try again." with the typing kept | The stale save refused (the editor should echo the ETag it loaded, `If-Match`) | `lib/ui/purchases/purchase_management_page.dart` (update call sends no version) |
 | SCRQ-43 | Low | SC-PO-001, SC-PO-014 | Purchase Orders list; Cancelled order | Cards read All, Draft, Open, Cancelled, Closed (the book: Draft Orders, Open Orders, Orders Today, Pending Delivery, Purchase Value are not there). Restore is offered only for a deleted order; nothing brings a Cancelled order back | the book's cards, or the book corrected to what the screen offers | `purchase_management_page.dart` cards and toolbar |
+| SCRQ-44 | Low | SC-GR-020 | Goods receipts, a Draft receipt | Close is enabled on a Draft receipt; pressing it answers "Only completed goods receipts can be closed." (refused in words, nothing changed) | Close greyed out until the receipt is Completed | `lib/ui/purchases/` goods receipt toolbar enablement |
 <!-- /HAND:FINDINGS -->
 
 ## Established behaviour (the book should say this)
@@ -85,7 +86,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | CM | Positive PASS: 1 |
 | CP | Positive PASS: 1 |
 | DN | Multi-user FAIL: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 5, Negative SKIP: 4, Positive PASS: 4, Role PASS: 3 |
-| GR | Positive PASS: 1 |
+| GR | Multi-user PASS: 1, Multi-user SKIP: 2, Negative PASS: 8, Negative SKIP: 3, Positive PASS: 5, Positive SKIP: 6, Role PASS: 5 |
 | OF | Positive PASS: 2 |
 | PB | Positive PASS: 2 |
 | PC | Positive PASS: 1 |
@@ -125,7 +126,36 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-DN-026 | Role | PASS | stages PUT answered 403 (HTTP level) | `sc_dn_test.dart` (qsmgr) |
 | SC-DN-029 | Multi-user | SKIP | the delivery note editor only creates; a saved note cannot be opened for change on screen, so there is no second session to race | `sc_dn_test.dart` (tradeadmin) |
 | SC-DN-030 | Multi-user | FAIL | Bad state: N1: Dispatch of a note another user had already dispatched said nothing after the dialog was confirmed | `sc_dn_test.dart` (tradeadmin) |
+| SC-GR-001 | Positive | PASS | columns present | `sc_gr_test.dart` (tradeadmin) |
 | SC-GR-002 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-GR-003 | Positive | PASS | after 4: order PARTIALLY_RECEIVED; second receipt boxes PO-T10069CWY-S-HO-2026-2027-000136  07-10-2026 / 6 / 0 / 0 / 0; after the rest: order RECEIVED | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-004 | Positive | SKIP | the product is not batch-tracked in the fixture | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-005 | Positive | SKIP | the product is not serial-tracked in the fixture | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-006 | Positive | SKIP | MRP/PTR/PTS boxes need a batch-tracked product | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-007 | Positive | SKIP | quarantine needs Quality Inspection set on | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-008 | Positive | PASS | status CLOSED, screen says "Goods receipt GRN-T10069CWY-S-HO-2026-2027-000061 closed." | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-009 | Positive | SKIP | transport boxes not driven | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-010 | Positive | PASS | status CANCELLED, screen says "Goods receipt GRN-T10069CWY-S-HO-2026-2027-000060 cancelled." | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-011 | Positive | SKIP | file picker not drivable | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-012 | Negative | PASS | open=true, saved=0, said="Choose the purchase order being received." | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-013 | Negative | PASS | open=true, saved=0, said="Goods receipt exceeds allowed quantity for PO line 1: 10 PIECE ordered, 0 PIECE already received, and this line receives 11 PIECE. / Six hundred sixty only / Value at the order's rates, before tax  660.00" | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-014 | Negative | PASS | open=true, saved=0, said="Enter a received quantity on at least one line. / Zero only / Value at the order's rates, before tax  0.00"; open=true, saved=0, said="Enter a received quantity on at least one line. / Sixty only / Value at the order's rates, before tax  -60.00" | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-015 | Negative | SKIP | Receipt date is a picker limited to today | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-016 | Negative | SKIP | needs a serial-tracked product | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-017 | Negative | PASS | approved order offered=true, draft order offered=false | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-018 | Negative | PASS | status COMPLETED, screen says "Goods receipt GRN-T10069CWY-S-HO-2026-2027-000057 has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return." | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-019 | Negative | PASS | Edit is absent on a Completed receipt | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-020 | Negative | PASS | Close is enabled on a Draft receipt; pressed: status DRAFT, says "Only completed goods receipts can be closed." | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-021 | Negative | SKIP | needs stock consumed after the receipt | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-022 | Negative | PASS | editor closed=false, asked=true | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-023 | Role | PASS | offered: true; list 200; bills offered: false; returns offered: false; {+ New: enabled, New: absent, Approve: absent, Complete: enabled, Cancel: absent} | `sc_gr_test.dart` (qstore) |
+| SC-GR-024 | Role | PASS | offered: true; list 200; bills offered: true; returns offered: true; {+ New: enabled, New: absent, Approve: absent, Complete: enabled, Cancel: enabled} | `sc_gr_test.dart` (qpexe) |
+| SC-GR-025 | Role | PASS | offered: true; list 200; bills offered: true; returns offered: true; {+ New: enabled, New: absent, Approve: absent, Complete: enabled, Cancel: enabled} | `sc_gr_test.dart` (qpmgr) |
+| SC-GR-026 | Role | PASS | offered: false; list 403 | `sc_gr_test.dart` (qsexe) |
+| SC-GR-027 | Role | PASS | offered: true; {+ New: absent, New: absent, Complete: absent, Approve: absent, Cancel: absent, Close: absent} | `sc_gr_test.dart` (qro) |
+| SC-GR-028 | Multi-user | SKIP | covered by SC-GR-029 and the PO file | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-029 | Multi-user | PASS | open=true, saved=0, said="Goods receipt exceeds allowed quantity for PO line 1: 10 PIECE ordered, 10 PIECE already received, and this line receives 10 PIECE." | `sc_gr_test.dart` (tradeadmin) |
+| SC-GR-030 | Multi-user | SKIP | a Completed receipt cannot be edited on screen | `sc_gr_test.dart` (tradeadmin) |
 | SC-OF-002 | Positive | PASS | - | `pricing_flow_test.dart` |
 | SC-OF-012 | Positive | PASS | - | `pricing_flow_test.dart` |
 | SC-PB-002 | Positive | PASS | - | `buying_flow_test.dart` |
