@@ -1076,6 +1076,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     required String value,
     required ValueChanged<String> onChanged,
     bool readOnly = false,
+    String? errorText,
   }) =>
       TextFormField(
         // Keyed on the line's place and product and on removals, so a box
@@ -1089,7 +1090,10 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
         textAlign: TextAlign.right,
         keyboardType: TextInputType.number,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13),
-        decoration: documentCellDecoration(context),
+        // The cell hides the sentence and shows the red mark; the banner
+        // under the header says it (D-UI-41).
+        decoration:
+            documentCellDecoration(context).copyWith(errorText: errorText),
         onChanged: onChanged,
       );
 
@@ -1206,6 +1210,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           index: index,
           name: 'qty',
           readOnly: schemeFree,
+          errorText: _quantityProblem(line),
           value: line.orderedQuantity,
           onChanged: (value) =>
               _changeLine(index, line.copyWith(orderedQuantity: value)),

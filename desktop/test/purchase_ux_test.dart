@@ -414,8 +414,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
-    // Vendor, branch and warehouse are filled, and the first line is priced
-    // at once -- by the server, since no rate was typed (BUY-3).
+    // A new order opens empty (D-UI-40): the vendor and the product are
+    // chosen, and the line is then priced by the server, since no rate was
+    // typed (BUY-3).
+    await tester.tap(find.byKey(const ValueKey('purchase-order-vendor')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Northwind').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byWidgetPredicate((Widget w) =>
+        w.key is ValueKey<String> &&
+        (w.key! as ValueKey<String>)
+            .value
+            .startsWith('purchase-order-line-product-')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining(_product.name).last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byWidgetPredicate((Widget w) =>
+          w.key is ValueKey<String> &&
+          (w.key! as ValueKey<String>).value.startsWith('purchase-order-qty-')),
+      '1',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
     expect(api.previews, isNotEmpty);
     expect(api.previews.last['lines'][0]['unit_price'], isNull);
     expect(find.text('PO-0002 (new)'), findsOneWidget);

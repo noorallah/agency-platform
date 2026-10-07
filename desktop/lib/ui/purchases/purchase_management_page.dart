@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
@@ -2815,7 +2816,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
         firmId: '',
         branchId: _defaultBranchId(),
         warehouseId: _defaultWarehouseId(_defaultBranchId()),
-        vendorId: widget.vendors.firstOrNull?.id ?? '',
+        // No supplier until one is chosen: the first of the list is nobody's
+        // choice (D-UI-40).
+        vendorId: '',
         buyerId: widget.buyers.firstOrNull?.id ?? '',
         taxProfileId: '',
         poNumber: '',
@@ -2851,18 +2854,21 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           PurchaseOrderLine(
             id: '',
             lineNumber: 1,
-            productId: widget.products.firstOrNull?.id ?? '',
+            // No product and no quantity: Save names what is missing rather
+            // than ordering something nobody chose (D-UI-40).
+            productId: '',
             description: '',
             vendorProductCode: '',
             purchaseUomId: '',
             inventoryUomId: '',
             conversionFactor: '1',
             conversionVersion: null,
-            orderedQuantity: '1',
+            orderedQuantity: '',
             freeQuantity: '',
             baseQuantity: '1',
             unitPrice: '0',
-            discountPercent: '0',
+            // Blank, so a discount is sent only if one is typed.
+            discountPercent: '',
             discountAmount: '0',
             grossAmount: '0',
             taxProfileId: '',
@@ -3098,6 +3104,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           _dropdownField(
             label: 'Vendor',
             value: _draft.vendorId,
+            blankWhenEmpty: true,
             readOnly: widget.isReadOnly,
             items: widget.vendors
                 .map(
@@ -3306,6 +3313,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                           _dropdownField(
                             label: 'Product',
                             value: line.productId,
+                            blankWhenEmpty: true,
                             readOnly: widget.isReadOnly,
                             items: widget.products
                                 .map(
@@ -3355,6 +3363,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                           _textField(
                             label: 'Quantity',
                             value: line.orderedQuantity,
+                            errorText: _quantityProblem(line),
                             readOnly: widget.isReadOnly,
                             onChanged: (value) => _updateLine(
                               index,
@@ -3849,20 +3858,49 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
             'Purchase mutations already generate audit events in the backend. The desktop keeps this tab reserved until a purchase-scoped audit-read endpoint is exposed.',
       );
 
+  /// Set once a save was refused for what is typed, so the quantity boxes
+  /// start showing which one is wrong (D-UI-41).
+  bool _attempted = false;
+
+  /// What is wrong with a line's quantity, in words; null when it is fine or
+  /// no save has been tried. A line may carry only free goods (PG-11), so a
+  /// paid quantity of zero is fine beside a free one.
+  String? _quantityProblem(PurchaseOrderLine line) {
+    if (!_attempted || widget.isReadOnly) return null;
+    return _quantityIsValid(line) ? null : 'Enter a quantity above zero.';
+  }
+
+  bool _quantityIsValid(PurchaseOrderLine line) {
+    final double? paid = double.tryParse(line.orderedQuantity.trim());
+    final double free = double.tryParse(line.freeQuantity.trim()) ?? 0;
+    if (paid == null || paid < 0) return false;
+    return paid > 0 || free > 0;
+  }
+
+  /// What a save is missing, said in words (D-UI-40, D-UI-41); null when
+  /// nothing is.
+  String? _missing() {
+    if (_draft.vendorId.isEmpty) return 'Choose the vendor.';
+    if (_draft.branchId.isEmpty || _draft.warehouseId.isEmpty) {
+      return 'Choose the branch and the warehouse the goods are received '
+          'into.';
+    }
+    if (_draft.purchaseDate.isEmpty) return 'Enter the purchase date.';
+    if (_draft.lines.isEmpty) return 'Add at least one line.';
+    final int blank = _draft.lines.indexWhere((line) => line.productId.isEmpty);
+    if (blank >= 0) return 'Choose a product on line ${blank + 1}.';
+    if (!_draft.lines.every(_quantityIsValid)) {
+      return 'Enter a quantity above zero.';
+    }
+    return null;
+  }
+
   Future<void> _save() async {
-    if (_draft.vendorId.isEmpty ||
-        _draft.branchId.isEmpty ||
-        _draft.warehouseId.isEmpty ||
-        _draft.purchaseDate.isEmpty ||
-        _draft.lines.isEmpty ||
-        _draft.lines.any(
-          (line) =>
-              line.productId.isEmpty ||
-              line.orderedQuantity.trim().isEmpty,
-        )) {
+    final String? missing = _missing();
+    if (missing != null) {
       setState(() {
-        _error =
-            'Vendor, branch, warehouse, purchase date, and at least one complete line are required.';
+        _attempted = true;
+        _error = missing;
       });
       return;
     }
@@ -3918,8 +3956,16 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     } on ApiException catch (exception) {
       if (!mounted) return;
       // The envelope's sentence plus the fields it names: "The request
-      // validation failed." on its own says nothing anybody can act on.
-      setState(() => _error = refusalMessage(exception));
+      // validation failed." on its own says nothing anybody can act on. A
+      // stale save (409) says so and that the typing is still here (D-UI-42).
+      setState(
+        () => _error = saveFailureMessage(
+          exception,
+          'purchase order',
+          changesKept: true,
+          isNew: widget.isCreating,
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -4138,6 +4184,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     required List<DropdownMenuItem<String>> items,
     required ValueChanged<String> onChanged,
     required bool readOnly,
+    bool blankWhenEmpty = false,
   }) =>
       LayoutBuilder(
         builder: (context, constraints) {
@@ -4150,7 +4197,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
               isExpanded: true,
               initialValue: items.any((item) => item.value == value)
                   ? value
-                  : items.firstOrNull?.value,
+                  : blankWhenEmpty && value.isEmpty
+                      ? null
+                      : items.firstOrNull?.value,
               decoration: InputDecoration(labelText: label),
               items: items,
               onChanged: readOnly
@@ -4171,6 +4220,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     required ValueChanged<String> onChanged,
     bool readOnly = false,
     int maxLines = 1,
+    String? errorText,
   }) =>
       LayoutBuilder(
         builder: (context, constraints) {
@@ -4183,7 +4233,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
               initialValue: value,
               maxLines: maxLines,
               readOnly: readOnly,
-              decoration: InputDecoration(labelText: label),
+              decoration: InputDecoration(
+                labelText: label,
+                errorText: errorText,
+              ),
               onChanged: onChanged,
             ),
           );

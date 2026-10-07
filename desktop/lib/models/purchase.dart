@@ -689,6 +689,7 @@ class PurchaseOrder {
     this.revisionNumber = 0,
     this.billingStatus = '',
     this.isComplete = false,
+    this.version = 0,
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
@@ -702,6 +703,11 @@ class PurchaseOrder {
     this.savedCurrencyCode,
     this.savedExchangeRate,
   });
+
+  /// The concurrency version the server published when this order was read;
+  /// an update echoes it as `If-Match` so a save from a stale copy is refused
+  /// (D-UI-42). Zero means none was published.
+  final int version;
 
   /// The currency and rate the server held when this order was read; null on
   /// an order that has not been saved. An update sends the two keys only when
@@ -872,6 +878,7 @@ class PurchaseOrder {
         revisionNumber: _revisionInt(json['revision_number']),
         billingStatus: stringValue(json['billing_status']),
         isComplete: boolValue(json['is_complete']),
+        version: _revisionInt(json['version']),
         isDeleted: boolValue(json['is_deleted']),
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),
@@ -971,6 +978,7 @@ class PurchaseOrder {
         revisionNumber: revisionNumber,
         billingStatus: billingStatus,
         isComplete: isComplete,
+        version: version,
         isDeleted: isDeleted,
         createdAt: createdAt,
         updatedAt: updatedAt,

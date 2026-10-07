@@ -23,6 +23,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/new_purchase_order.dart';
+
 PermissionService _permissions(List<String> codes) {
   final String payload = base64Url
       .encode(utf8.encode(jsonEncode(<String, dynamic>{
@@ -321,6 +323,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
+    await fillNewPurchaseOrder(
+      tester,
+      vendor: 'Northwind',
+      product: 'Pain Relief',
+    );
 
     expect(find.textContaining('120 would do'), findsOneWidget);
     await tester.tap(find.text('Use 120'));

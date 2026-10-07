@@ -31,6 +31,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/new_purchase_order.dart';
+
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
@@ -337,6 +339,11 @@ void main() {
   testWidgets('an untouched rate and discount are not sent', (tester) async {
     final _OrderApi api = _OrderApi();
     await _pumpOrder(tester, api);
+    await fillNewPurchaseOrder(
+      tester,
+      vendor: 'Northwind',
+      product: 'Pain Relief',
+    );
     expect(tester.takeException(), isNull);
 
     // Nothing typed: the server is asked to fill both.
@@ -368,6 +375,11 @@ void main() {
   testWidgets('a discount typed as 0 is sent as 0', (tester) async {
     final _OrderApi api = _OrderApi();
     await _pumpOrder(tester, api);
+    await fillNewPurchaseOrder(
+      tester,
+      vendor: 'Northwind',
+      product: 'Pain Relief',
+    );
 
     final Finder discount = find.byWidgetPredicate((Widget w) {
       final Key? key = w.key;
@@ -388,6 +400,11 @@ void main() {
       (tester) async {
     final _OrderApi api = _OrderApi();
     await _pumpOrder(tester, api);
+    await fillNewPurchaseOrder(
+      tester,
+      vendor: 'Northwind',
+      product: 'Pain Relief',
+    );
 
     final Finder remark = find.byWidgetPredicate((Widget w) {
       final Key? key = w.key;
