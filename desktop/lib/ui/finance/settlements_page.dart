@@ -14,6 +14,7 @@ import '../workspace/cheque_print_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../settings/send_message_dialog.dart';
 import '../workspace/printed_document.dart';
+import '../workspace/reason_prompt.dart';
 import 'ledger_files_dialog.dart';
 import 'record_settlement_dialog.dart';
 import 'supplier_credit_refunds.dart';
@@ -1072,7 +1073,11 @@ class _SettlementsPageState extends State<SettlementsPage> {
       return;
     }
     if (!mounted) return;
-    if (credits.isEmpty || bills.isEmpty) {
+    // A credit already set against a bill can be taken back off it, and
+    // that needs no unpaid bill: the list of uses is offered whenever one
+    // stands, where the take-back is a button beside it.
+    final bool anyOnBills = credits.any((row) => row.onBills.isNotEmpty);
+    if (credits.isEmpty || (bills.isEmpty && !anyOnBills)) {
       NotificationService.show(
         context,
         credits.isEmpty
@@ -1083,24 +1088,44 @@ class _SettlementsPageState extends State<SettlementsPage> {
       );
       return;
     }
-    final CustomerCredit? credit = credits.length == 1
-        ? credits.single
-        : await showDialog<CustomerCredit>(
-            context: context,
-            builder: (dialogContext) => SimpleDialog(
-              title: const Text('Which credit?'),
-              children: [
-                for (final CustomerCredit row in credits)
-                  SimpleDialogOption(
-                    onPressed: () => Navigator.pop(dialogContext, row),
-                    child: Text(
-                      '${row.label} -- ${row.availableAmount} left',
+    final CustomerCredit? picked;
+    if (anyOnBills) {
+      final _CreditChoice? choice = await showDialog<_CreditChoice>(
+        context: context,
+        builder: (_) => _CustomerCreditsDialog(
+          customerName: customer.name,
+          credits: credits,
+          canApply: bills.isNotEmpty,
+        ),
+      );
+      if (choice == null || !mounted) return;
+      final CustomerCreditApplication? use = choice.takeBack;
+      if (use != null) {
+        await _takeBackCustomerCredit(choice.credit, use);
+        return;
+      }
+      picked = choice.credit;
+    } else {
+      picked = credits.length == 1
+          ? credits.single
+          : await showDialog<CustomerCredit>(
+              context: context,
+              builder: (dialogContext) => SimpleDialog(
+                title: const Text('Which credit?'),
+                children: [
+                  for (final CustomerCredit row in credits)
+                    SimpleDialogOption(
+                      onPressed: () => Navigator.pop(dialogContext, row),
+                      child: Text(
+                        '${row.label} -- ${row.availableAmount} left',
+                      ),
                     ),
-                  ),
-              ],
-            ),
-          );
-    if (credit == null || !mounted) return;
+                ],
+              ),
+            );
+    }
+    if (picked == null || !mounted) return;
+    final CustomerCredit credit = picked;
     final _Application? chosen = await showDialog<_Application>(
       context: context,
       builder: (context) => _ApplyDialog(
@@ -1124,6 +1149,42 @@ class _SettlementsPageState extends State<SettlementsPage> {
     NotificationService.show(
       context,
       '${credit.label} set against ${chosen.invoiceNumber}.',
+      kind: AppNotificationKind.success,
+    );
+    await _load();
+  }
+
+  /// Take a credit back off the bill it was set against in error: the bill
+  /// owes that much again and the credit can be set elsewhere or paid back.
+  /// Nothing is posted, as nothing was when it was applied.
+  Future<void> _takeBackCustomerCredit(
+    CustomerCredit credit,
+    CustomerCreditApplication use,
+  ) async {
+    final String? reason = await askForReason(
+      context,
+      title: 'Take ${credit.label} back off ${use.targetNumber}',
+      explanation: '${use.targetNumber} will owe ${use.amount} again, and '
+          'that much of the credit can be set against another bill or paid '
+          'back. Nothing moves in the ledger.',
+      confirmLabel: 'Take back',
+    );
+    if (reason == null || !mounted) return;
+    try {
+      await widget.api.reverseCustomerCreditApplication(
+        applicationId: use.id,
+        reason: reason,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(context, exception.message,
+          kind: AppNotificationKind.error);
+      return;
+    }
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      '${credit.label} taken back off ${use.targetNumber}.',
       kind: AppNotificationKind.success,
     );
     await _load();
@@ -1197,6 +1258,101 @@ class _SettlementsPageState extends State<SettlementsPage> {
       ]),
     );
   }
+}
+
+/// What somebody chose in the customer's credits: a credit to set against a
+/// bill, or one use of it to take back.
+class _CreditChoice {
+  const _CreditChoice(this.credit, {this.takeBack});
+
+  final CustomerCredit credit;
+  final CustomerCreditApplication? takeBack;
+}
+
+/// A customer's credits and the bills each was set against, with Take back
+/// beside every use (D-PRC-75). Shown only when a use stands; a customer
+/// with nothing applied goes straight to the apply dialog.
+class _CustomerCreditsDialog extends StatelessWidget {
+  const _CustomerCreditsDialog({
+    required this.customerName,
+    required this.credits,
+    required this.canApply,
+  });
+
+  final String customerName;
+  final List<CustomerCredit> credits;
+
+  /// Whether the customer has an unpaid bill to set a credit against.
+  final bool canApply;
+
+  static bool _hasLeft(CustomerCredit credit) =>
+      (double.tryParse(credit.availableAmount) ?? 0) > 0;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text('Credits of $customerName'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final CustomerCredit credit in credits) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${credit.label} -- ${credit.availableAmount} left '
+                          'of ${credit.creditAmount}',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                      TextButton(
+                        key: ValueKey('apply-credit-${credit.sourceId}'),
+                        onPressed: canApply && _hasLeft(credit)
+                            ? () => Navigator.pop(
+                                context, _CreditChoice(credit))
+                            : null,
+                        child: const Text('Set against a bill'),
+                      ),
+                    ],
+                  ),
+                  for (final CustomerCreditApplication use in credit.onBills)
+                    Padding(
+                      padding: const EdgeInsets.only(left: AppSpacing.md),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${use.amount} on ${use.targetNumber}'
+                              '${use.appliedOn.isEmpty ? '' : ', ${use.appliedOn}'}',
+                            ),
+                          ),
+                          TextButton(
+                            key: ValueKey('take-back-${use.id}'),
+                            onPressed: () => Navigator.pop(
+                              context,
+                              _CreditChoice(credit, takeBack: use),
+                            ),
+                            child: const Text('Take back'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      );
 }
 
 /// What somebody chose to apply, and to which bill.

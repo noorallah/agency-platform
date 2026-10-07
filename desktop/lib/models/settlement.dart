@@ -396,6 +396,7 @@ class CustomerCredit {
     required this.availableAmount,
     required this.heldAmount,
     required this.appliedTo,
+    this.applications = const [],
   });
 
   /// The id the apply call names: the sales return's or the credit note's.
@@ -416,6 +417,14 @@ class CustomerCredit {
   /// The part of what is left that is held on account and may be refunded.
   final String heldAmount;
   final List<String> appliedTo;
+
+  /// Each use of the credit that still stands.
+  final List<CustomerCreditApplication> applications;
+
+  /// The uses that can be taken back: those set against a bill. Money paid
+  /// back is undone by reversing the refund, not here.
+  List<CustomerCreditApplication> get onBills =>
+      [for (final CustomerCreditApplication use in applications) if (!use.isRefund) use];
 
   bool get isCreditNote => sourceType == 'CREDIT_NOTE';
 
@@ -444,6 +453,44 @@ class CustomerCredit {
               in json['applied_to'] is List ? json['applied_to'] : const [])
             stringValue(number),
         ],
+        applications: [
+          for (final dynamic use
+              in json['applications'] is List ? json['applications'] : const [])
+            if (use is Map<String, dynamic>)
+              CustomerCreditApplication.fromJson(use),
+        ],
+      );
+}
+
+/// One use of a customer credit: the bill it was set against, or the refund
+/// that paid it back.
+class CustomerCreditApplication {
+  const CustomerCreditApplication({
+    required this.id,
+    required this.targetType,
+    required this.targetNumber,
+    required this.amount,
+    required this.appliedOn,
+  });
+
+  /// The id the take-back call names.
+  final String id;
+
+  /// SALES_INVOICE, CUSTOMER_OPENING_BILL or REFUND.
+  final String targetType;
+  final String targetNumber;
+  final String amount;
+  final String appliedOn;
+
+  bool get isRefund => targetType == 'REFUND';
+
+  factory CustomerCreditApplication.fromJson(Json json) =>
+      CustomerCreditApplication(
+        id: stringValue(json['id']),
+        targetType: stringValue(json['target_type']),
+        targetNumber: stringValue(json['target_number']),
+        amount: stringValue(json['amount']),
+        appliedOn: stringValue(json['applied_on']),
       );
 }
 
