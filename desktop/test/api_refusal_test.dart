@@ -8,6 +8,23 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('a rule about the whole record stands alone, with no heading', () {
+    // "The request validation failed. | body: A coupon cannot end before it
+    // starts." was what the coupon dialog showed (D-UI-59).
+    const ApiException error = ApiException(
+      'The request validation failed.',
+      statusCode: 422,
+      details: <Object>[
+        <String, Object>{
+          'field': 'body',
+          'message': 'A coupon cannot end before it starts.',
+          'code': 'value_error',
+        },
+      ],
+    );
+    expect(refusalMessage(error), 'A coupon cannot end before it starts.');
+  });
+
   test('a validation refusal lists its fields, rows numbered from one', () {
     const ApiException error = ApiException(
       'The request validation failed.',

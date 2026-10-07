@@ -12,6 +12,7 @@ import '../../models/firm_member.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/sales_territory.dart';
+import '../workspace/discard_prompt.dart';
 
 /// Agree one offer: what it gives, who it is for, and when it runs.
 ///
@@ -75,6 +76,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
   List<_ActionDraft> _actions = <_ActionDraft>[_ActionDraft()];
   List<_ConditionDraft> _conditions = <_ConditionDraft>[];
   bool _saving = false;
+  bool _dirty = false;
   String? _error;
 
   bool get _editing => widget.existing != null;
@@ -394,7 +396,14 @@ class _PromotionDialogState extends State<PromotionDialog> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AskBeforeClosing(
+        touched: () => _dirty,
+        what: 'promotion has not been saved',
+        busy: _saving,
+        child: _dialog(context),
+      );
+
+  Widget _dialog(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return AlertDialog(
       title: Text(_editing ? 'Edit promotion' : 'New promotion'),
@@ -402,6 +411,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
         width: 820,
         child: Form(
           key: _form,
+          onChanged: () => _dirty = true,
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -688,7 +698,9 @@ class _PromotionDialogState extends State<PromotionDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          onPressed: _saving
+              ? null
+              : () => unawaited(Navigator.of(context).maybePop()),
           child: const Text('Cancel'),
         ),
         FilledButton(
@@ -884,9 +896,17 @@ class _PromotionDialogState extends State<PromotionDialog> {
                   labelText: isPercent ? 'Percent' : 'Amount',
                 ),
                 keyboardType: TextInputType.number,
-                validator: (value) => (value ?? '').trim().isEmpty
-                    ? 'A benefit needs a figure.'
-                    : null,
+                validator: (value) {
+                  final String text = (value ?? '').trim();
+                  if (text.isEmpty) return 'A benefit needs a figure.';
+                  if (!isPercent) return null;
+                  // Said here rather than left to the server's own words
+                  // about its schema (D-UI-52).
+                  final double? parsed = double.tryParse(text);
+                  return parsed == null || parsed < 0 || parsed > 100
+                      ? 'A percentage is between 0 and 100.'
+                      : null;
+                },
               ),
             ),
           // "20% off, up to 500": the cap on the whole document (60 item 1).

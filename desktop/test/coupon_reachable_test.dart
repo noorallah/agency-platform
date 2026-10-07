@@ -162,6 +162,11 @@ void main() {
   testWidgets('a blank limit is sent as no limit, not as zero', (tester) async {
     final _Api api = _Api();
     await _openDialog(tester, api);
+    // A new coupon names no offer for the user (D-UI-54): choose it.
+    await tester.tap(find.byKey(const ValueKey('coupon-offer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('WELCOME').last);
+    await tester.pumpAndSettle();
 
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Code'), 'SAVE10');

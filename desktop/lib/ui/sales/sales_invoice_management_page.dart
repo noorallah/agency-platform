@@ -235,12 +235,27 @@ class _SalesInvoiceManagementPageState
     return true;
   }
 
+  /// The cards above the list. They are a report, gated on other codes than
+  /// the list, and a refusal there must not blank the bills beneath.
+  Future<dynamic> _summaryOrNone() async {
+    try {
+      return await widget.api
+          .documentSummary('sales-invoices', path: 'reports/summary');
+    } on ApiException {
+      return const <String, dynamic>{};
+    }
+  }
+
   Future<void> _load({int? requestedPage}) async {
     // Read before any await: whether to pick the first row (phase 1 only).
     final bool pickFirst =
         context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
     if (!widget.hasActiveFirm ||
-        !widget.permissions.hasPermission('SALES_VIEW')) {
+        !widget.permissions
+            .hasAnyPermission(const ['SALES_VIEW', 'RECEIPT_VIEW'])) {
+      // The server's own read gate (D-UI-46): whoever records the money
+      // against a bill reads it. Asking for `SALES_VIEW` alone left Accounts
+      // an empty list over 115 bills (D-UI-50).
       return;
     }
     setState(() {
@@ -252,7 +267,7 @@ class _SalesInvoiceManagementPageState
     });
     try {
       final List<dynamic> responses = await Future.wait<dynamic>([
-        widget.api.documentSummary('sales-invoices', path: 'reports/summary'),
+        _summaryOrNone(),
         widget.api.documentPage(
           'sales-invoices',
           page: _page,

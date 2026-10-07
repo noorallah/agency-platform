@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/customer.dart';
+import '../workspace/discard_prompt.dart';
 
 /// Ask for a customer, a signed number of points and a reason, then post it.
 ///
@@ -97,8 +98,21 @@ class _LoyaltyAdjustDialogState extends State<LoyaltyAdjustDialog> {
     }
   }
 
+  /// Whether anything has been chosen or typed, so closing would lose it.
+  bool get _touched =>
+      _customerId != widget.customerId ||
+      _points.text.trim().isNotEmpty ||
+      _reason.text.trim().isNotEmpty;
+
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => AskBeforeClosing(
+        touched: () => _touched,
+        what: 'adjustment has not been recorded',
+        busy: _saving,
+        child: _dialog(context),
+      );
+
+  Widget _dialog(BuildContext context) => AlertDialog(
         title: const Text('Adjust points'),
         content: SizedBox(
           width: 480,
@@ -175,7 +189,9 @@ class _LoyaltyAdjustDialogState extends State<LoyaltyAdjustDialog> {
         ),
         actions: [
           TextButton(
-            onPressed: _saving ? null : () => Navigator.of(context).pop(),
+            onPressed: _saving
+                ? null
+                : () => unawaited(Navigator.of(context).maybePop()),
             child: const Text('Cancel'),
           ),
           FilledButton(
