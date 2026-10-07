@@ -6202,6 +6202,18 @@ Performance did not decide it; the differences are small. Maintenance did: most 
 5. **The product form shows only its type's properties**, already switched on, with *Show all tracking options* for the odd product; dependent fields (shelf life, expiry rules, batch issue rule) appear only while their switch is on. Receipt and bill lines follow the product's switches, as the purchase bill editor already does.
 6. **Menus follow the goods:** Batches, Serial Numbers and the Expiry Monitor appear when any goods type the firm uses needs them.
 
+**How the levels connect -- confirmed with the owner 2026-10-07.** Three one-to-many steps, and the person entering a product chooses only the category:
+
+| From | To | How many | Set by |
+| --- | --- | --- | --- |
+| Firm | Goods types in use | Many: Medicine, Food and Paint in one firm | The profile's starting set when the firm is created; the firm's administrator adds or drops one afterwards |
+| Goods type | Categories | Many: Tablets and Syrups are Medicine, Emulsions and Enamels are Paint | Chosen once on the category |
+| Category | Products | Many | Chosen on the product, which takes and stores the category's type |
+
+Creating a product: (1) pick the category; (2) the form shows *Goods type: Medicine* read-only; (3) that type's tracking switches appear, already on; (4) its extra fields appear, the required ones marked; (5) HSN code, tax group and units are filled from the type and can be changed; (6) name, price, save. Picking *Emulsions* instead shows Paint's set: batch, the shade code, no expiry.
+
+**The goods type is not chosen on the product** (owner 2026-10-07). Letting it be picked there, with the category only suggesting it, was weighed and turned down: every product needs a category anyway, so the type costs the person nothing; a tablet cannot be saved as Paint by mistake; an import needs only the category column; and reports by goods type stay reliable. The one product that differs changes its switches under *Show all tracking options*, not its type.
+
 **Extra fields on customers, suppliers and documents -- decided by the owner 2026-10-07.** A customer has no goods type, so point 1 does not reach these, and the same weakness applies: a firm on the pharmacy profile offers *Drug licence number* on its paint dealers too. The profile stops narrowing them as well:
 
 1. One list of the extra fields available for customers, suppliers and documents: the shared catalogue plus the firm's own.
