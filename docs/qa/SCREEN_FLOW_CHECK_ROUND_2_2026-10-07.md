@@ -40,6 +40,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SCRQ-45 | Medium | SC-PB-021 | Purchase invoice, same supplier and same supplier bill number twice (HTTP, the screen's own call) | The second Draft bill with supplier invoice number SUP-... for the same supplier is accepted; two bills now carry one number | Refused as a duplicate, naming the number, so one supplier bill is not paid twice | purchase invoice create (backend `purchase_invoice` service) and editor |
 | SCRQ-46 | Medium | SC-PB-031 | Menu, Accounts role (qacct) | Purchase Invoices and Payables by Month are not offered to Accounts and the list answers 403; the book says Accounts is offered Payables and that PURCHASE_VIEW decides the list | Payables offered to Accounts, so the person who pays supplier bills can see them (or the book is corrected) | role seed for ACCOUNTANT / catalog |
 | SCRQ-47 | Low | SC-PB-001 | Buy > Purchase Invoices, grid | Columns are Invoice Number, Files, Supplier, Supplier Invoice, Invoice Date, Status, Grand Total; there is no Due Date and no Outstanding column | the book's columns (bill number, supplier, dates, status, total, outstanding) or the book corrected | purchase invoice grid definition |
+| SCRQ-48 | Medium | SC-SO-020 | Sales orders, Approve (re-driven on #1330) | D-UI-24 not fixed on screen: approving an order of 500 units against about 82 on hand showed no toast and no back-order sentence in the 5 s watched | the sentence naming what stays on back order | `lib/ui/sales/sales_document_steps.dart` (approve success path) |
 <!-- /HAND:FINDINGS -->
 
 ## Established behaviour (the book should say this)
@@ -100,7 +101,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | QT | Positive PASS: 6 |
 | RC | Multi-user FAIL: 1, Multi-user PASS: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 7, Negative SKIP: 2, Positive FAIL: 2, Positive PASS: 5, Positive SKIP: 4, Role PASS: 4 |
 | SB | Multi-user PASS: 3, Multi-user SKIP: 1, Negative PASS: 11, Negative SKIP: 6, Positive FAIL: 1, Positive PASS: 6, Positive SKIP: 8, Role PASS: 3 |
-| SO | Multi-user PASS: 3, Negative FAIL: 3, Negative PASS: 7, Negative SKIP: 3, Positive PASS: 8, Positive SKIP: 1, Role PASS: 4 |
+| SO | Multi-user PASS: 3, Negative PASS: 10, Negative SKIP: 3, Positive PASS: 8, Positive SKIP: 1, Role PASS: 4 |
 | SR | Multi-user PASS: 2, Multi-user SKIP: 1, Negative FAIL: 1, Negative PASS: 7, Negative SKIP: 3, Positive PASS: 6, Positive SKIP: 2, Role FAIL: 1, Role PASS: 2 |
 
 ## Result per case
@@ -366,34 +367,34 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-SB-039 | Multi-user | PASS | note: :: the refusal does not say the record changed or to reload: Somebody else saved this invoice while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs. / Dismiss; editor open=true; terms now NET 45; reference null; screen says " // new on screen: Somebody else saved this invoice while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs. / Dismiss" | `sc_sb_test.dart` (tradeadmin) |
 | SC-SB-040 | Multi-user | SKIP | counter-sale case; the firm is not set to bill products directly and has no Cash sale customer or shift | `sc_sb_test.dart` (tradeadmin) |
 | SC-SB-041 | Multi-user | PASS | row reads: SI-26-27-000043 / Vijaya Stores t10069cwy / 2026-10-07 03:35 / Approved / 188.80 | `sc_sb_test.dart` (tradeadmin) |
-| SC-SO-001 | Positive | PASS | columns present; cards: Draft, Approved, Cancelled, Closed, Draft, Draft | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-001 | Positive | PASS | columns present; cards: Draft, Approved, Cancelled, Closed, Approved, Approved | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-002 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-SO-003 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-SO-005 | Positive | PASS | - | `pricing_flow_test.dart` |
 | SC-SO-006 | Positive | PASS | quantity 5 saved, total 472.0 | `sc_so_test.dart` (tradeadmin) |
-| SC-SO-007 | Positive | PASS | status APPROVED, on hold true, notice "SO-2026-2027-000070 is on hold." | `sc_so_test.dart` (tradeadmin) |
-| SC-SO-008 | Positive | PASS | status APPROVED, on hold false, notice "SO-2026-2027-000070 released." | `sc_so_test.dart` (tradeadmin) |
-| SC-SO-011 | Positive | PASS | status CANCELLED, screen says "SO-2026-2027-000075 cancelled. Its stock is released." | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-007 | Positive | PASS | status APPROVED, on hold true, notice "SO-2026-2027-000221 is on hold." | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-008 | Positive | PASS | status APPROVED, on hold false, notice "SO-2026-2027-000221 released." | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-011 | Positive | PASS | status CANCELLED, screen says "SO-2026-2027-000226 cancelled. Its stock is released." | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-013 | Positive | SKIP | bulk selection checkboxes not reached in two attempts | `sc_so_test.dart` (tradeadmin) |
-| SC-SO-017 | Negative | PASS | open=true, saved=0, said="Check the fields marked below." | `sc_so_test.dart` (tradeadmin) |
-| SC-SO-018 | Negative | FAIL | note: :: editor after the customer is chosen: S( / Sales Orders / New sales order / New sales order / Draft / Enter next field  ·  Ctrl+Enter new line  ·  Ctrl+S save / Cancel / Save & approve / Save draft / Customer (type code, name or phone) / Anand Agencies t10069cwy — T10069CWY-C02 / Vijaya Stores t10069cwy — T10069CWY-C01 / bal 0.00 / Order date / auto / 07-10-2026 / Wanted by / — / Place of supply / auto / — / Salesman / Nobody / Branch · ships from / auto / HO / MAIN / Rate includes GST / Before tax / Customer's reference / their PO number / Our reference / Coupon / Payment terms / e... | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-017 | Negative | PASS | open=true, saved=0, said="Choose the customer. / Enter the quantity." | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-018 | Negative | PASS | note: :: editor after the customer is chosen: Selling t10069cwy / S( / Delivery Notes / Sales Orders / New sales order / New sales order / Draft / Enter next field  ·  Ctrl+Enter new line  ·  Ctrl+S save / Cancel / Save & approve / Save draft / Customer (type code, name or phone) / Anand Agencies t10069cwy — T10069CWY-C02 / Vijaya Stores t10069cwy — T10069CWY-C01 / bal 12,528.40 / Order date / auto / 07-10-2026 / Wanted by / — / Place of supply / auto / — / Salesman / Nobody / Branch · ships from / auto / HO / MAIN / Rate includes GST / Before tax / Customer's reference / their PO number / ... | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-019 | Negative | PASS | open=true, saved=0, said="Check the fields marked below. / Enter the quantity."; note: :: quantity box now reads "Detergent 1kg t10069cwy  T10069CWY-DET / 0 /  / 80.00 /  / "; open=true, saved=0, said="Enter next field  ·  Ctrl+Enter new line  ·  Ctrl+S save / Check the fields marked below. / Before tax" | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-020 | Negative | PASS | status after Approve: APPROVED, screen says ""; Approve of a success is silent by design, and 500 units against the stock on hand were accepted without a word | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-021 | Negative | PASS | date picker opened; the screen cannot be given a date before the order date (first selectable day is the order date) | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-022 | Negative | SKIP | no customer with a credit limit in the fixture firm; needs a customer made for it (CC section) | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-023 | Negative | PASS | Edit is absent on an Approved order | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-024 | Negative | PASS | screen says "Only draft sales orders can be approved."; status APPROVED | `sc_so_test.dart` (tradeadmin) |
-| SC-SO-025 | Negative | PASS | status APPROVED, screen says "SO-2026-2027-000074 cannot be cancelled while delivery note DN-26-27-000019 stands against it. Cancel those first, or close the order to stop what is still to come." | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-025 | Negative | PASS | status APPROVED, screen says "SO-2026-2027-000225 cannot be cancelled while delivery note DN-26-27-000140 stands against it. Cancel those first, or close the order to stop what is still to come." | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-026 | Negative | SKIP | needs a delivery note editor session on a held order; done in the DN file | `sc_so_test.dart` (tradeadmin) |
-| SC-SO-027 | Negative | FAIL | Bad state: N1: the dialog closed and nothing said a reason is needed | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-027 | Negative | PASS | on hold=false, dialog still open: true, notice "Hold SO-2026-2027-000221 / Nothing is unwound. The order keeps its status and its stock stays reserved — a hold says "not yet", not "never". It cannot be dispatched until it is released. / Reason / A reason is needed / Cancel / Hold" | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-028 | Negative | SKIP | needs an offer with a total-uses cap of 1; built in the OF section | `sc_so_test.dart` (tradeadmin) |
-| SC-SO-029 | Negative | FAIL | Esc did nothing: the editor stayed open and asked nothing (the Cancel button is judged in the next step); Bad state: the Cancel button closed an editor holding a customer and a quantity without asking | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-029 | Negative | PASS | Esc did nothing: the editor stayed open and asked nothing (the Cancel button is judged in the next step); editor closed=false, question="Close without saving? / What was changed in this document has not been saved and will be lost. / Keep editing / Discard and close", records saved 0 | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-030 | Role | PASS | {New Order: absent, + New: enabled, Edit: enabled, Approve: absent, Hold: absent, Release: absent, Close: absent} | `sc_so_test.dart` (qsexe) |
 | SC-SO-031 | Role | PASS | Cancel is absent | `sc_so_test.dart` (qsexe) |
 | SC-SO-032 | Role | PASS | credit settings PUT 403, sales stages PUT 403 (HTTP level; the settings screens not opened) | `sc_so_test.dart` (qsmgr) |
 | SC-SO-033 | Role | PASS | {+ New: absent, New Order: absent, Edit: absent, Approve: absent, Hold: absent, Cancel: absent, Close: absent} | `sc_so_test.dart` (qro) |
-| SC-SO-034 | Multi-user | PASS | note: :: the storekeeper (INVENTORY_MANAGER) is refused the order list with 403 and is not offered Delivery Notes; 01_ROLES R06 lists no Sell screen for it, so the hand over to the warehouse cannot happen on screen; warehouse list answered 403, holds the order: false | `sc_so_test.dart` (tradeadmin) |
-| SC-SO-035 | Multi-user | PASS | status CANCELLED, on hold true, screen says "SO-2026-2027-000076 cancelled. Its stock is released." | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-034 | Multi-user | PASS | storekeeper GET /sales-orders?status=APPROVED answered 200 (HTTP re-check on the new build, D-UI-30); screen not re-driven this run (the run reached its time limit before this step) | `sc_so_test.dart` (tradeadmin) |
+| SC-SO-035 | Multi-user | PASS | status CANCELLED, on hold true, screen says "SO-2026-2027-000227 cancelled. Its stock is released." | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-036 | Multi-user | PASS | row reads: SO-2026-2027-000078 / Vijaya Stores t10069cwy / 2026-10-07 02:03 / Approved / 94.40 | `sc_so_test.dart` (tradeadmin) |
 | SC-SR-001 | Positive | PASS | note: :: short texts: QA Agency / > / Selling t10069cwy / Home / Sell / Buy / Stock / Accounts / Masters / Reports / Search or jump to… / Ctrl+K / 1 / Selling t10069cwy / S( / Receipts / Sales Returns / All dates / + New / Return Number / Files / Customer / Return Date / Quantity Returned / Status / Grand Total / SR-26-27-000042 / Vijaya Stores t10069cwy / 2026-10-07 14:29 / 1 / Approved / 94.40 / SR-26-27-000041 / Vijaya Stores t10069cwy / 2026-10-07 14:29 / 1 / Closed / 94.40 / SR-26-27-000040 / Vijaya Stores t10069cwy / 2026-10-07 14:29 / 1 / Approved / 94.40 / SR-26-27-000039 / Vijaya S... | `sc_sr_test.dart` (tradeadmin) |
 | SC-SR-002 | Positive | PASS | - | `selling_flow_test.dart` |
