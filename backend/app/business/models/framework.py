@@ -175,7 +175,7 @@ class AttributeDataType(StrEnum):
 
 
 class AttributeDefinition(BaseEntity):
-    """Define one configurable field that extends a record for some industry.
+    """Define one configurable field that extends a record, shared or a firm's own.
 
     A definition is scoped by ``entity_type`` (which record it extends). A
     shared one is offered to every firm unless that firm switched it off

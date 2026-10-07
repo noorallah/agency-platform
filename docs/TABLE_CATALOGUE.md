@@ -117,13 +117,13 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `attribute_definitions` | firm store ¹ | Define one configurable field that extends a record: shared (no `firm_id`) or one firm's own. No longer scoped to a business profile (`applicable_business_profile_id` dropped, `20261008_0352`). |  |
+| `attribute_definitions` | firm store ¹ | Define one configurable field that extends a record, shared or a firm's own. |  |
 | `business_features` | firm store ¹ | Define one configurable framework feature flag. |  |
 | `business_modules` | firm store ¹ | Define one configurable module in the ERP workspace. |  |
 | `business_profiles` | firm store ¹ | Define one industry/business operating profile. |  |
-| `category_attribute_rules` | firm store ¹ | Tie a field to a goods type, customer group or supplier type, or make it compulsory for a product category: shared (no `firm_id`) or a firm's own; names exactly one of the four (`business_profile_id` dropped, `20261008_0352`). | `goods_types`, `customer_groups`, `vendor_types`, `attribute_definitions` |
+| `category_attribute_rules` | firm store ¹ | Say which records a field belongs to, and where it is compulsory. | `goods_types`, `customer_groups`, `vendor_types`, `attribute_definitions` |
 | `delivery_note_attribute_values` | firm store ¹ | Store one custom field value for a delivery note. | `delivery_notes`, `firms`, `attribute_definitions` |
-| `firm_attribute_switches` | firm store ¹ | Switch one shared field off or on for one firm; no row means on (added on 2026-10-08, not yet tested by hand). | `attribute_definitions` |
+| `firm_attribute_switches` | firm store ¹ | One firm's on or off for a field of the shared catalogue. | `attribute_definitions` |
 | `firm_business_profiles` | firm store ¹ | Assign exactly one active business profile to a firm. | `firms`, `business_profiles` |
 | `profile_features` | firm store ¹ | Store per-profile feature enablement and optional configuration. | `business_profiles`, `business_features` |
 | `profile_modules` | firm store ¹ | Store per-profile module visibility and workflow configuration. | `business_profiles`, `business_modules` |
@@ -451,7 +451,7 @@ trigger each schema owns its own copy of.
 | `product_kit_components` | firm store ¹ | One component of a kit, and how many go into one kit (decision A134). | `firms`, `products` |
 | `product_media` | firm store ¹ | Store product images, attachments, and reference documents. | `firms`, `products` |
 | `product_price_revisions` | firm store ¹ | New rates for a product from a date, kept with every earlier one. | `firms`, `products` |
-| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `goods_types`, `trade_licence_types`, `brands`, `uoms`, `vendors` |
+| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `goods_types`, `unit_sets`, `trade_licence_types`, `brands`, `uoms`, `vendors` |
 
 ### `app/proforma`
 
@@ -677,8 +677,8 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `packaging_types` | firm store ¹ | Define one packaging type token (box/carton/pallet/etc.). |  |
 | `product_packaging_levels` | firm store ¹ | Store unlimited product packaging hierarchy levels. | `firms`, `products`, `packaging_types`, `uoms` |
-| `unit_set_goods_types` | firm store ¹ | Order a unit set among the sets offered for one goods type (a set tied to none is offered to every product). | `unit_sets`, `goods_types` |
-| `unit_sets` | firm store ¹ | A named template of a product's seven unit slots and conversion factor; no `firm_id` is the shared catalogue, read-only to firms. | `firms`, `uoms` |
+| `unit_set_goods_types` | firm store ¹ | One goods type a unit set suits; the pair is the whole row. | `unit_sets`, `goods_types` |
+| `unit_sets` | firm store ¹ | One template for a product's units and its pack size. | `uoms` |
 | `uom_attribute_values` | firm store ¹ | Store one configurable attribute value for a unit of measure. | `uoms`, `firms`, `attribute_definitions` |
 | `uom_conversion_rules` | firm store ¹ | Versioned UOM conversion rule with historical effectivity. | `firms`, `business_profiles`, `products`, `uoms` |
 | `uom_group_units` | firm store ¹ | Map UOMs into UOM groups with base-unit selection. | `uom_groups`, `uoms` |

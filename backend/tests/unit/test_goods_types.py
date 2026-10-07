@@ -14,12 +14,20 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
-from app.business.models import BusinessProfile
+from app.business.api.router import get_active_modules
+from app.business.models import BusinessModule, BusinessProfile
 from app.business.schemas import FirmBusinessProfileAssign
 from app.business.services.framework_service import BusinessProfileFrameworkService
 from app.common.audit.models import AuditLog
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
+from app.identity.models import UserFirm
 from app.identity.system_seed import ROLE_PERMISSION_CODES
 from app.products.api.router import GoodsTypeManageScope, router
 from app.products.goods_type_seed import SHARED_GOODS_TYPES, seed_goods_types
@@ -41,6 +49,7 @@ from app.tax.models import TaxProfile
 from tests.unit.test_product_master import (
     _base_payload,
     _firm,
+    _principal,
     _seed_profile,
     _session_factory,
 )
@@ -736,3 +745,48 @@ def test_the_menus_follow_the_goods_a_firm_trades_in() -> None:
     # It rides on the answer the shell already reads, and no firm says nothing.
     assert framework.goods_tracking(firm.id) == ["SERIAL"]
     assert framework.goods_tracking(None) is None
+
+
+def test_the_active_modules_route_says_which_tracking_screens_a_firm_needs() -> None:
+    session = _store()
+    firm = _firm(session, "RTE")
+    user_id = uuid4()
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    for code in ("INVENTORY", "SALES"):
+        session.add(
+            BusinessModule(
+                code=code,
+                name=code.title(),
+                default_enabled=True,
+                is_active=True,
+                created_by=user_id,
+                updated_by=user_id,
+            )
+        )
+    session.commit()
+    _use(session, firm.id, "ELECTRONICS")
+    principal = _principal(user_id, set())
+    request = Request({"type": "http"})
+
+    answer = get_active_modules(
+        principal, request, db=session, platform_db=session, x_firm_id=firm.id
+    )
+    by_code = {row.code: row.goods_tracking for row in answer.data}
+    # Only the inventory row carries it; every other module says nothing.
+    assert by_code == {"INVENTORY": ["SERIAL"], "SALES": None}
+
+    # With no firm named there is nothing to hide, so nothing is said.
+    nobody = get_active_modules(
+        principal, request, db=session, platform_db=session, x_firm_id=None
+    )
+    assert {row.goods_tracking for row in nobody.data} == {None}
+
+    # Somebody who does not belong to the firm is not told about it.
+    with pytest.raises(AuthorizationError):
+        get_active_modules(
+            _principal(uuid4(), set()),
+            request,
+            db=session,
+            platform_db=session,
+            x_firm_id=firm.id,
+        )
