@@ -1433,6 +1433,18 @@
   "skip": 0,
   "user": ""
  },
+ "SC-PY-001": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Purchase Invoices | Payments | Payments | All dates | Supplier credits | Supplier refunds | \u2026 | + New | Number | Supplier | Date | Method | Cleared | Status | Amount | PY-2026-2027-000018 | 2026-10-07 | CASH | Reversed | 30.00 | PY-2026-2027-000017 | 2026-10-07 | CASH | Applied | 708.00 | PY-2026-2027-000016 | 2026-10-07 | CASH | Applied | 708.00 | PY-2026-2027-000015 | 2026-10-07 | CASH | Applied | 50.00 | PY-2026-2027-000014 | 2026-10-07 | CASH | Applied | 40.00 | PY-2026-2027-000013 | 2026-10-07 | CASH | Applied | 10.00 | PY-2026-2027-000012 | 2026-10-07 | CASH | Applied | 10.00 | PY-2026-2027-000011 | 2026-10-07 | CASH | Applied | 708.00",
+   "columns and chips present"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-PY-002": {
   "fail": 0,
   "file": "buying_flow_test.dart",
@@ -1441,6 +1453,273 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-PY-003": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "saved 1; amount 400.00; allocated 400.0 over 1 bills"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-004": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "TDS section list not driven; no TDS master in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-005": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "cheque printing is a native print"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-006": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "no foreign-currency bill in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-007": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Payment Runs screen not reached"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-008": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "payment REVERSED; bill APPROVED outstanding null; screen says \"PY-2026-2027-000016 reversed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-009": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Print is native; Send and Files as in Receipts"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-010": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Post-dated Cheques screen not reached"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-011": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a payment | Money already paid. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Paid to | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By us | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Discount received | Leave blank when nothing was deducted. The amount above is what settles the supplier. | Apply to bills | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | PI-T10069CWY-S-HO-2026-2027-000005 | 2026-10-07 | 708.00 | 612.00 | PI-T10069CWY-S-HO-2026-2027-000006 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000007 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000009 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000011 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000013 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000014 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000015 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000016 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000026 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000027 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000028 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000029 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000030 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000031 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000032 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000033 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000034 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000035 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000037 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000039 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000041 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000042 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000043 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000044 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000053 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000056 | 2026-10-07 | 708.00 | 708.00 | Cancel | Record payment | Enter how much money moved.\"",
+   "open=true, saved=0, said=\"Record a payment | Money already paid. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Paid to | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By us | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Discount received | Leave blank when nothing was deducted. The amount above is what settles the supplier. | Apply to bills | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | PI-T10069CWY-S-HO-2026-2027-000005 | 2026-10-07 | 708.00 | 612.00 | PI-T10069CWY-S-HO-2026-2027-000006 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000007 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000009 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000011 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000013 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000014 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000015 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000016 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000026 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000027 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000028 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000029 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000030 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000031 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000032 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000033 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000034 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000035 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000037 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000039 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000041 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000042 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000043 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000044 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000053 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000056 | 2026-10-07 | 708.00 | 708.00 | Cancel | Record payment | Enter how much money moved.\"",
+   "open=true, saved=0, said=\"Record a payment | Money already paid. Recording it posts to the ledger. | Enter how much money moved. | Dismiss | Paid to | Nobody matches that. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By us | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Discount received | Leave blank when nothing was deducted. The amount above is what settles the supplier. | Apply to bills | Oldest first | Enter the amount to apply it | Invoice | Date | Total | Outstanding | Apply | PI-T10069CWY-S-HO-2026-2027-000005 | 2026-10-07 | 708.00 | 612.00 | PI-T10069CWY-S-HO-2026-2027-000006 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000007 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000009 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000011 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000013 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000014 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000015 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000016 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000026 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000027 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000028 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000029 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000030 | 2026-10-07 | 708.00 | 698.00 | PI-T10069CWY-S-HO-2026-2027-000031 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000032 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000033 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000034 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000035 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000037 | 2026-10-07 | 708.00 | 658.00 | PI-T10069CWY-S-HO-2026-2027-000039 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000041 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000042 | 2026-10-07 | 708.00 | 668.00 | PI-T10069CWY-S-HO-2026-2027-000043 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000044 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000053 | 2026-10-07 | 708.00 | 708.00 | PI-T10069CWY-S-HO-2026-2027-000056 | 2026-10-07 | 708.00 | 708.00 | Cancel | Record payment | Enter how much money moved.\""
+  ],
+  "pass": 3,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-012": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "note: :: the Payments screen accepts an amount with nothing applied as an advance to the supplier: true",
+   "advance notice shown=true; saved 1; newest unallocated 1234.00"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-013": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "future date not driven (see SC-RC-014)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-014": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "no closed period in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-015": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Record a payment | Money already paid. Recording it posts to the ledger. | Choose who the money is from or to. | Dismiss | Paid to | Type a code or a name to narrow the list. | Amount | Bank transfer | Mode | 2026-10-07 | Date the money moved | UTR / transfer reference | Narration | TDS deducted | By us | TDS section | Leave blank when nothing was deducted. | Deductions | Rounding / short paid | Discount received | Leave blank when nothing was deducted. The amount above is what settles the supplier. | Apply to bills | 25.00 will be held as an advance, not applied to any bill | Choose a vendor to see what the firm owes them. | Cancel | Record payment | Choose who the money is from or to. | 25.00 will be held as an advance, not applied to any bill\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-016": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "no foreign bill in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-017": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Reverse is absent on a reversed payment"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-018": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Edit absent, Delete absent"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-019": {
+  "fail": 1,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Bad state: the dialog closed holding typing without asking (same family as known SCRQ-21/29)"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-020": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: enabled, Reverse: enabled}; Payment Runs offered: true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qacct"
+ },
+ "SC-PY-021": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpexe"
+ },
+ "SC-PY-022": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "offered: false; list 403"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qpmgr"
+ },
+ "SC-PY-024": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "offered: true; list 200; {+ New: absent, Reverse: absent}; Payment Runs offered: true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-PY-025": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "covered by the PB file multi-user cases"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-PY-026": {
+  "fail": 0,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "second payment answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"An allocated invoice does not belong to this party, is not approved, or is already settled in full.\"},\"timestamp\":\"2026-10-07T10:19:04.16; bill outstanding null"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-PY-027": {
+  "fail": 1,
+  "file": "sc_py_test.dart",
+  "notes": [
+   "Bad state: N1: the stale Reverse said nothing"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
  },
  "SC-QT-002": {
   "fail": 0,

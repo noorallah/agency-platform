@@ -584,33 +584,33 @@ are the counters above a grid.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| SC-PY-001 | Positive | AC | Approved bill for Principal supplier, 1,000 outstanding | Open Buy > Payments. | Grid of payments; chips Supplier credits and Supplier refunds; Search by number or reference. | 06 Screen checks | not yet |  |
+| SC-PY-001 | Positive | AC | Approved bill for Principal supplier, 1,000 outstanding | Open Buy > Payments. | Grid of payments; chips Supplier credits and Supplier refunds; Search by number or reference. | 06 Screen checks | `sc_py_test.dart` (tradeadmin) | Pass 2026-10-07: note: :: short texts: QA Agency / > / Selling t10069cwy / Home / Sell / Buy / Stock / Accounts / Masters / Reports / Search or jump to… / Ctrl+K / 1 / Sellin... |
 | SC-PY-002 | Positive | AC | Approved bill outstanding | New. Pick Principal supplier. Press Oldest first. Press Record. | Bill's outstanding falls; payment number listed; journal posted (Dr payable, Cr bank). | BUY-008 | `buying_flow_test.dart` | Pass 2026-10-07 |
-| SC-PY-003 | Positive | AC | Bill of 1,000 | Pay 400 only. | 400 settles; 600 remains; Paid view shows the part payment. | BUY-034, BUY-072 | not yet |  |
-| SC-PY-004 | Positive | AC | Bill with TDS proposed | Fill TDS deducted and section. | TDS is posted; the supplier receives the net. | BUY-043, BUY-047 | not yet |  |
-| SC-PY-005 | Positive | AC | Bank mode cheque | Choose Mode cheque; fill instrument date. Record. Press Print cheque. | Cheque prints in the firm's layout; Cheque layout opens. | BUY-008 | not yet |  |
-| SC-PY-006 | Positive | AC | Foreign bill | Pay in the supplier's currency at another rate. | Exchange loss or gain is posted; rupees refused against a foreign bill. | BUY-071, BUY-073 | not yet |  |
-| SC-PY-007 | Positive | AC | Several approved bills | Open Payment Runs, create a run, approve it. | A run lists due bills; bank file is produced. | BUY-023 | not yet |  |
-| SC-PY-008 | Positive | AC | Recorded payment | Press Reverse, give the reason, confirm. | Payment Reversed; the bill is Approved and owing again. | BUY-038 | not yet |  |
-| SC-PY-009 | Positive | AC | Recorded payment | Press Print, Send, Files. | Preview and channel behave as in Receipts. | BUY-008 | not yet |  |
-| SC-PY-010 | Positive | AC | Cheque issued but not yet cleared | Open Post-dated Cheques under Buy. | The cheque shows with its date; it clears on the date. | BUY-008 | not yet |  |
-| SC-PY-011 | Negative | AC | Payment dialog | Amount 0 or empty, then negative. | Refused in words; dialog open; values kept. | BUY-037 | not yet |  |
-| SC-PY-012 | Negative | AC | Bill of 1,000 | Pay 1,500 against it. | Refused: more than the bill, as in Pay now (BUY-037). Payments screen may allow an advance; to be established on the first run. | BUY-037 | not yet |  |
-| SC-PY-013 | Negative | AC | Payment dialog | Date in the future. | Refused in words. | BUY-008 | not yet |  |
-| SC-PY-014 | Negative | AC | Payment dialog | Date in a closed period. | Refused naming the period. | BUY-008 | not yet |  |
-| SC-PY-015 | Negative | AC | Payment dialog | No supplier, or no bank account chosen. | Field named as missing. | BUY-008 | not yet |  |
-| SC-PY-016 | Negative | AC | Payment dialog | Pick a foreign bill and pay rupees, or use TDS and an advance. | Refused in words. | BUY-073 | not yet |  |
-| SC-PY-017 | Negative | AC | Reversed payment | Press Reverse again. | Not offered or refused: already reversed. | BUY-038 | not yet |  |
-| SC-PY-018 | Negative | AC | Recorded payment | Look for Edit and Delete. | Neither is offered; a payment is reversed, never edited. | BUY-038 | not yet |  |
-| SC-PY-019 | Negative | AC | Typed dialog | Close it. | Discard question. | BUY-008 | not yet |  |
-| SC-PY-020 | Role | AC | Accounts | Open Payments. | Offered with Record, Reverse, Payment Runs (PAYMENT_RUN_APPROVE). | 01-ROLES R09 | not yet |  |
-| SC-PY-021 | Role | PU | Purchasing | Look for Payments. | Not offered (no PAYMENT_VIEW). | 01-ROLES R07 | not yet |  |
-| SC-PY-022 | Role | PM | Purchase Manager | Look for Payments. | Not offered; whoever approves the bill does not move the cash. | 01-ROLES R08 | not yet |  |
+| SC-PY-003 | Positive | AC | Bill of 1,000 | Pay 400 only. | 400 settles; 600 remains; Paid view shows the part payment. | BUY-034, BUY-072 | `sc_py_test.dart` (tradeadmin) | Pass 2026-10-07: saved 1; amount 400.00; allocated 400.0 over 1 bills |
+| SC-PY-004 | Positive | AC | Bill with TDS proposed | Fill TDS deducted and section. | TDS is posted; the supplier receives the net. | BUY-043, BUY-047 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: TDS section list not driven; no TDS master in the fixture |
+| SC-PY-005 | Positive | AC | Bank mode cheque | Choose Mode cheque; fill instrument date. Record. Press Print cheque. | Cheque prints in the firm's layout; Cheque layout opens. | BUY-008 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: cheque printing is a native print |
+| SC-PY-006 | Positive | AC | Foreign bill | Pay in the supplier's currency at another rate. | Exchange loss or gain is posted; rupees refused against a foreign bill. | BUY-071, BUY-073 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: no foreign-currency bill in the fixture |
+| SC-PY-007 | Positive | AC | Several approved bills | Open Payment Runs, create a run, approve it. | A run lists due bills; bank file is produced. | BUY-023 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: Payment Runs screen not reached |
+| SC-PY-008 | Positive | AC | Recorded payment | Press Reverse, give the reason, confirm. | Payment Reversed; the bill is Approved and owing again. | BUY-038 | `sc_py_test.dart` (tradeadmin) | Pass 2026-10-07: payment REVERSED; bill APPROVED outstanding null; screen says "PY-2026-2027-000016 reversed." |
+| SC-PY-009 | Positive | AC | Recorded payment | Press Print, Send, Files. | Preview and channel behave as in Receipts. | BUY-008 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: Print is native; Send and Files as in Receipts |
+| SC-PY-010 | Positive | AC | Cheque issued but not yet cleared | Open Post-dated Cheques under Buy. | The cheque shows with its date; it clears on the date. | BUY-008 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: Post-dated Cheques screen not reached |
+| SC-PY-011 | Negative | AC | Payment dialog | Amount 0 or empty, then negative. | Refused in words; dialog open; values kept. | BUY-037 | `sc_py_test.dart` (tradeadmin) | Pass 2026-10-07: open=true, saved=0, said="Record a payment / Money already paid. Recording it posts to the ledger. / Enter how much money moved. / Dismiss / Paid to / Nobody... |
+| SC-PY-012 | Negative | AC | Bill of 1,000 | Pay 1,500 against it. | Refused: more than the bill, as in Pay now (BUY-037). Payments screen may allow an advance; to be established on the first run. | BUY-037 | `sc_py_test.dart` (tradeadmin) | Pass 2026-10-07: note: :: the Payments screen accepts an amount with nothing applied as an advance to the supplier: true; advance notice shown=true; saved 1; newest unallocat... |
+| SC-PY-013 | Negative | AC | Payment dialog | Date in the future. | Refused in words. | BUY-008 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: future date not driven (see SC-RC-014) |
+| SC-PY-014 | Negative | AC | Payment dialog | Date in a closed period. | Refused naming the period. | BUY-008 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: no closed period in the fixture firm |
+| SC-PY-015 | Negative | AC | Payment dialog | No supplier, or no bank account chosen. | Field named as missing. | BUY-008 | `sc_py_test.dart` (tradeadmin) | Pass 2026-10-07: open=true, saved=0, said="Record a payment / Money already paid. Recording it posts to the ledger. / Choose who the money is from or to. / Dismiss / Paid to ... |
+| SC-PY-016 | Negative | AC | Payment dialog | Pick a foreign bill and pay rupees, or use TDS and an advance. | Refused in words. | BUY-073 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: no foreign bill in the fixture |
+| SC-PY-017 | Negative | AC | Reversed payment | Press Reverse again. | Not offered or refused: already reversed. | BUY-038 | `sc_py_test.dart` (tradeadmin) | Pass 2026-10-07: Reverse is absent on a reversed payment |
+| SC-PY-018 | Negative | AC | Recorded payment | Look for Edit and Delete. | Neither is offered; a payment is reversed, never edited. | BUY-038 | `sc_py_test.dart` (tradeadmin) | Pass 2026-10-07: Edit absent, Delete absent |
+| SC-PY-019 | Negative | AC | Typed dialog | Close it. | Discard question. | BUY-008 | `sc_py_test.dart` (tradeadmin) | Fail 2026-10-07: Bad state: the dialog closed holding typing without asking (same family as known SCRQ-21/29) |
+| SC-PY-020 | Role | AC | Accounts | Open Payments. | Offered with Record, Reverse, Payment Runs (PAYMENT_RUN_APPROVE). | 01-ROLES R09 | `sc_py_test.dart` (qacct) | Pass 2026-10-07: offered: true; list 200; {+ New: enabled, Reverse: enabled}; Payment Runs offered: true |
+| SC-PY-021 | Role | PU | Purchasing | Look for Payments. | Not offered (no PAYMENT_VIEW). | 01-ROLES R07 | `sc_py_test.dart` (qpexe) | Pass 2026-10-07: offered: false; list 403 |
+| SC-PY-022 | Role | PM | Purchase Manager | Look for Payments. | Not offered; whoever approves the bill does not move the cash. | 01-ROLES R08 | `sc_py_test.dart` (qpmgr) | Pass 2026-10-07: offered: false; list 403 |
 | SC-PY-023 | Role | CS | Cashier role | Open Payments. | Offered with Record (PAYMENT_CREATE). | 01-ROLES R03 | not yet |  |
-| SC-PY-024 | Role | RO | Read Only | Open Payments. | Readable; no write buttons. | 01-ROLES R11 | not yet |  |
-| SC-PY-025 | Multi-user | PM, AC | PM approves a bill; AC pays it | AC refreshes Payments. | AC sees the approved bill; PM later sees it as paid. | BUY-008 | not yet |  |
-| SC-PY-026 | Multi-user | AC and AC2 | Both pay the same bill in full | Record in two sessions. | The second is refused or only the remainder is allowed; the bill never goes below zero. | BUY-037 | not yet |  |
-| SC-PY-027 | Multi-user | AC and FA | Same payment open twice | FA reverses; AC presses Reverse from the old list. | AC told already reversed; no double reversal. | BUY-038 | not yet |  |
+| SC-PY-024 | Role | RO | Read Only | Open Payments. | Readable; no write buttons. | 01-ROLES R11 | `sc_py_test.dart` (qro) | Pass 2026-10-07: offered: true; list 200; {+ New: absent, Reverse: absent}; Payment Runs offered: true |
+| SC-PY-025 | Multi-user | PM, AC | PM approves a bill; AC pays it | AC refreshes Payments. | AC sees the approved bill; PM later sees it as paid. | BUY-008 | `sc_py_test.dart` (tradeadmin) | Skipped 2026-10-07: covered by the PB file multi-user cases |
+| SC-PY-026 | Multi-user | AC and AC2 | Both pay the same bill in full | Record in two sessions. | The second is refused or only the remainder is allowed; the bill never goes below zero. | BUY-037 | `sc_py_test.dart` (tradeadmin) | Pass 2026-10-07: second payment answered 422: {"success":false,"error":{"code":"validation_error","message":"An allocated invoice does not belong to this party, is not approv... |
+| SC-PY-027 | Multi-user | AC and FA | Same payment open twice | FA reverses; AC presses Reverse from the old list. | AC told already reversed; no double reversal. | BUY-038 | `sc_py_test.dart` (tradeadmin) | Fail 2026-10-07: Bad state: N1: the stale Reverse said nothing |
 
 ## SCR. Supplier credits (credit set against a bill, and supplier refunds)
 

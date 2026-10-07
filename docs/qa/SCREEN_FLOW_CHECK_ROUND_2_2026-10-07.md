@@ -24,9 +24,9 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SCRQ-29 | Medium | SC-DN-023 | New delivery note editor, Cancel | As SCRQ-21: Cancel closes an editor holding an order and a typed quantity without a question | "Discard unsaved changes?" | `lib/ui/delivery_notes/delivery_note_editor_phase2.dart` (Cancel pops directly) |
 | SCRQ-30 | Medium | SC-DN-025, SC-SO-034 | Menu, Warehouse role (INVENTORY_MANAGER) | The storekeeper's menu has no Sell area at all; Delivery Notes and Sales Orders answer 403. The book's role table says Warehouse "dispatches stock", and its chain (FS, SM, WH) cannot reach WH | the role can open Delivery Notes to dispatch, or the book's role table is corrected | `backend/app/identity/system_seed.py` (INVENTORY_MANAGER grants no SALES_* code) |
 | SCRQ-31 | Low | SC-SB-001 | Sell > Sales Invoices, list | The grid opens with Invoice Number, Files, Customer, Invoice Date and Status first; Payment Terms, Taxable Value and Tax are not on screen at 1600x1000 (cards All, Draft, Approved, Cancelled, Closed, Pending, Overdue are) | the book lists Payment Terms, Taxable Value, Tax as shown, or the book says they are hidden columns | `lib/ui/sales/sales_invoice_management_page.dart` (`GridColumn` priorities near line 1170) |
-| SCRQ-32 | Medium | SC-RC-014 | Record a receipt, Date the money moved | The date picker offers days after today: next month's 15th was picked, Record pressed, and a receipt dated 2026-11-15 was saved with no word said | The picker stops at today, or Record refuses "not future-dated" in words (the rule the refund path already applies) | `lib/ui/finance/record_settlement_dialog.dart:1259-1270` (`_dateField` picker) |
-| SCRQ-33 | Medium | SC-RC-021 | Record a receipt dialog, Cancel | With a customer and an amount typed, Cancel closes the dialog at once and the typing is lost (#1330 fixed the sales editors, not this dialog) | "Discard unsaved changes?" with Keep editing | `lib/ui/finance/record_settlement_dialog.dart` (Cancel pops directly) |
-| SCRQ-34 | Medium | SC-RC-029 | Receipts, Reverse from a stale list | A receipt reversed by Accounts meanwhile: Reverse with a reason from the old list says nothing at all, no refusal and no refresh | "Already reversed" in words, and the row refreshed | `lib/ui/finance/` receipts page reverse handler |
+| SCRQ-32 | Medium | SC-RC-014 (the payment dialog shares the picker, not driven) | Record a receipt, Date the money moved | The date picker offers days after today: next month's 15th was picked, Record pressed, and a receipt dated 2026-11-15 was saved with no word said | The picker stops at today, or Record refuses "not future-dated" in words (the rule the refund path already applies) | `lib/ui/finance/record_settlement_dialog.dart:1259-1270` (`_dateField` picker) |
+| SCRQ-33 | Medium | SC-RC-021, SC-PY-019 | Record a receipt dialog, Cancel | With a customer and an amount typed, Cancel closes the dialog at once and the typing is lost (#1330 fixed the sales editors, not this dialog) | "Discard unsaved changes?" with Keep editing | `lib/ui/finance/record_settlement_dialog.dart` (Cancel pops directly) |
+| SCRQ-34 | Medium | SC-RC-029, SC-PY-027 | Receipts, Reverse from a stale list | A receipt reversed by Accounts meanwhile: Reverse with a reason from the old list says nothing at all, no refusal and no refresh | "Already reversed" in words, and the row refreshed | `lib/ui/finance/` receipts page reverse handler |
 | SCRQ-35 | Low | SC-RC-008 | Receipts toolbar | Send is not offered on a recorded receipt (Print and Files are); the book expects Send to name channels | Send offered, or the book drops it for receipts | receipt toolbar actions |
 | SCRQ-36 | Low | SC-RC-001 | Sell > Receipts, grid | Columns are Number, Customer, Date, Method, Cleared, Status, Amount; "Cash or Bank", "On Account", "Other Deductions" are not on screen | the book's columns, or the book says they are hidden | receipts grid definition |
 | SCRQ-37 | Medium | SC-SR-009 | New sales return editor, Save with more than can come back | The server refuses ("Return quantity exceeds what left on DN-... (9 sent, 7 already returned ...)") but the editor has already closed: the sentence is shown and everything typed is lost | The editor stays open with the typing kept (N2) | `lib/ui/sales/` sales return editor save handler |
@@ -96,7 +96,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | PL | Positive PASS: 2 |
 | PO | Multi-user FAIL: 1, Multi-user PASS: 2, Multi-user SKIP: 1, Negative FAIL: 3, Negative PASS: 5, Negative SKIP: 5, Positive FAIL: 1, Positive PASS: 10, Positive SKIP: 6, Role FAIL: 1, Role PASS: 4 |
 | PR | Positive PASS: 2 |
-| PY | Positive PASS: 1 |
+| PY | Multi-user FAIL: 1, Multi-user PASS: 1, Multi-user SKIP: 1, Negative FAIL: 1, Negative PASS: 5, Negative SKIP: 3, Positive PASS: 4, Positive SKIP: 6, Role PASS: 4 |
 | QT | Positive PASS: 6 |
 | RC | Multi-user FAIL: 1, Multi-user PASS: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 7, Negative SKIP: 2, Positive FAIL: 2, Positive PASS: 5, Positive SKIP: 4, Role PASS: 4 |
 | SB | Multi-user PASS: 3, Multi-user SKIP: 1, Negative PASS: 11, Negative SKIP: 6, Positive FAIL: 1, Positive PASS: 6, Positive SKIP: 8, Role PASS: 3 |
@@ -240,7 +240,32 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-PO-040 | Multi-user | PASS | row reads: PO-T10069CWY-S-HO-2026-2027-000130 / Principal supplier t10069cwy / Head Office / Main Warehouse / Q acct (t10069cwy) / 2026-10-07 / STANDARD PURCHASE / Normal / Approved / 708.00 | `sc_po_test.dart` (tradeadmin) |
 | SC-PR-002 | Positive | PASS | - | `buying_flow_test.dart` |
 | SC-PR-003 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PY-001 | Positive | PASS | note: :: short texts: QA Agency / > / Selling t10069cwy / Home / Sell / Buy / Stock / Accounts / Masters / Reports / Search or jump to… / Ctrl+K / 1 / Selling t10069cwy / S( / Purchase Invoices / Payments / Payments / All dates / Supplier credits / Supplier refunds / … / + New / Number / Supplier / Date / Method / Cleared / Status / Amount / PY-2026-2027-000018 / 2026-10-07 / CASH / Reversed / 30.00 / PY-2026-2027-000017 / 2026-10-07 / CASH / Applied / 708.00 / PY-2026-2027-000016 / 2026-10-07 / CASH / Applied / 708.00 / PY-2026-2027-000015 / 2026-10-07 / CASH / Applied / 50.00 / PY-2026-20... | `sc_py_test.dart` (tradeadmin) |
 | SC-PY-002 | Positive | PASS | - | `buying_flow_test.dart` |
+| SC-PY-003 | Positive | PASS | saved 1; amount 400.00; allocated 400.0 over 1 bills | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-004 | Positive | SKIP | TDS section list not driven; no TDS master in the fixture | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-005 | Positive | SKIP | cheque printing is a native print | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-006 | Positive | SKIP | no foreign-currency bill in the fixture | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-007 | Positive | SKIP | Payment Runs screen not reached | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-008 | Positive | PASS | payment REVERSED; bill APPROVED outstanding null; screen says "PY-2026-2027-000016 reversed." | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-009 | Positive | SKIP | Print is native; Send and Files as in Receipts | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-010 | Positive | SKIP | Post-dated Cheques screen not reached | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-011 | Negative | PASS | open=true, saved=0, said="Record a payment / Money already paid. Recording it posts to the ledger. / Enter how much money moved. / Dismiss / Paid to / Nobody matches that. / Amount / Bank transfer / Mode / 2026-10-07 / Date the money moved / UTR / transfer reference / Narration / TDS deducted / By us / TDS section / Leave blank when nothing was deducted. / Deductions / Rounding / short paid / Discount received / Leave blank when nothing was deducted. The amount above is what settles the supplier. / Apply to bills / Oldest first / Enter the amount to apply it / Invoice / Date / Total / Outst... | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-012 | Negative | PASS | note: :: the Payments screen accepts an amount with nothing applied as an advance to the supplier: true; advance notice shown=true; saved 1; newest unallocated 1234.00 | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-013 | Negative | SKIP | future date not driven (see SC-RC-014) | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-014 | Negative | SKIP | no closed period in the fixture firm | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-015 | Negative | PASS | open=true, saved=0, said="Record a payment / Money already paid. Recording it posts to the ledger. / Choose who the money is from or to. / Dismiss / Paid to / Type a code or a name to narrow the list. / Amount / Bank transfer / Mode / 2026-10-07 / Date the money moved / UTR / transfer reference / Narration / TDS deducted / By us / TDS section / Leave blank when nothing was deducted. / Deductions / Rounding / short paid / Discount received / Leave blank when nothing was deducted. The amount above is what settles the supplier. / Apply to bills / 25.00 will be held as an advance, not applied t... | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-016 | Negative | SKIP | no foreign bill in the fixture | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-017 | Negative | PASS | Reverse is absent on a reversed payment | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-018 | Negative | PASS | Edit absent, Delete absent | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-019 | Negative | FAIL | Bad state: the dialog closed holding typing without asking (same family as known SCRQ-21/29) | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-020 | Role | PASS | offered: true; list 200; {+ New: enabled, Reverse: enabled}; Payment Runs offered: true | `sc_py_test.dart` (qacct) |
+| SC-PY-021 | Role | PASS | offered: false; list 403 | `sc_py_test.dart` (qpexe) |
+| SC-PY-022 | Role | PASS | offered: false; list 403 | `sc_py_test.dart` (qpmgr) |
+| SC-PY-024 | Role | PASS | offered: true; list 200; {+ New: absent, Reverse: absent}; Payment Runs offered: true | `sc_py_test.dart` (qro) |
+| SC-PY-025 | Multi-user | SKIP | covered by the PB file multi-user cases | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-026 | Multi-user | PASS | second payment answered 422: {"success":false,"error":{"code":"validation_error","message":"An allocated invoice does not belong to this party, is not approved, or is already settled in full."},"timestamp":"2026-10-07T10:19:04.16; bill outstanding null | `sc_py_test.dart` (tradeadmin) |
+| SC-PY-027 | Multi-user | FAIL | Bad state: N1: the stale Reverse said nothing | `sc_py_test.dart` (tradeadmin) |
 | SC-QT-002 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-QT-003 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-QT-005 | Positive | PASS | - | `selling_flow_test.dart` |
