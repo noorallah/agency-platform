@@ -29,6 +29,9 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SCRQ-34 | Medium | SC-RC-029 | Receipts, Reverse from a stale list | A receipt reversed by Accounts meanwhile: Reverse with a reason from the old list says nothing at all, no refusal and no refresh | "Already reversed" in words, and the row refreshed | `lib/ui/finance/` receipts page reverse handler |
 | SCRQ-35 | Low | SC-RC-008 | Receipts toolbar | Send is not offered on a recorded receipt (Print and Files are); the book expects Send to name channels | Send offered, or the book drops it for receipts | receipt toolbar actions |
 | SCRQ-36 | Low | SC-RC-001 | Sell > Receipts, grid | Columns are Number, Customer, Date, Method, Cleared, Status, Amount; "Cash or Bank", "On Account", "Other Deductions" are not on screen | the book's columns, or the book says they are hidden | receipts grid definition |
+| SCRQ-37 | Medium | SC-SR-009 | New sales return editor, Save with more than can come back | The server refuses ("Return quantity exceeds what left on DN-... (9 sent, 7 already returned ...)") but the editor has already closed: the sentence is shown and everything typed is lost | The editor stays open with the typing kept (N2) | `lib/ui/sales/` sales return editor save handler |
+| SCRQ-38 | Low | SC-SR-021 | Menu, Field Sales | Sales Returns is not offered, yet `GET /sales-returns` answers 200 for the role (it holds the view code); the screen hides what the role may read | the menu offers a screen the role can read, or the code is withheld | role seed for `SALES_EXECUTIVE` / catalog tab codes |
+| SCRQ-39 | Low | SC-SR-025 | Sales returns, a Draft return | A Draft return has no Edit button; a wrong quantity can only be fixed by Cancel and raising a new return (so the stale-save race the book describes cannot happen) | Edit on a Draft, as the book assumes, or the book drops SR-025 | `lib/ui/sales/sales_return_management_page.dart` toolbar |
 <!-- /HAND:FINDINGS -->
 
 ## Established behaviour (the book should say this)
@@ -90,7 +93,7 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | RC | Multi-user FAIL: 1, Multi-user PASS: 1, Multi-user SKIP: 1, Negative FAIL: 2, Negative PASS: 7, Negative SKIP: 2, Positive FAIL: 2, Positive PASS: 5, Positive SKIP: 4, Role PASS: 4 |
 | SB | Multi-user PASS: 3, Multi-user SKIP: 1, Negative PASS: 11, Negative SKIP: 6, Positive FAIL: 1, Positive PASS: 6, Positive SKIP: 8, Role PASS: 3 |
 | SO | Multi-user PASS: 3, Negative FAIL: 3, Negative PASS: 7, Negative SKIP: 3, Positive PASS: 8, Positive SKIP: 1, Role PASS: 4 |
-| SR | Positive PASS: 2 |
+| SR | Multi-user PASS: 2, Multi-user SKIP: 1, Negative FAIL: 1, Negative PASS: 7, Negative SKIP: 3, Positive PASS: 6, Positive SKIP: 2, Role FAIL: 1, Role PASS: 2 |
 
 ## Result per case
 
@@ -236,5 +239,28 @@ and is a refusal runs as the administrator unless its Role kind says otherwise.
 | SC-SO-034 | Multi-user | PASS | note: :: the storekeeper (INVENTORY_MANAGER) is refused the order list with 403 and is not offered Delivery Notes; 01_ROLES R06 lists no Sell screen for it, so the hand over to the warehouse cannot happen on screen; warehouse list answered 403, holds the order: false | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-035 | Multi-user | PASS | status CANCELLED, on hold true, screen says "SO-2026-2027-000076 cancelled. Its stock is released." | `sc_so_test.dart` (tradeadmin) |
 | SC-SO-036 | Multi-user | PASS | row reads: SO-2026-2027-000078 / Vijaya Stores t10069cwy / 2026-10-07 02:03 / Approved / 94.40 | `sc_so_test.dart` (tradeadmin) |
+| SC-SR-001 | Positive | PASS | note: :: short texts: QA Agency / > / Selling t10069cwy / Home / Sell / Buy / Stock / Accounts / Masters / Reports / Search or jump to… / Ctrl+K / 1 / Selling t10069cwy / S( / Receipts / Sales Returns / All dates / + New / Return Number / Files / Customer / Return Date / Quantity Returned / Status / Grand Total / SR-26-27-000042 / Vijaya Stores t10069cwy / 2026-10-07 14:29 / 1 / Approved / 94.40 / SR-26-27-000041 / Vijaya Stores t10069cwy / 2026-10-07 14:29 / 1 / Closed / 94.40 / SR-26-27-000040 / Vijaya Stores t10069cwy / 2026-10-07 14:29 / 1 / Approved / 94.40 / SR-26-27-000039 / Vijaya S... | `sc_sr_test.dart` (tradeadmin) |
 | SC-SR-002 | Positive | PASS | - | `selling_flow_test.dart` |
 | SC-SR-003 | Positive | PASS | - | `selling_flow_test.dart` |
+| SC-SR-004 | Positive | PASS | status COMPLETED, screen says "SR-26-27-000040 completed: 1.0000 back on the shelf and 94.4000 credited to the customer." | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-005 | Positive | PASS | status CLOSED, screen says "SR-26-27-000040 closed." | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-006 | Positive | PASS | status CANCELLED, screen says "SR-26-27-000037 cancelled. The stock, the customer’s balance and both journals have been put back." | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-007 | Positive | SKIP | no service line on any bill in the fixture firm | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-008 | Positive | SKIP | row tick boxes of the grid not reached in two attempts (same as SC-SO-013) | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-009 | Negative | FAIL | Bad state: N2: the editor closed [open=false, saved=0, said="Return quantity exceeds what left on DN-26-27-000136 (9 sent, 7 already returned against it or the bill for it)."] | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-010 | Negative | PASS | open=true, saved=0, said="Enter how many came back on at least one line." | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-011 | Negative | PASS | open=true, saved=0, said="Enter how many came back on at least one line." | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-012 | Negative | PASS | open=true, saved=0, said="Enter how many came back on at least one line." | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-013 | Negative | SKIP | Return date is read-only (set to today); no input to type a future date into | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-014 | Negative | SKIP | a return off a never-billed note: the credit is a report matter; not driven | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-015 | Negative | PASS | Edit is absent on an Approved return; Approve absent, Complete enabled | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-016 | Negative | PASS | Complete is absent on a Draft return | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-017 | Negative | PASS | Cancel is absent on a Closed return | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-018 | Negative | SKIP | no credit note raised on a return in the fixture | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-019 | Negative | PASS | editor closed=false, asked=true | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-020 | Role | PASS | offered; {+ New: enabled, New Return: absent, Approve: enabled, Cancel: enabled} | `sc_sr_test.dart` (qsmgr) |
+| SC-SR-021 | Role | FAIL | not offered, or readable with no New: Bad state: menu (false) and server (200) disagree | `sc_sr_test.dart` (qsexe) |
+| SC-SR-022 | Role | PASS | buttons {New Return: absent, + New: absent, Approve: absent, Cancel: absent} | `sc_sr_test.dart` (qro) |
+| SC-SR-023 | Multi-user | PASS | note: :: the storekeeper is refused Complete (403); the return is completed by the Sales Manager instead; qstore Complete answered 403; qacct journals 200 | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-024 | Multi-user | PASS | status APPROVED, screen says "SR-26-27-000038 approved. Nothing has moved yet — completing it takes the goods back." | `sc_sr_test.dart` (tradeadmin) |
+| SC-SR-025 | Multi-user | SKIP | a Draft return has no Edit on screen, so there is no second session to race | `sc_sr_test.dart` (tradeadmin) |

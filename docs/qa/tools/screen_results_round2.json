@@ -1490,6 +1490,18 @@
   "skip": 0,
   "user": "tradeadmin"
  },
+ "SC-SR-001": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Receipts | Sales Returns | All dates | + New | Return Number | Files | Customer | Return Date | Quantity Returned | Status | Grand Total | SR-26-27-000042 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Approved | 94.40 | SR-26-27-000041 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Closed | 94.40 | SR-26-27-000040 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Approved | 94.40 | SR-26-27-000039 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Draft | 94.40 | SR-26-27-000038 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1 | Draft | 94.40 | SR-26-27-000037 | Vijaya Stores t10069cwy | 2026-10-07 14:29 | 1",
+   "columns and cards present"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
  "SC-SR-002": {
   "fail": 0,
   "file": "selling_flow_test.dart",
@@ -1507,5 +1519,248 @@
   "result": "PASS",
   "skip": 0,
   "user": ""
+ },
+ "SC-SR-004": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "status COMPLETED, screen says \"SR-26-27-000040 completed: 1.0000 back on the shelf and 94.4000 credited to the customer.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-005": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "status CLOSED, screen says \"SR-26-27-000040 closed.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-006": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "status CANCELLED, screen says \"SR-26-27-000037 cancelled. The stock, the customer\u2019s balance and both journals have been put back.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-007": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "no service line on any bill in the fixture firm"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-008": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "row tick boxes of the grid not reached in two attempts (same as SC-SO-013)"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-009": {
+  "fail": 1,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Bad state: N2: the editor closed [open=false, saved=0, said=\"Return quantity exceeds what left on DN-26-27-000136 (9 sent, 7 already returned against it or the bill for it).\"]"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-010": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter how many came back on at least one line.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-011": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter how many came back on at least one line.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-012": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "open=true, saved=0, said=\"Enter how many came back on at least one line.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-013": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Return date is read-only (set to today); no input to type a future date into"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-014": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "a return off a never-billed note: the credit is a report matter; not driven"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-015": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Edit is absent on an Approved return; Approve absent, Complete enabled"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-016": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Complete is absent on a Draft return"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-017": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "Cancel is absent on a Closed return"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-018": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "no credit note raised on a return in the fixture"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
+ },
+ "SC-SR-019": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "editor closed=false, asked=true"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-020": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "offered; {+ New: enabled, New Return: absent, Approve: enabled, Cancel: enabled}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qsmgr"
+ },
+ "SC-SR-021": {
+  "fail": 1,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "not offered, or readable with no New: Bad state: menu (false) and server (200) disagree"
+  ],
+  "pass": 0,
+  "result": "FAIL",
+  "skip": 0,
+  "user": "qsexe"
+ },
+ "SC-SR-022": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "buttons {New Return: absent, + New: absent, Approve: absent, Cancel: absent}"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "qro"
+ },
+ "SC-SR-023": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "note: :: the storekeeper is refused Complete (403); the return is completed by the Sales Manager instead",
+   "qstore Complete answered 403; qacct journals 200"
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-024": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "status APPROVED, screen says \"SR-26-27-000038 approved. Nothing has moved yet \u2014 completing it takes the goods back.\""
+  ],
+  "pass": 1,
+  "result": "PASS",
+  "skip": 0,
+  "user": "tradeadmin"
+ },
+ "SC-SR-025": {
+  "fail": 0,
+  "file": "sc_sr_test.dart",
+  "notes": [
+   "a Draft return has no Edit on screen, so there is no second session to race"
+  ],
+  "pass": 0,
+  "result": "SKIP",
+  "skip": 1,
+  "user": "tradeadmin"
  }
 }
