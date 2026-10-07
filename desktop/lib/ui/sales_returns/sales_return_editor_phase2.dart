@@ -103,11 +103,16 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
                   ),
                   FilledButton(
                     key: const ValueKey('sales-return-save'),
-                    onPressed: _phase2Save,
+                    onPressed: saving ? null : _phase2Save,
                     child: const Text('Save draft'),
                   ),
                 ],
               ),
+              if (saveError != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: saveErrorBanner(),
+                ),
               if (_phase2Problem != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -268,7 +273,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
 
   void _phase2Save() {
     final Json? payload = _phase2Payload();
-    if (payload != null) Navigator.of(context).pop(payload);
+    if (payload != null) unawaited(submit(payload, widget.onSave));
   }
 
   /// Read which units a line may bring back, the first time it is looked
