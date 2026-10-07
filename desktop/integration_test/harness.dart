@@ -603,6 +603,13 @@ Future<void> closeOpenEditor(WidgetTester tester) async {
   for (int i = 0; i < 3; i++) {
     final Finder dialog = find.byType(Dialog);
     if (dialog.evaluate().isEmpty) break;
+    final Finder sure =
+        find.descendant(of: dialog.last, matching: find.text('Discard and close'));
+    if (sure.evaluate().isNotEmpty) {
+      await tester.tap(sure.first);
+      await pumpFor(tester, const Duration(milliseconds: 700));
+      continue;
+    }
     Finder out = find.descendant(of: dialog.last, matching: find.text('Cancel'));
     if (out.evaluate().isEmpty) {
       out = find.descendant(of: dialog.last, matching: find.text('Close'));

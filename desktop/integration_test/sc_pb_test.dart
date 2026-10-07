@@ -456,6 +456,44 @@ void main() {
                 'disagree');
           }
         });
+        for (final MapEntry<String, String> screen
+            in <String, String>{
+          'buy': 'purchaseInvoices',
+          'sell': 'salesInvoices/sales-invoices',
+        }.entries) {
+          await log.step('SC-PB-031 AC: ${screen.value} opens without an '
+              'error and offers no write', () async {
+            final bool here = menuHas(menu, screen.value);
+            if (!here) throw StateError('${screen.value} not offered');
+            await openMenu(tester, screen.key, screen.value);
+            await pumpFor(tester, const Duration(seconds: 3));
+            final List<String> errors = textOnScreen(tester)
+                .where((String t) =>
+                    t.length < 200 &&
+                    RegExp(r"403|forbidden|not allowed|permission|cannot|"
+                            r"Could not|error|failed",
+                        caseSensitive: false)
+                        .hasMatch(t))
+                .toList();
+            final Map<String, String> b = <String, String>{
+              for (final String l in <String>[
+                '+ New', 'New', 'Approve', 'Cancel', 'Close', 'Edit'
+              ])
+                l: buttonState(tester, l),
+            };
+            final List<String> head = rowOf(tester, 'Status');
+            log.saw = 'errors on screen: $errors; buttons $b; header '
+                '${head.take(8).join(' / ')}; first rows '
+                '${textOnScreen(tester).where((String t) => RegExp(r"^(PI|SI)-").hasMatch(t)).take(3).join(', ')}';
+            log.saw = '${log.saw}; screen: ${textOnScreen(tester).skip(12).where((String t) => t.length < 60).take(45).join(' | ')}';
+            if (errors.isNotEmpty) throw StateError('error on screen: $errors');
+            final List<String> on = <String>[
+              for (final MapEntry<String, String> e in b.entries)
+                if (e.value == 'enabled') e.key,
+            ];
+            if (on.isNotEmpty) throw StateError('write buttons enabled: $on');
+          });
+        }
       } else if (itHandle == 'qstore') {
         await log.step('SC-PB-032 WH: bills not offered', () async {
           log.saw = 'offered: $offered; list ${api.status}';
