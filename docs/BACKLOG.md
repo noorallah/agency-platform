@@ -6202,6 +6202,18 @@ Performance did not decide it; the differences are small. Maintenance did: most 
 5. **The product form shows only its type's properties**, already switched on, with *Show all tracking options* for the odd product; dependent fields (shelf life, expiry rules, batch issue rule) appear only while their switch is on. Receipt and bill lines follow the product's switches, as the purchase bill editor already does.
 6. **Menus follow the goods:** Batches, Serial Numbers and the Expiry Monitor appear when any goods type the firm uses needs them.
 
+**How the levels connect -- confirmed with the owner 2026-10-07.** Three one-to-many steps, and the person entering a product chooses only the category:
+
+| From | To | How many | Set by |
+| --- | --- | --- | --- |
+| Firm | Goods types in use | Many: Medicine, Food and Paint in one firm | The profile's starting set when the firm is created; the firm's administrator adds or drops one afterwards |
+| Goods type | Categories | Many: Tablets and Syrups are Medicine, Emulsions and Enamels are Paint | Chosen once on the category |
+| Category | Products | Many | Chosen on the product, which takes and stores the category's type |
+
+Creating a product: (1) pick the category; (2) the form shows *Goods type: Medicine* read-only; (3) that type's tracking switches appear, already on; (4) its extra fields appear, the required ones marked; (5) HSN code, tax group and units are filled from the type and can be changed; (6) name, price, save. Picking *Emulsions* instead shows Paint's set: batch, the shade code, no expiry.
+
+**The goods type is not chosen on the product** (owner 2026-10-07). Letting it be picked there, with the category only suggesting it, was weighed and turned down: every product needs a category anyway, so the type costs the person nothing; a tablet cannot be saved as Paint by mistake; an import needs only the category column; and reports by goods type stay reliable. The one product that differs changes its switches under *Show all tracking options*, not its type.
+
 **Extra fields on customers, suppliers and documents -- decided by the owner 2026-10-07.** A customer has no goods type, so point 1 does not reach these, and the same weakness applies: a firm on the pharmacy profile offers *Drug licence number* on its paint dealers too. The profile stops narrowing them as well:
 
 1. One list of the extra fields available for customers, suppliers and documents: the shared catalogue plus the firm's own.
@@ -6254,6 +6266,54 @@ So the first three rows are a starter kit, not a ceiling, and only the last two 
 - Remove the six features that have no code behind them (IMEI, kitchen, prescription, project, recipe, service contracts) unless one has been built by then.
 - Look at whether twelve profiles are still worth keeping once most differ only in their starting goods types; several may fold into one.
 
+**Clean-up is part of done -- the owner's instruction, 2026-10-07.** Nothing this entry replaces may be left behind: no column nobody writes, no table nobody reads, no function, route, schema field, screen, seed row or test that only served the old design. A step is not finished while the thing it replaced still exists, and the last step is not finished until every row below is answered with a command, not from memory.
+
+| What | How it is removed | How it is proved gone |
+| --- | --- | --- |
+| Columns and tables (`applicable_business_profile_id`, `category_attribute_rules.business_profile_id`, the withdrawn rows of `profile_features` and `business_features`, anything else found on the way) | A migration, idempotent and safe to replay, run through `scripts/migrate_all_stores.py` so every store drops it, with the model changed in the same PR. Data worth keeping is moved to its new home first, in the same migration | `grep` for the name under `backend/app`, `backend/scripts`, `backend/tests` and `desktop/lib` returns nothing; `tests/integration/test_multi_schema_tenancy.py` still passes (ORM against deployed schema) |
+| Feature codes no longer enforced | Their `require_feature` and `assert_feature_fields` calls deleted with the catalogue rows, not left pointing at a code that no longer exists | `grep -rn "CODE" app/ --include=*.py` for each withdrawn code returns nothing |
+| Backend code: resolver branches for the profile, private helpers, schema fields, response fields | Deleted in the PR that makes them dead | `ruff check` and `mypy app` clean; no function left with no caller (`grep` its name) |
+| Routes the old screens called | Deleted with the screen, or kept with a caller | `tests/unit/test_routes_have_a_caller.py` passes without a new pin added to excuse one |
+| Desktop: the profile-scoped parts of the Dynamic Attributes and Mandatory Attributes screens, switches the product form no longer offers, model fields, `api_client.dart` calls | Deleted in the PR that replaces them | `flutter analyze` clean; `desktop/test/reachable_features_test.dart` and `desktop/test/workspace_tab_bodies_test.dart` pass; no `api_client.dart` method left with no caller |
+| Seeds and demo data | The seed scripts and `system_seed` stop writing what was removed | The seeders run clean on a fresh store; a `grep` for the removed names in `backend/scripts` returns nothing |
+| Tests | A test of removed behaviour is deleted or rewritten for the new behaviour, never skipped or left asserting something that can no longer happen | No new `skip` or `xfail`; the rewritten files pass |
+| Docs | `docs/BUSINESS_PROFILE_FRAMEWORK.md`, `docs/CUSTOM_FIELDS_FRAMEWORK.md`, `docs/TABLE_CATALOGUE.md` and the features guide say what is true now; the rule in `CLAUDE.md` about required attributes is rewritten by a session with the owner, since the unattended run may not edit that file | `tests/unit/test_claude_md_names_real_things.py` passes |
+
+Two cautions. **Remove only what this entry made dead**: a column that looks unused but belongs to another feature is reported, not dropped. **And a drop is the last thing in its step**, after the code that read it has merged and the stores are migrated, so no running backend reads a column that has gone (the order that bit on 2026-10-06 with `entered_quantity`).
+
+**Who checks it -- agreed with the owner 2026-10-07.** Three layers, so the build does not mark its own work:
+
+1. **Each step's PR shows its proof**: the commands from the table and what they returned. A step whose proof is missing is not merged.
+2. **The guards that already run with the tests** catch what comes back: the ORM against the deployed schema, a route with no caller, a screen nothing opens, a tab with no body, lint and types.
+3. **An independent pass in a session with the owner**, after the closing sweep and before the module rounds resume: every search in the table run again rather than read off the PRs, the deployed tables and columns compared with what this entry said to remove, a read of the changed areas for code that is still called but no longer does anything -- which no search can find -- and one short report: removed, found unused but left alone, still left behind.
+
+**And a guard so it stays clean** (owner 2026-10-07), added in the closing sweep: a unit test holding the list of names this entry removed -- the withdrawn feature codes, the dropped columns, the deleted functions and routes -- that fails the build when one of them appears again under `backend/app`, `backend/scripts` or `desktop/lib`. It reads the files as text and skips the migrations, which must go on naming what they dropped; the list sits in the test with one line each saying what replaced it. A clean-up nobody guards is undone by the first person who copies an old pattern from a migration or a doc.
+
+**Documentation and test cases are part of done too -- the owner's instruction, 2026-10-07.** Everything a person reads to understand, use or test this must say what is true after it, and be changed in the step that changes the behaviour, not at the end from memory. This holds for every enhancement from here on, not only this one.
+
+| Reader | What is brought up to date | With what |
+| --- | --- | --- |
+| Whoever builds next | `docs/BUSINESS_PROFILE_FRAMEWORK.md`, `docs/CUSTOM_FIELDS_FRAMEWORK.md`, `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, `docs/TABLE_CATALOGUE.md`, `docs/MODULE_STATUS.md`; `CLAUDE.md` in a session with the owner | The goods type, where a check now reads, what a profile still does, the tables added and dropped. What the old design did is removed from them, not left beside the new |
+| The user | `docs/APPLICATION_FEATURES_GUIDE.md` and `docs/FUNCTIONAL_GUIDE.md` (the product form, categories, Goods Types under Set up, custom fields, required fields by kind of customer and supplier, what a business profile is for); `docs/SMALL_FIRM_SETUP_GUIDE.md` and `docs/GO_LIVE_GUIDE.md` where setting up a firm changes; `docs/CONFIGURATION_SETTINGS_GUIDE.md` | Every path as the menu shows it, and "added on <date>, not yet tested by hand" on each new part until it has been |
+| QA | `docs/INDEPENDENT_TEST_CASES.md` -- the source the test book is generated from -- then `docs/qa` regenerated (`docs/qa/tools/generate_qa_suite.py`), chiefly `04_FIRMS_AND_CONFIGURATION`, `05_MASTERS`, `07_INVENTORY` and `14_TEST_DATA`; `docs/qa/SCREEN_TEST_CASES_BUY_SELL_PRICE.md` where the product form or a line's batch boxes moved; `docs/QA_FUNCTIONAL_WALKTHROUGH.md` | See the list below |
+| The customer | `docs/CUSTOMER_FEATURE_BROCHURE.md` and `docs/CUSTOMER_DEMO_SCRIPT.md` (untracked drafts of 2026-10-07; the slides wait for this entry) | *One firm or separate firms* and the demo preparation, against the new design |
+| The register | `docs/DEFECTS.md` for anything found on the way; the release notes of the release this ships in | One docs PR for the register rows, not one per fix |
+
+**Test cases this entry needs**, each written so it runs alone on its own data (the standing rule), with the refusals as well as the passes and more than one role on the same firm:
+
+1. **Goods type:** add one; a category takes it; a new product in that category starts with the type's switches, HSN, tax group and units; a product with no category is General.
+2. **One firm, three lines:** a medicine, a food item and a paint in one firm, each bought and sold: the medicine refused without a batch and expiry, the paint accepted without an expiry, the food item's expiry filled from its shelf life.
+3. **Override and its limit:** one product's switches changed away from its type; the same change refused once stock exists.
+4. **A category changes type:** existing products keep theirs, a new one takes the new type.
+5. **The product form:** only the type's properties shown; *Show all tracking options*; dependent fields follow their switch.
+6. **Extra fields:** a product field shown and required by goods type; a customer field required for one customer group and not asked of another; the same for a supplier type; a firm switching a catalogue field off and its values kept.
+7. **What the profile no longer does:** a firm on any profile uses serial numbers, expiry and territories without refusal; a new firm starts with its profile's goods types and can add another.
+8. **Roles:** who may add a goods type and who is refused; who may keep the required-field rules.
+9. **Regression:** the buying and selling cases that touch a batch, an expiry or a serial number, driven again.
+10. **Import:** a product file giving only the category takes the type's switches.
+
+The PDFs are rendered again only when a hand-over is built, not per step.
+
 **To settle before building.**
 
 | # | Question | Leaning |
@@ -6298,4 +6358,4 @@ Not taken up: relabelling a heading by trade (Marg only), and a company-level sw
 
 Everything else waits for a customer to ask. **Do not chase breadth:** the product is strongest where it is particular about distribution -- the buying and selling chain, schemes, routes, expiry and licences -- and a feature added only because a larger tool has it costs upkeep without giving anybody a reason to buy.
 
-**Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs. Each step merges on its own and leaves the application working.
+**Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs; (6) a closing sweep that answers every row of the clean-up table above adds the guard test for the removed names, and lists, in the PR, what was removed and what was found unused but left alone; then the independent pass with the owner. Each step merges on its own and leaves the application working.
