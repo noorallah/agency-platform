@@ -34,11 +34,19 @@ void main() {
     Future<void> newReturn(Json invoice) async {
       await openReturns();
       await tapNew(tester);
-      await chooseIn(tester, 'sales-return-document', docNumber(invoice));
+      await tapKey(tester, 'sales-return-document');
+      await pumpFor(tester, const Duration(milliseconds: 600));
+      final Finder entry = find.textContaining(docNumber(invoice));
+      await pumpUntil(tester, entry, waitingFor: 'source ${docNumber(invoice)}');
+      await tester.ensureVisible(entry.last);
+      await pumpFor(tester, const Duration(milliseconds: 400));
+      await tester.tap(entry.last);
+      await pumpFor(tester, const Duration(milliseconds: 600));
       await pumpFor(tester, const Duration(seconds: 2));
     }
 
     if (itHandle == 'tradeadmin') {
+      await topUpStock(admin, wanted: 3000);
       final Json inv = await apiApprovedInvoice(admin, quantity: 10);
       final Json earlier = await apiDraftReturn(admin, inv, quantity: 2);
       await apiAct(admin, 'sales-returns', '${earlier['id']}', 'approve');

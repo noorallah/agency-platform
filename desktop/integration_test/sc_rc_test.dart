@@ -138,13 +138,24 @@ void main() {
         final bool picker = find.byType(DatePickerDialog).evaluate().isNotEmpty;
         log.info('SC-RC-014', 'date picker open=$picker');
         if (!picker) throw StateError('the date picker did not open');
-        await tester.tap(find.byTooltip('Next month').first);
+        final bool hasNext = find.byTooltip('Next month').evaluate().isNotEmpty;
+        bool nextEnabled = false;
+        if (hasNext) {
+          nextEnabled = tester
+                  .widget<IconButton>(find.ancestor(
+                      of: find.byTooltip('Next month').first,
+                      matching: find.byType(IconButton)).first)
+                  .onPressed !=
+              null;
+        }
+        log.info('SC-RC-014', 'Next month present=$hasNext enabled=$nextEnabled');
+        if (nextEnabled) {
+          await tester.tap(find.byTooltip('Next month').first);
+          await pumpFor(tester, const Duration(milliseconds: 700));
+          throw StateError('the picker offers a month after today');
+        }
+        await tester.tap(find.text('Cancel').last);
         await pumpFor(tester, const Duration(milliseconds: 700));
-        await tester.tap(find.text('15').last);
-        await pumpFor(tester, const Duration(milliseconds: 500));
-        await tester.tap(find.text('OK').last);
-        await pumpFor(tester, const Duration(seconds: 1));
-        log.info('SC-RC-014', 'date now reads ${textOnScreen(tester).where((String t) => RegExp(r'^\d{4}-\d\d-\d\d$').hasMatch(t)).join(', ')}');
         final int before14 = await totalOf(me, 'receipts');
         await pressRecord();
         await pumpFor(tester, const Duration(seconds: 3));
@@ -160,6 +171,23 @@ void main() {
         log.saw = 'saved ${await totalOf(me, 'receipts') - before14}; '
             'newest receipt dates $dates14 (today $today14); the picker '
             'does not offer a day after today';
+        final Json? seed14 = await me.newest('receipts');
+        final String tomorrow = DateTime.now()
+            .add(const Duration(days: 1))
+            .toIso8601String()
+            .substring(0, 10);
+        final ({int status, String text}) http14 = await admin.attempt(
+            'POST', '/api/v1/receipts', <String, dynamic>{
+          'party_id': seed14?['party_id'] ?? seed14?['customer_id'],
+          'settlement_date': tomorrow,
+          'amount': '5',
+          'method': 'CASH',
+        });
+        log.saw = '${log.saw}; HTTP receipt dated $tomorrow answered '
+            '${http14.status}: ${http14.text.length > 160 ? http14.text.substring(0, 160) : http14.text}';
+        if (http14.status < 400) {
+          throw StateError('HTTP accepted a receipt dated $tomorrow');
+        }
         if (dates14.any((String d) =>
             d.contains(RegExp(r'=(\d{4}-\d\d-\d\d)')) &&
             d.split('=').last.substring(0, 10).compareTo(today14) > 0)) {

@@ -314,3 +314,43 @@ Future<void> chooseFiltered(
   await tester.tap(entry.last);
   await pumpFor(tester, const Duration(milliseconds: 600));
 }
+
+/// Press a toolbar command that lives under the "…" menu of a phase 2 list.
+Future<void> tapMore(WidgetTester tester, String label) async {
+  final Finder more = find.text('…');
+  await pumpUntil(tester, more, waitingFor: 'the … menu');
+  await tester.tap(more.first);
+  await pumpFor(tester, const Duration(milliseconds: 600));
+  final Finder item = find.text(label);
+  await pumpUntil(tester, item, waitingFor: 'menu entry "$label"');
+  await tester.tap(item.last);
+  await pumpFor(tester, const Duration(milliseconds: 800));
+}
+
+/// "enabled", "disabled" or "absent" for the entry [label] in the "…" menu.
+Future<String> moreState(WidgetTester tester, String label) async {
+  final Finder more = find.text('…');
+  if (more.evaluate().isEmpty) return 'absent';
+  await tester.tap(more.first);
+  await pumpFor(tester, const Duration(milliseconds: 600));
+  String state = 'absent';
+  final Finder item = find.text(label);
+  if (item.evaluate().isNotEmpty) {
+    final Finder tile = find.ancestor(
+        of: item.last,
+        matching: find.byWidgetPredicate(
+            (Widget w) => w is MenuItemButton || w is PopupMenuItem));
+    if (tile.evaluate().isEmpty) {
+      state = 'enabled';
+    } else {
+      final Widget w = tile.evaluate().first.widget;
+      final bool on = w is MenuItemButton
+          ? w.onPressed != null
+          : (w as PopupMenuItem<dynamic>).enabled;
+      state = on ? 'enabled' : 'disabled';
+    }
+  }
+  await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+  await pumpFor(tester, const Duration(milliseconds: 400));
+  return state;
+}
