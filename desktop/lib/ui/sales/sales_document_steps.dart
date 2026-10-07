@@ -35,6 +35,7 @@ Future<DocumentStepDone?> _approveSale(
   required String resource,
   required String document,
   required Future<PriceFloorCheck> Function() priceCheck,
+  bool backOrders = false,
 }) async {
   await warnOnCreditExposure(
     context,
@@ -56,7 +57,7 @@ Future<DocumentStepDone?> _approveSale(
   if (!price.proceed) return null;
   final String? overrideReason = licence.overrideReason;
   final String? priceOverrideReason = price.overrideReason;
-  final Json approved = await api.documentAction(
+  await api.documentAction(
     resource,
     '${row['id']}',
     '/approve',
@@ -71,36 +72,52 @@ Future<DocumentStepDone?> _approveSale(
   );
   // Said by the list once it reads itself again, and only by the status:
   // a message here would cover the credit warning shown before the call --
-  // except when the order was approved for more than the stock on hand,
+  // except when an order was approved for more than the stock on hand,
   // which nothing else says (D-UI-24).
-  final String? shortage = approvedShortfallNotice(approved['data']);
+  final String? shortage =
+      backOrders ? await _shortfallOf(api, '${row['id']}') : null;
   return shortage == null
       ? const DocumentStepDone('', step: 'approve')
       : DocumentStepDone(shortage, warning: true, step: 'approve');
 }
 
-/// What an approved order's response says about stock it could not reserve,
-/// or null where every line was covered (D-UI-24).
+/// What the back-order report says of the order just approved: one more
+/// read, after the approval and only for a sales order.
+///
+/// The approval is done by now, so a report that cannot be read (no
+/// connection, no leave to read it) costs the notice and nothing else.
+Future<String?> _shortfallOf(ApiClient api, String orderId) async {
+  try {
+    return approvedShortfallNotice(await api.salesOrderBackOrders(), orderId);
+  } on Object {
+    return null;
+  }
+}
+
+/// What the back-order rows say about the stock an approved order could not
+/// be given, or null where every line was covered (D-UI-24, D-UI-48).
 ///
 /// The server approves the order whatever the stock and leaves the shortfall
-/// on back order, so approval itself is no sign of it. Each line carries what
-/// it needs (`reservable_quantity`) and what was set aside
-/// (`reserved_quantity`), so the difference is read from the response that
-/// is already in hand: no further call.
-String? approvedShortfallNotice(Object? order) {
-  if (order is! Map) return null;
-  final Object? lines = order['lines'];
-  if (lines is! List) return null;
+/// on back order, so approval itself is no sign of it -- and neither is the
+/// approve response: a line's `reserved_quantity` is set to its whole
+/// `reservable_quantity`, back order included, so the two never differ
+/// (D-UI-48: 500 approved against 82 on hand said nothing, where a test fed
+/// an invented `reserved_quantity` of 82 had passed). The shortfall as it
+/// stands is the back-order report's: each row is one line of an open order,
+/// with what it still owes (`requested_quantity`) and what of that the
+/// warehouse cannot meet (`back_order_quantity`).
+String? approvedShortfallNotice(Object? backOrders, String orderId) {
+  if (backOrders is! List) return null;
   final List<String> short = <String>[];
-  for (final Object? line in lines) {
-    if (line is! Map) continue;
-    final double? need = double.tryParse('${line['reservable_quantity']}');
-    final double? held = double.tryParse('${line['reserved_quantity']}');
-    if (need == null || held == null || need <= held) continue;
+  for (final Object? line in backOrders) {
+    if (line is! Map || '${line['order_id']}' != orderId) continue;
+    final double? need = double.tryParse('${line['requested_quantity']}');
+    final double? missing = double.tryParse('${line['back_order_quantity']}');
+    if (need == null || missing == null || missing <= 0) continue;
     String figure(double value) => documentQuantity(value.toStringAsFixed(4));
-    final String name = '${line['description'] ?? ''}'.trim();
+    final String name = '${line['product_name'] ?? ''}'.trim();
     short.add(
-      '${figure(need - held)} of ${figure(need)}'
+      '${figure(missing)} of ${figure(need)}'
       '${name.isEmpty ? '' : ' of $name'}',
     );
   }
@@ -167,6 +184,7 @@ List<DocumentStep<Json>> salesOrderSteps(
         resource: 'sales-orders',
         document: 'SALES_ORDER',
         priceCheck: () => api.salesOrderPriceCheck('${row['id']}'),
+        backOrders: true,
       ),
     ),
     // A hold is a flag, not a status: the order keeps where it had got to
