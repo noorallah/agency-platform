@@ -18,6 +18,23 @@ const String fixturePassword = 'Fixture@2026pw';
 Future<Server> asUser(String handle) =>
     Server.connectAs('t10069cwy.$handle@fixtures.local', fixturePassword);
 
+/// Retire the offers a flow raised in this run: every promotion still in
+/// force (or in draft) whose code carries the run's own [stamp]. An offer left
+/// active discounts every later sale of the fixture firm, and they stack.
+Future<int> retireOffersOf(Server admin, String stamp) async {
+  final dynamic rows = await admin.get('/api/v1/promotions?page_size=100');
+  int retired = 0;
+  for (final dynamic row in rows as List<dynamic>) {
+    final Json offer = row as Json;
+    if (!'${offer['code']}'.endsWith(stamp)) continue;
+    if (offer['status'] != 'ACTIVE' && offer['status'] != 'DRAFT') continue;
+    final ({int status, String text}) r = await admin.attempt(
+        'DELETE', '/api/v1/promotions/${offer['id']}', null);
+    if (r.status < 400) retired++;
+  }
+  return retired;
+}
+
 /// Number of records a collection holds, as the server counts them.
 Future<int> totalOf(Server server, String collection) =>
     server.total('/api/v1/$collection');
@@ -166,6 +183,28 @@ Future<void> rowThen(WidgetTester tester, String number, String label) async {
   await tapButton(tester, label);
   await pumpFor(tester, const Duration(seconds: 2));
 }
+
+/// Type [text] into a list's search box (the box whose hint says "search")
+/// and submit it; an empty [text] clears the search.
+Future<void> searchList(WidgetTester tester, String text) async {
+  final Finder box = find.byWidgetPredicate((Widget w) =>
+      w is TextField &&
+      (w.decoration?.hintText ?? '').toLowerCase().contains('search') &&
+      !(w.decoration?.hintText ?? '').contains('jump'));
+  await pumpUntil(tester, box, waitingFor: 'a list search box');
+  await tester.tap(box.first);
+  await tester.enterText(box.first, text);
+  await tester.testTextInput.receiveAction(TextInputAction.done);
+  await pumpFor(tester, const Duration(seconds: 3));
+}
+
+/// What a banner across the top of a list says (a refused step on the older
+/// lists is a banner with Dismiss, not a toast), or ''.
+String bannerText(WidgetTester tester) => <String>[
+      for (final Text t in tester.widgetList<Text>(find.descendant(
+          of: find.byType(MaterialBanner), matching: find.byType(Text))))
+        if ((t.data ?? '').isNotEmpty && t.data != 'Dismiss') t.data!,
+    ].join(' | ');
 
 /// Press Refresh on a list, if the screen has one.
 Future<void> refreshList(WidgetTester tester) async {

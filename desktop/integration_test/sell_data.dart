@@ -80,11 +80,15 @@ Future<Json> apiReceipt(Server server, Json invoice, num amount,
   return (await server.write('POST', '/api/v1/receipts', <String, dynamic>{
     'party_id': invoice['customer_id'],
     'settlement_date': _today(),
-    'amount': '$amount',
+    // A receipt takes two decimals; a bill's total can carry four.
+    'amount': amount.toStringAsFixed(2),
     'method': 'CASH',
     if (allocate)
       'allocations': <Json>[
-        <String, dynamic>{'invoice_id': invoice['id'], 'amount': '$amount'},
+        <String, dynamic>{
+          'invoice_id': invoice['id'],
+          'amount': amount.toStringAsFixed(2),
+        },
       ],
   })) as Json;
 }

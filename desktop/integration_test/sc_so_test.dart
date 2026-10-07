@@ -104,9 +104,8 @@ void main() {
           await pumpFor(tester, const Duration(seconds: 1));
           final String question = dialogText(tester);
           if (question.isEmpty) {
-            log.saw = 'Esc did nothing: the editor stayed open and asked '
-                'nothing (the Cancel button is judged in the next step)';
-            return;
+            throw StateError('Esc did nothing: the editor stayed open and '
+                'asked nothing');
           }
           await tapKey(tester, 'document-keep-editing');
           if (!screenHasTyped(tester, 'Vijaya')) {
@@ -208,7 +207,21 @@ void main() {
       // -- Orders raised over HTTP to act on ----------------------------------
       final Json draftHold = await apiDraftOrder(admin, quantity: 2);
       final Json draftStale = await apiDraftOrder(admin, quantity: 2);
-      final Json draftBig = await apiDraftOrder(admin, quantity: 500);
+      // More than the firm holds of the product, whatever earlier runs have
+      // left on the shelf: 500 over what every stock row of it adds up to.
+      final Json seedOrder = await admin.one(
+          'sales-orders', '${(await admin.newest('sales-orders'))!['id']}');
+      final String seedProduct =
+          '${((seedOrder['lines'] as List<dynamic>).first as Json)['product_id']}';
+      double held = 0;
+      for (final dynamic row in (await admin.get(
+              '/api/v1/inventory?product_id=$seedProduct&page_size=100'))
+          as List<dynamic>) {
+        final double q = num2((row as Json)['current_quantity']);
+        if (!q.isNaN) held += q;
+      }
+      final int bigQuantity = held.ceil() + 500;
+      final Json draftBig = await apiDraftOrder(admin, quantity: bigQuantity);
       final Json draftEdit = await apiDraftOrder(admin, quantity: 3);
       final Json forDn = await apiDraftOrder(admin, quantity: 2);
       final Json forCancel = await apiDraftOrder(admin, quantity: 2);
@@ -305,18 +318,36 @@ void main() {
         if (now['is_on_hold'] == true) throw StateError('still on hold');
       });
 
-      await log.step('SC-SO-020 500 units: Approve says what stock allows',
-          () async {
+      await log.step('SC-SO-020 500 units over the stock: Approve says what '
+          'stays on back order', () async {
         await openOrders();
         await selectRow(tester, docNumber(draftBig));
         await tapButton(tester, 'Approve');
-        await pumpFor(tester, const Duration(seconds: 3));
-        await confirmIfAsked(tester);
+        final String said = await watch(tester, seconds: 8);
         final String status = await statusOf('${draftBig['id']}');
-        final String said = noticeText(tester);
-        log.saw = 'status after Approve: $status, screen says "$said"; '
-            'Approve of a success is silent by design, and 500 units against '
-            'the stock on hand were accepted without a word';
+        // The server's own report of what this order could not be given.
+        final List<dynamic> report = (await admin
+            .get('/api/v1/sales-orders/reports/back-orders')) as List<dynamic>;
+        final List<String> short = <String>[
+          for (final dynamic r in report)
+            if ('${(r as Json)['order_id']}' == '${draftBig['id']}')
+              '${r['back_order_quantity']} of ${r['requested_quantity']}',
+        ];
+        // Give the stock back, or every later order of the firm is short.
+        await apiAct(admin, 'sales-orders', '${draftBig['id']}', 'cancel');
+        log.saw = 'ordered $bigQuantity against $held held; status after '
+            'Approve: $status, screen says "$said"; the '
+            'back-order report has ${report.length} rows, for this order: '
+            '$short (keys ${report.isEmpty ? '' : (report.first as Json).keys.take(12).join(',')})';
+        if (short.isEmpty) {
+          throw StateError('the order is not on the back-order report '
+              'at all, so the case has no shortage to speak of: ${log.saw}');
+        }
+        if (!said.contains('back order')) {
+          throw StateError('$bigQuantity units against $held held were '
+              'approved and nothing named what stays on back order '
+              '(status $status, said "$said")');
+        }
       });
 
       await log.step('SC-SO-024 Approve again from a stale list is refused '

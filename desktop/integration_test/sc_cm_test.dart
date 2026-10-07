@@ -129,11 +129,17 @@ void main() {
         await pumpFor(tester, const Duration(seconds: 1));
         final bool gone = !ruleOpen();
         final bool asks = screenHas(tester, 'Keep editing');
-        log.saw = 'dialog closed=$gone, asked=$asks';
-        if (gone && !asks) {
-          throw StateError('Cancel closed a dialog holding typing without '
-              'asking (same family as SCRQ-21/29/33)');
+        log.saw = 'dialog closed=$gone, asked=$asks, '
+            'question="${dialogText(tester)}"';
+        if (!asks) {
+          throw StateError('Cancel on a dialog holding typing asked nothing '
+              '(closed=$gone)');
         }
+        await tapKey(tester, 'discard-keep-editing');
+        await pumpFor(tester, const Duration(milliseconds: 600));
+        final bool kept = screenHasTyped(tester, '4');
+        log.saw = '${log.saw}; Keep editing kept the typing=$kept';
+        if (!kept) throw StateError('Keep editing lost what was typed');
       });
       await closeOpenEditor(tester);
 

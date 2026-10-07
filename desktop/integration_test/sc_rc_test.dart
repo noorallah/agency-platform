@@ -73,11 +73,9 @@ void main() {
             'Customer',
             'Date',
             'Method',
+            'Cleared',
             'Status',
-            'On Account',
-            'Amount',
-            'Cash or Bank',
-            'Other Deductions'
+            'Amount'
           ])
             if (!screenHas(tester, h)) h,
         ];
@@ -417,12 +415,17 @@ void main() {
         }
       });
 
-      await log.step('SC-RC-008 Send and Files open on a receipt', () async {
+      await log.step('SC-RC-008 Files opens on a receipt; Send is not '
+          'offered', () async {
         await openReceipts();
         await selectRow(tester, '${rcStale['settlement_number']}');
         await selectRow(tester, '${rcDone['settlement_number']}');
         final List<String> out = <String>[];
-        for (final String b in <String>['Send', 'Files']) {
+        final String send = buttonState(tester, 'Send');
+        if (send == 'enabled') throw StateError('Send is offered on a receipt');
+        out.add('Send $send (not offered, as the book says); Print '
+            '${buttonState(tester, 'Print')}');
+        for (final String b in <String>['Files']) {
           final String st = buttonState(tester, b);
           if (st != 'enabled') {
             out.add('$b $st');
@@ -434,7 +437,7 @@ void main() {
           await closeOpenEditor(tester);
         }
         log.saw = out.join('; ');
-        if (out.any((String s) => !s.endsWith('opened=true'))) {
+        if (out.skip(1).any((String s) => !s.endsWith('opened=true'))) {
           throw StateError(out.join('; '));
         }
       });

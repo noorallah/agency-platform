@@ -189,11 +189,17 @@ void main() {
             .evaluate()
             .isEmpty;
         final bool asks = screenHas(tester, 'Keep editing');
-        log.saw = 'dialog closed=$gone, asked=$asks';
-        if (gone && !asks) {
-          throw StateError('Cancel closed a dialog holding typing without '
-              'asking (same family as SCRQ-21/29/33)');
+        log.saw = 'dialog closed=$gone, asked=$asks, '
+            'question="${dialogText(tester)}"';
+        if (!asks) {
+          throw StateError('Cancel on a dialog holding typing asked nothing '
+              '(closed=$gone)');
         }
+        await tapKey(tester, 'discard-keep-editing');
+        await pumpFor(tester, const Duration(milliseconds: 600));
+        final bool kept = screenHasTyped(tester, 'typed then left');
+        log.saw = '${log.saw}; Keep editing kept the typing=$kept';
+        if (!kept) throw StateError('Keep editing lost what was typed');
       });
       await closeOpenEditor(tester);
 
@@ -261,7 +267,7 @@ void main() {
           final String dlg = await settingsSave();
           log.saw = 'offered=$offered $s; $dlg (Adjust points needs '
               'LOYALTY_MANAGE_SETTINGS, which SM does not hold, so it is '
-              'greyed out; the book expects it offered)';
+              'greyed out, as the book says)';
           if (!offered) throw StateError('Loyalty not offered to SM');
           if (dlg.contains('Save enabled')) {
             throw StateError('SM can save the scheme');

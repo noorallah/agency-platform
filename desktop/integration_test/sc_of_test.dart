@@ -155,6 +155,10 @@ void main() {
             await typeLabelled(tester, 'Name', 'Percent $pct');
             await typeLabelled(tester, 'Percent', pct);
           }, typed: pct);
+          if (log.saw!.contains('request validation failed') ||
+              log.saw!.contains('Input should be')) {
+            throw StateError('raw validation text on screen: ${log.saw}');
+          }
         });
         await closeOpenEditor(tester);
       }
@@ -184,11 +188,17 @@ void main() {
             .isEmpty;
         final bool asks = find.byType(AlertDialog).evaluate().length > 1 ||
             screenHas(tester, 'Keep editing');
-        log.saw = 'dialog closed=$gone, asked=$asks';
-        if (gone && !asks) {
-          throw StateError('Cancel closed a dialog holding typing without '
-              'asking (same family as SCRQ-21/29/33)');
+        log.saw = 'dialog closed=$gone, asked=$asks, '
+            'question="${dialogText(tester)}"';
+        if (!asks) {
+          throw StateError('Cancel on a dialog holding typing asked nothing '
+              '(closed=$gone)');
         }
+        await tapKey(tester, 'discard-keep-editing');
+        await pumpFor(tester, const Duration(milliseconds: 600));
+        final bool kept = screenHasTyped(tester, 'Typed then cancelled');
+        log.saw = '${log.saw}; Keep editing kept the typing=$kept';
+        if (!kept) throw StateError('Keep editing lost what was typed');
       });
       await closeOpenEditor(tester);
 
@@ -374,6 +384,10 @@ void main() {
         log.skip(id, 'not driven in this pass (needs documents priced '
             'through the order screen; see the report notes)');
       }
+    }
+    if (itHandle == 'tradeadmin') {
+      log.info('leftovers', 'offers of this run retired: '
+          '${await retireOffersOf(admin, stamp)}');
     }
     log.finish();
   });
