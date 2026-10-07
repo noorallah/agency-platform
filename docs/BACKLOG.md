@@ -6167,3 +6167,76 @@ Size: S under a day, M one to three days, L more.
 | 15 | **Desktop follow-ups for a customer's credit (D-PRC-75)** | The Receipts toolbar has a Customer credits button that applies a credit. Three things are API-only | A control to reverse an application; a notice in Record Receipt that the customer holds credit; the refund screen sending `credit_source_id` so a refund names its credit | S-M | Owed; to be built |
 
 Not repeated: gift vouchers and a wallet (§87 row 24, skipped); batch-wise cost for the cost floor (§64, parked); a ceiling on a positive commission adjustment is an open owner decision in `docs/COMMISSION_FRAMEWORK.md`.
+
+## 89. A product's behaviour follows its goods type, not the firm's business profile -- decided, build after the test rounds
+
+**Decided by the owner on 2026-10-07 (approach B below). Not started: it is built once the module test rounds are finished, and before the first release, because until then there is no customer data to migrate.** It touches the product form and the batch and serial checks, which the test rounds are still changing.
+
+**Why.** An agency can distribute any goods, and one firm often carries several lines: the customer that prompted this sells paints, medicines and food. Today the firm's one business profile is a ceiling over every product in it:
+
+- A feature check (`require_feature`, `assert_feature_fields` in `app/business/gating.py`) asks the firm's profile whether batches, expiry, serial numbers, warranty, manufacturing date, shelf life, barcode and QR code may be used at all. A firm on the pharmacy profile is refused a serial number on anything.
+- Extra fields are resolved by profile **and** category (`AttributeService.definitions_for`), and a field is made compulsory by a profile + category rule (`category_attribute_rules`). The food rules name the FOOD profile, so they do nothing for food sold by a pharmacy-profile firm.
+- The product form (`desktop/lib/ui/products/product_management_page.dart`) shows every tracking switch for every product, whatever it is.
+
+So there are two sources of truth -- the profile allows, the product tracks -- and a firm that adds a line has to change profile, which takes extra-field values out of every read (`docs/BUSINESS_PROFILE_FRAMEWORK.md`, *What changing a firm's profile does to existing data*).
+
+**Three approaches were weighed.**
+
+| | A. Firm profile decides (today), plus a wide "multi-line" profile | B. Goods type decides | C. Product alone decides |
+| --- | --- | --- | --- |
+| A new trade | A new profile, its feature rows and its rules per category | One new goods type with its rules; no code | Nothing to add |
+| A firm adds a line later | Change the profile | Add the type; nothing else moves | Nothing |
+| Sources of truth | Two, and they can disagree | One chain: type, then product | One |
+| A new medicine | Right within one trade | Gets batch and expiry by itself | Every switch ticked by hand; one forgotten goes unnoticed |
+| Check on a document line | Extra lookup: firm, profile, features | None: the product row is already loaded | None |
+| Build | About a day | About a week | Three to four days |
+
+Performance did not decide it; the differences are small. Maintenance did: most of the defects recorded in this area came from the profile layer, and B is what the market tools do (tracking on the item, defaults from its group, a company switch only for showing the screens -- from memory of Tally, Zoho and ERPNext, not checked).
+
+**What B is.**
+
+1. **A goods type** (Medicine, Food, Paint, Electronics, General ...) with its default tracking switches, the extra fields it shows and the ones it makes compulsory. Not called "product type": `product_type` already means stock, service or bundle.
+2. **The category carries the goods type; a new product takes it and stores it.** Changing a category's type later affects new products only. A product with no category, or a category with no type, is General: no tracking, nothing compulsory.
+3. **The type fills the product's own switches** (`track_batch`, `track_expiry`, `track_serial` and the rest, which stay as they are). One product can differ from its category by changing its switches; its type is changed only by moving it to another category, so the type stays a reliable grouping for reports.
+4. **Every check reads the product, never the firm.** "May this batch carry an expiry date" is the product's switch.
+5. **The product form shows only its type's properties**, already switched on, with *Show all tracking options* for the odd product; dependent fields (shelf life, expiry rules, batch issue rule) appear only while their switch is on. Receipt and bill lines follow the product's switches, as the purchase bill editor already does.
+6. **Menus follow the goods:** Batches, Serial Numbers and the Expiry Monitor appear when any goods type the firm uses needs them.
+
+**What it touches** (counted on 2026-10-07; re-count before building).
+
+| Area | Change | Size |
+| --- | --- | --- |
+| Goods type | A table, a column on `product_categories` and on `products`, one migration, the seeds | S |
+| Product save | The type fills the switches; the four profile checks in `ProductService` (barcode, QR code, warranty, shelf life) go or move to the product | S |
+| Batch and serial | Nine routes in `app/batch_serial/api/router.py` and five service checks ask the product instead of the firm's profile | M |
+| Extra fields | `AttributeService` and `category_attribute_rules` key on the goods type alone; the two administration screens follow | M |
+| Desktop | The product form, a goods type picker on the category form, a Goods Types list under Set up, the menu filter | M |
+| Import | The category gives the type, so the switch columns become optional in `app/products/services/product_import.py` | S |
+| Tests and docs | The profile tests for batch, expiry and fields rewritten; `docs/BUSINESS_PROFILE_FRAMEWORK.md` and `docs/CUSTOM_FIELDS_FRAMEWORK.md` brought up to date | M |
+
+Not touched: the document modules (they already read the product's switches), tax, pricing, the ledger and stock valuation.
+
+**Business profiles stay, smaller.** After this a profile no longer says what goods may look like. It keeps:
+
+- what a new firm **starts with**: its goods types, default units (`business_profile_uom_defaults`) and menus -- a starter kit, not a ceiling;
+- the features that are about the **firm**, not a product: attachments, vehicle details, drug and FSSAI licences on parties, territories, multiple warehouses, approvals;
+- the modules only some trades have (kitchen and recipes, projects and contracts).
+
+**The clean-up, in the same piece of work:**
+
+- Withdraw the product-behaviour features from `profile_features` and from the catalogue: batch, expiry, serial number, warranty, manufacturing date, shelf life. Barcode and QR code become plain product fields.
+- Drop `applicable_business_profile_id` from product attribute definitions and `business_profile_id` from `category_attribute_rules`, once the rules are re-keyed by goods type.
+- Decide the three declared-but-ungated features (territory, approval workflow, multiple warehouses): gate them or stop listing them.
+- Remove the six features that have no code behind them (IMEI, kitchen, prescription, project, recipe, service contracts) unless one has been built by then.
+- Look at whether twelve profiles are still worth keeping once most differ only in their starting goods types; several may fold into one.
+
+**To settle before building.**
+
+| # | Question | Leaning |
+| --- | --- | --- |
+| 1 | Who may add a goods type: the firm's administrator or only the platform's | The firm: a growing firm adds a line without calling anyone |
+| 2 | Are goods types kept per firm or shared across a store, as attribute definitions are today | Per firm |
+| 3 | Two checks in the customer service use the firm's expiry feature for a customer field | Read what they guard first, then keep on the firm or drop |
+| 4 | Some batch routes write a batch before a product is plainly in hand | Check each route names its product before moving the check |
+
+**Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) batch and serial checks; (4) extra fields and compulsory rules; (5) menus, import, the profile clean-up and the docs. Each step merges on its own and leaves the application working.
