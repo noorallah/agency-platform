@@ -217,6 +217,8 @@ void main() {
     await tester.tap(find.text('Save as...'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Buying view');
+    // Save stays disabled until a name is typed (D-UI-23).
+    await tester.pump();
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     final Json body = api.saved.single;
