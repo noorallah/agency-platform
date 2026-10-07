@@ -7,6 +7,8 @@
 // no discount field here, because a coupon that carried its own benefit would
 // be a second place to look when somebody asks why a price is what it is.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -15,6 +17,7 @@ import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/discard_prompt.dart';
 
 /// Create a coupon, or change the limits on one that exists.
 class CouponDialog extends StatefulWidget {
@@ -52,13 +55,15 @@ class _CouponDialogState extends State<CouponDialog> {
   late final TextEditingController _to =
       TextEditingController(text: widget.existing?.effectiveTo ?? '');
 
-  late String _promotionId = widget.existing?.promotionId ??
-      (widget.promotions.isEmpty ? '' : widget.promotions.first.id);
+  // A new coupon starts with no offer chosen: the first one in the list,
+  // filled in for the user, was saved for life under a code alone (D-UI-54).
+  late String _promotionId = widget.existing?.promotionId ?? '';
   // The coupon's own setting, never the derived one: the shown status follows
   // its offer, and sending it back would switch a code off for good the first
   // time it was saved under a paused offer (D-PRC-16).
   late String _status = widget.existing?.ownStatus ?? 'ACTIVE';
   bool _saving = false;
+  bool _dirty = false;
   String? _error;
 
   bool get _isNew => widget.existing == null;
@@ -145,7 +150,14 @@ class _CouponDialogState extends State<CouponDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => WorkspaceDialog(
+  Widget build(BuildContext context) => AskBeforeClosing(
+        touched: () => _dirty,
+        what: 'coupon has not been saved',
+        busy: _saving,
+        child: _dialog(context),
+      );
+
+  Widget _dialog(BuildContext context) => WorkspaceDialog(
         title: _isNew ? 'New coupon' : 'Coupon ${widget.existing!.code}',
         subtitle: 'A code that reaches an offer. The benefit stays on the '
             'offer.',
@@ -154,6 +166,7 @@ class _CouponDialogState extends State<CouponDialog> {
           padding: const EdgeInsets.all(AppSpacing.md),
           child: Form(
             key: _form,
+            onChanged: () => _dirty = true,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -162,6 +175,7 @@ class _CouponDialogState extends State<CouponDialog> {
                   const SizedBox(height: AppSpacing.sm),
                 ],
                 DropdownButtonFormField<String>(
+                  key: const ValueKey('coupon-offer'),
                   initialValue: _promotionId.isEmpty ? null : _promotionId,
                   isExpanded: true,
                   decoration: const InputDecoration(
@@ -291,7 +305,7 @@ class _CouponDialogState extends State<CouponDialog> {
             ),
           ),
         ),
-        onClose: () => Navigator.of(context).pop(false),
+        onClose: () => unawaited(Navigator.of(context).maybePop()),
         onSave: _saving ? null : _save,
         saveLabel: _isNew ? 'Create' : 'Save',
       );

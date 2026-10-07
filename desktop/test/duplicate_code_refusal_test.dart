@@ -73,6 +73,11 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
+    // A new coupon names no offer for the user (D-UI-54): choose it.
+    await tester.tap(find.byKey(const ValueKey('coupon-offer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('WELCOME').last);
+    await tester.pumpAndSettle();
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Code'), 'SAVE10');
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));

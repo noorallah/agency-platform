@@ -20,6 +20,7 @@ import '../../models/principal_claim.dart';
 import '../../models/product.dart';
 import '../../models/settlement.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/discard_prompt.dart';
 import '../workspace/printed_document.dart';
 import '../workspace/reason_prompt.dart';
 import 'purchase_requisition_page.dart' show ProductSearchBox;
@@ -806,6 +807,19 @@ class _NewPrincipalClaimDialogState extends State<NewPrincipalClaimDialog>
     final ThemeData theme = Theme.of(context);
     final PrincipalClaimPreview? preview = _preview;
     final bool busy = saving || _previewing;
+    return AskBeforeClosing(
+      touched: () =>
+          _principalId != null ||
+          _from != null ||
+          _to != null ||
+          _remarks.text.trim().isNotEmpty,
+      what: 'claim has not been raised',
+      busy: saving,
+      child: _dialog(theme, preview, busy),
+    );
+  }
+
+  Widget _dialog(ThemeData theme, PrincipalClaimPreview? preview, bool busy) {
     return AlertDialog(
       title: const Text('New claim on a principal'),
       content: SizedBox(

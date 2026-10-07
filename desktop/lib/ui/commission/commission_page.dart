@@ -14,6 +14,7 @@ import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/discard_prompt.dart';
 import 'payout_dialogs.dart';
 
 /// What each salesman earns, and what a period of collections earned them.
@@ -1168,6 +1169,35 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
     super.dispose();
   }
 
+  /// Everything the form holds, as one string: what it read when it opened
+  /// against what it reads now says whether closing would lose anything.
+  String _held() => [
+        _percentage.text,
+        _from.text,
+        _to.text,
+        _cap.text,
+        _perUnit.text,
+        _minimum.text,
+        _bonus.text,
+        _salesmanId,
+        _status,
+        _basis,
+        _slabMode,
+        _rateType,
+        _productId,
+        _categoryId,
+        for (final _SlabDraft slab in _slabs)
+          '${slab.from.text}-${slab.to.text}-${slab.percentage.text}',
+      ].join('|');
+
+  late final String _opened = _held();
+
+  @override
+  void initState() {
+    super.initState();
+    _opened;
+  }
+
   /// Say what is wrong, or nothing.
   String? _validate() {
     if (_rateType == 'PER_UNIT') {
@@ -1351,6 +1381,15 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
     // saves the field as blank.
     final bool namedIsKnown = _salesmanId.isEmpty ||
         widget.known.any((person) => person.userId == _salesmanId);
+    return AskBeforeClosing(
+      touched: () => _held() != _opened,
+      what: 'commission rate has not been saved',
+      busy: _saving,
+      child: _dialog(theme, namedIsKnown),
+    );
+  }
+
+  Widget _dialog(ThemeData theme, bool namedIsKnown) {
     return AlertDialog(
       icon: const Icon(Icons.percent),
       title: Text(widget.rule == null
@@ -1600,7 +1639,9 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          onPressed: _saving
+              ? null
+              : () => unawaited(Navigator.of(context).maybePop()),
           child: const Text('Cancel'),
         ),
         FilledButton(

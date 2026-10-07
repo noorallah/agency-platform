@@ -11,6 +11,8 @@ import 'api_client.dart';
 String refusalMessage(ApiException error) {
   final Object? details = error.details;
   final List<String> lines = <String>[];
+  // Sentences about the whole record, which need no heading (D-UI-59).
+  final List<String> whole = <String>[];
   if (details is List) {
     for (final Object? item in details) {
       // A rule the server states as plain sentences -- the password policy
@@ -20,12 +22,18 @@ String refusalMessage(ApiException error) {
         continue;
       }
       if (item is! Map) continue;
+      // `body` alone is a rule about the record as a whole (an end before a
+      // start): there is no field to name, so the sentence stands by itself.
       final String field = '${item['field'] ?? ''}'.replaceFirst(
-        RegExp(r'^body\.'),
+        RegExp(r'^body(\.|$)'),
         '',
       );
       final String message = '${item['message'] ?? ''}';
       if (message.isEmpty) continue;
+      if (field.isEmpty) {
+        whole.add(message);
+        continue;
+      }
       final RegExpMatch? indexed =
           RegExp(r'^([a-z_]+)\.(\d+)(?:\.(.+))?$').firstMatch(field);
       if (indexed != null) {
@@ -39,6 +47,8 @@ String refusalMessage(ApiException error) {
       }
     }
   }
+  if (lines.isEmpty && whole.isNotEmpty) return whole.join('\n');
+  lines.insertAll(0, whole);
   if (lines.isEmpty) return error.message;
   return '${error.message}\n${lines.join('\n')}';
 }

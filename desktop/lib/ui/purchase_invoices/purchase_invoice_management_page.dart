@@ -310,6 +310,16 @@ class _PurchaseInvoiceManagementPageState
     return true;
   }
 
+  /// The cards above the list. They are a report, gated on other codes than
+  /// the list, and a refusal there must not blank the bills beneath.
+  Future<dynamic> _summaryOrNone() async {
+    try {
+      return await widget.api.documentSummary('purchase-invoices');
+    } on ApiException {
+      return const <String, dynamic>{};
+    }
+  }
+
   Future<void> _load({int? requestedPage}) async {
     // Read before any await: whether to pick the first row (phase 1 only).
     // Phase 2 (option C, owner 2026-09-27): nothing is picked for the user --
@@ -317,7 +327,11 @@ class _PurchaseInvoiceManagementPageState
     final bool pickFirst =
         context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
     if (!widget.hasActiveFirm ||
-        !widget.permissions.hasPermission('PURCHASE_VIEW')) {
+        !widget.permissions
+            .hasAnyPermission(const ['PURCHASE_VIEW', 'PAYMENT_VIEW'])) {
+      // The server's own read gate (D-UI-46): whoever pays a bill reads it.
+      // Asking for `PURCHASE_VIEW` alone left Accounts an empty list over 67
+      // bills (D-UI-50).
       return;
     }
     setState(() {
@@ -329,7 +343,7 @@ class _PurchaseInvoiceManagementPageState
     });
     try {
       final List<dynamic> responses = await Future.wait<dynamic>([
-        widget.api.documentSummary('purchase-invoices'),
+        _summaryOrNone(),
         widget.api.documentPage(
           'purchase-invoices',
           page: _page,

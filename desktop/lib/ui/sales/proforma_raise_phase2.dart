@@ -98,7 +98,10 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
             leaveDocument(context),
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): _raise,
       },
-      child: Focus(
+      // A scope, not a plain Focus: after a click outside a text box the
+      // focus falls to the nearest scope, which was above these
+      // shortcuts, so Esc and Ctrl+S did nothing (SC-SO-029).
+      child: FocusScope(
         autofocus: true,
         child: Material(
           color: scheme.surface,
