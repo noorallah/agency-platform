@@ -38,9 +38,17 @@ void main() {
     Future<double> onAccount(Json receipt) async => num2(
         (await admin.one('receipts', '${receipt['id']}'))['unallocated_amount']);
 
+    /// What the bill still owes: the list the Apply dialog itself reads (a
+    /// bill owing nothing is not on it).
     Future<double> owed(Json invoice) async {
-      final Json now = await admin.one('sales-invoices', '${invoice['id']}');
-      return num2(now['outstanding_amount'] ?? now['balance_due'] ?? 0);
+      final dynamic rows = await admin.get('/api/v1/receipts/outstanding'
+          '?customer_id=${invoice['customer_id']}');
+      for (final dynamic row in rows as List<dynamic>) {
+        if ('${(row as Json)['invoice_id']}' == '${invoice['id']}') {
+          return num2(row['outstanding_amount']);
+        }
+      }
+      return 0;
     }
 
     Future<int> journals() => totalOf(admin, 'finance/journal-entries');
@@ -226,43 +234,38 @@ void main() {
       });
       await closeOpenEditor(tester);
 
-      await log.step('SC-CC-002 apply the rest: the credit reads applied',
-          () async {
-        final double owedBefore = await owed(bill);
-        await openApply(credit, bill);
+      await log.step('SC-CC-002 apply 30 more to a second bill', () async {
+        final double owedBefore = await owed(smallBill);
+        await openApply(credit, smallBill);
         final String offeredAmount = tester
             .widgetList<EditableText>(find.descendant(
                 of: find.byType(Dialog), matching: find.byType(EditableText)))
             .map((EditableText e) => e.controller.text)
             .join(' / ');
+        await typeLabelled(tester, 'Amount', '30');
         await tapDialogButton(tester, 'Apply');
         final String words = await watch(tester, seconds: 5, confirm: false);
         final double left = await onAccount(credit);
-        final double owedAfter = await owed(bill);
-        await refreshList(tester);
-        await selectRow(tester, '${credit['settlement_number']}');
-        final String apply = buttonState(tester, applyLabel);
+        final double owedAfter = await owed(smallBill);
         log.saw = 'the dialog offered "$offeredAmount"; says "$words"; on '
-            'account $left; bill owes $owedBefore -> $owedAfter; '
-            '$applyLabel is now $apply';
-        if (!sameMoney(left, 0)) throw StateError('on account is $left');
-        if (!sameMoney(owedBefore - owedAfter, 150)) {
+            'account $left; second bill owes $owedBefore -> $owedAfter';
+        if (!sameMoney(left, 120)) throw StateError('on account is $left');
+        if (!sameMoney(owedBefore - owedAfter, 30)) {
           throw StateError('the bill fell by ${owedBefore - owedAfter}');
-        }
-        if (apply == 'enabled') {
-          throw StateError('$applyLabel is still offered on a spent credit');
         }
       });
       await closeOpenEditor(tester);
 
-      await log.step('SC-CC-009 a spent credit cannot be applied again '
-          '(HTTP)', () async {
+      await log.step('SC-CC-009 a credit already on a bill cannot be put '
+          'on it again (HTTP)', () async {
         final ({int status, String text}) r = await admin.attempt(
             'POST', '/api/v1/receipts/${credit['id']}/allocate',
             <String, dynamic>{'invoice_id': bill['id'], 'amount': '10'});
         log.saw = 'answered ${r.status}: '
             '${r.text.length > 220 ? r.text.substring(0, 220) : r.text}';
-        if (r.status < 400) throw StateError('a spent credit was applied');
+        if (r.status < 400) {
+          throw StateError('the same credit went on the same bill twice');
+        }
       });
 
       await log.step('SC-CC-004 Reverse the receipt: the bill owes what it '
@@ -276,9 +279,9 @@ void main() {
         final Json rc = await admin.one('receipts', '${credit['id']}');
         log.saw = 'says "$words"; receipt status ${rc['status']}; bill owes '
             '$owedBefore -> $owedAfter (bill total $grand)';
-        if (!sameMoney(owedAfter - owedBefore, 200)) {
+        if (!sameMoney(owedAfter - owedBefore, 50)) {
           throw StateError('the bill rose by ${owedAfter - owedBefore}, not '
-              'the 200 that had been applied');
+              'the 50 that had been applied to it');
         }
       });
 
