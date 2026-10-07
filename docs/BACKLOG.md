@@ -6253,6 +6253,41 @@ Adding a firm's own field exists already (MST-8); switching a shared field off f
 
 Which list a rule keys on is chosen at build time: customers have groups and a trade class, suppliers have types and categories, and it was not checked on 2026-10-07 which carries the meaning best. Moving a party to another kind follows the rule for a category's type: nothing already stored is removed, and the new kind's required fields are asked for at the next save. **Drug and FSSAI licences are not custom fields** and stay on their own screens with the licence check (§54); this is for everything else a firm wants to insist on.
 
+**How it is built: change what exists, to the house rules, on a schema that answers quickly -- the owner's instruction, 2026-10-07.**
+
+*Change, do not rewrite.* The product already carries its own switches and unit slots and every document reads them, so this entry changes who fills them, not how they are used. Goods types and unit sets are new and are added beside what exists; the product form, the batch and serial checks and the field rules are changed in place; what the old design leaves behind is deleted. The one piece rewritten rather than patched is the part of `AttributeService` that filters by profile: a resolver left half-ignoring a column is worse than a small one written again, and its tests are rewritten with it. Nothing else is started again -- the buying, selling and pricing code holds several rounds of fixes that a rewrite would lose.
+
+*The house rules hold as written in `CLAUDE.md` and the docs it names; none is relaxed for this entry.* The ones this work will meet:
+
+| Rule | Here |
+| --- | --- |
+| Five layers per module; routers thin, services own the transaction and the audit row | Goods types and unit sets get the same `api / schemas / services / repositories / models` shape, in the module that owns them (`app/products` for goods types, `app/uom` for unit sets), not a new empty package |
+| `stage_*` flushes, the public method commits once | Creating a product from a goods type and a unit set -- the product, its switches and its own conversion rule -- is one transaction: all of it or none |
+| Update dumps with `exclude_unset=True`; a status never writable through the body | The goods type's and the unit set's update schemas, and the category's new column |
+| Every mutation writes an audit row | Add, change and remove of a goods type, a unit set and a rule |
+| A permission code used is a permission code seeded, with a migration for existing stores | Whatever code guards goods types and unit sets, and which roles hold it |
+| Migrations per store, idempotent, cross-schema keys guarded, timestamps with their server default | Every migration in this entry, run through `scripts/migrate_all_stores.py` |
+| `ruff`, `black` and `mypy app` clean; a docstring and full annotations on every function | Each PR; a finding is one this work introduced |
+| The desktop: the shared framework, one tab filter, a dialog that saves runs the save itself, never `dart format` | The Goods Types and Unit Sets lists as `ResourceDefinition`s; the product form's changes by hand in the file's own style |
+| A field the desktop sends is one the server declares | The product form's new and removed keys |
+
+*The schema is designed for the questions that will be asked of it,* so a report by goods type or a product list is one indexed statement and never a walk through categories:
+
+| Design choice | Why |
+| --- | --- |
+| **The goods type is stored on the product**, not only on its category, and indexed with the firm (`firm_id, goods_type_id`) | "All Medicine stock", sales by goods type and the product list's filter read one column on a row already in the query, with no join through the category tree and no recursion up to a parent |
+| Goods type and unit set are **real foreign keys to small tables**, never a code typed into a string column and never JSON | The database refuses a type that does not exist; a rename is one row; a join is on an indexed key |
+| The link between unit sets and goods types is **its own table** with one row per pair and a unique key on the pair | "The sets for this type" and "the types of this set" are both index reads; an array or JSON column answers only one of them |
+| A unit set is **copied onto the product** when chosen | Document lines go on reading the product's own unit columns and its own conversion rule, exactly as today: no extra join on the busiest path in the application |
+| Extra-field values stay in their **typed columns** (`value_text`, `value_number`, `value_date`, `value_boolean`) with their `(firm_id, value_*)` indexes | A list can filter and a report can group on a custom field in SQL; JSON would end that |
+| The rules for required fields are **read once per page**, never per row | `values_for_many` and one read of the rules for the goods types on the page; `tests/unit/test_list_pages_are_batched.py` fails when the statement count grows with the page |
+| **Reports group in SQL** and select the columns they show | Goods type joins the dimensions of Sales Analysis and the stock reports as a `GROUP BY` on the product's own column |
+| Foreign keys named `FK_<table>_<column>`; a uniqueness rule among live rows is a **partial unique index** with `sqlite_where` beside `postgresql_where` | One goods type code and one unit set name per firm among live rows, and the same test suite sees the same rule |
+| An id list that can grow with the firm is asked about **in chunks** | Any "these products' goods types" lookup uses `over_chunks` |
+| No column or table is added "in case" | A column nobody reads is the first thing the clean-up rule below would have to remove |
+
+*And it is timed, not assumed.* Before this entry is called done, `scripts/time_routes.py` is run against PERF01 for the product list, the product form's metadata, the batch and expiry lists and one report by goods type, and the figures go in the closing PR beside the ones from before the change. A route that got slower is fixed or explained. The product form states how many server calls it makes to open, and that number does not go up: the goods type's fields, the unit sets for it and the required-field rules arrive in the metadata call the form already makes.
+
 **What it touches** (counted on 2026-10-07; re-count before building).
 
 | Area | Change | Size |
