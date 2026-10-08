@@ -11,6 +11,7 @@ import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/batch_serial.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/inventory/batch_management_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -59,10 +60,36 @@ class _BatchApi extends ApiClient {
         total: 2,
       );
 
+  /// What Create sent, each time it was pressed with a product chosen.
+  final List<Json> created = <Json>[];
+
   @override
-  Future<BatchRecord> createBatch(Json data) async => throw const ApiException(
-        'Batch number already exists for this product.',
-        statusCode: 422,
+  Future<BatchRecord> createBatch(Json data) async {
+    created.add(data);
+    throw const ApiException(
+      'Batch number already exists for this product.',
+      statusCode: 422,
+    );
+  }
+
+  @override
+  Future<PagedResult<Product>> products({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    ProductQuery filters = const ProductQuery(),
+  }) async =>
+      PagedResult<Product>(
+        items: <Product>[
+          Product.fromJson(<String, dynamic>{
+            'id': 'p-1',
+            'code': 'PRD-001',
+            'name': 'Pain Relief',
+          }),
+        ],
+        total: 1,
       );
 
   @override
@@ -94,10 +121,11 @@ void main() {
     addTearDown(tester.view.reset);
     final Directory temp = Directory.systemTemp.createTempSync('batch-form');
     addTearDown(() => temp.deleteSync(recursive: true));
+    final _BatchApi api = _BatchApi();
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: BatchManagementPage(
-          api: _BatchApi(),
+          api: api,
           preferences: DesktopPreferencesService(directory: temp),
           permissions: PermissionService()
             ..applyAccessToken(accessTokenFor(
@@ -113,8 +141,23 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Batch Number *'), 'B-900');
+
+    // D-UI-72: the dialog had no product box, so every batch added from the
+    // screen was refused "product_id: Field required". With none chosen the
+    // dialog says so itself and sends nothing.
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
+    expect(find.text('Choose the product this batch is of.'), findsOneWidget);
+    expect(api.created, isEmpty);
+
+    await tester.enterText(
+        find.byKey(const ValueKey('batch-form-product')), 'Pain');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('PRD-001 · Pain Relief').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+    await tester.pumpAndSettle();
+    expect(api.created.single['product_id'], 'p-1');
 
     expect(
       find.descendant(

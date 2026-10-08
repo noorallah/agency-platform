@@ -6279,9 +6279,11 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
       row.code,
       row.name,
       row.path,
+      // General is "no type". A type whose name could not be read is not
+      // General, and saying so would misdescribe every category on the page.
       row.goodsTypeId.isEmpty
           ? 'General'
-          : (goodsTypeNames[row.goodsTypeId] ?? 'General'),
+          : (goodsTypeNames[row.goodsTypeId] ?? '—'),
       row.isActive ? 'Yes' : 'No',
     ],
     id: (ProductCategoryRecord row) => row.id,
@@ -6298,7 +6300,8 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
           }
           goodsTypesLoaded = true;
         } on ApiException {
-          // The grid still lists; the column reads General until it can.
+          // The grid still lists; a typed category reads a dash until the
+          // names can be read.
         }
       }
       return api.productCategoryPage(

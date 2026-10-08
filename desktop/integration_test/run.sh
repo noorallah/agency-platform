@@ -8,7 +8,8 @@
 # never read or replaced, and every run starts signed out. The app does not
 # always close itself when a flow ends, so the run is cut off after LIMIT
 # seconds and the copy it started is stopped. Sign in as another user with
-# IT_EMAIL and IT_PASSWORD in the environment.
+# IT_EMAIL and IT_PASSWORD in the environment; IT_PART names the sections of
+# a flow that is run in parts (sc_gt_test.dart).
 set -u
 FLOW="${1:?name a flow file under integration_test/}"
 API="${2:-http://127.0.0.1:8000}"
@@ -22,6 +23,7 @@ APPDATA="$(cygpath -w "$SCRATCH")" timeout "$LIMIT" flutter test \
   --dart-define=API_BASE_URL="$API" --dart-define=SESSION_STORE=file \
   ${IT_EMAIL:+--dart-define=IT_EMAIL="$IT_EMAIL"} \
   ${IT_PASSWORD:+--dart-define=IT_PASSWORD="$IT_PASSWORD"} \
+  ${IT_PART:+--dart-define=IT_PART="$IT_PART"} \
   >"$LOG" 2>&1
 STATUS=$?
 

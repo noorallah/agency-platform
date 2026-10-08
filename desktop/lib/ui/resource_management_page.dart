@@ -829,7 +829,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      if (exception.isConflict && widget.definition.deleteRecord != null) {
+      if (exception.isStaleWrite && widget.definition.deleteRecord != null) {
         // Somebody saved it since the list was read: say so, and read again
         // so the next attempt carries the version that is there now.
         NotificationService.show(
