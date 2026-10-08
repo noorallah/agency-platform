@@ -170,6 +170,13 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   final FocusNode _scanFocus = FocusNode();
   String? _scanMessage;
 
+  /// What the last scan of a pack added, said plainly beside the field.
+  String? _scanNote;
+
+  /// Bumped by each fresh counter bill, so a lookup answered late is not
+  /// added to the next customer's.
+  int _billSerial = 0;
+
   /// Set once a counter bill has been created by F9 and a later step was
   /// refused: the screen then carries on with that saved draft rather than
   /// creating a second one.
@@ -1401,7 +1408,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   }
 
   /// Take what the scanner typed: a barcode, ending in Enter. A product
-  /// already on the bill gains one; a new one gets a line of quantity 1.
+  /// already on the bill gains one; a new one gets a line of quantity 1. A
+  /// code no product carries as its own is asked of the server, which knows
+  /// the packs: a carton's label adds what the carton holds.
   void _scanned(String raw) {
     final String code = raw.trim();
     _scan.clear();
@@ -1426,22 +1435,88 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       }
     }
     if (found == null) {
-      _setState(() => _scanMessage = 'No product has the barcode "$code".');
-      _refocusScan();
+      _scannedPack(code);
       return;
     }
-    final Product product = found;
+    _addScanned(found, 1);
+    _refocusScan();
+  }
+
+  /// Ask the one lookup what a code is (backlog 89, market gap 3). A pack's
+  /// barcode, GTIN, EAN or UPC answers with its product and how many of the
+  /// stock unit one pack holds, and a line that names no unit is in that
+  /// unit, so the figure is added as it stands.
+  Future<void> _scannedPack(String code) async {
+    final int bill = _billSerial;
+    try {
+      final BarcodeLookup hit = await widget.api.lookupBarcode(code);
+      // An answer that comes back to the next customer's bill is dropped.
+      if (!mounted || bill != _billSerial) return;
+      Product? product;
+      for (final Product item in _products) {
+        if (item.id == hit.productId) {
+          product = item;
+          break;
+        }
+      }
+      final double each = double.tryParse(hit.baseQuantity) ?? 0;
+      if (hit.productId.isEmpty) {
+        _setState(() {
+          _scanNote = null;
+          _scanMessage = 'No product has the barcode "$code".';
+        });
+      } else if (product == null) {
+        _setState(() => _scanMessage =
+            '"$code" is ${hit.productCode} ${hit.productName}, which this '
+            'bill cannot sell.');
+      } else if (each <= 0) {
+        _setState(() => _scanMessage =
+            '"$code" is a pack of ${hit.productCode} that holds nothing.');
+      } else {
+        final String productCode = product.code;
+        _addScanned(product, each);
+        if (hit.packagingLevelId.isNotEmpty) {
+          final String pack = <String>[
+            if (hit.levelName.isNotEmpty) hit.levelName,
+            if (hit.uomCode.isNotEmpty &&
+                hit.uomCode.toLowerCase() != hit.levelName.toLowerCase())
+              '(${hit.uomCode})',
+          ].join(' ');
+          _setState(() => _scanNote =
+              '${pack.isEmpty ? 'Pack' : pack} of $productCode: '
+              '${_scanQuantity(each)}'
+              '${hit.stockUomCode.isEmpty ? '' : ' ${hit.stockUomCode}'} '
+              'added.');
+        }
+      }
+    } on ApiException catch (error) {
+      if (!mounted || bill != _billSerial) return;
+      _setState(() {
+        _scanNote = null;
+        _scanMessage = error.statusCode == 404
+            ? 'No product has the barcode "$code".'
+            : error.message;
+      });
+    }
+    _refocusScan();
+  }
+
+  static String _scanQuantity(double value) =>
+      value == value.roundToDouble() ? value.toStringAsFixed(0) : '$value';
+
+  /// Put [each] more of a scanned product on the bill.
+  void _addScanned(Product product, double each) {
     int index = _directLines.indexWhere((l) => l.productId == product.id);
     if (index >= 0) {
       final _DirectLine line = _directLines[index];
       final double next =
-          (double.tryParse(line.quantity.text.trim()) ?? 0) + 1;
+          (double.tryParse(line.quantity.text.trim()) ?? 0) + each;
       _setState(() {
-        line.quantity.text =
-            next == next.roundToDouble() ? next.toStringAsFixed(0) : '$next';
+        line.quantity.text = _scanQuantity(next);
         _current = index;
         if (_addsProducts) _addedFocus = true;
         _scanMessage = null;
+        _scanNote = null;
       });
       _schedulePreview();
     } else {
@@ -1453,12 +1528,12 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         }
         final _DirectLine line = _directLines[index];
         line.refresh++;
-        line.quantity.text = '1';
+        line.quantity.text = _scanQuantity(each);
         _scanMessage = null;
+        _scanNote = null;
       });
       _pickProduct(index, product.id);
     }
-    _refocusScan();
   }
 
   void _refocusScan() {
@@ -1480,6 +1555,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _preview = null;
       _error = null;
       _scanMessage = null;
+      _scanNote = null;
+      _billSerial++;
       _reference.clear();
       _coupon.clear();
       _billDiscount.clear();

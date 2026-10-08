@@ -465,6 +465,9 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
               initialSelection: line.productId,
               expandedInsets: EdgeInsets.zero,
               enableFilter: true,
+              filterCallback: (entries, filter) =>
+                  productEntriesMatching(entries, filter, widget.products),
+              searchCallback: productEntryToHighlight,
               requestFocusOnTap: true,
               menuHeight: 320,
               textStyle: text,

@@ -37,6 +37,9 @@ class _CounterApi extends ApiClient {
   final List<String> calls = <String>[];
   final List<Json> created = <Json>[];
 
+  /// The codes the one barcode lookup was asked about, in order.
+  final List<String> lookups = <String>[];
+
   @override
   Future<List<int>> salesInvoicePdf(String id, {bool referenceCopy = false}) {
     calls.add('pdf:$id');
@@ -100,6 +103,49 @@ class _CounterApi extends ApiClient {
           },
         ],
       };
+    }
+    if (path.contains('/uom-framework/barcode-lookup')) {
+      final String code = Uri.parse(path).queryParameters['code'] ?? '';
+      lookups.add(code);
+      if (code == _cartonOfSoap) {
+        return <String, dynamic>{
+          'data': <String, dynamic>{
+            'code': code,
+            'product_id': 'prod-1',
+            'product_code': 'P-1',
+            'product_name': 'Soap',
+            'packaging_level_id': 'level-1',
+            'level_name': 'Carton',
+            'base_quantity': '12.000000',
+            'matched_field': 'barcode',
+            'uom_code': 'CTN',
+            'stock_uom_code': 'PCS',
+          },
+        };
+      }
+      if (code == _sharedCode) {
+        throw const ApiException(
+          '2 products or packaging levels carry the code 5550001. A code '
+          'has to name one thing before it can be scanned.',
+          statusCode: 409,
+        );
+      }
+      if (code == _cartonOfUnlisted) {
+        return <String, dynamic>{
+          'data': <String, dynamic>{
+            'code': code,
+            'product_id': 'prod-9',
+            'product_code': 'P-9',
+            'product_name': 'Retired',
+            'packaging_level_id': 'level-9',
+            'level_name': 'Box',
+            'base_quantity': '10',
+            'matched_field': 'ean',
+          },
+        };
+      }
+      throw ApiException('Nothing in this firm carries the code $code.',
+          statusCode: 404);
     }
     if (path.contains('billable')) return <String, dynamic>{'data': <Json>[]};
     if (method == 'GET' && path.startsWith('/api/v1/sales-invoices/inv-')) {
@@ -217,6 +263,15 @@ Future<List<String>> _pump(
   return printed;
 }
 
+/// A carton of twelve soaps: a code on a pack, not on the product.
+const String _cartonOfSoap = '8901234567906';
+
+/// A code two things carry, which the server refuses to guess between.
+const String _sharedCode = '5550001';
+
+/// A pack of a product this bill's list does not hold.
+const String _cartonOfUnlisted = '5550009';
+
 Future<void> _scan(WidgetTester tester, String code) async {
   await tester.enterText(
       find.byKey(const ValueKey('counter-scan-field')), code);
@@ -315,6 +370,70 @@ void main() {
     // A good scan clears the message.
     await _scan(tester, '8901234567890');
     expect(find.byKey(const ValueKey('counter-scan-message')), findsNothing);
+  });
+
+  testWidgets("a pack's barcode adds what the pack holds (backlog 89)",
+      (tester) async {
+    final _CounterApi api = _CounterApi();
+    await _pump(tester, api);
+    await _chooseCustomer(tester);
+
+    // The product's own barcode is answered from the list already read.
+    await _scan(tester, '8901234567890');
+    expect(_qty(tester, 0), '1');
+    expect(api.lookups, isEmpty);
+
+    // A carton's label is not on the product: the lookup knows the pack.
+    await _scan(tester, _cartonOfSoap);
+    expect(api.lookups, <String>[_cartonOfSoap]);
+    expect(_product(tester, 0), contains('Soap'));
+    expect(_qty(tester, 0), '13');
+    expect(find.byKey(const ValueKey('sales-invoice-direct-1')), findsNothing);
+    expect(find.text('Carton (CTN) of P-1: 12 PCS added.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('counter-scan-message')), findsNothing);
+
+    await _scan(tester, _cartonOfSoap);
+    expect(_qty(tester, 0), '25');
+
+    // A single piece again: the note about the carton goes.
+    await _scan(tester, '8901234567890');
+    expect(_qty(tester, 0), '26');
+    expect(find.byKey(const ValueKey('counter-scan-note')), findsNothing);
+    expect(tester.widget<TextField>(
+            find.byKey(const ValueKey('counter-scan-field'))).focusNode!
+        .hasFocus, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets("a pack's barcode starts a line of its own when it is first",
+      (tester) async {
+    final _CounterApi api = _CounterApi();
+    await _pump(tester, api);
+    await _chooseCustomer(tester);
+
+    await _scan(tester, _cartonOfSoap);
+    expect(_product(tester, 0), contains('Soap'));
+    expect(_qty(tester, 0), '12');
+    expect(find.byKey(const ValueKey('counter-scan-note')), findsOneWidget);
+  });
+
+  testWidgets('a code two things carry is refused in the server\'s words',
+      (tester) async {
+    final _CounterApi api = _CounterApi();
+    await _pump(tester, api);
+    await _chooseCustomer(tester);
+
+    await _scan(tester, _sharedCode);
+    expect(find.textContaining('2 products or packaging levels carry'),
+        findsOneWidget);
+    expect(_qty(tester, 0), isEmpty);
+
+    // A pack of a product the bill's list does not hold is named, not added.
+    await _scan(tester, _cartonOfUnlisted);
+    expect(find.textContaining('is P-9 Retired, which this bill cannot sell'),
+        findsOneWidget);
+    expect(_qty(tester, 0), isEmpty);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the tender split sends received_now_tenders with exact keys',

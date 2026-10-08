@@ -1026,6 +1026,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
               expandedInsets: EdgeInsets.zero,
               enabled: !_saving,
               enableFilter: true,
+              filterCallback: (entries, filter) =>
+                  productEntriesMatching(entries, filter, widget.products),
+              searchCallback: productEntryToHighlight,
               requestFocusOnTap: true,
               menuHeight: 320,
               textStyle: text,

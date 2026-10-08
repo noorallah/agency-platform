@@ -247,6 +247,16 @@ class BarcodeLookupResponse(UomSchema):
     #: barcode somebody typed into the wrong box.
     matched_field: str
 
+    #: The unit the level is recorded in (BOX, CARTON), for the message a
+    #: scanning screen shows. None for the product's own barcode and for a
+    #: level that names no unit.
+    uom_code: str | None = None
+
+    #: The product's stock unit, which is the unit ``base_quantity`` counts
+    #: in and the unit of a document line that names none -- so a scanning
+    #: screen adds ``base_quantity`` to such a line as it stands.
+    stock_uom_code: str | None = None
+
 
 class PackagingLevelCreate(UomSchema):
     """One level of a product's packaging hierarchy."""

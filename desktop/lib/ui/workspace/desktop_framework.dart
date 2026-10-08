@@ -1,6 +1,7 @@
 export 'geo_area_picker.dart';
 export 'master_import_dialog.dart';
 export 'paged_fetch.dart';
+export 'product_box_search.dart';
 export 'global_search.dart';
 export 'health_probe.dart';
 export '../../phase2/document_tabs.dart';

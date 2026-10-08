@@ -834,6 +834,9 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                 enabled: !_locked,
                 expandedInsets: EdgeInsets.zero,
                 enableFilter: true,
+                filterCallback: (entries, filter) =>
+                    productEntriesMatching(entries, filter, _products),
+                searchCallback: productEntryToHighlight,
                 requestFocusOnTap: true,
                 menuHeight: 320,
                 textStyle: text,

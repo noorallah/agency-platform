@@ -508,7 +508,14 @@ supplier bill does the same with the **supplier** and their goods receipts
 (branch is the only thing a receipt can clash on).
 
 **Counter billing.** On a counter bill a barcode scanner (in keyboard mode)
-adds the product, and scanning it again adds one more. *Received now* can be
+adds the product, and scanning it again adds one more. Scanning the barcode
+of a **pack** -- a box or a carton recorded under *Packaging Levels* with its
+own barcode -- adds what the pack holds: a carton of 24 adds 24 pieces, and
+the line beside the scan field says so. A code that two packs or products
+carry is refused with a message; correct one of them and scan again. On the
+other documents (quotation, sales order, sales invoice, purchase order,
+supplier bill), scanning a pack's barcode into a line's product box picks the
+product; the quantity is typed as before. *Received now* can be
 split across tenders -- cash, UPI, card, bank transfer -- with the balance and
 the change shown; each tender is recorded as its own receipt against the bill
 (cash to the cash book, the rest through the bank). **Save & print (F9)**

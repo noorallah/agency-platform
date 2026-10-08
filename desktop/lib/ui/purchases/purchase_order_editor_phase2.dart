@@ -1137,6 +1137,9 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                 enabled: !_locked && !schemeFree,
                 expandedInsets: EdgeInsets.zero,
                 enableFilter: true,
+                filterCallback: (entries, filter) =>
+                    productEntriesMatching(entries, filter, widget.products),
+                searchCallback: productEntryToHighlight,
                 requestFocusOnTap: true,
                 menuHeight: 320,
                 textStyle: text,

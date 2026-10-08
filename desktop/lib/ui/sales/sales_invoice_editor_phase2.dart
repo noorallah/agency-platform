@@ -909,6 +909,17 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             ),
           ),
           const SizedBox(width: 12),
+          if (_scanMessage == null && _scanNote != null)
+            Expanded(
+              child: Text(
+                _scanNote!,
+                key: const ValueKey('counter-scan-note'),
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           if (_scanMessage != null)
             Expanded(
               child: Text(
@@ -959,6 +970,9 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               initialSelection: line.productId,
               expandedInsets: EdgeInsets.zero,
               enableFilter: true,
+              filterCallback: (entries, filter) =>
+                  productEntriesMatching(entries, filter, _products),
+              searchCallback: productEntryToHighlight,
               requestFocusOnTap: true,
               menuHeight: 320,
               textStyle: text,

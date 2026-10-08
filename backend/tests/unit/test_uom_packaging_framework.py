@@ -1042,3 +1042,113 @@ def test_a_missing_rule_names_the_product_and_both_units() -> None:
     assert "QA-P1" in message
     assert "BOX to PIECE" in message
     assert "Conversion Rules" in message
+
+
+def test_a_scan_answers_the_packs_unit_and_the_products_stock_unit() -> None:
+    """What a scanning screen needs to say what it added (backlog 89, gap 3).
+
+    The counter bill adds ``base_quantity`` to a line that names no unit,
+    which is a line in the product's stock unit, and says "1 CARTON = 120
+    PCS" -- so the lookup names both units rather than leaving the screen to
+    fetch them.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    service = UomService(session)
+    product = _product(session, firm.id)
+    piece = service.create_uom(UomCreate(code="pcx", name="Piece"), actor_id=actor_id)
+    product.base_uom_id = piece.id
+    product.barcode = "2222222222222"
+    session.commit()
+    _scannable(
+        session,
+        service,
+        firm_id=firm.id,
+        actor_id=actor_id,
+        product=product,
+        barcode="8901234567999",
+    )
+
+    carton = service.lookup_barcode(firm_scope=firm.id, code="8901234567999")
+    own = service.lookup_barcode(firm_scope=firm.id, code="2222222222222")
+
+    assert carton.uom_code == "U-CARTON"
+    assert carton.stock_uom_code == "PCX"
+    assert carton.base_quantity == Decimal("120")
+    assert own.uom_code is None
+    assert own.stock_uom_code == "PCX"
+    assert own.base_quantity == Decimal("1")
+
+
+def test_a_packs_code_finds_its_product_in_the_product_list() -> None:
+    """A carton label typed into a product search is not on the product row.
+
+    The list search matched the product's own barcode only, so every search
+    box fed by it found nothing for a pack's code; and a document line's
+    product box filters the rows it was given, so each row carries the codes
+    of its packs.
+    """
+    from app.products.api.router import _responses
+    from app.products.schemas import ProductListFilters
+    from app.products.services import ProductService
+
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    service = UomService(session)
+    product = _product(session, firm.id)
+    other = _product(session, firm.id, code="SKU-UOM-002")
+    level = _scannable(
+        session,
+        service,
+        firm_id=firm.id,
+        actor_id=actor_id,
+        product=product,
+        barcode="8901234567111",
+        ean="5012345678111",
+    )
+
+    def found(text: str) -> list[UUID]:
+        """Return the ids a product search for ``text`` answers."""
+        rows, _total = ProductService(session).list_products(
+            firm_scope=firm.id,
+            filters=ProductListFilters(),
+            search=text,
+            sort_by="code",
+            descending=False,
+            page=1,
+            page_size=20,
+        )
+        return [row.id for row in rows]
+
+    assert found("8901234567111") == [product.id]
+    assert found("5012345678111") == [product.id]
+    assert found("no-such-code") == []
+
+    page = _responses([product, other], can_view_cost=True, db=session)
+    assert page[0].pack_codes == ["8901234567111", "5012345678111"]
+    assert page[1].pack_codes == []
+
+    # A level taken off the product stops answering for it.
+    level.is_deleted = True
+    session.commit()
+    assert found("8901234567111") == []
+    assert _responses([product], can_view_cost=True, db=session)[0].pack_codes == []
+
+
+def test_whoever_writes_a_counter_bill_may_scan_a_pack() -> None:
+    """The counter bill asks the lookup, and the lookup needs ``UOM_VIEW``.
+
+    A role that could raise the bill but not read units would scan a carton
+    and be told it may not -- at the counter, with the customer waiting.
+    """
+    from app.identity.system_seed import ROLE_PERMISSION_CODES
+
+    without = sorted(
+        role
+        for role, codes in ROLE_PERMISSION_CODES.items()
+        if "SALES_INVOICE_CREATE" in codes and "UOM_VIEW" not in codes
+    )
+
+    assert without == []
