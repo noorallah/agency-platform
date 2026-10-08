@@ -12,6 +12,7 @@ import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/file_import.dart';
 import '../../models/adjustment_reason.dart';
+import '../../models/batch_serial.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import 'inventory_details_dialog.dart';
@@ -104,6 +105,17 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     'ADJUSTMENT': 'Adjustment / count',
     'ADJUSTMENT_REVERSAL': 'Repack cancelled',
   };
+
+  /// The quantity of a movement with the direction it took current stock:
+  /// `-59` when it took stock out, the size as it is when it added or when
+  /// current stock did not move (a reservation, a quarantine hold).
+  static String _signedQuantity(InventoryTransactionRecord item) {
+    final num? delta = num.tryParse(item.currentQuantityDelta);
+    if (delta != null && delta < 0 && !item.quantity.startsWith('-')) {
+      return '-${item.quantity}';
+    }
+    return item.quantity;
+  }
 
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -1354,11 +1366,11 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       onOpen: (item) => _openLinesDialog(() => _selectedTransaction = item),
       cells: (item) => [
         item.transactionDate,
-        item.transactionType,
+        _transactionTypeLabels[item.transactionType] ?? item.transactionType,
         item.referenceNumber,
         '${item.productCode} - ${item.productName}',
         item.warehouseCode,
-        item.quantity,
+        _signedQuantity(item),
         item.newCurrentQuantity,
       ],
       onSelect: (item) => setState(() => _selectedTransaction = item),
@@ -2197,6 +2209,7 @@ class StockAdjustmentDraft {
     required this.warehouseId,
     required this.storageNodeId,
     required this.productId,
+    this.batchId,
     required this.quantity,
     required this.referenceNumber,
     required this.transactionDate,
@@ -2216,6 +2229,7 @@ class StockAdjustmentDraft {
         warehouseId: warehouseId,
         storageNodeId: storageNodeId,
         productId: productId,
+        batchId: batchId,
         quantity: quantity,
         referenceNumber: referenceNumber,
         transactionDate: transactionDate,
@@ -2229,6 +2243,9 @@ class StockAdjustmentDraft {
   final String warehouseId;
   final String? storageNodeId;
   final String productId;
+
+  /// The batch the movement names, when the product is held in batches.
+  final String? batchId;
   final String quantity;
   final String referenceNumber;
   final String transactionDate;
@@ -2245,6 +2262,7 @@ class StockAdjustmentDraft {
         'warehouse_id': warehouseId,
         'storage_node_id': storageNodeId,
         'product_id': productId,
+        if (batchId != null && batchId!.isNotEmpty) 'batch_id': batchId,
         'quantity': num.parse(quantity),
         if (referenceNumber.isNotEmpty) 'reference_number': referenceNumber,
         'reference_type': 'ADJUSTMENT',
@@ -2311,6 +2329,8 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
       text: DateTime.now().toIso8601String().split('T').first);
   final TextEditingController _remarks = TextEditingController();
   List<StorageNodeRecord> _storageNodes = const [];
+  List<BatchRecord> _batches = const [];
+  String? _batchId;
   List<Json> _attachments = const [];
   String? _validationError;
 
@@ -2350,6 +2370,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
   void initState() {
     super.initState();
     _loadStorageNodes();
+    _loadBatches();
   }
 
   @override
@@ -2359,6 +2380,32 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
     _date.dispose();
     _remarks.dispose();
     super.dispose();
+  }
+
+  /// The batches the chosen product has in the chosen warehouse. A product
+  /// with none shows no Batch box (D-STK-1).
+  Future<void> _loadBatches() async {
+    final String? productId = _productId;
+    final String? warehouseId = _warehouseId;
+    setState(() {
+      _batches = const [];
+      _batchId = null;
+    });
+    if (productId == null || warehouseId == null) return;
+    List<BatchRecord> found = const [];
+    try {
+      final PagedResult<BatchRecord> result = await widget.api.batches(
+        pageSize: maxApiPageSize,
+        filters: BatchQuery(productId: productId, warehouseId: warehouseId),
+      );
+      found = result.items;
+    } on Exception {
+      found = const [];
+    }
+    if (!mounted || _productId != productId || _warehouseId != warehouseId) {
+      return;
+    }
+    setState(() => _batches = found);
   }
 
   Future<void> _loadStorageNodes() async {
@@ -2422,6 +2469,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
                           : _filteredWarehouses.first.id;
                     });
                     _loadStorageNodes();
+                    _loadBatches();
                   },
                 ),
                 const SizedBox(height: 12),
@@ -2448,6 +2496,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
                   onChanged: (value) {
                     setState(() => _warehouseId = value);
                     _loadStorageNodes();
+                    _loadBatches();
                   },
                 ),
                 const SizedBox(height: 12),
@@ -2484,8 +2533,38 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
                         ),
                       )
                       .toList(),
-                  onChanged: (value) => setState(() => _productId = value),
+                  onChanged: (value) {
+                    setState(() => _productId = value);
+                    _loadBatches();
+                  },
                 ),
+                if (_batches.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    key: const ValueKey('adjustment-batch'),
+                    isExpanded: true,
+                    initialValue: _batchId,
+                    decoration: const InputDecoration(
+                      labelText: 'Batch',
+                      helperText: 'The batch the stock is added to or taken '
+                          'from',
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('None', overflow: TextOverflow.ellipsis),
+                      ),
+                      for (final BatchRecord batch in _batches)
+                        DropdownMenuItem<String>(
+                          value: batch.id,
+                          child: Text(
+                              '${batch.batchNumber} (${batch.availableQuantity})',
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                    ],
+                    onChanged: (value) => setState(() => _batchId = value),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 TextField(
                   controller: _quantity,
@@ -2570,12 +2649,20 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
                   _date.text.trim().isEmpty) {
                 return;
               }
+              if (quantity < 0 && _batches.isNotEmpty && _batchId == null) {
+                setState(() => _validationError =
+                    'This product is held in batches. Choose the batch the '
+                    'stock is taken from.');
+                return;
+              }
+              setState(() => _validationError = null);
               _post(
                 StockAdjustmentDraft(
                   branchId: _branchId!,
                   warehouseId: _warehouseId!,
                   storageNodeId: _storageNodeId,
                   productId: _productId!,
+                  batchId: _batchId,
                   quantity: _quantity.text.trim(),
                   referenceNumber: _reference.text.trim(),
                   transactionDate: _date.text.trim(),
@@ -2723,8 +2810,11 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog>
   late String? _warehouseId = widget.existing?.warehouseId ??
       widget.initialWarehouseId ??
       (_filteredWarehouses.isEmpty ? null : _filteredWarehouses.first.id);
+  // Blank: the server requires a reference here and does not number one, so
+  // the box stays empty and the form asks for it. A prefilled OPEN-001 was
+  // refused as a duplicate by every second opening stock (S12).
   late final TextEditingController _reference = TextEditingController(
-    text: widget.existing?.referenceNumber ?? 'OPEN-001',
+    text: widget.existing?.referenceNumber ?? '',
   );
   late final TextEditingController _postingDate = TextEditingController(
     text: widget.existing?.postingDate ??
@@ -2921,6 +3011,10 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog>
           ),
           FilledButton(
             onPressed: saving ? null : () {
+              if (_reference.text.trim().isEmpty) {
+                setState(() => _validationError = 'Reference is required.');
+                return;
+              }
               final Set<String> keys = <String>{};
               for (final _OpeningStockLineDraft line in _lines) {
                 final String? productId = line.productId;
@@ -2989,7 +3083,6 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog>
               }
               if (_branchId == null ||
                   _warehouseId == null ||
-                  _reference.text.trim().isEmpty ||
                   _postingDate.text.trim().isEmpty ||
                   _lines.any((line) =>
                       line.productId == null || line.quantity.trim().isEmpty)) {

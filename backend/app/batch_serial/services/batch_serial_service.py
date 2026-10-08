@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import case, func, select
+from sqlalchemy import Table, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
@@ -46,6 +46,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
+from app.core.database.base import Base
 from app.core.exceptions import (
     ConflictError,
     ResourceNotFoundError,
@@ -102,6 +103,56 @@ _AUDITED_FIELDS: dict[str, tuple[str, ...]] = {
 _BATCH_DATES = frozenset({"manufacturing_date", "expiry_date", "best_before_date"})
 
 
+#: The tables that are the stock itself. A record they name has moved, which
+#: reads differently to a person than a document that merely names it.
+_STOCK_TABLES = frozenset(
+    {"inventories", "inventory_transactions", "stock_ledger_entries"}
+)
+
+
+def batch_holds_stock() -> ColumnElement[bool]:
+    """Return the condition that a batch still holds stock somewhere.
+
+    On the shelf, in quarantine, damaged or blocked. This is the one test of
+    "is there anything left to act on" for the expiry cards: the dashboard
+    had it and the summary card did not, so the two disagreed about an
+    emptied batch (D-STK-8, D-STK-18).
+    """
+    return (
+        select(InventoryRecord.id)
+        .where(
+            InventoryRecord.batch_id == BatchRecord.id,
+            InventoryRecord.is_deleted.is_(False),
+            (
+                InventoryRecord.current_quantity
+                + InventoryRecord.quarantine_quantity
+                + InventoryRecord.damaged_quantity
+                + InventoryRecord.blocked_quantity
+            )
+            > 0,
+        )
+        .exists()
+    )
+
+
+def required_number(value: object, *, label: str) -> str:
+    """Return a batch, lot or serial number trimmed, refusing a blank one.
+
+    The schema asks for one character and a space is one, so a batch numbered
+    "   " was saved and could never be found or typed again (F17).
+
+    Raises:
+        ValidationError: If nothing but spaces was given.
+
+    """
+    number = value.strip() if isinstance(value, str) else ""
+    if not number:
+        raise ValidationError(
+            f"{label} is required: it cannot be blank or only spaces."
+        )
+    return number
+
+
 def _changed(record: object, values: Mapping[str, object]) -> dict[str, object]:
     """Return the submitted values that differ from what the record holds."""
     return {
@@ -118,6 +169,18 @@ def _snapshot(entity_type: str, record: object) -> dict[str, object]:
         value = getattr(record, name, None)
         values[name] = None if value is None else str(value)
     return values
+
+
+def assert_warranty_order(start: date | None, end: date | None) -> None:
+    """Refuse a warranty that ends before it starts (inventory round 1, S6).
+
+    Nothing to judge where either date is blank.
+    """
+    if start is not None and end is not None and end < start:
+        raise ValidationError(
+            f"The warranty end {end.isoformat()} is before the warranty start "
+            f"{start.isoformat()}. Check the two dates."
+        )
 
 
 def assert_trade_rates_within_mrp(
@@ -355,6 +418,118 @@ class BatchSerialService:
         )
         return found is not None
 
+    def _named_by(self, target: str, record_id: UUID) -> list[str]:
+        """Return the tables holding a live row that names this record.
+
+        Asked of the schema rather than of a list: every table with a foreign
+        key onto ``target`` is read, so a module that starts naming batches
+        next year is covered the day it does. ``RESTRICT`` on those keys
+        guards nothing here, because a soft delete never reaches the
+        database's own check. Rows that are themselves soft-deleted do not
+        count -- a pick taken back off a draft holds nothing.
+        """
+        found: list[str] = []
+        for table in Base.metadata.tables.values():
+            for column in table.columns:
+                if not any(
+                    key.column.table.name == target and key.column.name == "id"
+                    for key in column.foreign_keys
+                ):
+                    continue
+                if self._has_live_row(table, column.name, record_id):
+                    found.append(table.name)
+                    break
+        return sorted(found)
+
+    def _has_live_row(self, table: Table, column: str, record_id: UUID) -> bool:
+        """Return whether a live row of ``table`` holds this id in ``column``."""
+        statement = select(table.c[column]).where(table.c[column] == record_id)
+        if "is_deleted" in table.c:
+            statement = statement.where(table.c["is_deleted"].is_(False))
+        return self._session.execute(statement.limit(1)).first() is not None
+
+    def _assert_unused(
+        self, target: str, record_id: UUID, *, label: str, instead: str
+    ) -> None:
+        """Refuse to delete a record that stock or a document still names.
+
+        Args:
+            target: The table of the record, as the foreign keys name it.
+            record_id: The record somebody asked to delete.
+            label: The record as a person names it, "Batch B-1".
+            instead: What to do in place of deleting it.
+
+        Raises:
+            ValidationError: Naming the record and what holds it.
+
+        """
+        holders = self._named_by(target, record_id)
+        if not holders:
+            return
+        if _STOCK_TABLES.intersection(holders):
+            raise ValidationError(
+                f"{label} has stock movements recorded against it, so it "
+                f"cannot be deleted. {instead}"
+            )
+        named = ", ".join(holder.replace("_", " ") for holder in holders)
+        raise ValidationError(
+            f"{label} is named on other records ({named}), so it cannot be "
+            f"deleted. {instead}"
+        )
+
+    def _assert_batch_empty(self, record: BatchRecord) -> None:
+        """Refuse to delete a batch that still holds stock in any bucket.
+
+        Raises:
+            ValidationError: If any stock row of the batch is not at zero.
+
+        """
+        held = self._session.scalar(
+            select(InventoryRecord.id)
+            .where(
+                InventoryRecord.batch_id == record.id,
+                InventoryRecord.is_deleted.is_(False),
+                or_(
+                    InventoryRecord.current_quantity != 0,
+                    InventoryRecord.reserved_quantity != 0,
+                    InventoryRecord.quarantine_quantity != 0,
+                    InventoryRecord.in_transit_quantity != 0,
+                    InventoryRecord.damaged_quantity != 0,
+                    InventoryRecord.blocked_quantity != 0,
+                ),
+            )
+            .limit(1)
+        )
+        if held is not None:
+            raise ValidationError(
+                f"Batch {record.batch_number} still holds stock, so it cannot "
+                "be deleted. Sell, return or write off what is left; the batch "
+                "stays in the register as the record of that stock."
+            )
+
+    def _assert_serial_not_in_stock(self, record: SerialNumber) -> None:
+        """Refuse to delete a unit that a stock row still counts.
+
+        A unit made by hand and never placed in stock has no stock row and is
+        not judged here.
+
+        Raises:
+            ValidationError: If the unit is on hand in the row it points at.
+
+        """
+        if record.inventory_id is None or record.status not in {
+            "AVAILABLE",
+            "RESERVED",
+        }:
+            return
+        stock = self._session.get(InventoryRecord, record.inventory_id)
+        if stock is None or stock.is_deleted or stock.current_quantity <= 0:
+            return
+        raise ValidationError(
+            f"Serial number {record.serial_number} is counted in stock, so it "
+            "cannot be deleted. Sell, return or write off the unit instead."
+        )
+
     def _batch_has_moved(self, firm_scope: UUID, batch_id: UUID) -> bool:
         """Return whether stock, a movement or a serial stands on the batch."""
         if self._is_named(
@@ -468,6 +643,7 @@ class BatchSerialService:
         self, *, firm_scope: UUID, actor_id: UUID, data: BatchCreate
     ) -> BatchRecord:
         """Record a batch of a product that is tracked by batch."""
+        batch_number = required_number(data.batch_number, label="Batch number")
         product = tracked_product(self._session, firm_scope, data.product_id)
         assert_product_keeps(product, "batch")
         self._assert_batch_fields(firm_scope, product, data.model_dump())
@@ -484,7 +660,7 @@ class BatchSerialService:
             branch_id=data.branch_id,
             vendor_id=data.vendor_id,
             storage_node_id=data.storage_node_id,
-            batch_number=data.batch_number,
+            batch_number=batch_number,
             supplier_batch=data.supplier_batch,
             internal_batch=data.internal_batch,
             manufacturing_date=data.manufacturing_date,
@@ -591,6 +767,15 @@ class BatchSerialService:
         # arrived have to be receivable. Whether the batch may be dated is
         # the product's own switch.
         self._assert_batch_fields(firm_scope, product, {"expiry_date": expiry_date})
+        # Every path that makes a batch from a delivery -- a receipt, opening
+        # stock -- is held to the order the batch master asks for (F10).
+        assert_date_order(
+            manufacturing_date=(
+                manufacturing_date if product.track_manufacturing_date else None
+            ),
+            expiry_date=expiry_date,
+            best_before_date=None,
+        )
         record = BatchRecord(
             firm_id=firm_scope,
             product_id=product_id,
@@ -738,6 +923,10 @@ class BatchSerialService:
             "batch_number": record.batch_number,
         }
         update_data = data.model_dump(exclude_unset=True)
+        if "batch_number" in update_data:
+            update_data["batch_number"] = required_number(
+                update_data["batch_number"], label="Batch number"
+            )
         # Only what this save changes is judged, so a batch dated before its
         # product stopped tracking expiry can still be held or recalled. A
         # batch moved to another product is judged whole, as a new one is.
@@ -791,8 +980,28 @@ class BatchSerialService:
         return record
 
     def delete_batch(self, *, firm_scope: UUID, actor_id: UUID, batch_id: UUID) -> None:
-        """Soft delete a batch."""
+        """Soft delete a batch nothing has ever used.
+
+        A batch that holds stock, has ever moved, or is named by a serial
+        number or a document is history: deleting it left the stock row
+        behind under a batch no screen listed, and the next order was refused
+        "not one of this product's batches" (F2). One typed by mistake and
+        never used can still go.
+
+        Raises:
+            ValidationError: If the batch holds stock or anything names it.
+
+        """
         record = self.get_batch(firm_scope=firm_scope, batch_id=batch_id)
+        self._assert_batch_empty(record)
+        self._assert_unused(
+            "batches",
+            record.id,
+            label=f"Batch {record.batch_number}",
+            instead=(
+                "Change its status instead (for example to Blocked or Destroyed)."
+            ),
+        )
         record.is_deleted = True
         record.deleted_at = utc_now()
         record.deleted_by = actor_id
@@ -809,7 +1018,13 @@ class BatchSerialService:
         self._session.commit()
 
     def batch_summary(self, *, firm_scope: UUID) -> BatchSummary:
-        """Return batch counts, including those past their expiry date."""
+        """Return batch counts, including those past their expiry date.
+
+        Near expiry and expired count only batches that still hold stock,
+        the test the expiry dashboard applies (``batch_holds_stock``): an
+        emptied batch read 1 on this card and 0 on that one (D-STK-18). The
+        total and the quarantine count are of the register itself.
+        """
         today = firm_today(self._session, firm_scope)
         near_expiry_cutoff = today + timedelta(days=30)
         total = int(
@@ -830,6 +1045,7 @@ class BatchSerialService:
                 .where(
                     BatchRecord.firm_id == firm_scope,
                     BatchRecord.is_deleted.is_(False),
+                    batch_holds_stock(),
                     BatchRecord.expiry_date.isnot(None),
                     BatchRecord.expiry_date > today,
                     BatchRecord.expiry_date <= near_expiry_cutoff,
@@ -844,6 +1060,7 @@ class BatchSerialService:
                 .where(
                     BatchRecord.firm_id == firm_scope,
                     BatchRecord.is_deleted.is_(False),
+                    batch_holds_stock(),
                     BatchRecord.expired_condition(today),
                 )
             )
@@ -881,21 +1098,7 @@ class BatchSerialService:
         today = firm_today(self._session, firm_scope)
         in_7 = today + timedelta(days=7)
         in_30 = today + timedelta(days=30)
-        holds_stock = (
-            select(InventoryRecord.id)
-            .where(
-                InventoryRecord.batch_id == BatchRecord.id,
-                InventoryRecord.is_deleted.is_(False),
-                (
-                    InventoryRecord.current_quantity
-                    + InventoryRecord.quarantine_quantity
-                    + InventoryRecord.damaged_quantity
-                    + InventoryRecord.blocked_quantity
-                )
-                > 0,
-            )
-            .exists()
-        )
+        holds_stock = batch_holds_stock()
 
         def _count(where_clauses: list[ColumnElement[bool]]) -> int:
             """Count stock-holding batches matching the extra conditions."""
@@ -1215,6 +1418,7 @@ class BatchSerialService:
         self, *, firm_scope: UUID, actor_id: UUID, data: LotCreate
     ) -> LotRecord:
         """Record a production lot of a product tracked by lot or by batch."""
+        lot_number = required_number(data.lot_number, label="Lot number")
         product = tracked_product(self._session, firm_scope, data.product_id)
         assert_product_keeps(product, "lot")
         assert_product_fields(product, {"expiry_date": data.expiry_date})
@@ -1224,7 +1428,7 @@ class BatchSerialService:
             warehouse_id=data.warehouse_id,
             branch_id=data.branch_id,
             parent_lot_id=data.parent_lot_id,
-            lot_number=data.lot_number,
+            lot_number=lot_number,
             lot_type=data.lot_type,
             status=data.status,
             quantity=data.quantity,
@@ -1268,6 +1472,10 @@ class BatchSerialService:
         record = self.get_lot(firm_scope=firm_scope, lot_id=lot_id)
         assert_version(record.version, expected_version)
         update_data = data.model_dump(exclude_unset=True)
+        if "lot_number" in update_data:
+            update_data["lot_number"] = required_number(
+                update_data["lot_number"], label="Lot number"
+            )
         product, judged = self._product_after(
             firm_scope,
             record,
@@ -1302,8 +1510,19 @@ class BatchSerialService:
         return record
 
     def delete_lot(self, *, firm_scope: UUID, actor_id: UUID, lot_id: UUID) -> None:
-        """Soft delete a lot."""
+        """Soft delete a lot nothing has ever used.
+
+        Raises:
+            ValidationError: If a movement or another lot names it.
+
+        """
         record = self.get_lot(firm_scope=firm_scope, lot_id=lot_id)
+        self._assert_unused(
+            "lots",
+            record.id,
+            label=f"Lot {record.lot_number}",
+            instead="Change its status to Closed or Cancelled instead.",
+        )
         record.is_deleted = True
         record.deleted_at = utc_now()
         record.deleted_by = actor_id
@@ -1394,6 +1613,8 @@ class BatchSerialService:
         self, *, firm_scope: UUID, actor_id: UUID, data: SerialCreate
     ) -> SerialNumber:
         """Record a serial number of a product tracked by serial."""
+        serial_number = required_number(data.serial_number, label="Serial number")
+        assert_warranty_order(data.warranty_start, data.warranty_end)
         product = tracked_product(self._session, firm_scope, data.product_id)
         assert_product_keeps(product, "serial number")
         assert_product_fields(
@@ -1411,7 +1632,7 @@ class BatchSerialService:
             warehouse_id=data.warehouse_id,
             branch_id=data.branch_id,
             batch_id=data.batch_id,
-            serial_number=data.serial_number.strip(),
+            serial_number=serial_number,
             status=data.status,
             manufactured_date=data.manufactured_date,
             warranty_start=data.warranty_start,
@@ -1455,6 +1676,10 @@ class BatchSerialService:
         record = self.get_serial(firm_scope=firm_scope, serial_id=serial_id)
         assert_version(record.version, expected_version)
         update_data = data.model_dump(exclude_unset=True)
+        if "serial_number" in update_data:
+            update_data["serial_number"] = required_number(
+                update_data["serial_number"], label="Serial number"
+            )
         product, judged = self._product_after(
             firm_scope,
             record,
@@ -1470,6 +1695,11 @@ class BatchSerialService:
         batch_id = update_data.get("batch_id", record.batch_id)
         if product.id != record.product_id or batch_id != record.batch_id:
             self._assert_serial_batch(firm_scope, product, batch_id)
+        # Judged on what the serial will hold: an edit may send one date only.
+        assert_warranty_order(
+            update_data.get("warranty_start", record.warranty_start),
+            update_data.get("warranty_end", record.warranty_end),
+        )
         for field, value in update_data.items():
             setattr(record, field, value)
         record.updated_by = actor_id
@@ -1495,8 +1725,26 @@ class BatchSerialService:
     def delete_serial(
         self, *, firm_scope: UUID, actor_id: UUID, serial_id: UUID
     ) -> None:
-        """Soft delete a serial number."""
+        """Soft delete a serial number no document has ever carried.
+
+        A unit a receipt brought in is counted in the stock quantity, so
+        deleting it left the quantity and the serial count apart and a serial
+        dispatch could not be completed (F2). One typed by mistake on the
+        register, which no document names, can still go.
+
+        Raises:
+            ValidationError: If the unit is in stock or a document names it.
+
+        """
         record = self.get_serial(firm_scope=firm_scope, serial_id=serial_id)
+        self._assert_serial_not_in_stock(record)
+        if self._named_by("serial_numbers", record.id):
+            raise ValidationError(
+                f"Serial number {record.serial_number} has been received or "
+                "moved on a document, so it cannot be deleted. Its trail is "
+                "the record of that unit; change its status instead (for "
+                "example to Scrapped or Lost)."
+            )
         record.is_deleted = True
         record.deleted_at = utc_now()
         record.deleted_by = actor_id

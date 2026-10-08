@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import firm_today
+from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord, InventoryTransaction, StockLedgerEntry
@@ -132,7 +133,14 @@ class CountPlanService:
     def create(
         self, data: CountPlanWrite, *, firm_id: UUID, actor_id: UUID
     ) -> CountPlanResponse:
-        """Add one plan."""
+        """Add one plan.
+
+        Raises:
+            ValidationError: If the branch, warehouse or bin is not the
+                firm's own.
+
+        """
+        self._assert_place(data, firm_id)
         row = CountPlan(
             firm_id=firm_id,
             created_by=actor_id,
@@ -146,10 +154,27 @@ class CountPlanService:
         return self._response(row, None, firm_today(self._session, firm_id))
 
     def update(
-        self, plan_id: UUID, data: CountPlanWrite, *, firm_id: UUID, actor_id: UUID
+        self,
+        plan_id: UUID,
+        data: CountPlanWrite,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> CountPlanResponse:
-        """Change one plan."""
+        """Change one plan.
+
+        ``expected_version`` is the version the caller read; a save aimed at
+        an older one is refused rather than laid over the newer (F15).
+
+        Raises:
+            ValidationError: If the branch, warehouse or bin is not the
+                firm's own.
+
+        """
         row = self._get(plan_id, firm_id)
+        assert_version(row.version, expected_version)
+        self._assert_place(data, firm_id)
         for field, value in data.model_dump().items():
             setattr(row, field, value)
         row.updated_by = actor_id
@@ -225,10 +250,35 @@ class CountPlanService:
             ),
             firm_id=firm_id,
             actor_id=actor_id,
+            lines_from_stock=True,
         )
         sheet.count_plan_id = plan.id
         self._session.commit()
         return sheet
+
+    def _assert_place(self, data: CountPlanWrite, firm_id: UUID) -> None:
+        """Refuse a plan over a place that is not the firm's (F8).
+
+        A plan was saved with another firm's warehouse id, and with a
+        warehouse under a different branch than the one named; nothing said
+        so until its sheet was drawn. Judged by the checks a count sheet
+        makes, so a plan is never accepted that could not be counted.
+
+        Raises:
+            ValidationError: If the branch is not the firm's, the warehouse
+                is not under it, or the bin is not in the warehouse.
+
+        """
+        from app.inventory.services.physical_count_service import (
+            PhysicalCountService,
+        )
+
+        PhysicalCountService(self._session).require_place(
+            firm_id=firm_id,
+            branch_id=data.branch_id,
+            warehouse_id=data.warehouse_id,
+            storage_node_ids={data.storage_node_id},
+        )
 
     def _last_counted(self, plan_ids: list[UUID]) -> dict[UUID, date]:
         """Return each plan's latest posted sheet date."""

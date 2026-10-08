@@ -173,3 +173,45 @@ def stage_records[RecordT, RowT](
 
 
 __all__ = ["parse_payload", "stage_records"]
+
+
+def parse_filters[ModelT: BaseModel](
+    model: type[ModelT], values: Mapping[str, Any]
+) -> ModelT:
+    """Read a list's filters out of its query values, as a 422 on refusal.
+
+    A handler that gathers its query parameters into a filter model validates
+    them itself, so a status that is not one of the statuses, or a date that
+    is not a date, raised pydantic's own error and the list answered **500**
+    (inventory round 1, F14). The refusal names the filter and says what it
+    takes.
+
+    Args:
+        model: The filter model.
+        values: The query values by filter name.
+
+    Raises:
+        ValidationError: If a value cannot be read.
+
+    """
+    try:
+        return model.model_validate(dict(values))
+    except SchemaRefusal as refusal:
+        errors = refusal.errors(include_url=False, include_context=False)
+        messages = [
+            ".".join(str(segment) for segment in error["loc"])
+            + ": "
+            + plain_validator_message(error["msg"])
+            for error in errors
+        ]
+        raise ValidationError(
+            "A filter could not be read. " + messages[0],
+            details=[
+                {
+                    "field": ".".join(str(segment) for segment in error["loc"]),
+                    "message": message,
+                    "code": error["type"],
+                }
+                for error, message in zip(errors, messages, strict=True)
+            ],
+        ) from refusal

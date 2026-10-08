@@ -140,6 +140,9 @@ Future<void> _openDialog(WidgetTester tester, _OpeningStockApi api) async {
   await tester.tap(find.text('QA-P1 - QA Product One').last);
   await tester.pumpAndSettle();
   await tester.enterText(find.widgetWithText(TextField, 'Quantity'), '10');
+  // The reference is no longer prefilled (S12): the server requires one.
+  await tester.enterText(
+      find.widgetWithText(TextField, 'Reference'), 'OPEN-001');
 }
 
 Future<void> _save(WidgetTester tester) async {

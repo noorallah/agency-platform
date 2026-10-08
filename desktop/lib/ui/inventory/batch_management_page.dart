@@ -537,7 +537,9 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
     );
   }
 
-  Widget _buildBatchGrid() {
+  /// [withSummary] false on the Expiry Monitor: it shows its own six counters,
+  /// and this list's four published after them replaced them on the page line.
+  Widget _buildBatchGrid({bool withSummary = true}) {
     final Widget body = _batches.isEmpty
         ? StandardEmptyState(
             type: _search.text.trim().isEmpty
@@ -548,7 +550,7 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildBatchSummary(),
+        if (withSummary) _buildBatchSummary(),
         Expanded(child: body),
       ],
     );
@@ -863,7 +865,7 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
             Expanded(
               child: _batches.isEmpty
                   ? const StandardEmptyState(type: EmptyStateType.noRecords)
-                  : _buildBatchGrid(),
+                  : _buildBatchGrid(withSummary: false),
             ),
           ],
         ),
@@ -922,7 +924,8 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
               // unbounded` every time the Expiry Monitor was opened with a
               // batch on it. Same shape, and the same fix, as the embedded
               // grid on the purchase dashboard.
-              SizedBox(height: 420, child: _buildBatchGrid()),
+              SizedBox(
+                  height: 420, child: _buildBatchGrid(withSummary: false)),
           ],
         ),
       ),
@@ -1910,6 +1913,15 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
                     controller: _warrantyEnd,
                     decoration: const InputDecoration(
                         labelText: 'Warranty End (YYYY-MM-DD)'),
+                    validator: (v) {
+                      final DateTime? end = DateTime.tryParse((v ?? '').trim());
+                      final DateTime? start =
+                          DateTime.tryParse(_warrantyStart.text.trim());
+                      if (end != null && start != null && end.isBefore(start)) {
+                        return 'Warranty end cannot be before warranty start.';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 12),
                   TextFormField(

@@ -40,7 +40,7 @@ from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
-from app.core.validation.payloads import parse_payload
+from app.core.validation.payloads import parse_filters, parse_payload
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
     BulkApproveRequest,
@@ -204,7 +204,8 @@ def list_inventory(
 ) -> PaginatedResponse[InventoryResponse]:
     """List stock projections for the firm in scope."""
     params = PaginationParams(page=page, page_size=page_size)
-    filters = InventoryListFilters.model_validate(
+    filters = parse_filters(
+        InventoryListFilters,
         {
             "status": status_value,
             "branch_id": branch_id,
@@ -216,7 +217,7 @@ def list_inventory(
             "out_of_stock_only": out_of_stock_only,
             "negative_only": negative_only,
             "include_deleted": include_deleted,
-        }
+        },
     )
     service = InventoryService(db)
     rows, total = service.list_inventory(
@@ -658,7 +659,8 @@ def list_transactions(
 ) -> PaginatedResponse[InventoryTransactionResponse]:
     """List inventory movements."""
     params = PaginationParams(page=page, page_size=page_size)
-    filters = InventoryTransactionListFilters.model_validate(
+    filters = parse_filters(
+        InventoryTransactionListFilters,
         {
             "transaction_type": transaction_type,
             "branch_id": branch_id,
@@ -669,7 +671,7 @@ def list_transactions(
             "reference_type": reference_type,
             "transaction_from": transaction_from,
             "transaction_to": transaction_to,
-        }
+        },
     )
     service = InventoryService(db)
     rows, total = service.list_transactions(
@@ -714,7 +716,8 @@ def list_ledger(
 ) -> PaginatedResponse[StockLedgerResponse]:
     """List immutable stock ledger rows."""
     params = PaginationParams(page=page, page_size=page_size)
-    filters = StockLedgerListFilters.model_validate(
+    filters = parse_filters(
+        StockLedgerListFilters,
         {
             "transaction_type": transaction_type,
             "branch_id": branch_id,
@@ -725,7 +728,7 @@ def list_ledger(
             "reference_type": reference_type,
             "transaction_from": transaction_from,
             "transaction_to": transaction_to,
-        }
+        },
     )
     service = InventoryService(db)
     rows, total = service.list_ledger(
@@ -783,7 +786,8 @@ def list_opening_stock(
 ) -> PaginatedResponse[OpeningStockBatchResponse]:
     """List opening-stock batches."""
     params = PaginationParams(page=page, page_size=page_size)
-    filters = OpeningStockBatchListFilters.model_validate(
+    filters = parse_filters(
+        OpeningStockBatchListFilters,
         {
             "status": status_value,
             "branch_id": branch_id,
@@ -791,7 +795,7 @@ def list_opening_stock(
             "posting_from": posting_from,
             "posting_to": posting_to,
             "include_deleted": include_deleted,
-        }
+        },
     )
     service = InventoryService(db)
     rows, total = service.list_opening_stock_batches(
@@ -1265,12 +1269,17 @@ def update_adjustment_reason(
     reason_id: UUID,
     data: AdjustmentReasonWrite,
     scope: InventoryReasonsScope,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[AdjustmentReasonResponse]:
     """Rename, retarget or deactivate a reason (STK-7)."""
     return ApiResponse(
         data=AdjustmentReasonService(db).update(
-            reason_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+            reason_id,
+            data,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            expected_version=expected_version,
         )
     )
 
@@ -1599,12 +1608,17 @@ def update_count_plan(
     plan_id: UUID,
     data: CountPlanWrite,
     scope: InventoryAdjustScope,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CountPlanResponse]:
     """Change a count plan (STK-6)."""
     return ApiResponse(
         data=CountPlanService(db).update(
-            plan_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+            plan_id,
+            data,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            expected_version=expected_version,
         )
     )
 

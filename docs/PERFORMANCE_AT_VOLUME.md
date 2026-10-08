@@ -343,3 +343,28 @@ the same rounding in PostgreSQL and in SQLite (which the unit suite runs and
 which rounds floats), and a paisa wrong in a filed return costs more than a
 second saved. What is left is that arithmetic over 22,000 lines and 45,000
 tax rows a month: about 2 s of Python. A quarter stays over 3 s.
+
+## The stock statement and the valuation (inventory round 1, 2026-10-08)
+
+D-PERF-4. On PERF01 the bank stock statement took 10 s for a month and 27 s
+for a year, and the stock valuation 4 to 5 s. Three things, each the kind this
+file already warns about:
+
+- **The rate of each product was found by ranking every costed movement of
+  the firm** -- a sort of the whole stock ledger, twice per statement. It is
+  asked in two steps now: the last costed day of each product in one grouped
+  pass, then only that day's rows ranked.
+- **The period's movements were read one row each and added up in Python**,
+  beside a cost subquery that grouped the whole ledger of every firm in the
+  store. The database adds them up, and the subquery reads the period's
+  movements only.
+- **Five thousand whole product rows were loaded for six columns.**
+
+The figures did not move: 5,001 statement rows and 5,003 valuation rows were
+compared before and after on PERF01 and none differed. Measured in process on
+a busy machine (two test agents running): statement 10.3 s -> 3.9 s for a
+month and 28.0 s -> 4.3 s for a year; valuation 4.4 s -> 1.7 s. A year's
+statement is still over the three-second target; what is left is the two
+valuations it is built from, and has not been re-timed over HTTP on an idle
+machine.
+

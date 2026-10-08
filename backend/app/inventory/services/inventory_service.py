@@ -25,6 +25,7 @@ from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import chunks
+from app.core.utils.csv_text import csv_text, sheet_text
 from app.core.utils.money import quantize_money
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import DocumentPostingService
@@ -76,6 +77,8 @@ from app.uom.services.uom_service import (
 )
 
 ZERO = Decimal("0")
+#: How many rows an export reads at a time; it reads until there are no more.
+EXPORT_PAGE_SIZE = 5000
 
 #: Stock issued rather than lost, and the expense each is booked to (STK-3).
 #: Damage, expiry and loss stay on the inventory adjustment account.
@@ -238,6 +241,16 @@ class _Labels:
             return None
         value = self.profiles.get(profile_id)
         return str(value) if value is not None else None
+
+
+def _four_places(value: Decimal) -> Decimal:
+    """Return a quantity to the four places stock is kept to."""
+    return Decimal(str(value)).quantize(Decimal("0.0001"))
+
+
+def _plain(value: Decimal) -> str:
+    """Return a quantity as a person writes it: 5, not 5.0000."""
+    return format(Decimal(str(value)).normalize(), "f")
 
 
 def _pairs(
@@ -431,18 +444,27 @@ class InventoryService:
         ).first()
         if row is None or int(row[0] or 0) == 0:
             return []
+        # The firm's and each branch's row carry what is coming and going
+        # like the warehouse's and the product's: they read 0, and a
+        # projected figure of 0 beside real stock (inventory round 1, F6).
+        coming = pipeline.incoming(self._session, firm_id=firm_scope)
+        going = pipeline.outgoing(self._session, firm_id=firm_scope)
         return [
-            InventoryLocationSummary(
-                scope_id=firm_scope,
-                scope_code="FIRM",
-                scope_name="Selected Firm",
-                current_quantity=Decimal(row[1] or 0),
-                reserved_quantity=Decimal(row[2] or 0),
-                available_quantity=Decimal(row[3] or 0),
-                blocked_quantity=Decimal(row[4] or 0),
-                damaged_quantity=Decimal(row[5] or 0),
-                quarantine_quantity=Decimal(row[6] or 0),
-                in_transit_quantity=Decimal(row[7] or 0),
+            self._with_pipeline(
+                InventoryLocationSummary(
+                    scope_id=firm_scope,
+                    scope_code="FIRM",
+                    scope_name="Selected Firm",
+                    current_quantity=Decimal(row[1] or 0),
+                    reserved_quantity=Decimal(row[2] or 0),
+                    available_quantity=Decimal(row[3] or 0),
+                    blocked_quantity=Decimal(row[4] or 0),
+                    damaged_quantity=Decimal(row[5] or 0),
+                    quarantine_quantity=Decimal(row[6] or 0),
+                    in_transit_quantity=Decimal(row[7] or 0),
+                ),
+                {firm_scope: sum(coming.values(), ZERO)},
+                {firm_scope: sum(going.values(), ZERO)},
             )
         ]
 
@@ -470,21 +492,51 @@ class InventoryService:
             .group_by(Branch.id, Branch.code, Branch.name)
             .order_by(Branch.code.asc())
         ).all()
+        branch_of: dict[UUID, UUID] = {
+            warehouse_id: branch_id
+            for warehouse_id, branch_id in self._session.execute(
+                select(Warehouse.id, Warehouse.branch_id).where(
+                    Warehouse.firm_id == firm_scope
+                )
+            ).all()
+        }
+        coming = self._by_branch(
+            pipeline.incoming(self._session, firm_id=firm_scope), branch_of
+        )
+        going = self._by_branch(
+            pipeline.outgoing(self._session, firm_id=firm_scope), branch_of
+        )
         return [
-            InventoryLocationSummary(
-                scope_id=row[0],
-                scope_code=row[1],
-                scope_name=row[2],
-                current_quantity=Decimal(row[3] or 0),
-                reserved_quantity=Decimal(row[4] or 0),
-                available_quantity=Decimal(row[5] or 0),
-                blocked_quantity=Decimal(row[6] or 0),
-                damaged_quantity=Decimal(row[7] or 0),
-                quarantine_quantity=Decimal(row[8] or 0),
-                in_transit_quantity=Decimal(row[9] or 0),
+            self._with_pipeline(
+                InventoryLocationSummary(
+                    scope_id=row[0],
+                    scope_code=row[1],
+                    scope_name=row[2],
+                    current_quantity=Decimal(row[3] or 0),
+                    reserved_quantity=Decimal(row[4] or 0),
+                    available_quantity=Decimal(row[5] or 0),
+                    blocked_quantity=Decimal(row[6] or 0),
+                    damaged_quantity=Decimal(row[7] or 0),
+                    quarantine_quantity=Decimal(row[8] or 0),
+                    in_transit_quantity=Decimal(row[9] or 0),
+                ),
+                coming,
+                going,
             )
             for row in rows
         ]
+
+    @staticmethod
+    def _by_branch(
+        keyed: pipeline.Keyed, branch_of: Mapping[UUID, UUID]
+    ) -> dict[UUID, Decimal]:
+        """Add a per-warehouse figure up to one per branch."""
+        totals: dict[UUID, Decimal] = {}
+        for warehouse_id, quantity in pipeline.by_warehouse(keyed).items():
+            branch_id = branch_of.get(warehouse_id)
+            if branch_id is not None:
+                totals[branch_id] = totals.get(branch_id, ZERO) + quantity
+        return totals
 
     def stock_by_batch(
         self, *, firm_scope: UUID, batch_ids: Sequence[UUID]
@@ -636,8 +688,10 @@ class InventoryService:
         going: dict[UUID, Decimal],
     ) -> InventoryLocationSummary:
         """Add what is coming in and going out for the summary's scope."""
-        incoming = coming.get(summary.scope_id, ZERO)
-        outgoing = going.get(summary.scope_id, ZERO)
+        # To the four places every other quantity carries: a sum of
+        # converted order lines came back as 10.00000000000000.
+        incoming = _four_places(coming.get(summary.scope_id, ZERO))
+        outgoing = _four_places(going.get(summary.scope_id, ZERO))
         summary.incoming_quantity = incoming
         summary.outgoing_quantity = outgoing
         summary.projected_quantity = summary.available_quantity + incoming - outgoing
@@ -790,26 +844,21 @@ class InventoryService:
             inventory_id, firm_scope=firm_scope, include_deleted=True
         )
         assert_version(row.version, expected_version)
-        self._validate_references(
-            firm_id=firm_scope,
-            branch_id=data.branch_id,
-            warehouse_id=data.warehouse_id,
-            storage_node_id=data.storage_node_id,
-            product_id=data.product_id,
-        )
-        locator = self._storage_locator(data.storage_node_id)
-        existing = self._find_inventory_row(
-            firm_id=firm_scope,
-            branch_id=data.branch_id,
-            warehouse_id=data.warehouse_id,
-            storage_locator=locator,
-            product_id=data.product_id,
-            # Editing a stock row cannot move it between batches, so the clash
-            # to look for is on the row's own batch.
-            batch_id=row.batch_id,
-        )
-        if existing is not None and existing.id != row.id:
-            raise ConflictError("The target inventory location already exists.")
+        # The row is where the goods are and what they are. Rewriting either
+        # here moved ten of one product into another, or into another
+        # warehouse, with no movement, no ledger row and no cost (inventory
+        # round 1, F1): goods move by a transfer, and this edits the levels.
+        if (
+            data.branch_id != row.branch_id
+            or data.warehouse_id != row.warehouse_id
+            or data.storage_node_id != row.storage_node_id
+            or data.product_id != row.product_id
+        ):
+            raise ValidationError(
+                "A stock row's product, branch, warehouse and storage location "
+                "cannot be changed here. Move the goods with a transfer; this "
+                "changes the stock levels and the status."
+            )
         before: dict[str, object] = {
             "minimum_level": str(row.minimum_level or ""),
             "maximum_level": str(row.maximum_level or ""),
@@ -817,11 +866,6 @@ class InventoryService:
             "safety_stock": str(row.safety_stock or ""),
             "status": row.status,
         }
-        row.branch_id = data.branch_id
-        row.warehouse_id = data.warehouse_id
-        row.storage_node_id = data.storage_node_id
-        row.storage_locator = locator
-        row.product_id = data.product_id
         row.minimum_level = data.minimum_level
         row.maximum_level = data.maximum_level
         row.reorder_level = data.reorder_level
@@ -1165,6 +1209,10 @@ class InventoryService:
         batch.updated_by = actor_id
         for existing in list(batch.lines):
             self._session.delete(existing)
+        # Written before the new lines are staged: the unit of work inserts
+        # before it deletes, so a line kept at its number met its old self
+        # and no draft could be edited at all (inventory round 1, F7).
+        self._session.flush()
         batch.lines = self._build_opening_stock_lines(
             firm_id=firm_scope,
             warehouse_id=data.warehouse_id,
@@ -2187,6 +2235,15 @@ class InventoryService:
             actor_id=actor_id,
             batch_id=data.batch_id,
         )
+        if delta < ZERO:
+            # Against what is there, not what is free: a count that finds
+            # fewer than are promised to orders still has to be posted.
+            self._refuse_below_zero(
+                inventory,
+                -delta,
+                "taken off by an adjustment",
+                held=inventory.current_quantity,
+            )
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
@@ -2225,6 +2282,39 @@ class InventoryService:
         movement_value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
         return transaction, movement_value if delta >= ZERO else -movement_value
 
+    def _refuse_below_zero(
+        self,
+        inventory: InventoryRecord,
+        quantity: Decimal,
+        done: str,
+        *,
+        held: Decimal | None = None,
+    ) -> None:
+        """Refuse to take out more than a location has free to give.
+
+        A repack of 999 against 40 left the bulk at -959 and made a pack at
+        the cost of all 999, and an adjustment of -999 against 10 posted its
+        journal (inventory round 1, F3 and F4). Like a transfer and a return
+        to the supplier: goods that are not here cannot be taken, unless the
+        product is one the firm lets run below zero.
+        """
+        available = (
+            held
+            if held is not None
+            else inventory.current_quantity - inventory.reserved_quantity
+        )
+        if quantity <= available:
+            return
+        product = self._session.get(Product, inventory.product_id)
+        if product is not None and product.allow_negative_stock:
+            return
+        label = f"{product.code} - {product.name}" if product else "This product"
+        what = "holds" if held is not None else "has free"
+        raise ValidationError(
+            f"{label}: this location {what} {_plain(available)}, so "
+            f"{_plain(quantity)} cannot be {done}."
+        )
+
     def stage_repack_movement(
         self,
         *,
@@ -2255,6 +2345,8 @@ class InventoryService:
             actor_id=actor_id,
             batch_id=batch_id,
         )
+        if quantity < ZERO:
+            self._refuse_below_zero(inventory, -quantity, "repacked")
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
@@ -3811,17 +3903,56 @@ class InventoryService:
         )
         return ZERO if row is None else Decimal(str(row.available_quantity))
 
+    def _every_inventory_row(
+        self, *, firm_scope: UUID, search: str | None
+    ) -> list[InventoryRecord]:
+        """Return every stock row an export covers, however many there are.
+
+        An export read one page of 5,000 and stopped without saying so
+        (inventory round 1, F12); a file that is quietly short is worse than
+        none. Read page after page, in the list's own stable order.
+        """
+        rows: list[InventoryRecord] = []
+        page = 1
+        while True:
+            chunk, total = self.list_inventory(
+                firm_scope=firm_scope,
+                filters=InventoryListFilters(include_deleted=False),
+                page=page,
+                page_size=EXPORT_PAGE_SIZE,
+                search=search,
+                sort_by="product_code",
+                descending=False,
+            )
+            rows.extend(chunk)
+            if not chunk or len(rows) >= total:
+                return rows
+            page += 1
+
+    def _every_ledger_row(
+        self, *, firm_scope: UUID, search: str | None
+    ) -> list[StockLedgerEntry]:
+        """Return every ledger row an export covers, page after page."""
+        rows: list[StockLedgerEntry] = []
+        page = 1
+        while True:
+            chunk, total = self.list_ledger(
+                firm_scope=firm_scope,
+                filters=StockLedgerListFilters(),
+                page=page,
+                page_size=EXPORT_PAGE_SIZE,
+                search=search,
+                sort_by="transaction_date",
+                descending=False,
+            )
+            rows.extend(chunk)
+            if not chunk or len(rows) >= total:
+                return rows
+            page += 1
+
     def export_inventory_csv(self, *, firm_scope: UUID, search: str | None) -> str:
         """Render the filtered projections as CSV."""
-        rows, _ = self.list_inventory(
-            firm_scope=firm_scope,
-            filters=InventoryListFilters(include_deleted=False),
-            page=1,
-            page_size=5000,
-            search=search,
-            sort_by="product_code",
-            descending=False,
-        )
+        rows = self._every_inventory_row(firm_scope=firm_scope, search=search)
         output = [
             "ProductCode,ProductName,BranchCode,WarehouseCode,StorageNodeCode,Current,Available,Reserved,Blocked,Damaged,Quarantine,InTransit,ReorderLevel,Status"
         ]
@@ -3858,15 +3989,7 @@ class InventoryService:
             raise ValidationError(
                 "XLSX export dependency is unavailable. Install openpyxl."
             ) from error
-        rows, _ = self.list_inventory(
-            firm_scope=firm_scope,
-            filters=InventoryListFilters(include_deleted=False),
-            page=1,
-            page_size=5000,
-            search=search,
-            sort_by="product_code",
-            descending=False,
-        )
+        rows = self._every_inventory_row(firm_scope=firm_scope, search=search)
         labels = self.labels_for(rows)
         workbook = Workbook()
         sheet = workbook.active
@@ -3892,11 +4015,11 @@ class InventoryService:
         for item in rows:
             sheet.append(
                 [
-                    labels.product_code(item.product_id),
-                    labels.product_name(item.product_id),
-                    labels.branch_code(item.branch_id),
-                    labels.warehouse_code(item.warehouse_id),
-                    labels.storage_code(item.storage_node_id),
+                    sheet_text(labels.product_code(item.product_id)),
+                    sheet_text(labels.product_name(item.product_id)),
+                    sheet_text(labels.branch_code(item.branch_id)),
+                    sheet_text(labels.warehouse_code(item.warehouse_id)),
+                    sheet_text(labels.storage_code(item.storage_node_id)),
                     item.current_quantity,
                     item.available_quantity,
                     item.reserved_quantity,
@@ -3914,15 +4037,7 @@ class InventoryService:
 
     def export_ledger_csv(self, *, firm_scope: UUID, search: str | None) -> str:
         """Render the filtered ledger rows as CSV."""
-        rows, _ = self.list_ledger(
-            firm_scope=firm_scope,
-            filters=StockLedgerListFilters(),
-            page=1,
-            page_size=5000,
-            search=search,
-            sort_by="transaction_date",
-            descending=False,
-        )
+        rows = self._every_ledger_row(firm_scope=firm_scope, search=search)
         labels = self.labels_for(rows)
         output = [
             "TransactionDate,TransactionType,ReferenceNumber,ProductCode,WarehouseCode,Quantity,CurrentDelta,ReservedDelta,BlockedDelta,DamagedDelta,QuarantineDelta,InTransitDelta,NewCurrent,NewAvailable"
@@ -3933,9 +4048,9 @@ class InventoryService:
                     [
                         item.transaction_date.isoformat(),
                         item.transaction_type,
-                        item.reference_number,
-                        labels.product_code(item.product_id),
-                        labels.warehouse_code(item.warehouse_id),
+                        csv_text(item.reference_number),
+                        csv_text(labels.product_code(item.product_id)),
+                        csv_text(labels.warehouse_code(item.warehouse_id)),
                         str(item.quantity),
                         str(item.current_quantity_delta),
                         str(item.reserved_quantity_delta),
@@ -3958,15 +4073,7 @@ class InventoryService:
             raise ValidationError(
                 "XLSX export dependency is unavailable. Install openpyxl."
             ) from error
-        rows, _ = self.list_ledger(
-            firm_scope=firm_scope,
-            filters=StockLedgerListFilters(),
-            page=1,
-            page_size=5000,
-            search=search,
-            sort_by="transaction_date",
-            descending=False,
-        )
+        rows = self._every_ledger_row(firm_scope=firm_scope, search=search)
         labels = self.labels_for(rows)
         workbook = Workbook()
         sheet = workbook.active
@@ -3994,9 +4101,9 @@ class InventoryService:
                 [
                     item.transaction_date.isoformat(),
                     item.transaction_type,
-                    item.reference_number,
-                    labels.product_code(item.product_id),
-                    labels.warehouse_code(item.warehouse_id),
+                    sheet_text(item.reference_number),
+                    sheet_text(labels.product_code(item.product_id)),
+                    sheet_text(labels.warehouse_code(item.warehouse_id)),
                     item.quantity,
                     item.current_quantity_delta,
                     item.reserved_quantity_delta,
@@ -5246,8 +5353,7 @@ class InventoryService:
         return str(value) if value is not None else None
 
     def _csv(self, response: InventoryResponse, attribute: str) -> str:
-        value = getattr(response, attribute, None)
-        return str(value or "")
+        return csv_text(getattr(response, attribute, None))
 
     def _commit(self) -> None:
         try:

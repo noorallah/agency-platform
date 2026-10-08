@@ -55,8 +55,8 @@ toolbar buttons on the Inventory tab and act on the selected row.
 ### TC-STOCK-004 — A physical count posts only what was counted
 
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
-- **Steps:** as the prepared **Firm admin**, Stock > **Physical Count** → **Open Count**: branch HO, warehouse MAIN, today → Open. On the sheet find `QA-P - Fixture Product qa` (code and name, never an id); type **49** in Counted (Expected is 50); leave every other line blank. **Save progress**, close, reopen from the list → **Post count** → confirm.
-- **Expect:** "PC-… opened over N lines." (N is every product in MAIN — other runs' too). Difference reads `-1` while typing. The list reads "1 of N lines counted", then "N lines · posted". After posting: MAIN **49**; ledger `ADJUSTMENT` −1 referencing the count; Journal Entries shows the adjustment; the uncounted lines moved nothing. The posted sheet is read-only: "Posted. The differences are in the ledger."
+- **Steps:** as the prepared **Firm admin**, Stock > **Physical Count** → **+ New count**: branch HO, warehouse MAIN, today → Open. On the sheet find `QA-P - Fixture Product qa` (code and name, never an id); type **49** in Counted (Expected is 50); leave every other line blank. **Save progress**, close, reopen from the list → **Post count** → confirm.
+- **Expect:** "PC-… opened over N lines." (N is every product in MAIN — other runs' too). Difference reads `-1` while typing. The list reads "1 of N lines counted", then "N lines · posted". After posting: MAIN **49**; ledger `ADJUSTMENT` −1 referencing the count; Journal Entries shows the adjustment; the uncounted lines moved nothing. The posted sheet is read-only: "Posted. The differences are in the ledger." If stock moved between opening the sheet and posting it, the difference posted is against the stock at posting, not the Expected column (D-STK-45).
 ### TC-STOCK-005 — Dispatch draws the earliest-expiring batch first
 
 - **Preconditions:** A firm on the **Pharmacy** profile, with a batch-tracked product in two batches with different expiry dates, and two orders for it. (`QA-AMX` in three batches of 10: `-B1` **expired 30 days ago**, `-B2` expiring in 20 days, `-B3` in 400; an approved order for **5**.)
@@ -83,33 +83,33 @@ toolbar buttons on the Inventory tab and act on the selected row.
 
 - **Preconditions:** A firm on the **Electronics** profile, with a serial-tracked product that carries a warranty. (`QA-MIX`, 5 on hand, serials `QA-MIX-0001` to `-0005`.)
 - **Steps:** as the prepared **Firm admin**, Stock > All Stock screens > Tracking > **Serial Numbers**; search `QA-MIX-`; open one row's detail; filter Status AVAILABLE.
-- **Expect:** five rows, status AVAILABLE, Warranty End a year from today, warehouse MAIN. The detail is titled "Serial: QA-MIX-0001" with warranty start and end and the warehouse. The Status filter keeps all five.
+- **Expect:** five rows, status AVAILABLE, warehouse MAIN; Warranty Start and End are empty until somebody enters them on the serial (a goods receipt carries no warranty dates; the prepared seeded serials carry a year). The detail is titled "Serial: QA-MIX-0001" with warranty start and end and the warehouse. The Status filter keeps all five.
 ### TC-STOCK-009 — A stock transfer as a document: dispatch, in transit, receive
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Steps:** as the prepared **Firm admin**: Stock > **Stock Transfers** → New from MAIN to the second warehouse, 20 of the product → Save. Open Stock > Stock Summary and Accounts > Journal Entries. **Dispatch**. Look at the two warehouses' stock and the valuation. Print the **challan**. **Receive** with 18 arrived, of which 3 damaged (the other 2 never arrived). Create a second transfer and **Cancel** it after dispatch; create a third and cancel it as a draft. Try to cancel the received one. Try to dispatch more than is free.
 - **Expect:** the transfer is numbered **TO-…** with a timeline. Dispatch takes the quantity off MAIN at the moving average and puts it **in transit at the destination**, still owned at that figure: no journal is posted and the firm's valuation does not move; the destination's summary shows the goods on their way. The challan is a delivery challan without values. On receipt, each line says what arrived and what of it was damaged: 15 go on the shelf, **3 arrive blocked from sale** (as on a goods receipt), and the 2 that never arrived are written off to the inventory adjustment account at the average. Cancelling a dispatched transfer brings the goods back; a draft cancels freely; a received transfer is final. Dispatching more than is free is refused. The one-step Transfer on the Inventory tab still moves stock within a building. Batches travel as themselves; serial numbers are not carried yet.
 ### TC-STOCK-010 — Why stock is issued: internal use, staff, display, and the firm's own reasons
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Also needs:** a user holding INVENTORY_MANAGE_REASONS (the administrator).
 - **Steps:** as the prepared **Firm admin**: Stock > All Stock screens > Stock > Inventory → select the product → **Write off** 2 with reason *Internal use*; again with *Staff* and *Display*; and once with *Damage*. Accounts > Ledgers: read the expense accounts. Settings > Stock > **Adjustment Reasons**: add a reason *Festival gift* with its own expense account; deactivate another. Write off 1 with the new reason. Post an adjustment with a reason code.
-- **Expect:** the three new reasons post to their own expense accounts — *Stock Used in Business*, *Staff Welfare*, *Samples and Display* — and damage, expiry and loss stay on *Inventory Adjustment*. The reasons list is the firm's own (seeded on first read); the write-off and adjustment dialogs offer exactly the firm's active reasons and post to the reason's account. Without INVENTORY_MANAGE_REASONS the screen is read-only.
+- **Expect:** the three new reasons post to their own expense accounts — *Stock Used in Business*, *Staff Welfare*, *Samples and Display* — and damage, expiry and loss stay on *Inventory Adjustment*. The reasons list is the firm's own (seeded on first read); the write-off and adjustment dialogs offer exactly the firm's active reasons and post to the reason's account. Without INVENTORY_MANAGE_REASONS the screen is read-only. A reason's account must be an expense or income account: Inventory, Cash, a party or Sales is refused by name (D-STK-31). Any seeded reason, Damage included, can be switched off, after which a write-off naming it is refused.
 ### TC-STOCK-011 — Repacking and bulk breaking
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Also needs:** a second product (the repacked pack) with a purchase price.
-- **Steps:** as the prepared **Firm admin**: Stock > All Stock screens > Movements > **Repacking** → New: consume 10 of the bulk product, produce 40 of the small pack, wastage 1. Post. Read the ledger and journals. Post another with no wastage. **Cancel** one.
+- **Steps:** as the prepared **Firm admin**: Stock > All Stock screens > Movements > **Repacking** → New: consume 10 of the bulk product, produce 40 of the small pack, wastage 1 percent. Post. Read the ledger and journals. Post another with no wastage. **Cancel** one.
 - **Expect:** every consume line leaves stock at the product's moving average; the value consumed less the wastage share is spread over the produce lines in proportion to what each is worth at its purchase price (by quantity where none has a price) and the pack arrives **at that cost**; wastage is written off to inventory adjustment. With no wastage the books do not move. Cancelling reverses every movement and the wastage journal.
 ### TC-STOCK-012 — A kit is assembled, sold as itself, and dispatched by assembling
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a product `QA-KIT` of type **Bundle**; DET (100 in MAIN) and a second product as components.
@@ -117,22 +117,22 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Expect:** Assemble is a repack: components leave at their average and the kit arrives carrying their cost (10 DET and 5 of the other for 5 kits). Disassemble returns components. The kit is stocked and sold as itself — reservation, cost of goods sold, invoice cost and returns work as for any product. Dispatching 8 with only 4 assembled **assembles the shortfall from the components inside the dispatch's own transaction**; the dispatch gate counts the line's own reservation (D-STK-16). A kit inside a kit is not supported. Assemble and Disassemble need INVENTORY_ADJUST.
 ### TC-STOCK-013 — Expiry rules, shelf life and the issue rule on the product
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** A firm on the **Pharmacy** profile, with a batch-tracked product in two batches with different expiry dates, and two orders for it.
 - **Also needs:** `QA-AMX` in three batches as in TC-STOCK-005; a goods receipt line to type.
 - **Steps:** as the prepared **Firm admin**: Masters > Products → `QA-AMX` → **Stop selling N days before expiry** 20, **alert** 45, **return to supplier** 60; **Shelf life (days)** 365; **Batch issue rule** *FIFO*. Dispatch an order, then set *FEFO*, *PICK* and dispatch again. Receive a new batch giving only a manufacturing date; then one giving an expiry too. Stock > **Expiry Monitor** → *Return to supplier now*. Set the same three counts on the category and clear them on the product.
-- **Expect:** a batch within the stop-sale days of expiry is refused at dispatch (and in a delivery note's chosen-batch check); the picker uses the product's alert window; the monitor lists batches inside the return window (a product with no rule is never listed). A receipt line with a manufacturing date and no expiry is stored with expiry = manufacturing date + 365; a typed expiry stands; nothing is filled where the profile does not enable expiry tracking, and the batch keeps its manufacturing date and shelf life. FIFO ranks batches by when they were received; FEFO by expiry (the default); **PICK** keeps expiry order for holds but dispatch refuses by name until the line names its batches. Product, then category, then firm: the nearest set rule wins.
+- **Expect:** a batch within the stop-sale days of expiry is passed over by the earliest-expiry pick while another batch can cover the line, and refused at dispatch where it is the only one (and in a delivery note's chosen-batch check); the picker uses the product's alert window; the monitor lists batches inside the return window (a product with no rule is never listed). A receipt line with a manufacturing date and no expiry is stored with expiry = manufacturing date + 365; a typed expiry stands; nothing is filled where the profile does not enable expiry tracking, and the batch keeps its manufacturing date and shelf life. FIFO ranks batches by when they were received; FEFO by expiry (the default); **PICK** keeps expiry order for holds but dispatch refuses by name until the line names its batches. Product, then category, then firm: the nearest set rule wins.
 ### TC-STOCK-014 — Count plans, ABC classes and blind sheets
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Steps:** as the prepared **Firm admin**: Stock > **Physical Count** → *Count plans* → New: warehouse MAIN, ABC class **A**, every 30 days, **Blind**. Draw the **sheet**. Open it: count a few lines, post. Look at the plan's next-due date. Try a posted variance above the limit if one is set.
-- **Expect:** ABC class is worked out from the last year's dispatch value (the products making the first 80% are A, the next 15% B, the rest and anything not dispatched C). The sheet counts exactly what the plan covers; a **blind** sheet hides the system quantity until it is posted. The plan's next count falls due its interval after the last sheet it drew was posted. The adjustment limits (TC-STOCK-016) apply on posting.
+- **Expect:** ABC class is worked out from the last year's dispatch value (the products making the first 80% are A, the next 15% B, the rest C; the list names only products that were dispatched, and one it does not name is C). The sheet counts exactly what the plan covers; a **blind** sheet hides the system quantity until it is posted. The plan's next count falls due its interval after the last sheet it drew was posted. The adjustment limits (TC-STOCK-016) apply on posting.
 ### TC-STOCK-015 — Evidence attached to adjustments and counts
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Also needs:** a photo or PDF file; the ATTACHMENTS feature enabled for the firm's profile.
@@ -140,7 +140,7 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Expect:** files named in the dialog are saved in the same transaction as the movement; a transfer's files sit on its outbound leg and are readable from either leg. The Evidence viewer lists name, type and caption for a movement or a count sheet; a posted sheet still takes files. Delete is soft and audited. Without the ATTACHMENTS feature the picker is not offered.
 ### TC-STOCK-016 — Large adjustments need approval
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Also needs:** a user with INVENTORY_ADJUST but a low limit (a Warehouse job), and the administrator with INVENTORY_MANAGE_SETTINGS.
@@ -148,7 +148,7 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Expect:** an adjustment or write-off worth more than the role's limit (quantity at the product's average cost) is refused when posted directly, naming the limit, and offers *Submit for approval*. A person whose own limit covers it approves the request and it posts unchanged through the same service; a rejection keeps its reason. A firm with no limits behaves as before.
 ### TC-STOCK-017 — Incoming and outgoing on availability
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** As *buy-ready*, plus an **approved** purchase order for 10 of `QA-B` at 100.
 - **Also needs:** a sales order for the product approved for 6 and partly delivered.
@@ -156,7 +156,7 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Expect:** **Incoming** is approved purchase orders less completed receipts (stock units); **Outgoing** is the approved or partly delivered sales order lines less what has left less what is still reserved; **Projected** = available + incoming - outgoing. A product with no stock row but open orders is listed in the product table. The order editor shows incoming and outgoing for the warehouse it ships from. Reorder planning uses the same incoming figure.
 ### TC-STOCK-018 — Reservations lapse, and returned goods are held until checked
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** As *selling-firm*, plus the order described in the preparation table, approved.
 - **Also needs:** the sales order of 12 approved and reserved; a delivered and invoiced sale to return.
@@ -164,7 +164,7 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Expect:** the order is flagged *Reservation lapsed* (not cancelled), its stock goes back to free, and it can still be dispatched from free stock; **Reserve again** holds it once more. Off by default. With the batch rule on, completing the return puts the **sellable** part in quarantine (still owned and valued), the damaged and scrapped parts as before; *Release* puts the checked goods on the shelf; cancelling the return takes it back out of quarantine.
 ### TC-STOCK-019 — Stock alerts on Home and turnover in the ageing
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Also needs:** one product below reorder level, one out of stock, one over its maximum.
@@ -172,7 +172,7 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Expect:** Home lists stock lines to attend to, each counted with the worst rows: at or below reorder level, out of stock, over the maximum, batches near expiry, goods in transit, open count sheets. The ageing report carries *issued last year* and *turnover* columns. Nothing is stored; the figures change as the stock does.
 ### TC-STOCK-020 — Barcode labels, and the product's selling status
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a printer or the PDF preview; a goods receipt that stocked pieces.
