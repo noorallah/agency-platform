@@ -37,6 +37,7 @@ from app.inventory.schemas.inventory import (
     PhysicalCountCreate,
     StockQuarantineCreate,
     StockTransferCreate,
+    StockWriteOffCreate,
 )
 from app.inventory.services.inventory_service import InventoryService
 from app.inventory.services.physical_count_service import PhysicalCountService
@@ -49,6 +50,10 @@ from tests.unit import test_batch_serial_expiry as registers
 from tests.unit.test_goods_receipt import _Fixture, _session_factory
 from tests.unit.test_inventory_round_1_b import _Register
 from tests.unit.test_purchase_chain_synthesis import _Firm
+from tests.unit.test_sales_return_module import COST, _Dispatch, _stock_value
+from tests.unit.test_sales_return_module import (
+    _session_factory as _selling_sessions,
+)
 
 pytestmark = pytest.mark.typed_document_numbers
 
@@ -450,3 +455,136 @@ def test_a_firm_with_no_books_keeps_any_date() -> None:
         )
     )
     assert held == 1
+
+
+# --- D-STK-46: what came back as scrap can be written off -------------------
+
+
+def _row(setup: _Dispatch) -> InventoryRecord:
+    """Read the one stock row the dispatch fixture trades on."""
+    row = setup.session.scalar(
+        select(InventoryRecord).where(
+            InventoryRecord.firm_id == setup.firm.id,
+            InventoryRecord.product_id == setup.product.id,
+        )
+    )
+    assert row is not None
+    return row
+
+
+def _write_off(setup: _Dispatch, quantity: str, reason: str = "DAMAGE") -> object:
+    """Write ``quantity`` of the fixture's product off."""
+    return InventoryService(setup.session).write_off_stock(
+        StockWriteOffCreate(
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            product_id=setup.product.id,
+            reason=reason,
+            customer_id=(setup.customer.id if reason == "FREE_TO_CUSTOMER" else None),
+            quantity=Decimal(quantity),
+            transaction_date=date(2026, 8, 6),
+        ),
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+
+def test_units_returned_as_scrap_land_in_the_damaged_bucket() -> None:
+    """They were valued and stood in no bucket, so nothing could reach them."""
+    setup = _Dispatch(_selling_sessions()())
+    shelf = _row(setup).current_quantity
+
+    setup.completed(quantity=Decimal("2"), scrap=Decimal("2"))
+
+    row = _row(setup)
+    assert (row.current_quantity, row.damaged_quantity) == (shelf, 2)
+
+
+def test_scrap_and_damage_share_the_bucket_and_cancel_out_of_it() -> None:
+    """A cancelled return takes back exactly what it put there."""
+    setup = _Dispatch(_selling_sessions()())
+    value = _stock_value(
+        setup.session, firm_id=setup.firm.id, product_id=setup.product.id
+    )
+
+    service, row = setup.completed(
+        quantity=Decimal("3"), damaged=Decimal("1"), scrap=Decimal("1")
+    )
+    assert _row(setup).damaged_quantity == 2
+    service.cancel_return(
+        row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id, reason="error"
+    )
+
+    assert _row(setup).damaged_quantity == 0
+    assert (
+        _stock_value(setup.session, firm_id=setup.firm.id, product_id=setup.product.id)
+        == value
+    )
+
+
+def test_a_write_off_takes_returned_scrap_before_the_shelf() -> None:
+    """The condemned units go first, and their value leaves with them."""
+    setup = _Dispatch(_selling_sessions()())
+    setup.completed(quantity=Decimal("2"), scrap=Decimal("2"))
+    shelf = _row(setup).current_quantity
+    value = _stock_value(
+        setup.session, firm_id=setup.firm.id, product_id=setup.product.id
+    )
+
+    movement = _write_off(setup, "2")
+
+    row = _row(setup)
+    assert (row.current_quantity, row.damaged_quantity) == (shelf, 0)
+    assert movement.damaged_quantity_delta == -2  # type: ignore[attr-defined]
+    assert (
+        _stock_value(setup.session, firm_id=setup.firm.id, product_id=setup.product.id)
+        == value - COST * 2
+    )
+
+
+def test_a_write_off_past_the_scrap_goes_on_into_the_shelf() -> None:
+    """Three written off against two condemned takes the third from stock."""
+    setup = _Dispatch(_selling_sessions()())
+    setup.completed(quantity=Decimal("2"), scrap=Decimal("2"))
+    shelf = _row(setup).current_quantity
+
+    _write_off(setup, "3")
+
+    row = _row(setup)
+    assert (row.current_quantity, row.damaged_quantity) == (shelf - 1, 0)
+
+
+def test_a_write_off_is_refused_past_shelf_and_scrap_together() -> None:
+    """The figure it names counts the condemned units too."""
+    setup = _Dispatch(_selling_sessions()())
+    setup.completed(quantity=Decimal("2"), scrap=Decimal("2"))
+    held = _row(setup).current_quantity + 2
+
+    with pytest.raises(ValidationError) as refusal:
+        _write_off(setup, str(held + 1))
+
+    assert f"holds {held}" in refusal.value.message
+
+
+def test_goods_given_to_a_customer_never_come_out_of_the_scrap() -> None:
+    """Free goods are good goods: they leave the shelf, not the damaged pile."""
+    setup = _Dispatch(_selling_sessions()())
+    setup.completed(quantity=Decimal("2"), scrap=Decimal("2"))
+    shelf = _row(setup).current_quantity
+
+    _write_off(setup, "1", reason="FREE_TO_CUSTOMER")
+
+    row = _row(setup)
+    assert (row.current_quantity, row.damaged_quantity) == (shelf - 1, 2)
+
+
+def test_damage_that_arrived_blocked_on_the_shelf_is_not_counted_twice() -> None:
+    """A receipt's damaged units are in current stock already."""
+    setup = _Dispatch(_selling_sessions()())
+    row = _row(setup)
+    row.current_quantity += 2
+    row.blocked_quantity += 2
+    row.damaged_quantity += 2
+    setup.session.commit()
+
+    assert InventoryService._damaged_off_the_shelf(row) == 0

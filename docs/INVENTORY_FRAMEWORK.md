@@ -290,8 +290,15 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
   `_stage_movement`.
 - **A sales invoice moves no stock.** Reconciling stock against invoices will
   not balance — reconcile against delivery notes.
-- **`ADJUSTMENT` is the only way into the damaged, quarantine and in-transit
-  buckets.** They are not dead columns, but nothing routine fills them.
+- **The damaged bucket is filled two ways, and they are not the same place.**
+  Goods that arrive damaged on a goods receipt or a transfer stay in
+  `current` and are counted in `blocked` as well as `damaged`. Goods a
+  customer sends back damaged **or as scrap** (D-STK-46) are in `damaged`
+  alone, outside `current`, because they never go back on the shelf. A
+  write-off takes that second kind first, then quarantine, then the shelf;
+  it reads it as `damaged - blocked`, which can fall short on a row that
+  also holds stock blocked for another reason and never runs over. Goods
+  written off as given to a customer are never drawn from it.
 - **Movements are timed by the statement clock, not the transaction clock.**
   `func.now()` is PostgreSQL's `transaction_timestamp()`, so every row a request
   writes shares an instant -- a delivery note's UNRESERVE and DISPATCH were
