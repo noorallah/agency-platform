@@ -242,6 +242,12 @@ blocked -- and expires inside the firm's own window (*Batch sale rules*, 30
 days unless the firm set another). The expiry dashboard's 7 and 30 day cards
 are named for their windows and do not follow the setting (D-STK-47).
 
+**The alert rows are the worst ten of each kind.** The count beside a kind is
+always the whole number; the rows under it are the ten to act on first -- the
+largest shortfall against the reorder level, the largest excess over the
+maximum, the most in transit, the nearest expiry -- and the product code
+settles a tie, so two reads of the same stock list the same rows (D-STK-55).
+
 **The stock account and the valuation can part by paise.** Stock is valued to
 four places and the ledger posts two, so a movement's journal is the rounded
 share of a figure the valuation keeps whole. It is a known limit (D-STK-20,

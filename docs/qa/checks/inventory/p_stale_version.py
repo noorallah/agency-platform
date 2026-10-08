@@ -1,4 +1,6 @@
 """Probe: a stale If-Match is refused (409) on every versioned inventory record but a count sheet, a right one saves, and the version moves."""
+from datetime import date, timedelta
+
 from _http import call
 from _inv import *
 from _flow import *
@@ -17,8 +19,11 @@ cnt = must(ad.post(f"{INV}/counts", {"branch_id": w.branch_id, "warehouse_id": a
 plan = must(ad.post(f"{INV}/count-plans", {"name": f"SV{w.tag}", "branch_id": w.branch_id, "warehouse_id": a["id"], "frequency_days": 30}), "plan")
 reason = must(ad.post(f"{INV}/adjustment-reasons", {"code": f"SV{w.tag}", "name": f"SV {w.tag}"}), "reason")
 pb, ps = w.product(goods_type="MEDICINE"), w.product(goods_type="ELECTRONICS")
-batch = must(ad.post("/api/v1/batch-serial/batches", {"product_id": pb["id"], "batch_number": f"SV{w.tag}", "warehouse_id": a["id"]}), "batch")
-serial = must(ad.post("/api/v1/batch-serial/serials", {"product_id": ps["id"], "serial_number": f"SV{w.tag}"}), "serial")
+batch = must(ad.post("/api/v1/batch-serial/batches", {"product_id": pb["id"], "batch_number": f"SV{w.tag}", "warehouse_id": a["id"],
+                                                         "expiry_date": (date.fromisoformat(w.today) + timedelta(days=400)).isoformat()}), "batch")
+# A serial number exists only for a unit the firm holds (D-STK-50), so the unit is received with its number.
+c.eq(receive(w, a["id"], ps["id"], 1, serials=[f"SV{w.tag}"])["status"][0], 200, "one numbered unit received")
+serial = all_rows(ad, f"/api/v1/batch-serial/serials?product_id={ps['id']}")[0]
 lot = must(ad.post("/api/v1/batch-serial/lots", {"product_id": pb["id"], "lot_number": f"SV{w.tag}"}), "lot")
 
 targets = [

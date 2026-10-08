@@ -1,4 +1,6 @@
 """Probe: every stock write leaves an audit row in the firm's own trail, naming the actor; a refused write leaves none."""
+from datetime import date, timedelta
+
 from _inv import *
 from _flow import *
 
@@ -9,6 +11,14 @@ a, b2 = w.warehouse("A"), w.warehouse("B")
 p = w.product()
 pb = w.product(goods_type="MEDICINE")
 w.stock_in(a["id"], p["id"], 30)
+# Round 4's rules: a batch-tracked product is produced into a named batch (D-STK-53), a batch of goods that
+# expire carries its date (D-STK-48), and a serial number is added only for a unit the firm holds (D-STK-50).
+later = (date.fromisoformat(w.today) + timedelta(days=400)).isoformat()
+# One unit held whose number was scrapped is the unit a new number may be added for.
+ps = w.product("S", goods_type="ELECTRONICS")
+c.eq(receive(w, a["id"], ps["id"], 1, serials=[f"OLD{w.tag}"])["status"][0], 200, "one numbered unit received")
+old = all_rows(w.admin, f"/api/v1/batch-serial/serials?product_id={ps['id']}")[0]
+c.eq(w.admin.put(f"/api/v1/batch-serial/serials/{old['id']}", {"status": "SCRAPPED"})[0], 200, "its number scrapped")
 base = {"branch_id": w.branch_id, "product_id": p["id"], "transaction_date": w.today, "warehouse_id": a["id"]}
 
 
@@ -61,13 +71,13 @@ cnt = made["cnt"]
 w.admin.put(f"{INV}/counts/{cnt['id']}", {"lines": [{"product_id": p["id"], "counted_quantity": "10"}]})
 audited("count post", lambda: w.admin.post(f"{INV}/counts/{cnt['id']}/post", {}), "")
 audited("repack", lambda: w.admin.post(f"{INV}/repacks", {"repack_date": w.today, "branch_id": w.branch_id, "warehouse_id": a["id"],
-                                                         "lines": [{"kind": "CONSUME", "product_id": p["id"], "quantity": "1"}, {"kind": "PRODUCE", "product_id": pb["id"], "quantity": "1"}]}), "repack.")
+                                                         "lines": [{"kind": "CONSUME", "product_id": p["id"], "quantity": "1"}, {"kind": "PRODUCE", "product_id": pb["id"], "quantity": "1", "batch_number": f"RP{w.tag}", "expiry_date": later}]}), "repack.")
 audited("reason", lambda: w.admin.post(f"{INV}/adjustment-reasons", {"code": f"AU{w.tag}", "name": f"Au {w.tag}"}), "")
 audited("count plan", lambda: w.admin.post(f"{INV}/count-plans", {"name": f"AU{w.tag}", "branch_id": w.branch_id, "warehouse_id": a["id"], "frequency_days": 30}), "")
 audited("limits", lambda: w.admin.put(f"{INV}/adjustment-limits", {"limits": [{"role_code": "SALES_MANAGER", "max_value": "100"}]}), "")
 w.admin.put(f"{INV}/adjustment-limits", {"limits": []})
-audited("batch", lambda: w.admin.post("/api/v1/batch-serial/batches", {"product_id": pb["id"], "batch_number": f"AU{w.tag}"}), "batch.")
-audited("serial", lambda: w.admin.post("/api/v1/batch-serial/serials", {"product_id": w.product(goods_type="ELECTRONICS")["id"], "serial_number": f"AU{w.tag}"}), "serial_number.")
+audited("batch", lambda: w.admin.post("/api/v1/batch-serial/batches", {"product_id": pb["id"], "batch_number": f"AU{w.tag}", "expiry_date": later}), "batch.")
+audited("serial", lambda: w.admin.post("/api/v1/batch-serial/serials", {"product_id": ps["id"], "serial_number": f"AU{w.tag}"}), "serial_number.")
 # a refused write leaves no row
 before = total()
 st, b = w.admin.post(f"{INV}/transfers", {**tbase, "from_warehouse_id": a["id"], "to_warehouse_id": b2["id"], "quantity": "9999", "reference_number": f"R{w.tag}"})

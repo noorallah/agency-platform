@@ -169,7 +169,7 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Also needs:** one product below reorder level, one out of stock, one over its maximum.
 - **Steps:** as the prepared **Firm admin**: open Home and read the to-do. Reports > Operational → Stock ageing.
-- **Expect:** Home lists stock lines to attend to, each counted with the worst rows: at or below reorder level, out of stock, over the maximum, batches near expiry, goods in transit, open count sheets. The ageing report carries *issued last year* and *turnover* columns. Nothing is stored; the figures change as the stock does.
+- **Expect:** Home lists stock lines to attend to, each counted with the worst rows: at or below reorder level, out of stock, over the maximum, batches near expiry, goods in transit, open count sheets. Where a kind has more than ten, the ten listed are the worst first: the largest shortfall, the largest excess, the nearest expiry; a product that is counted and not listed is less short than every one that is. The ageing report carries *issued last year* and *turnover* columns. Nothing is stored; the figures change as the stock does.
 ### TC-STOCK-020 — Barcode labels, and the product's selling status
 
 *Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*

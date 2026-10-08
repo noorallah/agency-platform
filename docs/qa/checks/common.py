@@ -19,20 +19,45 @@ under a fresh suffix, so every check can run alone and run twice.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import pathlib
 import secrets
 import string
 import sys
-import urllib.error
-import urllib.request
+import urllib.parse
 import uuid
 from typing import Any
 
 BASE = os.environ.get("QA_BASE", "http://127.0.0.1:8000")
 CHECKS = pathlib.Path(__file__).resolve().parent
 PASSWORD = "Fixture@2026pw"
+
+
+def fetch(
+    method: str, path: str, data: bytes | None, headers: dict[str, str]
+) -> tuple[int, bytes]:
+    """Send one request on a connection the server may keep; return (status, body).
+
+    Not ``urllib``: it asks for ``Connection: close`` on every request, and
+    on the development PC the server cuts off any answer past about 320 KB
+    sent to such a client, 19 seconds in (D-PERF-3). The desktop keeps its
+    connections alive, and so does this.
+    """
+    base = urllib.parse.urlsplit(BASE)
+    connect = (
+        http.client.HTTPSConnection
+        if base.scheme == "https"
+        else http.client.HTTPConnection
+    )
+    connection = connect(base.hostname or "127.0.0.1", base.port, timeout=300)
+    try:
+        connection.request(method, f"{base.path}{path}", body=data, headers=headers)
+        response = connection.getresponse()
+        return response.status, response.read()
+    finally:
+        connection.close()
 
 
 def module_name() -> str:
@@ -85,19 +110,11 @@ class Api:
             headers["Authorization"] = f"Bearer {self.token}"
         if self.firm_id:
             headers["X-Firm-ID"] = self.firm_id
-        request = urllib.request.Request(
-            f"{BASE}{path}", data=data, headers=headers, method=method
-        )
-        # A large answer is sometimes reset in transit on the development PC
-        # (D-PERF-3). A read is asked again; a write never is.
-        tries = 6 if method == "GET" else 1
+        # A read that loses its connection is asked again; a write never is.
+        tries = 3 if method == "GET" else 1
         for attempt in range(tries):
             try:
-                with urllib.request.urlopen(request, timeout=300) as response:
-                    status, raw = response.status, response.read()
-                break
-            except urllib.error.HTTPError as error:
-                status, raw = error.code, error.read()
+                status, raw = fetch(method, path, data, headers)
                 break
             except ConnectionResetError:
                 if attempt == tries - 1:
@@ -164,12 +181,7 @@ class Api:
             headers["Authorization"] = f"Bearer {self.token}"
         if self.firm_id:
             headers["X-Firm-ID"] = self.firm_id
-        request = urllib.request.Request(f"{BASE}{path}", headers=headers)
-        try:
-            with urllib.request.urlopen(request, timeout=300) as response:
-                return response.status, response.read()
-        except urllib.error.HTTPError as error:
-            return error.code, error.read()
+        return fetch("GET", path, None, headers)
 
     def inside(self, firm_id: str | None) -> Api:
         """Return the same user acting inside another firm (or none)."""

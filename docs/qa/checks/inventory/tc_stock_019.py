@@ -19,9 +19,36 @@ after = data(w.admin.get(f"{INV}/alerts")[1])
 for k in ("low", "out", "over_maximum"):
     c.eq(after[k] - before[k], 1, f"alerts {k} grew by one")
 kinds = {r["product_code"]: (r["kind"], D(r["quantity"]), D(r["level"])) for r in after["rows"]}
-c.eq(kinds.get(lo["code"]), ("LOW", D(3), D(5)), "low row")
-c.eq(kinds.get(out["code"]), ("OUT", D(0), D(2)), "out row")
-c.eq(kinds.get(ov["code"]), ("OVER_MAXIMUM", D(50), D(20)), "over-maximum row")
+
+
+def listed_or_outranked(product: dict, kind: str, quantity: Decimal, level: Decimal, label: str) -> None:
+    """The row is listed as it stands, or the ten listed of its kind are all at least as bad (D-STK-55)."""
+    if product["code"] in kinds:
+        c.eq(kinds[product["code"]], (kind, quantity, level), label)
+        return
+    gaps = [abs(D(r["level"]) - D(r["quantity"])) for r in after["rows"] if r["kind"] == kind]
+    c.ok(len(gaps) == 10 and min(gaps) >= abs(level - quantity), f"{label}: not listed, so the ten listed are all at least as bad",
+         (len(gaps), [str(g) for g in gaps]))
+    c.eq(gaps, sorted(gaps, reverse=True), f"{label}: the {kind} rows come worst first")
+
+
+listed_or_outranked(lo, "LOW", D(3), D(5), "low row")
+listed_or_outranked(out, "OUT", D(0), D(2), "out row")
+listed_or_outranked(ov, "OVER_MAXIMUM", D(50), D(20), "over-maximum row")
+for kind in ("LOW", "OUT", "OVER_MAXIMUM"):
+    gaps = [abs(D(r["level"]) - D(r["quantity"])) for r in after["rows"] if r["kind"] == kind]
+    c.eq(gaps, sorted(gaps, reverse=True), f"the {kind} rows listed come worst first")
+# the worst of a kind heads its rows however many there are (D-STK-55): one short by more than any before it
+import time
+
+worst = w.product("WORST")
+need = 100000 + int(time.time()) % 100000000
+w.opening(wh["id"], [{"product_id": worst["id"], "quantity": "1", "unit_cost": "60", "reorder_level": str(need)}])
+low_rows = [r for r in data(w.admin.get(f"{INV}/alerts")[1])["rows"] if r["kind"] == "LOW"]
+c.eq(low_rows[0]["product_code"], worst["code"], "the item short by most is the first low row")
+row = w.rows(worst["id"])[0]
+st, b = w.admin.put(f"{INV}/{row['id']}", {"branch_id": w.branch_id, "warehouse_id": wh["id"], "product_id": worst["id"], "reorder_level": "0"})
+c.eq(st, 200, "its level taken off again: " + message(b)[:100])
 # nothing is stored: raising the stock above the reorder level clears the alert
 w.admin.post(f"{INV}/adjustments", {"branch_id": w.branch_id, "warehouse_id": wh["id"], "product_id": lo["id"],
                                      "quantity": "10", "transaction_date": w.today, "reference_number": f"UP{w.tag}", "reason_code": "LOSS"})
