@@ -381,8 +381,18 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
   (the last line of that repack), unless the request names another in
   `part_batches`; with neither it is refused. A kit that is itself kept in
   batches takes its batch on the assembly request and is not assembled by
-  a delivery note, which has nowhere to name one. Still open: stock in a
-  bin is seen only by a line that names the bin (D-STK-54).
+  a delivery note, which has nowhere to name one.
+- **A delivery note line that names no bin asks the warehouse**
+  (D-STK-54). The warehouse's own row leaves first, because the
+  order's hold is there; what it cannot cover is drawn from the bins by
+  the product's issue rule across them, and each movement names the bin
+  it left (`InventoryService.allocate_across_bins`). The line keeps no
+  bin of its own, so a return of those goods comes back to the
+  warehouse's own row. A unit with a serial number and a line whose
+  batches a person chose are not drawn from bins: the line names the
+  bin, and a refusal says what stands free in each. An order's hold is
+  not moved onto a bin, so an order that names no bin does not keep
+  goods in a bin from a note that names it.
 
 ## Where the code is
 

@@ -13,7 +13,7 @@ w.opening(wh, [{"product_id": p, "quantity": "4", "unit_cost": "60", "storage_no
 row = w.rows(p)[0]
 c.eq((row["storage_node_id"], D(row["current_quantity"])), (node["id"], D(4)), "opening stock lands in the bin named on its line")
 so = order(w, wh, p, 10)
-# D-STK-54 (open, Low): a note line naming no bin does not see what a bin holds, and does not say so.
+# D-STK-54 (fixed, round 4): a note line naming no bin draws from the bins once the warehouse's own row is short.
 st, msg = ship(w, so, wh, 4)
 c.ok(st == 200 or "bin" in msg.lower() or node["code"].lower() in msg.lower(),
      "a note naming no bin ships what the bin holds, or says the goods are in a bin (D-STK-54)", (st, msg))

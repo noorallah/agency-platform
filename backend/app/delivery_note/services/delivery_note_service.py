@@ -3085,9 +3085,13 @@ class DeliveryNoteService(TransactionalDocumentService):
         rebuilding it from movements -- which carry a reference and a product,
         not a line, and cannot tell two lines of one product apart.
         """
+        # One row per batch: a batch drawn from two bins is still one batch
+        # on the challan (D-STK-54).
+        drawn: dict[UUID, Decimal] = {}
         for batch_id, quantity in allocation:
-            if batch_id is None:
-                continue
+            if batch_id is not None:
+                drawn[batch_id] = drawn.get(batch_id, ZERO) + quantity
+        for batch_id, quantity in drawn.items():
             self._session.add(
                 DeliveryNoteLineBatch(
                     delivery_note_line_id=line.id,
@@ -3648,14 +3652,30 @@ class DeliveryNoteService(TransactionalDocumentService):
                     warehouse_id=line.warehouse_id,
                 )
                 can_ship = max(can_ship, shippable)
-            if can_ship < line.delivered_quantity and KitService(
+            # A line naming no bin asks the warehouse, and what stands free
+            # in a bin of it is in the warehouse (D-STK-54). Read only when
+            # the warehouse's own row falls short. A unit with a serial
+            # number is named, and leaves from where it is recorded, so
+            # the bins are named in the refusal and not drawn from.
+            in_bins: list[tuple[str, Decimal]] = []
+            if line.storage_node_id is None and can_ship < line.delivered_quantity:
+                in_bins = self._inventory.free_in_bins(
+                    firm_scope=row.firm_id,
+                    branch_id=goods_branch_id,
+                    warehouse_id=line.warehouse_id,
+                    product_id=line.product_id,
+                )
+            from_bins = (
+                ZERO if serialised else self._q(sum((q for _, q in in_bins), ZERO))
+            )
+            if can_ship + from_bins < line.delivered_quantity and KitService(
                 self._session
             ).assemble_for_dispatch(
                 firm_id=row.firm_id,
                 branch_id=goods_branch_id,
                 warehouse_id=line.warehouse_id,
                 product_id=line.product_id,
-                shortfall=line.delivered_quantity - can_ship,
+                shortfall=line.delivered_quantity - can_ship - from_bins,
                 on=row.delivery_date,
                 reference=row.delivery_note_number,
                 actor_id=actor_id,
@@ -3676,8 +3696,12 @@ class DeliveryNoteService(TransactionalDocumentService):
                         warehouse_id=line.warehouse_id,
                     )
                     can_ship = max(can_ship, shippable)
-            if can_ship < line.delivered_quantity:
-                raise ValidationError("Insufficient available stock for dispatch line.")
+            if can_ship + from_bins < line.delivered_quantity:
+                raise ValidationError(
+                    "Insufficient available stock for dispatch line."
+                    + self._standing_in_bins(in_bins, drawn=not serialised)
+                )
+            across_bins = can_ship < line.delivered_quantity
             chosen = (
                 None
                 if serialised
@@ -3766,6 +3790,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             # from; the line records the first, and the movements carry the
             # whole split.
             fefo_skipped = False
+            places: list[UUID | None] | None = None
             by_batch = self._units_by_batch(
                 line_ref,
                 picks,
@@ -3799,6 +3824,24 @@ class DeliveryNoteService(TransactionalDocumentService):
                     reason=batch_reason,
                     keep_until=keep_until,
                 )
+                shares = self._trail.deal(
+                    picks, [allocated for _, allocated in allocation]
+                )
+            elif across_bins:
+                # The warehouse's own row first, then its bins (D-STK-54);
+                # each movement below leaves from the place it was drawn.
+                placed = self._inventory.allocate_across_bins(
+                    firm_scope=row.firm_id,
+                    branch_id=goods_branch_id,
+                    warehouse_id=line.warehouse_id,
+                    product_id=line.product_id,
+                    quantity=line.delivered_quantity,
+                    as_of=row.delivery_date,
+                    keep_until=keep_until,
+                    past_back_orders=past_back_orders,
+                )
+                allocation = [(batch_id, taken) for _, batch_id, taken in placed]
+                places = [node_id for node_id, _, _ in placed]
                 shares = self._trail.deal(
                     picks, [allocated for _, allocated in allocation]
                 )
@@ -3851,6 +3894,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             entered_total = self._q(line.current_delivery_quantity + line.free_quantity)
             dispatched = None
+            if places is None:
+                places = [line.storage_node_id] * len(allocation)
             for index, (batch_id, allocated) in enumerate(allocation):
                 # The entered quantity is what the customer was billed in, so
                 # it is apportioned with the split rather than repeated whole.
@@ -3867,7 +3912,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     actor_id=actor_id,
                     branch_id=goods_branch_id,
                     warehouse_id=line.warehouse_id,
-                    storage_node_id=line.storage_node_id,
+                    storage_node_id=places[index],
                     product_id=line.product_id,
                     reference_number=row.delivery_note_number,
                     transaction_date=row.delivery_date,
@@ -3917,6 +3962,28 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         return batch_notes
+
+    @staticmethod
+    def _standing_in_bins(in_bins: list[tuple[str, Decimal]], *, drawn: bool) -> str:
+        """Say where a product stands when a line naming no bin falls short.
+
+        "Insufficient stock" beside a screen showing four on hand sends
+        whoever reads it looking for goods that are there, in a bin
+        (D-STK-54). ``drawn`` says the bins were counted and are still not
+        enough; otherwise they were not drawn from and the line has to name
+        one.
+        """
+        if not in_bins:
+            return ""
+        where = ", ".join(
+            f"{free.normalize():f} in bin {code}" for code, free in in_bins
+        )
+        if drawn:
+            return f" That counts what stands free in its bins here: {where}."
+        return (
+            f" It stands free in bins here ({where}): a unit with a serial "
+            "number leaves from the bin named on the line."
+        )
 
     def _past_back_orders(
         self,

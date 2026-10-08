@@ -3975,6 +3975,116 @@ class InventoryService:
             the available stock across all of them is short.
 
         """
+        return [
+            (batch_id, taken)
+            for _, batch_id, taken in self._draw_for_dispatch(
+                firm_scope=firm_scope,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                product_id=product_id,
+                quantity=quantity,
+                as_of=as_of,
+                keep_until=keep_until,
+                past_back_orders=past_back_orders,
+            )
+        ]
+
+    def allocate_across_bins(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        quantity: Decimal,
+        as_of: date | None = None,
+        keep_until: date | None = None,
+        past_back_orders: Mapping[UUID, Decimal] | None = None,
+    ) -> list[tuple[UUID | None, UUID | None, Decimal]]:
+        """Choose the places and batches a line naming no bin leaves from.
+
+        A line that names no bin asks the warehouse, and goods standing in a
+        bin of it are in the warehouse: four in a bin and a note for four was
+        refused for want of stock (D-STK-54). What stands on the warehouse's
+        own row goes first -- that is where the order's hold is -- and then
+        the bins, by the product's issue rule across them, so the earliest
+        expiry leaves whichever bin it is in. The same refusals as
+        ``allocate_for_dispatch``: expired, short-dated, pick-only.
+
+        Returns:
+            (storage node, batch, quantity) in the order to draw; the node is
+            None for the warehouse's own row. Raises if all of it is short.
+
+        """
+        return self._draw_for_dispatch(
+            firm_scope=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            quantity=quantity,
+            as_of=as_of,
+            keep_until=keep_until,
+            past_back_orders=past_back_orders,
+            warehouse_row_first=True,
+        )
+
+    def free_in_bins(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+    ) -> list[tuple[str, Decimal]]:
+        """Return what each bin of a warehouse holds free of a product.
+
+        By bin code, with the quantity no hold or block stands on, summed
+        over its batches. The warehouse's own row is not a bin and is left
+        out. For the dispatch gate, and for a refusal that says where the
+        goods stand rather than that there are none.
+        """
+        rows = self._session.execute(
+            select(
+                WarehouseStorageNode.code,
+                func.sum(InventoryRecord.available_quantity),
+            )
+            .join(
+                WarehouseStorageNode,
+                WarehouseStorageNode.id == InventoryRecord.storage_node_id,
+            )
+            .where(
+                InventoryRecord.firm_id == firm_scope,
+                InventoryRecord.branch_id == branch_id,
+                InventoryRecord.warehouse_id == warehouse_id,
+                InventoryRecord.product_id == product_id,
+                InventoryRecord.is_deleted.is_(False),
+                InventoryRecord.available_quantity > ZERO,
+            )
+            .group_by(WarehouseStorageNode.code)
+            .order_by(WarehouseStorageNode.code.asc())
+        ).all()
+        return [(code, Decimal(str(free))) for code, free in rows]
+
+    def _draw_for_dispatch(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        quantity: Decimal,
+        as_of: date | None,
+        keep_until: date | None,
+        past_back_orders: Mapping[UUID, Decimal] | None,
+        warehouse_row_first: bool = False,
+    ) -> list[tuple[UUID | None, UUID | None, Decimal]]:
+        """Draw a dispatch from a product's stock rows, naming each row's place.
+
+        The one body behind ``allocate_for_dispatch`` and
+        ``allocate_across_bins``. ``warehouse_row_first`` puts the rows that
+        stand in no bin ahead of the rest, each group keeping the order its
+        goods leave in.
+        """
         rows = self._expiry_ranked_rows(
             firm_scope=firm_scope,
             branch_id=branch_id,
@@ -3986,6 +4096,9 @@ class InventoryService:
                 else InventoryRecord.available_quantity
             ),
         )
+        if warehouse_row_first:
+            # A stable sort: the ranking above holds within each group.
+            rows.sort(key=lambda row: row.storage_node_id is not None)
         drawable = {
             row.id: max(
                 Decimal(str(row.available_quantity)),
@@ -4030,14 +4143,14 @@ class InventoryService:
             keep_until=keep_until,
         )
         outstanding = Decimal(str(quantity))
-        allocation: list[tuple[UUID | None, Decimal]] = []
+        allocation: list[tuple[UUID | None, UUID | None, Decimal]] = []
         for row in rows:
             if outstanding <= ZERO:
                 break
             take = min(outstanding, drawable[row.id])
             if take <= ZERO:
                 continue
-            allocation.append((row.batch_id, take))
+            allocation.append((row.storage_node_id, row.batch_id, take))
             outstanding -= take
         if outstanding > ZERO:
             raise ValidationError(
