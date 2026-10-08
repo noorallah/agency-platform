@@ -45,6 +45,7 @@ from app.customer_debit_note.models import CustomerDebitNote, CustomerDebitNoteL
 from app.customers.models import Customer, CustomerGroup
 from app.products.models import Product, ProductCategory
 from app.products.models.brand import Brand, Principal
+from app.products.models.goods_type import GENERAL_GOODS, GoodsType
 from app.sales.models.territory import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -56,6 +57,7 @@ TIME_DIMENSIONS = ("day", "week", "month", "quarter", "year")
 ENTITY_DIMENSIONS = (
     "product",
     "category",
+    "goods_type",
     "brand",
     "principal",
     "customer",
@@ -129,6 +131,8 @@ class AnalysisFilters:
 
     product_id: UUID | None = None
     category_id: UUID | None = None
+    #: The goods type the product took from its category (backlog 89).
+    goods_type_id: UUID | None = None
     #: The brand and the principal behind it (MST-1).
     brand_id: UUID | None = None
     principal_id: UUID | None = None
@@ -488,6 +492,8 @@ class SalesAnalysisService:
             return _bucket(self._session, dimension, source["date"])
         if dimension == "category":
             return cast(Product.category_id, String)
+        if dimension == "goods_type":
+            return cast(Product.goods_type_id, String)
         if dimension == "brand":
             return cast(Product.brand_id, String)
         if dimension == "principal":
@@ -514,6 +520,8 @@ class SalesAnalysisService:
                 clauses.append(source[name] == value)
         if filters.category_id is not None:
             clauses.append(Product.category_id == filters.category_id)
+        if filters.goods_type_id is not None:
+            clauses.append(Product.goods_type_id == filters.goods_type_id)
         if filters.brand_id is not None:
             clauses.append(Product.brand_id == filters.brand_id)
         if filters.principal_id is not None:
@@ -716,8 +724,10 @@ class SalesAnalysisService:
                 (_time_key(dimension, key) for key in keys), key=lambda k: k.key
             )
         labels = self._labels(firm_id, dimension, [key for key in keys if key])
+        # A product with no goods type is General, not unfiled (backlog 89).
+        unfiled = GENERAL_GOODS if dimension == "goods_type" else "(none)"
         result = [
-            AnalysisKey(key, labels.get(key, "") or (key if key else "(none)"))
+            AnalysisKey(key, labels.get(key, "") or (key if key else unfiled))
             for key in keys
         ]
         return sorted(result, key=lambda item: item.label.lower())
@@ -740,6 +750,13 @@ class SalesAnalysisService:
                     select(ProductCategory.id, ProductCategory.name).where(
                         ProductCategory.id.in_(ids)
                     )
+                ).all()
+            }
+        if dimension == "goods_type":
+            return {
+                str(i): name
+                for i, name in self._session.execute(
+                    select(GoodsType.id, GoodsType.name).where(GoodsType.id.in_(ids))
                 ).all()
             }
         if dimension == "brand":

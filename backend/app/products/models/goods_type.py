@@ -22,6 +22,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
 
+#: What a report files a product with no goods type under: General has no
+#: row to read a name from.
+GENERAL_GOODS = "General"
+
 
 class GoodsType(BaseEntity):
     """One line of goods and the tracking its products start with."""

@@ -42,6 +42,14 @@ class PurchaseAnalysisPage extends StatelessWidget {
           for (final c in (await api.productCategoryPage(search: search)).items)
             AnalysisOption(id: c.id, label: c.name),
         ];
+      case 'goods_type_id':
+        // The firm's goods types are a short list read whole; a product
+        // with none is General, which no id names.
+        return [
+          for (final t in await api.goodsTypes())
+            if (t.inUse && t.name.toLowerCase().contains(search.toLowerCase()))
+              AnalysisOption(id: t.id, label: t.name),
+        ];
       case 'supplier_id':
         return [
           for (final v in (await api.vendors(search: search)).items)
@@ -86,6 +94,7 @@ class PurchaseAnalysisPage extends StatelessWidget {
             'year': 'Year',
             'product': 'Product',
             'category': 'Category',
+            'goods_type': 'Goods type',
             'supplier': 'Supplier',
             'supplier_category': 'Supplier category',
             'branch': 'Branch',
@@ -93,6 +102,7 @@ class PurchaseAnalysisPage extends StatelessWidget {
           filterParameters: const {
             'product': 'product_id',
             'category': 'category_id',
+            'goods_type': 'goods_type_id',
             'supplier': 'supplier_id',
             'supplier_category': 'supplier_category_id',
             'branch': 'branch_id',
@@ -129,6 +139,7 @@ class PurchaseAnalysisPage extends StatelessWidget {
             pickers: const {
               'product_id': 'Product',
               'category_id': 'Category',
+              'goods_type_id': 'Goods type',
               'supplier_id': 'Supplier',
               'supplier_category_id': 'Supplier category',
               'branch_id': 'Branch',

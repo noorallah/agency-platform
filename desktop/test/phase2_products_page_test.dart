@@ -24,6 +24,9 @@ class _Api extends ApiClient {
 
   final List<ProductQuery> asked = [];
 
+  /// The goods types the firm trades in, as the metadata call carries them.
+  List<ProductGoodsTypeOption> typesInUse = const [];
+
   @override
   Future<PagedResult<Product>> products({
     int page = 1,
@@ -53,13 +56,14 @@ class _Api extends ApiClient {
 
   @override
   Future<ProductMetadataRecord> productMetadata({String? categoryId}) async =>
-      const ProductMetadataRecord(
+      ProductMetadataRecord(
         profileCode: '',
-        features: [],
-        categories: [],
-        taxProfiles: [],
-        requiredAttributeDefinitionIds: [],
-        optionalAttributeDefinitionIds: [],
+        features: const [],
+        categories: const [],
+        taxProfiles: const [],
+        requiredAttributeDefinitionIds: const [],
+        optionalAttributeDefinitionIds: const [],
+        goodsTypes: typesInUse,
       );
 }
 
@@ -84,11 +88,15 @@ Product _item(String code, String stock, {bool low = false}) =>
 final Product _short = _item('SHORT', '6', low: true);
 final Product _plenty = _item('PLENTY', '240');
 
-Future<_Api> _pump(WidgetTester tester, {double width = 1600}) async {
+Future<_Api> _pump(
+  WidgetTester tester, {
+  double width = 1600,
+  List<ProductGoodsTypeOption> goodsTypes = const [],
+}) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 800);
   addTearDown(tester.view.reset);
-  final _Api api = _Api();
+  final _Api api = _Api()..typesInUse = goodsTypes;
   await tester.pumpWidget(MaterialApp(
     home: Scaffold(
       body: Phase2Scope(
@@ -154,6 +162,55 @@ void main() {
     expect(api.asked.last.lowStock, isTrue);
     expect(find.text('PLENTY'), findsNothing);
     expect(find.text('SHORT'), findsNWidgets(2));
+  });
+
+  /// Wait out a filter's save to the preferences file: real I/O, in steps.
+  Future<void> applied(WidgetTester tester, _Api api, int calls) async {
+    for (int i = 0; i < 10 && api.asked.length < calls; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('the goods type filter asks the server for one type or General',
+      (tester) async {
+    // Backlog 89 step 8: the list is narrowed on the product's own column,
+    // and General -- no type at all -- is a choice beside the types.
+    final _Api api = await _pump(tester, goodsTypes: [
+      ProductGoodsTypeOption.fromJson(
+          const {'id': 'gt-med', 'code': 'MEDICINE', 'name': 'Medicine'}),
+    ]);
+    await tester.tap(find.byKey(const ValueKey('phase2-filters')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('product-filter-goods-type')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Medicine').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply'));
+    await applied(tester, api, 2);
+    expect(api.asked.last.toQuery()['goods_type_id'], 'gt-med');
+    expect(api.asked.last.toQuery().containsKey('general_goods'), isFalse);
+
+    await tester.tap(find.byKey(const ValueKey('product-filter-goods-type')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('General').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply'));
+    await applied(tester, api, 3);
+    expect(api.asked.last.toQuery()['general_goods'], 'true');
+    expect(api.asked.last.toQuery().containsKey('goods_type_id'), isFalse);
+  });
+
+  testWidgets('a firm with no goods type is not offered the filter',
+      (tester) async {
+    await _pump(tester);
+    await tester.tap(find.byKey(const ValueKey('phase2-filters')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('product-filter-goods-type')), findsNothing);
+    expect(find.text('Category'), findsWidgets);
   });
 
   testWidgets('saved and recent searches are one Views chip', (tester) async {

@@ -194,6 +194,37 @@ its custom fields do, so the firm's administrator keeps both under
 Reading rides on `PRODUCT_VIEW` because the category and product forms need
 the list.
 
+## Goods type in reports and lists
+
+The type is stored on the product and indexed with the firm
+(`IX_products_firm_goods_type`), so each of these reads the product row it
+already joins and never walks the category tree.
+
+| Where | What it does |
+| --- | --- |
+| Sales Analysis (`GET /sales-invoices/reports/analysis`) | `goods_type` is a dimension for rows or columns, grouped in SQL on `products.goods_type_id`, and `goods_type_id` is a filter, also on the invoices behind a cell |
+| Purchase Analysis (`GET /purchase-invoices/reports/analysis`) | The same dimension and filter, on all three bases and on the bills behind a cell |
+| Stock valuation, Stock ageing, Slow-moving stock, Dead stock | Each item row carries `goods_type`, the type's name; the closing rows of the valuation carry none |
+| Product list (`GET /products`) | `goods_type_id` lists the products of one type; `general_goods=true` lists those with none |
+
+**A product with no goods type reads General everywhere** (`GENERAL_GOODS` in
+`app/products/models/goods_type.py`): General is the absence of a type, so a
+report has no row to read the name from. In the two analyses its key is the
+empty string, as for any unfiled value, so a General cell cannot be opened
+for the documents behind it -- no filter names "no type" there. The product
+list can, with `general_goods`.
+
+A product's type is the one it was filed under when it was last saved, so a
+report by goods type files history under the type the product has **today**:
+moving a product to a category of another type moves its past sales with it.
+That is how category, brand and principal already behave in these reports.
+
+On the desktop the Products list offers the *Goods type* filter (with General
+beside the types) only once the firm trades in a type; the list of types
+arrives in the metadata call the page already makes, so the filter costs no
+server call. The filter is not kept between sessions. `tests/unit/test_goods_type_in_reports.py`
+pins each row of the table.
+
 ## How far §89 has got
 
 | Step of §89's order | State |
@@ -203,8 +234,9 @@ the list.
 | 3. Unit sets and their picker on the product form | **Built 2026-10-08, not yet tested by hand** (`docs/UOM_FRAMEWORK.md`, *Unit sets*) |
 | 4. Batch and serial checks read the product | **Built 2026-10-08, not yet tested by hand.** Adding a batch, lot or serial by hand needs the product's `track_batch` / `track_lot` / `track_serial`; expiry, manufacturing and warranty fields need `track_expiry`, `track_manufacturing_date`, `track_warranty`. Existing records can always be changed or removed. A goods receipt still creates its batch. The six profile features no longer enforce anything (`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, *What a product's switches allow*) |
 | 5. Extra fields and compulsory rules by goods type | **Built 2026-10-08, not yet tested by hand.** A rule ties a field to a goods type, a customer group or a supplier type and says whether it is compulsory there; a firm switches a shared field off for itself; the two profile columns are dropped by `20261008_0352` (`docs/CUSTOM_FIELDS_FRAMEWORK.md`, *Fields by kind of record*) |
-| 6. Menus, import, the profile clean-up, the docs | Not started |
-| 7. Closing sweep | Not started |
+| 6. Menus, import, the profile clean-up, the docs | **Built 2026-10-08**, driven over HTTP and on screen the same day (`docs/BUSINESS_PROFILE_FRAMEWORK.md`) |
+| 7. Closing sweep | **Done 2026-10-08** (`tests/unit/test_backlog_89_removed_names_stay_gone.py`) |
+| 8. Goods type in the reports and the product list | **Built 2026-10-08** -- see *Goods type in reports and lists* below |
 
 So after step 4 a goods type decides how a **new** product starts, what its
 form shows and which unit sets it is offered first, and the product's switches

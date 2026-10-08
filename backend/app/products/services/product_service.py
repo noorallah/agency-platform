@@ -1381,6 +1381,12 @@ class ProductService:
                 Product.sub_category_id == filters.sub_category_id
             )
             count = count.where(Product.sub_category_id == filters.sub_category_id)
+        if filters.goods_type_id is not None:
+            statement = statement.where(Product.goods_type_id == filters.goods_type_id)
+            count = count.where(Product.goods_type_id == filters.goods_type_id)
+        if filters.general_goods:
+            statement = statement.where(Product.goods_type_id.is_(None))
+            count = count.where(Product.goods_type_id.is_(None))
         if filters.tax_profile_group_code is not None:
             statement = statement.where(
                 Product.tax_profile_group_code == filters.tax_profile_group_code

@@ -36,6 +36,7 @@ from app.core.exceptions import ValidationError
 from app.finance.currency import rupee_rate_sql
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.products.models import Product, ProductCategory
+from app.products.models.goods_type import GENERAL_GOODS, GoodsType
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
@@ -49,7 +50,14 @@ from app.sales_invoice.services.sales_analysis import _bucket as time_bucket
 from app.sales_invoice.services.sales_analysis import _time_key as time_key
 from app.vendors.models import Vendor, VendorCategory
 
-ENTITY_DIMENSIONS = ("product", "category", "supplier", "supplier_category", "branch")
+ENTITY_DIMENSIONS = (
+    "product",
+    "category",
+    "goods_type",
+    "supplier",
+    "supplier_category",
+    "branch",
+)
 DIMENSIONS = TIME_DIMENSIONS + ENTITY_DIMENSIONS
 BILLED = ("APPROVED", "CLOSED")
 RETURNED = ("COMPLETED", "CLOSED")
@@ -445,6 +453,8 @@ class PurchaseAnalysisService:
             return time_bucket(self._session, dimension, source["date"])
         if dimension == "category":
             return cast(Product.category_id, String)
+        if dimension == "goods_type":
+            return cast(Product.goods_type_id, String)
         if dimension == "supplier_category":
             return cast(Vendor.category_id, String)
         return cast(source[dimension], String)
@@ -459,6 +469,8 @@ class PurchaseAnalysisService:
                 clauses.append(source[name] == filters[f"{name}_id"])
         if "category_id" in filters:
             clauses.append(Product.category_id == filters["category_id"])
+        if "goods_type_id" in filters:
+            clauses.append(Product.goods_type_id == filters["goods_type_id"])
         if "supplier_category_id" in filters:
             clauses.append(Vendor.category_id == filters["supplier_category_id"])
         return clauses
@@ -553,8 +565,10 @@ class PurchaseAnalysisService:
                 (time_key(dimension, key) for key in keys), key=lambda k: k.key
             )
         labels = self._labels(dimension, [UUID(key) for key in keys if key])
+        # A product with no goods type is General, not unfiled (backlog 89).
+        unfiled = GENERAL_GOODS if dimension == "goods_type" else "(none)"
         result = [
-            AnalysisKey(key, labels.get(key, "") or (key if key else "(none)"))
+            AnalysisKey(key, labels.get(key, "") or (key if key else unfiled))
             for key in keys
         ]
         return sorted(result, key=lambda item: item.label.lower())
@@ -573,6 +587,7 @@ class PurchaseAnalysisService:
             }
         model, column = {
             "category": (ProductCategory, ProductCategory.name),
+            "goods_type": (GoodsType, GoodsType.name),
             "supplier": (Vendor, Vendor.name),
             "supplier_category": (VendorCategory, VendorCategory.name),
             "branch": (Branch, Branch.name),
