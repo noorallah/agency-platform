@@ -27,7 +27,8 @@ one step per case id, run at 1366x768:
 IT_EMAIL=t10069cwy.tradeadmin@fixtures.local IT_PASSWORD='Fixture@2026pw' \
   IT_PART=lists,actions LIMIT=900 bash integration_test/run.sh sc_st_test.dart
 # sc_st parts: lists, actions, adjust, opening, count, views, transfers,
-#              repack, approvals, settings
+#              repack, approvals, settings, round2 (or its pieces r2xfer,
+#              r2doc, r2open, r2ref), backorder
 # sc_bs parts: batches, lots, serials, expiry
 # any other user (qfmgr, qstore, qro, qsmgr, qsexe) runs the Role cases only
 ```
@@ -153,6 +154,31 @@ batches `INVB1` (expires in 20 days) and `INVB2` (400 days), 20 each;
 | SC-ST-069 | Positive | FA | Settings > Stock > Inventory Settings | Opens with its two defaults |
 | SC-ST-075 | Positive | FA | Settings > Stock > Adjustment Limits; Add role `INVENTORY_MANAGER`, 500; Save | The server holds the limit |
 | SC-ST-076 | Negative | FA | Add a role with no amount; Save | Refused in words; nothing saved |
+
+## Round 2: serial units on the move, a used reference, a back order
+
+Added 2026-10-08 with round 2 (D-STK-40, D-STK-44, D-STK-39). The flow numbers
+six units `R2<stamp>-1` to `-6` of `INVSCR-S` on the MAIN shelf before it
+starts, and makes a serial-tracked product of its own for the two opening stock
+cases, because opening stock is posted once per item and warehouse.
+
+| Id | Kind | User | Steps on screen | Expected on screen |
+| --- | --- | --- | --- | --- |
+| SC-ST-077 | Negative | FA | Inventory, pick `INVSCR-S` at MAIN; **Transfer**; Move it to QW2; Quantity 2; tick one unit; Transfer | The heading reads "1 of 2 picked"; "Pick one serial number per unit moving: 2 needed, 1 picked."; dialog open, typing kept, nothing moved |
+| SC-ST-078 | Positive | FA | The same with two units ticked | "Stock transferred."; QW2 2 more; the two units read AVAILABLE in QW2 on the server, a third stays in MAIN |
+| SC-ST-079 | Positive | FA | Stock Transfers; **New transfer** MAIN to QW2, `INVSCR-S` x 2; tick two units; Save draft | The heading goes from "0 of 2 picked" to "2 of 2 picked"; a draft is saved and names the two units |
+| SC-ST-080 | Negative | FA | A draft that names one unit of two (made over HTTP); pick it; **Dispatch**; confirm | "Line 1 (INVSCR-S) sends 2 serial-tracked units but 1 serial number is picked: pick 1 more on the transfer."; the dialog stays open; status stays Draft |
+| SC-ST-081 | Positive | FA | Pick the draft of SC-ST-079; **Dispatch**; confirm | "Transfer dispatched."; both units read IN_TRANSIT |
+| SC-ST-082 | Negative | FA | **Receive**; Damaged 1; tick nothing; Receive | "Tick which 1 unit(s) of ... arrived damaged: 0 ticked."; dialog open; not received |
+| SC-ST-083 | Positive | FA | The same with the damaged unit ticked | "Transfer received."; QW2 2 more; one unit AVAILABLE and one DAMAGED, both in QW2; the details line names the damaged one |
+| SC-ST-084 | Positive | FA | Opening Stock; **+ New**; a serial-tracked product; Quantity 2; two numbers in **Serial numbers**; Save; pick it; **Post draft** | The helper text counts "2 of 2 entered"; the draft saves; posting makes the two units AVAILABLE in MAIN |
+| SC-ST-085 | Negative | FA | A draft of 3 units numbering two (made over HTTP); pick it; **Post draft** | "Line 1 (...) brings in 3 serial-tracked units but 2 serial numbers are entered: enter 1 more on the opening stock line."; still a Draft; no stock |
+| SC-ST-086 | Negative | FA | **Write off** 1 of `INVSCR-N2` under a reference; then a second write-off under the same reference | "A write-off with the reference ... already exists: give this one a reference of its own, or leave the box empty to have it numbered."; dialog open, typing kept, nothing moved |
+| SC-ST-087 | Positive | FA | A product with 4 in MAIN, an approved order for 10 and an approved note for 4 (made over HTTP); Sell > Delivery Notes; pick the note; **Dispatch**; Dispatch anyway | The note is dispatched; the stock row reads On hand 0, Reserved 6, Available -6 (TC-STOCK-022 on screen) |
+
+The refusals of round 2 that already had a case are re-clicked rather than
+renumbered: SC-ST-038 (the count sheet now names the line), SC-BS-008 (a
+selling price above the MRP) and SC-BS-018 (a lot below nothing).
 
 ## Role cases (stock)
 
