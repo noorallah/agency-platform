@@ -1601,6 +1601,55 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
         assert_trade_rates_within_mrp(mrp=line.mrp, ptr=line.ptr, pts=line.pts)
 
+    def _assert_free_goods_left(
+        self,
+        receipt: GoodsReceipt,
+        line: GoodsReceiptLineWrite,
+        purchase_line: PurchaseOrderLine,
+        *,
+        already: Decimal,
+    ) -> Decimal:
+        """Refuse free goods the order line no longer has, and return the tally.
+
+        A receipt types its own free figure, and nothing held it to the
+        order: an order of 24 with 2 free, received 12 and 12 with 2 typed
+        free on each, put 4 free units on the shelf, and a line whose order
+        promised none took whatever was typed (D-BUY-67). The cap is the one
+        a bill off an order meets (D-PRC-90), counted the same way.
+
+        Args:
+            receipt: The receipt being saved, for its order's number.
+            line: The receipt line as typed.
+            purchase_line: The order line it receives.
+            already: The free goods the line's other receipts, and the lines
+                of this one read so far, hold.
+
+        Returns:
+            `already` with this line's free goods added.
+
+        Raises:
+            ValidationError: If the line brings in more free goods than the
+                order line has left to give.
+
+        """
+        typed = self._q(line.free_quantity)
+        if typed <= ZERO:
+            return already
+        offered = self._q(purchase_line.free_quantity)
+        left = max(offered - already, ZERO)
+        if typed > left:
+            order = self._session.get(PurchaseOrder, receipt.purchase_order_id)
+            number = order.po_number if order is not None else "the order"
+            raise ValidationError(
+                f"Line {line.line_number} brings in "
+                f"{plain_quantity(typed)} free, and line "
+                f"{purchase_line.line_number} of {number} has "
+                f"{plain_quantity(left)} left to give: "
+                f"{plain_quantity(offered)} free on the order, "
+                f"{plain_quantity(already)} already received."
+            )
+        return already + typed
+
     @stamps_tax_rules(GoodsReceiptLine, "goods_receipt_id")
     def _replace_lines(
         self,
@@ -1636,6 +1685,17 @@ class GoodsReceiptService(TransactionalDocumentService):
         previous_map = self._received_quantities_for_po(
             receipt.purchase_order_id, firm_id=firm_id, exclude_receipt_id=receipt.id
         )
+        # What the order's other receipts hold of each line's free goods, a
+        # draft included; a line of this receipt adds its own as it is read,
+        # so two lines of one order line share what it has to give.
+        free_taken = {
+            line_id: free
+            for line_id, (_, free) in self.taken_by_receipts(
+                receipt.purchase_order_id,
+                firm_id=firm_id,
+                exclude_receipt_id=receipt.id,
+            ).items()
+        }
         total_ordered = ZERO
         total_previous = ZERO
         total_current = ZERO
@@ -1688,6 +1748,12 @@ class GoodsReceiptService(TransactionalDocumentService):
                     f"and this line receives "
                     f"{plain_quantity(line.current_receipt_quantity)}{code}."
                 )
+            free_taken[purchase_line.id] = self._assert_free_goods_left(
+                receipt,
+                line,
+                purchase_line,
+                already=free_taken.get(purchase_line.id, ZERO),
+            )
             conversion = self._conversion(
                 quantity=total_sellable,
                 purchase_uom_id=purchase_uom_id,
@@ -2322,7 +2388,11 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
 
     def taken_by_receipts(
-        self, purchase_order_id: UUID, *, firm_id: UUID
+        self,
+        purchase_order_id: UUID,
+        *,
+        firm_id: UUID,
+        exclude_receipt_id: UUID | None = None,
     ) -> dict[UUID, tuple[Decimal, Decimal]]:
         """Return what an order's receipts hold of each line: charged, free.
 
@@ -2331,11 +2401,13 @@ class GoodsReceiptService(TransactionalDocumentService):
         bill is approved, and two draft bills of one order line must share
         the line's free goods between them whichever is approved first
         (D-PRC-90). `_received_quantities_for_po` counts what has arrived;
-        this counts what has been claimed.
+        this counts what has been claimed. A receipt being saved leaves itself
+        out with `exclude_receipt_id`, so an edit is not counted against its
+        own earlier figure.
         """
         # A request session does not flush on a read.
         self._session.flush()
-        rows = self._session.execute(
+        statement = (
             select(
                 GoodsReceiptLine.purchase_order_line_id,
                 func.coalesce(func.sum(GoodsReceiptLine.current_receipt_quantity), 0),
@@ -2350,7 +2422,10 @@ class GoodsReceiptService(TransactionalDocumentService):
                 GoodsReceiptLine.is_deleted.is_(False),
             )
             .group_by(GoodsReceiptLine.purchase_order_line_id)
-        ).all()
+        )
+        if exclude_receipt_id is not None:
+            statement = statement.where(GoodsReceipt.id != exclude_receipt_id)
+        rows = self._session.execute(statement).all()
         return {row[0]: (self._q(row[1] or 0), self._q(row[2] or 0)) for row in rows}
 
     def _received_quantities_for_po(

@@ -928,9 +928,16 @@ raises them through the real services, so the documents are real:
   draft part bills share the free goods whichever is approved first, and a
   cancelled one gives its share back. Each receipt used to take the bill's
   figure or the order line's whole one: two parts put 4 free units on the
-  shelf where 2 were ordered, at a diluted average cost. A goods receipt a
-  person types (receipt stage on) is unchanged: it states its own free goods,
-  blank is none, and it is not capped at the order's figure.
+  shelf where 2 were ordered, at a diluted average cost.
+- **A goods receipt a person types meets the same cap** (D-BUY-67). It states
+  its own free goods and blank is none, as before -- a receipt takes no
+  share by itself -- but a typed figure is held to what the order line still
+  has to give, counted the same way (`_assert_free_goods_left` over
+  `taken_by_receipts`, leaving the receipt being saved out of its own
+  count), and two lines of one receipt naming one order line are added
+  together. An order line that promised none takes none: free goods a
+  supplier adds later go on the order first. It used to be uncapped, so an
+  order of 10 with 2 free received 5 and 5 could shelve 4.
 
 The desktop follows the switches: Goods Receipts leaves the menu when receipts
 are off, the Purchase Orders tab when orders are off (Purchase Settings stays),
