@@ -18,7 +18,8 @@ import 'sc_gt_test.dart'
 // qsexe (sales, no stock) for the Role cases. IT_PART names sections:
 // lists, actions, adjust, opening, count, views, transfers, repack,
 // approvals, settings, round2 (serial units on the move, a used reference;
-// in pieces r2xfer, r2doc, r2open, r2ref), backorder. Role users run only the role section.
+// in pieces r2xfer, r2doc, r2open, r2ref), backorder, round3 (what a repack
+// may take). Role users run only the role section.
 
 const String _part = String.fromEnvironment('IT_PART');
 bool wants(String section) =>
@@ -1307,7 +1308,7 @@ void main() {
     }
 
     // ---------------- repacking -----------------------------------------------
-    if (wants('repack')) {
+    if (wants('repack') || wants('round3')) {
       Future<void> openNewRepack() async {
         await openStock(tester, 'repacking');
         await tapKey(tester, 'repack-new');
@@ -1350,90 +1351,158 @@ void main() {
       Future<int> repackCount() async =>
           ((await me.get('/api/v1/inventory/repacks')) as List<dynamic>).length;
 
-      await log.step('SC-ST-054 Repacking list opens', () async {
-        await openStock(tester, 'repacking');
-        overflow('Repacking');
-        final bool ok = screenHas(tester, 'Repack') || screenHas(tester, 'No repacks yet');
-        log.saw = 'texts ${textOnScreen(tester).take(16).join(' | ')}';
-        if (!ok) throw StateError(log.saw!);
-      });
+      if (wants('repack')) {
+        await log.step('SC-ST-054 Repacking list opens', () async {
+          await openStock(tester, 'repacking');
+          overflow('Repacking');
+          final bool ok = screenHas(tester, 'Repack') || screenHas(tester, 'No repacks yet');
+          log.saw = 'texts ${textOnScreen(tester).take(16).join(' | ')}';
+          if (!ok) throw StateError(log.saw!);
+        });
 
-      String? repackNumber;
-      await log.step('SC-ST-055 New repack: 2 of one product into 4 of another',
-          () async {
-        final double bn = await onHand(pN, whMain);
-        final double bn2 = await onHand(pN2, whMain);
-        final int before = await repackCount();
-        await openNewRepack();
-        await fillRepack('INVSCR-N2', '2', 'INVSCR-N', '4');
-        overflow('Repack dialog');
-        final String said =
-            await pressAndRead(tester, () => tapKey(tester, 'repack-save'));
-        await pumpFor(tester, const Duration(seconds: 2));
-        final double an = await onHand(pN, whMain);
-        final double an2 = await onHand(pN2, whMain);
-        final int after = await repackCount();
-        final dynamic rows = await me.get('/api/v1/inventory/repacks');
-        final List<Json> list = <Json>[for (final dynamic r in rows as List<dynamic>) r as Json];
-        list.sort((Json a, Json b) => '${b['created_at']}'.compareTo('${a['created_at']}'));
-        repackNumber = list.isEmpty ? null : '${list.first['repack_number']}';
-        log.saw = 'said "$said"; N $bn -> $an; N2 $bn2 -> $an2; repacks $before -> $after';
-        if (after != before + 1 || !sameMoney(an, bn + 4) || !sameMoney(an2, bn2 - 2)) {
-          throw StateError(log.saw!);
-        }
-      });
-      await clean(tester);
+        String? repackNumber;
+        await log.step('SC-ST-055 New repack: 2 of one product into 4 of another',
+            () async {
+          final double bn = await onHand(pN, whMain);
+          final double bn2 = await onHand(pN2, whMain);
+          final int before = await repackCount();
+          await openNewRepack();
+          await fillRepack('INVSCR-N2', '2', 'INVSCR-N', '4');
+          overflow('Repack dialog');
+          final String said =
+              await pressAndRead(tester, () => tapKey(tester, 'repack-save'));
+          await pumpFor(tester, const Duration(seconds: 2));
+          final double an = await onHand(pN, whMain);
+          final double an2 = await onHand(pN2, whMain);
+          final int after = await repackCount();
+          final dynamic rows = await me.get('/api/v1/inventory/repacks');
+          final List<Json> list = <Json>[for (final dynamic r in rows as List<dynamic>) r as Json];
+          list.sort((Json a, Json b) => '${b['created_at']}'.compareTo('${a['created_at']}'));
+          repackNumber = list.isEmpty ? null : '${list.first['repack_number']}';
+          log.saw = 'said "$said"; N $bn -> $an; N2 $bn2 -> $an2; repacks $before -> $after';
+          if (after != before + 1 || !sameMoney(an, bn + 4) || !sameMoney(an2, bn2 - 2)) {
+            throw StateError(log.saw!);
+          }
+        });
+        await clean(tester);
 
-      await log.step('SC-ST-056 a repack with no produce product is refused',
-          () async {
-        await openNewRepack();
-        await fillRepack('INVSCR-N2', '1', '', '');
-        log.saw = await refuse('New repack', () => tapKey(tester, 'repack-save'),
-            count: repackCount, mustSay: 'produce');
-      });
-      await clean(tester);
+        await log.step('SC-ST-056 a repack with no produce product is refused',
+            () async {
+          await openNewRepack();
+          await fillRepack('INVSCR-N2', '1', '', '');
+          log.saw = await refuse('New repack', () => tapKey(tester, 'repack-save'),
+              count: repackCount, mustSay: 'produce');
+        });
+        await clean(tester);
 
-      await log.step('SC-ST-057 a repack with quantity 0 is refused', () async {
-        await openNewRepack();
-        await fillRepack('INVSCR-N2', '0', 'INVSCR-N', '1');
-        log.saw = await refuse('New repack', () => tapKey(tester, 'repack-save'),
-            count: repackCount, mustSay: 'quantity');
-      });
-      await clean(tester);
+        await log.step('SC-ST-057 a repack with quantity 0 is refused', () async {
+          await openNewRepack();
+          await fillRepack('INVSCR-N2', '0', 'INVSCR-N', '1');
+          log.saw = await refuse('New repack', () => tapKey(tester, 'repack-save'),
+              count: repackCount, mustSay: 'quantity');
+        });
+        await clean(tester);
 
-      await log.step('SC-ST-058 wastage of 100 is refused', () async {
-        await openNewRepack();
-        await fillRepack('INVSCR-N2', '1', 'INVSCR-N', '1');
-        await tester.enterText(
-            find.byKey(const ValueKey<String>('repack-wastage')), '100');
-        log.saw = await refuse('New repack', () => tapKey(tester, 'repack-save'),
-            count: repackCount, mustSay: 'wastage');
-      });
-      await clean(tester);
+        await log.step('SC-ST-058 wastage of 100 is refused', () async {
+          await openNewRepack();
+          await fillRepack('INVSCR-N2', '1', 'INVSCR-N', '1');
+          await tester.enterText(
+              find.byKey(const ValueKey<String>('repack-wastage')), '100');
+          log.saw = await refuse('New repack', () => tapKey(tester, 'repack-save'),
+              count: repackCount, mustSay: 'wastage');
+        });
+        await clean(tester);
 
-      await log.step('SC-ST-059 consuming more than is held is refused by the server',
-          () async {
-        await openNewRepack();
-        await fillRepack('INVSCR-N2', '999999', 'INVSCR-N', '1');
-        await tester.enterText(
-            find.byKey(const ValueKey<String>('repack-wastage')), '0');
-        log.saw = await refuse('New repack', () => tapKey(tester, 'repack-save'),
-            count: repackCount);
-      });
-      await clean(tester);
+        await log.step('SC-ST-059 consuming more than is held is refused by the server',
+            () async {
+          await openNewRepack();
+          await fillRepack('INVSCR-N2', '999999', 'INVSCR-N', '1');
+          await tester.enterText(
+              find.byKey(const ValueKey<String>('repack-wastage')), '0');
+          log.saw = await refuse('New repack', () => tapKey(tester, 'repack-save'),
+              count: repackCount);
+        });
+        await clean(tester);
 
-      await log.step('SC-ST-060 Cancel repack reverses the stock', () async {
-        final double bn = await onHand(pN, whMain);
-        await openStock(tester, 'repacking');
-        await selectRow(tester, repackNumber!);
-        await tapKey(tester, 'repack-cancel');
-        final String said = await answerReason(tester);
-        await pumpFor(tester, const Duration(seconds: 2));
-        final double an = await onHand(pN, whMain);
-        log.saw = 'said "$said"; N $bn -> $an';
-        if (!sameMoney(an, bn - 4)) throw StateError(log.saw!);
-      });
-      await clean(tester);
+        await log.step('SC-ST-060 Cancel repack reverses the stock', () async {
+          final double bn = await onHand(pN, whMain);
+          await openStock(tester, 'repacking');
+          await selectRow(tester, repackNumber!);
+          await tapKey(tester, 'repack-cancel');
+          final String said = await answerReason(tester);
+          await pumpFor(tester, const Duration(seconds: 2));
+          final double an = await onHand(pN, whMain);
+          log.saw = 'said "$said"; N $bn -> $an';
+          if (!sameMoney(an, bn - 4)) throw StateError(log.saw!);
+        });
+        await clean(tester);
+      }
+
+      // ---------------- round 3: what a repack may take ------------------------
+      if (wants('round3')) {
+        await log.step(
+            'SC-ST-088 a repack of a serial-tracked product is refused in words',
+            () async {
+          final Json pS = await productByCode('INVSCR-S');
+          final double before = await onHand(pS, whMain);
+          // The first press on a list that has only just opened is lost.
+          await openStock(tester, 'repacking');
+          await pumpFor(tester, const Duration(seconds: 2));
+          await openNewRepack();
+          await fillRepack('INVSCR-S', '1', 'INVSCR-N', '1');
+          final String saw = await refuse(
+              'New repack', () => tapKey(tester, 'repack-save'),
+              count: repackCount, mustSay: 'serial number');
+          final double after = await onHand(pS, whMain);
+          log.saw = '$saw; INVSCR-S $before -> $after';
+          if (!sameMoney(before, after)) throw StateError(log.saw!);
+        });
+        await clean(tester);
+
+        await log.step(
+            'SC-ST-089 a repack takes a batch-tracked product from its batches, none named',
+            () async {
+          final Json pB = await productByCode('INVSCR-B');
+          Future<List<Json>> rowsOfB() async => <Json>[
+                for (final dynamic r in (await me.get(
+                        '/api/v1/inventory?page_size=100&product_id=${pB['id']}'))
+                    as List<dynamic>)
+                  if ((r as Json)['warehouse_id'] == whMain['id']) r,
+              ];
+          String held(List<Json> rows) => <String>[
+                for (final Json r in rows)
+                  '${r['batch_number'] ?? 'no batch'}=${num2(r['available_quantity'])}',
+              ].join(', ');
+          double inBatches(List<Json> rows) => rows
+              .where((Json r) => r['batch_id'] != null)
+              .fold<double>(
+                  0, (double a, Json r) => a + num2(r['current_quantity']));
+          final List<Json> before = await rowsOfB();
+          final double free = before
+              .where((Json r) => r['batch_id'] != null)
+              .fold<double>(
+                  0, (double a, Json r) => a + num2(r['available_quantity']));
+          if (free < 1) {
+            throw StateError(
+                'BLOCKED: the fixture holds no free INVSCR-B in a batch (${held(before)})');
+          }
+          final int count = await repackCount();
+          await openNewRepack();
+          await fillRepack('INVSCR-B', '1', 'INVSCR-N', '1');
+          final String said =
+              await pressAndRead(tester, () => tapKey(tester, 'repack-save'));
+          await pumpFor(tester, const Duration(seconds: 2));
+          final List<Json> after = await rowsOfB();
+          final int now = await repackCount();
+          log.saw = 'said "$said"; repacks $count -> $now; '
+              'INVSCR-B ${held(before)} -> ${held(after)}';
+          if (now != count + 1 ||
+              !sameMoney(inBatches(after), inBatches(before) - 1)) {
+            throw StateError(log.saw!);
+          }
+        });
+        await clean(tester);
+      }
     }
 
     // ---------------- approvals, reasons, settings -----------------------------

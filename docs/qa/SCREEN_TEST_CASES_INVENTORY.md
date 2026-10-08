@@ -28,7 +28,7 @@ IT_EMAIL=t10069cwy.tradeadmin@fixtures.local IT_PASSWORD='Fixture@2026pw' \
   IT_PART=lists,actions LIMIT=900 bash integration_test/run.sh sc_st_test.dart
 # sc_st parts: lists, actions, adjust, opening, count, views, transfers,
 #              repack, approvals, settings, round2 (or its pieces r2xfer,
-#              r2doc, r2open, r2ref), backorder
+#              r2doc, r2open, r2ref), backorder, round3
 # sc_bs parts: batches, lots, serials, expiry
 # any other user (qfmgr, qstore, qro, qsmgr, qsexe) runs the Role cases only
 ```
@@ -179,6 +179,17 @@ cases, because opening stock is posted once per item and warehouse.
 The refusals of round 2 that already had a case are re-clicked rather than
 renumbered: SC-ST-038 (the count sheet now names the line), SC-BS-008 (a
 selling price above the MRP) and SC-BS-018 (a lot below nothing).
+
+## Round 3: what a repack may take
+
+Added 2026-10-08 with round 3 (D-STK-51, D-STK-52). Part `round3` of
+`sc_st_test.dart`. It needs at least one free unit of `INVSCR-B` in a batch
+in MAIN and stops as blocked where there is none.
+
+| Id | Kind | User | Steps on screen | Expected on screen |
+| --- | --- | --- | --- | --- |
+| SC-ST-088 | Negative | FA | Stock > Repacking; **New repack**; consume 1 of `INVSCR-S` (serial-tracked), produce 1 of `INVSCR-N`; **Post repack** | "INVSCR-S is tracked by serial number, and a repack moves a quantity without naming units. Move the units as themselves: a transfer, a sale or a write-off names each one."; dialog open with its lines; no repack saved; stock unchanged |
+| SC-ST-089 | Positive | FA | **New repack**; consume 1 of `INVSCR-B` (held in batches, none named on the line), produce 1 of `INVSCR-N`; **Post repack** | "Repack posted."; one more repack in the list; the batch expiring first holds one less, the other batches are unchanged |
 
 ## Role cases (stock)
 
