@@ -34,7 +34,10 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
-from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.document_posting import (
+    DocumentPostingService,
+    assert_stock_date_in_open_period,
+)
 from app.inventory.models import (
     InventoryRecord,
     PhysicalCount,
@@ -222,6 +225,9 @@ class PhysicalCountService(TransactionalDocumentService):
         _, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
+        assert_stock_date_in_open_period(
+            self._session, firm_id, data.count_date, what="A stock count"
+        )
         number = self._issue_number(
             numbering_rule,
             typed=(
@@ -379,6 +385,9 @@ class PhysicalCountService(TransactionalDocumentService):
                 "counted quantity before posting it."
             )
         self._assert_within_limit(row, sheet, firm_id=firm_id, actor_id=actor_id)
+        assert_stock_date_in_open_period(
+            self._session, firm_id, row.count_date, what="A stock count"
+        )
         adjusted = 0
         differences: list[tuple[str, Decimal]] = []
         for line in sheet:

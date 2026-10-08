@@ -28,7 +28,10 @@ from app.core.utils.chunks import chunks
 from app.core.utils.csv_text import csv_text, sheet_text
 from app.core.utils.money import quantize_money
 from app.finance.services.control_accounts import ControlAccountPurpose
-from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.document_posting import (
+    DocumentPostingService,
+    assert_stock_date_in_open_period,
+)
 from app.inventory.models import (
     InventoryRecord,
     InventoryTransaction,
@@ -1915,6 +1918,12 @@ class InventoryService:
             ValidationError: If there is not that much to hold or release.
 
         """
+        assert_stock_date_in_open_period(
+            self._session,
+            firm_scope,
+            data.transaction_date,
+            what="A quarantine hold or release",
+        )
         transaction = self.stage_quarantine(
             data, firm_scope=firm_scope, actor_id=actor_id
         )
@@ -2033,6 +2042,9 @@ class InventoryService:
             ValidationError: If the source does not hold enough to send.
 
         """
+        assert_stock_date_in_open_period(
+            self._session, firm_scope, data.transaction_date, what="A transfer"
+        )
         (
             base_quantity,
             entered_quantity,

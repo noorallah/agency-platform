@@ -285,6 +285,49 @@ def prefixed_reference(prefix: str, number: str) -> str:
     return f"{prefix}-{number}"
 
 
+def assert_stock_date_in_open_period(
+    session: Session, firm_id: UUID, on: date, *, what: str
+) -> None:
+    """Refuse a stock movement dated outside the firm's open periods.
+
+    A transfer, a quarantine hold, a count or a repack posts no journal, so
+    nothing asked the ledger about its date and one dated 2030 or 1999 was
+    stored (D-STK-41). The rule applies **only to a firm that has opened
+    books**: one that keeps stock and no accounts has no period to be inside,
+    and goes on as before.
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        on: The date the movement carries.
+        what: The movement, as the refusal names it ("A transfer").
+
+    Raises:
+        ValidationError: If the firm has periods and no open one covers the
+            date.
+
+    """
+    periods = select(AccountingPeriod.id).where(
+        AccountingPeriod.firm_id == firm_id,
+        AccountingPeriod.is_deleted.is_(False),
+    )
+    if session.scalar(periods.limit(1)) is None:
+        return
+    covering = session.scalar(
+        periods.where(
+            AccountingPeriod.starts_on <= on,
+            AccountingPeriod.ends_on >= on,
+            AccountingPeriod.status == PeriodStatus.OPEN.value,
+        ).limit(1)
+    )
+    if covering is None:
+        raise ValidationError(
+            f"No open accounting period covers {on.isoformat()}. {what} moves "
+            "stock on its date, so open the period or choose a date inside "
+            "an open one."
+        )
+
+
 class DocumentPostingService:
     """Turn approved documents into balanced journal entries."""
 

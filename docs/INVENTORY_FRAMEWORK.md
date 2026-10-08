@@ -212,6 +212,15 @@ Plus opening stock batches, `create_adjustment` and `reverse_transaction` from
 the inventory API itself. **Sales invoices do not move stock** — the delivery
 note does. Invoicing is a receivable and a tax event, not a stock event.
 
+**A movement that posts no journal still keeps to the periods.** A transfer,
+a quarantine hold, a transfer document, a count and a repack call
+`assert_stock_date_in_open_period` (`app/finance/services/document_posting.py`)
+with the date they carry, and are refused where no open accounting period
+covers it -- the answer a write-off already got from its journal (D-STK-41).
+The rule holds only for a firm that has opened books; one with no period at
+all keeps any date. `stage_quarantine` does not ask, because its composing
+caller is a goods receipt whose journal has already answered.
+
 ## Valuation
 
 A moving weighted average per firm and product, rolled forward in

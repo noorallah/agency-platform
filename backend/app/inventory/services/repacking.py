@@ -24,7 +24,10 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
-from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.document_posting import (
+    DocumentPostingService,
+    assert_stock_date_in_open_period,
+)
 from app.inventory.models.repack import Repack, RepackLine
 from app.inventory.services.inventory_service import InventoryService
 from app.products.models import Product
@@ -150,6 +153,7 @@ class RepackService(TransactionalDocumentService):
 
         """
         on = data.repack_date
+        assert_stock_date_in_open_period(self._session, firm_id, on, what="A repack")
         products = {
             p.id: p
             for p in self._session.scalars(

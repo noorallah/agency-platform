@@ -5,12 +5,15 @@ batch. D-STK-48: a product that tracks expiry took a batch with no date.
 D-STK-50: Add Serial numbered a unit without looking at the stock held.
 """
 
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.batch_serial.models.batch_serial import BatchRecord
 from app.batch_serial.schemas.batch_serial import (
@@ -20,14 +23,32 @@ from app.batch_serial.schemas.batch_serial import (
     SerialUpdate,
 )
 from app.batch_serial.services import BatchSerialService
+from app.core.database.base import Base
 from app.core.exceptions import ValidationError
+from app.finance.models import AccountingPeriod
+from app.finance.services.document_posting import (
+    assert_stock_date_in_open_period,
+)
 from app.goods_receipt.models import GoodsReceiptLine
 from app.goods_receipt.schemas import GoodsReceiptCreate
 from app.goods_receipt.services import GoodsReceiptService
 from app.inventory.models import InventoryRecord
+from app.inventory.schemas.inventory import (
+    PhysicalCountCreate,
+    StockQuarantineCreate,
+    StockTransferCreate,
+)
+from app.inventory.services.inventory_service import InventoryService
+from app.inventory.services.physical_count_service import PhysicalCountService
+from app.inventory.services.repacking import RepackService, RepackWrite
+from app.inventory.services.stock_transfers import (
+    StockTransferService,
+    StockTransferWrite,
+)
 from tests.unit import test_batch_serial_expiry as registers
 from tests.unit.test_goods_receipt import _Fixture, _session_factory
 from tests.unit.test_inventory_round_1_b import _Register
+from tests.unit.test_purchase_chain_synthesis import _Firm
 
 pytestmark = pytest.mark.typed_document_numbers
 
@@ -292,3 +313,140 @@ def test_a_unit_naming_no_warehouse_is_judged_against_the_firm() -> None:
     add("ONLY-1")
     with pytest.raises(ValidationError, match="The firm holds 1 of"):
         add("ONLY-2")
+
+
+# ── D-STK-41: a movement that posts no journal still keeps to the periods ───
+
+
+def _firm_with_books(code: str) -> _Firm:
+    """Build a firm with open books holding ten of its product."""
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    built = _Firm(sessionmaker(bind=engine, expire_on_commit=False)(), code=code)
+    built.stages(order=False, receipt=False)
+    bills = built.bills()
+    bill = bills.create_invoice(
+        built.product_bill("10", "100"), firm_id=built.firm.id, actor_id=built.actor_id
+    )
+    bills.approve_invoice(bill.id, firm_scope=built.firm.id, actor_id=built.actor_id)
+    assert built.session.scalar(
+        select(AccountingPeriod.id).where(AccountingPeriod.firm_id == built.firm.id)
+    )
+    return built
+
+
+def _stock_writes(firm: _Firm, on: date) -> dict[str, Callable[[], object]]:
+    """Return each journal-less stock write, dated ``on``, ready to run."""
+    session, firm_id, actor = firm.session, firm.firm.id, firm.actor_id
+    place = {"branch_id": firm.branch.id, "product_id": firm.product.id}
+    inventory = InventoryService(session)
+    return {
+        "transfer": lambda: inventory.transfer_stock(
+            StockTransferCreate(
+                **place,
+                from_warehouse_id=firm.warehouse.id,
+                to_warehouse_id=uuid4(),
+                quantity=Decimal("1"),
+                transaction_date=on,
+            ),
+            firm_scope=firm_id,
+            actor_id=actor,
+        ),
+        "quarantine": lambda: inventory.quarantine_stock(
+            StockQuarantineCreate(
+                **place,
+                warehouse_id=firm.warehouse.id,
+                action="HOLD",
+                quantity=Decimal("1"),
+                transaction_date=on,
+            ),
+            firm_scope=firm_id,
+            actor_id=actor,
+        ),
+        "transfer document": lambda: StockTransferService(session).create(
+            StockTransferWrite(
+                transfer_date=on,
+                from_warehouse_id=firm.warehouse.id,
+                to_warehouse_id=uuid4(),
+                lines=[{"product_id": firm.product.id, "quantity": "1"}],
+            ),
+            firm_id=firm_id,
+            actor_id=actor,
+        ),
+        "count": lambda: PhysicalCountService(session).create(
+            PhysicalCountCreate(
+                branch_id=firm.branch.id, warehouse_id=firm.warehouse.id, count_date=on
+            ),
+            firm_id=firm_id,
+            actor_id=actor,
+        ),
+        "repack": lambda: RepackService(session).post(
+            RepackWrite(
+                repack_date=on,
+                branch_id=firm.branch.id,
+                warehouse_id=firm.warehouse.id,
+                lines=[
+                    {"kind": "CONSUME", "product_id": firm.product.id, "quantity": "1"},
+                    {"kind": "PRODUCE", "product_id": uuid4(), "quantity": "1"},
+                ],
+            ),
+            firm_id=firm_id,
+            actor_id=actor,
+        ),
+    }
+
+
+@pytest.mark.parametrize("on", [date(2030, 1, 1), date(1999, 1, 1)])
+def test_a_stock_move_outside_an_open_period_is_refused(on: date) -> None:
+    """Every write that posts no journal is refused, and nothing moves."""
+    firm = _firm_with_books("R4DAT")
+
+    for name, write in _stock_writes(firm, on).items():
+        with pytest.raises(ValidationError, match="No open accounting period"):
+            write()
+        firm.session.rollback()
+        assert name
+
+    row = firm.session.scalar(
+        select(InventoryRecord).where(InventoryRecord.product_id == firm.product.id)
+    )
+    assert row is not None
+    assert (row.current_quantity, row.quarantine_quantity) == (Decimal("10"), 0)
+
+
+def test_a_stock_move_inside_an_open_period_goes_through() -> None:
+    """The rule reads the date and nothing else: a hold dated in the year."""
+    firm = _firm_with_books("R4DIN")
+
+    _stock_writes(firm, date(2026, 8, 12))["quarantine"]()
+
+    row = firm.session.scalar(
+        select(InventoryRecord).where(InventoryRecord.product_id == firm.product.id)
+    )
+    assert row is not None
+    assert (row.current_quantity, row.quarantine_quantity) == (Decimal("9"), 1)
+
+
+def test_a_firm_with_no_books_keeps_any_date() -> None:
+    """A firm that keeps stock and no accounts has no period to be inside."""
+    firm = _firm_with_books("R4NOB")
+
+    assert_stock_date_in_open_period(
+        firm.session, uuid4(), date(2030, 1, 1), what="A transfer"
+    )
+    for period in firm.session.scalars(
+        select(AccountingPeriod).where(AccountingPeriod.firm_id == firm.firm.id)
+    ):
+        period.is_deleted = True
+    firm.session.commit()
+
+    _stock_writes(firm, date(2030, 1, 1))["quarantine"]()
+
+    held = firm.session.scalar(
+        select(InventoryRecord.quarantine_quantity).where(
+            InventoryRecord.product_id == firm.product.id
+        )
+    )
+    assert held == 1
