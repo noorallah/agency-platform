@@ -193,6 +193,13 @@ _SELLING_IMPORTS = {
     "sales_return/services/sales_return_service.py": "import_returns",
 }
 
+#: The buying imports that loop over records the same way (D-BUY-73).
+_BUYING_IMPORTS = {
+    "purchase/services/purchase_service.py": "import_orders",
+    "goods_receipt/services/goods_receipt_service.py": "import_receipts",
+    "purchase_invoice/services/purchase_invoice_service.py": "import_invoices",
+}
+
 
 def test_a_record_the_service_refuses_is_named_and_everything_is_undone() -> None:
     """The second of three is refused: named, rolled back, the third not tried."""
@@ -232,8 +239,10 @@ def test_a_failure_that_is_no_refusal_is_undone_and_left_as_it_is() -> None:
     assert undone == ["rollback"]
 
 
-@pytest.mark.parametrize(("path", "method"), sorted(_SELLING_IMPORTS.items()))
-def test_every_selling_import_names_the_record_it_refuses(
+@pytest.mark.parametrize(
+    ("path", "method"), sorted((_SELLING_IMPORTS | _BUYING_IMPORTS).items())
+)
+def test_every_document_import_names_the_record_it_refuses(
     path: str, method: str
 ) -> None:
     """Each stages its records through `stage_records`, never a bare loop."""

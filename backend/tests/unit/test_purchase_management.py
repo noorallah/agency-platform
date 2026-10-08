@@ -1003,6 +1003,54 @@ def test_purchase_service_validations_multi_firm_search_and_import_duplicates() 
             duplicate_import, firm_scope=first_firm.id, actor_id=actor_id
         )
 
+    # D-BUY-73: a file refused at its second record leaves no first one behind.
+    def numbered(number: str, **over: UUID) -> PurchaseOrderCreate:
+        """One record of a file, differing from the others by its number."""
+        return _purchase_data(
+            **{
+                "branch_id": branch.id,
+                "warehouse_id": warehouse.id,
+                "vendor_id": vendor.id,
+                "product_id": product.id,
+                "tax_profile_id": tax_profile_id,
+                **over,
+            },
+            po_number=number,
+        )
+
+    def held(number: str) -> int:
+        """How many orders carry a number."""
+        return session.scalar(
+            select(func.count())
+            .select_from(PurchaseOrder)
+            .where(PurchaseOrder.po_number == number)
+        )
+
+    with pytest.raises(ValidationError) as refused:
+        service.import_orders(
+            PurchaseOrderImportRequest(
+                records=[
+                    numbered("PO-IMP-010"),
+                    numbered("PO-IMP-011", tax_profile_id=uuid4()),
+                ]
+            ),
+            firm_scope=first_firm.id,
+            actor_id=actor_id,
+        )
+    assert refused.value.message.startswith("Record 2 of 2: Selected tax profile")
+    assert refused.value.message.endswith("Nothing was imported.")
+    assert held("PO-IMP-010") == 0
+    rows = service.import_orders(
+        PurchaseOrderImportRequest(
+            records=[numbered("PO-IMP-010"), numbered("PO-IMP-011")]
+        ),
+        firm_scope=first_firm.id,
+        actor_id=actor_id,
+    )
+    session.rollback()
+    assert [row.status for row in rows] == ["DRAFT", "DRAFT"]
+    assert (held("PO-IMP-010"), held("PO-IMP-011")) == (1, 1)
+
 
 def test_purchase_api_routes_import_export_summary_history_and_permissions() -> None:
     """Every purchase route enforces its permission and returns its shape."""

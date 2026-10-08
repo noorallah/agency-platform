@@ -41,6 +41,7 @@ from app.core.utils.pricing import (
     resolve_line_discount,
     resolve_supplier_unit_price,
 )
+from app.core.validation.payloads import stage_records
 from app.document_framework.models import (
     DocumentTypeDefinition,
 )
@@ -324,6 +325,14 @@ class PurchaseService(TransactionalDocumentService):
         self, data: PurchaseOrderCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseOrder:
         """Create order, always as a draft, and commit it."""
+        row = self._stage_typed_order(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def _stage_typed_order(
+        self, data: PurchaseOrderCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
+        """Stage an order somebody typed or imported, with its custom fields."""
         row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
         if data.attributes:
             document_attributes.store(
@@ -334,7 +343,6 @@ class PurchaseService(TransactionalDocumentService):
                 firm_id=row.firm_id,
                 actor_id=actor_id,
             )
-        self._session.commit()
         return row
 
     def preview_order(
@@ -1615,12 +1623,23 @@ class PurchaseService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
     ) -> list[PurchaseOrder]:
-        """Import orders."""
+        """Import a file of purchase orders, all of them or none.
+
+        It looped over the committing ``create_order``, so a file refused at
+        its second record left the first behind as a draft order (D-BUY-73).
+        Each record is staged and the file committed once; a record the
+        service refuses is named: "Record 2 of 2: ... Nothing was imported."
+        """
         self._validate_import_records(data.records, firm_scope=firm_scope)
-        return [
-            self.create_order(record, firm_id=firm_scope, actor_id=actor_id)
-            for record in data.records
-        ]
+        rows = stage_records(
+            data.records,
+            lambda record: self._stage_typed_order(
+                record, firm_id=firm_scope, actor_id=actor_id
+            ),
+            rollback=self._session.rollback,
+        )
+        self._session.commit()
+        return rows
 
     def import_orders_csv(
         self, csv_content: str, *, firm_scope: UUID, actor_id: UUID

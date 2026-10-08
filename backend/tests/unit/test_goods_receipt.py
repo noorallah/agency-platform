@@ -2068,3 +2068,57 @@ def test_completing_a_completed_receipt_is_refused_in_words() -> None:
     session.expire_all()
     assert _stock(session, fixture.firm.id, fixture.product.id) == Decimal("4")
     assert len(session.scalars(select(InventoryTransaction)).all()) == 1
+
+
+def _receipts_held(fixture: "_Fixture") -> int:
+    """Count the firm's goods receipts, whatever their state."""
+    return fixture.session.scalar(
+        select(func.count())
+        .select_from(GoodsReceipt)
+        .where(GoodsReceipt.firm_id == fixture.firm.id)
+    )
+
+
+def test_a_refused_receipt_import_leaves_nothing_behind() -> None:
+    """D-BUY-73: the second record is refused, and the first stayed as a draft.
+
+    Driven 2026-10-09 on the fixture firm (``p_receipt_import_free``): a file
+    of two receipts on one order line, refused at the second for free goods
+    the order no longer had, left the first behind holding them. The import
+    looped over the committing save; every record is staged and the file
+    committed once, and the refusal names the record.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-IMP")
+    service = GoodsReceiptService(session)
+    audits = session.scalar(select(func.count()).select_from(AuditLog))
+
+    with pytest.raises(ValidationError) as refused:
+        service.import_receipts(
+            [fixture.receipt_payload("4"), fixture.receipt_payload("20")],
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+
+    assert refused.value.message.startswith("Record 2 of 2: ")
+    assert "exceeds allowed quantity" in refused.value.message
+    assert refused.value.message.endswith("Nothing was imported.")
+    assert _receipts_held(fixture) == 0
+    assert session.scalar(select(func.count()).select_from(AuditLog)) == audits
+
+
+def test_a_good_receipt_import_writes_every_record() -> None:
+    """D-BUY-73: the same file, once nothing in it is refused."""
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-IMP2")
+
+    rows = GoodsReceiptService(session).import_receipts(
+        [fixture.receipt_payload("4"), fixture.receipt_payload("3")],
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+
+    session.rollback()
+    assert [row.status for row in rows] == ["DRAFT", "DRAFT"]
+    assert len({row.grn_number for row in rows}) == 2
+    assert _receipts_held(fixture) == 2

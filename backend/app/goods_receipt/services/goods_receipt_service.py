@@ -35,6 +35,7 @@ from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import continued_amount, inherited_line_discount
 from app.core.utils.quantities import plain_quantity
+from app.core.validation.payloads import stage_records
 from app.document_files.services import goods_receipt_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -299,10 +300,16 @@ class GoodsReceiptService(TransactionalDocumentService):
         self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
     ) -> GoodsReceipt:
         """Create receipt and commit."""
-        self._refuse_empty_receipt_lines(data.lines)
-        row = self.stage_receipt(data, firm_id=firm_id, actor_id=actor_id)
+        row = self._stage_typed_receipt(data, firm_id=firm_id, actor_id=actor_id)
         self._session.commit()
         return row
+
+    def _stage_typed_receipt(
+        self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> GoodsReceipt:
+        """Stage a receipt somebody typed or imported, with a typed one's checks."""
+        self._refuse_empty_receipt_lines(data.lines)
+        return self.stage_receipt(data, firm_id=firm_id, actor_id=actor_id)
 
     def _refuse_empty_receipt_lines(
         self, lines: Sequence[GoodsReceiptLineWrite]
@@ -1537,11 +1544,24 @@ class GoodsReceiptService(TransactionalDocumentService):
     def import_receipts(
         self, data: list[GoodsReceiptCreate], *, firm_scope: UUID, actor_id: UUID
     ) -> list[GoodsReceipt]:
-        """Import receipts."""
-        return [
-            self.create_receipt(item, firm_id=firm_scope, actor_id=actor_id)
-            for item in data
-        ]
+        """Import a file of goods receipts, all of them or none.
+
+        Each record is staged with the checks a single save applies and the
+        file is committed once. It looped over the committing
+        ``create_receipt``, so a file refused at its second record left the
+        first behind as a draft, holding the order's free goods (D-BUY-73).
+        A record the service refuses is named: "Record 2 of 2: ... Nothing
+        was imported."
+        """
+        rows = stage_records(
+            data,
+            lambda record: self._stage_typed_receipt(
+                record, firm_id=firm_scope, actor_id=actor_id
+            ),
+            rollback=self._session.rollback,
+        )
+        self._session.commit()
+        return rows
 
     def export_receipts_csv(self, *, firm_scope: UUID, search: str | None) -> str:
         """Export receipts csv."""
