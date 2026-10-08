@@ -81,8 +81,13 @@ class _Api extends ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     BatchQuery filters = const BatchQuery(),
-  }) async =>
-      PagedResult<BatchRecord>(items: batchRows, total: batchRows.length);
+  }) async {
+    batchQueries.add(filters);
+    return PagedResult<BatchRecord>(items: batchRows, total: batchRows.length);
+  }
+
+  /// What each read of the batches asked for.
+  final List<BatchQuery> batchQueries = [];
 
   @override
   Future<BatchSummaryRecord> batchSummary() async => const BatchSummaryRecord(
@@ -272,6 +277,20 @@ void main() {
 
       expect(saved.single['batch_id'], 'batch-B-002');
       expect(saved.single['quantity'], -3);
+    });
+
+    testWidgets('the batches asked for are those of the product, in any warehouse',
+        (tester) async {
+      // Asking for the chosen warehouse's own hid the box in a warehouse that
+      // held none of the product yet (seen re-clicking SC-ST-026).
+      _viewport(tester);
+      final _Api api = _Api(batchRows: [_batch('B-001')]);
+      await tester.pumpWidget(_adjustmentDialog(api, <Json>[]));
+      await tester.pumpAndSettle();
+
+      expect(api.batchQueries, isNotEmpty);
+      expect(api.batchQueries.last.productId, isNotNull);
+      expect(api.batchQueries.last.warehouseId, isNull);
     });
 
     testWidgets('a product with no batches shows no Batch box and sends none',
