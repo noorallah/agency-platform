@@ -78,14 +78,30 @@ class _Register:
         )
         self.actor_id = uuid4()
         self.service = BatchSerialService(self.session)
+        # Units are numbered only up to the stock held (D-STK-50): fifty on
+        # a shelf of their own, so the warehouse the tests read stays theirs.
+        self.session.add(
+            InventoryRecord(
+                firm_id=self.firm.id,
+                branch_id=uuid4(),
+                warehouse_id=uuid4(),
+                storage_locator="SPARE",
+                product_id=self.product.id,
+                current_quantity=Decimal("50"),
+                available_quantity=Decimal("50"),
+            )
+        )
+        self.session.commit()
 
     def batch(self, number: str, expiry: date | None = None) -> BatchRecord:
-        """Record one batch of the product."""
+        """Record one batch of the product, dated well ahead unless told."""
         return self.service.create_batch(
             firm_scope=self.firm.id,
             actor_id=self.actor_id,
             data=BatchCreate(
-                product_id=self.product.id, batch_number=number, expiry_date=expiry
+                product_id=self.product.id,
+                batch_number=number,
+                expiry_date=expiry or date(2031, 12, 31),
             ),
         )
 

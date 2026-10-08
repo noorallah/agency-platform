@@ -1303,13 +1303,17 @@ class InventoryService:
 
         """
         number = (line.batch_number or "").strip()
+        product = self._session.get(Product, line.product_id)
         if not number:
-            product = self._session.get(Product, line.product_id)
             if product is not None and product.require_batch_on_receipt:
                 raise ValidationError(
                     f"{product.code} must be taken in with a batch number, "
                     "including as opening stock."
                 )
+            return None
+        if product is not None and not product.track_batch:
+            # As on a goods receipt: a number typed for a product that keeps
+            # no batches registers none (D-STK-43).
             return None
         # Imported here rather than at the top: `batch_serial` reads stock
         # totals from this service, so the two modules would import each other

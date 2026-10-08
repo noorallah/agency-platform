@@ -93,6 +93,7 @@ def test_a_batch_cannot_sell_above_its_own_mrp() -> None:
             data=BatchCreate(
                 product_id=books.product.id,
                 batch_number="MRP-1",
+                expiry_date=date(2031, 12, 31),
                 mrp=Decimal("50"),
                 selling_price=Decimal("90"),
             ),
@@ -104,6 +105,7 @@ def test_a_batch_cannot_sell_above_its_own_mrp() -> None:
         data=BatchCreate(
             product_id=books.product.id,
             batch_number="MRP-2",
+            expiry_date=date(2031, 12, 31),
             mrp=Decimal("50"),
             selling_price=Decimal("50"),
         ),

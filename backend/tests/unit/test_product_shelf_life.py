@@ -42,7 +42,8 @@ def _track(fixture: _Fixture, *switches: str) -> None:
     The product's own switches decide what its batch carries, never the
     firm's profile (backlog 89).
     """
-    for switch in switches:
+    # Always by batch: a number typed for a product that keeps none is ignored.
+    for switch in ("track_batch", *switches):
         setattr(fixture.product, switch, True)
     fixture.session.commit()
 
@@ -132,6 +133,7 @@ def test_a_product_with_no_shelf_life_fills_nothing() -> None:
 def test_a_product_that_does_not_track_expiry_gets_none_filled() -> None:
     """Filling an expiry its batch would then be refused would stop the receipt."""
     fixture = _Fixture(_session_factory()(), "SHL4")
+    _track(fixture)
     fixture.product.shelf_life_days = 180
     fixture.session.commit()
 

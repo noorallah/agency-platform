@@ -37,6 +37,7 @@ from app.batch_serial.schemas.batch_serial import (
 from app.batch_serial.services.product_tracking import (
     FIELD_SWITCHES,
     assert_date_order,
+    assert_expiry_stated,
     assert_product_fields,
     assert_product_keeps,
     tracked_product,
@@ -98,6 +99,10 @@ _AUDITED_FIELDS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+
+#: The statuses of a unit that stands in a warehouse and is counted in its
+#: stock: free, promised, or arrived damaged.
+_UNITS_ON_HAND = frozenset({"AVAILABLE", "RESERVED", "DAMAGED"})
 
 #: The dates of a batch that are judged against one another.
 _BATCH_DATES = frozenset({"manufacturing_date", "expiry_date", "best_before_date"})
@@ -659,9 +664,20 @@ class BatchSerialService:
         product = tracked_product(self._session, firm_scope, data.product_id)
         assert_product_keeps(product, "batch")
         self._assert_batch_fields(firm_scope, product, data.model_dump())
+        # Only the manufacturing date typed: the shelf life fills the expiry,
+        # as it does on a receipt (STK-18). A typed expiry always stands.
+        expiry_date = data.expiry_date
+        if expiry_date is None and product.track_expiry:
+            expiry_date = expiry_from_shelf_life(
+                data.manufacturing_date,
+                data.shelf_life_days or product.shelf_life_days,
+            )
+        assert_expiry_stated(
+            product, batch_number=batch_number, expiry_date=expiry_date
+        )
         assert_date_order(
             manufacturing_date=data.manufacturing_date,
-            expiry_date=data.expiry_date,
+            expiry_date=expiry_date,
             best_before_date=data.best_before_date,
         )
         assert_trade_rates_within_mrp(
@@ -681,7 +697,7 @@ class BatchSerialService:
             supplier_batch=data.supplier_batch,
             internal_batch=data.internal_batch,
             manufacturing_date=data.manufacturing_date,
-            expiry_date=data.expiry_date,
+            expiry_date=expiry_date,
             best_before_date=data.best_before_date,
             status=data.status,
             shelf_life_days=data.shelf_life_days,
@@ -770,6 +786,16 @@ class BatchSerialService:
             )
         )
         if existing is not None:
+            # The date is the manufacturer's fact and is left alone where the
+            # batch has one. A batch registered before the date was
+            # compulsory takes this delivery's, and is refused with neither
+            # (D-STK-48).
+            product = tracked_product(self._session, firm_scope, product_id)
+            if existing.expiry_date is None and product.track_expiry:
+                assert_expiry_stated(
+                    product, batch_number=number, expiry_date=expiry_date
+                )
+                existing.expiry_date = expiry_date
             if existing.mrp is None and mrp is not None:
                 existing.mrp = mrp
             if existing.selling_price is None and selling_price is not None:
@@ -784,6 +810,7 @@ class BatchSerialService:
         # arrived have to be receivable. Whether the batch may be dated is
         # the product's own switch.
         self._assert_batch_fields(firm_scope, product, {"expiry_date": expiry_date})
+        assert_expiry_stated(product, batch_number=number, expiry_date=expiry_date)
         # Every path that makes a batch from a delivery -- a receipt, opening
         # stock -- is held to the order the batch master asks for (F10).
         assert_date_order(
@@ -956,6 +983,16 @@ class BatchSerialService:
             moved=lambda: self._batch_has_moved(firm_scope, record.id),
         )
         self._assert_batch_fields(firm_scope, product, judged)
+        if "expiry_date" in judged:
+            # Only a save that touches the date is judged, so a batch
+            # registered before the date was compulsory can still be held
+            # or recalled (D-STK-48).
+            expiry = judged["expiry_date"]
+            assert_expiry_stated(
+                product,
+                batch_number=record.batch_number,
+                expiry_date=expiry if isinstance(expiry, date) else None,
+            )
         if judged.keys() & _BATCH_DATES:
             assert_date_order(
                 manufacturing_date=update_data.get(
@@ -1627,6 +1664,79 @@ class BatchSerialService:
             raise ResourceNotFoundError(f"Serial number {serial_id} not found.")
         return row
 
+    def _assert_unit_is_held(
+        self,
+        firm_scope: UUID,
+        product: Product,
+        *,
+        warehouse_id: UUID | None,
+        status: str,
+        excluding: UUID | None = None,
+    ) -> None:
+        """Refuse to number a unit the warehouse does not hold (D-STK-50).
+
+        The serial master is how a firm numbers stock it already has, and it
+        numbered a unit without looking at the stock: a warehouse could show
+        thirty units against twelve held, and every unit picker then offered
+        units that were not on the shelf. A unit that is not on hand (sold,
+        scrapped, lost) is a record of the past and is not counted. A unit
+        naming no warehouse is judged against everything the firm holds.
+
+        Raises:
+            ValidationError: If the units numbered would pass the stock held.
+
+        """
+        if status not in _UNITS_ON_HAND:
+            return
+        held_filters = [
+            InventoryRecord.firm_id == firm_scope,
+            InventoryRecord.product_id == product.id,
+            InventoryRecord.is_deleted.is_(False),
+        ]
+        unit_filters = [
+            SerialNumber.firm_id == firm_scope,
+            SerialNumber.product_id == product.id,
+            SerialNumber.is_deleted.is_(False),
+            SerialNumber.status.in_(sorted(_UNITS_ON_HAND)),
+        ]
+        place = "The firm"
+        if warehouse_id is not None:
+            held_filters.append(InventoryRecord.warehouse_id == warehouse_id)
+            unit_filters.append(SerialNumber.warehouse_id == warehouse_id)
+            place = "This warehouse"
+        if excluding is not None:
+            unit_filters.append(SerialNumber.id != excluding)
+        held = Decimal(
+            self._session.scalar(
+                select(
+                    func.coalesce(
+                        func.sum(
+                            InventoryRecord.current_quantity
+                            + InventoryRecord.quarantine_quantity
+                            + InventoryRecord.damaged_quantity
+                            + InventoryRecord.blocked_quantity
+                        ),
+                        0,
+                    )
+                ).where(*held_filters)
+            )
+            or 0
+        )
+        numbered = (
+            self._session.scalar(
+                select(func.count()).select_from(SerialNumber).where(*unit_filters)
+            )
+            or 0
+        )
+        if numbered + 1 <= held:
+            return
+        raise ValidationError(
+            f"{place} holds {held.normalize():f} of {product.code} and "
+            f"{numbered} are already numbered, so another serial number cannot "
+            "be added. Receive the goods first: a receipt, opening stock and a "
+            "transfer number the units they bring."
+        )
+
     def create_serial(
         self, *, firm_scope: UUID, actor_id: UUID, data: SerialCreate
     ) -> SerialNumber:
@@ -1643,6 +1753,9 @@ class BatchSerialService:
             },
         )
         self._assert_serial_batch(firm_scope, product, data.batch_id)
+        self._assert_unit_is_held(
+            firm_scope, product, warehouse_id=data.warehouse_id, status=data.status
+        )
         record = SerialNumber(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -1718,6 +1831,22 @@ class BatchSerialService:
             update_data.get("warranty_start", record.warranty_start),
             update_data.get("warranty_end", record.warranty_end),
         )
+        # A unit moved to another product or warehouse, or brought back on
+        # hand, is judged as a new one there is (D-STK-50).
+        warehouse_id = update_data.get("warehouse_id", record.warehouse_id)
+        status = str(update_data.get("status", record.status))
+        if (
+            product.id != record.product_id
+            or warehouse_id != record.warehouse_id
+            or (status != record.status and record.status not in _UNITS_ON_HAND)
+        ):
+            self._assert_unit_is_held(
+                firm_scope,
+                product,
+                warehouse_id=warehouse_id,
+                status=status,
+                excluding=record.id,
+            )
         for field, value in update_data.items():
             setattr(record, field, value)
         record.updated_by = actor_id

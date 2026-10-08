@@ -2069,7 +2069,13 @@ class GoodsReceiptService(TransactionalDocumentService):
                 raise ValidationError(
                     f"{product.code} must be received with a batch number."
                 )
-            if (line.batch_number or "").strip():
+            # A number typed for a product that keeps no batches is ignored:
+            # the goods are received onto the product's own row and no batch
+            # is registered for it (D-STK-43). The text stays on the line as
+            # what was typed.
+            if (line.batch_number or "").strip() and (
+                product is None or product.track_batch
+            ):
                 batch_id = (
                     BatchSerialService(self._session)
                     .resolve_for_receipt(
