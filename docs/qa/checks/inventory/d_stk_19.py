@@ -97,7 +97,7 @@ rows = units()
 c.eq([(rows[n]["status"], rows[n]["warehouse_id"]) for n in nums[2:6]],
      [("AVAILABLE", b["id"]), ("AVAILABLE", b["id"]), ("DAMAGED", b["id"]), ("LOST", a["id"])],
      "two good units and the damaged one are at the destination; the missing one is LOST")
-c.eq((w.qty(p["id"], a["id"]), w.qty(p["id"], b["id"])), (D(0), D(4)), "stock: none at the source, 4 sellable at the destination")
+c.eq((w.qty(p["id"], a["id"]), w.qty(p["id"], b["id"])), (D(0), D(5)), "stock: none at the source; 5 at the destination, the damaged one among them")
 
 # ---- the point of it all: what arrived can be shipped from where it is ----
 s = sell_and_dispatch(w, b["id"], p["id"], 2, serial_ids=[rows[nums[0]]["id"], rows[nums[2]]["id"]])
