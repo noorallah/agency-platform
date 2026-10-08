@@ -163,6 +163,8 @@ class RepackService(TransactionalDocumentService):
         missing = {line.product_id for line in data.lines} - set(products)
         if missing:
             raise ValidationError("Unknown product(s) on the repack.")
+        inventory = InventoryService(self._session)
+        lines = self._lines_by_batch(data, products, inventory, firm_id=firm_id)
         _, rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
         number = self._issue_number(
             rule,
@@ -188,10 +190,9 @@ class RepackService(TransactionalDocumentService):
         )
         self._session.add(row)
         self._flush_or_conflict("Repack number already exists in this firm.")
-        inventory = InventoryService(self._session)
         consumed = ZERO
         written: list[RepackLine] = []
-        for number_on_line, line in enumerate(data.lines, start=1):
+        for number_on_line, line in enumerate(lines, start=1):
             if line.kind != "CONSUME":
                 continue
             transaction, value = inventory.stage_repack_movement(
@@ -219,7 +220,7 @@ class RepackService(TransactionalDocumentService):
         carried = consumed - wastage
         produced = [
             (number_on_line, line)
-            for number_on_line, line in enumerate(data.lines, start=1)
+            for number_on_line, line in enumerate(lines, start=1)
             if line.kind == "PRODUCE"
         ]
         weights = [
@@ -385,6 +386,71 @@ class RepackService(TransactionalDocumentService):
             )
             for row in rows
         ]
+
+    def _lines_by_batch(
+        self,
+        data: RepackWrite,
+        products: dict[UUID, Product],
+        inventory: InventoryService,
+        *,
+        firm_id: UUID,
+    ) -> list[RepackLineWrite]:
+        """Return the lines as they are posted: one per batch drawn from.
+
+        A product held in batches is several stock rows, and a consume line
+        naming none of them was read against the row with no batch: a kit
+        with a batch-tracked part was refused with "free 0" while the goods
+        stood on the shelf (D-STK-51). Such a line is drawn the way a
+        dispatch is, earliest expiry first among batches in date, and is
+        written as one line per batch so a cancel puts each back where it
+        came from.
+
+        A serial-tracked product is refused on either side. A repack moves a
+        quantity and has nowhere to name units, so the stock moved while
+        every unit went on reading AVAILABLE (D-STK-52).
+
+        Raises:
+            ValidationError: If a line names a serial-tracked product, or the
+                batches do not hold what a consume line asks for.
+
+        """
+        tracked = sorted(
+            {
+                products[line.product_id].code
+                for line in data.lines
+                if products[line.product_id].track_serial
+            }
+        )
+        if tracked:
+            raise ValidationError(
+                ", ".join(tracked)
+                + (" is" if len(tracked) == 1 else " are")
+                + " tracked by serial number, and a repack moves a quantity "
+                "without naming units. Move the units as themselves: a "
+                "transfer, a sale or a write-off names each one."
+            )
+        lines: list[RepackLineWrite] = []
+        for line in data.lines:
+            product = products[line.product_id]
+            if (
+                line.kind != "CONSUME"
+                or line.batch_id is not None
+                or not product.track_batch
+            ):
+                lines.append(line)
+                continue
+            for batch_id, quantity in inventory.allocate_for_repack(
+                firm_scope=firm_id,
+                branch_id=data.branch_id,
+                warehouse_id=data.warehouse_id,
+                product=product,
+                quantity=line.quantity,
+                as_of=data.repack_date,
+            ):
+                lines.append(
+                    line.model_copy(update={"batch_id": batch_id, "quantity": quantity})
+                )
+        return lines
 
     def _line(
         self,

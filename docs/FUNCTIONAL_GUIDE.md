@@ -249,7 +249,9 @@ on each line.
 **Section 27 (Inventory operations).** Stock transfers as a document with
 in-transit stock (dispatch, receive with damaged and missing, challan; refused
 between two GSTINs); repacking; kits (`product_kit_components`: assemble,
-disassemble, and assembled from components at dispatch); count plans by ABC
+disassemble, and assembled from components at dispatch; a part held in
+batches leaves earliest expiry first, and a product tracked by serial number
+is neither repacked nor made a kit's part); count plans by ABC
 class with blind sheets; reasons, role limits and approval for large
 adjustments; evidence files; incoming, outgoing and projected on availability;
 the issue rule per product; expiry rules and returns due; reservations that

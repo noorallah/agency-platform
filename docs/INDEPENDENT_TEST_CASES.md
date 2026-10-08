@@ -2438,6 +2438,18 @@ the fixture builds (a minute or two).
 - **Leaves:** two orders part or not delivered.
 
 
+### TC-STOCK-023 — A kit takes a batch-tracked part earliest expiry first; serial-tracked goods are not repacked
+
+*Added 2026-10-08 with the fix (D-STK-51, D-STK-52). Driven over HTTP by `docs/qa/checks/inventory/p_kit_tracked_parts.py`.*
+
+- **Covers:** D-STK-51, D-STK-52
+- **Fixture:** `selling-firm`
+- **Also needs:** the Medicine and Electronics goods types in use; a Medicine product **MED** received into MAIN as batch **KA** (4, expiring in 100 days) and batch **KB** (16, expiring in 300 days); an Electronics product **ELE** received with three serial numbers; a kit **KIT** (product type Bundle) with nothing assembled.
+- **Steps:** as the fixture's **Firm admin**: (a) on KIT set the components to **5 of MED** and assemble **1** in MAIN; open Inventory > Stock for MED. (b) assemble **4** more. (c) raise and approve a sales order for **3** of KIT, raise, approve and dispatch a delivery note for the three. (d) on Repacking, post a repack that consumes **1 of ELE** and produces 1 of any plain product; then one that consumes the plain product and produces **1 of ELE**. (e) on a second kit, set the components to **1 of ELE**.
+- **Expect:** (a) the kit is assembled: KA reads 0 and KB 15 -- the four expiring first went, then one of the later batch; the repack shows one consumed line per batch. (b) refused, naming MED: fifteen are held and twenty are needed; nothing moves. (c) the note is dispatched, assembling the two kits it lacks: KB reads 5 and no kit is left. (d) both repacks are refused: *ELE is tracked by serial number, and a repack moves a quantity without naming units ...*; ELE still reads 3 on hand with three units Available. (e) refused: *A part tracked by serial number cannot go into a kit ...*.
+- **Leaves:** MED 5 in batch KB, three kits sold.
+
+
 ### Known defects found while writing these cases
 
 - **D-8-1 — Dispatch drew an expired batch. Fixed 2026-09-16.** In a Pharmacy firm with batches expired 30 days ago, expiring in 20 days and in 400 days, dispatching 5 took them from the **expired** batch — its status still AVAILABLE. "Earliest expiry first" read literally does that; for a pharmacy it ships expired medicine. `InventoryService.allocate_for_dispatch` now drops expired stock from the candidates rather than ranking it first, and when that leaves the document short it says so **by name** — "10 of this product's stock is past its expiry date (X expired 2026-08-17) and cannot be dispatched: write it off or quarantine it" — because the screen still shows that stock as on hand and "short by 5" beside it explains nothing. Expiry is judged on the **document's own date**, which the delivery note passes, so rebuilding a year of history posts what it posted at the time. Three tests in `tests/unit/test_inventory_foundation.py`.

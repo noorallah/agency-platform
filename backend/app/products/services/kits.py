@@ -125,7 +125,8 @@ class KitService:
 
         Raises:
             ValidationError: If the product is not a kit, a component is the
-                kit itself, another kit, not the firm's, or named twice.
+                kit itself, another kit, tracked by serial number, not the
+                firm's, or named twice.
 
         """
         kit = self._kit(kit_id, firm_id=firm_id)
@@ -150,6 +151,15 @@ class KitService:
         if nested:
             raise ValidationError(
                 "A kit is not a component of another kit: " + ", ".join(nested) + "."
+            )
+        units = sorted(p.code for p in found.values() if p.track_serial)
+        if units:
+            # Assembling moves a quantity and names no unit, so a part
+            # tracked by serial number would leave its units behind
+            # (D-STK-52).
+            raise ValidationError(
+                "A part tracked by serial number cannot go into a kit, "
+                "because assembling names no units: " + ", ".join(units) + "."
             )
         now = utc_now()
         for old in self._components(kit.id):

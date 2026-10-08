@@ -194,6 +194,14 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Also needs:** two products with no batches, **4** of each in MAIN and nothing else held or ordered.
 - **Steps:** as the prepared **Firm admin**: (a) raise and approve a sales order for **10** of the first product; raise a delivery note for **4** of it, approve and dispatch. (b) for the second product raise and approve an order for **3**, then another for **4**; raise and approve a note for each in full; dispatch the note of the **later** order, then the note of the **earlier** one, then the later one again. Open Inventory > Stock for both products.
 - **Expect:** (a) the four ship; the stock row reads On hand 0, Reserved 6 -- the six still owed. (b) the later order's note is refused (*Insufficient available stock for dispatch line.*) both times; the earlier order's note ships its three, leaving On hand 1 and Reserved 4. Available reads below zero while an order is owed more than is held.
+### TC-STOCK-023 — A kit takes a batch-tracked part earliest expiry first; serial-tracked goods are not repacked
+
+*Added 2026-10-08 with the fix (D-STK-51, D-STK-52). Driven over HTTP by `docs/qa/checks/inventory/p_kit_tracked_parts.py`.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** the Medicine and Electronics goods types in use; a Medicine product **MED** received into MAIN as batch **KA** (4, expiring in 100 days) and batch **KB** (16, expiring in 300 days); an Electronics product **ELE** received with three serial numbers; a kit **KIT** (product type Bundle) with nothing assembled.
+- **Steps:** as the prepared **Firm admin**: (a) on KIT set the components to **5 of MED** and assemble **1** in MAIN; open Inventory > Stock for MED. (b) assemble **4** more. (c) raise and approve a sales order for **3** of KIT, raise, approve and dispatch a delivery note for the three. (d) on Repacking, post a repack that consumes **1 of ELE** and produces 1 of any plain product; then one that consumes the plain product and produces **1 of ELE**. (e) on a second kit, set the components to **1 of ELE**.
+- **Expect:** (a) the kit is assembled: KA reads 0 and KB 15 -- the four expiring first went, then one of the later batch; the repack shows one consumed line per batch. (b) refused, naming MED: fifteen are held and twenty are needed; nothing moves. (c) the note is dispatched, assembling the two kits it lacks: KB reads 5 and no kit is left. (d) both repacks are refused: *ELE is tracked by serial number, and a repack moves a quantity without naming units ...*; ELE still reads 3 on hand with three units Available. (e) refused: *A part tracked by serial number cannot go into a kit ...*.
 
 ## Screen checks
 

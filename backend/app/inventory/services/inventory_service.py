@@ -2456,6 +2456,44 @@ class InventoryService:
         value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
         return transaction, value
 
+    def allocate_for_repack(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product: Product,
+        quantity: Decimal,
+        as_of: date,
+    ) -> list[tuple[UUID | None, Decimal]]:
+        """Choose the batches a repack consumes, as a dispatch would.
+
+        Earliest expiry first among batches in date and outside the
+        product's stop-selling window: what may not be sold as itself is not
+        made into something else to be sold. The shortage is named by
+        product, because a kit has several parts and "short by 5" does not
+        say of which.
+
+        Raises:
+            ValidationError: If the batches free here do not cover it.
+
+        """
+        try:
+            return self.allocate_for_dispatch(
+                firm_scope=firm_scope,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                storage_node_id=None,
+                product_id=product.id,
+                quantity=quantity,
+                as_of=as_of,
+            )
+        except ValidationError as error:
+            raise ValidationError(
+                f"{product.code} - {product.name}: {quantity} cannot be "
+                f"repacked from its batches here. {error.message}"
+            ) from error
+
     def stage_transfer_leg(
         self,
         *,
