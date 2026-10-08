@@ -908,6 +908,15 @@ amendment? Treat it as its own design round.
 - **`/active-modules` filtering in the desktop is cosmetic.** It hides menu
   entries (the modules, and the Inventory tabs that follow the goods through
   `goods_tracking`); it is not a security boundary.
+- **With no firm there is no catalogue to read.** Profiles, features, modules
+  and extra fields are kept in each firm's store, and a provisioned platform
+  store holds none of their tables. `/active-modules`, `/active-features`,
+  `/features` and `/attribute-definitions` asked with no `X-Firm-ID` answer 200
+  with nothing (`_no_catalogue` in `app/business/api/router.py`); they answered
+  503 until D-CFG-26 (2026-10-08). **An empty module list is not "show
+  nothing"**: the desktop does not ask while no firm is selected and treats
+  that as unknown, which shows every screen. The other lists of this router
+  (`/profiles`, `/modules`, the category rules) still need a firm.
 - **Never hardcode industry behaviour into an entity.** Declare a feature and
   gate on it. That rule is what lets a twelfth industry be a migration.
 

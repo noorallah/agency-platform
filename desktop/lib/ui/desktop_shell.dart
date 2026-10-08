@@ -949,6 +949,17 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   Future<void> _refreshBusinessModules() async {
+    // The answer belongs to a firm. With none selected there is nothing to
+    // ask, and "unknown" hides no screen; the server answers an empty list
+    // there, which read as an answer would hide them all (D-CFG-26).
+    if (widget.session.currentFirm == null) {
+      if (_activeBusinessModuleCodes == null && _goodsTracking == null) return;
+      setState(() {
+        _activeBusinessModuleCodes = null;
+        _goodsTracking = null;
+      });
+      return;
+    }
     try {
       final ActiveBusinessModules active =
           await widget.session.api.activeBusinessModules();

@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -66,6 +66,7 @@ from app.business.services.profile_replication import (
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
+from app.core.context import STORE_FIRM_SESSION_KEY
 from app.core.database.dependencies import (
     firm_store_session,
     get_db,
@@ -97,6 +98,21 @@ PlatformPrincipal = Annotated[Principal, Depends(require_platform_admin())]
 
 def _service(db: Session) -> BusinessProfileFrameworkService:
     return BusinessProfileFrameworkService(db)
+
+
+def _no_catalogue(db: Session) -> bool:
+    """Return whether the request opened a store with no business catalogue.
+
+    Profiles, features, modules and extra fields are kept in each firm's
+    store, and a provisioned platform store holds none of their tables. A
+    read with no ``X-Firm-ID`` lands there, and used to answer 503 for the
+    missing table (D-CFG-26). It answers with nothing now: there is no firm,
+    so there is nothing of a firm's to say. A firm's store is never asked,
+    and a store that does hold the tables answers as it always did.
+    """
+    if db.info.get(STORE_FIRM_SESSION_KEY) is not None:
+        return False
+    return not inspect(db.connection()).has_table(BusinessProfile.__tablename__)
 
 
 def _actor_id(principal: Principal) -> UUID:
@@ -243,6 +259,8 @@ def list_features(
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[BusinessFeatureResponse]:
     params = PaginationParams(page=page, page_size=page_size)
+    if _no_catalogue(db):
+        return PaginatedResponse(data=[], pagination=params.metadata(0))
     rows, total = _service(db).list_features(
         params.page, params.page_size, search, sort_by, sort_direction == "desc"
     )
@@ -602,6 +620,8 @@ def list_attribute_definitions(
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[AttributeDefinitionResponse]:
     params = PaginationParams(page=page, page_size=page_size)
+    if _no_catalogue(db):
+        return PaginatedResponse(data=[], pagination=params.metadata(0))
     rows, total = _service(db).list_attributes(
         params.page, params.page_size, search, sort_by, sort_direction == "desc"
     )
@@ -1036,6 +1056,8 @@ def get_active_features(
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveFeatureResponse]]:
     resolved_firm = _resolve_firm_scope(principal, platform_db, x_firm_id, firm_id)
+    if resolved_firm is None and _no_catalogue(db):
+        return ApiResponse(data=[])
     rows = _read_in_firm_store(
         request,
         db,
@@ -1067,6 +1089,8 @@ def get_active_modules(
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveModuleResponse]]:
     resolved_firm = _resolve_firm_scope(principal, platform_db, x_firm_id, firm_id)
+    if resolved_firm is None and _no_catalogue(db):
+        return ApiResponse(data=[])
     rows, tracking = _read_in_firm_store(
         request,
         db,

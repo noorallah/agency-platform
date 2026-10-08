@@ -30,29 +30,29 @@ names it.
 
 | Job template | Roles | Screens offered |
 | --- | --- | --- |
-| Firm Administrator | FIRM_ADMIN | 144 |
-| Firm Manager | FIRM_MANAGER | 136 |
-| Counter Sales | CASHIER, BILLING_EXECUTIVE | 41 |
-| Field Sales | SALES_EXECUTIVE | 43 |
-| Sales Manager | SALES_MANAGER | 53 |
-| Warehouse | INVENTORY_MANAGER | 40 |
-| Purchasing | PURCHASE_EXECUTIVE | 39 |
-| Purchase Manager | PURCHASE_MANAGER | 41 |
-| Accounts | ACCOUNTANT | 50 |
+| Firm Administrator | FIRM_ADMIN | 145 |
+| Firm Manager | FIRM_MANAGER | 137 |
+| Counter Sales | CASHIER, BILLING_EXECUTIVE | 43 |
+| Field Sales | SALES_EXECUTIVE | 44 |
+| Sales Manager | SALES_MANAGER | 54 |
+| Warehouse | INVENTORY_MANAGER | 42 |
+| Purchasing | PURCHASE_EXECUTIVE | 40 |
+| Purchase Manager | PURCHASE_MANAGER | 42 |
+| Accounts | ACCOUNTANT | 52 |
 | Customer Support | CUSTOMER_SUPPORT | 6 |
-| Read Only | VIEWER | 130 |
+| Read Only | VIEWER | 131 |
 
 ## R01. Firm Administrator
 
-Roles: `FIRM_ADMIN`. 207 permission codes.
+Roles: `FIRM_ADMIN`. 210 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
 | Sell > All Sell screens > Documents > Enquiries | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > Quotations | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > Sales Orders | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
-| Sell > Delivery Notes | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
-| Sell > Sales Invoices | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
+| Sell > Delivery Notes | `DELIVERY_NOTE_CREATE`, `DELIVERY_NOTE_DISPATCH`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
+| Sell > Sales Invoices | `RECEIPT_CREATE`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > Returns & notes > Sales Returns | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > All Sell screens > Documents > Counter Shifts | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > All Sell screens > Documents > Proforma | `PROFORMA_MANAGE` | Not run | |
@@ -79,7 +79,7 @@ Roles: `FIRM_ADMIN`. 207 permission codes.
 | Buy > All Buy screens > Documents > Bills of entry | `BILL_OF_ENTRY_MANAGE` | Not run | |
 | Buy > Purchase Orders | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Buy > Goods Receipts | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
-| Buy > Purchase Invoices | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
+| Buy > Purchase Invoices | `PAYMENT_CREATE`, `PAYMENT_RUN_APPROVE`, `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Buy > Returns & notes > Purchase Returns | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Buy > All Buy screens > Documents > Approvals | `PURCHASE_APPROVE`, `SALES_APPROVE` | Not run | |
 | Buy > Returns & notes > Debit Notes | `DEBIT_NOTE_APPROVE`, `DEBIT_NOTE_MANAGE` | Not run | |
@@ -149,6 +149,7 @@ Roles: `FIRM_ADMIN`. 207 permission codes.
 | Reports > Financial | `CREDIT_NOTE_APPROVE`, `CREDIT_NOTE_MANAGE`, `DEBIT_NOTE_APPROVE`, `DEBIT_NOTE_MANAGE`, `JOURNAL_CREATE`, `JOURNAL_POST`, `JOURNAL_REVERSE`, `LOYALTY_MANAGE`, `LOYALTY_MANAGE_SETTINGS`, `PARTY_ADJUSTMENT_APPROVE`, `PARTY_ADJUSTMENT_MANAGE`, `PROFORMA_MANAGE`, `PROMOTION_MANAGE`, `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE`, `REPORT_EXPORT`, `REPORT_PRINT`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Settings > Firm > Financial Years | `FINANCIAL_YEAR_CLOSE`, `FINANCIAL_YEAR_CREATE`, `FINANCIAL_YEAR_REOPEN` | Not run | |
 | Settings > Firm > Numbering Series | `SETTINGS_UPDATE` | Not run | |
+| Settings > Firm > Goods Types | `PRODUCT_ATTRIBUTE_MANAGE`, `PRODUCT_CREATE`, `PRODUCT_DELETE`, `PRODUCT_EXPORT`, `PRODUCT_IMPORT`, `PRODUCT_PRICING_MANAGE`, `PRODUCT_RESTORE`, `PRODUCT_TAX_MANAGE`, `PRODUCT_UPDATE`, `PRODUCT_VIEW_COST_PRICE` | Not run | |
 | Settings > Firm > Custom Fields | `CUSTOM_FIELD_MANAGE` | Not run | |
 | Settings > Firm > Custom Field Rules | `CUSTOM_FIELD_MANAGE` | Not run | |
 | Settings > Buying > Purchase Settings | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
@@ -159,7 +160,7 @@ Roles: `FIRM_ADMIN`. 207 permission codes.
 | Settings > Tax > Rule Simulator | `TAX_SIMULATE` | Not run | |
 | Settings > Tax > Execution Log | `TAX_RULE_CREATE`, `TAX_RULE_DELETE`, `TAX_RULE_RESTORE`, `TAX_RULE_UPDATE` | Not run | |
 | Settings > Tax > Tax Settings | `TAX_MANAGE_SETTINGS` | Not run | |
-| Settings > Business profile > Industry Templates | `UOM_EXPORT`, `UOM_IMPORT`, `UOM_MANAGE` | Not run | |
+| Settings > Business profile > Unit Sets | `UOM_EXPORT`, `UOM_IMPORT`, `UOM_MANAGE` | Not run | |
 | Settings > Set up > Pricing > Price Lists | `PRICE_LIST_MANAGE` | Not run | |
 | Settings > Set up > Pricing > Price Levels | `PRICE_LIST_MANAGE` | Not run | |
 | Settings > Set up > Pricing > Promotions | `PROMOTION_MANAGE` | Not run | |
@@ -197,15 +198,15 @@ Roles: `FIRM_ADMIN`. 207 permission codes.
 
 ## R02. Firm Manager
 
-Roles: `FIRM_MANAGER`. 190 permission codes.
+Roles: `FIRM_MANAGER`. 193 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
 | Sell > All Sell screens > Documents > Enquiries | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > Quotations | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > Sales Orders | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
-| Sell > Delivery Notes | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
-| Sell > Sales Invoices | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
+| Sell > Delivery Notes | `DELIVERY_NOTE_CREATE`, `DELIVERY_NOTE_DISPATCH`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
+| Sell > Sales Invoices | `RECEIPT_CREATE`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > Returns & notes > Sales Returns | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > All Sell screens > Documents > Counter Shifts | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sell > All Sell screens > Documents > Proforma | `PROFORMA_MANAGE` | Not run | |
@@ -232,7 +233,7 @@ Roles: `FIRM_MANAGER`. 190 permission codes.
 | Buy > All Buy screens > Documents > Bills of entry | `BILL_OF_ENTRY_MANAGE` | Not run | |
 | Buy > Purchase Orders | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Buy > Goods Receipts | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
-| Buy > Purchase Invoices | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
+| Buy > Purchase Invoices | `PAYMENT_CREATE`, `PAYMENT_RUN_APPROVE`, `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Buy > Returns & notes > Purchase Returns | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Buy > All Buy screens > Documents > Approvals | `PURCHASE_APPROVE`, `SALES_APPROVE` | Not run | |
 | Buy > Returns & notes > Debit Notes | `DEBIT_NOTE_APPROVE`, `DEBIT_NOTE_MANAGE` | Not run | |
@@ -301,6 +302,7 @@ Roles: `FIRM_MANAGER`. 190 permission codes.
 | Reports > Operational | `CREDIT_NOTE_APPROVE`, `CREDIT_NOTE_MANAGE`, `DEBIT_NOTE_APPROVE`, `DEBIT_NOTE_MANAGE`, `JOURNAL_CREATE`, `JOURNAL_POST`, `JOURNAL_REVERSE`, `LOYALTY_MANAGE`, `LOYALTY_MANAGE_SETTINGS`, `PARTY_ADJUSTMENT_APPROVE`, `PARTY_ADJUSTMENT_MANAGE`, `PROFORMA_MANAGE`, `PROMOTION_MANAGE`, `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE`, `REPORT_EXPORT`, `REPORT_PRINT`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Reports > Financial | `CREDIT_NOTE_APPROVE`, `CREDIT_NOTE_MANAGE`, `DEBIT_NOTE_APPROVE`, `DEBIT_NOTE_MANAGE`, `JOURNAL_CREATE`, `JOURNAL_POST`, `JOURNAL_REVERSE`, `LOYALTY_MANAGE`, `LOYALTY_MANAGE_SETTINGS`, `PARTY_ADJUSTMENT_APPROVE`, `PARTY_ADJUSTMENT_MANAGE`, `PROFORMA_MANAGE`, `PROMOTION_MANAGE`, `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE`, `REPORT_EXPORT`, `REPORT_PRINT`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_PRICE_OVERRIDE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Settings > Firm > Financial Years | `FINANCIAL_YEAR_CLOSE`, `FINANCIAL_YEAR_CREATE`, `FINANCIAL_YEAR_REOPEN` | Not run | |
+| Settings > Firm > Goods Types | `PRODUCT_ATTRIBUTE_MANAGE`, `PRODUCT_CREATE`, `PRODUCT_DELETE`, `PRODUCT_EXPORT`, `PRODUCT_IMPORT`, `PRODUCT_PRICING_MANAGE`, `PRODUCT_RESTORE`, `PRODUCT_TAX_MANAGE`, `PRODUCT_UPDATE`, `PRODUCT_VIEW_COST_PRICE` | Not run | |
 | Settings > Buying > Purchase Settings | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_MANAGE_SETTINGS`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Settings > Stock > Inventory Settings | `INVENTORY_ADJUST`, `INVENTORY_EXPORT`, `INVENTORY_IMPORT`, `INVENTORY_MANAGE_REASONS`, `INVENTORY_MANAGE_SETTINGS` | Not run | |
 | Settings > Stock > Adjustment Reasons | `INVENTORY_ADJUST`, `INVENTORY_EXPORT`, `INVENTORY_IMPORT`, `INVENTORY_MANAGE_REASONS`, `INVENTORY_MANAGE_SETTINGS` | Not run | |
@@ -309,7 +311,7 @@ Roles: `FIRM_MANAGER`. 190 permission codes.
 | Settings > Tax > Rule Simulator | `TAX_SIMULATE` | Not run | |
 | Settings > Tax > Execution Log | `TAX_RULE_CREATE`, `TAX_RULE_DELETE`, `TAX_RULE_RESTORE`, `TAX_RULE_UPDATE` | Not run | |
 | Settings > Tax > Tax Settings | `TAX_MANAGE_SETTINGS` | Not run | |
-| Settings > Business profile > Industry Templates | `UOM_EXPORT`, `UOM_IMPORT`, `UOM_MANAGE` | Not run | |
+| Settings > Business profile > Unit Sets | `UOM_EXPORT`, `UOM_IMPORT`, `UOM_MANAGE` | Not run | |
 | Settings > Set up > Pricing > Price Lists | `PRICE_LIST_MANAGE` | Not run | |
 | Settings > Set up > Pricing > Price Levels | `PRICE_LIST_MANAGE` | Not run | |
 | Settings > Set up > Pricing > Promotions | `PROMOTION_MANAGE` | Not run | |
@@ -342,7 +344,7 @@ Roles: `FIRM_MANAGER`. 190 permission codes.
 
 ## R03. Counter Sales
 
-Roles: `CASHIER`, `BILLING_EXECUTIVE`. 13 permission codes.
+Roles: `CASHIER`, `BILLING_EXECUTIVE`. 14 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
@@ -350,7 +352,7 @@ Roles: `CASHIER`, `BILLING_EXECUTIVE`. 13 permission codes.
 | Sell > Quotations | `SALES_INVOICE_CREATE` | Not run | |
 | Sell > Sales Orders | `SALES_INVOICE_CREATE` | Not run | |
 | Sell > Delivery Notes | `SALES_INVOICE_CREATE` | Not run | |
-| Sell > Sales Invoices | `SALES_INVOICE_CREATE` | Not run | |
+| Sell > Sales Invoices | `RECEIPT_CREATE`, `SALES_INVOICE_CREATE` | Not run | |
 | Sell > Returns & notes > Sales Returns | `SALES_INVOICE_CREATE` | Not run | |
 | Sell > All Sell screens > Documents > Counter Shifts | `SALES_INVOICE_CREATE` | Not run | |
 | Sell > All Sell screens > Documents > Customer Rebates | `SALES_INVOICE_CREATE` | Not run | |
@@ -360,6 +362,7 @@ Roles: `CASHIER`, `BILLING_EXECUTIVE`. 13 permission codes.
 | Sell > All Sell screens > Money > Post-dated Cheques | `RECEIPT_CREATE` | Not run | |
 | Sell > Customer Statements | none beyond viewing | Not run | |
 | Sell > All Sell screens > Insight > Sales Analysis | `SALES_INVOICE_CREATE` | Not run | |
+| Buy > Purchase Invoices | `PAYMENT_CREATE` | Not run | |
 | Buy > Payments | `PAYMENT_CREATE` | Not run | |
 | Buy > All Buy screens > Money > Payment Runs | `PAYMENT_CREATE` | Not run | |
 | Buy > All Buy screens > Money > Post-dated Cheques | `PAYMENT_CREATE` | Not run | |
@@ -377,8 +380,9 @@ Roles: `CASHIER`, `BILLING_EXECUTIVE`. 13 permission codes.
 | Masters > Warehouses | none beyond viewing | Not run | |
 | Reports > Operational | `SALES_INVOICE_CREATE` | Not run | |
 | Reports > Financial | `SALES_INVOICE_CREATE` | Not run | |
+| Settings > Firm > Goods Types | none beyond viewing | Not run | |
 | Settings > Tax > Tax Configuration | none beyond viewing | Not run | |
-| Settings > Business profile > Industry Templates | none beyond viewing | Not run | |
+| Settings > Business profile > Unit Sets | none beyond viewing | Not run | |
 | Settings > Set up > Territories & routes > Transporters | `SALES_INVOICE_CREATE` | Not run | |
 | Settings > Set up > Item lists > Product Categories | none beyond viewing | Not run | |
 | Settings > Set up > Item lists > Principals | none beyond viewing | Not run | |
@@ -388,11 +392,11 @@ Roles: `CASHIER`, `BILLING_EXECUTIVE`. 13 permission codes.
 | Settings > Set up > Locations > Branch Types | none beyond viewing | Not run | |
 | Settings > Set up > Locations > Warehouse Types | none beyond viewing | Not run | |
 
-**Nothing offered under:** Stock, Settings > Firm, Settings > Buying, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
+**Nothing offered under:** Stock, Settings > Buying, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
 
 ## R04. Field Sales
 
-Roles: `SALES_EXECUTIVE`. 13 permission codes.
+Roles: `SALES_EXECUTIVE`. 14 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
@@ -423,8 +427,9 @@ Roles: `SALES_EXECUTIVE`. 13 permission codes.
 | Masters > All Masters screens > Compliance > Trade Licences | none beyond viewing | Not run | |
 | Reports > Operational | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
 | Reports > Financial | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
+| Settings > Firm > Goods Types | none beyond viewing | Not run | |
 | Settings > Tax > Tax Configuration | none beyond viewing | Not run | |
-| Settings > Business profile > Industry Templates | none beyond viewing | Not run | |
+| Settings > Business profile > Unit Sets | none beyond viewing | Not run | |
 | Settings > Set up > Territories & routes > Territories | none beyond viewing | Not run | |
 | Settings > Set up > Territories & routes > Route Types | none beyond viewing | Not run | |
 | Settings > Set up > Territories & routes > Route Builder | none beyond viewing | Not run | |
@@ -440,18 +445,18 @@ Roles: `SALES_EXECUTIVE`. 13 permission codes.
 | Settings > Set up > Locations > Warehouse Types | none beyond viewing | Not run | |
 | Settings > Set up > Locations > Places | none beyond viewing | Not run | |
 
-**Nothing offered under:** Buy, Stock, Settings > Firm, Settings > Buying, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
+**Nothing offered under:** Buy, Stock, Settings > Buying, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
 
 ## R05. Sales Manager
 
-Roles: `SALES_MANAGER`. 45 permission codes.
+Roles: `SALES_MANAGER`. 48 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
 | Sell > All Sell screens > Documents > Enquiries | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
 | Sell > Quotations | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
 | Sell > Sales Orders | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
-| Sell > Delivery Notes | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
+| Sell > Delivery Notes | `DELIVERY_NOTE_CREATE`, `DELIVERY_NOTE_DISPATCH`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
 | Sell > Sales Invoices | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
 | Sell > Returns & notes > Sales Returns | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
 | Sell > All Sell screens > Documents > Counter Shifts | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
@@ -483,8 +488,9 @@ Roles: `SALES_MANAGER`. 45 permission codes.
 | Masters > All Masters screens > Compliance > Trade Licences | `TRADE_LICENCE_MANAGE` | Not run | |
 | Reports > Operational | `CREDIT_NOTE_MANAGE`, `LOYALTY_MANAGE`, `PROFORMA_MANAGE`, `REPORT_EXPORT`, `REPORT_PRINT`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
 | Reports > Financial | `CREDIT_NOTE_MANAGE`, `LOYALTY_MANAGE`, `PROFORMA_MANAGE`, `REPORT_EXPORT`, `REPORT_PRINT`, `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
+| Settings > Firm > Goods Types | none beyond viewing | Not run | |
 | Settings > Tax > Tax Configuration | none beyond viewing | Not run | |
-| Settings > Business profile > Industry Templates | none beyond viewing | Not run | |
+| Settings > Business profile > Unit Sets | none beyond viewing | Not run | |
 | Settings > Set up > Pricing > Promotions | none beyond viewing | Not run | |
 | Settings > Set up > Pricing > Loyalty | `LOYALTY_MANAGE` | Not run | |
 | Settings > Set up > Territories & routes > Territories | `TERRITORY_ASSIGN_CUSTOMERS` | Not run | |
@@ -502,14 +508,15 @@ Roles: `SALES_MANAGER`. 45 permission codes.
 | Settings > Set up > Locations > Warehouse Types | none beyond viewing | Not run | |
 | Settings > Set up > Locations > Places | `TERRITORY_ASSIGN_CUSTOMERS` | Not run | |
 
-**Nothing offered under:** Buy, Stock, Settings > Firm, Settings > Buying, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
+**Nothing offered under:** Buy, Stock, Settings > Buying, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
 
 ## R06. Warehouse
 
-Roles: `INVENTORY_MANAGER`. 27 permission codes.
+Roles: `INVENTORY_MANAGER`. 30 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
+| Sell > Delivery Notes | `DELIVERY_NOTE_CREATE`, `DELIVERY_NOTE_DISPATCH` | Not run | |
 | Sell > Customer Statements | none beyond viewing | Not run | |
 | Buy > All Buy screens > Documents > Requisitions | `PURCHASE_INSPECT`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE` | Not run | |
 | Buy > Goods Receipts | `PURCHASE_INSPECT`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE` | Not run | |
@@ -537,10 +544,11 @@ Roles: `INVENTORY_MANAGER`. 27 permission codes.
 | Masters > Products | none beyond viewing | Not run | |
 | Masters > Branches | none beyond viewing | Not run | |
 | Masters > Warehouses | none beyond viewing | Not run | |
+| Settings > Firm > Goods Types | none beyond viewing | Not run | |
 | Settings > Stock > Inventory Settings | `INVENTORY_ADJUST`, `INVENTORY_EXPORT`, `INVENTORY_IMPORT`, `INVENTORY_MANAGE_REASONS` | Not run | |
 | Settings > Stock > Adjustment Reasons | `INVENTORY_ADJUST`, `INVENTORY_EXPORT`, `INVENTORY_IMPORT`, `INVENTORY_MANAGE_REASONS` | Not run | |
 | Settings > Tax > Tax Configuration | none beyond viewing | Not run | |
-| Settings > Business profile > Industry Templates | none beyond viewing | Not run | |
+| Settings > Business profile > Unit Sets | none beyond viewing | Not run | |
 | Settings > Set up > Party lists > Vendor Categories | none beyond viewing | Not run | |
 | Settings > Set up > Party lists > Vendor Types | none beyond viewing | Not run | |
 | Settings > Set up > Item lists > Product Categories | none beyond viewing | Not run | |
@@ -551,7 +559,7 @@ Roles: `INVENTORY_MANAGER`. 27 permission codes.
 | Settings > Set up > Locations > Branch Types | none beyond viewing | Not run | |
 | Settings > Set up > Locations > Warehouse Types | none beyond viewing | Not run | |
 
-**Nothing offered under:** Accounts, Reports, Settings > Firm, Settings > Buying, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
+**Nothing offered under:** Accounts, Reports, Settings > Buying, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
 
 ## R07. Purchasing
 
@@ -584,9 +592,10 @@ Roles: `PURCHASE_EXECUTIVE`. 25 permission codes.
 | Masters > All Masters screens > Compliance > Trade Licences | none beyond viewing | Not run | |
 | Reports > Operational | `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Reports > Financial | `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
+| Settings > Firm > Goods Types | none beyond viewing | Not run | |
 | Settings > Buying > Purchase Settings | `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Settings > Tax > Tax Configuration | none beyond viewing | Not run | |
-| Settings > Business profile > Industry Templates | none beyond viewing | Not run | |
+| Settings > Business profile > Unit Sets | none beyond viewing | Not run | |
 | Settings > Set up > Party lists > Vendor Categories | none beyond viewing | Not run | |
 | Settings > Set up > Party lists > Vendor Types | none beyond viewing | Not run | |
 | Settings > Set up > Party lists > Licence Types | none beyond viewing | Not run | |
@@ -599,7 +608,7 @@ Roles: `PURCHASE_EXECUTIVE`. 25 permission codes.
 | Settings > Set up > Locations > Branch Types | none beyond viewing | Not run | |
 | Settings > Set up > Locations > Warehouse Types | none beyond viewing | Not run | |
 
-**Nothing offered under:** Sell, Stock, Accounts, Settings > Firm, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
+**Nothing offered under:** Sell, Stock, Accounts, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
 
 ## R08. Purchase Manager
 
@@ -634,9 +643,10 @@ Roles: `PURCHASE_MANAGER`. 39 permission codes.
 | Masters > All Masters screens > Compliance > Trade Licences | `TRADE_LICENCE_MANAGE` | Not run | |
 | Reports > Operational | `DEBIT_NOTE_MANAGE`, `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Reports > Financial | `DEBIT_NOTE_MANAGE`, `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
+| Settings > Firm > Goods Types | none beyond viewing | Not run | |
 | Settings > Buying > Purchase Settings | `PURCHASE_APPROVE`, `PURCHASE_APPROVE_OVER_BUDGET`, `PURCHASE_APPROVE_OVER_TOLERANCE`, `PURCHASE_CANCEL`, `PURCHASE_CREATE`, `PURCHASE_DELETE`, `PURCHASE_EXPORT`, `PURCHASE_IMPORT`, `PURCHASE_INSPECT`, `PURCHASE_RECEIVE`, `PURCHASE_REQUISITION_CREATE`, `PURCHASE_RESTORE`, `PURCHASE_UPDATE` | Not run | |
 | Settings > Tax > Tax Configuration | none beyond viewing | Not run | |
-| Settings > Business profile > Industry Templates | none beyond viewing | Not run | |
+| Settings > Business profile > Unit Sets | none beyond viewing | Not run | |
 | Settings > Set up > Party lists > Vendor Categories | `VENDOR_CREATE`, `VENDOR_DELETE`, `VENDOR_EXPORT`, `VENDOR_IMPORT`, `VENDOR_MANAGE_CATEGORIES`, `VENDOR_RESTORE`, `VENDOR_UPDATE` | Not run | |
 | Settings > Set up > Party lists > Vendor Types | `VENDOR_CREATE`, `VENDOR_DELETE`, `VENDOR_EXPORT`, `VENDOR_IMPORT`, `VENDOR_MANAGE_CATEGORIES`, `VENDOR_RESTORE`, `VENDOR_UPDATE` | Not run | |
 | Settings > Set up > Party lists > Licence Types | `TRADE_LICENCE_MANAGE` | Not run | |
@@ -649,7 +659,7 @@ Roles: `PURCHASE_MANAGER`. 39 permission codes.
 | Settings > Set up > Locations > Branch Types | none beyond viewing | Not run | |
 | Settings > Set up > Locations > Warehouse Types | none beyond viewing | Not run | |
 
-**Nothing offered under:** Sell, Stock, Accounts, Settings > Firm, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
+**Nothing offered under:** Sell, Stock, Accounts, Settings > Stock, Settings > Platform. Check each is absent from the menu, and from the gear's Settings page (the dialogs under Settings, such as Credit Control or Sales Stages, are offered by the codes `docs/CONFIGURATION_SETTINGS_GUIDE.md` names and are not rows here). A firm role is never offered the Platform part except the People screens its codes allow.
 
 ## R09. Accounts
 
@@ -657,6 +667,7 @@ Roles: `ACCOUNTANT`. 35 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
+| Sell > Sales Invoices | `RECEIPT_CREATE` | Not run | |
 | Sell > Receipts | `RECEIPT_CREATE` | Not run | |
 | Sell > All Sell screens > Money > Collection Sheet | `RECEIPT_CREATE` | Not run | |
 | Sell > All Sell screens > Money > Payment Promises | `RECEIPT_CREATE` | Not run | |
@@ -665,6 +676,7 @@ Roles: `ACCOUNTANT`. 35 permission codes.
 | Sell > Customer Statements | `CUSTOMER_MANAGE_SETTINGS` | Not run | |
 | Sell > All Sell screens > Incentives > Commission | `COMMISSION_MANAGE`, `COMMISSION_PAY` | Not run | |
 | Sell > All Sell screens > Insight > Sales Analysis | `REPORT_EXPORT`, `REPORT_PRINT` | Not run | |
+| Buy > Purchase Invoices | `PAYMENT_CREATE`, `PAYMENT_RUN_APPROVE` | Not run | |
 | Buy > Payments | `PAYMENT_CREATE`, `PAYMENT_RUN_APPROVE` | Not run | |
 | Buy > All Buy screens > Money > Payment Runs | `PAYMENT_CREATE`, `PAYMENT_RUN_APPROVE` | Not run | |
 | Buy > All Buy screens > Money > Post-dated Cheques | `PAYMENT_CREATE`, `PAYMENT_RUN_APPROVE` | Not run | |
@@ -727,7 +739,7 @@ Roles: `CUSTOMER_SUPPORT`. 3 permission codes.
 
 ## R11. Read Only
 
-Roles: `VIEWER`. 48 permission codes.
+Roles: `VIEWER`. 49 permission codes.
 
 | Where in the menu | Codes held in this area | Result | Notes |
 | --- | --- | --- | --- |
@@ -827,6 +839,7 @@ Roles: `VIEWER`. 48 permission codes.
 | Reports > Financial | none beyond viewing | Not run | |
 | Settings > Firm > Firm Settings | none beyond viewing | Not run | |
 | Settings > Firm > Financial Years | none beyond viewing | Not run | |
+| Settings > Firm > Goods Types | none beyond viewing | Not run | |
 | Settings > Firm > Custom Fields | none beyond viewing | Not run | |
 | Settings > Firm > Custom Field Rules | none beyond viewing | Not run | |
 | Settings > Buying > Purchase Settings | none beyond viewing | Not run | |
@@ -835,7 +848,7 @@ Roles: `VIEWER`. 48 permission codes.
 | Settings > Tax > Tax Configuration | none beyond viewing | Not run | |
 | Settings > Tax > Tax Rules | none beyond viewing | Not run | |
 | Settings > Tax > Execution Log | none beyond viewing | Not run | |
-| Settings > Business profile > Industry Templates | none beyond viewing | Not run | |
+| Settings > Business profile > Unit Sets | none beyond viewing | Not run | |
 | Settings > Set up > Pricing > Price Lists | none beyond viewing | Not run | |
 | Settings > Set up > Pricing > Price Levels | none beyond viewing | Not run | |
 | Settings > Set up > Pricing > Promotions | none beyond viewing | Not run | |

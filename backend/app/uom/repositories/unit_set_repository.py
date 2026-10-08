@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.products.models.goods_type import GoodsType
@@ -47,9 +47,14 @@ class UnitSetRepository:
     def name_taken(
         self, name: str, firm_id: UUID, *, current: UUID | None = None
     ) -> bool:
-        """Say whether the firm or the shared catalogue already uses a name."""
+        """Say whether the firm or the shared catalogue already uses a name.
+
+        Asked without regard to case: the product import finds a set by name
+        that way, so *strip, BOX of 10* beside *Strip, box of 10* left it to
+        chance which of the two a file meant (D-MST-20).
+        """
         statement = select(UnitSet.id).where(
-            UnitSet.name == name,
+            func.lower(UnitSet.name) == name.strip().lower(),
             UnitSet.is_deleted.is_(False),
             or_(UnitSet.firm_id.is_(None), UnitSet.firm_id == firm_id),
         )

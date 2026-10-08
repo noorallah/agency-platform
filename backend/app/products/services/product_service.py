@@ -902,7 +902,7 @@ class ProductService:
                 },
             ),
             goods_type_id=goods_types.type_for_category(
-                firm_scope, self._stored_category(firm_scope, category_id)
+                firm_scope, self._live_category(firm_scope, category_id)
             ),
             unit_sets=UnitSetService(self._session).product_options(firm_scope),
         )
@@ -1825,6 +1825,19 @@ class ProductService:
     def _as_uuid(value: object) -> UUID | None:
         """Read an id out of the untyped dump."""
         return None if value is None else UUID(str(value))
+
+    def _live_category(
+        self, firm_id: UUID, category_id: UUID | None
+    ) -> ProductCategory | None:
+        """Return the category a new product may be filed under, if it is live.
+
+        The form asks what a category hands a product before one is filed
+        there, and a deleted category hands it nothing (D-MST-18).
+        """
+        category = self._stored_category(firm_id, category_id)
+        if category is None or category.is_deleted:
+            return None
+        return category
 
     def _stored_category(
         self, firm_id: UUID, category_id: UUID | None

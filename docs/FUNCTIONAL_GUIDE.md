@@ -1818,8 +1818,9 @@ of its category's goods type (a sub category with no type takes its parent's; a
 category with no type tracks nothing). A cell that says Yes or No is the file's
 own answer and wins. A new optional column, *UnitSet* (also read from the
 headings "unit set", "packing" and "pack size"), names a unit set: on a **new**
-product it fills the units and creates the product's own pack conversion, and a
-*Unit* on the same row is kept. A name that does not exist stops the file. On a
+product it fills the units and creates the product's own pack conversion. A
+*Unit* on the same row is passed over with a warning, because the set names
+every unit of the product. A name that does not exist stops the file. On a
 product that already exists the cell is passed over with a warning. A set marked
 for other goods types than the product's is imported as written, with a warning.
 The check lists such warnings under "N to look at. These do not stop the

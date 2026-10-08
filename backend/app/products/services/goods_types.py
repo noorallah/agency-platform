@@ -293,6 +293,13 @@ class GoodsTypeService:
                 f"{row.name} is still the goods type of product {held}, so it "
                 "cannot be deleted. Deactivate it instead."
             )
+        removed = self._repository.product_holding(row.id, firm_id, deleted=True)
+        if removed is not None:
+            raise ConflictError(
+                f"{row.name} is still the goods type of the deleted product "
+                f"{removed}, which can be restored, so it cannot be deleted. "
+                "Deactivate it instead."
+            )
         use = self._uses(firm_id).get(row.id)
         now = utc_now()
         for item in (row, use):
@@ -326,8 +333,15 @@ class GoodsTypeService:
         products that hold it as they are; it is refused while a category
         still hands the type to new products.
 
+        The firm's HSN and tax-group defaults outlive a drop: they stay on
+        the row that is retired and come back with the type, and a default
+        sent along with the drop is checked and kept the same way. They used
+        to be forgotten, and a body dropping a type had its defaults passed
+        over unread, an unknown tax group included (D-MST-21).
+
         Raises:
             ConflictError: If a live category carries a type being dropped.
+            ValidationError: If a default names a tax group the firm lacks.
 
         """
         row = self._visible(goods_type_id, firm_id)
@@ -336,7 +350,10 @@ class GoodsTypeService:
         defaults = {name: values[name] for name in _DEFAULTS if name in values}
         if not data.in_use:
             self._assert_no_category(row, firm_id, verb="dropped")
+            self._assert_defaults(firm_id, defaults)
             if use is not None:
+                for name, value in defaults.items():
+                    setattr(use, name, value)
                 use.is_deleted = True
                 use.deleted_at = utc_now()
                 use.deleted_by = actor_id
@@ -366,6 +383,11 @@ class GoodsTypeService:
         """Return the firm's live use rows by goods type."""
         return self._repository.uses(firm_id)
 
+    def _assert_defaults(self, firm_id: UUID, defaults: dict[str, str | None]) -> None:
+        """Refuse a default tax group the firm does not have."""
+        if "default_tax_profile_group_code" in defaults:
+            self._assert_tax_group(firm_id, defaults["default_tax_profile_group_code"])
+
     def _write_use(
         self,
         row: GoodsType,
@@ -375,9 +397,14 @@ class GoodsTypeService:
         actor_id: UUID,
         defaults: dict[str, str | None],
     ) -> FirmGoodsType:
-        """Create the firm's use row if it is missing and write the defaults."""
-        if "default_tax_profile_group_code" in defaults:
-            self._assert_tax_group(firm_id, defaults["default_tax_profile_group_code"])
+        """Create or bring back the firm's use row and write the defaults."""
+        self._assert_defaults(firm_id, defaults)
+        if use is None:
+            use = self._repository.dropped_use(firm_id, row.id)
+            if use is not None:
+                use.is_deleted = False
+                use.deleted_at = None
+                use.deleted_by = None
         if use is None:
             use = FirmGoodsType(
                 firm_id=firm_id, goods_type_id=row.id, created_by=actor_id

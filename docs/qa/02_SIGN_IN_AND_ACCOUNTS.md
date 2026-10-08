@@ -170,7 +170,7 @@ one of its entries.
   | **Settings > Platform > System** | Audit Logs · Diagnostics · Licensing · Backups · Platform Dashboard |
   | **Settings > This PC and me** | My Preferences |
 
-  **No** Sell, Buy, Stock, Accounts, Masters or Reports menu, and none of the firm's own Settings (Numbering Series, Tax, Units of Measure, Industry Templates ...) — those live in a firm's own store and need a firm.
+  **No** Sell, Buy, Stock, Accounts, Masters or Reports menu, and none of the firm's own Settings (Numbering Series, Tax, Units of Measure, Unit Sets ...) — those live in a firm's own store and need a firm.
 - **Why:** `requiresFirm` on a module *and* on a tab hides what needs a firm when none is selected. A platform administrator's token carries every code, so permissions alone would offer everything.
 ### TC-PLAT-003 — The switcher lists every firm, and choosing one grows the workspace
 

@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.batch_serial.models.batch_serial import BatchRecord, LotRecord, SerialNumber
+from app.batch_serial.models.batch_serial import (
+    BatchRecord,
+    DocumentLineSerial,
+    LotRecord,
+    SerialNumber,
+)
 from app.batch_serial.schemas.batch_serial import (
     BatchAvailability,
     BatchCreate,
@@ -30,6 +35,8 @@ from app.batch_serial.schemas.batch_serial import (
     SerialUpdate,
 )
 from app.batch_serial.services.product_tracking import (
+    FIELD_SWITCHES,
+    assert_date_order,
     assert_product_fields,
     assert_product_keeps,
     tracked_product,
@@ -45,7 +52,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
-from app.inventory.models import InventoryRecord
+from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.inventory.schemas import BatchStockTotals
 from app.inventory.services import InventoryService
 from app.products.models import Product
@@ -89,6 +96,10 @@ _AUDITED_FIELDS: dict[str, tuple[str, ...]] = {
         "current_owner",
     ),
 }
+
+
+#: The dates of a batch that are judged against one another.
+_BATCH_DATES = frozenset({"manufacturing_date", "expiry_date", "best_before_date"})
 
 
 def _changed(record: object, values: Mapping[str, object]) -> dict[str, object]:
@@ -330,6 +341,109 @@ class BatchSerialService:
             raise ResourceNotFoundError(f"Batch {batch_id} not found.")
         return row
 
+    def _is_named(
+        self,
+        column: InstrumentedAttribute[UUID | None],
+        firm_scope: UUID,
+        record_id: UUID,
+    ) -> bool:
+        """Return whether any row of the firm names this record in ``column``."""
+        found = self._session.scalar(
+            select(column)
+            .where(column == record_id, column.class_.firm_id == firm_scope)
+            .limit(1)
+        )
+        return found is not None
+
+    def _batch_has_moved(self, firm_scope: UUID, batch_id: UUID) -> bool:
+        """Return whether stock, a movement or a serial stands on the batch."""
+        if self._is_named(
+            InventoryRecord.batch_id, firm_scope, batch_id
+        ) or self._is_named(InventoryTransaction.batch_id, firm_scope, batch_id):
+            return True
+        serial = self._session.scalar(
+            select(SerialNumber.id)
+            .where(
+                SerialNumber.firm_id == firm_scope,
+                SerialNumber.batch_id == batch_id,
+                SerialNumber.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+        return serial is not None
+
+    def _product_after(
+        self,
+        firm_scope: UUID,
+        record: BatchRecord | LotRecord | SerialNumber,
+        update_data: Mapping[str, object],
+        *,
+        kind: str,
+        name: str,
+        moved: Callable[[], bool],
+    ) -> tuple[Product, dict[str, object]]:
+        """Return the product a save leaves the record on, and what to judge.
+
+        A save that keeps the product is judged on what it changes. One that
+        names another product used to be judged against the **old** one, so a
+        batch could be moved onto a product that tracks none, or onto one
+        the firm does not own (D-STK-22). It is judged now as a new record of
+        that product would be -- the product must be the firm's, must keep
+        such a record, and must allow every dated field the record will
+        hold -- and it is refused outright once stock has moved under the
+        record, because those movements are the old product's. ``moved`` is
+        asked only then, so an ordinary save costs no extra read.
+
+        Raises:
+            ResourceNotFoundError: If the product named is not the firm's.
+            ValidationError: If the product is cleared, the record has moved
+                stock, or the new product does not track such a record.
+
+        """
+        if "product_id" not in update_data:
+            product = tracked_product(self._session, firm_scope, record.product_id)
+            return product, _changed(record, update_data)
+        product_id = update_data["product_id"]
+        if not isinstance(product_id, UUID):
+            raise ValidationError(f"A {kind} must belong to a product.")
+        if product_id == record.product_id:
+            product = tracked_product(self._session, firm_scope, product_id)
+            return product, _changed(record, update_data)
+        if moved():
+            raise ValidationError(
+                f"{kind.capitalize()} {name} has stock or movements recorded "
+                "against it, so it cannot be moved to another product. Add a "
+                f"new {kind} for that product instead."
+            )
+        product = tracked_product(self._session, firm_scope, product_id)
+        assert_product_keeps(product, kind)
+        held: dict[str, object] = {
+            field: getattr(record, field)
+            for _, _, fields in FIELD_SWITCHES
+            for field in fields
+            if hasattr(record, field)
+        }
+        return product, held | _changed(record, update_data)
+
+    def _assert_serial_batch(
+        self, firm_scope: UUID, product: Product, batch_id: UUID | None
+    ) -> None:
+        """Refuse a serial number filed under another product's batch.
+
+        Raises:
+            ResourceNotFoundError: If the batch is not the firm's.
+            ValidationError: If the batch belongs to another product.
+
+        """
+        if batch_id is None:
+            return
+        batch = self.get_batch(firm_scope=firm_scope, batch_id=batch_id)
+        if batch.product_id != product.id:
+            raise ValidationError(
+                f"Batch {batch.batch_number} belongs to another product, so a "
+                f"serial number of {product.code} cannot be filed under it."
+            )
+
     def _assert_batch_fields(
         self, firm_scope: UUID, product: Product, values: Mapping[str, object]
     ) -> None:
@@ -357,6 +471,11 @@ class BatchSerialService:
         product = tracked_product(self._session, firm_scope, data.product_id)
         assert_product_keeps(product, "batch")
         self._assert_batch_fields(firm_scope, product, data.model_dump())
+        assert_date_order(
+            manufacturing_date=data.manufacturing_date,
+            expiry_date=data.expiry_date,
+            best_before_date=data.best_before_date,
+        )
         assert_trade_rates_within_mrp(mrp=data.mrp, ptr=data.ptr, pts=data.pts)
         record = BatchRecord(
             firm_id=firm_scope,
@@ -620,12 +739,27 @@ class BatchSerialService:
         }
         update_data = data.model_dump(exclude_unset=True)
         # Only what this save changes is judged, so a batch dated before its
-        # product stopped tracking expiry can still be held or recalled.
-        self._assert_batch_fields(
+        # product stopped tracking expiry can still be held or recalled. A
+        # batch moved to another product is judged whole, as a new one is.
+        product, judged = self._product_after(
             firm_scope,
-            tracked_product(self._session, firm_scope, record.product_id),
-            _changed(record, update_data),
+            record,
+            update_data,
+            kind="batch",
+            name=record.batch_number,
+            moved=lambda: self._batch_has_moved(firm_scope, record.id),
         )
+        self._assert_batch_fields(firm_scope, product, judged)
+        if judged.keys() & _BATCH_DATES:
+            assert_date_order(
+                manufacturing_date=update_data.get(
+                    "manufacturing_date", record.manufacturing_date
+                ),
+                expiry_date=update_data.get("expiry_date", record.expiry_date),
+                best_before_date=update_data.get(
+                    "best_before_date", record.best_before_date
+                ),
+            )
         # Judged on what the batch will hold, so lowering the MRP under a
         # standing PTR is refused as surely as raising the PTR over it.
         assert_trade_rates_within_mrp(
@@ -1134,10 +1268,17 @@ class BatchSerialService:
         record = self.get_lot(firm_scope=firm_scope, lot_id=lot_id)
         assert_version(record.version, expected_version)
         update_data = data.model_dump(exclude_unset=True)
-        assert_product_fields(
-            tracked_product(self._session, firm_scope, record.product_id),
-            _changed(record, update_data),
+        product, judged = self._product_after(
+            firm_scope,
+            record,
+            update_data,
+            kind="lot",
+            name=record.lot_number,
+            moved=lambda: self._is_named(
+                InventoryTransaction.lot_id, firm_scope, record.id
+            ),
         )
+        assert_product_fields(product, judged)
         for field, value in update_data.items():
             setattr(record, field, value)
         record.updated_by = actor_id
@@ -1262,6 +1403,7 @@ class BatchSerialService:
                 "warranty_end": data.warranty_end,
             },
         )
+        self._assert_serial_batch(firm_scope, product, data.batch_id)
         record = SerialNumber(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -1313,10 +1455,21 @@ class BatchSerialService:
         record = self.get_serial(firm_scope=firm_scope, serial_id=serial_id)
         assert_version(record.version, expected_version)
         update_data = data.model_dump(exclude_unset=True)
-        assert_product_fields(
-            tracked_product(self._session, firm_scope, record.product_id),
-            _changed(record, update_data),
+        product, judged = self._product_after(
+            firm_scope,
+            record,
+            update_data,
+            kind="serial number",
+            name=record.serial_number,
+            moved=lambda: (
+                self._is_named(InventoryTransaction.serial_id, firm_scope, record.id)
+                or self._is_named(DocumentLineSerial.serial_id, firm_scope, record.id)
+            ),
         )
+        assert_product_fields(product, judged)
+        batch_id = update_data.get("batch_id", record.batch_id)
+        if product.id != record.product_id or batch_id != record.batch_id:
+            self._assert_serial_batch(firm_scope, product, batch_id)
         for field, value in update_data.items():
             setattr(record, field, value)
         record.updated_by = actor_id

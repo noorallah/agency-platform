@@ -12,12 +12,18 @@ which is the absence of a type.
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 from starlette.requests import Request
 
-from app.business.api.router import get_active_modules
-from app.business.models import BusinessModule, BusinessProfile
+from app.business.api.router import (
+    get_active_features,
+    get_active_modules,
+    list_attribute_definitions,
+    list_features,
+)
+from app.business.models import BusinessFeature, BusinessModule, BusinessProfile
 from app.business.schemas import FirmBusinessProfileAssign
 from app.business.services.framework_service import BusinessProfileFrameworkService
 from app.common.audit.models import AuditLog
@@ -31,7 +37,7 @@ from app.identity.models import UserFirm
 from app.identity.system_seed import ROLE_PERMISSION_CODES
 from app.products.api.router import GoodsTypeManageScope, router
 from app.products.goods_type_seed import SHARED_GOODS_TYPES, seed_goods_types
-from app.products.models import Product
+from app.products.models import Product, ProductCategory
 from app.products.schemas import (
     ProductCategoryCreate,
     ProductCategoryUpdate,
@@ -790,3 +796,123 @@ def test_the_active_modules_route_says_which_tracking_screens_a_firm_needs() -> 
             platform_db=session,
             x_firm_id=firm.id,
         )
+
+
+def test_a_deleted_category_hands_the_form_no_goods_type() -> None:
+    """D-MST-18: the metadata named the type of a category that was gone."""
+    session = _store()
+    firm = _firm(session, "ONE")
+    medicine = _use(session, firm.id, "MEDICINE")
+    tablets = _category(session, firm.id, "TABLETS", goods_type_id=medicine.id)
+    service = ProductService(session)
+    assert (
+        service.metadata(firm_scope=firm.id, category_id=tablets).goods_type_id  # type: ignore[arg-type]
+        == medicine.id
+    )
+
+    row = session.get(ProductCategory, tablets)
+    assert row is not None
+    row.is_deleted = True
+    session.commit()
+
+    assert (
+        service.metadata(firm_scope=firm.id, category_id=tablets).goods_type_id  # type: ignore[arg-type]
+        is None
+    )
+
+
+def test_a_type_a_deleted_product_holds_is_not_deleted() -> None:
+    """D-MST-19: a removed product can come back, and must find its type."""
+    session = _store()
+    firm = _firm(session, "ONE")
+    service = GoodsTypeService(session)
+    products = ProductService(session)
+    own = service.create(
+        GoodsTypeCreate(code="SEEDS", name="Seeds"), firm_id=firm.id, actor_id=uuid4()
+    )
+    packets = _category(session, firm.id, "PACKETS", goods_type_id=own.id)
+    product = _product(session, firm.id, "P-1", category_id=packets)
+    products.delete_product(product.id, firm_scope=firm.id, actor_id=uuid4())
+    products.update_category(
+        packets,  # type: ignore[arg-type]
+        ProductCategoryUpdate(code="PACKETS", name="Packets", goods_type_id=None),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+
+    with pytest.raises(ConflictError, match="deleted product P-1"):
+        service.delete(own.id, firm_id=firm.id, actor_id=uuid4())
+
+    restored = products.restore_product(
+        product.id, firm_scope=firm.id, actor_id=uuid4()
+    )
+    assert restored.goods_type_id == own.id
+    assert _by_code(session, firm.id, "SEEDS").id == own.id
+
+
+def test_a_types_defaults_outlive_a_drop_and_come_back_with_it() -> None:
+    """D-MST-21: stop using forgot the firm's HSN and tax group for the type."""
+    session = _store()
+    firm = _firm(session, "ONE")
+    _tax_group(session, firm.id, "GST12")
+    service = GoodsTypeService(session)
+    medicine = _defaults(session, firm.id, "MEDICINE")
+
+    def use(**fields: object) -> GoodsTypeResponse:
+        return service.set_use(
+            medicine.id,
+            GoodsTypeUse(**fields),  # type: ignore[arg-type]
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+
+    assert use(in_use=False).in_use is False
+    back = use(in_use=True)
+    assert (back.default_hsn_sac, back.default_tax_profile_group_code) == (
+        "3004",
+        "GST12",
+    )
+
+    # A default sent with the drop is read: checked, and kept for next time.
+    with pytest.raises(ValidationError, match="tax profile"):
+        use(in_use=False, default_tax_profile_group_code="NOWHERE")
+    assert _by_code(session, firm.id, "MEDICINE").in_use is True
+    use(in_use=False, default_hsn_sac="3003")
+    again = use(in_use=True)
+    assert (again.default_hsn_sac, again.default_tax_profile_group_code) == (
+        "3003",
+        "GST12",
+    )
+    # One row for the firm and the type throughout, live again.
+    assert list(service._uses(firm.id)) == [medicine.id]
+
+
+def test_a_store_with_no_catalogue_answers_nothing_when_no_firm_is_named() -> None:
+    """D-CFG-26: the platform store holds none of these tables, and said 503."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    bare = Session(engine)
+    principal = _principal(uuid4(), set())
+    request = Request({"type": "http"})
+
+    modules = get_active_modules(
+        principal, request, db=bare, platform_db=bare, x_firm_id=None
+    )
+    features = get_active_features(
+        principal, request, db=bare, platform_db=bare, x_firm_id=None
+    )
+    catalogue = list_features(principal, db=bare)
+    fields = list_attribute_definitions(principal, db=bare)
+
+    assert modules.data == [] and features.data == []
+    assert catalogue.data == [] and catalogue.pagination.total_records == 0
+    assert fields.data == [] and fields.pagination.total_records == 0
+
+    # A store that does hold the catalogue answers as it always did.
+    session = _store()
+    assert list_features(principal, db=session).pagination.total_records == len(
+        session.scalars(select(BusinessFeature.id)).all()
+    )
