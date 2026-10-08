@@ -212,7 +212,7 @@ document is built, on the document's own date.
 | Territory and route | `app/sales` | A route's effective window decides whether a document may be tagged with it, judged on the document's own date |
 | Tax | `app/tax` profiles and rules | Yes, per line |
 | Units and packaging | `app/uom` | Yes — every line converts, with a `factor = 1` short-circuit |
-| Industry features | `app/business` | `EXPIRY_TRACKING`, `BATCH_TRACKING`, `SERIAL_NUMBER`, `WARRANTY`, `BARCODE`, `ATTACHMENTS` and others gate fields on sales documents |
+| Industry features | `app/business` | `ATTACHMENTS` and others gate fields on sales documents (expiry, batch, serial and warranty are the product's own switches since 2026-10-08) |
 | Document numbering | `app/document_framework` | Per firm, per document type |
 | Print layout | `document_print_templates` | Per firm, per document type — invoice only today |
 

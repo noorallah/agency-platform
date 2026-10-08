@@ -173,15 +173,56 @@ dialog open with the server's message. There is no *Rows per page* in 1.3.0.
 **Where:** Settings > Firm > Firm Settings. Changing needs `FIRM_UPDATE`.
 
 **Why:** a pharmacy, an electronics distributor and an FMCG agency need
-different features. The **business profile** decides which features and
-modules this firm operates -- batches and expiry, serial numbers, vehicle
-tracking and so on -- so that nobody is asked for fields their trade does not
-use.
+different menus. The **business profile** decides which modules this firm
+operates, the few features that are about the firm itself (attachments, vehicle
+details, drug licence, commission, batch PTR and PTS), and the goods types a new
+firm starts with.
 
 **What happens:** choose a profile and press **Apply profile**. Menus and
-optional fields follow it. A firm with no profile runs as *Generic* and a
+the five firm features follow it. The first time a firm is given a profile it is
+also handed that profile's starting goods types; the firm's administrator adds
+and drops types afterwards. A firm with no profile runs as *Generic* and a
 warning says so. The firm's name, GSTIN and address are not here; they are on
 the platform **Firms** screen (Settings > Platform > Firms).
+
+**What a profile no longer does:** it does not decide whether a product is
+tracked by batch, expiry or serial number (each product's own switches, filled by
+its goods type, do), and the Inventory tabs Batches, Lots, Serial Numbers and
+Expiry Monitor follow the firm's goods rather than its profile. It does not decide
+which extra fields the firm sees, or which are compulsory. Changing the profile takes no stored value
+out of any record. That moved to the custom field screens below (changed on
+2026-10-08, not yet tested by hand).
+
+### Custom Fields and Custom Field Rules
+
+*Added on 2026-10-08, not yet tested by hand.*
+
+**Where:** Settings > Firm > Custom Fields, and Settings > Firm > Custom Field
+Rules. Changing needs `CUSTOM_FIELD_MANAGE`, which the firm administrator holds
+and the firm manager and sales manager do not.
+
+**Why:** a pharmacy wants a batch note on its medicines and a drug licence on
+its chemists. A wholesaler does not. These two screens say which extra fields
+each kind of record carries.
+
+**What happens:**
+
+- **Custom Fields** lists the platform's shared fields and the firm's own. Switch
+  a shared field **off** and it disappears from this firm's forms. Every value
+  already stored is kept, and switching it **on** again shows them. A field the
+  firm made itself is retired with its own *Active* flag instead.
+- **Custom Field Rules** ties a field to a kind, or makes it compulsory. A rule
+  can name a goods type, a customer group, a supplier type or a product
+  category. A rule on a goods type, a customer group or a supplier type shows the
+  field only on that kind (products of that goods type, customers in that group,
+  suppliers of that type) and says whether it must be filled there. A field with
+  no such rule is shown on every record of its sort. A product with no goods
+  type, a customer in no group, a supplier with no type and every document are
+  shown no tied field. A rule on a product category only makes the field
+  compulsory for products in that category.
+- Moving a customer to another group, or a supplier to another type, deletes
+  nothing. The old value stays and can still be saved back. The new kind's
+  required fields are asked for at the next save.
 
 ### Financial Years
 

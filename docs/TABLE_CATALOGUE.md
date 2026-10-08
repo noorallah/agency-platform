@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**331 tables**, of which **17** live only in the platform store.
+**334 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -117,12 +117,13 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `attribute_definitions` | firm store ¹ | Define one configurable field that extends a record for some industry. | `business_profiles` |
+| `attribute_definitions` | firm store ¹ | Define one configurable field that extends a record, shared or a firm's own. |  |
 | `business_features` | firm store ¹ | Define one configurable framework feature flag. |  |
 | `business_modules` | firm store ¹ | Define one configurable module in the ERP workspace. |  |
 | `business_profiles` | firm store ¹ | Define one industry/business operating profile. |  |
-| `category_attribute_rules` | firm store ¹ | Define category-scoped mandatory-attribute rules by business profile. | `business_profiles`, `attribute_definitions` |
+| `category_attribute_rules` | firm store ¹ | Say which records a field belongs to, and where it is compulsory. | `goods_types`, `customer_groups`, `vendor_types`, `attribute_definitions` |
 | `delivery_note_attribute_values` | firm store ¹ | Store one custom field value for a delivery note. | `delivery_notes`, `firms`, `attribute_definitions` |
+| `firm_attribute_switches` | firm store ¹ | One firm's on or off for a field of the shared catalogue. | `attribute_definitions` |
 | `firm_business_profiles` | firm store ¹ | Assign exactly one active business profile to a firm. | `firms`, `business_profiles` |
 | `profile_features` | firm store ¹ | Store per-profile feature enablement and optional configuration. | `business_profiles`, `business_features` |
 | `profile_modules` | firm store ¹ | Store per-profile module visibility and workflow configuration. | `business_profiles`, `business_modules` |
@@ -442,13 +443,15 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `brands` | firm store ¹ | A brand the firm sells, under the principal that owns it. | `firms`, `principals` |
+| `firm_goods_types` | firm store ¹ | One goods type a firm trades in, with its defaults for a new product. | `goods_types` |
+| `goods_types` | firm store ¹ | One line of goods and the tracking its products start with. |  |
 | `principals` | firm store ¹ | The company whose agency the firm holds -- a distributor's principal. | `firms`, `vendors` |
 | `product_attribute_values` | firm store ¹ | Store one configurable attribute value for a product. | `products`, `firms`, `attribute_definitions` |
-| `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms`, `trade_licence_types` |
+| `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms`, `trade_licence_types`, `goods_types` |
 | `product_kit_components` | firm store ¹ | One component of a kit, and how many go into one kit (decision A134). | `firms`, `products` |
 | `product_media` | firm store ¹ | Store product images, attachments, and reference documents. | `firms`, `products` |
 | `product_price_revisions` | firm store ¹ | New rates for a product from a date, kept with every earlier one. | `firms`, `products` |
-| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `trade_licence_types`, `brands`, `uoms`, `vendors` |
+| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `goods_types`, `unit_sets`, `trade_licence_types`, `brands`, `uoms`, `vendors` |
 
 ### `app/proforma`
 
@@ -672,14 +675,14 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `business_profile_uom_defaults` | firm store ¹ | Default UOM behavior by business profile (and optional firm override). | `firms`, `business_profiles`, `uoms` |
 | `packaging_types` | firm store ¹ | Define one packaging type token (box/carton/pallet/etc.). |  |
 | `product_packaging_levels` | firm store ¹ | Store unlimited product packaging hierarchy levels. | `firms`, `products`, `packaging_types`, `uoms` |
+| `unit_set_goods_types` | firm store ¹ | One goods type a unit set suits; the pair is the whole row. | `unit_sets`, `goods_types` |
+| `unit_sets` | firm store ¹ | One template for a product's units and its pack size. | `uoms` |
 | `uom_attribute_values` | firm store ¹ | Store one configurable attribute value for a unit of measure. | `uoms`, `firms`, `attribute_definitions` |
 | `uom_conversion_rules` | firm store ¹ | Versioned UOM conversion rule with historical effectivity. | `firms`, `business_profiles`, `products`, `uoms` |
 | `uom_group_units` | firm store ¹ | Map UOMs into UOM groups with base-unit selection. | `uom_groups`, `uoms` |
 | `uom_groups` | firm store ¹ | Group related UOMs for conversions and product assignment. |  |
-| `uom_industry_templates` | firm store ¹ | Store reusable industry UOM/packaging templates. |  |
 | `uoms` | firm store ¹ | Define one reusable unit of measure. |  |
 
 ### `app/vendors`

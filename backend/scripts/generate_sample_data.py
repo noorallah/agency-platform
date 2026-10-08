@@ -40,10 +40,11 @@ from app.branches.schemas import (
 from app.branches.services.branch_warehouse_service import BranchWarehouseService
 from app.business.models import (
     AttributeDefinition,
+    AttributeEntityType,
     BusinessProfile,
-    CategoryAttributeRule,
 )
 from app.business.schemas import FirmBusinessProfileAssign
+from app.business.services import AttributeService, RecordKind
 from app.business.services.framework_service import BusinessProfileFrameworkService
 from app.business.system_seed import seed_business_profiles
 from app.common.audit.models.audit_log import AuditLog
@@ -115,6 +116,7 @@ from app.inventory.models import (
     OpeningStockLine,
     StockLedgerEntry,
 )
+from app.products.goods_type_seed import seed_goods_types
 from app.products.models import (
     Product,
     ProductCategory,
@@ -125,6 +127,7 @@ from app.products.schemas import (
     ProductCreate,
 )
 from app.products.schemas.product import ProductStatus, ProductType
+from app.products.services.goods_types import GoodsTypeService
 from app.products.services.product_service import ProductService
 from app.purchase.models import (
     PurchaseAttachment,
@@ -227,7 +230,6 @@ from app.tax.services.place_of_supply import (
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import (
-    BusinessProfileUomDefault,
     ConversionRule,
     PackagingType,
     ProductPackagingLevel,
@@ -236,6 +238,7 @@ from app.uom.models import (
     UomGroupUnit,
 )
 from app.uom.system_seed import seed_uom_reference_data
+from app.uom.unit_set_seed import seed_unit_sets
 from app.vendors.models import (
     Vendor,
 )
@@ -638,6 +641,8 @@ def main() -> None:
             seed_system_rbac(session)
             seed_business_profiles(session)
             seed_uom_reference_data(session)
+            seed_goods_types(session)
+            seed_unit_sets(session)
             session.commit()
             if args.mode == "reset":
                 USERS_DOC_PATH.write_text(
@@ -872,6 +877,8 @@ def _reset_dedicated_store(url: str, schema: str) -> None:
             # hold a product. The platform pass does the same for its own
             # schema after the delete.
             seed_uom_reference_data(session)
+            seed_goods_types(session)
+            seed_unit_sets(session)
             session.commit()
     finally:
         engine.dispose()
@@ -2954,32 +2961,8 @@ def _seed_products(
     actor_id: UUID,
     notes: list[str],
 ) -> dict[UUID, list[Product]]:
-    rules = list(
-        session.scalars(
-            select(CategoryAttributeRule)
-            .where(CategoryAttributeRule.is_deleted.is_(False))
-            .order_by(CategoryAttributeRule.category_code.asc())
-        ).all()
-    )
-    definitions = {
-        row.id: row
-        for row in session.scalars(
-            select(AttributeDefinition).where(
-                AttributeDefinition.is_deleted.is_(False),
-                AttributeDefinition.is_active.is_(True),
-            )
-        ).all()
-    }
-    required_by_profile_category: dict[
-        tuple[UUID | None, str], list[AttributeDefinition]
-    ] = defaultdict(list)
-    for rule in rules:
-        definition = definitions.get(rule.attribute_definition_id)
-        if definition is None:
-            continue
-        required_by_profile_category[
-            (rule.business_profile_id, rule.category_code.upper())
-        ].append(definition)
+    attribute_service = AttributeService(session)
+    goods_types = GoodsTypeService(session)
 
     products_by_firm: dict[UUID, list[Product]] = {}
     for context_index, context in enumerate(contexts, start=1):
@@ -3034,16 +3017,22 @@ def _seed_products(
         product_counter = 1
         for category_code, templates, quantity, default_tax_code in product_groups:
             category = context.product_categories[category_code]
-            definitions_for_category = (
-                required_by_profile_category.get(
-                    (context.profile.id, category.code), []
-                )
-                or required_by_profile_category.get((None, category.code), [])
-                or required_by_profile_category.get(
-                    (context.profile.id, category.name.upper()), []
-                )
-                or required_by_profile_category.get((None, category.name.upper()), [])
+            # What the save itself will insist on for a product filed here:
+            # the same resolver, so the seeder cannot send a field the
+            # category's goods type does not carry (backlog 89).
+            applied = attribute_service.applied(
+                AttributeEntityType.PRODUCT.value,
+                firm_id=context.firm.id,
+                category_code=category.code,
+                kind=RecordKind(
+                    goods_type_id=goods_types.type_for_category(
+                        context.firm.id, category
+                    )
+                ),
             )
+            definitions_for_category = [
+                row for row in applied.definitions if row.id in applied.required
+            ]
             for index in range(quantity):
                 template_name, unit, hsn = templates[index % len(templates)]
                 vendor = vendors[(product_counter - 1) % len(vendors)]
@@ -3104,16 +3093,10 @@ def _seed_products(
                 )
                 product_counter += 1
         products_by_firm[context.firm.id] = created
-    if rules:
-        notes.append(
-            "Product dynamic attributes were populated from existing category "
-            "attribute rules."
-        )
-    else:
-        notes.append(
-            "No category attribute rules were present, so seeded products use only "
-            "core fields."
-        )
+    notes.append(
+        "Each product carries the custom fields its category and goods type "
+        "make compulsory, and no others."
+    )
     return products_by_firm
 
 
@@ -3692,29 +3675,6 @@ def _seed_uom_inventory_and_documents(
     pkg_unit = packaging_by_code["UNIT"]
     pkg_box = packaging_by_code["BOX"]
     pkg_carton = packaging_by_code["CARTON"]
-
-    profile_defaults = session.scalar(
-        select(BusinessProfileUomDefault).where(
-            BusinessProfileUomDefault.firm_id == firm_id,
-            BusinessProfileUomDefault.business_profile_id == context.profile.id,
-            BusinessProfileUomDefault.is_deleted.is_(False),
-        )
-    )
-    if profile_defaults is None:
-        session.add(
-            BusinessProfileUomDefault(
-                firm_id=firm_id,
-                business_profile_id=context.profile.id,
-                base_uom_id=uom_unit.id,
-                inventory_uom_id=uom_unit.id,
-                purchase_uom_id=uom_box.id,
-                sales_uom_id=uom_unit.id,
-                allow_fraction=False,
-                allow_decimal=True,
-                created_by=actor_id,
-                updated_by=actor_id,
-            )
-        )
 
     for index, product in enumerate(products[:6], start=1):
         product.base_uom_id = uom_unit.id

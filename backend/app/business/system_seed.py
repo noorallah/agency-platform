@@ -31,9 +31,6 @@ SEED_BUSINESS_PROFILES: tuple[BusinessProfileSeed, ...] = (
         "is_default": True,
         "default_settings": {
             "business_model": "general",
-            "inventory_tracking": "item",
-            "batch_required": False,
-            "expiry_required": False,
             "retailer_pricing": True,
         },
     },
@@ -46,9 +43,6 @@ SEED_BUSINESS_PROFILES: tuple[BusinessProfileSeed, ...] = (
         "is_default": False,
         "default_settings": {
             "business_model": "distributor",
-            "inventory_tracking": "item",
-            "batch_required": False,
-            "expiry_required": False,
             "salesman_tracking": True,
             "route_management": True,
             "retailer_pricing": True,
@@ -64,9 +58,6 @@ SEED_BUSINESS_PROFILES: tuple[BusinessProfileSeed, ...] = (
         "is_default": False,
         "default_settings": {
             "business_model": "distributor",
-            "inventory_tracking": "batch",
-            "batch_required": True,
-            "expiry_required": True,
             "mrp_control": True,
             "ptr_support": True,
             "sale_return_window_days": 30,
@@ -82,9 +73,6 @@ SEED_BUSINESS_PROFILES: tuple[BusinessProfileSeed, ...] = (
         "is_default": False,
         "default_settings": {
             "business_model": "distributor",
-            "inventory_tracking": "batch",
-            "batch_required": True,
-            "expiry_required": True,
             "near_expiry_alert_days": 30,
             "damaged_returns": True,
             "cold_storage": False,
@@ -101,9 +89,6 @@ SEED_BUSINESS_PROFILES: tuple[BusinessProfileSeed, ...] = (
         "is_default": False,
         "default_settings": {
             "business_model": "wholesale",
-            "inventory_tracking": "item",
-            "batch_required": False,
-            "expiry_required": False,
             "counter_sales": True,
             "bulk_pricing": True,
             "credit_sales": True,

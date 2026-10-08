@@ -893,7 +893,7 @@ with the firm that carries each.
 | Emailing a document | Built on 2026-10-01 (`docs/MESSAGING_FRAMEWORK.md`): **Send** on a document queues an email with its PDF, through the firm's own SMTP account. Off until the firm switches Messaging on and sets it up under Settings → Firm → Messaging (`docs/MESSAGING_SETUP_GUIDE.md`). Automatic WhatsApp and SMS sends still need the firm's own provider accounts. |
 | Licensing | Not built. A permission and a role exist and are unused. Deferred by the owner. |
 | `lots` | The one table still holding no live row in any store. |
-| `IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`, `SERVICE_CONTRACTS`, `PROJECT_MANAGEMENT` | Declared as roadmap features and refused if switched on. Six, not seven: `COMMISSION` came off on 2026-09-03, because `app/commission` shipped on 08-23 and the flag outlived the fact — an administrator was being refused a feature the platform had. |
+| `IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`, `SERVICE_CONTRACTS`, `PROJECT_MANAGEMENT` | Were declared as roadmap features. Withdrawn from the catalogue on 2026-10-08 by `20261008_0353`, with the other features that decided goods; the Business Features screen lists five rows now (`ATTACHMENTS`, `VEHICLE_TRACKING`, `DRUG_LICENSE`, `COMMISSION`, `BATCH_PTR_PTS`), all implemented. |
 
 ### No longer gaps — these are testable, and on which firm
 
@@ -902,7 +902,7 @@ the exceptional one. **Do** raise a defect against any of these.
 
 | Area | Where it lives now |
 | --- | --- |
-| Serial numbers | **ELEC01**'s mixer grinder has `track_serial` set, with up to twenty serials carrying warranty dates. Tracking only — receipts and issues do not demand the numbers, so the trading history is unaffected. Needed `SERIAL_NUMBER` and `WARRANTY` on the ELECTRONICS profile, which the feature seed backfills. |
+| Serial numbers | **ELEC01**'s mixer grinder has `track_serial` set, with up to twenty serials carrying warranty dates. Tracking only — receipts and issues do not demand the numbers, so the trading history is unaffected. Needs `track_warranty` on the product, which the seeder switches on (since 2026-10-08 the profile's `SERIAL_NUMBER` and `WARRANTY` features are not asked). |
 | Packaging levels | Each firm's **first product** carries a `Case` level with a barcode. |
 | Cost and profit centres | **Two of each per firm**, plus one posted manual journal naming them. Manual deliberately: the automatic postings name no centre, so a seeded account that required one would refuse them. |
 | Shortened sales chains | **FOOD01** has `delivery_note_stage` off, so every one of its invoices is billed off the order and `SalesChainService` dispatches the goods — the one path that moves stock from an invoice. Note the consequence, which is an open product question rather than a defect: FOOD01's Delivery Notes screen is hidden when the stage is off, so its service-raised notes can only be read through the Delivery note register report. |

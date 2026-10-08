@@ -37,6 +37,7 @@ from app.products.schemas import ProductCreate, ProductUpdate
 from app.products.schemas.product import ProductStatus, ProductType
 from app.tax.models import TaxProfile
 from app.uom.models import Uom
+from app.uom.services.unit_sets import UnitSetService
 
 if TYPE_CHECKING:
     from app.products.services.product_service import ProductService
@@ -98,6 +99,14 @@ COLUMNS: tuple[Column, ...] = (
         "PCS",
     ),
     Column(
+        "UnitSet",
+        ("unitset", "packing", "packsize"),
+        False,
+        "A unit set, by name (see the Lists sheet): it fills a new product's "
+        "units and its pack conversion. A Unit on the same row is kept.",
+        "",
+    ),
+    Column(
         "HSN",
         ("hsnsac", "hsncode", "saccode", "sac"),
         False,
@@ -157,16 +166,22 @@ COLUMNS: tuple[Column, ...] = (
         "TrackBatch",
         ("batchwise", "maintainbatches"),
         False,
-        "Yes or No.",
-        "No",
+        "Yes or No. Blank takes the goods type of the product's category.",
+        "",
     ),
-    Column("TrackExpiry", ("expirytracking",), False, "Yes or No.", "No"),
+    Column(
+        "TrackExpiry",
+        ("expirytracking",),
+        False,
+        "Yes or No. Blank takes the goods type of the product's category.",
+        "",
+    ),
     Column(
         "TrackSerial",
         ("serialnumbers",),
         False,
-        "Yes or No.",
-        "No",
+        "Yes or No. Blank takes the goods type of the product's category.",
+        "",
     ),
     Column(
         "AllowNegativeStock",
@@ -187,6 +202,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "sub_category_id": "SubCategory",
     "base_uom_id": "Unit",
     "unit": "Unit",
+    "unit_set_id": "UnitSet",
     "hsn_sac": "HSN",
     "tax_profile_group_code": "TaxGroup",
     "brand": "Brand",
@@ -229,9 +245,13 @@ _FLAG_FIELDS: dict[str, str] = {
 
 
 class _References:
-    """The firm's categories, units and tax groups, read once per file."""
+    """The firm's categories, units, unit sets and tax groups, once per file."""
 
     def __init__(self, session: Session, firm_id: UUID) -> None:
+        self.unit_sets = {
+            option.name.strip().lower(): option
+            for option in UnitSetService(session).product_options(firm_id)
+        }
         categories = session.scalars(
             select(ProductCategory).where(
                 ProductCategory.firm_id == firm_id,
@@ -262,6 +282,16 @@ class _References:
             ).all()
             if code
         }
+
+    def goods_type_of(self, category_id: UUID | None) -> UUID | None:
+        """Return the goods type a product filed here takes: nearest first."""
+        by_id = {item.id: item for item in self.categories}
+        current = by_id.get(category_id) if category_id else None
+        while current is not None:
+            if current.goods_type_id is not None:
+                return current.goods_type_id
+            current = by_id.get(current.parent_id) if current.parent_id else None
+        return None
 
     def category(self, value: str, parent_id: UUID | None) -> ProductCategory | None:
         """Find a category by code, then by name, under ``parent_id``.
@@ -323,6 +353,7 @@ class ProductFileImporter(FileImporter[Product]):
     ) -> None:
         issues: list[ImportIssue] = []
         values = self._values(RowReader(row, code, issues), code, current)
+        warnings = self._unit_set(row, code, current, values, issues)
         if issues:
             report.issues.extend(issues)
             return
@@ -351,6 +382,7 @@ class ProductFileImporter(FileImporter[Product]):
             # still sound and the rest of the file can be checked.
             report.issues.append(ImportIssue(row.number, code, None, error.message))
             return
+        report.warnings.extend(warnings)
         report.records.append(product)
 
     def _values(
@@ -397,6 +429,60 @@ class ProductFileImporter(FileImporter[Product]):
         assert self._references is not None
         self._resolve(reader.cells, current, self._references, values, reader.fail)
         return values
+
+    def _unit_set(
+        self,
+        row: ImportRow,
+        code: str,
+        current: Product | None,
+        values: dict[str, object],
+        issues: list[ImportIssue],
+    ) -> list[ImportIssue]:
+        """Name the row's unit set on a new product; return what to warn of.
+
+        A set is copied onto a product when it is created and never after,
+        so on a product that exists the cell is said to be passed over. A
+        set marked for other goods types than the product's is a choice the
+        form allows through *Show all unit sets*: said, never refused.
+        """
+        text = row.cells.get("UnitSet", "")
+        if not text:
+            return []
+        assert self._references is not None
+        option = self._references.unit_sets.get(text.strip().lower())
+        if option is None:
+            issues.append(
+                ImportIssue(
+                    row.number, code, "UnitSet", f"'{text}' is not an active unit set."
+                )
+            )
+            return []
+        if current is not None:
+            return [
+                ImportIssue(
+                    row.number,
+                    code,
+                    "UnitSet",
+                    "is passed over: a unit set fills a new product only, and "
+                    "this product keeps its units.",
+                )
+            ]
+        values["unit_set_id"] = option.id
+        category_id = values.get("sub_category_id") or values.get("category_id")
+        goods_type_id = self._references.goods_type_of(
+            category_id if isinstance(category_id, UUID) else None
+        )
+        if option.goods_type_ids and goods_type_id not in option.goods_type_ids:
+            return [
+                ImportIssue(
+                    row.number,
+                    code,
+                    "UnitSet",
+                    f"'{option.name}' is marked for other goods types than this "
+                    "product's. It is imported as written.",
+                )
+            ]
+        return []
 
     @staticmethod
     def _resolve(
@@ -480,6 +566,8 @@ def template_workbook(session: Session, firm_id: UUID) -> bytes:
             "Unit name",
             "",
             "Tax group",
+            "",
+            "Unit set",
         ],
         lists=[
             [item.code for item in categories],
@@ -493,6 +581,8 @@ def template_workbook(session: Session, firm_id: UUID) -> bytes:
             [unit.name for unit in units],
             [],
             sorted(references.tax_groups.values()),
+            [],
+            sorted(option.name for option in references.unit_sets.values()),
         ],
     )
 

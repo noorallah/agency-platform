@@ -141,7 +141,15 @@ void main() {
       home: Scaffold(
         body: ProductWorkspaceDialog(
           mode: ProductDialogMode.edit,
-          product: _product,
+          // The shelf life follows Track expiry, so the product tracks it.
+          product: Product.fromJson(const {
+            'id': 'product-1',
+            'code': 'PROD-001',
+            'name': 'Pain Relief',
+            'product_type': 'STOCK_ITEM',
+            'status': 'ACTIVE',
+            'track_expiry': true,
+          }),
           categories: const [],
           uoms: const [],
           definitions: const [],

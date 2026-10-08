@@ -225,7 +225,8 @@ class CustomerWrite(CustomerSchema):
     #: Messaging (backlog 51): no payment reminders to this customer.
     no_reminders: bool = False
     #: Days of shelf life goods must have left on reaching this customer
-    #: (backlog 79 row 6). Needs the firm's EXPIRY_TRACKING feature.
+    #: (backlog 79 row 6). Any firm may record it; it only bites on goods
+    #: whose product tracks expiry.
     minimum_shelf_life_days: int | None = Field(default=None, ge=1, le=3650)
     #: Which batch trade rate this buyer takes (PG-14): RETAILER the price to
     #: retailer, STOCKIST the price to stockist; blank or OTHER neither.

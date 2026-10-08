@@ -155,8 +155,8 @@ void main() {
     });
     final BusinessFeatureRecord feature = BusinessFeatureRecord.fromJson({
       'id': 'feature-1',
-      'code': 'EXPIRY_TRACKING',
-      'name': 'Expiry Tracking',
+      'code': 'ATTACHMENTS',
+      'name': 'Attachments',
       'category': 'OPERATIONS',
       'default_enabled': true,
       'is_active': true,
@@ -215,7 +215,7 @@ void main() {
     final ProductMetadataRecord metadata = ProductMetadataRecord.fromJson({
       'profile_code': 'MEDICAL',
       'features': [
-        {'code': 'BARCODE', 'enabled': true}
+        {'code': 'ATTACHMENTS', 'enabled': true}
       ],
       'categories': [
         {
@@ -234,7 +234,7 @@ void main() {
     expect(product.code, 'PROD-1');
     expect(product.attributes.single.valueText, '30');
     expect(product.media.single.isPrimary, isTrue);
-    expect(metadata.featureEnabled('BARCODE'), isTrue);
+    expect(metadata.featureEnabled('ATTACHMENTS'), isTrue);
     expect(metadata.categories.single.code, 'MEDICINE');
   });
 

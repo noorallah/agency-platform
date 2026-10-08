@@ -1,5 +1,6 @@
 """UOM framework service exports."""
 
+from app.uom.services.unit_sets import UnitSetService
 from app.uom.services.uom_service import (
     ContinuedQuantity,
     StatedLine,
@@ -16,6 +17,7 @@ from app.uom.services.uom_service import (
 __all__ = [
     "ContinuedQuantity",
     "StatedLine",
+    "UnitSetService",
     "UomService",
     "assert_quantity_fits_unit",
     "buying_units_of",

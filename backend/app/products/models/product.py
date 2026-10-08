@@ -81,6 +81,18 @@ class ProductCategory(BaseEntity):
         ForeignKey("trade_licence_types.id", ondelete="RESTRICT"),
         index=True,
     )
+    #: The goods type a new product filed here takes and stores (backlog
+    #: 89). Null is General; a sub-category without one takes its parent's.
+    #: Changing it reaches products created afterwards only.
+    goods_type_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "goods_types.id",
+            name="FK_product_categories_goods_type_id",
+            ondelete="RESTRICT",
+        ),
+        index=True,
+    )
 
     children: Mapped[list["ProductCategory"]] = relationship(
         back_populates="parent",
@@ -110,6 +122,7 @@ class Product(BaseEntity):
         Index("IX_products_firm_barcode", "firm_id", "barcode"),
         Index("IX_products_firm_qr_code", "firm_id", "qr_code"),
         Index("IX_products_firm_tax_group_code", "firm_id", "tax_profile_group_code"),
+        Index("IX_products_firm_goods_type", "firm_id", "goods_type_id"),
         Index(
             "UQ_products_firm_barcode_active",
             "firm_id",
@@ -135,6 +148,25 @@ class Product(BaseEntity):
     )
     sub_category_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("product_categories.id", ondelete="RESTRICT")
+    )
+    #: The goods type taken from the category when the product was filed
+    #: there, and stored so a report by goods type reads this row alone
+    #: (backlog 89). Null is General. Moving the product to another category
+    #: is the only thing that changes it.
+    goods_type_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "goods_types.id",
+            name="FK_products_goods_type_id",
+            ondelete="RESTRICT",
+        ),
+    )
+    #: The unit set its units were copied from when it was created, kept for
+    #: reference only (backlog 89): the units and the conversion rule are the
+    #: product's own and nothing reads the set again.
+    unit_set_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("unit_sets.id", name="FK_products_unit_set_id", ondelete="SET NULL"),
     )
     #: The trade licence this product needs, overriding its category's; null
     #: takes the category's (backlog 54).

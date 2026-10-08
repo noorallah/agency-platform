@@ -27,7 +27,6 @@ AttributeDefinitionRecord _def(String id, String code) =>
       applicableCategory: 'CORE_PRODUCTS',
       description: '',
       defaultValue: '',
-      applicableBusinessProfileId: '',
     );
 
 class _Api extends ApiClient {
@@ -83,8 +82,6 @@ class _Api extends ApiClient {
   @override
   Future<List<UomRecord>> uoms({bool includeInactive = false}) async =>
       const [];
-  @override
-  Future<BusinessProfileUomDefaults?> firmUomDefaults() async => null;
 }
 
 void main() {

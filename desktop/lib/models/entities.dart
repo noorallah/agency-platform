@@ -758,17 +758,27 @@ class CategoryAttributeRuleRecord {
     required this.attributeDefinitionId,
     required this.attributeCode,
     required this.attributeName,
-    required this.businessProfileId,
-    required this.businessProfileCode,
     required this.isMandatory,
+    this.goodsTypeId = '',
+    this.customerGroupId = '',
+    this.vendorTypeId = '',
+    this.appliesTo = '',
+    this.firmId,
     this.validationOverride,
   });
 
-  final String id, categoryCode, attributeDefinitionId, businessProfileId;
+  /// A rule names exactly one of [categoryCode], [goodsTypeId],
+  /// [customerGroupId] and [vendorTypeId]; the other three are empty.
+  final String id, categoryCode, attributeDefinitionId;
+  final String goodsTypeId, customerGroupId, vendorTypeId;
+
+  /// The firm that owns the rule, or null for a shared one.
+  final String? firmId;
 
   /// Resolved server-side: a grid of raw ids tells the reader nothing, and
   /// looking them up here would mean loading the whole catalogue per page.
-  final String attributeCode, attributeName, businessProfileCode;
+  /// [appliesTo] is the ready label ("Goods type: Medicine").
+  final String attributeCode, attributeName, appliesTo;
 
   final bool isMandatory;
 
@@ -782,8 +792,11 @@ class CategoryAttributeRuleRecord {
         attributeDefinitionId: stringValue(json['attribute_definition_id']),
         attributeCode: stringValue(json['attribute_code']),
         attributeName: stringValue(json['attribute_name']),
-        businessProfileId: stringValue(json['business_profile_id']),
-        businessProfileCode: stringValue(json['business_profile_code']),
+        goodsTypeId: stringValue(json['goods_type_id']),
+        customerGroupId: stringValue(json['customer_group_id']),
+        vendorTypeId: stringValue(json['vendor_type_id']),
+        appliesTo: stringValue(json['applies_to']),
+        firmId: json['firm_id'] == null ? null : stringValue(json['firm_id']),
         isMandatory: boolValue(json['is_mandatory'], fallback: true),
         validationOverride: json['validation_override'] is Map
             ? Map<String, dynamic>.from(json['validation_override'] as Map)
@@ -803,10 +816,10 @@ class AttributeDefinitionRecord {
     required this.applicableCategory,
     required this.description,
     required this.defaultValue,
-    required this.applicableBusinessProfileId,
     this.validationRule,
     this.firmId,
     this.showOnPrint = false,
+    this.enabledForFirm = true,
   });
 
   final String id, code, name, dataType, applicableCategory;
@@ -821,8 +834,9 @@ class AttributeDefinitionRecord {
   bool get isShared => firmId == null;
   final String entityType, description, defaultValue;
 
-  /// The business profile this field is limited to, or empty for every one.
-  final String applicableBusinessProfileId;
+  /// Whether this firm uses the field. Only a shared field can be off; a
+  /// firm's own is retired with its Active flag.
+  final bool enabledForFirm;
 
   /// Round-tripped untouched: the form cannot edit it, so it must not drop it.
   final Map<String, dynamic>? validationRule;
@@ -856,8 +870,7 @@ class AttributeDefinitionRecord {
         applicableCategory: stringValue(json['applicable_category']),
         description: stringValue(json['description']),
         defaultValue: stringValue(json['default_value']),
-        applicableBusinessProfileId:
-            stringValue(json['applicable_business_profile_id']),
+        enabledForFirm: boolValue(json['enabled_for_firm'], fallback: true),
         validationRule: json['validation_rule'] is Map
             ? Map<String, dynamic>.from(json['validation_rule'] as Map)
             : null,

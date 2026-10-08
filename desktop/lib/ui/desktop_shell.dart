@@ -11,6 +11,7 @@ import 'identity/profile_dialog.dart';
 import 'identity/reset_password_dialog.dart';
 
 import '../core/api/api_client.dart';
+import '../core/api/concurrency.dart';
 import '../core/auth/session_controller.dart';
 import '../core/branding/agency_branding_cache.dart';
 import '../core/branding/branding_config.dart';
@@ -104,6 +105,7 @@ import 'sales/tcs_page.dart';
 import 'pricing/price_level_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
+import 'products/goods_type_defaults_dialog.dart';
 import 'products/product_management_page.dart';
 import 'purchases/purchase_analysis_page.dart';
 import 'purchases/purchase_rate_trend_page.dart';
@@ -117,7 +119,6 @@ import 'tax/tax_configuration_page.dart';
 import 'tax/tax_management_page.dart';
 import 'tax/tax_rule_simulator_page.dart';
 import 'tax/tax_rules_page.dart';
-import 'uom/profile_uom_defaults_dialog.dart';
 import 'uom/packaging_levels_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
@@ -178,6 +179,9 @@ const Map<String, String> _administrationDescriptions = {
   'attribute-definitions':
       'Define the custom fields a module carries, per business profile.',
   'profile-assignment': 'Assign a business profile to each firm.',
+  'goods-types':
+      'How a line of goods is tracked: batches, expiry, serial numbers. Take a '
+          "shared type into use, or add one of the firm's own.",
   'firm-custom-fields':
       'The extra fields this firm keeps on its own records, beside the shared '
           'ones the platform provides.',
@@ -343,6 +347,7 @@ class _DesktopShellState extends State<DesktopShell> {
   /// change made from inside a page belongs to.
   String? _shownPath;
   Set<String>? _activeBusinessModuleCodes;
+  Set<String>? _goodsTracking;
 
   /// Which sales stages this firm types. The whole chain until told otherwise,
   /// which is both the platform default and the safe answer on a failed read.
@@ -945,13 +950,19 @@ class _DesktopShellState extends State<DesktopShell> {
 
   Future<void> _refreshBusinessModules() async {
     try {
-      final List<String> moduleCodes =
-          await widget.session.api.activeBusinessModuleCodes();
+      final ActiveBusinessModules active =
+          await widget.session.api.activeBusinessModules();
       if (!mounted) return;
-      setState(() => _activeBusinessModuleCodes = moduleCodes.toSet());
+      setState(() {
+        _activeBusinessModuleCodes = active.codes;
+        _goodsTracking = active.goodsTracking;
+      });
     } on ApiException {
       if (!mounted) return;
-      setState(() => _activeBusinessModuleCodes = null);
+      setState(() {
+        _activeBusinessModuleCodes = null;
+        _goodsTracking = null;
+      });
     }
   }
 
@@ -997,6 +1008,7 @@ class _DesktopShellState extends State<DesktopShell> {
   ModuleVisibility get _visibility => ModuleVisibility(
         permissions: widget.permissions,
         activeBusinessModules: _activeBusinessModuleCodes,
+        goodsTracking: _goodsTracking,
         salesStages: _salesStages,
         purchaseStages: _purchaseStages,
         hasActiveFirm: widget.session.currentFirm != null,
@@ -2408,6 +2420,7 @@ class _DesktopShellState extends State<DesktopShell> {
             preferences: widget.preferences,
             permissions: widget.permissions,
             router: _router,
+            goodsTracking: _goodsTracking,
           ),
         AppModule.purchases => _PurchaseWorkspace(
             key: ValueKey('purchases-${widget.session.firmContextVersion}'),
@@ -2685,6 +2698,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'attribute-definitions',
           'category-attribute-rules',
           'profile-assignment',
+          'goods-types',
           'firm-custom-fields',
           'firm-custom-field-rules',
           'tax-configuration',
@@ -2696,7 +2710,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'uom-groups',
           'packaging-types',
           'conversion-rules',
-          'industry-templates',
+          'unit-sets',
         ].firstWhere(
           visibleTabIds.contains,
           // Not every visible tab is listed above, so a valid permission set can
@@ -2782,7 +2796,6 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           definition: _businessProfileDefinition(
             widget.api,
             widget.permissions,
-            context: context,
             showFrame: false,
           ),
         ),
@@ -2799,6 +2812,15 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           definition: _businessModuleDefinition(
             widget.api,
             widget.permissions,
+            showFrame: false,
+          ),
+        ),
+      'goods-types' => ResourceManagementPage<GoodsTypeRecord>(
+          api: widget.api,
+          definition: goodsTypeDefinition(
+            widget.api,
+            widget.permissions,
+            context: context,
             showFrame: false,
           ),
         ),
@@ -2894,11 +2916,13 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
           section: UomManagementSection.conversionRules,
         ),
-      'industry-templates' => UomManagementPage(
+      'unit-sets' => ResourceManagementPage<UnitSet>(
           api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: UomManagementSection.industryTemplates,
+          definition: unitSetDefinition(
+            widget.api,
+            widget.permissions,
+            showFrame: false,
+          ),
         ),
       _ => const WorkspaceEmptyState(
           title: 'User Audit is coming soon',
@@ -3944,12 +3968,16 @@ class _InventoryWorkspace extends StatefulWidget {
     required this.preferences,
     required this.permissions,
     required this.router,
+    this.goodsTracking,
   });
 
   final ApiClient api;
   final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final WorkspaceRouter router;
+
+  /// The tracking the firm's goods need; null while unknown (show all).
+  final Set<String>? goodsTracking;
 
   @override
   State<_InventoryWorkspace> createState() => _InventoryWorkspaceState();
@@ -3963,6 +3991,7 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
       module,
       widget.permissions,
       hasActiveFirm: widget.api.activeFirmId?.call() != null,
+      goodsTracking: widget.goodsTracking,
     );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
@@ -5913,41 +5942,12 @@ ResourceDefinition<Permission> permissionDefinition(
 ResourceDefinition<BusinessProfileRecord> _businessProfileDefinition(
   ApiClient api,
   PermissionService permissions, {
-  BuildContext? context,
   bool showFrame = true,
 }) =>
     ResourceDefinition(
       title: 'Business Profiles',
       resource: 'business-framework/profiles',
       showFrame: showFrame,
-      // Default units are not fields on the profile: the profile is
-      // platform-wide while units are firm-owned, so they have their own
-      // endpoint. The action lives here because this is the only screen that
-      // lists profiles, and it is where someone configuring one looks for
-      // them.
-      customActions: [
-        if (context != null)
-          ResourceAction<BusinessProfileRecord>(
-            label: 'Default units',
-            icon: Icons.straighten_outlined,
-            isVisible: (_) => permissions.hasPermission('UOM_VIEW'),
-            onInvoke: (profile) async {
-              if (!context.mounted) return '';
-              await showDialog<BusinessProfileUomDefaults>(
-                context: context,
-                builder: (_) => ProfileUomDefaultsDialog(
-                  api: api,
-                  permissions: permissions,
-                  profileId: profile!.id,
-                  profileName: profile.name,
-                ),
-              );
-              // The dialog announces its own result; saying anything here
-              // would also congratulate someone who just closed it.
-              return '';
-            },
-          ),
-      ],
       description:
           'Configure industry profiles that control modules, feature flags, and validations.',
       headers: const ['Code', 'Name', 'Industry', 'Status', 'Default'],
@@ -6250,21 +6250,53 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
   bool licenceTypesLoaded = false;
   unawaited(api.tradeLicenceTypes().then((_) => licenceTypesLoaded = true));
 
+  // The goods types' names, read with the grid's first page so the column can
+  // say "Medicine" rather than an id. `goods_type_id` is sent only once the
+  // picker's options could be read, for the same reason as the licence type:
+  // a form built on nothing must not decide the category is General.
+  final Map<String, String> goodsTypeNames = <String, String>{};
+  bool goodsTypesLoaded = false;
+
   return ResourceDefinition(
     title: 'Product Categories',
     resource: 'products/categories',
     description: 'Group products into a tree, for the product form, '
         'reports and category rules.',
     searchHint: 'Search categories by code or name',
-    headers: const ['Code', 'Name', 'Path', 'Active'],
+    headers: const ['Code', 'Name', 'Path', 'Goods type', 'Active'],
     cells: (ProductCategoryRecord row) => [
       row.code,
       row.name,
       row.path,
+      row.goodsTypeId.isEmpty
+          ? 'General'
+          : (goodsTypeNames[row.goodsTypeId] ?? 'General'),
       row.isActive ? 'Yes' : 'No',
     ],
     id: (ProductCategoryRecord row) => row.id,
-    load: api.productCategoryPage,
+    load: ({
+      int page = 1,
+      String search = '',
+      String sortBy = 'code',
+      bool descending = false,
+    }) async {
+      if (!goodsTypesLoaded) {
+        try {
+          for (final GoodsTypeRecord type in await api.goodsTypes()) {
+            goodsTypeNames[type.id] = type.name;
+          }
+          goodsTypesLoaded = true;
+        } on ApiException {
+          // The grid still lists; the column reads General until it can.
+        }
+      }
+      return api.productCategoryPage(
+        page: page,
+        search: search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+    },
     canUseAction: (action, _) => _canUseResourceAction(
       permissions,
       action,
@@ -6297,6 +6329,15 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
             'or a category above it names one.',
       ),
       FieldSpec(
+        key: 'goods_type_id',
+        label: 'Goods type',
+        optionsResource: 'products/goods-types',
+        singleSelection: true,
+        helperText: 'Leave empty for General (no tracking). New products '
+            'filed here start with this type. Products already filed keep '
+            'theirs.',
+      ),
+      FieldSpec(
         key: 'inspection_required',
         label: 'Inspect on receipt',
         boolean: true,
@@ -6326,6 +6367,7 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
             'name': row.name,
             'parent_id': row.parentId,
             'required_licence_type_id': row.requiredLicenceTypeId,
+            'goods_type_id': row.goodsTypeId,
             'inspection_required': row.inspectionRequired,
             'expiry_stop_sale_days': row.expiryStopSaleDays?.toString() ?? '',
             'expiry_alert_days': row.expiryAlertDays?.toString() ?? '',
@@ -6343,6 +6385,9 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
       if (licenceTypesLoaded)
         'required_licence_type_id':
             _blankToNull(values['required_licence_type_id']),
+      // Null is General; sent only once the types were read.
+      if (goodsTypesLoaded)
+        'goods_type_id': _blankToNull(values['goods_type_id']),
       'inspection_required': values['inspection_required'] == true,
       // STK-5: blank inherits, so blank is sent as null.
       'expiry_stop_sale_days':
@@ -6817,16 +6862,13 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
     title: 'Mandatory Attributes',
     resource: 'business-framework/category-attribute-rules',
     description:
-        'Say which attribute a product category must carry, for one industry '
-        'or for all of them.',
-    headers: const ['Category', 'Attribute', 'Business profile', 'Required'],
-    sortFields: const ['category_code', null, null, null],
+        'Say which attribute a product category, or a shared goods type, '
+        'must carry.',
+    headers: const ['Applies to', 'Attribute', 'Required'],
+    sortFields: const [null, null, null],
     cells: (rule) => [
-      rule.categoryCode,
+      rule.appliesTo.isEmpty ? rule.categoryCode : rule.appliesTo,
       rule.attributeName.isEmpty ? rule.attributeCode : rule.attributeName,
-      rule.businessProfileCode.isEmpty
-          ? 'Every industry'
-          : rule.businessProfileCode,
       rule.isMandatory ? 'Yes' : 'No',
     ],
     id: (rule) => rule.id,
@@ -6839,19 +6881,9 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
       update: const ['PLATFORM_SETTINGS'],
       delete: const ['PLATFORM_SETTINGS'],
     ),
-    fields: const [
-      FieldSpec(
-        key: 'category_code',
-        label: 'Product category',
-        required: true,
-        optionsResource: 'products/categories',
-        singleSelection: true,
-        // Matched against the category's code, not its id -- an id stored
-        // here matches no category and the rule silently never applies.
-        submitsCode: true,
-        helperText: 'Which category of product this requirement is about.',
-      ),
-      FieldSpec(
+    fields: [
+      ..._ruleTargetFields(firmRules: false),
+      const FieldSpec(
         key: 'attribute_definition_id',
         label: 'Attribute',
         required: true,
@@ -6860,15 +6892,7 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
         helperText: 'The field that must be filled in. Define it first under '
             'Dynamic Attributes.',
       ),
-      FieldSpec(
-        key: 'business_profile_id',
-        label: 'Limit to business profile',
-        optionsResource: 'business-framework/profiles',
-        singleSelection: true,
-        section: 'Where it applies',
-        helperText: 'Leave empty and the requirement holds for every industry.',
-      ),
-      FieldSpec(
+      const FieldSpec(
         key: 'is_mandatory',
         label: 'Required',
         boolean: true,
@@ -6879,18 +6903,16 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
     initialValues: (rule) {
       editing = rule;
       return rule == null
-          ? {'is_mandatory': true}
+          ? {'is_mandatory': true, 'rule_kind': 'CATEGORY'}
           : {
-              'category_code': rule.categoryCode,
+              ..._ruleTargetValues(rule),
               'attribute_definition_id': rule.attributeDefinitionId,
-              'business_profile_id': rule.businessProfileId,
               'is_mandatory': rule.isMandatory,
             };
     },
     payload: (values, isCreating) => {
-      'category_code': values['category_code'],
+      ..._ruleTargetPayload(values),
       'attribute_definition_id': values['attribute_definition_id'],
-      'business_profile_id': _blankToNull(values['business_profile_id']),
       'is_mandatory': values['is_mandatory'],
       // Round-tripped, not edited. Omitting it would null an override the
       // form never showed.
@@ -6900,18 +6922,121 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
   );
 }
 
+/// What a field rule names. A rule names exactly one of these; the server
+/// refuses none or several with a 422, so the payload carries just one key.
+const Map<String, String> _ruleKindLabels = {
+  'CATEGORY': 'Product category',
+  'GOODS_TYPE': 'Goods type',
+  'CUSTOMER_GROUP': 'Customer group',
+  'VENDOR_TYPE': 'Supplier type',
+};
+
+String _ruleKind(Map<String, dynamic> values) =>
+    (values['rule_kind'] as String?)?.isNotEmpty == true
+        ? values['rule_kind'] as String
+        : 'CATEGORY';
+
+/// The "what does the rule name" controls shared by the shared-rule and the
+/// firm-rule dialogs. A shared rule may name a category or a shared goods
+/// type only; a firm's own may also name a customer group or a supplier type.
+List<FieldSpec> _ruleTargetFields({required bool firmRules}) => [
+      FieldSpec(
+        key: 'rule_kind',
+        label: 'The rule is about',
+        required: true,
+        choices: [
+          'CATEGORY',
+          'GOODS_TYPE',
+          if (firmRules) ...['CUSTOMER_GROUP', 'VENDOR_TYPE'],
+        ],
+        choiceLabels: _ruleKindLabels,
+        helperText: firmRules
+            ? 'A goods type needs a product field, a customer group a customer '
+                'field and a supplier type a supplier field. Tying a field to '
+                'one shows it only on records of that kind.'
+            : 'A category makes a product field compulsory there; a goods type '
+                'ties the field to that kind of goods.',
+      ),
+      FieldSpec(
+        key: 'category_code',
+        label: 'Product category',
+        required: true,
+        optionsResource: 'products/categories',
+        singleSelection: true,
+        // Matched against the category's code, not its id -- an id stored
+        // here matches no category and the rule silently never applies.
+        submitsCode: true,
+        helperText: 'Which category of product this requirement is about.',
+        visibleWhen: (values) => _ruleKind(values) == 'CATEGORY',
+      ),
+      FieldSpec(
+        key: 'goods_type_id',
+        label: 'Goods type',
+        required: true,
+        optionsResource: 'products/goods-types',
+        singleSelection: true,
+        visibleWhen: (values) => _ruleKind(values) == 'GOODS_TYPE',
+      ),
+      if (firmRules) ...[
+        FieldSpec(
+          key: 'customer_group_id',
+          label: 'Customer group',
+          required: true,
+          optionsResource: 'customers/groups',
+          singleSelection: true,
+          visibleWhen: (values) => _ruleKind(values) == 'CUSTOMER_GROUP',
+        ),
+        FieldSpec(
+          key: 'vendor_type_id',
+          label: 'Supplier type',
+          required: true,
+          optionsResource: 'vendors/types',
+          singleSelection: true,
+          visibleWhen: (values) => _ruleKind(values) == 'VENDOR_TYPE',
+        ),
+      ],
+    ];
+
+/// The dialog values for a rule being edited.
+Map<String, dynamic> _ruleTargetValues(CategoryAttributeRuleRecord rule) {
+  if (rule.goodsTypeId.isNotEmpty) {
+    return {'rule_kind': 'GOODS_TYPE', 'goods_type_id': rule.goodsTypeId};
+  }
+  if (rule.customerGroupId.isNotEmpty) {
+    return {
+      'rule_kind': 'CUSTOMER_GROUP',
+      'customer_group_id': rule.customerGroupId,
+    };
+  }
+  if (rule.vendorTypeId.isNotEmpty) {
+    return {'rule_kind': 'VENDOR_TYPE', 'vendor_type_id': rule.vendorTypeId};
+  }
+  return {'rule_kind': 'CATEGORY', 'category_code': rule.categoryCode};
+}
+
+/// The one key the chosen kind sends -- never two, never none.
+Map<String, dynamic> _ruleTargetPayload(Map<String, dynamic> values) =>
+    switch (_ruleKind(values)) {
+      'GOODS_TYPE' => {'goods_type_id': values['goods_type_id']},
+      'CUSTOMER_GROUP' => {'customer_group_id': values['customer_group_id']},
+      'VENDOR_TYPE' => {'vendor_type_id': values['vendor_type_id']},
+      _ => {'category_code': values['category_code']},
+    };
+
 /// The firm's own custom fields beside the shared catalogue (MST-8).
 ///
 /// A shared row (null `firm_id`) is kept by the platform: the server answers
 /// 404 to a write on one, so the grid refuses it first and says why. The
 /// update replaces the whole record, so what the form does not edit -- the
-/// validation rule and the business profile -- is echoed back from the row.
+/// validation rule -- is echoed back from the row. A shared field can be
+/// switched off for the firm (it stays in the catalogue and keeps its values).
 ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
 }) {
   AttributeDefinitionRecord? editing;
+  bool canManage() => permissions.canUseAction(const ['CUSTOM_FIELD_MANAGE']);
   return ResourceDefinition(
     title: 'Custom Fields',
     resource: 'business-framework/firm-custom-fields',
@@ -6926,6 +7051,7 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
       'Type',
       'Mandatory',
       'Active',
+      'In use',
       'Owner',
     ],
     cells: (field) => [
@@ -6935,10 +7061,33 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
       field.dataType,
       field.mandatory ? 'Yes' : 'No',
       field.isActive ? 'Yes' : 'No',
+      field.enabledForFirm ? 'Yes' : 'No',
       field.isShared ? 'Shared' : 'This firm',
     ],
     id: (field) => field.id,
     load: api.firmCustomFieldsPage,
+    customActions: [
+      ResourceAction<AttributeDefinitionRecord>(
+        label: 'Switch off for this firm',
+        icon: Icons.visibility_off_outlined,
+        isVisible: (row) =>
+            row != null && canManage() && row.isShared && row.enabledForFirm,
+        onInvoke: (row) async {
+          await api.useFirmCustomField(row!.id, enabled: false);
+          return '${row.name} is switched off for this firm.';
+        },
+      ),
+      ResourceAction<AttributeDefinitionRecord>(
+        label: 'Switch on for this firm',
+        icon: Icons.visibility_outlined,
+        isVisible: (row) =>
+            row != null && canManage() && row.isShared && !row.enabledForFirm,
+        onInvoke: (row) async {
+          await api.useFirmCustomField(row!.id, enabled: true);
+          return '${row.name} is switched on for this firm.';
+        },
+      ),
+    ],
     canEdit: (field) => !field.isShared,
     editRefusal: (field) =>
         field.isShared ? 'Shared fields are kept by the platform.' : null,
@@ -7052,10 +7201,6 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
       'entity_type': values['entity_type'],
       'data_type': values['data_type'],
       'applicable_category': _blankToNull(values['applicable_category']),
-      // Not on this form; echoed so an update does not clear it.
-      'applicable_business_profile_id': isCreating
-          ? null
-          : _blankToNull(editing?.applicableBusinessProfileId),
       'mandatory': values['mandatory'],
       'show_on_print': values['show_on_print'] == true,
       'description': _blankToNull(values['description']),
@@ -7065,6 +7210,416 @@ ResourceDefinition<AttributeDefinitionRecord> firmCustomFieldDefinition(
         isCreating ? null : editing?.validationRule,
         values['allowed_values'],
       ),
+    },
+  );
+}
+
+/// How a line of goods is tracked -- the shared catalogue (Medicine, Food,
+/// Paint...) beside the firm's own types (backlog 89).
+///
+/// A shared row is kept by the platform: a firm can take it into use and set
+/// its own defaults, nothing more, so Edit and Delete are refused on it first
+/// and say why. The switches and defaults are all sent on an update, since
+/// the form shows every one of them.
+ResourceDefinition<GoodsTypeRecord> goodsTypeDefinition(
+  ApiClient api,
+  PermissionService permissions, {
+  required BuildContext context,
+  bool showFrame = true,
+}) {
+  bool canManage() => permissions.canUseAction(const ['CUSTOM_FIELD_MANAGE']);
+  return ResourceDefinition(
+    title: 'Goods Types',
+    resource: 'products/goods-types',
+    showFrame: showFrame,
+    recordNoun: 'goods type',
+    updateRecord: (type, body) => api.updateGoodsType(
+      type.id,
+      body,
+      expectedVersion: preconditionFor(type.version),
+    ),
+    deleteRecord: (type) => api.deleteGoodsType(
+      type.id,
+      expectedVersion: preconditionFor(type.version),
+    ),
+    description: 'How a line of goods is tracked: batches, expiry, serial '
+        'numbers. Take a shared type into use, or add one of the '
+        "firm's own.",
+    searchHint: 'Search goods types by code or name',
+    headers: const [
+      'Code',
+      'Name',
+      'Kind',
+      'Tracks',
+      'In use',
+      'Default HSN',
+      'Default tax group',
+      'Active',
+    ],
+    cells: (GoodsTypeRecord row) => [
+      row.code,
+      row.name,
+      row.isShared ? 'Shared' : 'Own',
+      row.tracks,
+      row.inUse ? 'Yes' : 'No',
+      row.defaultHsnSac,
+      row.defaultTaxProfileGroupCode,
+      row.isActive ? 'Yes' : 'No',
+    ],
+    id: (GoodsTypeRecord row) => row.id,
+    load: api.goodsTypesPage,
+    canEdit: (GoodsTypeRecord row) => !row.isShared,
+    editRefusal: (GoodsTypeRecord row) => row.isShared
+        ? 'A shared goods type cannot be changed. Add one of the firm\'s own.'
+        : null,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['PRODUCT_VIEW'],
+      create: const ['CUSTOM_FIELD_MANAGE'],
+      update: const ['CUSTOM_FIELD_MANAGE'],
+      delete: const ['CUSTOM_FIELD_MANAGE'],
+    ),
+    customActions: [
+      ResourceAction<GoodsTypeRecord>(
+        label: 'Use in this firm',
+        icon: Icons.playlist_add_check_outlined,
+        isVisible: (row) => row != null && canManage() && !row.inUse,
+        onInvoke: (row) async {
+          await api.useGoodsType(row!.id, {'in_use': true});
+          return '${row.name} is now in use.';
+        },
+      ),
+      ResourceAction<GoodsTypeRecord>(
+        label: 'Stop using',
+        icon: Icons.playlist_remove_outlined,
+        isVisible: (row) => row != null && canManage() && row.inUse,
+        onInvoke: (row) async {
+          await api.useGoodsType(row!.id, {'in_use': false});
+          return '${row.name} is no longer in use.';
+        },
+      ),
+      ResourceAction<GoodsTypeRecord>(
+        label: 'Set defaults',
+        icon: Icons.tune_outlined,
+        isVisible: (row) => row != null && canManage(),
+        onInvoke: (row) async {
+          final bool saved = await showGoodsTypeDefaultsDialog(
+            context,
+            api: api,
+            type: row!,
+          );
+          return saved ? 'Defaults saved for ${row.name}.' : '';
+        },
+      ),
+    ],
+    fields: const [
+      FieldSpec(
+        key: 'code',
+        label: 'Code',
+        required: true,
+        readOnlyWhenEditing: true,
+        helperText: '2-50 characters: A-Z, 0-9, underscore or hyphen.',
+      ),
+      FieldSpec(key: 'name', label: 'Name', required: true),
+      FieldSpec(key: 'description', label: 'Description', multiline: true),
+      FieldSpec(
+        key: 'track_batch',
+        label: 'Batches',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'track_expiry',
+        label: 'Expiry date',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'track_manufacturing_date',
+        label: 'Manufacturing date',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'track_serial',
+        label: 'Serial numbers',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'track_warranty',
+        label: 'Warranty',
+        boolean: true,
+        section: 'Tracking',
+      ),
+      FieldSpec(
+        key: 'default_hsn_sac',
+        label: 'Default HSN code',
+        section: 'Defaults',
+        helperText: 'Filled into a new product of this type; the person can '
+            'change it.',
+      ),
+      FieldSpec(
+        key: 'default_tax_profile_group_code',
+        label: 'Default tax group',
+        section: 'Defaults',
+        helperText: 'Filled into a new product of this type; the person can '
+            'change it.',
+      ),
+      FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+    ],
+    initialValues: (GoodsTypeRecord? row) => row == null
+        ? <String, dynamic>{'is_active': true}
+        : <String, dynamic>{
+            'code': row.code,
+            'name': row.name,
+            'description': row.description,
+            'track_batch': row.trackBatch,
+            'track_expiry': row.trackExpiry,
+            'track_manufacturing_date': row.trackManufacturingDate,
+            'track_serial': row.trackSerial,
+            'track_warranty': row.trackWarranty,
+            'default_hsn_sac': row.defaultHsnSac,
+            'default_tax_profile_group_code': row.defaultTaxProfileGroupCode,
+            'is_active': row.isActive,
+          },
+    payload: (values, isCreating) => {
+      // The code is the type's identity and is read-only once it exists.
+      if (isCreating) 'code': values['code'],
+      'name': values['name'],
+      'description': _blankToNull(values['description']),
+      'track_batch': values['track_batch'] == true,
+      'track_expiry': values['track_expiry'] == true,
+      'track_manufacturing_date': values['track_manufacturing_date'] == true,
+      'track_serial': values['track_serial'] == true,
+      'track_warranty': values['track_warranty'] == true,
+      'default_hsn_sac': _blankToNull(values['default_hsn_sac']),
+      'default_tax_profile_group_code':
+          _blankToNull(values['default_tax_profile_group_code']),
+      'is_active': values['is_active'] != false,
+    },
+  );
+}
+
+/// A named template of units that fills a new product's unit fields in one
+/// choice (backlog 89, unit sets).
+///
+/// A shared set is kept by the platform, so Edit and Delete are refused on it
+/// first and say why. The conversion box appears once the purchase unit and
+/// the stock unit (inventory, else base) are both chosen and differ.
+ResourceDefinition<UnitSet> unitSetDefinition(
+  ApiClient api,
+  PermissionService permissions, {
+  bool showFrame = true,
+}) {
+  const List<String> unitKeys = [
+    'base_uom_id',
+    'inventory_uom_id',
+    'purchase_uom_id',
+    'sales_uom_id',
+    'minimum_sales_uom_id',
+    'default_receiving_uom_id',
+    'default_dispatch_uom_id',
+  ];
+  bool showsConversion(Map<String, dynamic> values) {
+    final String inventory = values['inventory_uom_id']?.toString() ?? '';
+    final String stock =
+        inventory.isEmpty ? values['base_uom_id']?.toString() ?? '' : inventory;
+    final String purchase = values['purchase_uom_id']?.toString() ?? '';
+    return purchase.isNotEmpty && stock.isNotEmpty && purchase != stock;
+  }
+
+  // Unit and goods type names for the grid, read once with the first page.
+  final Map<String, String> unitNames = <String, String>{};
+  final Map<String, String> goodsTypeNames = <String, String>{};
+  bool namesLoaded = false;
+  String unitName(String id) => id.isEmpty ? '' : (unitNames[id] ?? '');
+  String conversionText(UnitSet row) {
+    final String factor = row.conversionFactor;
+    if (factor.isEmpty || row.purchaseUomId.isEmpty) return 'none';
+    final String stock =
+        row.inventoryUomId.isEmpty ? row.baseUomId : row.inventoryUomId;
+    final String plain = factor.contains('.')
+        ? factor
+            .replaceFirst(RegExp(r'0+$'), '')
+            .replaceFirst(RegExp(r'\.$'), '')
+        : factor;
+    return '1 ${unitName(row.purchaseUomId)} = $plain ${unitName(stock)}';
+  }
+
+  return ResourceDefinition(
+    title: 'Unit Sets',
+    resource: 'uom-framework/unit-sets',
+    showFrame: showFrame,
+    recordNoun: 'unit set',
+    updateRecord: (set, body) => api.updateUnitSet(
+      set.id,
+      body,
+      expectedVersion: preconditionFor(set.version),
+    ),
+    deleteRecord: (set) => api.deleteUnitSet(
+      set.id,
+      expectedVersion: preconditionFor(set.version),
+    ),
+    description: 'A named set of units that fills a new product in one '
+        'choice: stock, purchase and sales units, and how they convert.',
+    searchHint: 'Search unit sets by name',
+    headers: const [
+      'Name',
+      'Stock unit',
+      'Purchase unit',
+      'Sales unit',
+      'Conversion',
+      'Goods types',
+      'Kind',
+      'Active',
+    ],
+    cells: (UnitSet row) => [
+      row.name,
+      unitName(row.inventoryUomId.isEmpty ? row.baseUomId : row.inventoryUomId),
+      unitName(row.purchaseUomId),
+      unitName(row.salesUomId),
+      conversionText(row),
+      row.goodsTypeIds.isEmpty
+          ? 'All goods'
+          : row.goodsTypeIds
+              .map((id) => goodsTypeNames[id] ?? '')
+              .where((name) => name.isNotEmpty)
+              .join(', '),
+      row.isShared ? 'Shared' : 'Own',
+      row.isActive ? 'Yes' : 'No',
+    ],
+    id: (UnitSet row) => row.id,
+    load: ({
+      int page = 1,
+      String search = '',
+      String sortBy = 'name',
+      bool descending = false,
+    }) async {
+      if (!namesLoaded) {
+        try {
+          for (final UomRecord unit in await api.uoms(includeInactive: true)) {
+            unitNames[unit.id] = unit.name;
+          }
+          for (final GoodsTypeRecord type in await api.goodsTypes()) {
+            goodsTypeNames[type.id] = type.name;
+          }
+          namesLoaded = true;
+        } on ApiException {
+          // The grid still lists the sets; a name it could not read shows
+          // blank and the next load tries again.
+        }
+      }
+      return api.unitSetsPage(
+        page: page,
+        search: search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+    },
+    saveRefusal: (values, isCreating) =>
+        (values['base_uom_id']?.toString() ?? '').isEmpty
+            ? 'Choose the base unit the set is counted in.'
+            : null,
+    canEdit: (UnitSet row) => !row.isShared,
+    editRefusal: (UnitSet row) => row.isShared
+        ? 'A shared unit set cannot be changed or deleted. Add one of the '
+            "firm's own."
+        : null,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['UOM_VIEW'],
+      create: const ['UOM_MANAGE'],
+      update: const ['UOM_MANAGE'],
+      delete: const ['UOM_MANAGE'],
+    ),
+    fields: [
+      const FieldSpec(key: 'name', label: 'Name', required: true),
+      const FieldSpec(
+          key: 'description', label: 'Description', multiline: true),
+      for (final (String key, String label) in const [
+        ('base_uom_id', 'Base unit'),
+        ('inventory_uom_id', 'Stock (inventory) unit'),
+        ('purchase_uom_id', 'Purchase unit'),
+        ('sales_uom_id', 'Sales unit'),
+        ('minimum_sales_uom_id', 'Minimum sales unit'),
+        ('default_receiving_uom_id', 'Default receiving unit'),
+        ('default_dispatch_uom_id', 'Default dispatch unit'),
+      ])
+        FieldSpec(
+          key: key,
+          label: label,
+          optionsResource: 'uom-framework/uoms',
+          singleSelection: true,
+          section: 'Units',
+        ),
+      const FieldSpec(
+        key: 'allow_decimal',
+        label: 'Allow decimal quantities',
+        boolean: true,
+        section: 'Units',
+      ),
+      FieldSpec(
+        key: 'conversion_factor',
+        label: 'Conversion: 1 purchase unit = ? stock units',
+        helperText: 'How many stock units one purchase unit holds, e.g. 10 '
+            'for 1 Box = 10 Strip. Optional.',
+        section: 'Units',
+        visibleWhen: showsConversion,
+      ),
+      const FieldSpec(
+        key: 'goods_type_ids',
+        label: 'Goods types',
+        optionsResource: 'products/goods-types',
+        helperText: 'Offered first for these goods types. Leave empty to '
+            'offer it to every product.',
+        section: 'Offered for',
+      ),
+      const FieldSpec(
+        key: 'is_active',
+        label: 'Active',
+        boolean: true,
+        section: 'Offered for',
+      ),
+    ],
+    initialValues: (UnitSet? row) => row == null
+        ? <String, dynamic>{'allow_decimal': true, 'is_active': true}
+        : <String, dynamic>{
+            'name': row.name,
+            'description': row.description,
+            'base_uom_id': row.baseUomId,
+            'inventory_uom_id': row.inventoryUomId,
+            'purchase_uom_id': row.purchaseUomId,
+            'sales_uom_id': row.salesUomId,
+            'minimum_sales_uom_id': row.minimumSalesUomId,
+            'default_receiving_uom_id': row.defaultReceivingUomId,
+            'default_dispatch_uom_id': row.defaultDispatchUomId,
+            'allow_decimal': row.allowDecimal,
+            'conversion_factor': row.conversionFactor,
+            'goods_type_ids': row.goodsTypeIds.join(','),
+            'is_active': row.isActive,
+          },
+    payload: (values, isCreating) {
+      final double? factor =
+          double.tryParse(values['conversion_factor']?.toString() ?? '');
+      return {
+        'name': values['name'],
+        'description': _blankToNull(values['description']),
+        for (final String key in unitKeys) key: _blankToNull(values[key]),
+        'allow_decimal': values['allow_decimal'] != false,
+        'conversion_factor':
+            showsConversion(values) && factor != null && factor > 0
+                ? values['conversion_factor'].toString().trim()
+                : null,
+        'goods_type_ids': (values['goods_type_ids']?.toString() ?? '')
+            .split(',')
+            .map((id) => id.trim())
+            .where((id) => id.isNotEmpty)
+            .toList(),
+        'is_active': values['is_active'] != false,
+      };
     },
   );
 }
@@ -7081,11 +7636,12 @@ ResourceDefinition<CategoryAttributeRuleRecord> firmCustomFieldRuleDefinition(
       title: 'Custom Field Rules',
       resource: 'business-framework/firm-custom-field-rules',
       showFrame: showFrame,
-      description: 'Say which custom field a product category must carry. To '
+      description: 'Say which kind of record a custom field belongs to: a '
+          'product category, goods type, customer group or supplier type. To '
           'change a rule, delete it and add another.',
-      headers: const ['Category', 'Field', 'Required'],
+      headers: const ['Applies to', 'Field', 'Required'],
       cells: (rule) => [
-        rule.categoryCode,
+        rule.appliesTo.isEmpty ? rule.categoryCode : rule.appliesTo,
         rule.attributeName.isEmpty ? rule.attributeCode : rule.attributeName,
         rule.isMandatory ? 'Yes' : 'No',
       ],
@@ -7101,40 +7657,33 @@ ResourceDefinition<CategoryAttributeRuleRecord> firmCustomFieldRuleDefinition(
               update: const ['CUSTOM_FIELD_MANAGE'],
               delete: const ['CUSTOM_FIELD_MANAGE'],
             ),
-      fields: const [
-        FieldSpec(
-          key: 'category_code',
-          label: 'Product category',
-          required: true,
-          optionsResource: 'products/categories',
-          singleSelection: true,
-          submitsCode: true,
-          helperText: 'Which category of product this requirement is about.',
-        ),
-        FieldSpec(
+      fields: [
+        ..._ruleTargetFields(firmRules: true),
+        const FieldSpec(
           key: 'attribute_definition_id',
           label: 'Custom field',
           required: true,
           optionsResource: 'business-framework/firm-custom-fields',
           singleSelection: true,
-          helperText: 'The field that must be filled in.',
+          helperText: 'The field the rule is about.',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'is_mandatory',
           label: 'Required',
           boolean: true,
-          helperText: 'Off records the pairing without enforcing it.',
+          helperText: 'On makes the field compulsory there; off only shows it '
+              'on that kind of record.',
         ),
       ],
       initialValues: (rule) => rule == null
-          ? {'is_mandatory': true}
+          ? {'is_mandatory': true, 'rule_kind': 'CATEGORY'}
           : {
-              'category_code': rule.categoryCode,
+              ..._ruleTargetValues(rule),
               'attribute_definition_id': rule.attributeDefinitionId,
               'is_mandatory': rule.isMandatory,
             },
       payload: (values, isCreating) => {
-        'category_code': values['category_code'],
+        ..._ruleTargetPayload(values),
         'attribute_definition_id': values['attribute_definition_id'],
         'is_mandatory': values['is_mandatory'],
       },
@@ -7222,14 +7771,6 @@ ResourceDefinition<AttributeDefinitionRecord> attributeDefinitionDefinition(
       ),
       FieldSpec(key: 'is_active', label: 'Active', boolean: true),
       FieldSpec(
-        key: 'applicable_business_profile_id',
-        label: 'Limit to business profile',
-        optionsResource: 'business-framework/profiles',
-        singleSelection: true,
-        section: 'Where it applies',
-        helperText: 'Leave empty to offer this field to every industry.',
-      ),
-      FieldSpec(
         key: 'applicable_category',
         label: 'Limit to product category',
         optionsResource: 'products/categories',
@@ -7255,8 +7796,6 @@ ResourceDefinition<AttributeDefinitionRecord> attributeDefinitionDefinition(
               'entity_type': attribute.entityType,
               'data_type': attribute.dataType,
               'applicable_category': attribute.applicableCategory,
-              'applicable_business_profile_id':
-                  attribute.applicableBusinessProfileId,
               'mandatory': attribute.mandatory,
               'description': attribute.description,
               'default_value': attribute.defaultValue,
@@ -7270,8 +7809,6 @@ ResourceDefinition<AttributeDefinitionRecord> attributeDefinitionDefinition(
       'entity_type': values['entity_type'],
       'data_type': values['data_type'],
       'applicable_category': _blankToNull(values['applicable_category']),
-      'applicable_business_profile_id':
-          _blankToNull(values['applicable_business_profile_id']),
       'mandatory': values['mandatory'],
       'description': _blankToNull(values['description']),
       'default_value': _blankToNull(values['default_value']),

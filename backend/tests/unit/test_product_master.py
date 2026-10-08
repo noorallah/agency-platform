@@ -12,10 +12,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.business.models import (
     AttributeDefinition,
-    BusinessFeature,
     BusinessProfile,
     CategoryAttributeRule,
-    ProfileFeature,
 )
 from app.business.services import AttributeService
 from app.common.audit.models import AuditLog
@@ -38,11 +36,12 @@ from app.products.api.router import (
     list_products,
     restore_product,
 )
-from app.products.models import ProductAttributeValue
+from app.products.models import GoodsType, ProductAttributeValue
 from app.products.schemas import (
     ProductAttributeInput,
     ProductCategoryCreate,
     ProductCreate,
+    ProductUpdate,
 )
 from app.products.services import ProductService
 
@@ -99,7 +98,7 @@ def _principal(user_id: UUID, permissions: set[str]) -> Principal:
     )
 
 
-def _seed_profile(session: Session, *, with_barcode_feature: bool) -> None:
+def _seed_profile(session: Session) -> None:
     profile = BusinessProfile(
         code="GENERIC",
         name="Generic",
@@ -112,26 +111,6 @@ def _seed_profile(session: Session, *, with_barcode_feature: bool) -> None:
     )
     session.add(profile)
     session.flush()
-    if with_barcode_feature:
-        feature = BusinessFeature(
-            code="BARCODE",
-            name="Barcode",
-            default_enabled=False,
-            is_active=True,
-            created_by=uuid4(),
-            updated_by=uuid4(),
-        )
-        session.add(feature)
-        session.flush()
-        session.add(
-            ProfileFeature(
-                business_profile_id=profile.id,
-                feature_id=feature.id,
-                is_enabled=True,
-                created_by=uuid4(),
-                updated_by=uuid4(),
-            )
-        )
     session.commit()
 
 
@@ -155,7 +134,7 @@ def test_product_service_enforces_category_attribute_rules() -> None:
     """Require category attributes from profile-driven category rules."""
     session = _session_factory()()
     firm = _firm(session, "MED")
-    _seed_profile(session, with_barcode_feature=True)
+    _seed_profile(session)
     actor_id = uuid4()
     service = ProductService(session)
     category = service.create_category(
@@ -177,13 +156,10 @@ def test_product_service_enforces_category_attribute_rules() -> None:
         created_by=actor_id,
         updated_by=actor_id,
     )
-    profile_id = session.scalar(select(BusinessProfile.id))
-    assert profile_id is not None
     session.add(definition)
     session.flush()
     session.add(
         CategoryAttributeRule(
-            business_profile_id=profile_id,
             category_code="MEDICINE",
             attribute_definition_id=definition.id,
             is_mandatory=True,
@@ -215,54 +191,48 @@ def test_product_service_enforces_category_attribute_rules() -> None:
     assert stored[0].value == date(2028, 12, 31)
 
 
-def test_product_service_enforces_feature_gated_fields() -> None:
-    """Reject feature-gated payload fields when the profile disables them.
+def test_a_products_own_fields_are_not_the_profiles_to_refuse() -> None:
+    """A barcode, a QR code, a warranty and a shelf life are plain fields.
 
-    Raises AuthorizationError, not ValidationError: the payload is well
-    formed, the firm is simply not entitled to that field. That is what every
-    other feature gate raises, and it now goes through the same resolver
-    instead of a private query that ignored ``is_active`` and ``is_deleted``.
+    The firm's business profile used to be asked whether a product might
+    carry each of them, so a firm on one trade's profile was refused a field
+    its second line of goods needed. What a product carries follows the
+    product (backlog 89); a profile that lists none of the four refuses none.
     """
     session = _session_factory()()
     firm = _firm(session, "NOBC")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     service = ProductService(session)
 
-    payload = _base_payload()
-    payload.barcode = "890100001"
-    with pytest.raises(AuthorizationError, match="BARCODE"):
-        service.create_product(payload, firm_id=firm.id, actor_id=uuid4())
-
-
-def test_deactivating_a_feature_disables_it_for_products_too() -> None:
-    """One resolver, one answer.
-
-    Products resolved features through a private query filtering neither
-    ``is_active`` nor ``is_deleted``, so an administrator who deactivated
-    BARCODE found every require_feature endpoint refusing while the product
-    form still accepted barcodes.
-    """
-    session = _session_factory()()
-    firm = _firm(session, "DEACT")
-    _seed_profile(session, with_barcode_feature=True)
-    service = ProductService(session)
-
-    payload = _base_payload()
-    payload.barcode = "890100002"
-    service.create_product(payload, firm_id=firm.id, actor_id=uuid4())
-
-    feature = session.scalar(
-        select(BusinessFeature).where(BusinessFeature.code == "BARCODE")
+    payload = _base_payload().model_copy(
+        update={
+            "barcode": "890100001",
+            "qr_code": "QR-890100001",
+            "track_warranty": True,
+            "shelf_life_days": 365,
+        }
     )
-    assert feature is not None
-    feature.is_active = False
-    session.commit()
+    created = service.create_product(payload, firm_id=firm.id, actor_id=uuid4())
 
-    second = _base_payload()
-    second.code = "P-SECOND"
-    second.barcode = "890100003"
-    with pytest.raises(AuthorizationError, match="BARCODE"):
-        service.create_product(second, firm_id=firm.id, actor_id=uuid4())
+    assert created.barcode == "890100001"
+    assert created.qr_code == "QR-890100001"
+    assert created.track_warranty is True
+    assert created.shelf_life_days == 365
+
+    changed = service.update_product(
+        created.id,
+        ProductUpdate.model_validate(
+            {
+                "code": created.code,
+                "name": created.name,
+                "product_type": "STOCK_ITEM",
+                "barcode": "890100009",
+            }
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+    assert changed.barcode == "890100009"
 
 
 def test_product_api_applies_permissions_and_soft_delete_restore() -> None:
@@ -273,7 +243,7 @@ def test_product_api_applies_permissions_and_soft_delete_restore() -> None:
     user_id = uuid4()
     setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
     setup.commit()
-    _seed_profile(setup, with_barcode_feature=True)
+    _seed_profile(setup)
     setup.close()
 
     permissions = {
@@ -327,7 +297,7 @@ def test_product_cost_price_is_hidden_without_permission() -> None:
     user_id = uuid4()
     session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
     session.commit()
-    _seed_profile(session, with_barcode_feature=True)
+    _seed_profile(session)
 
     creator_scope = _firm_scope(
         _principal(
@@ -361,7 +331,7 @@ def test_bulk_product_operations_are_audited() -> None:
     """
     session = _session_factory()()
     firm = _firm(session, "PBULK")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     actor_id = uuid4()
     service = ProductService(session)
     first = service.create_product(
@@ -395,7 +365,6 @@ def _definition(
     *,
     code: str,
     mandatory: bool = False,
-    profile_id: UUID | None = None,
     category: str | None = None,
 ) -> AttributeDefinition:
     """Add one PRODUCT attribute definition and return it."""
@@ -407,7 +376,6 @@ def _definition(
         data_type="TEXT",
         mandatory=mandatory,
         is_active=True,
-        applicable_business_profile_id=profile_id,
         applicable_category=category,
         created_by=actor_id,
         updated_by=actor_id,
@@ -427,7 +395,7 @@ def test_the_product_form_is_offered_a_field_that_simply_applies() -> None:
     """
     session = _session_factory()()
     firm = _firm(session, "APPLIES")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     service = ProductService(session)
     category = service.create_category(
         data=ProductCategoryCreate(code="GEN", name="General", is_active=True),
@@ -452,7 +420,7 @@ def test_a_mandatory_definition_is_offered_before_it_is_demanded() -> None:
     """
     session = _session_factory()()
     firm = _firm(session, "MUSTHAVE")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     service = ProductService(session)
     category = service.create_category(
         data=ProductCategoryCreate(code="GEN", name="General", is_active=True),
@@ -471,17 +439,20 @@ def test_a_mandatory_definition_is_offered_before_it_is_demanded() -> None:
     assert bin_code.id in without_category.required_attribute_definition_ids
 
 
-def test_a_rule_naming_another_profiles_field_is_not_demanded_of_this_one() -> None:
+def test_a_rule_naming_another_goods_types_field_is_not_demanded_here() -> None:
     """The category nobody could save.
 
-    `mandatory_ids` intersects the rules against what applies, so the save
-    accepted a product without the field; the metadata did not, so the form
-    refused the empty box -- and filling it was refused by the server as an
-    attribute that does not apply. Both halves now ask the same question.
+    A field tied to Medicine does not apply to a General product, so a
+    category rule that names it must not make it compulsory there: the save
+    accepted a product without the field while the metadata demanded it, so
+    the form refused the empty box -- and filling it was refused by the
+    server as an attribute that does not apply. Both halves ask the same
+    question. (Written when the field was scoped by profile; the goods type
+    scopes it since backlog 89.)
     """
     session = _session_factory()()
     firm = _firm(session, "INERT")
-    _seed_profile(session, with_barcode_feature=False)
+    _seed_profile(session)
     service = ProductService(session)
     actor_id = uuid4()
     category = service.create_category(
@@ -489,31 +460,27 @@ def test_a_rule_naming_another_profiles_field_is_not_demanded_of_this_one() -> N
         firm_id=firm.id,
         actor_id=actor_id,
     )
-    elsewhere = BusinessProfile(
-        code="PHARMACY",
-        name="Pharmacy",
-        industry_type="PHARMACY",
-        status="ACTIVE",
-        is_default=False,
-        default_settings={},
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    session.add(elsewhere)
+    medicine = GoodsType(code="MEDICINE", name="Medicine", track_batch=True)
+    session.add(medicine)
     session.flush()
-    rx = _definition(session, code="RX_CLASS", profile_id=elsewhere.id)
-    this_profile = session.scalar(
-        select(BusinessProfile.id).where(BusinessProfile.code == "GENERIC")
-    )
-    session.add(
-        CategoryAttributeRule(
-            business_profile_id=this_profile,
-            category_code="GEN",
-            attribute_definition_id=rx.id,
-            is_mandatory=True,
-            created_by=actor_id,
-            updated_by=actor_id,
-        )
+    rx = _definition(session, code="RX_CLASS")
+    session.add_all(
+        [
+            CategoryAttributeRule(
+                goods_type_id=medicine.id,
+                attribute_definition_id=rx.id,
+                is_mandatory=False,
+                created_by=actor_id,
+                updated_by=actor_id,
+            ),
+            CategoryAttributeRule(
+                category_code="GEN",
+                attribute_definition_id=rx.id,
+                is_mandatory=True,
+                created_by=actor_id,
+                updated_by=actor_id,
+            ),
+        ]
     )
     session.commit()
 

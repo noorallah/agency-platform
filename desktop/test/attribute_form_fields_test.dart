@@ -19,7 +19,6 @@ AttributeDefinitionRecord _definition(
       applicableCategory: '',
       description: '',
       defaultValue: '',
-      applicableBusinessProfileId: '',
     );
 
 Future<void> _pump(
@@ -211,7 +210,6 @@ AttributeDefinitionRecord _choice(String code, List<String> values) =>
       applicableCategory: '',
       description: '',
       defaultValue: '',
-      applicableBusinessProfileId: '',
       validationRule: {'allowed_values': values},
     );
 

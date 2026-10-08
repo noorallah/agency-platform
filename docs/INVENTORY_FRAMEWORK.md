@@ -106,8 +106,9 @@ quantity. It is refused instead.
 
 Three levels decide whether any of this applies, and all three are enforced:
 
-1. The firm's `BATCH_TRACKING` feature — whether the firm may use batches at
-   all.
+1. The product's `track_batch` switch -- whether a batch may be added by hand
+   for it (a receipt still creates its batch). Since 2026-10-08 this is the
+   product's, not the firm's profile (`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`).
 2. `products.require_batch_on_receipt` — a receipt line for this product with no
    batch number is refused, naming the product.
 3. `products.require_batch_on_issue` — stock of this product cannot leave

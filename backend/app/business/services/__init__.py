@@ -3,6 +3,7 @@
 from app.business.services.attribute_service import (
     AttributeInput,
     AttributeService,
+    RecordKind,
     ResolvedAttribute,
 )
 from app.business.services.framework_service import BusinessProfileFrameworkService
@@ -11,5 +12,6 @@ __all__ = [
     "AttributeInput",
     "AttributeService",
     "BusinessProfileFrameworkService",
+    "RecordKind",
     "ResolvedAttribute",
 ]

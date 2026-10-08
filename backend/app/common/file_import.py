@@ -87,6 +87,8 @@ class ImportReport(Generic[RecordT]):  # noqa: UP046
     columns_used: list[str] = field(default_factory=list)
     columns_ignored: list[str] = field(default_factory=list)
     issues: list[ImportIssue] = field(default_factory=list)
+    #: Things worth a second look that stop nothing: the file is still clean.
+    warnings: list[ImportIssue] = field(default_factory=list)
     imported: bool = False
     records: list[RecordT] = field(default_factory=list)
 
@@ -120,6 +122,8 @@ class ImportReportResponse(BaseModel):
     columns_used: list[str]
     columns_ignored: list[str]
     issues: list[ImportIssueResponse]
+    #: Said, not refused: a file with warnings alone is imported.
+    warnings: list[ImportIssueResponse] = []
     #: True only when the file was applied and committed.
     imported: bool
 
@@ -133,17 +137,20 @@ def report_response[ItemT](report: ImportReport[ItemT]) -> ImportReportResponse:
         skipped_blank=report.skipped_blank,
         columns_used=report.columns_used,
         columns_ignored=report.columns_ignored,
-        issues=[
-            ImportIssueResponse(
-                row=issue.row,
-                code=issue.code,
-                column=issue.column,
-                message=issue.message,
-                text=issue.describe(),
-            )
-            for issue in report.issues
-        ],
+        issues=[_issue_response(issue) for issue in report.issues],
+        warnings=[_issue_response(issue) for issue in report.warnings],
         imported=report.imported,
+    )
+
+
+def _issue_response(issue: ImportIssue) -> ImportIssueResponse:
+    """Shape one problem, or one warning, for the wire."""
+    return ImportIssueResponse(
+        row=issue.row,
+        code=issue.code,
+        column=issue.column,
+        message=issue.message,
+        text=issue.describe(),
     )
 
 

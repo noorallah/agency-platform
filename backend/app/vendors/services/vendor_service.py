@@ -12,7 +12,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 from app.business.gating import assert_feature_fields
 from app.business.models import BusinessProfile
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
-from app.business.services import AttributeInput, AttributeService
+from app.business.services import AttributeInput, AttributeService, RecordKind
 from app.common.audit.services import record_audit, record_change, row_state
 from app.common.display_names import display_name_after_edit
 from app.common.master_code_series import MasterCodeNumbering
@@ -1142,6 +1142,9 @@ class VendorService:
             ],
             firm_id=vendor.firm_id,
             actor_id=actor_id,
+            # A field tied to a supplier type is this supplier's only while
+            # the supplier is of that type (backlog 89).
+            kind=RecordKind(vendor_type_id=vendor.type_id),
         )
 
     def attribute_responses(self, vendor: Vendor) -> list[AttributeValueResponse]:

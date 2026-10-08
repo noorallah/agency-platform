@@ -330,3 +330,203 @@ def test_a_workbook_with_whole_numbers_reads_them_as_text() -> None:
     with factory() as fresh:
         row = fresh.scalars(select(Product)).one()
         assert (row.code, row.hsn_sac) == ("1001", "10063020")
+
+
+def _typed_firm(session: Session) -> tuple[Firm, dict[str, UUID]]:
+    """Return a firm trading in Medicine and Paint, each with a category.
+
+    TABLETS carries Medicine and STRIPS sits under it with no type of its
+    own; ENAMELS carries Paint. Two unit sets: boxes of ten marked for
+    Medicine, and loose pieces marked for nothing.
+    """
+    from app.products.goods_type_seed import seed_goods_types
+    from app.products.models.goods_type import FirmGoodsType, GoodsType
+    from app.uom.models import UnitSet, UnitSetGoodsType
+
+    firm = _firm(session)
+    seed_goods_types(session)
+    types = {
+        row.code: row.id
+        for row in session.scalars(
+            select(GoodsType).where(GoodsType.code.in_(("MEDICINE", "PAINT")))
+        )
+    }
+    session.add_all(
+        FirmGoodsType(firm_id=firm.id, goods_type_id=type_id)
+        for type_id in types.values()
+    )
+    tablets = ProductCategory(
+        firm_id=firm.id,
+        code="TABLETS",
+        name="Tablets",
+        level=0,
+        path="TABLETS",
+        goods_type_id=types["MEDICINE"],
+    )
+    session.add_all(
+        [
+            tablets,
+            ProductCategory(
+                firm_id=firm.id,
+                code="ENAMELS",
+                name="Enamels",
+                level=0,
+                path="ENAMELS",
+                goods_type_id=types["PAINT"],
+            ),
+            Uom(code="BOX", name="Box", symbol="bx"),
+        ]
+    )
+    session.flush()
+    session.add(
+        ProductCategory(
+            firm_id=firm.id,
+            code="STRIPS",
+            name="Strips",
+            parent_id=tablets.id,
+            level=1,
+            path="TABLETS/STRIPS",
+        )
+    )
+    units = {row.code: row.id for row in session.scalars(select(Uom))}
+    boxed = UnitSet(
+        name="Piece, box of 10",
+        base_uom_id=units["PCS"],
+        inventory_uom_id=units["PCS"],
+        purchase_uom_id=units["BOX"],
+        sales_uom_id=units["PCS"],
+        conversion_factor=10,
+    )
+    loose = UnitSet(name="Piece, loose", base_uom_id=units["PCS"])
+    session.add_all([boxed, loose])
+    session.flush()
+    session.add(UnitSetGoodsType(unit_set_id=boxed.id, goods_type_id=types["MEDICINE"]))
+    session.commit()
+    return firm, units
+
+
+def test_a_file_giving_only_the_category_takes_the_goods_types_switches() -> None:
+    """The switch columns are optional: the category's goods type fills them."""
+    factory = _factory()
+    session = factory()
+    firm, _units = _typed_firm(session)
+    content = _csv(
+        "Code,Name,Category,SubCategory,Unit,TrackBatch,TrackExpiry",
+        "tab-1,Tablet one,TABLETS,,PCS,,",
+        "tab-2,Tablet two,TABLETS,Strips,PCS,,",
+        "tab-3,Tablet three,TABLETS,,PCS,Yes,No",
+        "enm-1,Enamel one,ENAMELS,,PCS,,",
+        "gro-1,Rice,GROCERY,,PCS,,",
+    )
+
+    report = _run(session, firm.id, content, apply=True)
+
+    assert report.issues == [] and report.imported
+    with factory() as fresh:
+        rows = {row.code: row for row in fresh.scalars(select(Product))}
+    switches = {
+        code: (row.track_batch, row.track_expiry, row.require_batch_on_receipt)
+        for code, row in rows.items()
+    }
+    assert switches == {
+        "TAB-1": (True, True, True),
+        # A sub category with no type of its own takes its parent's.
+        "TAB-2": (True, True, True),
+        # A switch the file names is the file's, on or off.
+        "TAB-3": (True, False, True),
+        "ENM-1": (True, False, True),
+        # No goods type is General: nothing tracked.
+        "GRO-1": (False, False, False),
+    }
+    assert rows["TAB-1"].goods_type_id == rows["TAB-2"].goods_type_id
+    assert rows["GRO-1"].goods_type_id is None
+
+
+def test_a_unit_set_column_fills_the_units_and_warns_of_another_types_set() -> None:
+    """One column for the units and the pack; a mismatch is said, not refused."""
+    from app.uom.models import ConversionRule
+
+    factory = _factory()
+    session = factory()
+    firm, units = _typed_firm(session)
+    content = _csv(
+        "Code,Name,Category,Unit,UnitSet",
+        'tab-1,Tablet one,TABLETS,,"Piece, box of 10"',
+        'enm-1,Enamel one,ENAMELS,,"piece, box of 10"',
+        'enm-2,Enamel two,ENAMELS,,"Piece, loose"',
+        'enm-3,Enamel three,ENAMELS,KG,"Piece, box of 10"',
+    )
+
+    checked = _run(session, firm.id, content, apply=False)
+
+    # Nothing is refused: the check stays clean and says the one odd pairing
+    # once per row it is on.
+    assert checked.issues == []
+    assert [(item.row, item.code, item.column) for item in checked.warnings] == [
+        (3, "ENM-1", "UnitSet"),
+        (5, "ENM-3", "UnitSet"),
+    ]
+    assert "other goods types" in checked.warnings[0].message
+    assert _codes(factory) == []
+
+    report = _run(session, firm.id, content, apply=True)
+
+    assert report.imported and report.to_create == 4
+    with factory() as fresh:
+        rows = {row.code: row for row in fresh.scalars(select(Product))}
+        rules = {
+            rule.product_id: rule
+            for rule in fresh.scalars(
+                select(ConversionRule).where(ConversionRule.is_deleted.is_(False))
+            )
+            if rule.product_id is not None
+        }
+    for code in ("TAB-1", "ENM-1"):
+        assert (rows[code].base_uom_id, rows[code].purchase_uom_id) == (
+            units["PCS"],
+            units["BOX"],
+        )
+        assert rules[rows[code].id].conversion_factor == 10
+    assert rows["ENM-2"].purchase_uom_id is None and rows["ENM-2"].id not in rules
+    # A unit on the row is the row's: the set fills only what it left unsaid.
+    assert rows["ENM-3"].base_uom_id == units["KG"]
+
+
+def test_an_unknown_unit_set_is_a_problem_and_an_existing_product_keeps_its_units() -> (
+    None
+):
+    """A name that is no set stops the file; a set on an update is passed over."""
+    factory = _factory()
+    session = factory()
+    firm, units = _typed_firm(session)
+    _run(
+        session,
+        firm.id,
+        _csv("Code,Name,Category,Unit", "tab-1,Tablet one,TABLETS,PCS"),
+        apply=True,
+    )
+
+    unknown = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,UnitSet", "tab-9,Tablet nine,Barrel of 40"),
+        apply=True,
+    )
+    assert [(item.column, item.message) for item in unknown.issues] == [
+        ("UnitSet", "'Barrel of 40' is not an active unit set.")
+    ]
+    assert not unknown.imported
+
+    updated = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,UnitSet", 'tab-1,Tablet one renamed,"Piece, box of 10"'),
+        apply=True,
+        existing="update",
+    )
+    assert updated.issues == [] and updated.imported
+    assert [item.column for item in updated.warnings] == ["UnitSet"]
+    assert "passed over" in updated.warnings[0].message
+    with factory() as fresh:
+        row = fresh.scalars(select(Product).where(Product.code == "TAB-1")).one()
+    assert (row.name, row.purchase_uom_id) == ("Tablet one renamed", units["PCS"])

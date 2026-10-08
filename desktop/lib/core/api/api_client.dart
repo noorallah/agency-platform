@@ -177,6 +177,19 @@ int pagedTotal(Json page, {required int fallback}) {
       fallback;
 }
 
+/// What `GET /business-framework/active-modules` answers: the module codes
+/// the firm has switched on and, from the INVENTORY row, the kinds of goods
+/// tracking (`BATCH`, `EXPIRY`, `SERIAL`) its goods need.
+///
+/// [goodsTracking] is null when the server gave no answer, which means
+/// "unknown" and shows every tracking screen; an empty set means "none".
+class ActiveBusinessModules {
+  const ActiveBusinessModules({required this.codes, this.goodsTracking});
+
+  final Set<String> codes;
+  final Set<String>? goodsTracking;
+}
+
 class ApiClient {
   ApiClient({
     required this.baseUrl,
@@ -802,6 +815,19 @@ class ApiClient {
         'PUT',
         '/api/v1/business-framework/firm-custom-fields/$id',
         body: data,
+      )));
+
+  /// Switch a shared field on or off for this firm. Off hides it from the
+  /// firm's forms and keeps the stored values. A firm's own field answers 404:
+  /// it is retired with its own Active flag.
+  Future<AttributeDefinitionRecord> useFirmCustomField(
+    String id, {
+    required bool enabled,
+  }) async =>
+      AttributeDefinitionRecord.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/business-framework/firm-custom-fields/$id/use',
+        body: {'is_enabled': enabled},
       )));
 
   Future<void> deleteFirmCustomField(String id) => request(
@@ -3132,54 +3158,6 @@ class ApiClient {
   Future<void> deleteUomGroup(String id) =>
       request('DELETE', '/api/v1/uom-framework/uom-groups/$id');
 
-  /// The default units the active firm's own business profile carries.
-  ///
-  /// Keyed off the firm context rather than a profile id, because every route
-  /// that reveals a profile id is platform-admin only. Returns null when the
-  /// firm's profile has no defaults, or when the caller may not read units.
-  Future<BusinessProfileUomDefaults?> firmUomDefaults() async {
-    final Json response =
-        await request('GET', '/api/v1/uom-framework/profile-defaults');
-    final dynamic data = response['data'];
-    if (data is! Map) return null;
-    return BusinessProfileUomDefaults.fromJson(Map<String, dynamic>.from(data));
-  }
-
-  /// The default units a business profile carries, for the active firm.
-  ///
-  /// Returns null when neither the firm nor the profile has any defaults set.
-  /// A returned record with a null `firmId` is the profile-wide default the
-  /// firm inherits rather than one it has chosen.
-  Future<BusinessProfileUomDefaults?> businessProfileUomDefaults(
-      String profileId) async {
-    final Json response = await request(
-      'GET',
-      '/api/v1/uom-framework/profiles/$profileId/defaults',
-    );
-    final dynamic data = response['data'];
-    if (data is! Map) return null;
-    return BusinessProfileUomDefaults.fromJson(Map<String, dynamic>.from(data));
-  }
-
-  /// Store default units for a business profile.
-  ///
-  /// [forEveryFirm] writes the row every firm on the profile inherits, which
-  /// needs platform settings permission. The default writes only the active
-  /// firm's own override.
-  Future<BusinessProfileUomDefaults> updateBusinessProfileUomDefaults(
-    String profileId,
-    Json data, {
-    bool forEveryFirm = false,
-  }) async =>
-      BusinessProfileUomDefaults.fromJson(
-        _unwrapMap(await request(
-          'PUT',
-          '/api/v1/uom-framework/profiles/$profileId/defaults',
-          query: {'apply_to': forEveryFirm ? 'PROFILE' : 'FIRM'},
-          body: data,
-        )),
-      );
-
   Future<List<PackagingTypeRecord>> packagingTypes() async {
     final Json response =
         await request('GET', '/api/v1/uom-framework/packaging-types');
@@ -3319,43 +3297,57 @@ class ApiClient {
   Future<void> deleteConversionRule(String id) =>
       request('DELETE', '/api/v1/uom-framework/conversion-rules/$id');
 
-  Future<List<IndustryTemplateRecord>> industryTemplates(
-      {bool includeInactive = false}) async {
-    final Json response = await request(
-      'GET',
-      '/api/v1/uom-framework/industry-templates',
-      query: {if (includeInactive) 'include_inactive': 'true'},
-    );
-    final dynamic data = response['data'];
-    if (data is! List) return const [];
-    return data
-        .whereType<Map>()
-        .map((item) =>
-            IndustryTemplateRecord.fromJson(Map<String, dynamic>.from(item)))
-        .toList();
+  // Unit sets: a named template that fills a new product's units in one
+  // choice. `firm_id` null is the shared catalogue, read-only to the firm.
+  Future<List<UnitSet>> unitSets({bool includeInactive = false}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/uom-framework/unit-sets',
+          query: {'include_inactive': includeInactive ? 'true' : 'false'},
+        ),
+        UnitSet.fromJson,
+      );
+
+  Future<PagedResult<UnitSet>> unitSetsPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) async {
+    final String needle = search.trim().toLowerCase();
+    final List<UnitSet> rows = (await unitSets(includeInactive: true))
+        .where((row) =>
+            needle.isEmpty || row.name.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return PagedResult(items: rows, total: rows.length);
   }
 
-  Future<IndustryTemplateRecord> createIndustryTemplate(Json data) async =>
-      IndustryTemplateRecord.fromJson(
-        _unwrapMap(await request(
-          'POST',
-          '/api/v1/uom-framework/industry-templates',
-          body: data,
-        )),
+  Future<UnitSet> createUnitSet(Json data) async =>
+      UnitSet.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/uom-framework/unit-sets',
+        body: data,
+      )));
+
+  Future<Json> updateUnitSet(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) =>
+      request(
+        'PUT',
+        '/api/v1/uom-framework/unit-sets/$id',
+        body: data,
+        expectedVersion: expectedVersion,
       );
 
-  Future<IndustryTemplateRecord> updateIndustryTemplate(
-          String id, Json data) async =>
-      IndustryTemplateRecord.fromJson(
-        _unwrapMap(await request(
-          'PUT',
-          '/api/v1/uom-framework/industry-templates/$id',
-          body: data,
-        )),
+  Future<void> deleteUnitSet(String id, {int? expectedVersion}) => request(
+        'DELETE',
+        '/api/v1/uom-framework/unit-sets/$id',
+        expectedVersion: expectedVersion,
       );
-
-  Future<void> deleteIndustryTemplate(String id) =>
-      request('DELETE', '/api/v1/uom-framework/industry-templates/$id');
 
   Future<InventorySummaryRecord> inventorySummary({
     bool includeDeleted = false,
@@ -4351,6 +4343,66 @@ class ApiClient {
     return PagedResult(items: rows, total: rows.length);
   }
 
+  // Goods types: how a line of goods is tracked. The list is the shared
+  // catalogue (null `firm_id`, read-only) plus the firm's own, each flagged
+  // `in_use` for this firm. Unpaged, so wrapped into a page here as
+  // `brandsPage` is.
+  Future<List<GoodsTypeRecord>> goodsTypes() async => _unwrapList(
+        await request('GET', '/api/v1/products/goods-types'),
+        GoodsTypeRecord.fromJson,
+      );
+
+  Future<PagedResult<GoodsTypeRecord>> goodsTypesPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) async {
+    final String needle = search.trim().toLowerCase();
+    final List<GoodsTypeRecord> rows = (await goodsTypes())
+        .where((row) =>
+            needle.isEmpty ||
+            row.code.toLowerCase().contains(needle) ||
+            row.name.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return PagedResult(items: rows, total: rows.length);
+  }
+
+  Future<GoodsTypeRecord> createGoodsType(Json data) async =>
+      GoodsTypeRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/products/goods-types',
+        body: data,
+      )));
+
+  Future<Json> updateGoodsType(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) =>
+      request(
+        'PUT',
+        '/api/v1/products/goods-types/$id',
+        body: data,
+        expectedVersion: expectedVersion,
+      );
+
+  /// Take a goods type into use in this firm, or drop it, and set the firm's
+  /// two defaults. A default left out is left alone; an explicit null clears.
+  Future<GoodsTypeRecord> useGoodsType(String id, Json data) async =>
+      GoodsTypeRecord.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/products/goods-types/$id/use',
+        body: data,
+      )));
+
+  Future<void> deleteGoodsType(String id, {int? expectedVersion}) => request(
+        'DELETE',
+        '/api/v1/products/goods-types/$id',
+        expectedVersion: expectedVersion,
+      );
+
   // The transporter master (SG-5). Unpaged and without search, so wrapped into
   // a page here as `brandsPage` is; writes go through the generic
   // `create`/`update`/`delete` with `resource: 'delivery-notes/transporters'`.
@@ -5137,6 +5189,31 @@ class ApiClient {
               label: type.code,
               detail: type.name == type.code ? null : type.name,
             ),
+      ];
+    }
+    // A category may only carry a goods type the firm has taken into use, and
+    // the server refuses any other, so the picker offers just those.
+    if (resource == 'products/goods-types') {
+      return [
+        for (final GoodsTypeRecord type in await goodsTypes())
+          if (type.inUse && type.isActive)
+            AssignmentOption(
+              id: type.id,
+              label: type.name,
+              detail: type.tracks == 'Nothing' ? null : type.tracks,
+            ),
+      ];
+    }
+    // The units list is not paged, so the paged walk below does not suit it;
+    // a unit set offers only units that are still active.
+    if (resource == 'uom-framework/uoms') {
+      return [
+        for (final UomRecord unit in await uoms())
+          AssignmentOption(
+            id: unit.id,
+            label: unit.name,
+            detail: unit.code == unit.name ? null : unit.code,
+          ),
       ];
     }
     const int pageSize = 100;
@@ -10291,18 +10368,33 @@ class ApiClient {
         },
       );
 
-  Future<List<String>> activeBusinessModuleCodes() async {
+  /// The modules the firm's business profile has switched on, and which
+  /// kinds of tracking its goods need, from the one request.
+  Future<ActiveBusinessModules> activeBusinessModules() async {
     final Json response = await request(
       'GET',
       '/api/v1/business-framework/active-modules',
     );
     final dynamic data = response['data'];
-    if (data is! List) return const [];
-    return data
-        .whereType<Map>()
-        .map((value) => stringValue(value['code']).toUpperCase())
-        .where((code) => code.isNotEmpty)
-        .toList();
+    if (data is! List) {
+      return const ActiveBusinessModules(codes: <String>{});
+    }
+    final List<Map> rows = data.whereType<Map>().toList();
+    Set<String>? tracking;
+    for (final Map row in rows) {
+      final dynamic raw = row['goods_tracking'];
+      if (raw is List) {
+        tracking = raw.map((value) => stringValue(value).toUpperCase()).toSet();
+        break;
+      }
+    }
+    return ActiveBusinessModules(
+      codes: rows
+          .map((value) => stringValue(value['code']).toUpperCase())
+          .where((code) => code.isNotEmpty)
+          .toSet(),
+      goodsTracking: tracking,
+    );
   }
 
   /// The feature codes the firm's business profile has switched on.

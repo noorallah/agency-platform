@@ -27,10 +27,9 @@ Three things it is careful about:
 * **The finance calendar.** Posting needs an *open* accounting period covering
   the document's date, so each historical year gets its financial year and
   twelve periods before any document dated in it is written.
-* **Business profile features.** Feature gating is enforced, so a firm whose
-  profile lacks EXPIRY_TRACKING must not be given batches with expiry dates.
-  The generator reads each firm's enabled features and shapes its documents to
-  them rather than assuming.
+* **The product's own switches.** A batch is dated only where its product
+  tracks expiry (backlog 89), so the generator reads each product's switches
+  and shapes its documents to them rather than assuming.
 
 Usage::
 
@@ -59,7 +58,6 @@ from app.batch_serial.models import DocumentLineSerial, SerialNumber
 from app.batch_serial.schemas import SerialCreate, SerialStatus
 from app.batch_serial.services import BatchSerialService
 from app.branches.models import Branch, Warehouse
-from app.business.gating import resolve_capabilities
 from app.commission.schemas import (
     CommissionBasisEnum,
     CommissionMeasureEnum,
@@ -741,11 +739,10 @@ class HistoryBuilder:
     """Drive documents through the real services for one firm."""
 
     def __init__(self, session: Session, target: FirmTarget) -> None:
-        """Bind to one firm's store and read the capabilities it operates with."""
+        """Bind to one firm's store."""
         self._session = session
         self._target = target
         self._tally = Tally()
-        self._features = resolve_capabilities(session, target.firm_id).features
         #: Which invoices get collected, and how much of each. A counter
         #: rather than randomness: a seed run has to be reproducible, and
         #: `Math.random`-shaped data makes two runs impossible to compare.
@@ -2015,12 +2012,11 @@ class HistoryBuilder:
         choose between. The receipt path is what registers a batch, so this is
         where it has to start.
 
-        Both switches have to be on. The firm's BATCH_TRACKING feature says the
-        firm may use batches at all; the product's ``require_batch_on_receipt``
-        says these particular goods cannot be taken in unidentified. A firm
-        that tracks batches still buys things nobody traces, and seeding those
-        without a batch is what keeps untracked stock in the demo data beside
-        the tracked kind.
+        The product decides, never the firm's profile (backlog 89): its
+        ``require_batch_on_receipt`` says these particular goods cannot be
+        taken in unidentified. A firm that tracks batches still buys things
+        nobody traces, and seeding those without a batch is what keeps
+        untracked stock in the demo data beside the tracked kind.
 
         One batch per product per month, which is how a monthly delivery
         actually arrives, and it gives a dispatch several batches to rank by
@@ -2028,17 +2024,15 @@ class HistoryBuilder:
 
         Returns:
             The batch number and its expiry date, either of which may be None.
-            The expiry is only set where the firm has EXPIRY_TRACKING -- the
-            field is gated, and sending it to a firm without the feature is
-            refused when the receipt completes.
+            The expiry is only set where the product tracks expiry -- sending
+            one for a product that does not is refused when the receipt
+            completes.
 
         """
-        if "BATCH_TRACKING" not in self._features:
-            return None, None
         if not product.require_batch_on_receipt:
             return None, None
         number = f"{product.code}-{on:%Y%m}"
-        if "EXPIRY_TRACKING" not in self._features:
+        if not product.track_expiry:
             return number, None
         # Eighteen months is a plausible shelf life for a medicine or a
         # packaged food, and it puts the expiry far enough out that a two-year

@@ -15,12 +15,18 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.business.models import AttributeDefinition, CategoryAttributeRule
+from app.business.models import (
+    RULE_KIND_COLUMNS,
+    AttributeDefinition,
+    CategoryAttributeRule,
+    FirmAttributeSwitch,
+)
 from app.business.schemas import (
     AttributeDefinitionCreate,
     AttributeDefinitionUpdate,
     CategoryAttributeRuleCreate,
 )
+from app.business.services.field_rules import assert_rule_new, assert_rule_target
 from app.business.services.framework_service import BusinessProfileFrameworkService
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
@@ -118,8 +124,75 @@ class FirmCustomFieldService:
         self._audit("firm_custom_field.deleted", row, firm_id, actor_id)
         self._session.commit()
 
+    def switched_off(self, firm_id: UUID) -> set[UUID]:
+        """Return the shared fields this firm has switched off."""
+        return set(
+            self._session.scalars(
+                select(FirmAttributeSwitch.attribute_definition_id).where(
+                    FirmAttributeSwitch.firm_id == firm_id,
+                    FirmAttributeSwitch.is_enabled.is_(False),
+                    FirmAttributeSwitch.is_deleted.is_(False),
+                )
+            )
+        )
+
+    def set_use(
+        self, field_id: UUID, *, enabled: bool, firm_id: UUID, actor_id: UUID
+    ) -> AttributeDefinition:
+        """Switch one shared field on or off for this firm; commit.
+
+        Off hides the field from the firm's forms and keeps every value
+        already stored: nothing is deleted, and switching it on shows them
+        again. A firm's own field is retired with its ``is_active`` instead.
+
+        Raises:
+            ResourceNotFoundError: If the field is not in the shared list.
+
+        """
+        field = self._session.get(AttributeDefinition, field_id)
+        if field is None or field.is_deleted or field.firm_id is not None:
+            raise ResourceNotFoundError(
+                "Custom field not found in the shared list. One of the firm's "
+                "own is switched off by making it inactive."
+            )
+        row = self._session.scalar(
+            select(FirmAttributeSwitch).where(
+                FirmAttributeSwitch.firm_id == firm_id,
+                FirmAttributeSwitch.attribute_definition_id == field_id,
+                FirmAttributeSwitch.is_deleted.is_(False),
+            )
+        )
+        was = True if row is None else row.is_enabled
+        if was == enabled:
+            return field
+        if row is None:
+            self._session.add(
+                FirmAttributeSwitch(
+                    firm_id=firm_id,
+                    attribute_definition_id=field_id,
+                    is_enabled=enabled,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+        else:
+            row.is_enabled = enabled
+            row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="firm_custom_field.use_changed",
+            entity_type="attribute_definition",
+            entity_id=field.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data={"code": field.code, "is_enabled": was},
+            after_data={"code": field.code, "is_enabled": enabled},
+        )
+        self._session.commit()
+        return field
+
     def list_rules(self, firm_id: UUID) -> list[CategoryAttributeRule]:
-        """Return the firm's own category rules."""
+        """Return the firm's own field rules."""
         return list(
             self._session.scalars(
                 select(CategoryAttributeRule).where(
@@ -132,15 +205,22 @@ class FirmCustomFieldService:
     def create_rule(
         self, data: CategoryAttributeRuleCreate, *, firm_id: UUID, actor_id: UUID
     ) -> CategoryAttributeRule:
-        """Require a field in one category, for this firm alone; commit.
+        """Tie a field to a kind of record, or require it in a category; commit.
+
+        The rule names a product category, a goods type, a customer group or
+        a supplier type, and holds for this firm alone.
 
         Raises:
-            ValidationError: If the field is another firm's.
+            ValidationError: If the field is another firm's, or the kind is
+                not one this firm can name for that field.
+            ConflictError: If the firm already has that rule.
 
         """
         field = self._session.get(AttributeDefinition, data.attribute_definition_id)
         if field is None or field.is_deleted or field.firm_id not in (None, firm_id):
             raise ValidationError("That field is not one this firm can use.")
+        assert_rule_target(self._session, data, field, firm_id=firm_id)
+        assert_rule_new(self._session, data, firm_id=firm_id)
         row = CategoryAttributeRule(
             **data.model_dump(),
             firm_id=firm_id,
@@ -156,7 +236,15 @@ class FirmCustomFieldService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={"category_code": row.category_code, "field": field.code},
+            after_data={
+                "field": field.code,
+                "is_mandatory": row.is_mandatory,
+                **{
+                    column: str(value)
+                    for column in ("category_code", *RULE_KIND_COLUMNS)
+                    if (value := getattr(row, column)) is not None
+                },
+            },
         )
         self._session.commit()
         return row

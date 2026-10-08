@@ -91,7 +91,13 @@ from app.notifications.models import notification_read  # noqa: F401
 from app.party_adjustments.models import party_adjustment  # noqa: F401
 from app.pricing.models import price_level, price_list  # noqa: F401
 from app.principal_claims.models import claim as _principal_claim  # noqa: F401
-from app.products.models import brand, kit, price_revision, product  # noqa: F401
+from app.products.models import (  # noqa: F401
+    brand,
+    goods_type,
+    kit,
+    price_revision,
+    product,
+)
 from app.proforma.models import proforma  # noqa: F401
 from app.promotions.models import promotion  # noqa: F401
 from app.purchase.models import purchase, requisition  # noqa: F401
@@ -117,7 +123,7 @@ from app.supplier_schemes.models import supplier_scheme  # noqa: F401
 from app.tax.models import tax_framework  # noqa: F401
 from app.tcs.models import tcs  # noqa: F401
 from app.trade_licences.models import trade_licence  # noqa: F401
-from app.uom.models import uom  # noqa: F401
+from app.uom.models import unit_set, uom  # noqa: F401
 from app.vendors.models import (  # noqa: F401
     opening_bill,
     supplier_gift,

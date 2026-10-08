@@ -42,11 +42,17 @@ class ModuleTabDefinition {
     this.requiresFirm = true,
     this.requiresPlatformAdmin = false,
     this.group,
+    this.requiresTracking,
   });
 
   final String id;
   final String label;
   final bool available;
+
+  /// The goods tracking (`BATCH`, `EXPIRY` or `SERIAL`) a firm's goods must
+  /// need for this tab to be offered, or null for a tab every firm gets.
+  /// Applied by `ModuleVisibility.tabsFor` against the server's answer.
+  final String? requiresTracking;
   final List<String> requiredPermissions;
   final bool requiresAnyPermission;
 
@@ -272,6 +278,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['SETTINGS_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'goods-types',
+          label: 'Goods Types',
+          requiredPermissions: ['PRODUCT_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'firm-custom-fields',
           label: 'Custom Fields',
           requiredPermissions: ['CUSTOM_FIELD_VIEW'],
@@ -380,8 +391,8 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['CONVERSION_RULE_MANAGE'],
         ),
         ModuleTabDefinition(
-          id: 'industry-templates',
-          label: 'Industry Templates',
+          id: 'unit-sets',
+          label: 'Unit Sets',
           requiredPermissions: ['UOM_VIEW'],
         ),
       ],
@@ -1108,21 +1119,25 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'batches',
           label: 'Batches',
+          requiresTracking: 'BATCH',
           requiredPermissions: ['BATCH_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'lots',
           label: 'Lots',
+          requiresTracking: 'BATCH',
           requiredPermissions: ['BATCH_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'serials',
           label: 'Serial Numbers',
+          requiresTracking: 'SERIAL',
           requiredPermissions: ['SERIAL_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'expiry-monitor',
           label: 'Expiry Monitor',
+          requiresTracking: 'EXPIRY',
           requiredPermissions: ['BATCH_VIEW'],
         ),
       ],
@@ -1611,8 +1626,9 @@ abstract final class ModuleCatalog {
         'packaging-types',
         'packaging-levels',
         'conversion-rules',
-        'industry-templates',
+        'unit-sets',
         'numbering-series',
+        'goods-types',
         'firm-custom-fields',
         'firm-custom-field-rules',
       ]))
@@ -1708,7 +1724,7 @@ abstract final class ModuleCatalog {
               'packaging-types',
               'packaging-levels',
               'conversion-rules',
-              'industry-templates',
+              'unit-sets',
             ]))
               WorkspaceNavigationNode(
                 label: 'UOM & Packaging',
@@ -1739,10 +1755,10 @@ abstract final class ModuleCatalog {
                       label: 'Conversion Rules',
                       path: 'conversion-rules',
                     ),
-                  if (visibleTabIds.contains('industry-templates'))
+                  if (visibleTabIds.contains('unit-sets'))
                     const WorkspaceNavigationNode(
-                      label: 'Industry Templates',
-                      path: 'industry-templates',
+                      label: 'Unit Sets',
+                      path: 'unit-sets',
                     ),
                 ],
               ),
@@ -1757,6 +1773,12 @@ abstract final class ModuleCatalog {
                 label: 'Numbering Series',
                 path: 'numbering-series',
                 icon: Icons.confirmation_number_outlined,
+              ),
+            if (visibleTabIds.contains('goods-types'))
+              const WorkspaceNavigationNode(
+                label: 'Goods Types',
+                path: 'goods-types',
+                icon: Icons.category_outlined,
               ),
             // The firm's own custom fields (MST-8).
             if (visibleTabIds.contains('firm-custom-fields'))

@@ -40,7 +40,7 @@ from tests.unit.test_goods_receipt import _Fixture, _session_factory
 
 pytestmark = pytest.mark.typed_document_numbers
 
-_PHARMA_FEATURES = ("BATCH_TRACKING", "EXPIRY_TRACKING", "BATCH_PTR_PTS")
+_PHARMA_FEATURES = ("BATCH_PTR_PTS",)
 
 
 def _give_profile(
@@ -360,9 +360,7 @@ def test_an_explicit_price_still_wins() -> None:
 def test_the_feature_off_ignores_the_batch_rates_when_selling() -> None:
     """A profile without BATCH_PTR_PTS sells at the product's price."""
     shop = _Counter()
-    _give_profile(
-        shop.session, shop.firm.id, "NO-PTR", ("BATCH_TRACKING", "EXPIRY_TRACKING")
-    )
+    _give_profile(shop.session, shop.firm.id, "NO-PTR", ())
     shop.drug.selling_price = Decimal("100")
     shop.batches["LATE"].ptr = Decimal("90")
     shop.customer.trade_class = "RETAILER"

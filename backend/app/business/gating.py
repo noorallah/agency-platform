@@ -13,7 +13,12 @@ denied.
 
 Usage mirrors ``require_permission``::
 
-    @router.post("", dependencies=[require_feature("BATCH_TRACKING")])
+    @router.post("", dependencies=[require_feature("VEHICLE_TRACKING")])
+
+What a *product* may carry -- a batch, an expiry date, a serial number, a
+warranty -- is not asked here at all: that is the product's own switch
+(``app/batch_serial/services/product_tracking.py``, backlog 89). These gates
+are for what is about the firm.
 """
 
 from collections.abc import Mapping, Sequence
@@ -262,16 +267,15 @@ def assert_feature_fields(
     """Refuse a write that fills in fields belonging to a disabled feature.
 
     ``require_feature`` gates whole endpoints, which suits a feature that owns
-    its own resource — a firm without BATCH_TRACKING has no business posting a
-    batch at all. Most features are not like that. Expiry dates, barcodes,
-    warranty periods and drug licences are optional *fields* on a resource
-    every firm uses, so gating the endpoint would stop a firm creating products
-    because it does not scan barcodes.
+    its own resource. Most features are not like that. Attachments, vehicle
+    details and drug licences are optional *fields* on a resource every firm
+    uses, so gating the endpoint would stop a firm receiving goods because it
+    does not record the lorry.
 
     This gates the capability instead of the resource: the write is refused
     only when it actually populates one of the named fields. A firm without
-    EXPIRY_TRACKING can still create batches; it just cannot give one an expiry
-    date, which is the thing the feature is about.
+    VEHICLE_TRACKING can still record a receipt; it just cannot give one a
+    vehicle number, which is the thing the feature is about.
 
     Blank is not populated. Clearing a field, or leaving it alone, is always
     allowed -- otherwise turning a feature off would freeze every record that

@@ -394,6 +394,30 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
                     style: theme.textTheme.bodySmall,
                   ),
                 const SizedBox(height: AppSpacing.sm),
+                if (report.warnings.isNotEmpty) ...[
+                  Text(
+                    '${report.warnings.length} to look at. These do not stop '
+                    'the import.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 120),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: report.warnings.length,
+                      itemBuilder: (context, index) => Padding(
+                        padding:
+                            const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                        child: SelectableText(
+                          report.warnings[index].text,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
                 if (report.isClean)
                   Text(
                     'No problems found.',

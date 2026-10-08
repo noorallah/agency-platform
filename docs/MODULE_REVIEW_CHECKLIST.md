@@ -21,9 +21,13 @@ ones that produced a defect during the platform pass.
 
 ### Business profile
 
-- [ ] Behaviour that is industry-specific is gated on a **feature**, not hardcoded
-      **(found a real bug — 18 of 21 features were unenforced)**. Use
-      `require_feature` / `require_module` from `app/business/gating.py`.
+- [ ] Behaviour that is about the **firm** and industry-specific is gated on a
+      **feature**, not hardcoded **(found a real bug — 18 of 21 features were
+      unenforced)**; use `assert_feature_fields` (or `require_feature` /
+      `require_module` from `app/business/gating.py` for a whole endpoint).
+      Behaviour about a **product** (batch, expiry, serial, warranty) is the
+      product's own switch, filled by its goods type, never a feature
+      (backlog 89, 2026-10-08).
 - [ ] The feature exists in `business_features` and is enabled for the profiles
       that should have it; check `profile_features`, not just the code.
 - [ ] Gates are on writes only; reads stay open so existing data remains visible.
@@ -345,12 +349,13 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       meant, or `value: Any` where `object` was. Reserve the `noqa` for the
       handful that genuinely accept any mapped class, and say why on the line.
 
-### Open: three features deliberately left ungated
+### Closed 2026-10-08: three features deliberately left ungated
 
-Feature gating landed for nine of the twelve features that have backing code.
-The remaining three are **not** oversights — each needs a product decision that
-the code cannot supply, and gating one on a guess would take a working
-capability away from real firms.
+*Record of the past.* Feature gating landed for nine of the twelve features that
+had backing code in 2026-08. The remaining three were **not** oversights — each
+needed a product decision that the code could not supply. `20261008_0353`
+withdrew all three catalogue rows on 2026-10-08 (no code enforced them and every
+firm already used them). What follows is what was weighed.
 
 - **`TERRITORY`** — only AGENCY and WHOLESALE enable it. Enforcing it would
   remove territory and route management from the other nine profiles, including

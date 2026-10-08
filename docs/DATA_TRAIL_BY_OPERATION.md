@@ -1283,7 +1283,8 @@ below is in the pharmacy firm's schema, `fx_<suffix>_p`.
   `batch_id`, `manufactured_date`, `current_owner`, `asset_reference` null (the
   request may name the first two; the fixture does not). Audit action
   **`CREATE`**, entity `serial_number`, no `after_data`. Warranty dates are
-  refused on a profile without the `WARRANTY` feature; Electronics has it.
+  refused (422) for a product without `track_warranty` (since 2026-10-08;
+  before that, on a profile without the `WARRANTY` feature).
 - **The screen reads** `GET /batch-serial/serials` — search is `ilike` on
   `serial_number`, the Status filter exact on `status` (`AVAILABLE`,
   `RESERVED`, `SOLD`, `INSTALLED`, `RETURNED`, `REPAIRED`, `SCRAPPED`, `LOST`).
@@ -3974,13 +3975,14 @@ restarted. Where #500 changes what a receipt does, the text says so.
 
   | Tables | `firm_id`? | So in `firm_shared` |
   | --- | --- | --- |
-  | `business_profiles`, `business_features`, `business_modules`, `profile_features`, `profile_modules`, `attribute_definitions`, `category_attribute_rules`, `uoms`, `uom_groups`, `uom_group_units`, `packaging_types`, `uom_industry_templates`, `geo_countries` … `geo_localities` | **no** | one set for MEDI01, FOOD01, TESTSH1 and TESTSH2 together — an edit made "in" one of them is made in all four |
-  | `firm_business_profiles`, `*_attribute_values`, `document_*`, `uom_conversion_rules`, `product_packaging_levels`, `business_profile_uom_defaults` (a firm's own row), `sales_workflow_settings`, `credit_control_settings`, `loyalty_settings`, `sales_hierarchy_configs` | yes | per firm |
+  | `business_profiles`, `business_features`, `business_modules`, `profile_features`, `profile_modules`, `attribute_definitions`, `category_attribute_rules`, `uoms`, `uom_groups`, `uom_group_units`, `packaging_types`, `geo_countries` … `geo_localities` | **no** | one set for MEDI01, FOOD01, TESTSH1 and TESTSH2 together — an edit made "in" one of them is made in all four |
+  | `firm_business_profiles`, `*_attribute_values`, `document_*`, `uom_conversion_rules`, `product_packaging_levels`, `unit_sets` (a firm's own rows; shared rows have no `firm_id`), `unit_set_goods_types`, `sales_workflow_settings`, `credit_control_settings`, `loyalty_settings`, `sales_hierarchy_configs` | yes | per firm |
   | `user_preferences` | per **user** | `platform` only |
 
   A dedicated store has its own copy of every catalogue, so "the WHOLESALE
   profile" is a different row, possibly with different features, in each
-  store: WHOLE01's enables `SERIAL_NUMBER`, the fixture stores' does not.
+  store (that was how the `SERIAL_NUMBER` feature differed between WHOLE01 and the
+  fixture stores before `20261008_0353` withdrew it on 2026-10-08).
 - **Where the audit rows go, and one kind nobody can read.** Every write
   here audits into the store the request's session opened — the firm's own —
   except preferences (`platform`). But the business-framework catalogue
@@ -4035,10 +4037,11 @@ Each call commits on its own.
 - **Refused, nothing written:** a code already used; deleting a profile a
   live firm is assigned; deleting a feature or module a profile still
   enables; enabling a feature whose `is_implemented` is false — "These
-  features are not implemented yet and cannot be enabled: IMEI." (the six:
-  `IMEI`, `KITCHEN_MANAGEMENT`, `PRESCRIPTION_REQUIRED`, `PROJECT_MANAGEMENT`,
-  `RECIPE_MANAGEMENT`, `SERVICE_CONTRACTS`). `is_implemented` is not on the
-  write schema, so it cannot be switched through the API.
+  features are not implemented yet and cannot be enabled: IMEI." (observed
+  before 2026-10-08, when six features carried the flag; `20261008_0353` removed
+  those six, and all five remaining features are implemented, so this refusal has
+  no feature to name today). `is_implemented` is not on the write schema, so it
+  cannot be switched through the API.
 - **Which features a profile enables** — Profiles → edit → Enabled features,
   `PUT /profiles/{id}/features` with the whole list of ids. Existing
   `profile_features` rows are set `is_enabled` true or false in place; ids not
@@ -4113,16 +4116,16 @@ caller has selected.
   | --- | --- | --- |
   | `resolve_profile` (`gating.py`) | `require_feature`, `assert_feature_fields`, tax, UOM, products, territory | nothing enforced |
   | `_resolved_profile_id` (`framework_service.py`) | `/active-features`, `/active-modules` — what the desktop renders | **any ACTIVE profile**, whichever the database returns first |
-  | `_profile_id` (`attribute_service.py`) | the custom fields a form offers and a save demands | no profile-scoped field applies |
+  | `_profile_id` (`attribute_service.py`) | (removed 2026-10-08: custom fields no longer read the profile) | — |
 
   Every store has a default today, so the three agree on the ground (D-CFG-19).
-- **The gate is write-only and field-level.** `require_feature` stops a
-  POST/PUT/DELETE on `batch-serial` endpoints (`BATCH_TRACKING`,
-  `SERIAL_NUMBER`); `assert_feature_fields` refuses a write that *fills* a
-  field of a feature the profile lacks (`EXPIRY_TRACKING`, `WARRANTY`,
-  `BARCODE`, `DRUG_LICENSE`, `ATTACHMENTS`, `VEHICLE_TRACKING`, …) — "This
-  firm's business profile does not enable WARRANTY, so warranty_end, warranty_start cannot
-  be set." **`require_module` is applied to no route**, so a module's
+- **The gate is write-only and field-level.** `assert_feature_fields` refuses
+  a write that *fills* a field of a feature the profile lacks (`DRUG_LICENSE`,
+  `ATTACHMENTS`, `VEHICLE_TRACKING`, `BATCH_PTR_PTS`) -- "This firm's business
+  profile does not enable ATTACHMENTS, so attachments cannot be set." Since
+  2026-10-08 the batch and serial routes no longer use `require_feature`, and
+  batch, serial, expiry, manufacturing and warranty fields are judged by the
+  product's own switches (`app/batch_serial/services/product_tracking.py`). **`require_module` is applied to no route**, so a module's
   endpoints answer whatever the profile says; the desktop hiding the module
   is the only effect (`docs/BUSINESS_PROFILE_FRAMEWORK.md`, "Status").
 - **`/active-features?firm_id=` reads the named firm's assignment in the
@@ -4406,13 +4409,12 @@ enforced nowhere. One commit per call.
 - **Units** — `POST` / `PUT` / `DELETE /uoms`: one `uoms` row (`code`,
   `name`, `dimension`, `is_decimal_allowed`, `status`, …), **no `firm_id`**.
   Edit is partial; delete is refused while a conversion rule, group, packaging
-  level, a product's seven unit slots or a profile default names the unit —
+  level or a product's seven unit slots names the unit —
   not while only a document line does (D-CFG-21). **No audit row** for any of
   them.
 - **Groups** (`uom_groups`; `uom_group_units` has no endpoint), **packaging
-  types** (`packaging_types`) and **industry templates**
-  (`uom_industry_templates`, which nothing reads) — the same shape, shared,
-  unaudited. In `firm_shared` any firm's administrator edits them for all
+  types** (`packaging_types`) — the same shape, shared,
+  unaudited. (The industry-templates catalogue was removed on 2026-10-08.) In `firm_shared` any firm's administrator edits them for all
   four firms (D-CFG-9).
 - **Whole-number units are not enforced.** `is_decimal_allowed` on a unit and
   a product's `allow_fraction` / `allow_decimal` are stored and read by no
@@ -4442,10 +4444,9 @@ enforced nowhere. One commit per call.
   written through the API and not one audit row for a unit, group, type or
   level in any store; no level on another firm's product.
 
-### 14.11 Conversion rules and default units (TC-CONF-006)
+### 14.11 Conversion rules and unit sets (TC-CONF-006)
 
-UOM & Packaging → **Conversion Rules**, and Business Profiles → **Default
-units**.
+UOM & Packaging → **Conversion Rules**, and Settings → **Unit Sets**.
 
 - **Create** inserts `uom_conversion_rules` (`firm_id`, `product_id` or NULL
   for firm-wide, `from_uom_id`, `to_uom_id`, `conversion_factor`,
@@ -4466,14 +4467,16 @@ units**.
   the stock another (D-CFG-1). Audit `uom.conversion.updated`, **no data**;
   delete is a soft delete, audit `uom.conversion.deleted` with `before_data`
   `status` and `version` (the version *number*).
-- **Default units** — `PUT /profiles/{id}/defaults?apply_to=FIRM|PROFILE`:
-  one `business_profile_uom_defaults` row, the firm's own (`firm_id` set,
-  `CONVERSION_RULE_MANAGE`) or the profile's (`firm_id` NULL,
-  `PLATFORM_SETTINGS` too). The profile-wide row reaches only firms in **the
-  caller's store**, though the endpoint's docstring and
-  `docs/UOM_FRAMEWORK.md` say every firm on the profile (D-CFG-21). Audit
-  `uom.profile_default.created` / `.updated`, no data. They reach a product
-  only by pre-filling its form.
+- **Unit sets** (added 2026-10-08) — `GET|POST /uom-framework/unit-sets`,
+  `PUT|DELETE /uom-framework/unit-sets/{id}` (`UOM_VIEW` / `UOM_MANAGE`): a row in
+  `unit_sets` (no `firm_id` = the shared catalogue, which a firm cannot change; a
+  `firm_id` = the firm's own) with its goods-type ordering in
+  `unit_set_goods_types`. Choosing a set on a **new** product copies its units
+  onto the product and writes its factor as the product's own
+  `uom_conversion_rules` row in the same transaction; `products.unit_set_id`
+  records which set, for reference only. Editing or deleting a set changes no
+  product. The old profile default units (`business_profile_uom_defaults`) were
+  removed the same day.
 - **Check:**
   ```sql
   select p.code as product, fu.code as from_uom, tu.code as to_uom, r.conversion_factor,

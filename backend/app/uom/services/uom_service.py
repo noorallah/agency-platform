@@ -21,7 +21,6 @@ from sqlalchemy import and_, case, func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.business.gating import resolve_profile_id
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit, record_change, row_state
@@ -33,11 +32,11 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError, Validation
 from app.core.utils.dates import utc_now
 from app.products.models import Product
 from app.uom.models import (
-    BusinessProfileUomDefault,
+    UNIT_SLOTS,
     ConversionRule,
-    IndustryTemplate,
     PackagingType,
     ProductPackagingLevel,
+    UnitSet,
     Uom,
     UomAttributeValue,
     UomGroup,
@@ -45,14 +44,11 @@ from app.uom.models import (
 )
 from app.uom.schemas.uom import (
     BarcodeLookupResponse,
-    BusinessProfileUomDefaultUpsert,
     ConversionRequest,
     ConversionResponse,
     ConversionRuleCreate,
     ConversionRuleListFilters,
     ConversionRuleUpdate,
-    IndustryTemplateCreate,
-    IndustryTemplateUpdate,
     PackagingLevelCreate,
     PackagingLevelUpdate,
     PackagingTypeCreate,
@@ -166,12 +162,12 @@ def assert_quantity_fits_unit(
 #: ending in ``uom_id`` is found from the schema.
 _UOM_REFERENCES_CHECKED_ABOVE = frozenset(
     {
-        "business_profile_uom_defaults",
         "product_packaging_levels",
         "products",
         "uom_attribute_values",
         "uom_conversion_rules",
         "uom_group_units",
+        "unit_sets",
     }
 )
 
@@ -586,13 +582,8 @@ class UomService:
                 ),
             ),
             (
-                BusinessProfileUomDefault,
-                or_(
-                    BusinessProfileUomDefault.base_uom_id == uom_id,
-                    BusinessProfileUomDefault.inventory_uom_id == uom_id,
-                    BusinessProfileUomDefault.purchase_uom_id == uom_id,
-                    BusinessProfileUomDefault.sales_uom_id == uom_id,
-                ),
+                UnitSet,
+                or_(*(getattr(UnitSet, slot) == uom_id for slot in UNIT_SLOTS)),
             ),
         )
         for model, condition in references:
@@ -863,7 +854,19 @@ class UomService:
     def create_conversion_rule(
         self, data: ConversionRuleCreate, *, firm_scope: UUID, actor_id: UUID
     ) -> ConversionRule:
-        """Publish a conversion rule version for one unit pair."""
+        """Publish a conversion rule version for one unit pair; commit."""
+        row = self.stage_conversion_rule(data, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_conversion_rule(
+        self, data: ConversionRuleCreate, *, firm_scope: UUID, actor_id: UUID
+    ) -> ConversionRule:
+        """Build, flush and audit one conversion rule without committing.
+
+        Split out so a product created from a unit set and its own rule are
+        one transaction (backlog 89): the caller commits once.
+        """
         if data.product_id is not None:
             self._assert_firm_product(firm_scope, data.product_id)
         self._assert_version_free(
@@ -900,7 +903,6 @@ class UomService:
             actor_id=actor_id,
             firm_id=firm_scope,
         )
-        self._session.commit()
         return row
 
     def update_conversion_rule(
@@ -1158,132 +1160,6 @@ class UomService:
         )
         return into_stock / out_of_stock
 
-    def upsert_profile_default(
-        self,
-        *,
-        firm_scope: UUID | None,
-        profile_id: UUID,
-        data: BusinessProfileUomDefaultUpsert,
-        actor_id: UUID,
-        audit_firm_id: UUID | None = None,
-    ) -> BusinessProfileUomDefault:
-        """Store default unit behaviour for one firm, or for a whole profile.
-
-        ``firm_scope`` is the row's owner, not merely a filter: a firm id
-        writes that firm's override, and None writes the profile-wide row every
-        firm on the profile inherits. The caller decides which, because the two
-        differ in blast radius -- the profile-wide row reaches every firm on
-        the profile and the router demands platform authority for it.
-
-        Args:
-            firm_scope: The firm whose override to write, or None for the
-                profile-wide default.
-            profile_id: The business profile these units belong to.
-            data: The units and quantity flags to store.
-            actor_id: The acting user.
-            audit_firm_id: The firm the audit entry belongs to. A profile-wide
-                write has no owning firm, so the trail would otherwise lose the
-                store it happened in.
-
-        """
-        row = self._session.scalar(
-            select(BusinessProfileUomDefault).where(
-                BusinessProfileUomDefault.firm_id == firm_scope,
-                BusinessProfileUomDefault.business_profile_id == profile_id,
-                BusinessProfileUomDefault.is_deleted.is_(False),
-            )
-        )
-        created = row is None
-        before = None if row is None else row_state(row)
-        if row is None:
-            row = BusinessProfileUomDefault(
-                firm_id=firm_scope,
-                business_profile_id=profile_id,
-                created_by=actor_id,
-                updated_by=actor_id,
-            )
-            self._session.add(row)
-        payload = data.model_dump(mode="python")
-        for field, value in payload.items():
-            setattr(row, field, value)
-        row.updated_by = actor_id
-        self._flush_or_conflict("Business profile UOM defaults conflict.")
-        # The units themselves, before and after: the row said only that the
-        # defaults had been touched, and a re-save wrote another (D-CFG-23).
-        record_change(
-            self._session,
-            action=(
-                "uom.profile_default.created"
-                if created
-                else "uom.profile_default.updated"
-            ),
-            entity_type="business_profile_uom_default",
-            row=row,
-            actor_id=actor_id,
-            before=before,
-            firm_id=audit_firm_id if firm_scope is None else firm_scope,
-            exclude=("updated_by",),
-        )
-        self._session.commit()
-        return row
-
-    def get_profile_default(
-        self, *, firm_scope: UUID | None, profile_id: UUID
-    ) -> BusinessProfileUomDefault | None:
-        """Return a business profile's default unit behaviour.
-
-        ``firm_id`` is nullable so one row can serve every firm on a profile
-        while a firm may override it: NULL is the profile-wide default, a set
-        value is that firm's own. Only the override half was implemented, so
-        this filtered on the caller's firm and never matched the seeded rows --
-        every industry default shipped invisible, and ``GET
-        /uom-framework/profiles/{id}/defaults`` answered ``null`` for a profile
-        whose row was sitting in the same store.
-
-        The firm's own row wins; the profile-wide row is the fallback. The rank
-        is explicit rather than an ``ORDER BY firm_id``: PostgreSQL sorts NULLs
-        first in DESC and SQLite last, which is how a firm-wide UOM conversion
-        rule once outranked a product's own factor in production while the unit
-        suite saw the right answer.
-        """
-        return self._session.scalar(
-            select(BusinessProfileUomDefault)
-            .where(
-                BusinessProfileUomDefault.business_profile_id == profile_id,
-                BusinessProfileUomDefault.is_deleted.is_(False),
-                or_(
-                    BusinessProfileUomDefault.firm_id == firm_scope,
-                    BusinessProfileUomDefault.firm_id.is_(None),
-                ),
-            )
-            .order_by(
-                case(
-                    (BusinessProfileUomDefault.firm_id.is_(None), 1),
-                    else_=0,
-                )
-            )
-            .limit(1)
-        )
-
-    def resolve_firm_profile_default(
-        self, *, firm_scope: UUID | None
-    ) -> BusinessProfileUomDefault | None:
-        """Return the default units the calling firm's own profile carries.
-
-        A firm cannot look this up for itself through
-        ``/profiles/{id}/defaults``: it would need its own profile id, and
-        every route that reveals one is platform-admin only. So a client had no
-        way to reach the defaults meant for it.
-
-        The profile is resolved through ``app.business.gating`` rather than
-        queried here, so the units a firm is offered come from the same
-        assignment its feature gates use.
-        """
-        profile_id = resolve_profile_id(self._session, firm_scope)
-        if profile_id is None:
-            return None
-        return self.get_profile_default(firm_scope=firm_scope, profile_id=profile_id)
-
     #: The columns a scanned code can live in, in the order they are tried.
     #: A barcode is what a scanner reads; the three trade identifiers are what
     #: the packaging is registered as, and firms fill in whichever their
@@ -1511,98 +1387,6 @@ class UomService:
         self._audit(
             "uom.packaging_level.deleted", "product_packaging_level", row, actor_id
         )
-        self._session.commit()
-
-    def list_industry_templates(
-        self, *, include_inactive: bool = False
-    ) -> list[IndustryTemplate]:
-        """Return the industry UOM templates."""
-        statement = select(IndustryTemplate).where(
-            IndustryTemplate.is_deleted.is_(False)
-        )
-        if not include_inactive:
-            statement = statement.where(IndustryTemplate.status == "ACTIVE")
-        return list(
-            self._session.scalars(
-                statement.order_by(
-                    IndustryTemplate.industry_type.asc(), IndustryTemplate.code.asc()
-                )
-            ).all()
-        )
-
-    def create_industry_template(
-        self, data: IndustryTemplateCreate, *, actor_id: UUID
-    ) -> IndustryTemplate:
-        """Add an industry UOM template."""
-        row = IndustryTemplate(
-            code=data.code.strip().upper(),
-            name=data.name.strip(),
-            industry_type=data.industry_type.strip().upper(),
-            template_payload=data.template_payload,
-            status=data.status.strip().upper(),
-            is_system=data.is_system,
-            created_by=actor_id,
-            updated_by=actor_id,
-        )
-        self._session.add(row)
-        self._flush_or_conflict("Industry template code already exists.")
-        # Reference data every firm's profile setup reads; it wrote no audit
-        # row at all (D-CFG-23).
-        self._audit("uom.industry_template.created", "industry_template", row, actor_id)
-        self._session.commit()
-        return row
-
-    def update_industry_template(
-        self,
-        template_id: UUID,
-        data: IndustryTemplateUpdate,
-        *,
-        actor_id: UUID,
-        expected_version: int | None = None,
-    ) -> IndustryTemplate:
-        """Change an industry UOM template."""
-        row = self._session.scalar(
-            select(IndustryTemplate).where(
-                IndustryTemplate.id == template_id,
-                IndustryTemplate.is_deleted.is_(False),
-            )
-        )
-        if row is None:
-            raise ResourceNotFoundError("Industry template not found.")
-        assert_version(row.version, expected_version)
-        before = row_state(row)
-        payload = data.model_dump(exclude_unset=True)
-        for field, value in payload.items():
-            if isinstance(value, str):
-                value = value.strip()
-                if field in {"code", "industry_type", "status"}:
-                    value = value.upper()
-            setattr(row, field, value)
-        row.updated_by = actor_id
-        self._flush_or_conflict(
-            "Industry template update conflicts with existing data."
-        )
-        self._audit(
-            "uom.industry_template.updated", "industry_template", row, actor_id, before
-        )
-        self._session.commit()
-        return row
-
-    def delete_industry_template(self, template_id: UUID, *, actor_id: UUID) -> None:
-        """Soft delete an industry UOM template."""
-        row = self._session.scalar(
-            select(IndustryTemplate).where(
-                IndustryTemplate.id == template_id,
-                IndustryTemplate.is_deleted.is_(False),
-            )
-        )
-        if row is None:
-            raise ResourceNotFoundError("Industry template not found.")
-        row.is_deleted = True
-        row.deleted_at = utc_now()
-        row.deleted_by = actor_id
-        row.updated_by = actor_id
-        self._audit("uom.industry_template.deleted", "industry_template", row, actor_id)
         self._session.commit()
 
     def _assert_version_free(

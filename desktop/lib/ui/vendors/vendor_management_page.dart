@@ -890,6 +890,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         : null;
     _typeId =
         widget.vendor?.typeId.isNotEmpty == true ? widget.vendor!.typeId : null;
+    _customFields.setKind(vendorTypeId: _typeId);
     unawaited(_loadClassifications());
     unawaited(_loadLinkedCustomer());
   }
@@ -1390,7 +1391,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                   label: 'Type',
                   options: _types,
                   value: _typeId,
-                  onChanged: (value) => setState(() => _typeId = value),
+                  onChanged: (value) => setState(() {
+                    _typeId = value;
+                    _customFields.setKind(vendorTypeId: _typeId);
+                  }),
                 ),
               ),
             ],

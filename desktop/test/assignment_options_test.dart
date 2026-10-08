@@ -65,7 +65,7 @@ class _FeatureApi extends ApiClient {
       {
         'data': [
           {'id': 'f1', 'code': 'BATCH', 'name': 'Batches', 'is_implemented': true},
-          {'id': 'f2', 'code': 'IMEI', 'name': 'IMEI', 'is_implemented': false},
+          {'id': 'f2', 'code': 'VEHICLE_TRACKING', 'name': 'VEHICLE_TRACKING', 'is_implemented': false},
           {'id': 'f3', 'code': 'SERIAL', 'name': 'Serials', 'is_implemented': false},
         ],
         'pagination': {'total_records': 3},
@@ -154,7 +154,7 @@ class _CategorisedApi extends ApiClient {
         'data': [
           {
             'id': 'id-1',
-            'code': 'BATCH_TRACKING',
+            'code': 'BATCH_PTR_PTS',
             'category': 'TRACEABILITY',
           },
           {'id': 'id-2', 'code': 'CUSTOMER_VIEW'},

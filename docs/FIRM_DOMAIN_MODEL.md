@@ -21,7 +21,7 @@ can share it.
 | Tier | Where the rows live | Shared by | Examples |
 | --- | --- | --- | --- |
 | **Platform** | The `platform` schema, one per installation | Every firm | `firms`, `firm_storage_mappings`, `users`, `user_firms`, `roles`, `permissions` |
-| **Store** | The firm's store, **without** a `firm_id` column | Every firm in that store | `business_profiles`, `business_features`, `business_modules`, `attribute_definitions`, `category_attribute_rules`, `uoms`, `uom_groups`, `packaging_types`, `uom_industry_templates`, the six `geo_*` masters, `sales_hierarchy_levels` |
+| **Store** | The firm's store, **without** a `firm_id` column | Every firm in that store | `business_profiles`, `business_features`, `business_modules`, `attribute_definitions`, `category_attribute_rules`, `uoms`, `uom_groups`, `packaging_types`, the six `geo_*` masters, `sales_hierarchy_levels` |
 | **Firm** | The firm's store, **with** a `firm_id` column | That firm alone | `branches`, `warehouses`, `products`, `customers`, `vendors`, `sales_territories`, the whole `tax_*` set, price lists, promotions, every `*_settings` table, every `*_attribute_values` table |
 
 A **store** is a SHARED schema (`firm_shared`, shared by MEDI01 and FOOD01
@@ -170,16 +170,15 @@ store by name rather than the caller's.
 
 | It decides | How | Enforced? |
 | --- | --- | --- |
-| Whether a write may populate a feature's fields | `assert_feature_fields` in the owning service; `require_feature` on the few endpoints that own a resource outright | Yes, for 11 of 22 declared features; reads always pass |
-| Which custom fields a form offers and a save accepts | `attribute_definitions.applicable_business_profile_id`: null means every profile, a value means that one | Yes, on every save |
-| Which fields are mandatory per product category | `category_attribute_rules` scoped to profile and category | Yes, on product save |
-| Which units a new product starts with | `business_profile_uom_defaults`, profile-wide or per firm | Prefilled on the form, not enforced |
+| Whether a write may populate a feature's fields | `assert_feature_fields` in the owning service; `require_feature` on the few endpoints that own a resource outright | Yes, for 4 of the 5 declared features (`DRUG_LICENSE`, `ATTACHMENTS`, `VEHICLE_TRACKING`, `BATCH_PTR_PTS`; `COMMISSION` has no field check), as of 2026-10-08; reads always pass |
+| Which custom fields a form offers and a save accepts | `category_attribute_rules` naming a goods type, customer group or supplier type, and the firm's `firm_attribute_switches`; the profile no longer says anything (changed 2026-10-08) | Yes, on every save |
+| Which fields are mandatory | `category_attribute_rules`, naming a category code, goods type, customer group or supplier type | Yes, on save |
+| Which units a new product starts with | `unit_sets`, chosen on the new-product form (copied; `products.unit_set_id` records which) | Copied onto the product, not enforced; with no set chosen nothing is pre-filled (changed 2026-10-08, the profile no longer says anything about units) |
 | Which tax profiles and rules apply | `tax_profiles.business_profile_id`, `tax_rules.business_profile_id`, optional scoping | Yes, in rule matching |
 | Which modules the desktop shows | `profile_modules`, read through `/active-modules` | **No** -- cosmetic; the server does not gate a module |
 
-Six declared features carry `is_implemented = false` and cannot be switched
-on. `TERRITORY`, `APPROVAL_WORKFLOW` and `MULTIPLE_WAREHOUSES` work for every
-firm and are deliberately ungated pending a product decision.
+The catalogue holds five features since 2026-10-08. Territory, more than one
+warehouse and approval workflow are not features: they work for every firm.
 [`BUSINESS_PROFILE_FRAMEWORK.md`](BUSINESS_PROFILE_FRAMEWORK.md) is the
 reference.
 
@@ -222,7 +221,7 @@ values -- switch back and they reappear.
 | `uoms` | Store | The catalogue: PIECE, KG, LITRE, BOX, CASE… seeded by the migration (the shared store holds 19); whole-number units cannot hold a fraction | Configuration › UOM & Packaging › Units of Measure |
 | `uom_groups`, `uom_group_units` | Store | Families of units that convert among themselves | Configuration › UOM & Packaging › UOM Groups |
 | `packaging_types` | Store | BOX, CARTON, CASE, PALLET and the rest -- what a packaging level *is*; thirteen are seeded | Configuration › UOM & Packaging › Packaging Types |
-| `business_profile_uom_defaults` | Store, optionally per firm | The seven unit slots a new product starts with for an industry | Configuration › UOM & Packaging › Industry Templates |
+| `unit_sets`, `unit_set_goods_types` | Store, optionally per firm | Named bundles of the seven unit slots plus a conversion factor ("Strip, box of 10"); a row with no `firm_id` is the shared catalogue, and the goods-type rows only order the form's picker | Configuration › UOM & Packaging › Unit Sets |
 | `uom_conversion_rules` | **Firm** | Effective-dated factor between two units, firm-wide or for one product; the product's own rule outranks the firm's | Configuration › UOM & Packaging › Conversion Rules |
 | `product_packaging_levels` | Firm, per product | Case, carton, pallet: a named level with its factor to base units and a barcode | Configuration › UOM & Packaging › Packaging Levels |
 
@@ -365,7 +364,7 @@ Each step depends on the one before it. The **Set up** panel on
 Administration › Firms shows them as done or missing.
 
 1. **Firm record** -- platform administrator. Nothing is built.
-2. **Storage** -- provisioned for a dedicated firm; a SHARED firm is ready at once. Provisioning runs the migrations, which is how the store gets its units, profiles, features, packaging types and industry templates.
+2. **Storage** -- provisioned for a dedicated firm; a SHARED firm is ready at once. Provisioning runs the migrations, which is how the store gets its units, profiles, features, packaging types and unit sets.
 3. **Books** -- default chart, the current financial year with twelve periods, journal and voucher types, all 24 control accounts.
 4. **Tax** -- the GST template, or the framework by hand.
 5. **Business profile** -- assigned from the panel or Profile Assignment. Until then the firm trades as GENERIC.

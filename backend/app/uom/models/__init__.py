@@ -1,9 +1,8 @@
 """UOM and packaging persistence models."""
 
+from app.uom.models.unit_set import UNIT_SLOTS, UnitSet, UnitSetGoodsType
 from app.uom.models.uom import (
-    BusinessProfileUomDefault,
     ConversionRule,
-    IndustryTemplate,
     PackagingType,
     ProductPackagingLevel,
     Uom,
@@ -13,12 +12,13 @@ from app.uom.models.uom import (
 )
 
 __all__ = [
-    "BusinessProfileUomDefault",
+    "UNIT_SLOTS",
     "ConversionRule",
-    "IndustryTemplate",
     "PackagingType",
     "ProductPackagingLevel",
     "Uom",
+    "UnitSet",
+    "UnitSetGoodsType",
     "UomAttributeValue",
     "UomGroup",
     "UomGroupUnit",

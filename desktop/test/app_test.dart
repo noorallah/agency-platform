@@ -1013,7 +1013,6 @@ class _ProductApi extends ApiClient {
             applicableCategory: 'MEDICINE',
             description: '',
             defaultValue: '',
-            applicableBusinessProfileId: '',
           )
         ],
         total: 1,
@@ -1023,7 +1022,7 @@ class _ProductApi extends ApiClient {
   Future<ProductMetadataRecord> productMetadata({String? categoryId}) async =>
       const ProductMetadataRecord(
         profileCode: 'MEDICAL',
-        features: [ProductFeatureState(code: 'BARCODE', enabled: true)],
+        features: [ProductFeatureState(code: 'ATTACHMENTS', enabled: true)],
         categories: [
           ProductCategoryRecord(
             id: 'cat-1',

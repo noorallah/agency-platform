@@ -150,86 +150,75 @@ class ConversionRuleRecord {
       );
 }
 
-class IndustryTemplateRecord {
-  const IndustryTemplateRecord({
-    required this.id,
-    required this.code,
-    required this.name,
-    required this.industryType,
-    required this.status,
-  });
-
-  final String id;
-  final String code;
-  final String name;
-  final String industryType;
-  final String status;
-
-  factory IndustryTemplateRecord.fromJson(Json json) => IndustryTemplateRecord(
-        id: stringValue(json['id']),
-        code: stringValue(json['code']),
-        name: stringValue(json['name']),
-        industryType: stringValue(json['industry_type']),
-        status: stringValue(json['status']),
-      );
-}
-
-
-/// A business profile's default unit behaviour, as the calling firm sees it.
+/// A named template of units that fills a new product's unit fields in one
+/// choice. `firmId` empty is the shared catalogue, read-only to a firm.
 ///
-/// `firmId` is what tells the two cases apart: null means this is the
-/// profile-wide default every firm on the profile inherits, a value means this
-/// firm has its own override. Saving always writes the firm's own row — the
-/// profile-wide one is seeded and is not editable through the API.
-class BusinessProfileUomDefaults {
-  const BusinessProfileUomDefaults({
-    required this.businessProfileId,
+/// `goodsTypeIds` empty means the set is offered to every product. The
+/// conversion is "1 purchase unit = [conversionFactor] stock units".
+class UnitSet {
+  const UnitSet({
+    required this.id,
     required this.firmId,
+    required this.name,
+    required this.description,
     required this.baseUomId,
     required this.inventoryUomId,
     required this.purchaseUomId,
     required this.salesUomId,
-    required this.allowFraction,
+    required this.minimumSalesUomId,
+    required this.defaultReceivingUomId,
+    required this.defaultDispatchUomId,
     required this.allowDecimal,
+    required this.conversionFactor,
+    required this.isActive,
+    required this.goodsTypeIds,
+    required this.version,
   });
 
-  final String businessProfileId;
-  final String? firmId;
-  final String? baseUomId;
-  final String? inventoryUomId;
-  final String? purchaseUomId;
-  final String? salesUomId;
-  final bool allowFraction;
+  final String id;
+  final String firmId;
+  final String name;
+  final String description;
+  final String baseUomId;
+  final String inventoryUomId;
+  final String purchaseUomId;
+  final String salesUomId;
+  final String minimumSalesUomId;
+  final String defaultReceivingUomId;
+  final String defaultDispatchUomId;
   final bool allowDecimal;
 
-  /// True when these values come from the profile rather than this firm.
-  bool get isInherited => firmId == null;
+  /// Empty when the set carries no conversion.
+  final String conversionFactor;
+  final bool isActive;
+  final List<String> goodsTypeIds;
+  final int version;
 
-  factory BusinessProfileUomDefaults.fromJson(Json json) =>
-      BusinessProfileUomDefaults(
-        businessProfileId: stringValue(json['business_profile_id']),
-        firmId: _orNull(json['firm_id']),
-        baseUomId: _orNull(json['base_uom_id']),
-        inventoryUomId: _orNull(json['inventory_uom_id']),
-        purchaseUomId: _orNull(json['purchase_uom_id']),
-        salesUomId: _orNull(json['sales_uom_id']),
-        allowFraction: boolValue(json['allow_fraction']),
+  bool get isShared => firmId.isEmpty;
+
+  factory UnitSet.fromJson(Json json) => UnitSet(
+        id: stringValue(json['id']),
+        firmId: stringValue(json['firm_id']),
+        name: stringValue(json['name']),
+        description: stringValue(json['description']),
+        baseUomId: stringValue(json['base_uom_id']),
+        inventoryUomId: stringValue(json['inventory_uom_id']),
+        purchaseUomId: stringValue(json['purchase_uom_id']),
+        salesUomId: stringValue(json['sales_uom_id']),
+        minimumSalesUomId: stringValue(json['minimum_sales_uom_id']),
+        defaultReceivingUomId: stringValue(json['default_receiving_uom_id']),
+        defaultDispatchUomId: stringValue(json['default_dispatch_uom_id']),
         allowDecimal: boolValue(json['allow_decimal'], fallback: true),
+        conversionFactor: stringValue(json['conversion_factor']),
+        isActive: boolValue(json['is_active'], fallback: true),
+        goodsTypeIds: json['goods_type_ids'] is List
+            ? <String>[
+                for (final dynamic id in json['goods_type_ids'] as List)
+                  stringValue(id),
+              ]
+            : const <String>[],
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
-
-  static String? _orNull(dynamic value) {
-    final String text = stringValue(value);
-    return text.isEmpty ? null : text;
-  }
-
-  Json toJson() => <String, dynamic>{
-        'base_uom_id': baseUomId,
-        'inventory_uom_id': inventoryUomId,
-        'purchase_uom_id': purchaseUomId,
-        'sales_uom_id': salesUomId,
-        'allow_fraction': allowFraction,
-        'allow_decimal': allowDecimal,
-      };
 }
 
 

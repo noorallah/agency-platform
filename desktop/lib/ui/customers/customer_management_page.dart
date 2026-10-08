@@ -1349,6 +1349,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   @override
   void initState() {
     super.initState();
+    _customFields?.setKind(customerGroupId: _customerGroupId);
     _customFields?.start();
     _loadGroups();
     _loadMembers();
@@ -1664,6 +1665,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           ? null
           : (value) => setState(() {
                 _customerGroupId = value ?? '';
+                _customFields?.setKind(customerGroupId: _customerGroupId);
                 _dirty = true;
               }),
     );

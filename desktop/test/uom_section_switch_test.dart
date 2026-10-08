@@ -92,11 +92,6 @@ class _UomApi extends ApiClient {
         },
       ];
     }
-    if (path.contains('industry-templates')) {
-      return <Json>[
-        <String, dynamic>{'id': 't-1', 'code': 'PHARMATPL', 'name': 'Pharma'},
-      ];
-    }
     return <Json>[
       <String, dynamic>{'id': 'u-1', 'code': 'PIECEUNIT', 'name': 'Piece'},
     ];
@@ -161,7 +156,6 @@ void main() {
       (UomManagementSection.uomGroups, 'WEIGHTGRP'),
       (UomManagementSection.packagingTypes, 'CARTONPKG'),
       (UomManagementSection.conversionRules, 'BOXRULE'),
-      (UomManagementSection.industryTemplates, 'PHARMATPL'),
     ];
 
     for (final (UomManagementSection section, String marker) in walk) {
@@ -172,7 +166,7 @@ void main() {
     }
   });
 
-  // D-CFG-9: units, groups, packaging types and industry templates carry no
+  // D-CFG-9: units, groups and packaging types carry no
   // firm, so in a shared store one firm's edit was every firm's. The server
   // now keeps them to a platform administrator; a firm administrator holding
   // UOM_MANAGE and PACKAGING_MANAGE must not be offered buttons it refuses.
@@ -183,7 +177,6 @@ void main() {
       UomManagementSection.uoms,
       UomManagementSection.uomGroups,
       UomManagementSection.packagingTypes,
-      UomManagementSection.industryTemplates,
     ]) {
       await _pump(tester, api, section);
       expect(find.text('Add'), findsNothing,

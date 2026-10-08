@@ -73,12 +73,6 @@ class ProductController extends ChangeNotifier {
   /// then disabled and the product's current choice is kept as it was.
   List<Vendor>? suppliers;
 
-  /// The firm's industry defaults, used to pre-fill a new product's units.
-  ///
-  /// Pre-filled rather than applied on the server: a unit that appears in the
-  /// form can be seen and changed before saving, while one filled in silently
-  /// is noticed only when a conversion comes out wrong.
-  BusinessProfileUomDefaults? profileUomDefaults;
   List<AttributeDefinitionRecord> attributeDefinitions = const [];
   ProductMetadataRecord metadata = const ProductMetadataRecord(
     profileCode: '',
@@ -158,14 +152,6 @@ class ProductController extends ChangeNotifier {
       } on ApiException {
         priceLevels = null;
       }
-    }
-    try {
-      profileUomDefaults = await _api.firmUomDefaults();
-    } on ApiException {
-      // Only used to pre-fill a new product's units. A firm that cannot read
-      // them, or has none, gets an empty form rather than an error: this is a
-      // convenience, not a requirement for creating a product.
-      profileUomDefaults = null;
     }
     notifyListeners();
   }
@@ -921,7 +907,6 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         licenceTypes: _controller.licenceTypes,
         brands: _controller.brands,
         suppliers: _controller.suppliers,
-        profileUomDefaults: _controller.profileUomDefaults,
         canManageTax: widget.permissions.hasPermission('PRODUCT_TAX_MANAGE'),
         priceLevels: _controller.priceLevels,
         canManageLevelRates:
@@ -1936,7 +1921,6 @@ class ProductWorkspaceDialog extends StatefulWidget {
     required this.onMetadataForCategory,
     required this.onSave,
     required this.onTabChanged,
-    this.profileUomDefaults,
     this.canManageTax = true,
     this.priceLevels,
     this.canManageLevelRates = false,
@@ -2000,8 +1984,6 @@ class ProductWorkspaceDialog extends StatefulWidget {
   /// the list could not be read, which disables the picker.
   final List<Vendor>? suppliers;
 
-  /// The firm's industry defaults, applied only to a product being created.
-  final BusinessProfileUomDefaults? profileUomDefaults;
   final List<AttributeDefinitionRecord> definitions;
   final ProductMetadataRecord metadata;
   final String initialTab;
@@ -2069,7 +2051,15 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   ///
   /// Only true until the form is first saved. It drives a single line of text:
   /// a pre-filled value the user cannot account for is worse than a blank one.
-  bool _prefilledUnits = false;
+
+  /// The unit set chosen for a new product ('' is none), whether the picker
+  /// lists every set, and the conversion box ("1 purchase unit = N stock
+  /// units"). The generation counter re-keys the unit dropdowns so a set
+  /// applied from code shows in them.
+  String _unitSetId = '';
+  bool _showAllUnitSets = false;
+  int _unitGeneration = 0;
+  late final TextEditingController _unitConversion;
   late bool _trackBatch;
   late bool _trackLot;
   late bool _trackSerial;
@@ -2121,8 +2111,74 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       widget.onSaveLevelRates != null;
   bool get _mayEditLevelRates =>
       !_readOnly && widget.canManageLevelRates && _levelRatesLoaded;
-  bool get _barcodeEnabled => _metadata.featureEnabled('BARCODE');
-  bool get _qrEnabled => _metadata.featureEnabled('QR_CODE');
+
+  /// Only a brand-new product takes its goods type's switches; an existing
+  /// product, and a duplicate of one, keep exactly what they carry.
+  bool get _appliesGoodsType => widget.product == null && widget.copyOf == null;
+
+  /// The type shown: the one a stored product holds, else the one the
+  /// selected category gives. Empty is General.
+  String get _goodsTypeId =>
+      widget.product?.goodsTypeId ?? _metadata.goodsTypeId;
+
+  /// Whether the goods type of this product switches [key] on.
+  bool _typeSwitch(String key) =>
+      _metadata.goodsTypeById(_goodsTypeId)?.switches[key] == true;
+
+  /// What the type filled into the HSN and tax boxes last, so a later
+  /// category change replaces only that and never what a person typed.
+  String _filledHsn = '';
+  String _filledTaxGroup = '';
+  bool _showAllTracking = false;
+
+  /// Start a new product on [type]'s switches (General sets them all off) and
+  /// fill HSN and tax group where the person has typed nothing of their own.
+  void _applyGoodsType(ProductGoodsTypeOption? type) {
+    final Map<String, bool> on = type?.switches ?? const {};
+    _trackBatch = on['track_batch'] == true;
+    _trackExpiry = on['track_expiry'] == true;
+    _trackManufacturingDate = on['track_manufacturing_date'] == true;
+    _trackSerial = on['track_serial'] == true;
+    _trackWarranty = on['track_warranty'] == true;
+    _requireBatchOnReceipt = on['require_batch_on_receipt'] == true;
+    _requireBatchOnIssue = on['require_batch_on_issue'] == true;
+    _requireSerialOnReceipt = on['require_serial_on_receipt'] == true;
+    _requireSerialOnIssue = on['require_serial_on_issue'] == true;
+    final String hsn = type?.defaultHsnSac ?? '';
+    if (_hsn.text.isEmpty || _hsn.text == _filledHsn) {
+      _hsn.text = hsn;
+      _filledHsn = hsn;
+    }
+    final String wanted = type?.defaultTaxProfileGroupCode ?? '';
+    final bool offered = wanted.isNotEmpty &&
+        _metadata.taxProfiles.any((profile) =>
+            (profile.groupCode.isEmpty ? profile.code : profile.groupCode) ==
+            wanted);
+    final String group = offered ? wanted : '';
+    if (_taxProfileGroupCode.isEmpty ||
+        _taxProfileGroupCode == _filledTaxGroup) {
+      _taxProfileGroupCode = group;
+      _filledTaxGroup = group;
+    }
+  }
+
+  /// The read-only goods type line; the type changes only by moving the
+  /// product to another category.
+  Widget _goodsTypeLine() {
+    final String name =
+        _metadata.goodsTypeById(_goodsTypeId)?.name ?? 'General';
+    return SizedBox(
+      width: 260,
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          helperText: 'Set by the category',
+          border: InputBorder.none,
+        ),
+        child: Text('Goods type: $name',
+            key: const ValueKey('product-goods-type')),
+      ),
+    );
+  }
   List<String> get _visibleTabs {
     final List<String> tabs = List<String>.from(_coreTabs);
     if (_allowedAttributeIds.isEmpty) {
@@ -2195,25 +2251,19 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _preferredVendorId = product?.preferredVendorId ?? '';
     _taxProfileGroupCode = product?.taxProfileGroupCode ?? '';
     _itcEligibility = product?.itcEligibility ?? 'ELIGIBLE';
-    // A new product starts on the firm's industry defaults; an existing one
-    // keeps exactly what it was saved with. Defaulting an edit would silently
-    // rewrite units a user had deliberately cleared.
-    final BusinessProfileUomDefaults? defaults =
-        product == null ? widget.profileUomDefaults : null;
-    _baseUomId = product?.baseUomId ?? _knownUom(defaults?.baseUomId);
-    _inventoryUomId =
-        product?.inventoryUomId ?? _knownUom(defaults?.inventoryUomId);
-    _purchaseUomId =
-        product?.purchaseUomId ?? _knownUom(defaults?.purchaseUomId);
-    _salesUomId = product?.salesUomId ?? _knownUom(defaults?.salesUomId);
-    _prefilledUnits = product == null &&
-        [_baseUomId, _inventoryUomId, _purchaseUomId, _salesUomId]
-            .any((id) => id.isNotEmpty);
+    // Nothing is pre-filled: a new product's units come from a unit set the
+    // person picks, or from the dropdowns. An existing one keeps exactly
+    // what it was saved with.
+    _baseUomId = product?.baseUomId ?? '';
+    _inventoryUomId = product?.inventoryUomId ?? '';
+    _purchaseUomId = product?.purchaseUomId ?? '';
+    _salesUomId = product?.salesUomId ?? '';
+    _unitConversion = TextEditingController();
     _defaultReceivingUomId = product?.defaultReceivingUomId ?? '';
     _defaultDispatchUomId = product?.defaultDispatchUomId ?? '';
     _minimumSalesUomId = product?.minimumSalesUomId ?? '';
-    _allowFraction = product?.allowFraction ?? defaults?.allowFraction ?? false;
-    _allowDecimal = product?.allowDecimal ?? defaults?.allowDecimal ?? true;
+    _allowFraction = product?.allowFraction ?? false;
+    _allowDecimal = product?.allowDecimal ?? true;
     _trackBatch = product?.trackBatch ?? false;
     _trackLot = product?.trackLot ?? false;
     _trackSerial = product?.trackSerial ?? false;
@@ -2262,6 +2312,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         _brand,
         _model,
         _unit,
+        _unitConversion,
         _hsn,
         _weight,
         _volume,
@@ -2573,12 +2624,17 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                       setState(() {
                         _categoryId = value;
                         _metadata = metadata;
+                        if (_appliesGoodsType) {
+                          _applyGoodsType(
+                              metadata.goodsTypeById(metadata.goodsTypeId));
+                        }
                         _syncAttributeControllers();
                         _normalizeTabSelection();
                       });
                     },
             ),
           ),
+          _goodsTypeLine(),
           SizedBox(
             width: 260,
             child: DropdownButtonFormField<String>(
@@ -2618,22 +2674,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           _field(_model, 'Model'),
           _field(_remarks, 'Remarks', width: 520),
           _field(_description, 'Description', width: 760, lines: 3),
-          _field(
-            _barcode,
-            'Barcode',
-            readOnly: _readOnly || !_barcodeEnabled,
-            helper: _barcodeEnabled
-                ? null
-                : 'Disabled by feature flag for current profile.',
-          ),
-          _field(
-            _qrCode,
-            'QR Code',
-            readOnly: _readOnly || !_qrEnabled,
-            helper: _qrEnabled
-                ? null
-                : 'Disabled by feature flag for current profile.',
-          ),
+          _field(_barcode, 'Barcode', readOnly: _readOnly),
+          _field(_qrCode, 'QR Code', readOnly: _readOnly),
         ],
       );
 
@@ -2841,29 +2883,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_prefilledUnits) ...[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.auto_awesome_outlined,
-                size: 16,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Filled in from this firm\'s business profile. Change '
-                  'anything that does not fit this product.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-        ],
+        ..._unitSetControls(),
         _packagingFields(uomItems),
       ],
     );
@@ -2919,6 +2939,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           onChanged: (value) =>
               setState(() => _minimumSalesUomId = value ?? ''),
         ),
+        if (_showConversion) _conversionBox(),
         _field(_weight, 'Weight'),
         _field(_volume, 'Volume'),
         _field(_length, 'Length'),
@@ -2946,60 +2967,98 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 : (value) => setState(() => _allowDecimal = value),
           ),
         ),
+        // Only the tracking the goods type has (or the product already
+        // carries) is offered; the toggle reveals the rest.
+        if (!_anyTrackingShown)
+          const SizedBox(
+            width: 320,
+            child: Text('No tracking for this goods type.',
+                key: ValueKey('product-no-tracking-hint')),
+          ),
         SizedBox(
           width: 320,
           child: SwitchListTile.adaptive(
+            key: const ValueKey('product-show-all-tracking'),
             contentPadding: EdgeInsets.zero,
-            title: const Text('Track batch'),
-            value: _trackBatch,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackBatch = value),
+            title: const Text('Show all tracking options'),
+            value: _showAllTracking,
+            onChanged: (value) => setState(() => _showAllTracking = value),
           ),
         ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track lot'),
-            value: _trackLot,
-            onChanged:
-                _readOnly ? null : (value) => setState(() => _trackLot = value),
+        if (_showTracking('track_batch', _trackBatch))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track batch'),
+              value: _trackBatch,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() {
+                        _trackBatch = value;
+                        if (!value) {
+                          _requireBatchOnReceipt = false;
+                          _requireBatchOnIssue = false;
+                        }
+                      }),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track serial'),
-            value: _trackSerial,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackSerial = value),
+        if (_showTracking('track_lot', _trackLot))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track lot'),
+              value: _trackLot,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _trackLot = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track expiry'),
-            value: _trackExpiry,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackExpiry = value),
+        if (_showTracking('track_serial', _trackSerial))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              key: const ValueKey('product-track-serial'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track serial'),
+              value: _trackSerial,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() {
+                        _trackSerial = value;
+                        if (!value) {
+                          _requireSerialOnReceipt = false;
+                          _requireSerialOnIssue = false;
+                        }
+                      }),
+            ),
           ),
-        ),
+        if (_showTracking('track_expiry', _trackExpiry))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track expiry'),
+              value: _trackExpiry,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _trackExpiry = value),
+            ),
+          ),
         // STK-18: a receipt typed with only the manufacturing date gets its
         // expiry from this.
-        _field(
-          _shelfLife,
-          'Shelf life (days)',
-          width: 320,
-          helper: "Fills a batch's expiry from its manufacturing date",
-        ),
+        if (_trackExpiry)
+          _field(
+            _shelfLife,
+            'Shelf life (days)',
+            width: 320,
+            helper: "Fills a batch's expiry from its manufacturing date",
+          ),
         // STK-5: expiry rules; blank inherits.
-        _expiryGroup(),
+        if (_trackExpiry) _expiryGroup(),
         // STK-11: which batch the goods leave from.
+        if (_trackBatch)
         SizedBox(
           width: 320,
           child: DropdownButtonFormField<String>(
@@ -3018,28 +3077,31 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 : (value) => setState(() => _issueRule = value ?? ''),
           ),
         ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track manufacturing date'),
-            value: _trackManufacturingDate,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackManufacturingDate = value),
+        if (_showTracking(
+            'track_manufacturing_date', _trackManufacturingDate))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track manufacturing date'),
+              value: _trackManufacturingDate,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _trackManufacturingDate = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 320,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Track warranty'),
-            value: _trackWarranty,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _trackWarranty = value),
+        if (_showTracking('track_warranty', _trackWarranty))
+          SizedBox(
+            width: 320,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Track warranty'),
+              value: _trackWarranty,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _trackWarranty = value),
+            ),
           ),
-        ),
         SizedBox(
           width: 320,
           child: SwitchListTile.adaptive(
@@ -3100,53 +3162,84 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 : (value) => setState(() => _freeIssueOnly = value ?? false),
           ),
         ),
-        SizedBox(
-          width: 360,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Require batch on receipt'),
-            value: _requireBatchOnReceipt,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _requireBatchOnReceipt = value),
+        if (_trackBatch)
+          SizedBox(
+            width: 360,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Require batch on receipt'),
+              value: _requireBatchOnReceipt,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _requireBatchOnReceipt = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 360,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Require batch on issue'),
-            value: _requireBatchOnIssue,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _requireBatchOnIssue = value),
+        if (_trackBatch)
+          SizedBox(
+            width: 360,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Require batch on issue'),
+              value: _requireBatchOnIssue,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _requireBatchOnIssue = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 360,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Require serial on receipt'),
-            value: _requireSerialOnReceipt,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _requireSerialOnReceipt = value),
+        if (_trackSerial)
+          SizedBox(
+            width: 360,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Require serial on receipt'),
+              value: _requireSerialOnReceipt,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _requireSerialOnReceipt = value),
+            ),
           ),
-        ),
-        SizedBox(
-          width: 360,
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Require serial on issue'),
-            value: _requireSerialOnIssue,
-            onChanged: _readOnly
-                ? null
-                : (value) => setState(() => _requireSerialOnIssue = value),
+        if (_trackSerial)
+          SizedBox(
+            width: 360,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Require serial on issue'),
+              value: _requireSerialOnIssue,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _requireSerialOnIssue = value),
+            ),
           ),
-        ),
       ],
     );
   }
+
+  static const List<String> _trackingKeys = [
+    'track_batch',
+    'track_lot',
+    'track_serial',
+    'track_expiry',
+    'track_manufacturing_date',
+    'track_warranty',
+  ];
+
+  bool _stateOf(String key) => switch (key) {
+        'track_batch' => _trackBatch,
+        'track_lot' => _trackLot,
+        'track_serial' => _trackSerial,
+        'track_expiry' => _trackExpiry,
+        'track_manufacturing_date' => _trackManufacturingDate,
+        _ => _trackWarranty,
+      };
+
+  /// A tracking switch is offered when it is on, when the goods type has it,
+  /// or when the person asked to see them all.
+  bool _showTracking(String key, bool on) =>
+      _showAllTracking || on || (key != 'track_lot' && _typeSwitch(key));
+
+  bool get _anyTrackingShown =>
+      _showAllTracking ||
+      _trackingKeys.any((key) => _showTracking(key, _stateOf(key)));
 
   Widget _taxSection() => Wrap(
         spacing: 16,
@@ -3156,6 +3249,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           SizedBox(
             width: 320,
             child: DropdownButtonFormField<String>(
+              // Keyed on the value so a code the goods type fills in shows.
+              key: ValueKey('product-tax-profile-$_taxProfileGroupCode'),
               isExpanded: true,
               initialValue:
                   _taxProfileGroupCode.isEmpty ? null : _taxProfileGroupCode,
@@ -3589,10 +3684,180 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         ),
       );
 
-  /// Return a default unit id only when the catalogue still offers it.
+  /// Only a new product (including a copy) is filled from a unit set.
+  bool get _isNewProduct => widget.product == null;
+
+  List<ProductUnitSetOption> get _allUnitSets =>
+      _metadata.unitSets.isNotEmpty
+          ? _metadata.unitSets
+          : widget.metadata.unitSets;
+
+  /// The sets offered: those for the goods type the category gives (or for
+  /// every product), or all of them; the chosen one always stays listed so
+  /// a category change never takes the choice away.
+  List<ProductUnitSetOption> get _offeredUnitSets {
+    final String type = _goodsTypeId;
+    return _allUnitSets
+        .where((set) =>
+            _showAllUnitSets ||
+            set.id == _unitSetId ||
+            set.goodsTypeIds.isEmpty ||
+            (type.isNotEmpty && set.goodsTypeIds.contains(type)))
+        .toList();
+  }
+
+  String _uomName(String id) {
+    for (final UomRecord unit in widget.uoms) {
+      if (unit.id == id) return unit.name;
+    }
+    return '';
+  }
+
+  String get _stockUomId =>
+      _inventoryUomId.isNotEmpty ? _inventoryUomId : _baseUomId;
+
+  /// The conversion box is for a new product whose purchase and stock units
+  /// are both chosen and differ.
+  bool get _showConversion =>
+      _isNewProduct &&
+      _purchaseUomId.isNotEmpty &&
+      _stockUomId.isNotEmpty &&
+      _purchaseUomId != _stockUomId;
+
+  Widget _conversionBox() {
+    final String purchase = _uomName(_purchaseUomId);
+    final String stock = _uomName(_stockUomId);
+    return SizedBox(
+      width: 360,
+      child: TextFormField(
+        key: const ValueKey('product-unit-conversion-factor'),
+        controller: _unitConversion,
+        readOnly: _readOnly,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          labelText: '1 $purchase = how many $stock',
+          helperText: 'Optional. Makes the conversion rule for this product.',
+        ),
+      ),
+    );
+  }
+
+  /// A set's factor without trailing zeros: "10.000000" reads as "10".
+  String _plainFactor(String factor) {
+    if (!factor.contains('.')) return factor;
+    return factor
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+  }
+
+  /// Write each unit a set names into the form, its decimal switch and its
+  /// conversion. Everything stays editable afterwards.
+  void _applyUnitSet(String id) {
+    setState(() {
+      _unitSetId = id;
+      final ProductUnitSetOption? set =
+          _metadata.unitSetById(id) ?? widget.metadata.unitSetById(id);
+      if (set != null) {
+        String pick(String current, String wanted) =>
+            _knownUom(wanted).isNotEmpty ? wanted : current;
+        _baseUomId = pick(_baseUomId, set.baseUomId);
+        _inventoryUomId = pick(_inventoryUomId, set.inventoryUomId);
+        _purchaseUomId = pick(_purchaseUomId, set.purchaseUomId);
+        _salesUomId = pick(_salesUomId, set.salesUomId);
+        _minimumSalesUomId = pick(_minimumSalesUomId, set.minimumSalesUomId);
+        _defaultReceivingUomId =
+            pick(_defaultReceivingUomId, set.defaultReceivingUomId);
+        _defaultDispatchUomId =
+            pick(_defaultDispatchUomId, set.defaultDispatchUomId);
+        _allowDecimal = set.allowDecimal;
+        _unitConversion.text = _plainFactor(set.conversionFactor);
+        _unitGeneration++;
+      }
+      _dirty = true;
+    });
+  }
+
+  /// The unit set picker on a new product; on an existing one, a line saying
+  /// which set its units came from.
+  List<Widget> _unitSetControls() {
+    if (!_isNewProduct) {
+      final String setId = widget.product!.unitSetId;
+      final String name = _metadata.unitSetById(setId)?.name ??
+          widget.metadata.unitSetById(setId)?.name ??
+          '';
+      if (name.isEmpty) return const [];
+      return [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text('Units from: $name',
+              key: const ValueKey('product-unit-set-origin')),
+        ),
+      ];
+    }
+    if (_allUnitSets.isEmpty) return const [];
+    return [
+      Wrap(
+        spacing: 16,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          SizedBox(
+            width: 320,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('product-unit-set'),
+              isExpanded: true,
+              initialValue: _unitSetId,
+              decoration: const InputDecoration(
+                labelText: 'Unit set',
+                helperText: 'Fills the units below; change any of them after.',
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: '',
+                  child: Text('None (choose the units below)',
+                      overflow: TextOverflow.ellipsis),
+                ),
+                for (final ProductUnitSetOption set in _offeredUnitSets)
+                  DropdownMenuItem<String>(
+                    value: set.id,
+                    child: Text(set.name, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: _readOnly
+                  ? null
+                  : (value) {
+                      if (value == null || value.isEmpty) {
+                        setState(() => _unitSetId = '');
+                      } else {
+                        _applyUnitSet(value);
+                      }
+                    },
+            ),
+          ),
+          SizedBox(
+            width: 220,
+            child: CheckboxListTile(
+              key: const ValueKey('product-show-all-unit-sets'),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+              title: const Text('Show all unit sets'),
+              value: _showAllUnitSets,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() => _showAllUnitSets = value == true),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+    ];
+  }
+
+  /// Return a unit id only when the catalogue still offers it.
   ///
-  /// A profile default can name a unit that was since deactivated, and a
-  /// dropdown throws when its value is missing from its items.
+  /// A unit set can name a unit that was since deactivated, and a dropdown
+  /// throws when its value is missing from its items.
   String _knownUom(String? id) =>
       id != null && widget.uoms.any((unit) => unit.id == id) ? id : '';
 
@@ -3605,6 +3870,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       SizedBox(
         width: 260,
         child: DropdownButtonFormField<String>(
+          key: ValueKey('$label#$_unitGeneration'),
           isExpanded: true,
           initialValue: value.isEmpty ? null : value,
           decoration: InputDecoration(labelText: label),
@@ -3655,12 +3921,6 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         in _attributeControllers.values) {
       final String? problem = controller.validate();
       if (problem != null) issues.add(problem);
-    }
-    if (!_barcodeEnabled && _barcode.text.trim().isNotEmpty) {
-      issues.add('Barcode is disabled by the current profile feature flags.');
-    }
-    if (!_qrEnabled && _qrCode.text.trim().isNotEmpty) {
-      issues.add('QR code is disabled by the current profile feature flags.');
     }
     final double? selling = double.tryParse(_sellingPrice.text.trim());
     final double? mrp = double.tryParse(_mrp.text.trim());
@@ -3773,7 +4033,17 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'require_serial_on_issue': _requireSerialOnIssue,
       'attributes': attributes,
       'media': media,
+      // On create only: the update schema does not declare either key.
+      if (_isNewProduct && _unitSetId.isNotEmpty) 'unit_set_id': _unitSetId,
+      if (_isNewProduct && _showConversion && _conversionNumber() != null)
+        'unit_conversion_factor': _unitConversion.text.trim(),
     };
+  }
+
+  /// The conversion box's number when it is greater than zero, else null.
+  double? _conversionNumber() {
+    final double? value = double.tryParse(_unitConversion.text.trim());
+    return value != null && value > 0 ? value : null;
   }
 
   Future<void> _saveAndNew() async {
@@ -3795,6 +4065,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _inventoryUomId = '';
       _purchaseUomId = '';
       _salesUomId = '';
+      _unitSetId = '';
+      _unitConversion.clear();
+      _unitGeneration++;
       _defaultReceivingUomId = '';
       _defaultDispatchUomId = '';
       _minimumSalesUomId = '';

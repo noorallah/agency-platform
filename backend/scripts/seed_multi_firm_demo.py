@@ -100,6 +100,11 @@ from app.identity.services.identity_service import IdentityService
 from app.inventory.models import InventoryRecord, OpeningStockBatch
 from app.inventory.schemas import OpeningStockBatchCreate, OpeningStockLineCreate
 from app.inventory.services import InventoryService
+from app.products.goods_type_seed import (
+    PROFILE_STARTING_GOODS_TYPES,
+    seed_goods_types,
+    start_firm_goods_types,
+)
 from app.products.models import Product, ProductCategory
 from app.products.schemas import (
     ProductAttributeInput,
@@ -107,6 +112,7 @@ from app.products.schemas import (
     ProductCreate,
 )
 from app.products.schemas.product import ProductStatus, ProductType
+from app.products.services.goods_types import GoodsTypeService
 from app.products.services.product_service import ProductService
 from app.sales.models import (
     BeatPlan,
@@ -1016,6 +1022,13 @@ def _seed_business_profile_assignment(
         assignment.is_active = True
         assignment.notes = f"Seeded for {profile.name}"
         assignment.updated_by = actor_id
+    # What the Firms screen does on a firm's first profile. Only for a firm
+    # that holds no goods type, so a store seeded before goods types existed
+    # gains them on a re-run and one that chose its own keeps them.
+    seed_goods_types(session)
+    start_firm_goods_types(
+        session, firm_id=firm_id, profile_code=profile_code, actor_id=actor_id
+    )
     session.commit()
 
 
@@ -1403,26 +1416,18 @@ def _seed_customers(
 
 
 def _seed_business_framework(
-    session: Session, blueprint: FirmBlueprint, actor_id: UUID
+    session: Session, blueprint: FirmBlueprint, actor_id: UUID, *, firm_id: UUID
 ) -> dict[str, AttributeDefinition]:
     profile = _business_profile(session, blueprint.profile_code)
+    # Only what a profile still decides. What goods look like -- batch,
+    # expiry, serial number, barcode -- is each product's own switches, which
+    # its goods type fills (backlog 89); `20261008_0353` withdrew those
+    # features from the catalogue.
     feature_definitions = {
-        "BARCODE": {"name": "Barcode", "category": "PRODUCT", "default_enabled": True},
-        "QR_CODE": {"name": "QR Code", "category": "PRODUCT", "default_enabled": True},
         "ATTACHMENTS": {
             "name": "Product Attachments",
             "category": "PRODUCT",
             "default_enabled": True,
-        },
-        "EXPIRY_TRACKING": {
-            "name": "Expiry Tracking",
-            "category": "INVENTORY",
-            "default_enabled": True,
-        },
-        "SERIAL_TRACKING": {
-            "name": "Serial Tracking",
-            "category": "INVENTORY",
-            "default_enabled": False,
         },
     }
     for code, payload in feature_definitions.items():
@@ -1498,38 +1503,7 @@ def _seed_business_framework(
             module.is_active = True
             module.updated_by = actor_id
 
-    # BATCH_TRACKING goes with EXPIRY_TRACKING for the two industries that
-    # trace their goods: a medicine has to be recallable and a food has a
-    # use-by date, and neither is answerable without knowing which delivery a
-    # unit came from. Without it seeded here no demo firm could use batches at
-    # all, so nothing in the demo data exercised batch-grained stock.
-    enabled_features = {
-        "PHARMACY": {
-            "BARCODE",
-            "QR_CODE",
-            "ATTACHMENTS",
-            "EXPIRY_TRACKING",
-            "BATCH_TRACKING",
-        },
-        "FOOD": {
-            "BARCODE",
-            "QR_CODE",
-            "ATTACHMENTS",
-            "EXPIRY_TRACKING",
-            "BATCH_TRACKING",
-        },
-        "WHOLESALE": {"BARCODE", "ATTACHMENTS"},
-        # SERIAL_NUMBER and WARRANTY since 2026-09-08: the mixer grinder is
-        # serialised, and a serial carries warranty dates the WARRANTY gate
-        # would otherwise refuse.
-        "ELECTRONICS": {
-            "BARCODE",
-            "QR_CODE",
-            "ATTACHMENTS",
-            "SERIAL_NUMBER",
-            "WARRANTY",
-        },
-    }.get(blueprint.profile_code, {"BARCODE", "ATTACHMENTS"})
+    enabled_features = {"ATTACHMENTS"}
     for code in feature_definitions:
         relationship = session.scalar(
             select(ProfileFeature).where(
@@ -1702,7 +1676,9 @@ def _seed_business_framework(
         attribute_definition = definitions[code]
         rule = session.scalar(
             select(CategoryAttributeRule).where(
-                CategoryAttributeRule.business_profile_id == profile.id,
+                # The firm's own rule: a rule no longer names a profile
+                # (backlog 89), and several demo firms can share a store.
+                CategoryAttributeRule.firm_id == firm_id,
                 CategoryAttributeRule.category_code == "CORE_PRODUCTS",
                 CategoryAttributeRule.attribute_definition_id
                 == attribute_definition.id,
@@ -1711,7 +1687,7 @@ def _seed_business_framework(
         )
         if rule is None:
             rule = CategoryAttributeRule(
-                business_profile_id=profile.id,
+                firm_id=firm_id,
                 category_code="CORE_PRODUCTS",
                 attribute_definition_id=attribute_definition.id,
                 is_mandatory=code in rule_targets["required"],
@@ -2304,11 +2280,30 @@ def _seed_commission(
         )
 
 
+def _demo_goods_type(session: Session, firm_id: UUID, profile_code: str) -> UUID | None:
+    """Return the goods type the firm's one demo category carries, if any.
+
+    The first of its profile's starting types the firm still uses; a profile
+    that starts a firm with none (wholesale) leaves the category General.
+    """
+    wanted = PROFILE_STARTING_GOODS_TYPES.get(profile_code, ())
+    return next(
+        (
+            row.id
+            for row in GoodsTypeService(session).list_types(firm_id)
+            if row.in_use and row.code in wanted
+        ),
+        None,
+    )
+
+
 def _seed_products(
     session: Session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
 ) -> None:
     service = ProductService(session)
-    attribute_definitions = _seed_business_framework(session, blueprint, actor_id)
+    attribute_definitions = _seed_business_framework(
+        session, blueprint, actor_id, firm_id=firm.id
+    )
     category = session.scalar(
         select(ProductCategory).where(
             ProductCategory.firm_id == firm.id,
@@ -2327,6 +2322,23 @@ def _seed_products(
             firm_id=firm.id,
             actor_id=actor_id,
         )
+    goods_type_id = _demo_goods_type(session, firm.id, blueprint.profile_code)
+    if goods_type_id is not None and category.goods_type_id is None:
+        # Only where missing, never overwriting: a category seeded before
+        # goods types existed gains its type, and so do the products already
+        # filed under it, which a new product would have taken from it.
+        category.goods_type_id = goods_type_id
+        category.updated_by = actor_id
+        for filed in session.scalars(
+            select(Product).where(
+                Product.firm_id == firm.id,
+                Product.category_id == category.id,
+                Product.goods_type_id.is_(None),
+                Product.is_deleted.is_(False),
+            )
+        ):
+            filed.goods_type_id = goods_type_id
+        session.commit()
     tax_profile = _tax_profile_for_firm(session, firm.id, blueprint.profile_code)
     uoms = _uom_map(session)
     for product in blueprint.products:
@@ -2365,6 +2377,17 @@ def _seed_products(
             # and the serials are laid onto the stock afterwards.
             if existing.track_serial != product.requires_serial:
                 existing.track_serial = product.requires_serial
+                changed = True
+            # The fifth: what a batch or a serial may carry is the product's
+            # own switch now, not the firm's profile (backlog 89). A traced
+            # product's batches are dated and a numbered one's units carry a
+            # warranty, so a store seeded before this is switched on here --
+            # only ever on, so a switch somebody set by hand is left alone.
+            if product.requires_batch and not existing.track_expiry:
+                existing.track_expiry = True
+                changed = True
+            if product.requires_serial and not existing.track_warranty:
+                existing.track_warranty = True
                 changed = True
             if not (existing.hsn_sac or "").strip() and product.hsn_sac:
                 existing.hsn_sac = product.hsn_sac
@@ -2426,6 +2449,8 @@ def _seed_products(
                 status=ProductStatus.ACTIVE,
                 track_batch=product.requires_batch,
                 track_serial=product.requires_serial,
+                track_expiry=product.requires_batch,
+                track_warranty=product.requires_serial,
                 # Both sides. Opening stock carries a batch now, so a traced
                 # product has no untracked stock to strand: everything it holds
                 # arrived in a batch and can therefore leave from one.

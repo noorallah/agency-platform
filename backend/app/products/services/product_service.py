@@ -5,6 +5,7 @@
 import csv
 import io
 from collections.abc import Iterable
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from typing import Any, Literal, cast
@@ -17,7 +18,6 @@ from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.business.gating import (
-    assert_feature_fields,
     resolve_capabilities,
     resolve_profile,
 )
@@ -26,7 +26,7 @@ from app.business.models import (
     AttributeEntityType,
     BusinessProfile,
 )
-from app.business.services import AttributeInput, AttributeService
+from app.business.services import AttributeInput, AttributeService, RecordKind
 from app.common.audit.services import record_audit, record_change, row_state
 from app.common.firm_metadata import FirmMetadataReader
 from app.common.master_code_series import MasterCodeNumbering
@@ -68,6 +68,7 @@ from app.products.schemas import (
     ProductUpdate,
 )
 from app.products.schemas.product import ProductCategoryResponse
+from app.products.services.goods_types import GoodsTypeService
 from app.products.services.product_import import (
     ExistingRows,
     ImportReport,
@@ -75,7 +76,9 @@ from app.products.services.product_import import (
 )
 from app.tax.models import TaxProfile
 from app.trade_licences.models import TradeLicenceType
-from app.uom.models import Uom
+from app.uom.models import ConversionRule, Uom
+from app.uom.schemas import ConversionRuleCreate
+from app.uom.services import UnitSetService, UomService
 
 #: The product fields that are somebody's separate duty, by the code that owns
 #: them, with what each is called in a refusal. A price decides what the firm
@@ -105,6 +108,10 @@ PRODUCT_DUTIES: frozenset[str] = frozenset(PRODUCT_DUTY_FIELDS) | {ATTRIBUTE_DUT
 
 #: The fields that say how a product's stock is counted and traced, and what
 #: each is called in a refusal. Changing one under stock is refused (D-MST-7).
+#: A product's own pack size holds from before any document that can name
+#: it: an opening bill is dated before the day the product was typed in, and
+#: a rule starting "today" would refuse its line.
+_PACK_SIZE_SINCE = date(2000, 1, 1)
 _STOCK_SHAPE_FIELDS = {
     "base_uom_id": "base unit",
     "inventory_uom_id": "inventory unit",
@@ -352,11 +359,27 @@ class ProductService:
         self._validate_licence_type(firm_id, data.required_licence_type_id)
         self._validate_preferred_vendor(firm_id, data.preferred_vendor_id)
         self._validate_uom_references(data)
-        self._validate_feature_gated_fields(data, firm_id)
         values = self._product_values(data)
         self._brand_text(values, firm_id=firm_id)
+        goods_type_id = self._goods_type_of(firm_id, category, data.sub_category_id)
+        # The line the product belongs to fills what the caller left unsaid
+        # (backlog 89); from here on the product's own switches are the rule.
+        values.update(
+            GoodsTypeService(self._session).starting_values(
+                firm_id, goods_type_id, sent=data.model_fields_set, values=values
+            )
+        )
+        # The unit set is copied, never linked: its units land on the product
+        # and its factor becomes the product's own rule below, so a set
+        # edited later changes nothing here (backlog 89).
+        units, set_factor = UnitSetService(self._session).starting_units(
+            firm_id, data.unit_set_id, sent=data.model_fields_set
+        )
+        values.update(units)
+        pack = self._own_conversion(data, values, set_factor=set_factor)
         product = Product(
             **values,
+            goods_type_id=goods_type_id,
             firm_id=firm_id,
             created_by=actor_id,
             updated_by=actor_id,
@@ -366,6 +389,12 @@ class ProductService:
         ]
         self._session.add(product)
         self._session.flush()
+        if pack is not None:
+            UomService(self._session).stage_conversion_rule(
+                pack.model_copy(update={"product_id": product.id}),
+                firm_scope=firm_id,
+                actor_id=actor_id,
+            )
         self._store_attributes(
             product, data.attributes, category=category, actor_id=actor_id
         )
@@ -491,15 +520,24 @@ class ProductService:
         ):
             self._validate_preferred_vendor(firm_scope, data.preferred_vendor_id)
         self._validate_uom_references(data)
-        self._validate_feature_gated_fields(data, firm_scope)
         self._assert_stock_shape_unchanged(product, self._product_values(data))
         self._assert_price_within_mrp(product, values)
         before: dict[str, object] = {
             "code": product.code,
             "category_id": str(product.category_id),
         }
+        moved = (category_id, sub_category_id) != (
+            product.category_id,
+            product.sub_category_id,
+        )
         for field, value in values.items():
             setattr(product, field, value)
+        if moved:
+            # Another category is the one thing that changes a product's
+            # goods type (backlog 89); its switches stay as they are.
+            product.goods_type_id = self._goods_type_of(
+                firm_scope, category, sub_category_id
+            )
         product.updated_by = actor_id
         if "attributes" in data.model_fields_set:
             self._store_attributes(
@@ -570,6 +608,7 @@ class ProductService:
         duplicated = ProductCreate.model_validate(
             {
                 **self._product_values_from_model(source),
+                **self._pack_of(source, firm_scope),
                 "code": self._next_duplicate_code(firm_scope, source.code),
                 "attributes": self._attribute_inputs_for(source),
                 "media": [
@@ -824,6 +863,16 @@ class ProductService:
         required_ids, optional_ids = self._category_attribute_ids(
             firm_scope, category_id
         )
+        tax_profiles = self._session.scalars(
+            select(TaxProfile)
+            .where(
+                TaxProfile.firm_id == firm_scope,
+                TaxProfile.is_deleted.is_(False),
+                TaxProfile.status == "ACTIVE",
+            )
+            .order_by(TaxProfile.display_order.asc(), TaxProfile.code.asc())
+        ).all()
+        goods_types = GoodsTypeService(self._session)
         return ProductMetadataResponse(
             profile_code=profile.code,
             features=[
@@ -840,18 +889,22 @@ class ProductService:
                     label=item.label,
                     tax_system_id=item.tax_system_id,
                 )
-                for item in self._session.scalars(
-                    select(TaxProfile)
-                    .where(
-                        TaxProfile.firm_id == firm_scope,
-                        TaxProfile.is_deleted.is_(False),
-                        TaxProfile.status == "ACTIVE",
-                    )
-                    .order_by(TaxProfile.display_order.asc(), TaxProfile.code.asc())
-                ).all()
+                for item in tax_profiles
             ],
             required_attribute_definition_ids=required_ids,
             optional_attribute_definition_ids=optional_ids,
+            # In the call the form already makes, so opening it costs no
+            # more round trips than before goods types (backlog 89).
+            goods_types=goods_types.product_options(
+                firm_scope,
+                tax_groups={
+                    item.group_code for item in tax_profiles if item.group_code
+                },
+            ),
+            goods_type_id=goods_types.type_for_category(
+                firm_scope, self._stored_category(firm_scope, category_id)
+            ),
+            unit_sets=UnitSetService(self._session).product_options(firm_scope),
         )
 
     def create_category(
@@ -859,6 +912,7 @@ class ProductService:
     ) -> ProductCategory:
         parent = self._validate_category_reference(firm_id, data.parent_id)
         self._validate_licence_type(firm_id, data.required_licence_type_id)
+        GoodsTypeService(self._session).assert_offered(firm_id, data.goods_type_id)
         self._assert_category_free(
             firm_id, code=data.code, name=data.name, parent_id=data.parent_id
         )
@@ -877,6 +931,7 @@ class ProductService:
             expiry_stop_sale_days=data.expiry_stop_sale_days,
             expiry_alert_days=data.expiry_alert_days,
             expiry_return_days=data.expiry_return_days,
+            goods_type_id=data.goods_type_id,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -966,6 +1021,17 @@ class ProductService:
             row.required_licence_type_id = data.required_licence_type_id
         if "inspection_required" in data.model_fields_set:
             row.inspection_required = data.inspection_required
+        # Only where the write moves it, so a category whose type the firm has
+        # since dropped still saves its name. Products already filed here keep
+        # the type they hold (backlog 89).
+        if (
+            "goods_type_id" in data.model_fields_set
+            and data.goods_type_id != row.goods_type_id
+        ):
+            GoodsTypeService(self._session).assert_offered(
+                firm_scope, data.goods_type_id
+            )
+            row.goods_type_id = data.goods_type_id
         for field in (
             "expiry_stop_sale_days",
             "expiry_alert_days",
@@ -1401,13 +1467,19 @@ class ProductService:
         )
         required: set[UUID] = set()
         applicable: dict[UUID, AttributeDefinition] = {}
-        for spelling in spellings:
-            required |= attributes.mandatory_ids(
-                entity_type, firm_id=firm_id, category_code=spelling
+        # The goods type a new product in this category would take: its
+        # fields are offered and its compulsory ones marked (backlog 89).
+        kind = RecordKind(
+            goods_type_id=GoodsTypeService(self._session).type_for_category(
+                firm_id, category
             )
-            for definition in attributes.definitions_for(
-                entity_type, firm_id=firm_id, category_code=spelling
-            ):
+        )
+        for spelling in spellings:
+            applied = attributes.applied(
+                entity_type, firm_id=firm_id, category_code=spelling, kind=kind
+            )
+            required |= applied.required
+            for definition in applied.definitions:
                 applicable[definition.id] = definition
         if category is None:
             # A product with no category yet is offered the fields that need
@@ -1424,27 +1496,6 @@ class ProductService:
             [row.id for row in ordered if row.id in required],
             [row.id for row in ordered if row.id not in required],
         )
-
-    def _validate_feature_gated_fields(
-        self, data: ProductCreate | ProductUpdate, firm_id: UUID
-    ) -> None:
-        """Check the optional product fields against the firm's profile.
-
-        This used to resolve the firm's features through a private query that
-        filtered neither ``is_active`` nor ``is_deleted``, so deactivating or
-        deleting BARCODE in the catalogue left barcodes still accepted here
-        while every ``require_feature`` endpoint correctly refused. One
-        resolver, one answer.
-        """
-        for feature, fields in (
-            ("BARCODE", {"barcode": data.barcode}),
-            ("QR_CODE", {"qr_code": data.qr_code}),
-            ("WARRANTY", {"track_warranty": data.track_warranty}),
-            ("SHELF_LIFE", {"shelf_life_days": data.shelf_life_days}),
-        ):
-            assert_feature_fields(
-                self._session, firm_id, feature=feature, values=fields
-            )
 
     def _attribute_inputs_for(self, product: Product) -> list[dict[str, object]]:
         """Return a product's attributes shaped for ProductCreate validation."""
@@ -1481,6 +1532,9 @@ class ProductService:
             firm_id=product.firm_id,
             actor_id=actor_id,
             category_code=category.code if category is not None else None,
+            # The type the product stores, not its category's today: a
+            # category that changed type left this product where it was.
+            kind=RecordKind(goods_type_id=product.goods_type_id),
         )
 
     def attribute_responses_for_many(
@@ -1680,6 +1734,46 @@ class ProductService:
             )
 
     @staticmethod
+    def _own_conversion(
+        data: ProductCreate, values: dict[str, object], *, set_factor: Decimal | None
+    ) -> ConversionRuleCreate | None:
+        """Return the product's own purchase-to-stock rule, still unowned.
+
+        The factor the caller named, else the unit set's. A set's factor is
+        dropped quietly where the units as saved no longer need one -- the
+        person changed them after applying the set -- while a factor typed
+        between no two units is a mistake and is refused.
+
+        Raises:
+            ValidationError: If a factor was named and the product has no
+                purchase unit differing from its stock unit.
+
+        """
+        named = "unit_conversion_factor" in data.model_fields_set
+        factor = data.unit_conversion_factor if named else set_factor
+        if factor is None:
+            return None
+        stock = values.get("inventory_uom_id") or values.get("base_uom_id")
+        purchase = values.get("purchase_uom_id")
+        if not isinstance(stock, UUID) or not isinstance(purchase, UUID):
+            stock = purchase = None
+        if stock is None or purchase is None or stock == purchase:
+            if named:
+                raise ValidationError(
+                    "A conversion factor needs a purchase unit that differs "
+                    "from the stock unit. Choose the two units, or leave the "
+                    "factor blank."
+                )
+            return None
+        return ConversionRuleCreate(
+            from_uom_id=purchase,
+            to_uom_id=stock,
+            conversion_factor=factor,
+            effective_from=_PACK_SIZE_SINCE,
+            reason="Set when the product was created.",
+        )
+
+    @staticmethod
     def _product_values(
         data: ProductCreate | ProductUpdate, *, partial: bool = False
     ) -> dict[str, object]:
@@ -1690,7 +1784,9 @@ class ProductService:
         value to store.
         """
         payload = data.model_dump(
-            exclude={"attributes", "media"}, mode="python", exclude_unset=partial
+            exclude={"attributes", "media", "unit_conversion_factor"},
+            mode="python",
+            exclude_unset=partial,
         )
         payload["product_type"] = data.product_type.value
         if "status" in payload:
@@ -1708,6 +1804,22 @@ class ProductService:
         values["brand"] = BrandService(self._session).brand_name(
             self._as_uuid(values["brand_id"]), firm_id=firm_id
         )
+
+    def _goods_type_of(
+        self,
+        firm_id: UUID,
+        category: ProductCategory | None,
+        sub_category_id: UUID | None,
+    ) -> UUID | None:
+        """Return the goods type a product filed here takes; None is General.
+
+        The sub-category speaks first, being the more particular of the two,
+        and either falls back on its parents.
+        """
+        filed_under = category
+        if sub_category_id is not None:
+            filed_under = self._stored_category(firm_id, sub_category_id) or category
+        return GoodsTypeService(self._session).type_for_category(firm_id, filed_under)
 
     @staticmethod
     def _as_uuid(value: object) -> UUID | None:
@@ -1813,6 +1925,42 @@ class ProductService:
                 row.deleted_at = now
                 row.deleted_by = actor_id
                 row.updated_by = actor_id
+
+    def _pack_of(self, source: Product, firm_id: UUID) -> dict[str, object]:
+        """Return the unit set and the pack size a copy of ``source`` takes.
+
+        The copy converts as its source does today: the source's own
+        purchase-to-stock rule, not the unit set's factor, which may have
+        been edited since or overridden on the source. The set is kept by
+        name only while it is still offered; the units are sent with the
+        copy, so the set fills nothing.
+        """
+        offered = {
+            option.id
+            for option in UnitSetService(self._session).product_options(firm_id)
+        }
+        stock = source.inventory_uom_id or source.base_uom_id
+        factor = None
+        if source.purchase_uom_id is not None and stock is not None:
+            factor = self._session.scalar(
+                select(ConversionRule.conversion_factor)
+                .where(
+                    ConversionRule.product_id == source.id,
+                    ConversionRule.from_uom_id == source.purchase_uom_id,
+                    ConversionRule.to_uom_id == stock,
+                    ConversionRule.is_deleted.is_(False),
+                    ConversionRule.status == "ACTIVE",
+                )
+                .order_by(ConversionRule.effective_from.desc())
+                .limit(1)
+            )
+        return {
+            "unit_set_id": (
+                source.unit_set_id if source.unit_set_id in offered else None
+            ),
+            # Named even when there is none, so the set's factor is not used.
+            "unit_conversion_factor": factor,
+        }
 
     def _product_values_from_model(self, product: Product) -> dict[str, object]:
         return {

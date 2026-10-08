@@ -101,7 +101,6 @@ def _definition(
     entity_type: AttributeEntityType = AttributeEntityType.PRODUCT,
     data_type: AttributeDataType = AttributeDataType.TEXT,
     mandatory: bool = False,
-    profile: BusinessProfile | None = None,
 ) -> AttributeDefinition:
     row = AttributeDefinition(
         code=code,
@@ -109,7 +108,6 @@ def _definition(
         entity_type=entity_type.value,
         data_type=data_type.value,
         mandatory=mandatory,
-        applicable_business_profile_id=profile.id if profile else None,
     )
     session.add(row)
     session.commit()
@@ -175,8 +173,13 @@ def test_attribute_from_another_entity_type_is_rejected() -> None:
         )
 
 
-def test_definitions_are_scoped_by_business_profile() -> None:
-    """A pharmacy-only field is invisible to a food firm."""
+def test_the_business_profile_does_not_narrow_the_fields() -> None:
+    """Two firms on different profiles are offered the same shared fields.
+
+    Backlog 89: the profile used to hide a field from every firm on another
+    one, so a pharmacy-profile firm that also sold food could not be asked
+    for a food field. What a record carries follows its kind now.
+    """
     session = _session()
     pharmacy = _profile(session, "PHARMACY")
     food = _profile(session, "FOOD")
@@ -185,7 +188,7 @@ def test_definitions_are_scoped_by_business_profile() -> None:
     _assign(session, pharma_firm, pharmacy)
     _assign(session, food_firm, food)
 
-    _definition(session, "DRUG_LICENCE_NO", profile=pharmacy)
+    _definition(session, "DRUG_LICENCE_NO")
     _definition(session, "GST_NOTES")
     service = AttributeService(session)
 
@@ -202,7 +205,7 @@ def test_definitions_are_scoped_by_business_profile() -> None:
         )
     ]
     assert pharma_codes == ["DRUG_LICENCE_NO", "GST_NOTES"]
-    assert food_codes == ["GST_NOTES"]
+    assert food_codes == pharma_codes
 
 
 def test_values_are_stored_in_typed_columns() -> None:

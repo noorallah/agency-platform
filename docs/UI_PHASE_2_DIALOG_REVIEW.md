@@ -46,7 +46,7 @@ before save, D7 overflow risk, or an action unreachable. **Medium** = D3/D4/D6/D
 
 **152 `showDialog` call sites, 105 `AlertDialog`s, 59 `WorkspaceDialog`/`CrudWorkspaceDialog` uses across 69 files, plus the 22 `ResourceDefinition` create/edit forms and `askForReason`** were reviewed by code reading (this agent covered the shared framework + Accounts/Admin/Settings directly; two areas — Masters+Stock and Sell+Buy — were reviewed by delegated sub-passes over the same file list and merged in below).
 
-Of roughly 150 distinct dialogs, **about 69 have at least one finding**:
+Of roughly 150 distinct dialogs (the Default units dialog was removed on 2026-10-08), **about 69 have at least one finding**:
 
 | Severity | Count (approx.) | Dominant cause |
 | --- | --- | --- |
@@ -115,7 +115,6 @@ Of roughly 150 distinct dialogs, **about 69 have at least one finding**:
 
 ## Masters
 
-(Also see "Default units for a business profile", `ui/uom/profile_uom_defaults_dialog.dart`, reviewed under Shared framework above.)
 
 | Dialog (what opens it) | File:line | Checks failed | What is wrong (one line) |
 | --- | --- | --- | --- |
@@ -173,7 +172,6 @@ Covered above in the Accounts table (audit log, financial years, numbering serie
 | Command box (Ctrl+K / Alt+G, phase 2) | `phase2/command_box.dart:117`, `_CommandBox` | none | Exemplary: `ConstrainedBox(maxWidth:640,maxHeight:520)`, own controllers disposed, autofocus, Enter opens the selection (`onSubmitted`), Up/Down navigate. Passes. |
 | "Close without saving?" (any phase-2 document tab closed with unsaved typing) | `phase2/document_tabs.dart:114` (`_UnsavedWorkGuard._ask`) | D9 (partial) | Good pattern overall — this is the **one, shared** unsaved-work guard for every document opened via `showDocument`/`DocumentTabsController` in phase 2, and it is what makes D1/D9 largely solved for document editors in phase 2. Gap: `_typed` is only set by a **printable keystroke** reaching the tab's `Focus.onKeyEvent` (`_watch`, line 100-110) — picking a customer from a dropdown, toggling a switch, or choosing a date from a date-picker does not fire a character key event, so a document edited **only** through non-keyboard controls can still be closed via the tab's × with no warning. Buttons are well named ("Keep editing" / "Discard and close"). |
 | Customise Home (phase 2 home page) | `phase2/home_page.dart:365` | D7 (very minor) | No explicit width on the `AlertDialog`; content is a short checkbox list (<=4 items today) so low overflow risk. Buttons "Cancel"/"Save" are fine. |
-| Default units for a business profile ("Default units" action on Business Profiles list) | `ui/uom/profile_uom_defaults_dialog.dart` (shown from `ui/desktop_shell.dart:4929`) | none | Solid: width 520, server error shown inline (`_error`, red text) with the dialog staying open, Save/Close disabled while `_saving`, dialog does not pop until the save actually succeeds. No autofocus (first control is a dropdown, acceptable). Passes. |
 | **CrudWorkspaceDialog** — the body every `ResourceDefinition` create/edit form uses (~20 screens via `ResourceManagementPage`, e.g. roles, permissions, branches, geo levels, chart of accounts, numbering series, etc.) | `ui/resource_management_page.dart:1267-2050` | none, by construction | Reference implementation, reviewed directly: controllers are `State`-owned and disposed (`dispose()` at :1398); `_dirty` is tracked per keystroke/selection and Escape/Cancel routes through `_confirmAndClose` (:2018) which shows "Discard unsaved changes?" (`EnterpriseConfirmationDialog.confirmDiscard`) before closing — this is the **one correct D9 implementation** in the codebase, everything else should copy it; Cancel/Save disabled while `_saving`; server field errors (`_fieldErrors`/`_submitError`) render inline via `EnterpriseValidationSummary` and the view auto-scrolls to them (`_scroll`), and a corrected field's own error clears on edit (`_fieldEdited`, :1374); Escape bound via `CallbackShortcuts` (not blocked); Ctrl+S saves (not plain Enter — see Shared fixes). Individual `ResourceDefinition`s were **not** re-reviewed field-by-field here; area agents flagged any per-definition custom-field deviations they found. |
 | `WorkspaceDialog` (the shared shell most bespoke document/task dialogs build on) | `ui/workspace/workspace_dialog.dart` | — | Not a dialog itself — a shell. Facts used throughout this report: sized to `window.width/height * dialogScale` (bounded — D7 is solved for any caller that just fills `body`, so D7 findings below are only for AlertDialogs that don't use this shell); Escape and the header × both call `onClose ?? Navigator.maybePop` (a caller passing a no-op `onClose` silently breaks Escape — flag those individually); `Ctrl+S` triggers `onSave` via `WorkspaceShortcuts`, **plain Enter does not submit** unless the caller's own body wires a field's `onSubmitted`; `WorkspaceDialog` itself has **no built-in dirty-check** — every caller must implement its own D9 guard (phase 2 gets one for free via `showDocument`/`_UnsavedWorkGuard` above; phase-1-only callers and non-document `WorkspaceDialog` task dialogs do not). |
 | `askForReason` (Cancel/Reject/Hold-with-reason across Sell/Buy) | `ui/workspace/reason_prompt.dart:24` | — | Well built: owns and disposes its own `TextEditingController` (the file's own doc-comment records this was fixed after two earlier bugs), sized width 420, autofocus, Enter submits via `onSubmitted`. Default `confirmLabel` is the generic word "Confirm" — callers that don't override it for a specific destructive action get a D3 finding (see area tables for which call sites do this). |
@@ -195,7 +193,6 @@ Problems that one change to a shared widget would fix across many call sites:
 
 - Global search — `ui/workspace/global_search.dart`
 - Command box — `phase2/command_box.dart`
-- Default units for a business profile — `ui/uom/profile_uom_defaults_dialog.dart`
 - CrudWorkspaceDialog (the ~20 `ResourceDefinition` create/edit forms as a class) — `ui/resource_management_page.dart`
 - Columns picker, Customise Home, Switch firm — `ui/workspace/grid_column_chooser.dart`, `phase2/home_page.dart`, `ui/desktop_shell.dart` (minor D7/D4 notes only, no real risk)
 - **Accounts**: view journal entry (structure only), view settlement, whose-credit/which-return pickers, map/change control account, diagnostics report detail — `ui/finance/journal_entry_view_dialog.dart`, `ui/finance/settlements_page.dart:511-574,735-746,775-789`, `ui/finance/control_accounts_page.dart:304-353`, `ui/settings/diagnostics_page.dart:340-362`

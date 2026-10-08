@@ -95,9 +95,15 @@ Settings > Platform > Agency > Branding; the product's own name stays beside
 them, quietly (2, 11.3).
 
 **It adapts to the trade.** Each firm is given a *business profile*
-(pharmacy, electronics, wholesale, general ...) that decides which features it
-uses (expiry dates, serial numbers, drug licence ...), which menus it sees,
-and which extra fields its products and customers carry.
+(pharmacy, electronics, wholesale, general ...) that decides which menus and
+modules it sees, which goods types it starts with, and a handful of features
+about the firm itself (drug licence, vehicle details, attachments, commission,
+batch PTR and PTS). It does not decide how a product is tracked: batch, expiry,
+serial number and warranty are each product's own switches, filled from its
+goods type, so one firm can sell medicines, paint and food. Which extra fields
+its products, customers and suppliers carry is set separately, per goods type,
+customer group and supplier type, and the firm switches the platform's shared
+fields off or on for itself (changed 2026-10-08, not yet tested by hand).
 
 **How it is installed.** One PC is the *server*: it holds the database and
 runs the server program. Every other PC runs only the app and connects to the
@@ -283,7 +289,7 @@ several of them with one click.
 | --- | --- | --- | --- |
 | 1 | Create the firm: name, code, GST, PAN, address, financial-year start, and where its data is kept | Settings → Platform → Firms → Firms → + New | Where the data is kept cannot be changed later |
 | 2 | Prepare its storage (only if it has a section or database of its own) | Set up panel → Provision storage | Nothing can be recorded for the firm until this is done |
-| 3 | Give it a business profile | Set up panel → Business profile → Assign | Decides its features, menus and extra fields |
+| 3 | Give it a business profile | Set up panel → Business profile → Assign | Decides its features and menus. It no longer decides extra fields (those follow the firm's own Custom Fields and Custom Field Rules) |
 | 4 | **Open the books** | Set up panel → Open the books | Creates the chart of accounts, the current financial year with twelve monthly periods, and the accounts each document posts to. **Without it, no invoice, delivery or receipt can be approved** |
 | 5 | Apply the GST template | Set up panel → Apply GST template | The tax rates and rules for Indian GST |
 | 6 | Create a head office and a main warehouse | Set up panel → Create head office and main warehouse | Every document names a branch; all stock sits in a warehouse |
@@ -1297,7 +1303,15 @@ And two documents:
 *Batches* and *Expiry Monitor* are in the Stock drop-down; *Lots* and *Serial
 Numbers* are under *Stock → All Stock screens → Tracking*.
 
-Used when the firm's business profile switches them on:
+These tabs are shown only when the firm's goods need them (added on 2026-10-08,
+not yet tested by hand): *Batches* and *Lots* when any goods type the firm uses,
+or any live product, is tracked by batch; *Serial Numbers* when one
+is tracked by serial number; *Expiry Monitor* when one is tracked by expiry. A
+firm that trades only in goods tracked by none of these sees none of the four.
+The menu is read at sign-in and when the firm is switched, so after a firm takes
+its first tracked goods type into use the tabs appear at the next sign-in or
+firm switch. A user without the permission to view them does not see them
+whatever the goods.
 
 - **Batches** and **Lots**: stock held by batch, with manufacturing and
   expiry dates; deliveries pick the batch earliest expiry first, or the
@@ -1640,10 +1654,12 @@ restore actions.
 
 **Products.** Code, name, category, HSN code and tax group, units (buying,
 stock and selling), prices, preferred supplier, reorder level, barcode, and,
-where the profile
-switches them on, batch, expiry, serial number and warranty tracking, plus
-any extra fields the profile adds. Products can be imported from a file
-(checked before anything is saved) and exported. A product also carries its
+where the product switches them on, batch, expiry, serial number and warranty
+tracking, plus any extra fields that apply to it: those tied to its goods type,
+and those the firm has not switched off. Products can be imported from a file
+(checked before anything is saved; the check lists warnings that do not stop the
+import, and the tracking columns and the UnitSet column are optional, a blank
+tracking cell taking the category's goods type) and exported. A product also carries its
 **brand** (and through it the **principal**), its **price levels**, a **price
 history** (a new price with an effective date, also loadable from a file), the
 expiry, shelf-life and issue rules (7.3), *Inspect on receipt* and *Not for
@@ -1651,13 +1667,33 @@ sale*.
 
 **Configuration** (*Settings → Set up → Item lists*):
 
-- *Product Categories*: a tree of categories.
+- *Product Categories*: a tree of categories. Each can carry a **goods
+  type** -- Medicine, Food, Paint and the like, kept under
+  *Settings → Firm → Goods Types* -- which a new product filed there
+  takes; *General (no tracking)* is the choice for goods that need none.
+  *Added on 2026-10-08, not yet tested by hand.*
+- On the **product form**, picking the category shows *Goods type:
+  Medicine* (read-only: it changes only by moving the product to another
+  category), switches that type's tracking on -- batch, expiry and
+  manufacturing date for a medicine, with *Require batch on receipt* and
+  *on issue* -- and fills the HSN code and tax group from the type's
+  defaults, all of which can be changed before saving. Only the type's
+  tracking switches are shown; **Show all tracking options** reveals the
+  others for the odd product. Shelf life and the expiry rules appear while
+  *Track expiry* is on, the batch issue rule while *Track batch* is on.
+  Barcode and QR code can be typed by every firm. *Added on 2026-10-08, not
+  yet tested by hand.*
 - *Principals* and *Brands*: the brand owners the firm
   distributes for and their brands; brand and principal are also ways to slice
   Sales Analysis.
 - *Units of Measure*, *UOM Groups*, *Conversion Rules*: a product can be
   bought by the carton, held in boxes and sold in pieces; the conversion is
   applied on every document line.
+- *Unit Sets*: a named bundle of units, such as "Strip, box of 10", chosen on a
+  new product to fill its units and its conversion factor in one step. The set is
+  copied, so editing or deleting it later changes no existing product, and "Show
+  all unit sets" offers sets of other goods types. Added on 2026-10-08, not yet
+  tested by hand.
 - *Packaging Types* and *Packaging Levels*: the packing hierarchy (piece,
   box, carton) with a barcode at each level.
 
@@ -1751,7 +1787,8 @@ time is required, and a person whose access is removed is signed out at once.
 ## 11.2 Firms (*Settings → Platform → Firms*)
 
 - **Firms**: create a firm, edit its details, and **Set up** (section 3).
-- **Business Profiles**: the industries on offer and what each switches on.
+- **Business Profiles**: the industries on offer and what each switches on
+  (modules, the firm features, the goods types a new firm starts with).
   Which profile a firm has is set under *Settings → Business profile →
   Profile Assignment* or on the firm's Set up panel.
 
@@ -1865,12 +1902,12 @@ Opening a card that is a screen opens it as a tab.
 | Group | Screens | What they set |
 | --- | --- | --- |
 | This PC and me | My Preferences | Start in firm, first screen, theme, text size, date format (2) |
-| Firm | Firm Settings, Financial Years, Numbering Series, Custom Fields, Custom Field Rules, My Branch and Warehouse, Messaging, Approval Levels | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; the firm's own **custom fields**, and **extra fields on documents** (quotation, order, delivery note, invoice, purchase order, goods receipt) carried from one document to the next and printed when marked *Show on print*; **approval levels** (5.2); **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts; overdue reminders stop 90 days past due unless the firm sets another window) |
+| Firm | Firm Settings, Financial Years, Numbering Series, Custom Fields (a firm's own, and switching a shared field off or on for the firm), Custom Field Rules (a field shown only on one goods type, customer group or supplier type, and whether it is compulsory there; added on 2026-10-08, not yet tested by hand), My Branch and Warehouse, Messaging, Approval Levels | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with; the firm's own **custom fields**, and **extra fields on documents** (quotation, order, delivery note, invoice, purchase order, goods receipt) carried from one document to the next and printed when marked *Show on print*; **approval levels** (5.2); **Messaging** (email, WhatsApp, SMS: off until the firm switches it on with its own accounts; overdue reminders stop 90 days past due unless the firm sets another window) |
 | Selling | Sales Stages, Credit Control, Price Floor, Discount Limits, Loyalty Scheme, TCS Settings | Which stages of a sale the firm's people type, and whether *Rate includes GST* starts on; the credit warning and whether it blocks; the lowest price and each role's discount limit; points; tax collected at source |
 | Buying | Purchase Settings, Approval Limits, Purchase Budgets | Purchasing defaults and approval, the **reorder planning** choice (typed levels or from sales), the order-multiple, bill-matching and budget policies, and the budgets |
 | Stock | Inventory Settings, Adjustment Reasons, Adjustment Limits, Batch Rules | The firm's stock defaults; **Batch Rules**: the near-expiry window (30 days), whether a near-expiry batch or one passing over an earlier batch needs a reason, the minimum-shelf-life policy (block or warn), near-expiry stock below the price floor, and *Price from batch*; the firm's adjustment reasons; each role's adjustment limit; whether returns are held for checking |
 | Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings, GST Documents, TDS on Purchases (194Q) | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided; **GST Documents**: the dispatch-before-invoice policy, whether route sales need the invoice first, the dates e-invoicing and the 30-day limit start, the e-invoice route (sandbox or offline) and the e-way bill limit, whether GSTR-3B claims every bill or only those matched to GSTR-2B, the 2B tolerance, the rule 37 mode, whether a bill from an e-invoicing supplier with no IRN is warned about, the Rule 42 mode, and monthly or quarterly return filing (read with *Tax view*, changed with the tax-settings permission) |
-| Business profile | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates | What each industry switches on, which extra fields exist and which are mandatory for which product category, and which profile each firm has |
+| Business profile | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Unit Sets | What each industry switches on, which shared extra fields exist and which are compulsory for or shown only on which product category or goods type, and which profile each firm has. A profile no longer scopes the extra fields |
 
 **How tax is chosen.** Tax is not a rate stored on a product. The product
 brings its tax group, category and type; the document brings the branch, the

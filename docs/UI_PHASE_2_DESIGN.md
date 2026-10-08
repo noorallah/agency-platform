@@ -577,7 +577,7 @@ visits to look through, not a place they work:
 | **Buying** | Purchase Settings (Purchases), which also holds **Reorder planning** (typed levels or from sales, 2026-10-02); added later: Approval Limits |
 | **Stock** | Inventory Settings (Inventory), Branch & Warehouse Settings (Masters) |
 | **Tax** | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings (all Administration); added 2026-10-02: **GST Documents** (dispatch before invoice, route sales, e-invoicing dates, how input credit is claimed against GSTR-2B) |
-| **Business profile** | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates (Administration) |
+| **Business profile** | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Unit Sets (Administration) |
 | **Printing** | print settings for invoices, delivery notes and purchase orders (dialogs on three lists) |
 | **This PC and me** | server address (Application Settings), theme, density, landing page, export format, printer -- per user and per PC |
 
@@ -891,7 +891,7 @@ phase 2 will read the catalogue and fail if any phase 1 screen has no place.
 | Administration > Attribute Definitions | Settings > Business profile |
 | Administration > Mandatory Attributes | Settings > Business profile |
 | Administration > Profile Assignment | Settings > Business profile |
-| Administration > Industry Templates | Settings > Business profile |
+| Administration > Unit Sets | Settings > Business profile |
 | Print settings dialogs (invoices, delivery notes, purchase orders) | Settings > Printing |
 | Sign-in screen: Application Settings | Settings > This PC and me (and still on the sign-in screen) |
 

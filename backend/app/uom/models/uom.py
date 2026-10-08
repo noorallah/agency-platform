@@ -6,7 +6,6 @@ from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import (
-    JSON,
     Boolean,
     Date,
     ForeignKey,
@@ -203,91 +202,6 @@ class ConversionRule(BaseEntity):
         String(20), nullable=False, default="ACTIVE", server_default="ACTIVE"
     )
     reason: Mapped[str | None] = mapped_column(Text)
-
-
-class BusinessProfileUomDefault(BaseEntity):
-    """Default UOM behavior by business profile (and optional firm override)."""
-
-    __tablename__ = "business_profile_uom_defaults"
-    __table_args__ = (
-        UniqueConstraint(
-            "firm_id",
-            "business_profile_id",
-            name="UQ_business_profile_uom_defaults_firm_profile",
-        ),
-        Index("IX_business_profile_uom_defaults_profile", "business_profile_id"),
-    )
-
-    firm_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(), ForeignKey("firms.id"), index=True
-    )
-    business_profile_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("business_profiles.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    base_uom_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(),
-        ForeignKey(
-            "uoms.id",
-            name="FK_business_profile_uom_defaults_base_uoms",
-            ondelete="RESTRICT",
-        ),
-    )
-    inventory_uom_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(),
-        ForeignKey(
-            "uoms.id",
-            name="FK_business_profile_uom_defaults_inventory_uoms",
-            ondelete="RESTRICT",
-        ),
-    )
-    purchase_uom_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(),
-        ForeignKey(
-            "uoms.id",
-            name="FK_business_profile_uom_defaults_purchase_uoms",
-            ondelete="RESTRICT",
-        ),
-    )
-    sales_uom_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(),
-        ForeignKey(
-            "uoms.id",
-            name="FK_business_profile_uom_defaults_sales_uoms",
-            ondelete="RESTRICT",
-        ),
-    )
-    allow_fraction: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
-    )
-    allow_decimal: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="true"
-    )
-
-
-class IndustryTemplate(BaseEntity):
-    """Store reusable industry UOM/packaging templates."""
-
-    __tablename__ = "uom_industry_templates"
-    __table_args__ = (
-        UniqueConstraint("code", name="UQ_uom_industry_templates_code"),
-        Index("IX_uom_industry_templates_industry", "industry_type"),
-        Index("IX_uom_industry_templates_status", "status"),
-    )
-
-    code: Mapped[str] = mapped_column(String(60), nullable=False)
-    name: Mapped[str] = mapped_column(String(140), nullable=False)
-    industry_type: Mapped[str] = mapped_column(String(60), nullable=False)
-    template_payload: Mapped[dict[str, object]] = mapped_column(
-        JSON, nullable=False, default=dict
-    )
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="ACTIVE", server_default="ACTIVE"
-    )
-    is_system: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
-    )
 
 
 class ProductPackagingLevel(BaseEntity):

@@ -41,6 +41,7 @@ class FileImportReport {
     required this.columnsIgnored,
     required this.issues,
     required this.imported,
+    this.warnings = const [],
   });
 
   factory FileImportReport.fromJson(Json json) => FileImportReport(
@@ -57,6 +58,13 @@ class FileImportReport {
                     FileImportIssue.fromJson(Map<String, dynamic>.from(item)))
                 .toList()
             : const [],
+        warnings: json['warnings'] is List
+            ? (json['warnings'] as List)
+                .whereType<Map>()
+                .map((item) =>
+                    FileImportIssue.fromJson(Map<String, dynamic>.from(item)))
+                .toList()
+            : const [],
         imported: json['imported'] == true,
       );
 
@@ -67,6 +75,10 @@ class FileImportReport {
   final List<String> columnsUsed;
   final List<String> columnsIgnored;
   final List<FileImportIssue> issues;
+
+  /// What the server says but does not refuse: a file with warnings alone
+  /// is clean and is imported as written.
+  final List<FileImportIssue> warnings;
 
   /// True only when the whole file was written.
   final bool imported;

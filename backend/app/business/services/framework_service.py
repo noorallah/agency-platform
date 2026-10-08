@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.business.gating import resolve_profile_id
 from app.business.models import (
+    RULE_KIND_COLUMNS,
     AttributeDefinition,
     AttributeValueBase,
     BusinessFeature,
@@ -34,6 +35,11 @@ from app.business.schemas import (
     CategoryAttributeRuleCreate,
     CategoryAttributeRuleUpdate,
     FirmBusinessProfileAssign,
+)
+from app.business.services.field_rules import (
+    assert_rule_new,
+    assert_rule_target,
+    describe_rules,
 )
 from app.common.audit.services import record_audit, record_change, row_state
 from app.common.firm_metadata import FirmMetadataReader
@@ -621,8 +627,6 @@ class BusinessProfileFrameworkService:
         self, data: AttributeDefinitionCreate, actor_id: UUID
     ) -> AttributeDefinition:
         self._assert_unique(AttributeDefinition, data.code)
-        if data.applicable_business_profile_id is not None:
-            self.get_profile(data.applicable_business_profile_id)
         row = AttributeDefinition(
             **data.model_dump(), created_by=actor_id, updated_by=actor_id
         )
@@ -659,8 +663,6 @@ class BusinessProfileFrameworkService:
         row = self.get_attribute(attribute_id)
         assert_version(row.version, expected_version)
         self._assert_unique(AttributeDefinition, data.code, current_id=row.id)
-        if data.applicable_business_profile_id is not None:
-            self.get_profile(data.applicable_business_profile_id)
         values = data.model_dump(exclude_unset=True)
         # Backlog 16: once a value is stored, the type is part of what it
         # means. A NUMBER field turned TEXT leaves every value in
@@ -725,24 +727,22 @@ class BusinessProfileFrameworkService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[CategoryAttributeRule], int]:
-        """Return one page of category attribute rules.
+        """Return one page of the shared field rules.
 
-        Unpaginated until 2026-08-22, which nothing noticed because nothing
-        called it: the table has no screen. `search` matches the category code,
-        the only text a rule carries -- the attribute and the profile are ids.
+        The platform's rules are the shared ones; a firm's own are its
+        business, as its own fields are (MST-8). `search` matches the category
+        code, the only text a rule carries -- the rest are ids.
         """
         columns = {
             "category_code": CategoryAttributeRule.category_code,
             "created_at": CategoryAttributeRule.created_at,
         }
-        statement = select(CategoryAttributeRule).where(
-            CategoryAttributeRule.is_deleted.is_(False)
+        shared = (
+            CategoryAttributeRule.is_deleted.is_(False),
+            CategoryAttributeRule.firm_id.is_(None),
         )
-        count = (
-            select(func.count())
-            .select_from(CategoryAttributeRule)
-            .where(CategoryAttributeRule.is_deleted.is_(False))
-        )
+        statement = select(CategoryAttributeRule).where(*shared)
+        count = select(func.count()).select_from(CategoryAttributeRule).where(*shared)
         if search:
             condition = CategoryAttributeRule.category_code.ilike(f"%{search.strip()}%")
             statement = statement.where(condition)
@@ -756,58 +756,17 @@ class BusinessProfileFrameworkService:
     def describe_category_rules(
         self, rows: list[CategoryAttributeRule]
     ) -> dict[UUID, tuple[str | None, str | None, str | None]]:
-        """Return the attribute code, attribute name and profile code per rule.
-
-        Read in two queries for the whole page rather than one per row, the
-        way `values_for_many` reads attribute values: a rules grid is the
-        shape that turns into a query per line without anybody noticing.
-        """
-        attribute_ids = {row.attribute_definition_id for row in rows}
-        profile_ids = {
-            row.business_profile_id for row in rows if row.business_profile_id
-        }
-        attributes = (
-            {
-                row.id: (row.code, row.name)
-                for row in self._session.scalars(
-                    select(AttributeDefinition).where(
-                        AttributeDefinition.id.in_(attribute_ids)
-                    )
-                )
-            }
-            if attribute_ids
-            else {}
-        )
-        profiles = (
-            {
-                row.id: row.code
-                for row in self._session.scalars(
-                    select(BusinessProfile).where(BusinessProfile.id.in_(profile_ids))
-                )
-            }
-            if profile_ids
-            else {}
-        )
-        described: dict[UUID, tuple[str | None, str | None, str | None]] = {}
-        for row in rows:
-            code, name = attributes.get(row.attribute_definition_id, (None, None))
-            described[row.id] = (
-                code,
-                name,
-                (
-                    profiles.get(row.business_profile_id)
-                    if row.business_profile_id
-                    else None
-                ),
-            )
-        return described
+        """Return the field code, field name and what it applies to, per rule."""
+        return describe_rules(self._session, rows)
 
     def create_category_rule(
         self, data: CategoryAttributeRuleCreate, actor_id: UUID
     ) -> CategoryAttributeRule:
-        if data.business_profile_id is not None:
-            self.get_profile(data.business_profile_id)
-        self.get_attribute(data.attribute_definition_id)
+        field = self.get_attribute(data.attribute_definition_id)
+        if field.firm_id is not None:
+            raise ValidationError("A shared rule names a field of the shared list.")
+        assert_rule_target(self._session, data, field, firm_id=None)
+        assert_rule_new(self._session, data, firm_id=None)
         row = CategoryAttributeRule(
             **data.model_dump(), created_by=actor_id, updated_by=actor_id
         )
@@ -832,11 +791,18 @@ class BusinessProfileFrameworkService:
     ) -> CategoryAttributeRule:
         row = self.get_category_rule(rule_id)
         assert_version(row.version, expected_version)
-        if data.business_profile_id is not None:
-            self.get_profile(data.business_profile_id)
-        self.get_attribute(data.attribute_definition_id)
+        named = self.get_attribute(data.attribute_definition_id)
+        if named.firm_id is not None:
+            raise ValidationError("A shared rule names a field of the shared list.")
+        assert_rule_target(self._session, data, named, firm_id=None)
+        assert_rule_new(self._session, data, firm_id=None, current=row.id)
         before = row_state(row)
-        for field, value in data.model_dump(exclude_unset=True).items():
+        # The four things a rule can name are one choice, so all four are
+        # written: the one named and the three it is not.
+        values = data.model_dump(exclude_unset=True)
+        for column in ("category_code", *RULE_KIND_COLUMNS):
+            values[column] = getattr(data, column)
+        for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_change(
@@ -872,6 +838,8 @@ class BusinessProfileFrameworkService:
             select(CategoryAttributeRule).where(
                 CategoryAttributeRule.id == rule_id,
                 CategoryAttributeRule.is_deleted.is_(False),
+                # A firm's own rule is kept on the firm's screen (MST-8).
+                CategoryAttributeRule.firm_id.is_(None),
             )
         )
         if row is None:
@@ -907,6 +875,17 @@ class BusinessProfileFrameworkService:
             self._session.add(row)
             action = "firm_business_profile.created"
             before: dict[str, object] | None = None
+            # A firm's first profile hands it that profile's goods types, once
+            # (backlog 89). A later change of profile hands it nothing: the
+            # firm's administrator adds and drops types from then on.
+            from app.products.goods_type_seed import start_firm_goods_types
+
+            start_firm_goods_types(
+                self._session,
+                firm_id=firm_id,
+                profile_code=self.get_profile(data.business_profile_id).code,
+                actor_id=actor_id,
+            )
         else:
             before = row_state(row)
             # The row is updated in place, so `effective_from` is the only
@@ -1182,6 +1161,20 @@ class BusinessProfileFrameworkService:
             if enabled and visible:
                 result.append((module, assignment.display_order if assignment else 0))
         return sorted(result, key=lambda item: (item[1], item[0].name))
+
+    def goods_tracking(self, firm_id: UUID | None) -> list[str] | None:
+        """Return which of BATCH, EXPIRY and SERIAL the firm's goods need.
+
+        The Batches, Serial Numbers and Expiry Monitor menus follow the goods
+        a firm trades in, never its profile (backlog 89). It rides on the
+        active-modules answer the shell already reads, so the menu costs no
+        call of its own. No firm means no answer, and no answer hides nothing.
+        """
+        if firm_id is None:
+            return None
+        from app.products.services.goods_types import GoodsTypeService
+
+        return GoodsTypeService(self._session).tracking_in_use(firm_id)
 
     def _require_firm(self, firm_id: UUID) -> None:
         """Confirm the firm exists, via the platform store.

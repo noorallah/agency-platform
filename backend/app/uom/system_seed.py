@@ -1,4 +1,4 @@
-"""Baseline UOM, packaging, and profile default seed data."""
+"""Baseline UOM and packaging seed data."""
 
 from typing import TypedDict
 from uuid import UUID
@@ -6,10 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.business.models import BusinessProfile
 from app.uom.models import (
-    BusinessProfileUomDefault,
-    IndustryTemplate,
     PackagingType,
     Uom,
     UomGroup,
@@ -39,29 +36,6 @@ class UomGroupSeed(TypedDict):
     name: str
     description: str
     units: tuple[tuple[str, bool, int], ...]
-
-
-class IndustryTemplateSeed(TypedDict):
-    """One industry template to seed."""
-
-    id: UUID
-    code: str
-    name: str
-    industry_type: str
-    template_payload: dict[str, object]
-
-
-class ProfileDefaultSeed(TypedDict):
-    """One business profile's default unit behaviour to seed."""
-
-    id: UUID
-    profile_code: str
-    base_uom_code: str
-    inventory_uom_code: str
-    purchase_uom_code: str
-    sales_uom_code: str
-    allow_fraction: bool
-    allow_decimal: bool
 
 
 SEED_UOMS: tuple[UomSeed, ...] = (
@@ -346,118 +320,6 @@ SEED_PACKAGING_TYPES: tuple[tuple[UUID, str, str, str], ...] = (
     ),
 )
 
-SEED_INDUSTRY_TEMPLATES: tuple[IndustryTemplateSeed, ...] = (
-    {
-        "id": UUID("84000000-0000-0000-0000-000000000001"),
-        "code": "AGENCY_DISTRIBUTION",
-        "name": "Agency Distribution Template",
-        "industry_type": "AGENCY",
-        "template_payload": {
-            "recommended_uoms": ["UNIT", "BOX", "CARTON", "CASE"],
-            "packaging_types": ["UNIT", "BOX", "CARTON", "CASE"],
-            "default_uom_group": "DIST_COUNT",
-            "preferred_base_uom": "UNIT",
-            "preferred_purchase_uom": "BOX",
-            "preferred_sales_uom": "UNIT",
-        },
-    },
-    {
-        "id": UUID("84000000-0000-0000-0000-000000000002"),
-        "code": "PHARMA_DISTRIBUTION",
-        "name": "Pharma Distribution Template",
-        "industry_type": "PHARMACY",
-        "template_payload": {
-            "recommended_uoms": ["STRIP", "BOX", "CARTON"],
-            "packaging_types": ["STRIP", "BOX", "CARTON"],
-            "default_uom_group": "PHARMA_PACK",
-            "preferred_base_uom": "STRIP",
-            "preferred_purchase_uom": "BOX",
-            "preferred_sales_uom": "STRIP",
-        },
-    },
-    {
-        "id": UUID("84000000-0000-0000-0000-000000000003"),
-        "code": "FOOD_DISTRIBUTION",
-        "name": "Food Distribution Template",
-        "industry_type": "FOOD",
-        "template_payload": {
-            "recommended_uoms": ["PACK", "BOX", "CARTON", "BAG", "BOTTLE", "SACHET"],
-            "packaging_types": ["PACK", "BOX", "CARTON", "BAG", "BOTTLE", "SACHET"],
-            "default_uom_group": "FOOD_PACK",
-            "preferred_base_uom": "PACK",
-            "preferred_purchase_uom": "CARTON",
-            "preferred_sales_uom": "PACK",
-        },
-    },
-    {
-        "id": UUID("84000000-0000-0000-0000-000000000004"),
-        "code": "WHOLESALE_DISTRIBUTION",
-        "name": "Wholesale Distribution Template",
-        "industry_type": "WHOLESALE",
-        "template_payload": {
-            "recommended_uoms": ["UNIT", "CARTON", "CASE", "PALLET"],
-            "packaging_types": ["CARTON", "CASE", "PALLET"],
-            "default_uom_group": "DIST_COUNT",
-            "preferred_base_uom": "UNIT",
-            "preferred_purchase_uom": "CASE",
-            "preferred_sales_uom": "UNIT",
-        },
-    },
-)
-
-SEED_PROFILE_DEFAULTS: tuple[ProfileDefaultSeed, ...] = (
-    {
-        "id": UUID("85000000-0000-0000-0000-000000000001"),
-        "profile_code": "GENERIC",
-        "base_uom_code": "UNIT",
-        "inventory_uom_code": "UNIT",
-        "purchase_uom_code": "BOX",
-        "sales_uom_code": "UNIT",
-        "allow_fraction": False,
-        "allow_decimal": True,
-    },
-    {
-        "id": UUID("85000000-0000-0000-0000-000000000002"),
-        "profile_code": "AGENCY",
-        "base_uom_code": "UNIT",
-        "inventory_uom_code": "UNIT",
-        "purchase_uom_code": "BOX",
-        "sales_uom_code": "UNIT",
-        "allow_fraction": False,
-        "allow_decimal": True,
-    },
-    {
-        "id": UUID("85000000-0000-0000-0000-000000000003"),
-        "profile_code": "PHARMACY",
-        "base_uom_code": "STRIP",
-        "inventory_uom_code": "STRIP",
-        "purchase_uom_code": "BOX",
-        "sales_uom_code": "STRIP",
-        "allow_fraction": False,
-        "allow_decimal": False,
-    },
-    {
-        "id": UUID("85000000-0000-0000-0000-000000000004"),
-        "profile_code": "FOOD",
-        "base_uom_code": "PACK",
-        "inventory_uom_code": "PACK",
-        "purchase_uom_code": "CARTON",
-        "sales_uom_code": "PACK",
-        "allow_fraction": False,
-        "allow_decimal": False,
-    },
-    {
-        "id": UUID("85000000-0000-0000-0000-000000000005"),
-        "profile_code": "WHOLESALE",
-        "base_uom_code": "UNIT",
-        "inventory_uom_code": "UNIT",
-        "purchase_uom_code": "CASE",
-        "sales_uom_code": "UNIT",
-        "allow_fraction": False,
-        "allow_decimal": True,
-    },
-)
-
 
 def seed_uom_reference_data(session: Session) -> None:
     """Create or restore baseline UOM catalog data without touching custom rows."""
@@ -466,8 +328,6 @@ def seed_uom_reference_data(session: Session) -> None:
     session.flush()
     _seed_group_units(session, groups, uoms)
     _seed_packaging_types(session)
-    _seed_industry_templates(session)
-    _seed_profile_defaults(session, uoms)
 
 
 def _seed_uoms(session: Session) -> dict[str, Uom]:
@@ -570,72 +430,6 @@ def _seed_packaging_types(session: Session) -> None:
         row.name = name
         row.description = description
         row.status = "ACTIVE"
-        row.is_deleted = False
-        row.deleted_at = None
-        row.deleted_by = None
-
-
-def _seed_industry_templates(session: Session) -> None:
-    existing = {row.code: row for row in session.scalars(select(IndustryTemplate))}
-    for seed in SEED_INDUSTRY_TEMPLATES:
-        row = existing.get(seed["code"])
-        if row is None:
-            session.add(
-                IndustryTemplate(
-                    id=seed["id"],
-                    code=seed["code"],
-                    name=seed["name"],
-                    industry_type=seed["industry_type"],
-                    template_payload=dict(seed["template_payload"]),
-                    status="ACTIVE",
-                    is_system=True,
-                )
-            )
-            continue
-        row.name = seed["name"]
-        row.industry_type = seed["industry_type"]
-        row.template_payload = dict(seed["template_payload"])
-        row.status = "ACTIVE"
-        row.is_system = True
-        row.is_deleted = False
-        row.deleted_at = None
-        row.deleted_by = None
-
-
-def _seed_profile_defaults(session: Session, uoms: dict[str, Uom]) -> None:
-    profiles = {
-        row.code: row
-        for row in session.scalars(
-            select(BusinessProfile).where(BusinessProfile.is_deleted.is_(False))
-        )
-    }
-    existing = {
-        row.business_profile_id: row
-        for row in session.scalars(
-            select(BusinessProfileUomDefault).where(
-                BusinessProfileUomDefault.firm_id.is_(None),
-                BusinessProfileUomDefault.is_deleted.is_(False),
-            )
-        )
-    }
-    for seed in SEED_PROFILE_DEFAULTS:
-        profile = profiles.get(seed["profile_code"])
-        if profile is None:
-            continue
-        row = existing.get(profile.id)
-        if row is None:
-            row = BusinessProfileUomDefault(
-                id=seed["id"],
-                firm_id=None,
-                business_profile_id=profile.id,
-            )
-            session.add(row)
-        row.base_uom_id = uoms[seed["base_uom_code"]].id
-        row.inventory_uom_id = uoms[seed["inventory_uom_code"]].id
-        row.purchase_uom_id = uoms[seed["purchase_uom_code"]].id
-        row.sales_uom_id = uoms[seed["sales_uom_code"]].id
-        row.allow_fraction = seed["allow_fraction"]
-        row.allow_decimal = seed["allow_decimal"]
         row.is_deleted = False
         row.deleted_at = None
         row.deleted_by = None

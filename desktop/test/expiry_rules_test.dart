@@ -114,6 +114,8 @@ Future<Json?> _saveProduct(
     'product_type': 'STOCK_ITEM',
     'status': 'ACTIVE',
     'unit': 'BOX',
+    // The expiry boxes follow the switch (backlog 89, step 2).
+    'track_expiry': true,
     ...json,
   });
   await tester.pumpWidget(MaterialApp(

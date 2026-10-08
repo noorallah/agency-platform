@@ -26,6 +26,7 @@ from app.business.schemas import (
     AttributeDefinitionCreate,
     AttributeDefinitionResponse,
     AttributeDefinitionUpdate,
+    AttributeKindRule,
     BusinessFeatureCreate,
     BusinessFeatureResponse,
     BusinessFeatureUpdate,
@@ -44,11 +45,13 @@ from app.business.schemas import (
     CategoryAttributeRuleUpdate,
     FirmBusinessProfileAssign,
     FirmBusinessProfileResponse,
+    FirmFieldUse,
     FirmProfileAssignmentRow,
     IdentifierList,
     ProfileStoreOutcome,
 )
 from app.business.services import AttributeService, BusinessProfileFrameworkService
+from app.business.services.attribute_service import names_a_kind
 from app.business.services.firm_custom_fields import FirmCustomFieldService
 from app.business.services.profile_replication import (
     other_profile_stores,
@@ -451,10 +454,14 @@ def list_firm_custom_fields(
     A row with ``firm_id`` is the firm's own and its to change; one without
     is the shared catalogue, read-only here.
     """
+    service = FirmCustomFieldService(db)
+    off = service.switched_off(scope.firm_id)
     return ApiResponse(
         data=[
-            AttributeDefinitionResponse.model_validate(row)
-            for row in FirmCustomFieldService(db).list_fields(scope.firm_id)
+            AttributeDefinitionResponse.model_validate(row).model_copy(
+                update={"enabled_for_firm": row.id not in off}
+            )
+            for row in service.list_fields(scope.firm_id)
         ]
     )
 
@@ -493,6 +500,30 @@ def update_firm_custom_field(
     return ApiResponse(data=AttributeDefinitionResponse.model_validate(row))
 
 
+@router.put(
+    "/firm-custom-fields/{field_id}/use",
+    response_model=ApiResponse[AttributeDefinitionResponse],
+)
+def set_firm_custom_field_use(
+    field_id: UUID,
+    data: FirmFieldUse,
+    scope: CustomFieldManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AttributeDefinitionResponse]:
+    """Switch a shared field on or off for this firm; its values are kept."""
+    row = FirmCustomFieldService(db).set_use(
+        field_id,
+        enabled=data.is_enabled,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=AttributeDefinitionResponse.model_validate(row).model_copy(
+            update={"enabled_for_firm": data.is_enabled}
+        )
+    )
+
+
 @router.delete("/firm-custom-fields/{field_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_firm_custom_field(
     field_id: UUID,
@@ -514,7 +545,7 @@ def list_firm_custom_field_rules(
     scope: CustomFieldViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[CategoryAttributeRuleResponse]]:
-    """Return the firm's own category rules (MST-8)."""
+    """Return the firm's own field rules (MST-8)."""
     service = _service(db)
     rows = FirmCustomFieldService(db).list_rules(scope.firm_id)
     described = service.describe_category_rules(rows)
@@ -531,7 +562,11 @@ def create_firm_custom_field_rule(
     scope: CustomFieldManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CategoryAttributeRuleResponse]:
-    """Require a field in one category, for this firm alone (MST-8)."""
+    """Tie a field to a kind of record, or require it in a category.
+
+    The rule names a product category, a goods type, a customer group or
+    a supplier type, and holds for this firm alone (MST-8, backlog 89).
+    """
     row = FirmCustomFieldService(db).create_rule(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
@@ -546,7 +581,7 @@ def delete_firm_custom_field_rule(
     scope: CustomFieldManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
-    """Remove one of the firm's own category rules (MST-8)."""
+    """Remove one of the firm's own field rules (MST-8)."""
     FirmCustomFieldService(db).delete_rule(
         rule_id, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
@@ -600,13 +635,33 @@ def applicable_attribute_definitions(
     if firm_id is None:
         raise AuthorizationError("Select a firm to read its custom fields.")
     attributes = AttributeService(db)
-    rows = attributes.definitions_for(entity_type.value, firm_id=firm_id)
-    mandatory = attributes.mandatory_ids(entity_type.value, firm_id=firm_id)
+    rows = attributes.offered(entity_type.value, firm_id=firm_id)
+    rules = [
+        rule
+        for rule in attributes.rules_for(firm_id, [row.id for row in rows])
+        if names_a_kind(rule)
+    ]
+    tied = {rule.attribute_definition_id for rule in rules}
+    by_id = {row.id: row for row in rows}
+    # Required whatever kind the record is; a tied field is required only
+    # where its rule says so, which `kind_rules` carries.
+    mandatory = {row.id for row in rows if row.mandatory and row.id not in tied}
     return ApiResponse(
         data=ApplicableAttributesResponse(
             entity_type=entity_type,
             definitions=[AttributeDefinitionResponse.model_validate(r) for r in rows],
             mandatory_ids=sorted(mandatory, key=str),
+            kind_rules=[
+                AttributeKindRule(
+                    attribute_definition_id=rule.attribute_definition_id,
+                    goods_type_id=rule.goods_type_id,
+                    customer_group_id=rule.customer_group_id,
+                    vendor_type_id=rule.vendor_type_id,
+                    is_mandatory=rule.is_mandatory
+                    or by_id[rule.attribute_definition_id].mandatory,
+                )
+                for rule in rules
+            ],
         )
     )
 
@@ -681,15 +736,13 @@ def _rule_response(
     lookup = (
         described if described is not None else service.describe_category_rules([row])
     )
-    attribute_code, attribute_name, profile_code = lookup.get(
-        row.id, (None, None, None)
-    )
+    attribute_code, attribute_name, applies_to = lookup.get(row.id, (None, None, None))
     response = CategoryAttributeRuleResponse.model_validate(row)
     return response.model_copy(
         update={
             "attribute_code": attribute_code,
             "attribute_name": attribute_name,
-            "business_profile_code": profile_code,
+            "applies_to": applies_to,
         }
     )
 
@@ -1014,12 +1067,15 @@ def get_active_modules(
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveModuleResponse]]:
     resolved_firm = _resolve_firm_scope(principal, platform_db, x_firm_id, firm_id)
-    rows = _read_in_firm_store(
+    rows, tracking = _read_in_firm_store(
         request,
         db,
         x_firm_id,
         resolved_firm,
-        lambda service: service.active_modules(resolved_firm),
+        lambda service: (
+            service.active_modules(resolved_firm),
+            service.goods_tracking(resolved_firm),
+        ),
     )
     return ApiResponse(
         data=[
@@ -1029,6 +1085,7 @@ def get_active_modules(
                 name=module.name,
                 ui_route=module.ui_route,
                 display_order=display_order,
+                goods_tracking=tracking if module.code == "INVENTORY" else None,
             )
             for module, display_order in rows
         ]
