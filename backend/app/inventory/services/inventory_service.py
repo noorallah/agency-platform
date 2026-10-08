@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -27,6 +28,7 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError, Validation
 from app.core.utils.chunks import chunks
 from app.core.utils.csv_text import csv_text, sheet_text
 from app.core.utils.money import quantize_money
+from app.core.validation.payloads import parse_payload
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import (
     DocumentPostingService,
@@ -1557,6 +1559,77 @@ class InventoryService:
         self._session.refresh(batch)
         return batch
 
+    #: The columns an opening-stock CSV or XLSX may carry, by the line's field.
+    _OPENING_FILE_COLUMNS = (
+        ("ProductId", "product_id"),
+        ("Quantity", "quantity"),
+        ("StorageNodeId", "storage_node_id"),
+        ("MinimumLevel", "minimum_level"),
+        ("MaximumLevel", "maximum_level"),
+        ("ReorderLevel", "reorder_level"),
+        ("SafetyStock", "safety_stock"),
+        ("Remarks", "remarks"),
+    )
+
+    def _import_opening_stock_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        reference_number: str,
+        posting_date: date,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        remarks: str | None,
+        auto_post: bool,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> OpeningStockBatch:
+        """Import a file's rows, refusing a cell that cannot be read by line.
+
+        The cells go through the request model as text, the way a JSON import
+        does, so "lots" for a quantity is a 422 naming ``lines[2].quantity``.
+        Building the line models by hand raised ``ValueError`` and pydantic's
+        own error past every handler, and the route answered 500 (D-STK-58).
+
+        Raises:
+            ValidationError: If no row names a product and a quantity, or a
+                cell cannot be read.
+
+        """
+        lines: list[dict[str, str]] = []
+        for row in rows:
+            cells = {
+                field: str(row.get(column) if row.get(column) is not None else "")
+                for column, field in self._OPENING_FILE_COLUMNS
+            }
+            cells = {field: text.strip() for field, text in cells.items()}
+            if not cells["product_id"] or not cells["quantity"]:
+                continue
+            lines.append({field: text for field, text in cells.items() if text})
+        if not lines:
+            raise ValidationError(
+                "The file has no row with a ProductId and a Quantity, so "
+                "nothing was imported."
+            )
+        return self.import_opening_stock_json(
+            parse_payload(
+                OpeningStockImportRequest,
+                json.dumps(
+                    {
+                        "reference_number": reference_number,
+                        "posting_date": posting_date.isoformat(),
+                        "branch_id": str(branch_id),
+                        "warehouse_id": str(warehouse_id),
+                        "remarks": remarks,
+                        "auto_post": auto_post,
+                        "lines": lines,
+                    }
+                ),
+            ),
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+        )
+
     def import_opening_stock_csv(
         self,
         csv_content: str,
@@ -1574,55 +1647,14 @@ class InventoryService:
         import csv
         import io
 
-        reader = csv.DictReader(io.StringIO(csv_content))
-        lines: list[OpeningStockLineCreate] = []
-        for row in reader:
-            product_id = str(row.get("ProductId") or "").strip()
-            quantity = str(row.get("Quantity") or "").strip()
-            if not product_id or not quantity:
-                continue
-            lines.append(
-                OpeningStockLineCreate(
-                    product_id=UUID(product_id),
-                    storage_node_id=(
-                        UUID(str(row.get("StorageNodeId")).strip())
-                        if row.get("StorageNodeId")
-                        else None
-                    ),
-                    quantity=Decimal(quantity),
-                    minimum_level=(
-                        Decimal(str(row["MinimumLevel"]))
-                        if row.get("MinimumLevel")
-                        else None
-                    ),
-                    maximum_level=(
-                        Decimal(str(row["MaximumLevel"]))
-                        if row.get("MaximumLevel")
-                        else None
-                    ),
-                    reorder_level=(
-                        Decimal(str(row["ReorderLevel"]))
-                        if row.get("ReorderLevel")
-                        else None
-                    ),
-                    safety_stock=(
-                        Decimal(str(row["SafetyStock"]))
-                        if row.get("SafetyStock")
-                        else None
-                    ),
-                    remarks=(row.get("Remarks") or "").strip() or None,
-                )
-            )
-        return self.import_opening_stock_json(
-            OpeningStockImportRequest(
-                reference_number=reference_number,
-                posting_date=posting_date,
-                branch_id=branch_id,
-                warehouse_id=warehouse_id,
-                remarks=remarks,
-                auto_post=auto_post,
-                lines=lines,
-            ),
+        return self._import_opening_stock_rows(
+            list(csv.DictReader(io.StringIO(csv_content))),
+            reference_number=reference_number,
+            posting_date=posting_date,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            remarks=remarks,
+            auto_post=auto_post,
             firm_scope=firm_scope,
             actor_id=actor_id,
         )
@@ -1647,74 +1679,57 @@ class InventoryService:
             raise ValidationError(
                 "XLSX import dependency is unavailable. Install openpyxl."
             ) from error
-        workbook = load_workbook(filename=BytesIO(workbook_bytes), read_only=True)
-        sheet = workbook.active
-        rows = list(sheet.iter_rows(values_only=True))
+        try:
+            workbook = load_workbook(filename=BytesIO(workbook_bytes), read_only=True)
+            sheet = workbook.active
+            rows = list(sheet.iter_rows(values_only=True))
+        except Exception as error:  # openpyxl raises many kinds
+            raise ValidationError(
+                "The file could not be opened as an XLSX workbook, so nothing "
+                "was imported."
+            ) from error
         if not rows:
             raise ValidationError("The XLSX import file is empty.")
         header = [str(value or "").strip() for value in rows[0]]
-        index = {name: position for position, name in enumerate(header)}
-        lines: list[OpeningStockLineCreate] = []
-        for values in rows[1:]:
-            product_id = str(values[index.get("ProductId", -1)] or "").strip()
-            quantity = str(values[index.get("Quantity", -1)] or "").strip()
-            if not product_id or not quantity:
-                continue
-            lines.append(
-                OpeningStockLineCreate(
-                    product_id=UUID(product_id),
-                    storage_node_id=(
-                        UUID(str(values[index["StorageNodeId"]]).strip())
-                        if index.get("StorageNodeId", -1) >= 0
-                        and values[index["StorageNodeId"]] is not None
-                        else None
-                    ),
-                    quantity=Decimal(quantity),
-                    minimum_level=(
-                        Decimal(str(values[index["MinimumLevel"]]))
-                        if index.get("MinimumLevel", -1) >= 0
-                        and values[index["MinimumLevel"]] is not None
-                        else None
-                    ),
-                    maximum_level=(
-                        Decimal(str(values[index["MaximumLevel"]]))
-                        if index.get("MaximumLevel", -1) >= 0
-                        and values[index["MaximumLevel"]] is not None
-                        else None
-                    ),
-                    reorder_level=(
-                        Decimal(str(values[index["ReorderLevel"]]))
-                        if index.get("ReorderLevel", -1) >= 0
-                        and values[index["ReorderLevel"]] is not None
-                        else None
-                    ),
-                    safety_stock=(
-                        Decimal(str(values[index["SafetyStock"]]))
-                        if index.get("SafetyStock", -1) >= 0
-                        and values[index["SafetyStock"]] is not None
-                        else None
-                    ),
-                    remarks=(
-                        str(values[index["Remarks"]]).strip()
-                        if index.get("Remarks", -1) >= 0
-                        and values[index["Remarks"]] is not None
-                        else None
-                    ),
-                )
-            )
-        return self.import_opening_stock_json(
-            OpeningStockImportRequest(
-                reference_number=reference_number,
-                posting_date=posting_date,
-                branch_id=branch_id,
-                warehouse_id=warehouse_id,
-                remarks=remarks,
-                auto_post=auto_post,
-                lines=lines,
-            ),
+        return self._import_opening_stock_rows(
+            [dict(zip(header, values, strict=False)) for values in rows[1:]],
+            reference_number=reference_number,
+            posting_date=posting_date,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            remarks=remarks,
+            auto_post=auto_post,
             firm_scope=firm_scope,
             actor_id=actor_id,
         )
+
+    def moved_base_quantity(
+        self,
+        data: InventoryAdjustmentCreate | StockWriteOffCreate,
+        *,
+        firm_scope: UUID,
+    ) -> Decimal:
+        """Return what an adjustment or write-off moves, in the stock unit.
+
+        The limit on a post is a limit on value, and value is pieces at cost.
+        Judging the number typed let three boxes of twelve through as three
+        pieces (D-STK-57), so the limit and a request's stated worth both
+        read the quantity from here. It keeps the sign of what was typed.
+        """
+        base_quantity, _, _, _ = self._resolve_base_quantity(
+            firm_scope=firm_scope,
+            product_id=data.product_id,
+            quantity=(
+                data.entered_quantity
+                if data.entered_quantity is not None
+                else data.quantity
+            ),
+            entered_uom_id=data.entered_uom_id,
+            conversion_version=None,
+            on_date=data.transaction_date,
+        )
+        sign = Decimal("-1") if data.quantity < 0 else Decimal("1")
+        return abs(base_quantity) * sign
 
     def write_off_stock(
         self,
@@ -1756,7 +1771,10 @@ class InventoryService:
             )
 
             StockAdjustmentApprovalService(self._session).assert_within_limit(
-                firm_scope, actor_id, product_id=data.product_id, quantity=data.quantity
+                firm_scope,
+                actor_id,
+                product_id=data.product_id,
+                quantity=self.moved_base_quantity(data, firm_scope=firm_scope),
             )
         (
             base_quantity,
@@ -2239,7 +2257,10 @@ class InventoryService:
             )
 
             StockAdjustmentApprovalService(self._session).assert_within_limit(
-                firm_scope, actor_id, product_id=data.product_id, quantity=data.quantity
+                firm_scope,
+                actor_id,
+                product_id=data.product_id,
+                quantity=self.moved_base_quantity(data, firm_scope=firm_scope),
             )
         transaction = self.stage_adjustment(
             data, firm_scope=firm_scope, actor_id=actor_id

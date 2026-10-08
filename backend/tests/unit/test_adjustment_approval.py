@@ -28,6 +28,7 @@ from app.inventory.services.adjustment_approval import (
     StockAdjustmentLimitItem,
     StockAdjustmentRequestWrite,
 )
+from app.uom.models import ConversionRule, Uom
 from tests.unit.test_purchase_chain_synthesis import _Firm
 
 D = Decimal
@@ -139,3 +140,49 @@ def test_somebody_with_no_limited_role_is_not_limited(firm: _Firm) -> None:
         _write_off(firm, "9"), firm_scope=firm.firm.id, actor_id=unlimited
     )
     assert firm.stock() == D("1")
+
+
+def _pairs(firm: _Firm) -> UUID:
+    """Keep the widget in pieces, two to a pair; return the pair."""
+    piece = Uom(code="PIECE", name="Piece", dimension="COUNT", status="ACTIVE")
+    pair = Uom(code="PAIR", name="Pair", dimension="COUNT", status="ACTIVE")
+    firm.session.add_all([piece, pair])
+    firm.session.flush()
+    firm.product.base_uom_id = piece.id
+    firm.product.inventory_uom_id = piece.id
+    firm.session.add(
+        ConversionRule(
+            firm_id=firm.firm.id,
+            product_id=firm.product.id,
+            from_uom_id=pair.id,
+            to_uom_id=piece.id,
+            conversion_factor=D("2"),
+            rounding_mode="HALF_UP",
+            precision_scale=4,
+            effective_from=date(2026, 4, 1),
+            version_number=1,
+        )
+    )
+    firm.session.commit()
+    return pair.id
+
+
+def test_the_limit_judges_the_pieces_a_pack_moves(firm: _Firm) -> None:
+    # Two pairs are four widgets, worth 400: above the storekeeper's 250,
+    # though the number typed is 2 (D-STK-57).
+    keeper = _person(firm, "STOREKEEPER")
+    pair = _pairs(firm)
+    two_pairs = _write_off(firm, "2").model_copy(update={"entered_uom_id": pair})
+    with pytest.raises(ValidationError, match="worth 400.00"):
+        InventoryService(firm.session).write_off_stock(
+            two_pairs, firm_scope=firm.firm.id, actor_id=keeper
+        )
+    firm.session.rollback()
+    assert firm.stock() == D("10")
+
+    request = StockAdjustmentApprovalService(firm.session).submit(
+        StockAdjustmentRequestWrite(kind="WRITE_OFF", write_off=two_pairs),
+        firm_id=firm.firm.id,
+        actor_id=keeper,
+    )
+    assert (request.quantity, request.estimated_value) == (D("4"), D("400.00"))
