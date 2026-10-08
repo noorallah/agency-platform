@@ -756,6 +756,8 @@ class ProductQuery {
     this.status,
     this.productType,
     this.categoryId,
+    this.goodsTypeId,
+    this.generalGoods = false,
     this.taxProfileGroupCode,
     this.brand,
     this.hsnSac,
@@ -768,6 +770,12 @@ class ProductQuery {
   final String? status;
   final String? productType;
   final String? categoryId;
+
+  /// Only products of this goods type (backlog 89).
+  final String? goodsTypeId;
+
+  /// Only products with no goods type -- General.
+  final bool generalGoods;
   final String? taxProfileGroupCode;
   final String? brand;
   final String? hsnSac;
@@ -784,6 +792,8 @@ class ProductQuery {
         if (status?.isNotEmpty == true) 'status': status!,
         if (productType?.isNotEmpty == true) 'product_type': productType!,
         if (categoryId?.isNotEmpty == true) 'category_id': categoryId!,
+        if (goodsTypeId?.isNotEmpty == true) 'goods_type_id': goodsTypeId!,
+        if (generalGoods) 'general_goods': 'true',
         if (taxProfileGroupCode?.isNotEmpty == true)
           'tax_profile_group_code': taxProfileGroupCode!,
         if (brand?.isNotEmpty == true) 'brand': brand!,

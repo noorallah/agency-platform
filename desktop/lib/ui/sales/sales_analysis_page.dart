@@ -41,6 +41,14 @@ class SalesAnalysisPage extends StatelessWidget {
           for (final c in (await api.productCategoryPage(search: search)).items)
             AnalysisOption(id: c.id, label: c.name),
         ];
+      case 'goods_type_id':
+        // The firm's goods types are a short list read whole; a product
+        // with none is General, which no id names.
+        return [
+          for (final t in await api.goodsTypes())
+            if (t.inUse && t.name.toLowerCase().contains(search.toLowerCase()))
+              AnalysisOption(id: t.id, label: t.name),
+        ];
       case 'brand_id':
         return [
           for (final b in (await api.brandsPage(search: search)).items)
@@ -108,6 +116,7 @@ class SalesAnalysisPage extends StatelessWidget {
             'year': 'Year',
             'product': 'Product',
             'category': 'Category',
+            'goods_type': 'Goods type',
             'brand': 'Brand',
             'principal': 'Principal',
             'customer': 'Customer',
@@ -120,6 +129,7 @@ class SalesAnalysisPage extends StatelessWidget {
           filterParameters: const {
             'product': 'product_id',
             'category': 'category_id',
+            'goods_type': 'goods_type_id',
             'brand': 'brand_id',
             'principal': 'principal_id',
             'customer': 'customer_id',
@@ -155,6 +165,7 @@ class SalesAnalysisPage extends StatelessWidget {
             pickers: const {
               'product_id': 'Product',
               'category_id': 'Category',
+              'goods_type_id': 'Goods type',
               'brand_id': 'Brand',
               'principal_id': 'Principal',
               'customer_id': 'Customer',

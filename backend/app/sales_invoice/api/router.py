@@ -712,8 +712,10 @@ def _analysis_filters(
     branch_id: UUID | None,
     brand_id: UUID | None = None,
     principal_id: UUID | None = None,
+    goods_type_id: UUID | None = None,
 ) -> AnalysisFilters:
     return AnalysisFilters(
+        goods_type_id=goods_type_id,
         brand_id=brand_id,
         principal_id=principal_id,
         product_id=product_id,
@@ -749,14 +751,16 @@ def sales_analysis(
     branch_id: UUID | None = None,
     brand_id: UUID | None = None,
     principal_id: UUID | None = None,
+    goods_type_id: UUID | None = None,
     basis: str = "billed",
     compare_previous_year: bool = False,
 ) -> ApiResponse[SalesAnalysisResponse]:
     """Billed sales by one or two dimensions, net of returns (backlog 62).
 
     ``rows`` and ``columns`` are each one of day, week, month, quarter, year,
-    product, category, brand, principal, customer, customer_group, salesman,
-    territory, route, branch. The period defaults to this month.
+    product, category, goods_type, brand, principal, customer, customer_group,
+    salesman, territory, route, branch. A product with no goods type is filed
+    under General. The period defaults to this month.
 
     ``basis`` is ``billed`` (invoices) or ``ordered`` (sales orders booked);
     ``compare_previous_year`` adds the same analysis a year earlier under
@@ -778,6 +782,7 @@ def sales_analysis(
         branch_id,
         brand_id,
         principal_id,
+        goods_type_id,
     )
 
     def run(start: date, end: date) -> SalesAnalysis:
@@ -824,6 +829,7 @@ def sales_analysis_invoices(
     branch_id: UUID | None = None,
     brand_id: UUID | None = None,
     principal_id: UUID | None = None,
+    goods_type_id: UUID | None = None,
 ) -> ApiResponse[list[AnalysisInvoiceRecord]]:
     """List the invoices behind one cell of the analysis (backlog 62)."""
     rows = SalesAnalysisService(db).invoices(
@@ -841,6 +847,7 @@ def sales_analysis_invoices(
             branch_id,
             brand_id,
             principal_id,
+            goods_type_id,
         ),
     )
     return ApiResponse(

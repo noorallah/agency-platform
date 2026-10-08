@@ -381,6 +381,11 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
   String? _status;
   String? _productType;
   String? _categoryId;
+
+  /// A goods type's id, or [_generalGoods] for products with none. Not kept
+  /// between sessions, like the two counters below.
+  String? _goodsType;
+  static const String _generalGoods = 'GENERAL';
   bool _includeDeleted = false;
 
   /// Phase 2's Low stock and No price counters, each a filter.
@@ -713,6 +718,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         _status != null,
         _productType != null,
         _categoryId != null,
+        _goodsType != null,
         _brand.text.trim().isNotEmpty,
         _hsnSac.text.trim().isNotEmpty,
         _attributeSearch.text.trim().isNotEmpty,
@@ -732,10 +738,16 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     return match?.name ?? '';
   }
 
+  String _goodsTypeLabel(String id) => id == _generalGoods
+      ? 'General'
+      : _controller.metadata.goodsTypeById(id)?.name ?? '';
+
   ProductQuery _currentQuery() => ProductQuery(
         status: _status,
         productType: _productType,
         categoryId: _categoryId,
+        goodsTypeId: _goodsType == _generalGoods ? null : _goodsType,
+        generalGoods: _goodsType == _generalGoods,
         brand: _brand.text.trim().isEmpty ? null : _brand.text.trim(),
         hsnSac: _hsnSac.text.trim().isEmpty ? null : _hsnSac.text.trim(),
         attributeQuery: _attributeSearch.text.trim().isEmpty
@@ -865,6 +877,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
       _status = null;
       _productType = null;
       _categoryId = null;
+      _goodsType = null;
       _brand.clear();
       _hsnSac.clear();
       _attributeSearch.clear();
@@ -1613,6 +1626,32 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             onChanged: (value) => setState(() => _categoryId = value),
           ),
         ),
+        // Offered once the firm trades in a goods type: until then every
+        // product is General and the filter would list all or nothing.
+        if (_controller.metadata.goodsTypes.isNotEmpty)
+          SizedBox(
+            width: 220,
+            child: DropdownButtonFormField<String?>(
+              key: const ValueKey('product-filter-goods-type'),
+              isExpanded: true,
+              initialValue: _goodsType,
+              decoration: const InputDecoration(labelText: 'Goods type'),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Any')),
+                const DropdownMenuItem(
+                  value: _generalGoods,
+                  child: Text('General'),
+                ),
+                ..._controller.metadata.goodsTypes.map(
+                  (type) => DropdownMenuItem(
+                    value: type.id,
+                    child: Text(type.name, overflow: TextOverflow.ellipsis),
+                  ),
+                )
+              ],
+              onChanged: (value) => setState(() => _goodsType = value),
+            ),
+          ),
         _textFilter(_brand, 'Brand'),
         _textFilter(_hsnSac, 'HSN / SAC'),
         _textFilter(_attributeSearch, 'Attribute contains'),
@@ -1638,6 +1677,11 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         InputChip(
           label: Text('Category: ${_categoryLabel(_categoryId!)}'),
           onDeleted: () => setState(() => _categoryId = null),
+        ),
+      if (_goodsType != null)
+        InputChip(
+          label: Text('Goods type: ${_goodsTypeLabel(_goodsType!)}'),
+          onDeleted: () => setState(() => _goodsType = null),
         ),
       if (_brand.text.trim().isNotEmpty)
         InputChip(

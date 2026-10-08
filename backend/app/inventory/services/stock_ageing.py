@@ -40,6 +40,7 @@ from app.core.utils.money import quantize_ledger
 from app.inventory.models import InventoryTransaction
 from app.inventory.services.stock_valuation import StockValuationService
 from app.products.models import Product, ProductCategory
+from app.products.models.goods_type import GENERAL_GOODS, GoodsType
 from app.uom.models import Uom
 
 ZERO = Decimal("0")
@@ -73,6 +74,8 @@ class _Item:
     name: str
     category: str
     unit: str
+    #: General where the product has no goods type (backlog 89).
+    goods_type: str = GENERAL_GOODS
 
 
 @dataclass(frozen=True)
@@ -97,6 +100,7 @@ class StockAgeingRow:
     #: Times a year the stock on hand turns over at that pace: issued in
     #: the year over what is on hand. None with nothing issued.
     turnover: Decimal | None = None
+    goods_type: str = GENERAL_GOODS
 
 
 @dataclass(frozen=True)
@@ -114,6 +118,7 @@ class SlowStockRow:
     last_issue_date: date | None
     days_since_issue: int | None
     last_receipt_date: date | None
+    goods_type: str = GENERAL_GOODS
 
 
 class StockAgeingService:
@@ -176,6 +181,7 @@ class StockAgeingService:
                     days_91_180=split[3],
                     days_over_180=split[4],
                     last_receipt_date=last_receipts.get(product_id),
+                    goods_type=item.goods_type,
                     issued_last_year=max(issued.get(product_id, ZERO), ZERO),
                     turnover=(
                         (max(issued.get(product_id, ZERO), ZERO) / quantity).quantize(
@@ -273,6 +279,7 @@ class StockAgeingService:
                         None if last_issue is None else (on - last_issue).days
                     ),
                     last_receipt_date=last_receipts.get(product_id),
+                    goods_type=item.goods_type,
                 )
             )
         rows.sort(
@@ -345,20 +352,24 @@ def _newest_first(quantity: Decimal, received: list[Decimal]) -> list[Decimal]:
 
 @over_chunks("product_ids")
 def _items(session: Session, *, product_ids: list[UUID]) -> dict[UUID, _Item]:
-    """Read each product's code, name, category and unit, once."""
+    """Read each product's code, name, category, unit and goods type, once."""
     if not product_ids:
         return {}
     return {
-        product_id: _Item(code, name, category or "", unit or "")
-        for product_id, code, name, category, unit in session.execute(
+        product_id: _Item(
+            code, name, category or "", unit or "", goods_type or GENERAL_GOODS
+        )
+        for product_id, code, name, category, unit, goods_type in session.execute(
             select(
                 Product.id,
                 Product.code,
                 Product.name,
                 ProductCategory.name,
                 Uom.code,
+                GoodsType.name,
             )
             .outerjoin(ProductCategory, ProductCategory.id == Product.category_id)
+            .outerjoin(GoodsType, GoodsType.id == Product.goods_type_id)
             .outerjoin(Uom, Uom.id == Product.base_uom_id)
             .where(Product.id.in_(product_ids))
         ).all()

@@ -420,6 +420,11 @@ class ProductListFilters(ProductSchema):
     product_type: ProductType | None = None
     category_id: UUID | None = None
     sub_category_id: UUID | None = None
+    #: Only products of this goods type (backlog 89), read off the product's
+    #: own indexed column.
+    goods_type_id: UUID | None = None
+    #: Only products with no goods type -- General.
+    general_goods: bool = False
     tax_profile_group_code: str | None = None
     brand: str | None = Field(default=None, max_length=120)
     #: The brand row (MST-1); naming one sets ``brand`` to its name.

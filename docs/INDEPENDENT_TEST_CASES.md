@@ -895,6 +895,17 @@ warehouse rename its capability flags.
 - **Expect:** `CP-SET-2` shows *Units from: Strip, box of 10* and has its own pack conversion at the **source's** factor, 12, not the set's 10. `CP-HAND-2` has no unit set and the same units as its source, with a conversion only if the source had one. `CP-SET-3` keeps the units and the conversion but not the set's name, because the set is no longer offered. Over all three the source product is unchanged. The user without `PRODUCT_CREATE` is refused (403) and no product is written.
 - **Leaves:** three copies.
 
+### TC-MAST-031 — Goods type in the analyses, the stock reports and the product list
+
+*Added 2026-10-08 from the code (backlog 89, step 8); driven over HTTP the same day (`docs/qa/GOODS_TYPES_REPORTS_CHECK_2026-10-08.md`). Not yet clicked on screen.*
+
+- **Covers:** backlog 89 "The schema is designed for the questions that will be asked of it"; `docs/GOODS_TYPES.md`, *Goods type in reports and lists*
+- **Fixture:** `product-master`
+- **Also needs:** the goods types and categories of TC-MAST-020 (*Tablets* is Medicine, *Sundries* has no type); a product `GR-MED` under *Tablets* and a product `GR-PLAIN` under *Sundries*, each with opening stock; one approved sales invoice and one approved supplier bill holding a line of each product, dated this month.
+- **Steps:** as the **Firm admin**: (a) Sales Analysis, rows *Goods type*, this month; then columns *Month*. (b) Filter *Goods type* = Medicine, rows *Product*. (c) Click the Medicine cell of (a) for its invoices; try the General cell. (d) Purchase Analysis, rows *Goods type*. (e) Reports > Stock valuation, Stock ageing, Dead stock (days 1): read the *Goods type* column. (f) Masters > Products > Filters: *Goods type* = Medicine, Apply; then General; then Any. (g) Ask Sales Analysis for *Goods type* on both rows and columns.
+- **Expect:** (a) two rows, *General* and *Medicine*, whose totals add up to the grand total; each holds the value of its own product's line and both count the one invoice. (b) only `GR-MED`. (c) the Medicine cell lists the invoice with the value of the Medicine line; the General cell does not open, as no cell of an unfiled value does. (d) *General* and *Medicine* with the two bill lines. (e) `GR-MED` reads Medicine and `GR-PLAIN` reads General on all three; the valuation's total, books and difference rows show no goods type. (f) Medicine lists `GR-MED` and no product without a type; General lists `GR-PLAIN` and no Medicine product; the count under the list matches; Any lists both. A firm that uses no goods type is not offered the filter. (g) refused: "Choose a different dimension for the columns."
+- **Leaves:** two products, an invoice, a bill.
+
 
 ---
 

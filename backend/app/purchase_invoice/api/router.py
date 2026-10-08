@@ -337,6 +337,7 @@ def purchase_analysis(
     net_of_returns: bool = True,
     product_id: UUID | None = None,
     category_id: UUID | None = None,
+    goods_type_id: UUID | None = None,
     supplier_id: UUID | None = None,
     supplier_category_id: UUID | None = None,
     branch_id: UUID | None = None,
@@ -347,7 +348,8 @@ def purchase_analysis(
     """Billed purchases by one or two dimensions, net of returns (backlog 66).
 
     ``rows`` and ``columns`` are each one of day, week, month, quarter, year,
-    product, category, supplier, supplier_category, branch. The period
+    product, category, goods_type, supplier, supplier_category, branch (a
+    product with no goods type is filed under General). The period
     defaults to this month. The response has the sales analysis's shape.
 
     ``basis`` is ``billed`` (supplier bills), ``received`` (goods receipts)
@@ -361,6 +363,7 @@ def purchase_analysis(
     filters = _purchase_filters(
         product_id=product_id,
         category_id=category_id,
+        goods_type_id=goods_type_id,
         supplier_id=supplier_id,
         supplier_category_id=supplier_category_id,
         branch_id=branch_id,
@@ -398,6 +401,7 @@ def purchase_analysis_bills(
     to_date: date,
     product_id: UUID | None = None,
     category_id: UUID | None = None,
+    goods_type_id: UUID | None = None,
     supplier_id: UUID | None = None,
     supplier_category_id: UUID | None = None,
     branch_id: UUID | None = None,
@@ -411,6 +415,7 @@ def purchase_analysis_bills(
         filters=_purchase_filters(
             product_id=product_id,
             category_id=category_id,
+            goods_type_id=goods_type_id,
             supplier_id=supplier_id,
             supplier_category_id=supplier_category_id,
             branch_id=branch_id,

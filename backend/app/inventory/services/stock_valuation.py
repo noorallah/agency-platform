@@ -36,6 +36,7 @@ from app.finance.services.control_accounts import (
 )
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.products.models import Product, ProductCategory
+from app.products.models.goods_type import GENERAL_GOODS, GoodsType
 from app.uom.models import Uom
 
 ZERO = Decimal("0")
@@ -53,6 +54,9 @@ class StockValuationRow:
     quantity: Decimal | None
     rate: Decimal | None
     value: Decimal
+    #: The product's goods type, General where it has none (backlog 89);
+    #: empty on the closing rows.
+    goods_type: str = ""
 
 
 class StockValuationService:
@@ -128,6 +132,10 @@ class StockValuationService:
                 )
             ).all()
         }
+        goods_types = goods_type_names(
+            self._session,
+            {p.goods_type_id for p in products.values() if p.goods_type_id},
+        )
         units: dict[UUID | None, str] = {
             unit_id: code
             for unit_id, code in self._session.execute(
@@ -159,6 +167,7 @@ class StockValuationService:
                     quantity=quantity,
                     rate=rate,
                     value=value,
+                    goods_type=goods_types.get(product.goods_type_id, GENERAL_GOODS),
                 )
             )
         rows.sort(key=lambda row: (row.category, row.product_code))
@@ -238,6 +247,18 @@ class StockValuationService:
             )
         )
         return quantize_ledger(Decimal(str(value or 0)))
+
+
+def goods_type_names(session: Session, ids: set[UUID]) -> dict[UUID | None, str]:
+    """Return the name of each goods type named, read once for a report."""
+    if not ids:
+        return {}
+    return {
+        goods_type_id: name
+        for goods_type_id, name in session.execute(
+            select(GoodsType.id, GoodsType.name).where(GoodsType.id.in_(ids))
+        ).all()
+    }
 
 
 def _closing(kind: str, label: str, value: Decimal) -> StockValuationRow:

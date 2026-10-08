@@ -856,10 +856,11 @@ launch, and why each one applied or did not. The printed bill names the
 offers given and what the customer **saved**.
 
 **Sales Analysis** (*Sell → All Sell screens → Insight → Sales Analysis*). Billed sales by any one or two of
-day, week, month, quarter, year, product, category, customer, customer
-group, salesman, territory, route and branch -- product by month, customer by
-quarter -- with totals both ways, net of returns, and a click on any cell
-for the invoices behind it.
+day, week, month, quarter, year, product, category, goods type, customer,
+customer group, salesman, territory, route and branch -- product by month,
+customer by quarter -- with totals both ways, net of returns, and a click on
+any cell for the invoices behind it. By goods type, products with no type
+are one row called General.
 
 **Loyalty.** Points or cashback: customers earn on what they buy and spend
 the balance against a later bill. Points can expire. The scheme (earn rate,
@@ -1189,8 +1190,8 @@ cost of goods sold. Cancelling reverses it.
 what is overdue, and spend by supplier.
 
 **Purchase Analysis** (*Buy → All Buy screens → Insight*). The same as Sales Analysis, for the
-suppliers' bills: by supplier, supplier category, product, category, branch
-and period.
+suppliers' bills: by supplier, supplier category, product, category, goods
+type, branch and period.
 
 **Purchase price variance** (*Reports → Financial*). A bill line charged at a
 different rate from its receipt, with both rates and the difference.
@@ -1459,7 +1460,9 @@ Statements*.
   a year or any run of months, **month by month** in columns, and **compared
   with last year**.
 - **Stock valuation**: every item's quantity, rate and value as on a date, with
-  the Inventory account's balance on the same day and the difference.
+  the Inventory account's balance on the same day and the difference. Each
+  item shows its goods type (General where it has none), as it does on Stock
+  ageing, Slow-moving stock and Dead stock.
 - **Balance Sheet**: what the firm owns and owes at a date.
 - **Cash Flow**: where the cash came from and went, by operating, investing
   and financing, from the books, checked against the cash and bank balances.

@@ -248,6 +248,8 @@ class StockValuationRecord(BaseModel):
     quantity: Decimal | None
     rate: Decimal | None
     value: Decimal
+    #: The goods type, General where the product has none; empty on a total.
+    goods_type: str = ""
 
 
 StockValuationScope = Annotated[
@@ -422,6 +424,7 @@ class StockAgeingRecord(BaseModel):
     issued_last_year: Decimal = Decimal("0")
     #: Times a year what is on hand turns over (STK-14).
     turnover: Decimal | None = None
+    goods_type: str = ""
 
 
 class SlowStockRecord(BaseModel):
@@ -440,6 +443,7 @@ class SlowStockRecord(BaseModel):
     last_issue_date: date | None
     days_since_issue: int | None
     last_receipt_date: date | None
+    goods_type: str = ""
 
 
 @router.get(
