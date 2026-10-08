@@ -2591,7 +2591,27 @@ the fixture builds (a minute or two).
 - **Expect:** (1) **201**, POSTED, MAIN holds 10 of P1. (2) to (5) **422** naming the line and the field (`lines[2].product_id`, `lines[2].quantity`, `lines[1].quantity`, `lines[1].reorder_level`); (6) **422**, "The file has no row with a ProductId and a Quantity, so nothing was imported."; (7) **422** each, saying the file is not UTF-8 text, or could not be opened as an XLSX workbook. After each refusal the Opening Stock list shows **no** document under that number and P2 holds nothing. (8) **201**, POSTED: the refused number was not used up.
 - **Leaves:** two posted opening-stock documents.
 
+### TC-STOCK-034 — A stock adjustment request is judged when it is decided
 
+*Added 2026-10-09 with inventory round 10 (D-STK-59, D-STK-60). Driven over HTTP by `docs/qa/checks/inventory/p_request_lifecycle.py`.*
+
+- **Covers:** D-STK-59, D-STK-60, STK-8
+- **Fixture:** `selling-firm`
+- **Also needs:** a plain product **P** with 200 in MAIN at a cost of 10 and nothing elsewhere; a second warehouse **W2**; under *Settings → Stock → Adjustment Limits* a limit of **500** for the storekeeper's role; a **storekeeper** signed in beside the firm administrator.
+- **Steps:** (1) As the storekeeper, *Stock → Inventory → Write off*: 40 of P, reason Damage, **Submit for approval**. (2) As the fixture's **Firm admin**, post opening stock of 200 of P at **190** into W2 (the average cost becomes 100). (3) As the storekeeper, open **Adjustment Approvals** and approve the request. (4) As the fixture's **Firm admin**, reject it with the reason box empty; then approve it. (5) Approve it again; then reject it. (6) **(HTTP)** `POST /api/v1/inventory/adjustment-requests` with a write-off naming a product id that is not the firm's; a warehouse id that is not the firm's; the reason `NOSUCHREASON`. (7) As the storekeeper, submit a write-off of **5000** of P; as the fixture's **Firm admin**, approve it.
+- **Expect:** (1) Saved; the request says **400.00**. (3) The list now says **4,000.00**; the approval is refused, "This request moves stock worth 4000.00, above your limit of 500.00. It needs somebody allowed more."; MAIN still holds 200 and the request still waits. (4) The empty rejection is refused; the approval posts: MAIN holds **160**, the request is Approved at 4,000.00 and names its movement. (5) Both refused, "This request was already approved."; MAIN still 160. (6) **422** each, in the words a direct post uses ("Product does not belong to the active firm.", "Warehouse does not belong to the selected branch.", "'NOSUCHREASON' is not an active stock adjustment reason of this firm..."); no request is saved. (7) The request is accepted (the goods may yet arrive); approving it is refused, saying the location holds only 160, and it still waits.
+- **Leaves:** one approved write-off of 40, one waiting request (reject it), 200 of P in W2.
+
+### TC-STOCK-035 — Evidence files: a name, a place, and ten to a record
+
+*Added 2026-10-09 with inventory round 10 (D-STK-61, D-STK-62). Driven over HTTP by `docs/qa/checks/inventory/p_evidence_edges.py`.*
+
+- **Covers:** D-STK-61, D-STK-62, STK-9
+- **Fixture:** `selling-firm`
+- **Also needs:** a plain product **P** with 50 in MAIN.
+- **Steps:** as the fixture's **Firm admin**. (1) Submit a write-off of 2 of P for approval with one photo attached, and approve it. (2) Write off **9999** of P with a photo attached. (3) **(HTTP)** `POST /api/v1/inventory/transactions/{id}/attachments` on the write-off of (1) with a `file_name` of three spaces; with a `file_path` of three spaces; with eleven files. (4) The same route with nine more files. (5) With one more. (6) Remove one, then add one. (7) Open a count sheet for MAIN, attach a file, cancel the sheet, open its files.
+- **Expect:** (1) The movement the approval posted lists the photo. (2) Refused (more than the location holds); no movement and no file is kept. (3) **422** each; the movement still lists one file. (4) Saved: ten files. (5) Refused: "A stock movement keeps at most 10 files and this one holds 10, so 1 more cannot be added. Remove one first." (6) Both saved: ten files again. (7) The cancelled sheet still lists its file.
+- **Leaves:** one write-off holding ten files, one cancelled count sheet.
 
 ### Known defects found while writing these cases
 

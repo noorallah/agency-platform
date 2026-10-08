@@ -186,3 +186,55 @@ def test_the_limit_judges_the_pieces_a_pack_moves(firm: _Firm) -> None:
         actor_id=keeper,
     )
     assert (request.quantity, request.estimated_value) == (D("4"), D("400.00"))
+
+
+def test_a_request_is_judged_at_what_the_goods_are_worth_when_approved(
+    firm: _Firm,
+) -> None:
+    """Two pieces asked for at 100 each are worth 1,000 after a dearer bill."""
+    keeper = _person(firm, "STOREKEEPER")
+    head = _person(firm, "STORE_HEAD")
+    approvals = StockAdjustmentApprovalService(firm.session)
+    request = approvals.submit(
+        StockAdjustmentRequestWrite(kind="WRITE_OFF", write_off=_write_off(firm, "2")),
+        firm_id=firm.firm.id,
+        actor_id=keeper,
+    )
+    assert request.estimated_value == D("200.00")
+    bills = firm.bills()
+    bill = bills.create_invoice(
+        firm.product_bill("10", "900"), firm_id=firm.firm.id, actor_id=firm.actor_id
+    )
+    bills.approve_invoice(bill.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+
+    # D-STK-59: the stored 200 let the keeper (250) post 1,000.
+    assert [r.estimated_value for r in approvals.list_requests(firm.firm.id)] == [
+        D("1000.00")
+    ]
+    with pytest.raises(ValidationError, match="worth 1000.00"):
+        approvals.approve(request.id, firm_id=firm.firm.id, actor_id=keeper)
+    firm.session.rollback()
+    assert firm.stock() == D("20")
+    approved = approvals.approve(request.id, firm_id=firm.firm.id, actor_id=head)
+    assert (approved.status, approved.estimated_value) == ("APPROVED", D("1000.00"))
+    assert firm.stock() == D("18")
+
+
+def test_a_request_that_could_never_be_posted_is_refused(firm: _Firm) -> None:
+    """D-STK-60: an unknown product, warehouse or reason is refused by name."""
+    keeper = _person(firm, "STOREKEEPER")
+    approvals = StockAdjustmentApprovalService(firm.session)
+    for change, says in (
+        ({"product_id": uuid4()}, "Product does not belong"),
+        ({"warehouse_id": uuid4()}, "Warehouse does not belong"),
+        ({"reason": "NOSUCH"}, "not an active stock adjustment reason"),
+    ):
+        body = _write_off(firm, "1").model_copy(update=change)
+        with pytest.raises(ValidationError, match=says):
+            approvals.submit(
+                StockAdjustmentRequestWrite(kind="WRITE_OFF", write_off=body),
+                firm_id=firm.firm.id,
+                actor_id=keeper,
+            )
+        firm.session.rollback()
+    assert approvals.list_requests(firm.firm.id) == []

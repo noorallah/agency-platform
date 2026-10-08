@@ -1286,8 +1286,12 @@ Stock → Adjustment Limits* each role has a limit; above it the post is refused
 and *Submit for approval* sends it to **Adjustment Approvals** (*Stock → All Stock
 screens → Movements*), where someone with a higher limit approves or rejects it, singly
 or in bulk. The limit is on value: the pieces moved at the item's average cost,
-whatever unit the quantity was sent in. Files (a photo, a note) can be attached to an adjustment, a
-write-off, a transfer or a count sheet as evidence.
+whatever unit the quantity was sent in. A waiting request is valued again when
+it is decided: if the item has become dearer since it was asked for, the list
+shows what it is worth now and the approver's limit is judged on that. A request
+naming a product, warehouse or reason the firm does not keep is refused when it
+is submitted. Files (a photo, a note) can be attached to an adjustment, a
+write-off, a transfer or a count sheet as evidence, at most ten to each.
 
 And two documents:
 
