@@ -17,7 +17,8 @@ import 'sc_gt_test.dart'
 // qfmgr (firm manager), qstore (inventory manager), qro (read only), qsmgr and
 // qsexe (sales, no stock) for the Role cases. IT_PART names sections:
 // lists, actions, adjust, opening, count, views, transfers, repack,
-// approvals, settings. Role users run only the role section.
+// approvals, settings, round2 (serial units on the move, a used reference;
+// in pieces r2xfer, r2doc, r2open, r2ref), backorder. Role users run only the role section.
 
 const String _part = String.fromEnvironment('IT_PART');
 bool wants(String section) =>
@@ -1608,6 +1609,479 @@ void main() {
       // Put the firm back the way it was found.
       await me.write('PUT', '/api/v1/inventory/adjustment-limits',
           <String, dynamic>{'limits': <dynamic>[]});
+    }
+
+    // ---------------- round 2: serial units on the move, used reference ------
+    // The app sometimes ends by itself a few minutes in, so the part also runs
+    // in pieces: r2xfer, r2doc, r2open, r2ref.
+    bool r2(String name) => wants('round2') || wants('r2$name');
+    Future<void> piece(
+        String name, String label, Future<void> Function() body) async {
+      if (r2(name)) {
+        await log.step(label, body);
+      }
+    }
+    if (r2('xfer') || r2('doc') || r2('open') || r2('ref')) {
+      final Json pS = await productByCode('INVSCR-S');
+      const String serialsPath = '/api/v1/batch-serial/serials';
+
+      /// The units numbered `R2<stamp>-n`, by number.
+      Future<Map<String, Json>> units([Json? product]) async {
+        final dynamic rows = await me.get(
+            '$serialsPath?page_size=100&product_id=${(product ?? pS)['id']}&search=R2$stamp');
+        return <String, Json>{
+          for (final dynamic r in rows as List<dynamic>)
+            '${(r as Json)['serial_number']}': r,
+        };
+      }
+
+      String where(Json? unit) => unit == null
+          ? 'missing'
+          : '${unit['status']}@${unit['warehouse_id'] == whMain['id'] ? 'MAIN' : unit['warehouse_id'] == whTwo['id'] ? 'QW2' : unit['warehouse_id']}';
+
+      Future<void> pickUnit(String id, {String prefix = 'serial-pick-'}) async {
+        final Finder chip = find.byKey(ValueKey<String>('$prefix$id'));
+        await pumpUntil(tester, chip, waitingFor: 'the chip $prefix$id');
+        await tester.ensureVisible(chip.first);
+        await pumpFor(tester, const Duration(milliseconds: 300));
+        await tester.tap(chip.first);
+        await pumpFor(tester, const Duration(milliseconds: 400));
+      }
+
+      String pickHeading() {
+        final Finder f = find.byKey(const ValueKey<String>('serial-pick-count'));
+        return f.evaluate().isEmpty
+            ? '(no picker)'
+            : tester.widget<Text>(f.first).data ?? '';
+      }
+
+      Future<List<Json>> transfers() async => <Json>[
+            for (final dynamic r in (await me
+                .get('/api/v1/inventory/stock-transfers?page_size=100')) as List<dynamic>)
+              r as Json,
+          ]..sort((Json a, Json b) =>
+              '${b['created_at']}'.compareTo('${a['created_at']}'));
+
+      // Six fresh units on the MAIN shelf, with the stock to stand behind them.
+      final double haveS = await onHand(pS, whMain);
+      if (haveS < 12) await adjustApi(pS, 12 - haveS);
+      for (int i = 1; i <= 6; i++) {
+        await me.write('POST', serialsPath, <String, dynamic>{
+          'product_id': pS['id'],
+          'warehouse_id': whMain['id'],
+          'branch_id': branchId,
+          'serial_number': 'R2$stamp-$i',
+        });
+      }
+      final Map<String, Json> made = await units();
+      String idOf(int i) => '${made['R2$stamp-$i']!['id']}';
+
+      await piece('xfer', 
+          'SC-ST-077 Transfer of a serial-tracked product with one unit picked for two is refused',
+          () async {
+        await openAction('transfer', 'Transfer', 'INVSCR-S');
+        await pickDropdown(tester, 'Move it to', 'QW2');
+        await typeLabelled(tester, 'Quantity', '2');
+        final String heading = pickHeading();
+        await pickUnit(idOf(1));
+        overflow('Transfer dialog with the unit picker');
+        final String picked = pickHeading();
+        final String saw = await refuse('Transfer stock',
+            () => tapDialogSave(tester, 'Transfer'),
+            typed: '2', mustSay: 'serial number');
+        log.saw = 'heading "$heading" -> "$picked"; $saw';
+      });
+      await clean(tester);
+
+      await piece('xfer', 
+          'SC-ST-078 Transfer 2 units: the two picked land in the second warehouse',
+          () async {
+        final double before2 = await onHand(pS, whTwo);
+        await openAction('transfer', 'Transfer', 'INVSCR-S');
+        await pickDropdown(tester, 'Move it to', 'QW2');
+        await typeLabelled(tester, 'Quantity', '2');
+        await pickUnit(idOf(1));
+        await pickUnit(idOf(2));
+        final String heading = pickHeading();
+        final String said = await pressAndRead(
+            tester, () => tapDialogSave(tester, 'Transfer'));
+        await pumpFor(tester, const Duration(seconds: 2));
+        final Map<String, Json> now = await units();
+        final double after2 = await onHand(pS, whTwo);
+        log.saw = 'heading "$heading"; said "$said"; QW2 $before2 -> $after2; '
+            'unit 1 ${where(now['R2$stamp-1'])}, unit 2 ${where(now['R2$stamp-2'])}, '
+            'unit 3 ${where(now['R2$stamp-3'])}';
+        if (!sameMoney(after2, before2 + 2) ||
+            where(now['R2$stamp-1']) != 'AVAILABLE@QW2' ||
+            where(now['R2$stamp-2']) != 'AVAILABLE@QW2' ||
+            where(now['R2$stamp-3']) != 'AVAILABLE@MAIN') {
+          throw StateError(log.saw!);
+        }
+        if (dialogOpen('Transfer stock')) throw StateError('dialog stayed open');
+      });
+      await clean(tester);
+
+      String? sentNumber;
+      String? sentId;
+      await piece('doc', 
+          'SC-ST-079 New transfer of 2 serial units saved as a draft names them',
+          () async {
+        final int before = (await transfers()).length;
+        await openStock(tester, 'stock-transfers');
+        await tapKey(tester, 'transfer-new');
+        await pumpUntil(tester, find.byKey(const ValueKey<String>('transfer-save')),
+            waitingFor: 'the transfer dialog');
+        await chooseIn(tester, 'transfer-from', 'MAIN');
+        await chooseIn(tester, 'transfer-to', 'QW2');
+        await chooseIn(tester, 'transfer-product-0', 'INVSCR-S');
+        await tester.enterText(
+            find.byKey(const ValueKey<String>('transfer-quantity-0')), '2');
+        await pumpFor(tester, const Duration(seconds: 2));
+        final String heading = pickHeading();
+        await pickUnit(idOf(3));
+        await pickUnit(idOf(4));
+        overflow('Transfer document with the unit picker');
+        final String picked = pickHeading();
+        final String said =
+            await pressAndRead(tester, () => tapKey(tester, 'transfer-save'));
+        await pumpFor(tester, const Duration(seconds: 2));
+        final List<Json> list = await transfers();
+        if (list.length != before + 1) {
+          throw StateError('nothing saved: heading "$heading" -> "$picked"; said "$said"');
+        }
+        sentNumber = '${list.first['transfer_number']}';
+        sentId = '${list.first['id']}';
+        final Json doc = await me.one('inventory/stock-transfers', sentId!);
+        final List<dynamic> named =
+            ((doc['lines'] as List<dynamic>).first as Json)['serials'] as List<dynamic>? ?? <dynamic>[];
+        log.saw = 'heading "$heading" -> "$picked"; said "$said"; $sentNumber '
+            '${doc['status']}; units named ${named.map((dynamic s) => (s as Json)['serial_number']).join(', ')}';
+        if (named.length != 2) throw StateError(log.saw!);
+      });
+      await clean(tester);
+
+      await piece('doc', 
+          'SC-ST-080 dispatching a draft that names one unit of two is refused in words',
+          () async {
+        final dynamic draft = await me.write(
+            'POST', '/api/v1/inventory/stock-transfers', <String, dynamic>{
+          'transfer_date': today,
+          'from_warehouse_id': whMain['id'],
+          'to_warehouse_id': whTwo['id'],
+          'lines': <dynamic>[
+            <String, dynamic>{
+              'product_id': pS['id'],
+              'quantity': '2',
+              'serial_ids': <String>[idOf(5)],
+            },
+          ],
+        });
+        final String shortId = '${(draft as Json)['id']}';
+        final String shortNumber = '${draft['transfer_number']}';
+        await openStock(tester, 'stock-transfers');
+        await refreshList(tester);
+        await pumpFor(tester, const Duration(seconds: 2));
+        await selectRow(tester, shortNumber);
+        final String said = await pressWatch(
+            () => tapKey(tester, 'transfer-dispatch'), tester);
+        final Json t = await me.one('inventory/stock-transfers', shortId);
+        final bool open = find.byType(Dialog).evaluate().isNotEmpty;
+        final String onScreen = open
+            ? textOnScreen(tester)
+                .where((String x) => x.toLowerCase().contains('serial'))
+                .join(' | ')
+            : '';
+        log.saw = '$shortNumber: said "$said"; dialog open=$open, it reads '
+            '"$onScreen"; status ${t['status']}';
+        await clean(tester);
+        try {
+          await me.write('POST',
+              '/api/v1/inventory/stock-transfers/$shortId/cancel',
+              <String, dynamic>{'reason': 'screen cases: tidy'});
+        } catch (_) {}
+        if ('${t['status']}' != 'DRAFT') throw StateError('it left: ${log.saw}');
+        if (said.isEmpty && onScreen.isEmpty) {
+          throw StateError('N1: nothing says why: ${log.saw}');
+        }
+      });
+      await clean(tester);
+
+      await piece('doc', 'SC-ST-081 Dispatch puts the two units in transit',
+          () async {
+        if (sentNumber == null) throw StateError('SC-ST-079 saved no draft');
+        await openStock(tester, 'stock-transfers');
+        await selectRow(tester, sentNumber!);
+        final String said = await pressWatch(
+            () => tapKey(tester, 'transfer-dispatch'), tester);
+        await pumpFor(tester, const Duration(seconds: 2));
+        final Json t = await me.one('inventory/stock-transfers', sentId!);
+        final Map<String, Json> now = await units();
+        log.saw = 'said "$said"; status ${t['status']}; unit 3 '
+            '${now['R2$stamp-3']?['status']}, unit 4 ${now['R2$stamp-4']?['status']}';
+        if ('${now['R2$stamp-3']?['status']}' != 'IN_TRANSIT' ||
+            '${now['R2$stamp-4']?['status']}' != 'IN_TRANSIT') {
+          throw StateError(log.saw!);
+        }
+      });
+      await clean(tester);
+
+      Future<void> openReceive() async {
+        await openStock(tester, 'stock-transfers');
+        await selectRow(tester, sentNumber!);
+        await tapKey(tester, 'transfer-receive');
+        await pumpUntil(tester, find.byKey(const ValueKey<String>('receive-save')),
+            waitingFor: 'the receive dialog');
+        await tester.enterText(
+            find.byKey(const ValueKey<String>('receive-damaged-0')), '1');
+        await pumpFor(tester, const Duration(milliseconds: 600));
+      }
+
+      await piece('doc', 
+          'SC-ST-082 Receive with one damaged and no unit ticked is refused',
+          () async {
+        if (sentNumber == null) throw StateError('SC-ST-079 saved no draft');
+        await openReceive();
+        overflow('Receive dialog with the unit ticks');
+        final String said = await pressAndRead(
+            tester, () => tapKey(tester, 'receive-save'), seconds: 4);
+        final bool open =
+            find.byKey(const ValueKey<String>('receive-save')).evaluate().isNotEmpty;
+        final Json t = await me.one('inventory/stock-transfers', sentId!);
+        log.saw = 'said "$said"; dialog open=$open; status ${t['status']}';
+        if (!open) throw StateError('N2: the dialog closed: ${log.saw}');
+        if (!said.contains('Tick which')) {
+          throw StateError('N1: the sentence does not say which to tick: ${log.saw}');
+        }
+        if ('${t['status']}' == 'RECEIVED') throw StateError('N3: received: ${log.saw}');
+      });
+      await clean(tester);
+
+      await piece('doc', 
+          'SC-ST-083 Receive with the damaged unit ticked: one usable, one damaged, both there',
+          () async {
+        if (sentNumber == null) throw StateError('SC-ST-079 saved no draft');
+        final double before2 = await onHand(pS, whTwo);
+        await openReceive();
+        await pickUnit(idOf(4), prefix: 'receive-damaged-pick-0-');
+        final String said = await pressAndRead(
+            tester, () => tapKey(tester, 'receive-save'));
+        await pumpFor(tester, const Duration(seconds: 2));
+        final Json t = await me.one('inventory/stock-transfers', sentId!);
+        final Map<String, Json> now = await units();
+        final double after2 = await onHand(pS, whTwo);
+        log.saw = 'said "$said"; status ${t['status']}; QW2 $before2 -> $after2; '
+            'unit 3 ${where(now['R2$stamp-3'])}, unit 4 ${where(now['R2$stamp-4'])}';
+        if (where(now['R2$stamp-3']) != 'AVAILABLE@QW2' ||
+            where(now['R2$stamp-4']) != 'DAMAGED@QW2') {
+          throw StateError(log.saw!);
+        }
+      });
+      await clean(tester);
+
+      Future<Json?> openingOf(String reference) async {
+        final dynamic rows =
+            await me.get('/api/v1/inventory/opening-stock?page_size=100');
+        for (final dynamic r in rows as List<dynamic>) {
+          if ((r as Json)['reference_number'] == reference) return r;
+        }
+        return null;
+      }
+
+      // Opening stock is posted once per item and warehouse, so these two cases
+      // take a serial-tracked product of the run's own.
+      final String ownCode = 'R2S$stamp';
+      final Json pOwn = (await me.write('POST', '/api/v1/products', <String, dynamic>{
+        'code': ownCode,
+        'name': 'Serial opening $stamp',
+        'product_type': pS['product_type'],
+        'category_id': pS['category_id'],
+        'tax_profile_group_code': pS['tax_profile_group_code'],
+        'selling_price': '100',
+        'purchase_price': '60',
+        'base_uom_id': pS['base_uom_id'],
+        'inventory_uom_id': pS['inventory_uom_id'],
+        'sales_uom_id': pS['sales_uom_id'],
+        'purchase_uom_id': pS['purchase_uom_id'],
+      })) as Json;
+
+      await piece('open', 
+          'SC-ST-085 posting opening stock that numbers two units of three is refused in words',
+          () async {
+        await me.write('POST', '/api/v1/inventory/opening-stock', <String, dynamic>{
+          'branch_id': branchId,
+          'warehouse_id': whMain['id'],
+          'reference_number': 'SX$stamp',
+          'posting_date': today,
+          'lines': <dynamic>[
+            <String, dynamic>{
+              'product_id': pOwn['id'],
+              'quantity': '3',
+              'unit_cost': '60',
+              'serial_numbers': <String>['R2$stamp-X1', 'R2$stamp-X2'],
+            },
+          ],
+        });
+        final double before = await onHand(pOwn, whMain);
+        await openStock(tester, 'opening-stock');
+        await pickProduct(tester, 'SX$stamp');
+        final String said = await pressWatch(
+            () => command(tester, 'post-draft', 'Post draft'), tester);
+        await pumpFor(tester, const Duration(seconds: 2));
+        final Json? after = await openingOf('SX$stamp');
+        final double now = await onHand(pOwn, whMain);
+        final String banner = bannerText(tester);
+        log.saw = 'said "$said"; banner "$banner"; status ${after?['status']}; '
+            'on hand $before -> $now';
+        if ('${after?['status']}' != 'DRAFT' || !sameMoney(before, now)) {
+          throw StateError('it posted: ${log.saw}');
+        }
+        if (said.isEmpty && banner.isEmpty) {
+          throw StateError('N1: nothing says why: ${log.saw}');
+        }
+        if (!'$said $banner'.toLowerCase().contains('serial')) {
+          throw StateError('N1: the sentence does not name the serial numbers: ${log.saw}');
+        }
+      });
+      await clean(tester);
+
+      await piece('open', 
+          'SC-ST-084 Opening stock of a serial product takes its numbers and posting makes the units',
+          () async {
+        await openStock(tester, 'opening-stock');
+        await tapNew(tester);
+        await pumpUntil(tester, find.text('New opening stock'),
+            waitingFor: 'the opening stock dialog');
+        await pickDropdown(tester, 'Warehouse', 'MAIN');
+        await typeLabelled(tester, 'Reference', 'SN$stamp');
+        await pickDropdown(tester, 'Product', ownCode);
+        await typeLabelled(tester, 'Quantity', '2');
+        await typeLabelled(tester, 'Unit cost', '60');
+        final Finder box = find.byKey(const ValueKey<String>('opening-serials-0'));
+        await pumpUntil(tester, box, waitingFor: 'the Serial numbers box');
+        await tester.ensureVisible(box.first);
+        await tester.enterText(box.first, 'R2$stamp-O1\nR2$stamp-O2');
+        await pumpFor(tester, const Duration(milliseconds: 600));
+        overflow('Opening stock dialog with Serial numbers');
+        final bool counted = screenHas(tester, '2 of 2 entered');
+        final String said =
+            await pressAndRead(tester, () => tapDialogSave(tester, 'Save'));
+        await pumpFor(tester, const Duration(seconds: 2));
+        final Json? draft = await openingOf('SN$stamp');
+        if (draft == null) throw StateError('nothing saved: said "$said"');
+        await clean(tester);
+        await openStock(tester, 'opening-stock');
+        await pickProduct(tester, 'SN$stamp');
+        final String posted = await pressWatch(
+            () => command(tester, 'post-draft', 'Post draft'), tester);
+        await pumpFor(tester, const Duration(seconds: 2));
+        final Map<String, Json> now = await units(pOwn);
+        final Json? after = await openingOf('SN$stamp');
+        log.saw = 'helper counted 2 of 2=$counted; save said "$said"; post said '
+            '"$posted"; status ${after?['status']}; O1 ${where(now['R2$stamp-O1'])}, '
+            'O2 ${where(now['R2$stamp-O2'])}';
+        if (where(now['R2$stamp-O1']) != 'AVAILABLE@MAIN' ||
+            where(now['R2$stamp-O2']) != 'AVAILABLE@MAIN') {
+          throw StateError(log.saw!);
+        }
+      });
+      await clean(tester);
+
+      await piece('ref', 
+          'SC-ST-086 a second write-off under a reference already used is refused in stock words',
+          () async {
+        await openAction('write-off', 'Write off', 'INVSCR-N2');
+        await typeLabelled(tester, 'Quantity', '1');
+        await typeLabelled(tester, 'Reference (optional)', 'WR$stamp');
+        final String first = await pressAndRead(
+            tester, () => tapDialogSave(tester, 'Write off'));
+        await pumpFor(tester, const Duration(seconds: 2));
+        await clean(tester);
+        final double before = await onHand(pN2, whMain);
+        await openAction('write-off', 'Write off', 'INVSCR-N2');
+        await typeLabelled(tester, 'Quantity', '1');
+        await typeLabelled(tester, 'Reference (optional)', 'WR$stamp');
+        final String saw = await refuse('Write off stock',
+            () => tapDialogSave(tester, 'Write off'),
+            typed: 'WR$stamp', mustSay: 'WR$stamp');
+        final double after = await onHand(pN2, whMain);
+        log.saw = 'first said "$first"; second: $saw; on hand $before -> $after';
+        if (!sameMoney(before, after)) throw StateError(log.saw!);
+      });
+      await clean(tester);
+    }
+
+    // ---------------- round 2: an order owed more than is held ----------------
+    if (wants('backorder')) {
+      await log.step(
+          'SC-ST-087 a note for the four held of an order for ten is dispatched; the row reads 0 on hand, 6 reserved',
+          () async {
+        final String code = 'R2B$stamp';
+        final Json made = (await me.write('POST', '/api/v1/products', <String, dynamic>{
+          'code': code,
+          'name': 'Back order $stamp',
+          'product_type': pN['product_type'],
+          'category_id': pN['category_id'],
+          'tax_profile_group_code': pN['tax_profile_group_code'],
+          'selling_price': '100',
+          'purchase_price': '60',
+          'base_uom_id': pN['base_uom_id'],
+          'inventory_uom_id': pN['inventory_uom_id'],
+          'sales_uom_id': pN['sales_uom_id'],
+          'purchase_uom_id': pN['purchase_uom_id'],
+        })) as Json;
+        await adjustApi(made, 4);
+        final Json? seed = await me.newest('sales-orders');
+        if (seed == null) throw StateError('no order to copy the customer from');
+        final Json order = (await me.write('POST', '/api/v1/sales-orders', <String, dynamic>{
+          'customer_id': seed['customer_id'],
+          'branch_id': branchId,
+          'warehouse_id': whMain['id'],
+          'order_date': today,
+          'lines': <Json>[
+            <String, dynamic>{'line_number': 1, 'product_id': made['id'], 'quantity': 10},
+          ],
+        })) as Json;
+        await apiAct(me, 'sales-orders', '${order['id']}', 'approve');
+        final Json approved = await me.one('sales-orders', '${order['id']}');
+        final Json note = (await me.write('POST', '/api/v1/delivery-notes', <String, dynamic>{
+          'sales_order_id': order['id'],
+          'delivery_date': today,
+          'lines': <Json>[
+            <String, dynamic>{
+              'sales_order_line_id': ((approved['lines'] as List<dynamic>).first as Json)['id'],
+              'line_number': 1,
+              'current_delivery_quantity': 4,
+            },
+          ],
+        })) as Json;
+        await apiAct(me, 'delivery-notes', '${note['id']}', 'approve');
+        final Json? held = await invRow(made, whMain);
+        await leave(tester);
+        await openMenu(tester, 'sell', 'deliveryNotes/delivery-notes');
+        await refreshList(tester);
+        await selectRow(tester, docNumber(note));
+        await tapButton(tester, 'Dispatch');
+        final Finder anyway = find.byKey(const ValueKey<String>('dispatch-anyway'));
+        final String asked = noticeText(tester);
+        if (anyway.evaluate().isNotEmpty) await tester.tap(anyway.first);
+        final String said = await watch(tester, seconds: 6);
+        final Json now = await me.one('delivery-notes', '${note['id']}');
+        final Json? row = await invRow(made, whMain);
+        await openStock(tester, 'inventory');
+        await searchList(tester, code);
+        overflow('Inventory list with a back order');
+        log.saw = 'before: on hand ${held?['current_quantity']}, reserved '
+            '${held?['reserved_quantity']}; asked "$asked"; said "$said"; note '
+            '${now['status']}; after: on hand ${row?['current_quantity']}, reserved '
+            '${row?['reserved_quantity']}, available ${row?['available_quantity']}; '
+            'the list shows the product=${screenHas(tester, code)}';
+        if ('${now['status']}' != 'DISPATCHED' ||
+            !sameMoney(num2(row?['current_quantity']), 0) ||
+            !sameMoney(num2(row?['reserved_quantity']), 6)) {
+          throw StateError(log.saw!);
+        }
+      });
+      await clean(tester);
     }
 
     log.finish();
