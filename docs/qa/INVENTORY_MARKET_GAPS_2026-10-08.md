@@ -37,7 +37,7 @@ Y = yes, P = partly, N = no, ? = not sure.
 | 1 | Several warehouses, and bins inside one | Y | Y (godowns, nested) | Y | Y | P (bins on higher plans) | Y |
 | 2 | Batch, expiry, earliest expiry first | Y | Y | Y | Y | Y | Y |
 | 3 | Serial numbers with warranty | Y | P | Y | Y | Y | Y |
-| 4 | **A serial number follows its goods through a transfer** | **N** (D-STK-40; section 3, gap 1) | P | Y | Y | Y | Y |
+| 4 | **A serial number follows its goods through a transfer** | **Y** (built 2026-10-08, #1366; was D-STK-40) | P | Y | Y | Y | Y |
 | 5 | Transfer as a document with goods in transit | Y | P (stock journal; no transit) | Y | Y | Y | Y |
 | 6 | Count by location, blind, by plan | Y | P (physical stock voucher) | P | P | P | Y |
 | 7 | **A count typed or scanned elsewhere and brought in as a file** | N (gap 2) | Y (import) | Y | Y | Y | Y |

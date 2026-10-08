@@ -316,9 +316,20 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
 - **An export is the whole list.** It reads page after page until there are
   no more, quotes a field that holds a comma, and writes a cell beginning
   `=`, `+`, `-` or `@` as text (`app/core/utils/csv_text.py`; D-STK-33, 34).
-- **A serial number does not yet follow its goods through a transfer**
-  (D-STK-40, open): until it does, a serial-numbered unit moved to another
-  warehouse is refused at dispatch there.
+- **A serial number goes where its goods go** (D-STK-40). A serial records
+  the warehouse its unit is in and a dispatch refuses a unit that is not in
+  the warehouse the line ships from, so anything that moves serial-tracked
+  stock between warehouses names the units and moves them
+  (`app/inventory/services/transfer_serials.py`): `serial_ids` on
+  `POST /inventory/transfers` and on a transfer document's lines, and
+  `short_serial_ids` / `damaged_serial_ids` on its receipt. A unit in transit
+  is `IN_TRANSIT`, so nothing else can pick it; a damaged one lands `DAMAGED`
+  and is put back to `AVAILABLE` by hand on Serial Numbers when the blocked
+  stock is released. A line dispatched before this was built carries no
+  units and is received as a quantity. An opening stock line types its units
+  as a goods receipt does (`opening_serials.py`,
+  `opening_stock_line_serials`); a line naming none still posts, because
+  stores seeded or opened before this are already in that state.
 
 ## Where the code is
 

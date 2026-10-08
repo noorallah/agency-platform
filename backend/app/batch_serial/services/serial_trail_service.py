@@ -19,6 +19,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -36,6 +37,15 @@ DELIVERY_NOTE = "DELIVERY_NOTE"
 SALES_RETURN = "SALES_RETURN"
 GOODS_RECEIPT = "GOODS_RECEIPT"
 PURCHASE_RETURN = "PURCHASE_RETURN"
+#: A line of a stock transfer document: dispatched, in transit, received.
+STOCK_TRANSFER = "STOCK_TRANSFER"
+#: A one-step transfer, which has no document: the "line" is its outbound
+#: movement.
+STOCK_MOVE = "STOCK_MOVE"
+#: An opening stock line, where the trail of day-one units starts.
+OPENING_STOCK = "OPENING_STOCK"
+#: The documents a unit's trail can start on.
+ARRIVALS = frozenset({GOODS_RECEIPT, OPENING_STOCK})
 
 #: How many serials one statement asks about: psycopg refuses a statement of
 #: more than 65,535 parameters, and a receipt may carry thousands of units.
@@ -451,6 +461,80 @@ class SerialTrailService:
                     f"{label}: serial {serial.serial_number} is not in the "
                     "warehouse this line ships from."
                 )
+
+    @staticmethod
+    def on_shelf(warehouse_id: UUID | None) -> SerialCheck:
+        """Return the rule a unit must pass to be picked off this shelf."""
+
+        def _may_leave(serial: SerialNumber) -> str | None:
+            """Refuse a unit that is not on the shelf the line moves from."""
+            if serial.status != SerialStatus.AVAILABLE.value:
+                return f"is {serial.status}, not AVAILABLE."
+            if serial.warehouse_id != warehouse_id:
+                return "is not in the warehouse this line moves from."
+            return None
+
+        return _may_leave
+
+    def move_units(
+        self,
+        line: LineRef,
+        picks: Sequence[Pick],
+        *,
+        status: SerialStatus,
+        action: str,
+        reference: str,
+        actor_id: UUID,
+        movement: InventoryTransaction | None = None,
+        place: bool = False,
+        moved: Literal["set", "clear", "keep"] = "set",
+    ) -> None:
+        """Give the units a transfer line carries their new status and place.
+
+        A serial follows its goods (D-STK-40): ``place`` lands each unit where
+        ``movement`` put the stock -- its warehouse, branch and stock row --
+        which is what lets it be dispatched from there afterwards. ``moved``
+        says what becomes of the pick's own stamp: set when the line first
+        moves, cleared when that move is taken back, kept when a later step
+        of the same line only changes where the unit is.
+        """
+        moved_at = utc_now()
+        for pick, serial in picks:
+            before: dict[str, object] = {
+                "status": serial.status,
+                "warehouse_id": str(serial.warehouse_id or ""),
+            }
+            serial.status = status.value
+            if place and movement is not None:
+                serial.warehouse_id = movement.warehouse_id
+                serial.branch_id = movement.branch_id
+                serial.inventory_id = movement.inventory_id
+            serial.updated_by = actor_id
+            if moved == "set":
+                pick.moved_at = moved_at
+                pick.inventory_transaction_id = (
+                    movement.id if movement is not None else None
+                )
+            elif moved == "clear":
+                pick.moved_at = None
+                pick.inventory_transaction_id = None
+            pick.updated_by = actor_id
+            record_audit(
+                self._session,
+                action=action,
+                entity_type="serial_number",
+                entity_id=serial.id,
+                actor_id=actor_id,
+                firm_id=line.firm_id,
+                before_data=before,
+                after_data={
+                    "status": serial.status,
+                    "warehouse_id": str(serial.warehouse_id or ""),
+                    "document": reference,
+                    "serial_number": serial.serial_number,
+                },
+            )
+        self._session.flush()
 
     @staticmethod
     def deal(picks: Sequence[Pick], quantities: Sequence[Decimal]) -> list[list[Pick]]:

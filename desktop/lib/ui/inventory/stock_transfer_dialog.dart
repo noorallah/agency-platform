@@ -2,16 +2,25 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../../models/stock_transfer.dart';
 import '../workspace/save_in_dialog.dart';
+import '../workspace/serial_pick_chips.dart';
 
 /// A choice in one of the transfer dialog's pickers: an id and how it reads.
 class TransferOption {
-  const TransferOption({required this.id, required this.label});
+  const TransferOption({
+    required this.id,
+    required this.label,
+    this.trackSerial = false,
+  });
 
   final String id;
   final String label;
+
+  /// Whether the product carries a serial number on every unit.
+  final bool trackSerial;
 }
 
 class _LineDraft {
@@ -20,6 +29,9 @@ class _LineDraft {
   String? productId;
   String? batchId;
   List<TransferOption> batches = const [];
+  bool serialTracked = false;
+  List<String> serialIds = [];
+  List<PickedSerial> onShelf = const [];
   final TextEditingController quantity = TextEditingController();
 
   void dispose() => quantity.dispose();
@@ -39,11 +51,19 @@ class StockTransferDialog extends StatefulWidget {
     required this.onSave,
     this.existing,
     this.loadBatches,
+    this.loadSerials,
   });
 
   final List<TransferOption> warehouses;
   final List<TransferOption> products;
   final StockTransferRecord? existing;
+
+  /// The AVAILABLE serials of a product in a warehouse; null hides the
+  /// picker.
+  final Future<List<PickedSerial>> Function(
+    String productId,
+    String warehouseId,
+  )? loadSerials;
 
   /// Batches of a product in a warehouse; null hides the batch box.
   final Future<List<TransferOption>> Function(
@@ -86,7 +106,10 @@ class _StockTransferDialogState extends State<StockTransferDialog>
     for (final StockTransferLineRecord line in existing.lines) {
       final _LineDraft draft = _LineDraft()
         ..productId = line.productId
-        ..quantity.text = line.quantity;
+        ..quantity.text = line.quantity
+        ..serialTracked = line.serialTracked
+        ..serialIds = [for (final PickedSerial s in line.serials) s.id]
+        ..onShelf = line.serials;
       if (line.batchId.isNotEmpty) {
         draft.batchId = line.batchId;
         draft.batches = [
@@ -96,6 +119,9 @@ class _StockTransferDialogState extends State<StockTransferDialog>
       _lines.add(draft);
     }
     if (_lines.isEmpty) _lines.add(_LineDraft());
+    for (final _LineDraft draft in _lines) {
+      _refreshSerials(draft);
+    }
   }
 
   @override
@@ -114,8 +140,43 @@ class _StockTransferDialogState extends State<StockTransferDialog>
       draft.productId = productId;
       draft.batchId = null;
       draft.batches = const [];
+      draft.serialTracked = widget.products
+          .any((product) => product.id == productId && product.trackSerial);
+      draft.serialIds = [];
+      draft.onShelf = const [];
     });
     await _refreshBatches(draft);
+    await _refreshSerials(draft);
+  }
+
+  /// Read the units on the source shelf for a serial-tracked line. The ones the
+  /// saved draft already names stay offered even if the read fails.
+  Future<void> _refreshSerials(_LineDraft draft) async {
+    final String? productId = draft.productId;
+    final String? fromId = _fromId;
+    final loader = widget.loadSerials;
+    if (loader == null ||
+        !draft.serialTracked ||
+        productId == null ||
+        fromId == null) {
+      return;
+    }
+    List<PickedSerial> found = const [];
+    try {
+      found = await loader(productId, fromId);
+    } on ApiException {
+      found = const [];
+    }
+    if (!mounted || draft.productId != productId || _fromId != fromId) return;
+    setState(() {
+      final Set<String> known = {for (final PickedSerial s in found) s.id};
+      draft.onShelf = [
+        ...found,
+        for (final PickedSerial s in draft.onShelf)
+          if (draft.serialIds.contains(s.id) && !known.contains(s.id)) s,
+      ];
+      draft.serialIds.removeWhere((id) => !draft.onShelf.any((s) => s.id == id));
+    });
   }
 
   Future<void> _refreshBatches(_LineDraft draft) async {
@@ -139,9 +200,17 @@ class _StockTransferDialogState extends State<StockTransferDialog>
   }
 
   Future<void> _sourceChosen(String? id) async {
-    setState(() => _fromId = id);
+    setState(() {
+      _fromId = id;
+      // A unit is picked off one shelf; another source un-picks it.
+      for (final _LineDraft draft in _lines) {
+        draft.serialIds = [];
+        draft.onShelf = const [];
+      }
+    });
     for (final _LineDraft draft in _lines) {
       await _refreshBatches(draft);
+      await _refreshSerials(draft);
     }
   }
 
@@ -152,6 +221,8 @@ class _StockTransferDialogState extends State<StockTransferDialog>
               'product_id': draft.productId,
               if (draft.batchId != null) 'batch_id': draft.batchId,
               'quantity': draft.quantity.text.trim(),
+              if (draft.serialTracked && draft.serialIds.isNotEmpty)
+                'serial_ids': [...draft.serialIds],
             },
       ];
 
@@ -234,84 +305,119 @@ class _StockTransferDialogState extends State<StockTransferDialog>
         for (int index = 0; index < _lines.length; index++)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  flex: 3,
-                  child: DropdownButtonFormField<String>(
-                    key: ValueKey('transfer-product-$index'),
-                    isExpanded: true,
-                    initialValue: _lines[index].productId,
-                    decoration: const InputDecoration(labelText: 'Product'),
-                    items: [
-                      for (final TransferOption product in widget.products)
-                        DropdownMenuItem(
-                          value: product.id,
-                          child: Text(product.label,
-                              overflow: TextOverflow.ellipsis),
-                        ),
-                    ],
-                    onChanged: saving
-                        ? null
-                        : (value) =>
-                            _productChosen(_lines[index], value),
-                  ),
-                ),
-                if (widget.loadBatches != null) ...[
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    flex: 2,
-                    child: DropdownButtonFormField<String>(
-                      key: ValueKey(
-                        'transfer-batch-$index-${_lines[index].batches.length}',
-                      ),
-                      isExpanded: true,
-                      initialValue: _lines[index].batchId,
-                      decoration: const InputDecoration(
-                        labelText: 'Batch (optional)',
-                      ),
-                      items: [
-                        for (final TransferOption batch
-                            in _lines[index].batches)
-                          DropdownMenuItem(
-                            value: batch.id,
-                            child: Text(batch.label,
-                                overflow: TextOverflow.ellipsis),
-                          ),
-                      ],
-                      onChanged: saving || _lines[index].batches.isEmpty
-                          ? null
-                          : (value) =>
-                              setState(() => _lines[index].batchId = value),
+                _lineRow(index),
+                if (widget.loadSerials != null && _lines[index].serialTracked)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xs),
+                    child: SerialPickChips(
+                      title: 'Pick the units that are moving',
+                      onShelf: _lines[index].onShelf,
+                      picked: _lines[index].serialIds,
+                      needed: _unitsMoving(_lines[index]),
+                      enabled: !saving,
+                      onToggle: (id, picked) => setState(() {
+                        if (picked) {
+                          _lines[index].serialIds.add(id);
+                        } else {
+                          _lines[index].serialIds.remove(id);
+                        }
+                      }),
                     ),
                   ),
-                ],
-                const SizedBox(width: AppSpacing.md),
-                SizedBox(
-                  width: 110,
-                  child: TextField(
-                    key: ValueKey('transfer-quantity-$index'),
-                    controller: _lines[index].quantity,
-                    enabled: !saving,
-                    decoration: const InputDecoration(labelText: 'Quantity'),
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Remove line',
-                  onPressed: saving || _lines.length == 1
-                      ? null
-                      : () => setState(() {
-                            _lines.removeAt(index).dispose();
-                          }),
-                  icon: const Icon(Icons.close),
-                ),
               ],
             ),
           ),
       ],
     );
+  }
+
+  Widget _lineRow(int index) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 3,
+          child: DropdownButtonFormField<String>(
+            key: ValueKey('transfer-product-$index'),
+            isExpanded: true,
+            initialValue: _lines[index].productId,
+            decoration: const InputDecoration(labelText: 'Product'),
+            items: [
+              for (final TransferOption product in widget.products)
+                DropdownMenuItem(
+                  value: product.id,
+                  child: Text(product.label,
+                      overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: saving
+                ? null
+                : (value) =>
+                    _productChosen(_lines[index], value),
+          ),
+        ),
+        if (widget.loadBatches != null) ...[
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            flex: 2,
+            child: DropdownButtonFormField<String>(
+              key: ValueKey(
+                'transfer-batch-$index-${_lines[index].batches.length}',
+              ),
+              isExpanded: true,
+              initialValue: _lines[index].batchId,
+              decoration: const InputDecoration(
+                labelText: 'Batch (optional)',
+              ),
+              items: [
+                for (final TransferOption batch
+                    in _lines[index].batches)
+                  DropdownMenuItem(
+                    value: batch.id,
+                    child: Text(batch.label,
+                        overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: saving || _lines[index].batches.isEmpty
+                  ? null
+                  : (value) =>
+                      setState(() => _lines[index].batchId = value),
+            ),
+          ),
+        ],
+        const SizedBox(width: AppSpacing.md),
+        SizedBox(
+          width: 110,
+          child: TextField(
+            key: ValueKey('transfer-quantity-$index'),
+            controller: _lines[index].quantity,
+            enabled: !saving,
+            decoration: const InputDecoration(labelText: 'Quantity'),
+            keyboardType: TextInputType.number,
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+        IconButton(
+          tooltip: 'Remove line',
+          onPressed: saving || _lines.length == 1
+              ? null
+              : () => setState(() {
+                    _lines.removeAt(index).dispose();
+                  }),
+          icon: const Icon(Icons.close),
+        ),
+      ],
+    );
+  }
+
+  /// How many units the line moves, where the quantity is a whole number.
+  int? _unitsMoving(_LineDraft draft) {
+    final double? quantity = double.tryParse(draft.quantity.text.trim());
+    if (quantity == null || quantity != quantity.roundToDouble()) return null;
+    return quantity.toInt();
   }
 
   @override

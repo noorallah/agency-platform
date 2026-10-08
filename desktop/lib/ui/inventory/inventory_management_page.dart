@@ -15,6 +15,7 @@ import '../../models/adjustment_reason.dart';
 import '../../models/batch_serial.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
+import '../goods_receipts/serial_entry_dialog.dart' show parseSerialLines;
 import 'inventory_details_dialog.dart';
 import 'inventory_import_wizard.dart';
 import 'opening_stock_import_dialog.dart';
@@ -1695,6 +1696,24 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             row.productName.isEmpty ? row.productCode : row.productName,
         warehouseLabel: row.warehouseName,
         sourceWarehouseId: row.warehouseId,
+        trackSerial: _products
+            .any((item) => item.id == row.productId && item.trackSerial),
+        loadSerials: () async => [
+          for (final SerialRecord serial in await fetchAllPages<SerialRecord>(
+            (page) => widget.api.serials(
+              page: page,
+              pageSize: maxApiPageSize,
+              sortBy: 'serial_number',
+              descending: false,
+              filters: SerialQuery(
+                productId: row.productId,
+                warehouseId: row.warehouseId,
+                status: 'AVAILABLE',
+              ),
+            ),
+          ))
+            PickedSerial(id: serial.id, serialNumber: serial.serialNumber),
+        ],
         available: double.tryParse(row.availableQuantity) ?? 0,
         quarantined: double.tryParse(row.quarantineQuantity) ?? 0,
         reasons: reasons,
@@ -2718,7 +2737,8 @@ class _OpeningStockLineDraft {
     this.reorderLevel = '',
     this.safetyStock = '',
     this.remarks = '',
-  });
+    List<String>? serialNumbers,
+  }) : serialNumbers = serialNumbers ?? <String>[];
 
   String? productId;
   String? storageNodeId;
@@ -2735,6 +2755,11 @@ class _OpeningStockLineDraft {
   String safetyStock;
   String remarks;
 
+  /// The numbers typed for a serial-tracked product, one per unit. A draft
+  /// reopened resends what the response carried, because lines are replaced
+  /// wholesale on update.
+  List<String> serialNumbers;
+
   factory _OpeningStockLineDraft.fromRecord(OpeningStockLineRecord record) =>
       _OpeningStockLineDraft(
         productId: record.productId,
@@ -2749,6 +2774,7 @@ class _OpeningStockLineDraft {
         reorderLevel: record.reorderLevel,
         safetyStock: record.safetyStock,
         remarks: record.remarks,
+        serialNumbers: [...record.serialNumbers],
       );
 
   Json toJson() => {
@@ -2767,6 +2793,7 @@ class _OpeningStockLineDraft {
         if (safetyStock.trim().isNotEmpty)
           'safety_stock': num.parse(safetyStock.trim()),
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
+        if (serialNumbers.isNotEmpty) 'serial_numbers': [...serialNumbers],
       };
 }
 
@@ -3144,9 +3171,12 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
       TextEditingController(text: widget.line.safetyStock);
   late final TextEditingController _remarks =
       TextEditingController(text: widget.line.remarks);
+  late final TextEditingController _serials =
+      TextEditingController(text: widget.line.serialNumbers.join('\n'));
 
   @override
   void dispose() {
+    _serials.dispose();
     _quantity.dispose();
     _unitCost.dispose();
     _batchNumber.dispose();
@@ -3158,6 +3188,10 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
     _remarks.dispose();
     super.dispose();
   }
+
+  bool get _serialTracked => widget.products.any(
+        (item) => item.id == widget.line.productId && item.trackSerial,
+      );
 
   @override
   Widget build(BuildContext context) => Card(
@@ -3195,7 +3229,14 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                     )
                     .toList(),
                 onChanged: (value) {
-                  widget.line.productId = value;
+                  setState(() {
+                    widget.line.productId = value;
+                    // Numbers typed for one product are not another's.
+                    if (!_serialTracked) {
+                      widget.line.serialNumbers = [];
+                      _serials.clear();
+                    }
+                  });
                   // Start from the product's purchase price, the usual book
                   // value for day-one stock; the user can overwrite it.
                   final String cost = widget.products
@@ -3237,7 +3278,8 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                     child: TextField(
                       controller: _quantity,
                       decoration: const InputDecoration(labelText: 'Quantity'),
-                      onChanged: (value) => widget.line.quantity = value,
+                      onChanged: (value) =>
+                          setState(() => widget.line.quantity = value),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -3254,6 +3296,27 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                   ),
                 ],
               ),
+              if (_serialTracked) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  key: ValueKey('opening-serials-${widget.index}'),
+                  controller: _serials,
+                  minLines: 3,
+                  maxLines: 6,
+                  keyboardType: TextInputType.multiline,
+                  decoration: InputDecoration(
+                    labelText: 'Serial numbers',
+                    helperText: 'One per line, as scanned - '
+                        '${widget.line.serialNumbers.length} of '
+                        '${widget.line.quantity.trim().isEmpty ? '?' : widget.line.quantity.trim()}'
+                        ' entered. Leave blank to number the units later.',
+                    helperMaxLines: 2,
+                  ),
+                  onChanged: (value) => setState(
+                    () => widget.line.serialNumbers = parseSerialLines(value),
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [

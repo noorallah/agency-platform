@@ -3,9 +3,16 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 
 class InventoryStatus(StrEnum):
@@ -59,6 +66,10 @@ class InventoryTransactionType(StrEnum):
 #: the column holds. Filters and responses both take a plain string for that
 #: reason.
 REVERSAL_SUFFIX = "_REVERSAL"
+
+
+#: One serial number as typed; the service trims it and compares without case.
+SerialText = Annotated[str, StringConstraints(max_length=200)]
 
 
 class OpeningStockStatus(StrEnum):
@@ -352,6 +363,11 @@ class OpeningStockLineWrite(InventorySchema):
     reorder_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
     safety_stock: Decimal | None = Field(default=None, ge=0, max_digits=18)
     remarks: str | None = None
+    #: The units of a serial-tracked product, typed or scanned (D-STK-40). A
+    #: draft may hold some; posting a line that names any asks for one per
+    #: unit of its stock quantity. A draft's lines are replaced on every
+    #: save, so the form sends back what the line held, as it does the cost.
+    serial_numbers: list[SerialText] | None = Field(default=None, max_length=10000)
 
 
 class OpeningStockLineCreate(OpeningStockLineWrite):
@@ -386,6 +402,11 @@ class OpeningStockLineResponse(InventorySchema):
     safety_stock: Decimal | None
     remarks: str | None
     transaction_id: UUID | None
+    #: Whether the product carries a serial per unit, so the line takes
+    #: ``serial_numbers`` (D-STK-40).
+    serial_tracked: bool = False
+    #: The serials the line holds, in the order they were entered.
+    serial_numbers: list[str] = Field(default_factory=list)
 
 
 class OpeningStockBatchWrite(InventorySchema):
@@ -592,6 +613,9 @@ class StockTransferCreate(InventorySchema):
     attachments: list[StockAttachmentWrite] = Field(
         default_factory=list, max_length=MAX_STOCK_ATTACHMENTS
     )
+    #: Which units move, for a serial-tracked product going to another
+    #: warehouse: one per unit, each AVAILABLE in the source (D-STK-40).
+    serial_ids: list[UUID] = Field(default_factory=list, max_length=10000)
 
     @model_validator(mode="after")
     def _somewhere_else(self) -> "StockTransferCreate":

@@ -8,6 +8,7 @@ from sqlalchemy import (
     Date,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -593,3 +594,46 @@ class OpeningStockLine(BaseEntity):
     )
 
     batch: Mapped[OpeningStockBatch] = relationship(back_populates="lines")
+
+
+class OpeningStockLineSerial(BaseEntity):
+    """One serial number typed on an opening stock line (D-STK-40).
+
+    Day-one stock of a serial-numbered product is units like any other, and
+    until this table an opening stock line could only say how many. Held in
+    the order typed while the document is a draft; posting turns each into a
+    ``serial_numbers`` row in the document's warehouse, its first pick the
+    opening stock line -- the shape ``goods_receipt_line_serials`` has.
+    """
+
+    __tablename__ = "opening_stock_line_serials"
+    __table_args__ = (
+        UniqueConstraint(
+            "opening_stock_line_id",
+            "position",
+            name="UQ_opening_stock_line_serials_line_position",
+        ),
+        Index(
+            "IX_opening_stock_line_serials_firm_batch",
+            "firm_id",
+            "opening_stock_batch_id",
+        ),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    opening_stock_batch_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("opening_stock_batches.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    opening_stock_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("opening_stock_lines.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    #: Where the serial sits in the list the person typed, from 1.
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Trimmed, case kept as typed; compared without regard to case.
+    serial_number: Mapped[str] = mapped_column(String(200), nullable=False)
