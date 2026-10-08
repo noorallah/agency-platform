@@ -344,6 +344,20 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
   cannot take held stock. A row that covers its holds is read exactly as
   before. Anything else that gates on `available` for an order's own goods
   has to ask the same question.
+- **A repack draws from the batches, and names no units** (D-STK-51,
+  D-STK-52). A product held in batches is several stock rows, and a consume
+  line naming no batch used to be read against the row with no batch: a kit
+  with a batch-tracked part was refused with "free 0" beside a full shelf.
+  `RepackService._lines_by_batch` splits such a line the way a dispatch is
+  split (`allocate_for_repack`: earliest expiry first, expired and
+  stop-selling stock passed over and named) and writes one repack line per
+  batch, which is what lets a cancel put each batch back. Kits are assembled
+  through the same call, so the rule is theirs too. A serial-tracked product
+  is refused on either side of a repack and as a kit's part, because a
+  quantity moved with no unit named leaves the units reading AVAILABLE for
+  goods that are gone. Still open: a *produced* line of a batch-tracked
+  product lands on the row with no batch (D-STK-53), and stock in a bin is
+  seen only by a line that names the bin (D-STK-54).
 
 ## Where the code is
 
