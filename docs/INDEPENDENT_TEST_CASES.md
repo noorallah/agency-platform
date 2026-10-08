@@ -2568,6 +2568,17 @@ the fixture builds (a minute or two).
 - **Leaves:** five posted repacks; two kits in KX.
 
 
+### TC-STOCK-032 — An opening-stock import refused at posting writes nothing
+
+*Added 2026-10-09 with inventory round 8 (D-STK-56). Driven over HTTP by `docs/qa/checks/inventory/p_opening_import_json.py`.*
+
+- **Covers:** D-STK-56
+- **Fixture:** `selling-firm`
+- **Also needs:** two plain products **P1** and **P2** holding nothing in MAIN, with no opening stock posted for either.
+- **Steps:** **(HTTP)** as the fixture's **Firm admin** (no screen offers this route; Opening Stock's **Import from file** is another route, over HTTP in `p_opening_import.py`): `POST /api/v1/inventory/opening-stock/import` as a form with `format=json` and a `payload` of one line. (1) Reference **OS-A**, 10 of P1. (2) Reference **OS-B**, 10 of P1 again. (3) Reference **OS-B**, 4 of P2. (4) Reference **OS-C**, 1 of P2 with `auto_post` false.
+- **Expect:** (1) **201**, the document is POSTED and MAIN holds 10 of P1. (2) **422**, "Line 1 already has posted opening stock in this warehouse (OS-A). Opening stock is posted once per item; correct it with a stock adjustment."; the Opening Stock list shows **no** document OS-B and P1 still holds 10. (3) **201**, POSTED under OS-B: the refused import did not use the number up; MAIN holds 4 of P2. (4) **201**, a DRAFT that stocks nothing.
+- **Leaves:** two posted opening-stock documents and one draft.
+
 
 
 ### Known defects found while writing these cases

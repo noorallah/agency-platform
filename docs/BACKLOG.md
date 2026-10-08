@@ -3046,6 +3046,8 @@ good enough that onboarding is a day's work rather than a project.
   Stock screen has **Import from file** (the shared wizard with a posting
   date). The old `POST /inventory/opening-stock/import` (one warehouse,
   product ids, stops at the first problem) is kept and has no desktop caller.
+  With `auto_post` it saves and posts in one transaction, so a refused posting
+  leaves no draft holding the reference number (D-STK-56, 2026-10-09).
 - Smaller: the customer opening balance posts dated **today**, not a chosen
   cutover date, and firm readiness has no "opening balances" or "masters loaded"
   step, so nothing tells a firm its cutover is incomplete.
