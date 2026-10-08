@@ -99,4 +99,15 @@ void main() {
     expect(controller.attributeDefinitions.map((d) => d.code), ['PACK_SIZE'],
         reason: 'so the fields the metadata names can be resolved');
   });
+
+  test('a page closed while its lists load is not told about them (D-UI-86)',
+      () async {
+    final ProductController controller = ProductController(_Api());
+
+    final Future<void> loading = controller.bootstrap();
+    controller.dispose();
+
+    await expectLater(loading, completes,
+        reason: 'a disposed notifier throws when it is asked to notify');
+  });
 }

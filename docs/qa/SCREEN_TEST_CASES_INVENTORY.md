@@ -218,6 +218,18 @@ which batch the part came from. It needs `INVSCR-B` to hold a live batch
 | SC-ST-096 | Positive | FA | Pick the kit; **Assemble kits**; MAIN, 1; **Assemble** | No batch box (the kit is not kept in batches); "Kits assembled as RPK-...."; one kit more; `INVSCR-B` holds one less, taken from a batch; no batch row below nought and no row without a batch |
 | SC-ST-097 | Positive | FA | Pick the kit; **Disassemble kits**; MAIN, 1; the batch box empty; **Disassemble** | "Kits disassembled as RPK-...."; one kit fewer; the part is back in the batch the assembly took it from |
 
+### Round 6: a kit kept in batches, and Home's reorder row (SC-ST-098, 099)
+
+Added 2026-10-09 with round 6 (D-UI-85). Part `round6` of `sc_st_test.dart`.
+The flow makes its own kit `R6K...` under the category of `INVSCR-B`, so the
+kit is itself kept in batches, with one `INVSCR-N` a kit. It needs
+`INVSCR-N` and `INVSCR-N2` to hold stock in MAIN.
+
+| Id | Kind | User | Steps on screen | Expected on screen |
+| --- | --- | --- | --- | --- |
+| SC-ST-098 | Negative, then positive | FA | Masters > Products; pick the kit; **Assemble kits**; branch, MAIN, Number of kits 1; leave **Batch number** empty; **Assemble**. Then type a new batch number and an expiry date a year on; **Assemble** | The dialog shows **Batch number** ("The batch the kits go into") and **Expiry date**. Empty: "... is kept in batches. Name the batch the repacked goods go into: one it already has, or a new number with its dates." inside the dialog, which stays open; no repack saved; `INVSCR-N` unchanged. Typed: "Kits assembled as RPK-...."; one more repack; the kit holds 1 in the batch typed and in no other row; `INVSCR-N` holds one less; no overflow |
+| SC-ST-099 | Positive | FA | Give `INVSCR-N2` a reorder level five above what the firm has free of it (Stock > Inventory, the row's levels); Home; read the stock rows of TO DO; take the level off again | The server counts one more item *below reorder level*; Home shows the row "N below reorder level" with that count beside it, and the other rows as SC-ST-093; with the level off the count is back. The alert is the item's across the firm: what is free in every warehouse is added up against the level |
+
 ## Role cases (stock)
 
 | Id | Kind | User | Steps | Expected |

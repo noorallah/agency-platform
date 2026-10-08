@@ -154,12 +154,13 @@ class ProductController extends ChangeNotifier {
         priceLevels = null;
       }
     }
-    notifyListeners();
+    // The page may have closed while the reference lists were on their way.
+    if (!_disposed) notifyListeners();
   }
 
   Future<ProductMetadataRecord> metadataForCategory(String categoryId) async {
     metadata = await _api.productMetadata(categoryId: categoryId);
-    notifyListeners();
+    if (!_disposed) notifyListeners();
     return metadata;
   }
 
