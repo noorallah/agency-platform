@@ -6437,3 +6437,18 @@ Not taken up: relabelling a heading by trade (Marg only), and a company-level sw
 Everything else waits for a customer to ask. **Do not chase breadth:** the product is strongest where it is particular about distribution -- the buying and selling chain, schemes, routes, expiry and licences -- and a feature added only because a larger tool has it costs upkeep without giving anybody a reason to buy.
 
 **Order.** (1) the goods type, the two columns, the migration and the seeds; (2) product save and the product form; (3) unit sets and their picker on the product form; (4) batch and serial checks; (5) extra fields and compulsory rules; (6) menus, import, the profile clean-up and the docs; (7) a closing sweep that answers every row of the clean-up table above, adds the guard test for the removed names, and lists, in the PR, what was removed and what was found unused but left alone; then the independent pass with the owner. Each step merges on its own and leaves the application working.
+
+## 90. Inventory: gaps left after the 2026-10-08 round
+
+From `docs/qa/INVENTORY_MARKET_GAPS_2026-10-08.md`, compared with Tally Prime,
+Marg, Busy, Zoho Inventory and ERPNext. Decided by their convention; each may
+be overruled.
+
+| # | Gap | Size | Decision |
+| --- | --- | --- | --- |
+| 1 | Serial numbers named on the one-step transfer, on the transfer document (dispatch, receive, short and damaged) and on an opening stock line; the serial's warehouse follows the goods | M | **Build next** (D-STK-40): the next unit of the inventory pass |
+| 2 | A count typed or scanned elsewhere and brought in as a file, on the import framework | M | Should have; after gap 1 |
+| 3 | Costing methods other than the moving weighted average (FIFO per item) | L | Not asked for; average is one of the two methods AS 2 allows |
+| 4 | A firm's switch for selling below zero stock (allow, warn, refuse) | S | Low; dispatch refuses today, and a product may be marked to run below zero |
+| 5 | Freezing stock while a count is open | M | Not built; the count adjusts by difference, as the others do |
+| 6 | A transfer between two GST registrations of one firm billed as a supply, with its e-way bill | M | For the compliance pass; needs the accountant's reading |

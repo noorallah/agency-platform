@@ -18,9 +18,11 @@ from uuid import UUID
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.models import BatchRecord
 from app.branches.models import Warehouse, WarehouseStorageNode
 from app.common.audit.services import record_audit
 from app.common.report_names import warehouse_names
+from app.core.concurrency import assert_version
 from app.core.exceptions import (
     ConflictError,
     ResourceNotFoundError,
@@ -178,7 +180,12 @@ class PhysicalCountService(TransactionalDocumentService):
     # ------------------------------------------------------------------
 
     def create(
-        self, data: PhysicalCountCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: PhysicalCountCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        lines_from_stock: bool = False,
     ) -> PhysicalCount:
         """Open a sheet, drawn up from what the warehouse currently holds.
 
@@ -189,13 +196,29 @@ class PhysicalCountService(TransactionalDocumentService):
         location, as the stock is held. A line keyed on the product alone
         measured every bin summed and posted onto ROOT, so the total came out
         right and the rows wrong (D-STK-13).
+
+        ``lines_from_stock`` says the lines were read off the stock rows
+        rather than typed -- a count plan drawing its sheet -- so they are
+        listed as held, the way a whole-warehouse sheet lists them.
+
+        Raises:
+            ValidationError: If the branch, warehouse, a bin, or a named
+                line's product or batch is not the firm's own (F8).
+
         """
         wanted: list[tuple[_LineKey, PhysicalCountLineWrite | None]] = [
             (self._key(line), line) for line in data.lines
         ]
         # Checked before a number is reserved, so a refused sheet spends none.
         self._require_distinct([key for key, _ in wanted])
-        self._require_locations_in(data.warehouse_id, {key[2] for key, _ in wanted})
+        self.require_place(
+            firm_id=firm_id,
+            branch_id=data.branch_id,
+            warehouse_id=data.warehouse_id,
+            storage_node_ids={key[2] for key, _ in wanted},
+        )
+        if not lines_from_stock:
+            self._require_own_products([key for key, _ in wanted], firm_id=firm_id)
         _, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -274,6 +297,7 @@ class PhysicalCountService(TransactionalDocumentService):
         *,
         firm_id: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> PhysicalCount:
         """Record what was found, on a sheet nobody has posted yet.
 
@@ -281,8 +305,12 @@ class PhysicalCountService(TransactionalDocumentService):
         location. One that matches no line is refused rather than dropped: a
         count typed against a bin the sheet does not hold would otherwise
         vanish while the save reported success.
+
+        ``expected_version`` is the version the caller read; a save aimed at
+        an older one is refused rather than laid over the newer (F15).
         """
         row = self.get(count_id, firm_id=firm_id)
+        assert_version(row.version, expected_version)
         self._require_draft(row)
         self._require_distinct([self._key(line) for line in data.lines])
         counted = {self._key(line): line for line in data.lines}
@@ -543,6 +571,78 @@ class PhysicalCountService(TransactionalDocumentService):
             raise ValidationError(
                 "The same product, batch and storage location is named twice."
             )
+
+    def require_place(
+        self,
+        *,
+        firm_id: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_ids: set[UUID | None],
+    ) -> None:
+        """Refuse a branch, warehouse or bin that is not the firm's own (F8).
+
+        A sheet was opened on another firm's warehouse id, and on a warehouse
+        under a different branch than the one named; the post was refused
+        later for the product and never for the place. The branch and
+        warehouse are judged by the check every other stock write makes, so
+        the refusal reads the same. A count plan asks the same question.
+
+        Raises:
+            ValidationError: If the branch is not the firm's, the warehouse
+                is not a live one under that branch, or a bin is not in it.
+
+        """
+        self._inventory._validate_branch_warehouse_scope(
+            firm_id=firm_id, branch_id=branch_id, warehouse_id=warehouse_id
+        )
+        self._require_locations_in(warehouse_id, storage_node_ids)
+
+    def _require_own_products(self, keys: list[_LineKey], *, firm_id: UUID) -> None:
+        """Refuse a named line whose product or batch is not the firm's (F8).
+
+        Only lines somebody named are judged; a sheet drawn from the whole
+        warehouse lists what is held, whatever has since happened to it. One
+        read for the products and one for the batches, however long the
+        sheet.
+
+        Raises:
+            ValidationError: Naming the first line at fault.
+
+        """
+        if not keys:
+            return
+        products = set(
+            self._session.scalars(
+                select(Product.id).where(
+                    Product.id.in_({key[0] for key in keys}),
+                    Product.firm_id == firm_id,
+                    Product.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        batch_ids = {key[1] for key in keys if key[1] is not None}
+        batches: dict[UUID, UUID] = {}
+        if batch_ids:
+            for batch_id, product_id in self._session.execute(
+                select(BatchRecord.id, BatchRecord.product_id).where(
+                    BatchRecord.id.in_(batch_ids),
+                    BatchRecord.firm_id == firm_id,
+                    BatchRecord.is_deleted.is_(False),
+                )
+            ).all():
+                batches[batch_id] = product_id
+        for number, (product_id, batch_id, _) in enumerate(keys, start=1):
+            if product_id not in products:
+                raise ValidationError(
+                    f"Line {number} names a product that is not one of this "
+                    "firm's products."
+                )
+            if batch_id is not None and batches.get(batch_id) != product_id:
+                raise ValidationError(
+                    f"Line {number} names a batch that is not one of its "
+                    "product's batches in this firm."
+                )
 
     def _require_locations_in(
         self, warehouse_id: UUID, storage_node_ids: set[UUID | None]

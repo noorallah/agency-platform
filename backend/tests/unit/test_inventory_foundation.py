@@ -243,11 +243,17 @@ def test_opening_stock_post_creates_inventory_and_immutable_history() -> None:
 
 
 def test_adjustment_updates_projection_and_negative_stock_summary() -> None:
-    """An issue larger than the balance is allowed and reported as negative."""
+    """An issue larger than the balance is reported as negative.
+
+    Only for a product the firm lets run below zero: any other is refused
+    (inventory round 1, F4; ``test_inventory_round_1_a.py``).
+    """
     session = _session_factory()()
     firm = _firm(session, "NEG")
     profile = _profile(session, firm.id)
     branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    product.allow_negative_stock = True
+    session.commit()
     service = InventoryService(session)
     actor_id = uuid4()
 

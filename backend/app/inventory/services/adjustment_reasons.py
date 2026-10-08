@@ -14,9 +14,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.finance.models import LedgerAccount
+from app.finance.models import FirmControlAccount, LedgerAccount
+from app.finance.services.control_accounts import (
+    EXPECTED_TYPE,
+    PURPOSE_LABELS,
+    ControlAccountPurpose,
+)
 from app.inventory.models.adjustment_reason import StockAdjustmentReason
 
 #: The reasons the code knew before they were a master, in their order. The
@@ -31,6 +37,20 @@ SYSTEM_REASONS: tuple[tuple[str, str], ...] = (
     ("FREE_TO_CUSTOMER", "Given free to customer"),
     ("SAMPLE", "Sample"),
 )
+
+
+def _a(account_type: str) -> str:
+    """Return an account type as it reads in a sentence: "an asset"."""
+    word = account_type.lower()
+    return f"{'an' if word[:1] in 'aeiou' else 'a'} {word}"
+
+
+def _purpose_label(purpose: str) -> str:
+    """Return a control-account purpose as the firm's screens name it."""
+    try:
+        return PURPOSE_LABELS[ControlAccountPurpose(purpose)]
+    except (KeyError, ValueError):
+        return purpose.replace("_", " ").lower()
 
 
 class AdjustmentReasonWrite(BaseModel):
@@ -160,14 +180,19 @@ class AdjustmentReasonService:
         *,
         firm_id: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> AdjustmentReasonResponse:
         """Change one reason; a system reason keeps its code.
+
+        ``expected_version`` is the version the caller read; a save aimed at
+        an older one is refused rather than laid over the newer (F15).
 
         Raises:
             ValidationError: If a system reason's code would change.
 
         """
         row = self._get(reason_id, firm_id)
+        assert_version(row.version, expected_version)
         if data.code != row.code:
             if row.is_system:
                 raise ValidationError(
@@ -225,9 +250,28 @@ class AdjustmentReasonService:
             raise ConflictError(f"There is already a reason {code}.")
 
     def _assert_account(self, firm_id: UUID, account_id: UUID | None) -> None:
-        """Refuse an account that is not one of the firm's live accounts."""
+        """Refuse an account a stock difference must not be booked to.
+
+        A reason's account takes the other side of the Inventory entry, so it
+        has to be a profit-and-loss account -- the same classes the firm's
+        own Inventory adjustment account may be. Pointed at Inventory itself
+        a write-off lowered the valuation and left the books where they were;
+        pointed at Cash or Payables it moved a balance nobody paid (F9).
+
+        One of the firm's control accounts is refused as well, unless it is
+        one stock differences already post to (inventory adjustment, stock
+        used in business, staff welfare, samples, promotion): Sales and Cost
+        of goods sold are profit-and-loss accounts too, and a write-off does
+        not belong in either.
+
+        Raises:
+            ValidationError: Naming the account and the kind that is needed.
+
+        """
         if account_id is None:
             return
+        from app.inventory.services.inventory_service import ISSUE_PURPOSES
+
         account = self._session.get(LedgerAccount, account_id)
         if (
             account is None
@@ -236,6 +280,32 @@ class AdjustmentReasonService:
             or not account.is_active
         ):
             raise ValidationError("That ledger account is not one of this firm's.")
+        named = f"{account.code} {account.name}"
+        allowed_types = EXPECTED_TYPE[ControlAccountPurpose.INVENTORY_ADJUSTMENT]
+        if account.account_type not in allowed_types:
+            raise ValidationError(
+                f"{named} is {_a(account.account_type)} account, so a stock "
+                "adjustment reason cannot post to it. Choose an expense "
+                "account (or an income account for stock gains)."
+            )
+        stock_purposes = {ControlAccountPurpose.INVENTORY_ADJUSTMENT.value} | {
+            purpose.value for purpose in ISSUE_PURPOSES.values()
+        }
+        mapped = set(
+            self._session.scalars(
+                select(FirmControlAccount.purpose).where(
+                    FirmControlAccount.firm_id == firm_id,
+                    FirmControlAccount.ledger_account_id == account.id,
+                    FirmControlAccount.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        if mapped and not mapped & stock_purposes:
+            raise ValidationError(
+                f"{named} is the firm's {_purpose_label(sorted(mapped)[0])} "
+                "account, so a stock adjustment reason cannot post to it. "
+                "Choose an expense account kept for stock differences."
+            )
 
     def _audit(self, action: str, row: StockAdjustmentReason, actor_id: UUID) -> None:
         """Write one audit row for a change to a reason."""

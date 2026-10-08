@@ -15,20 +15,16 @@ from app.batch_serial.schemas import (
     BatchResponse,
     BatchSaleSettingsResponse,
     BatchSaleSettingsWrite,
-    BatchStatus,
     BatchSummary,
     BatchUpdate,
     ExpiryDashboard,
     LotCreate,
     LotListFilters,
     LotResponse,
-    LotStatus,
-    LotType,
     LotUpdate,
     SerialCreate,
     SerialListFilters,
     SerialResponse,
-    SerialStatus,
     SerialUpdate,
 )
 from app.batch_serial.schemas.batch_serial import ReturnDueResponse, SerialTrail
@@ -47,6 +43,7 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.validation.payloads import parse_filters
 
 router = APIRouter(
     prefix="/api/v1/batch-serial",
@@ -87,16 +84,17 @@ def list_batches(
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[BatchResponse]:
     """Return a page of batches for the firm in scope."""
-    from datetime import date as _date
-
     params = PaginationParams(page=page, page_size=page_size)
-    filters = BatchListFilters(
-        product_id=product_id,
-        warehouse_id=warehouse_id,
-        branch_id=branch_id,
-        status=BatchStatus(status_value) if status_value else None,
-        expiry_before=_date.fromisoformat(expiry_before) if expiry_before else None,
-        expiry_after=_date.fromisoformat(expiry_after) if expiry_after else None,
+    filters = parse_filters(
+        BatchListFilters,
+        {
+            "product_id": product_id,
+            "warehouse_id": warehouse_id,
+            "branch_id": branch_id,
+            "status": status_value or None,
+            "expiry_before": expiry_before or None,
+            "expiry_after": expiry_after or None,
+        },
     )
     service = BatchSerialService(db)
     rows, total = service.list_batches(
@@ -333,12 +331,15 @@ def list_lots(
 ) -> PaginatedResponse[LotResponse]:
     """Return a page of production lots."""
     params = PaginationParams(page=page, page_size=page_size)
-    filters = LotListFilters(
-        product_id=product_id,
-        warehouse_id=warehouse_id,
-        branch_id=branch_id,
-        status=LotStatus(status_value) if status_value else None,
-        lot_type=LotType(lot_type_value) if lot_type_value else None,
+    filters = parse_filters(
+        LotListFilters,
+        {
+            "product_id": product_id,
+            "warehouse_id": warehouse_id,
+            "branch_id": branch_id,
+            "status": status_value or None,
+            "lot_type": lot_type_value or None,
+        },
     )
     service = BatchSerialService(db)
     rows, total = service.list_lots(
@@ -446,12 +447,15 @@ def list_serials(
 ) -> PaginatedResponse[SerialResponse]:
     """Return a page of serial numbers."""
     params = PaginationParams(page=page, page_size=page_size)
-    filters = SerialListFilters(
-        product_id=product_id,
-        warehouse_id=warehouse_id,
-        branch_id=branch_id,
-        batch_id=batch_id,
-        status=SerialStatus(status_value) if status_value else None,
+    filters = parse_filters(
+        SerialListFilters,
+        {
+            "product_id": product_id,
+            "warehouse_id": warehouse_id,
+            "branch_id": branch_id,
+            "batch_id": batch_id,
+            "status": status_value or None,
+        },
     )
     service = BatchSerialService(db)
     rows, total = service.list_serials(

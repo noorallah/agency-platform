@@ -18,6 +18,7 @@ from app.batch_serial.services.batch_serial_service import (
     assert_trade_rates_within_mrp,
     expiry_from_shelf_life,
 )
+from app.batch_serial.services.product_tracking import assert_date_order
 from app.branches.models import Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
@@ -1751,6 +1752,15 @@ class GoodsReceiptService(TransactionalDocumentService):
                 expiry_date = expiry_from_shelf_life(
                     line.manufacturing_date, shelf_life
                 )
+            # The batch master's own check and sentence (D-STK-23): a receipt
+            # took an expiry before the manufacturing date and made the batch
+            # the register itself would have refused (F10). Refused on the
+            # draft, before anything is stocked.
+            assert_date_order(
+                manufacturing_date=line.manufacturing_date,
+                expiry_date=expiry_date,
+                best_before_date=None,
+            )
             row = GoodsReceiptLine(
                 goods_receipt_id=receipt.id,
                 firm_id=firm_id,

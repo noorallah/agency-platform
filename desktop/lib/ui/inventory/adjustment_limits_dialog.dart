@@ -111,7 +111,8 @@ class _AdjustmentLimitsDialogState
           }
           if (value == null || value < 0) {
             throw ApiException(
-              'The limit for $role must be an amount of zero or more.',
+              'The limit for ${_roleNames[role] ?? role} must be an amount '
+              'of zero or more.',
             );
           }
           limits.add(

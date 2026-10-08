@@ -25,7 +25,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.utils.money import quantize_ledger
@@ -113,14 +113,21 @@ class StockValuationService:
             ).all()
         }
         rates = self._rates(firm_id, on)
+        # The six columns the report shows, for the firm's products: whole
+        # rows of five thousand products were most of what this report took.
         products = {
             product.id: product
-            for product in self._session.scalars(
-                select(Product).where(
-                    Product.firm_id == firm_id,
-                    Product.id.in_(list(quantities) or [None]),
-                )
+            for product in self._session.execute(
+                select(
+                    Product.id,
+                    Product.code,
+                    Product.name,
+                    Product.category_id,
+                    Product.goods_type_id,
+                    Product.base_uom_id,
+                ).where(Product.firm_id == firm_id)
             )
+            if product.id in quantities
         }
         categories: dict[UUID | None, str] = {
             category_id: name
@@ -188,7 +195,28 @@ class StockValuationService:
         return self._rates(firm_id, on)
 
     def _rates(self, firm_id: UUID, on: date) -> dict[UUID, Decimal]:
-        """Each product's moving-average cost after its last costed movement."""
+        """Each product's moving-average cost after its last costed movement.
+
+        Asked in two steps, because ranking every costed movement the firm
+        ever made is a sort of the whole ledger (six seconds on PERF01): the
+        last costed day of each product is one grouped pass, and only that
+        day's rows are ranked to pick the last of them.
+        """
+        costed = (
+            StockLedgerEntry.firm_id == firm_id,
+            StockLedgerEntry.is_deleted.is_(False),
+            StockLedgerEntry.transaction_date <= on,
+            StockLedgerEntry.average_cost_after.is_not(None),
+        )
+        last_day = (
+            select(
+                StockLedgerEntry.product_id.label("product_id"),
+                func.max(StockLedgerEntry.transaction_date).label("day"),
+            )
+            .where(*costed)
+            .group_by(StockLedgerEntry.product_id)
+            .subquery()
+        )
         ranked = (
             select(
                 StockLedgerEntry.product_id.label("product_id"),
@@ -197,19 +225,20 @@ class StockValuationService:
                 .over(
                     partition_by=StockLedgerEntry.product_id,
                     order_by=(
-                        StockLedgerEntry.transaction_date.desc(),
                         StockLedgerEntry.created_at.desc(),
                         StockLedgerEntry.id.desc(),
                     ),
                 )
                 .label("rank"),
             )
-            .where(
-                StockLedgerEntry.firm_id == firm_id,
-                StockLedgerEntry.is_deleted.is_(False),
-                StockLedgerEntry.transaction_date <= on,
-                StockLedgerEntry.average_cost_after.is_not(None),
+            .join(
+                last_day,
+                and_(
+                    last_day.c.product_id == StockLedgerEntry.product_id,
+                    last_day.c.day == StockLedgerEntry.transaction_date,
+                ),
             )
+            .where(*costed)
             .subquery()
         )
         return {
@@ -425,46 +454,50 @@ class StockStatementService:
             filters.append(InventoryTransaction.warehouse_id == warehouse_id)
         else:
             filters.append(InventoryTransaction.transaction_type.not_in(_INTERNAL))
+        # Asked of the period's movements only, and added up by the database:
+        # a year of a busy firm is a row per movement, and reading each one
+        # here to add it up took the report past half a minute on PERF01.
         cost = (
             select(
                 StockLedgerEntry.transaction_id,
                 func.sum(func.coalesce(StockLedgerEntry.total_cost, 0)).label("cost"),
             )
+            .where(
+                StockLedgerEntry.firm_id == firm_id,
+                StockLedgerEntry.transaction_id.in_(
+                    select(InventoryTransaction.id).where(*filters)
+                ),
+            )
             .group_by(StockLedgerEntry.transaction_id)
             .subquery()
         )
+        moved = func.coalesce(owned, 0)
+        value = func.coalesce(cost.c.cost, 0)
+        # Freight added to stock on hand (BUY-16) is value in with no
+        # quantity; a cancelled voucher's movement takes it out.
+        landed = InventoryTransaction.transaction_type == "LANDED_COST"
         result: dict[
             str, tuple[Decimal, Decimal, Decimal, tuple[str, str, str] | None]
         ] = {}
-        for code, name, quantity, value, kind in self._session.execute(
+        for code, name, inward, inward_value, outward in self._session.execute(
             select(
                 Product.code,
-                Product.name,
-                owned,
-                func.coalesce(cost.c.cost, 0),
-                InventoryTransaction.transaction_type,
+                func.max(Product.name),
+                func.sum(case((moved > 0, moved), else_=0)),
+                func.sum(case((moved > 0, func.abs(value)), (landed, value), else_=0)),
+                func.sum(
+                    case((moved > 0, 0), (landed, 0), (moved < 0, -moved), else_=0)
+                ),
             )
             .join(Product, Product.id == InventoryTransaction.product_id)
             .outerjoin(cost, cost.c.transaction_id == InventoryTransaction.id)
             .where(*filters)
+            .group_by(Product.code)
         ).all():
-            moved = Decimal(str(quantity or 0))
-            inward, inward_value, outward, _ = result.get(
-                code, (ZERO, ZERO, ZERO, None)
-            )
-            if moved > ZERO:
-                inward += moved
-                inward_value += abs(Decimal(str(value or 0)))
-            elif kind == "LANDED_COST":
-                # Freight added to stock on hand (BUY-16): value in, no
-                # quantity; a cancelled voucher's movement takes it out.
-                inward_value += Decimal(str(value or 0))
-            elif moved < ZERO:
-                outward += -moved
             result[code] = (
-                inward,
-                quantize_ledger(inward_value),
-                outward,
+                Decimal(str(inward or 0)),
+                quantize_ledger(Decimal(str(inward_value or 0))),
+                Decimal(str(outward or 0)),
                 (name, "", ""),
             )
         return result

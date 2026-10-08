@@ -2236,8 +2236,8 @@ the fixture builds (a minute or two).
 
 - **Covers:** plan 8.4
 - **Fixture:** `stock-ready`
-- **Steps:** as the fixture's **Firm admin**, Stock > **Physical Count** → **Open Count**: branch HO, warehouse MAIN, today → Open. On the sheet find `<SUFFIX>-P - Fixture Product <suffix>` (code and name, never an id); type **49** in Counted (Expected is 50); leave every other line blank. **Save progress**, close, reopen from the list → **Post count** → confirm.
-- **Expect:** "PC-… opened over N lines." (N is every product in MAIN — other runs' too). Difference reads `-1` while typing. The list reads "1 of N lines counted", then "N lines · posted". After posting: MAIN **49**; ledger `ADJUSTMENT` −1 referencing the count; Journal Entries shows the adjustment; the uncounted lines moved nothing. The posted sheet is read-only: "Posted. The differences are in the ledger."
+- **Steps:** as the fixture's **Firm admin**, Stock > **Physical Count** → **+ New count**: branch HO, warehouse MAIN, today → Open. On the sheet find `<SUFFIX>-P - Fixture Product <suffix>` (code and name, never an id); type **49** in Counted (Expected is 50); leave every other line blank. **Save progress**, close, reopen from the list → **Post count** → confirm.
+- **Expect:** "PC-… opened over N lines." (N is every product in MAIN — other runs' too). Difference reads `-1` while typing. The list reads "1 of N lines counted", then "N lines · posted". After posting: MAIN **49**; ledger `ADJUSTMENT` −1 referencing the count; Journal Entries shows the adjustment; the uncounted lines moved nothing. The posted sheet is read-only: "Posted. The differences are in the ledger." If stock moved between opening the sheet and posting it, the difference posted is against the stock at posting, not the Expected column (D-STK-45).
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.5 — `physical_counts` and one `physical_count_lines` row per stock row in MAIN; Save progress writes `counted_quantity` and no audit row; Post writes `variance_quantity` −1, an `ADJUSTMENT` with `reference_type` `PHYSICAL_COUNT` and the count number as reference, Dr 5500 / Cr 1200 60.00, and leaves every uncounted line null. A first count in a firm also creates the `PHYSICAL_COUNT` document type; there is never a lifecycle event.
 - **Leaves:** 49 in MAIN; a posted count.
 
@@ -2280,13 +2280,13 @@ the fixture builds (a minute or two).
 - **Covers:** plan 8.8
 - **Fixture:** `electronics-firm` — `<SUFFIX>-MIX`, 5 on hand, serials `<SUFFIX>-MIX-0001` to `-0005`.
 - **Steps:** as the fixture's **Firm admin**, Stock > All Stock screens > Tracking > **Serial Numbers**; search `<SUFFIX>-MIX-`; open one row's detail; filter Status AVAILABLE.
-- **Expect:** five rows, status AVAILABLE, Warranty End a year from today, warehouse MAIN. The detail is titled "Serial: <SUFFIX>-MIX-0001" with warranty start and end and the warehouse. The Status filter keeps all five.
+- **Expect:** five rows, status AVAILABLE, warehouse MAIN; Warranty Start and End are empty until somebody enters them on the serial (a goods receipt carries no warranty dates; the fixture's seeded serials carry a year). The detail is titled "Serial: <SUFFIX>-MIX-0001" with warranty start and end and the warehouse. The Status filter keeps all five.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.9, in schema `fx_<suffix>_e` — five `serial_numbers` rows with `warranty_start`/`warranty_end`, `inventory_id` and `batch_id` null, audit action `CREATE`; the screen writes nothing. No movement ever names a serial, so a serial's status never moves on its own (D-STK-4).
 - **Leaves:** unchanged.
 
 ### TC-STOCK-009 — A stock transfer as a document: dispatch, in transit, receive
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-1, A126
 - **Fixture:** `stock-ready`
@@ -2296,29 +2296,29 @@ the fixture builds (a minute or two).
 
 ### TC-STOCK-010 — Why stock is issued: internal use, staff, display, and the firm's own reasons
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-3 (A61), STK-7 (A104)
 - **Fixture:** `stock-ready`
 - **Also needs:** a user holding INVENTORY_MANAGE_REASONS (the administrator).
 - **Steps:** as the fixture's **Firm admin**: Stock > All Stock screens > Stock > Inventory → select the product → **Write off** 2 with reason *Internal use*; again with *Staff* and *Display*; and once with *Damage*. Accounts > Ledgers: read the expense accounts. Settings > Stock > **Adjustment Reasons**: add a reason *Festival gift* with its own expense account; deactivate another. Write off 1 with the new reason. Post an adjustment with a reason code.
-- **Expect:** the three new reasons post to their own expense accounts — *Stock Used in Business*, *Staff Welfare*, *Samples and Display* — and damage, expiry and loss stay on *Inventory Adjustment*. The reasons list is the firm's own (seeded on first read); the write-off and adjustment dialogs offer exactly the firm's active reasons and post to the reason's account. Without INVENTORY_MANAGE_REASONS the screen is read-only.
+- **Expect:** the three new reasons post to their own expense accounts — *Stock Used in Business*, *Staff Welfare*, *Samples and Display* — and damage, expiry and loss stay on *Inventory Adjustment*. The reasons list is the firm's own (seeded on first read); the write-off and adjustment dialogs offer exactly the firm's active reasons and post to the reason's account. Without INVENTORY_MANAGE_REASONS the screen is read-only. A reason's account must be an expense or income account: Inventory, Cash, a party or Sales is refused by name (D-STK-31). Any seeded reason, Damage included, can be switched off, after which a write-off naming it is refused.
 - **Leaves:** write-off journals, a reason.
 
 ### TC-STOCK-011 — Repacking and bulk breaking
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-4, A114
 - **Fixture:** `stock-ready`
 - **Also needs:** a second product (the repacked pack) with a purchase price.
-- **Steps:** as the fixture's **Firm admin**: Stock > All Stock screens > Movements > **Repacking** → New: consume 10 of the bulk product, produce 40 of the small pack, wastage 1. Post. Read the ledger and journals. Post another with no wastage. **Cancel** one.
+- **Steps:** as the fixture's **Firm admin**: Stock > All Stock screens > Movements > **Repacking** → New: consume 10 of the bulk product, produce 40 of the small pack, wastage 1 percent. Post. Read the ledger and journals. Post another with no wastage. **Cancel** one.
 - **Expect:** every consume line leaves stock at the product's moving average; the value consumed less the wastage share is spread over the produce lines in proportion to what each is worth at its purchase price (by quantity where none has a price) and the pack arrives **at that cost**; wastage is written off to inventory adjustment. With no wastage the books do not move. Cancelling reverses every movement and the wastage journal.
 - **Leaves:** repack documents.
 
 ### TC-STOCK-012 — A kit is assembled, sold as itself, and dispatched by assembling
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-15, A134 (D-STK-16)
 - **Fixture:** `selling-firm`
@@ -2329,28 +2329,28 @@ the fixture builds (a minute or two).
 
 ### TC-STOCK-013 — Expiry rules, shelf life and the issue rule on the product
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-5 (A113), STK-11 (A63), STK-18 (A59)
 - **Fixture:** `pharma-firm`
 - **Also needs:** `<SUFFIX>-AMX` in three batches as in TC-STOCK-005; a goods receipt line to type.
 - **Steps:** as the fixture's **Firm admin**: Masters > Products → `<SUFFIX>-AMX` → **Stop selling N days before expiry** 20, **alert** 45, **return to supplier** 60; **Shelf life (days)** 365; **Batch issue rule** *FIFO*. Dispatch an order, then set *FEFO*, *PICK* and dispatch again. Receive a new batch giving only a manufacturing date; then one giving an expiry too. Stock > **Expiry Monitor** → *Return to supplier now*. Set the same three counts on the category and clear them on the product.
-- **Expect:** a batch within the stop-sale days of expiry is refused at dispatch (and in a delivery note's chosen-batch check); the picker uses the product's alert window; the monitor lists batches inside the return window (a product with no rule is never listed). A receipt line with a manufacturing date and no expiry is stored with expiry = manufacturing date + 365; a typed expiry stands; nothing is filled where the profile does not enable expiry tracking, and the batch keeps its manufacturing date and shelf life. FIFO ranks batches by when they were received; FEFO by expiry (the default); **PICK** keeps expiry order for holds but dispatch refuses by name until the line names its batches. Product, then category, then firm: the nearest set rule wins.
+- **Expect:** a batch within the stop-sale days of expiry is passed over by the earliest-expiry pick while another batch can cover the line, and refused at dispatch where it is the only one (and in a delivery note's chosen-batch check); the picker uses the product's alert window; the monitor lists batches inside the return window (a product with no rule is never listed). A receipt line with a manufacturing date and no expiry is stored with expiry = manufacturing date + 365; a typed expiry stands; nothing is filled where the profile does not enable expiry tracking, and the batch keeps its manufacturing date and shelf life. FIFO ranks batches by when they were received; FEFO by expiry (the default); **PICK** keeps expiry order for holds but dispatch refuses by name until the line names its batches. Product, then category, then firm: the nearest set rule wins.
 - **Leaves:** product settings.
 
 ### TC-STOCK-014 — Count plans, ABC classes and blind sheets
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-6, A117
 - **Fixture:** `stock-ready`
 - **Steps:** as the fixture's **Firm admin**: Stock > **Physical Count** → *Count plans* → New: warehouse MAIN, ABC class **A**, every 30 days, **Blind**. Draw the **sheet**. Open it: count a few lines, post. Look at the plan's next-due date. Try a posted variance above the limit if one is set.
-- **Expect:** ABC class is worked out from the last year's dispatch value (the products making the first 80% are A, the next 15% B, the rest and anything not dispatched C). The sheet counts exactly what the plan covers; a **blind** sheet hides the system quantity until it is posted. The plan's next count falls due its interval after the last sheet it drew was posted. The adjustment limits (TC-STOCK-016) apply on posting.
+- **Expect:** ABC class is worked out from the last year's dispatch value (the products making the first 80% are A, the next 15% B, the rest C; the list names only products that were dispatched, and one it does not name is C). The sheet counts exactly what the plan covers; a **blind** sheet hides the system quantity until it is posted. The plan's next count falls due its interval after the last sheet it drew was posted. The adjustment limits (TC-STOCK-016) apply on posting.
 - **Leaves:** a plan, a count sheet.
 
 ### TC-STOCK-015 — Evidence attached to adjustments and counts
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-9, A64
 - **Fixture:** `stock-ready`
@@ -2361,7 +2361,7 @@ the fixture builds (a minute or two).
 
 ### TC-STOCK-016 — Large adjustments need approval
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-8, A108
 - **Fixture:** `stock-ready`
@@ -2372,7 +2372,7 @@ the fixture builds (a minute or two).
 
 ### TC-STOCK-017 — Incoming and outgoing on availability
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-10, A60
 - **Fixture:** `po-approved`
@@ -2383,7 +2383,7 @@ the fixture builds (a minute or two).
 
 ### TC-STOCK-018 — Reservations lapse, and returned goods are held until checked
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-12 (A115), STK-13 (A62)
 - **Fixture:** `selling-ordered`
@@ -2394,7 +2394,7 @@ the fixture builds (a minute or two).
 
 ### TC-STOCK-019 — Stock alerts on Home and turnover in the ageing
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-14, A116
 - **Fixture:** `stock-ready`
@@ -2405,7 +2405,7 @@ the fixture builds (a minute or two).
 
 ### TC-STOCK-020 — Barcode labels, and the product's selling status
 
-*Added 2026-10-03 from the code and the build notes; **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
 
 - **Covers:** backlog STK-16 (A65), STK-17 (A58)
 - **Fixture:** `selling-firm`

@@ -292,6 +292,33 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
   instant per request, which is the honest answer for a business record. The
   sort still ends with an id tiebreaker, because paging over a tie can hand the
   same row to two pages.
+- **A stock row is edited for its levels, never for what it is.**
+  `PUT /inventory/{id}` changes the minimum, maximum, reorder and safety
+  levels and the status. It used to write the body's product and place onto
+  the row, which turned ten of one product into ten of another with no
+  movement behind it (D-STK-24). Goods move by a transfer.
+- **Nothing leaves that is not there, unless the product says it may.** A
+  transfer, a write-off, a return to the supplier, a repack's consume line and
+  a negative adjustment are each refused beyond what the location holds; only
+  a product with *allow negative stock* goes below zero (D-STK-26, 27). An
+  adjustment is judged against what is held, not what is free, because a
+  count that finds fewer than are promised to orders still has to be posted;
+  a repack is judged against what is free.
+- **A batch, a lot or a serial number that anything stands on is not
+  deleted.** Stock, a movement or a document naming it refuses the delete and
+  says what to do instead; one typed by mistake still goes (D-STK-25). Two
+  references are bare ids with no foreign key -- `physical_count_lines.batch_id`
+  and the principal claims -- and the guard cannot see them.
+- **A reason for an adjustment posts to an expense or income account.** A
+  control account is allowed only where it is the inventory adjustment or one
+  of the issue accounts; pointing a reason at Inventory made a write-off move
+  the stock and not the books (D-STK-31).
+- **An export is the whole list.** It reads page after page until there are
+  no more, quotes a field that holds a comma, and writes a cell beginning
+  `=`, `+`, `-` or `@` as text (`app/core/utils/csv_text.py`; D-STK-33, 34).
+- **A serial number does not yet follow its goods through a transfer**
+  (D-STK-40, open): until it does, a serial-numbered unit moved to another
+  warehouse is refused at dispatch there.
 
 ## Where the code is
 

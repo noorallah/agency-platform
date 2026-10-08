@@ -75,8 +75,8 @@ Marks: **Yes** -- built and usable. **Partial** -- exists with a named gap.
 | Serial numbers with warranty dates | Yes (seeded on ELEC01 only) | Partial | Yes | Yes | Yes | Yes | Yes |
 | UOM conversions, packaging levels | Yes (all document types; carton/strip/piece with own barcodes) | Yes | Yes | Yes | Partial | Yes | Yes |
 | Transfers, adjustments, write-offs, physical count | Yes | Yes | Yes | Yes | Partial | Yes | Yes |
-| Stock valuation / ageing / slow-moving reports | Partial (stock ledger and summaries; expiry dashboard; no ageing or dead-stock report found) | Yes | Yes | Yes | Partial | Yes | Yes |
-| Kits / composite items | No (§42.13) | Partial (BOM) | Yes | Partial | No | Yes | Yes |
+| Stock valuation / ageing / slow-moving reports | Yes (valuation as on a day with the books beside it, bank stock statement, ageing with turnover, slow-moving, dead stock; corrected 2026-10-08, `docs/qa/INVENTORY_MARKET_GAPS_2026-10-08.md`) | Yes | Yes | Yes | Partial | Yes | Yes |
+| Kits / composite items | Yes (assembled, taken apart, assembled at dispatch; repacking) | Partial (BOM) | Yes | Partial | No | Yes | Yes |
 | Bill of materials / manufacturing | No (not in scope) | Yes | Yes | Partial | Partial | Partial | Yes |
 
 ### Pricing and schemes
