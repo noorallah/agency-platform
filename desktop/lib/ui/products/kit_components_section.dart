@@ -291,6 +291,11 @@ class _KitComponentsSectionState extends State<KitComponentsSection> {
 /// Make kits up from their components, or break them back (STK-15). One
 /// dialog for both; [onSave] runs the call and a refusal, which names the
 /// component that is short, stays on the dialog (D-DLG-1).
+///
+/// A kit kept in batches is assembled into a batch, and a part kept in
+/// batches goes back into one when a kit is broken. The server asks for
+/// both by name, so the dialog has a box for each (D-UI-85): without them
+/// the refusal asked for something the screen could not give.
 class KitStockDialog extends StatefulWidget {
   const KitStockDialog({
     super.key,
@@ -299,9 +304,19 @@ class KitStockDialog extends StatefulWidget {
     required this.branches,
     required this.warehouses,
     required this.onSave,
+    this.kitTracksBatch = false,
+    this.kitTracksExpiry = false,
+    this.batchParts = const [],
   });
 
   final String kitName;
+
+  /// The kit itself is kept in batches (and its batches are dated).
+  final bool kitTracksBatch;
+  final bool kitTracksExpiry;
+
+  /// The components kept in batches, each offered a batch box on a break.
+  final List<KitComponent> batchParts;
 
   /// True to assemble, false to disassemble.
   final bool assemble;
@@ -316,6 +331,11 @@ class KitStockDialog extends StatefulWidget {
 class _KitStockDialogState extends State<KitStockDialog> with SaveInDialog {
   final TextEditingController _quantity = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
+  final TextEditingController _batch = TextEditingController();
+  final TextEditingController _expiry = TextEditingController();
+  late final List<TextEditingController> _partBatches = [
+    for (int i = 0; i < widget.batchParts.length; i++) TextEditingController(),
+  ];
   DateTime _when = DateTime.now();
   String? _branchId;
   String? _warehouseId;
@@ -332,6 +352,11 @@ class _KitStockDialogState extends State<KitStockDialog> with SaveInDialog {
   void dispose() {
     _quantity.dispose();
     _remarks.dispose();
+    _batch.dispose();
+    _expiry.dispose();
+    for (final TextEditingController box in _partBatches) {
+      box.dispose();
+    }
     super.dispose();
   }
 
@@ -350,15 +375,23 @@ class _KitStockDialogState extends State<KitStockDialog> with SaveInDialog {
     }
   }
 
+  bool get _kitBatch => widget.assemble && widget.kitTracksBatch;
+
   Future<void> _save() async {
     final double? quantity = double.tryParse(_quantity.text.trim());
+    final String expiry = _expiry.text.trim();
     final String? problem = _branchId == null
         ? 'Choose the branch.'
         : _warehouseId == null
             ? 'Choose the warehouse.'
             : quantity == null || quantity <= 0
                 ? 'Enter a quantity above zero.'
-                : null;
+                : _kitBatch &&
+                        expiry.isNotEmpty &&
+                        (expiry.length != 10 ||
+                            DateTime.tryParse(expiry) == null)
+                    ? 'Enter the expiry date as YYYY-MM-DD.'
+                    : null;
     setState(() {
       _problem = problem;
       saveError = null;
@@ -370,6 +403,21 @@ class _KitStockDialogState extends State<KitStockDialog> with SaveInDialog {
       'quantity': _quantity.text.trim(),
       'on': _when.toIso8601String().substring(0, 10),
       'remarks': _remarks.text.trim().isEmpty ? null : _remarks.text.trim(),
+      if (_kitBatch && _batch.text.trim().isNotEmpty)
+        'batch_number': _batch.text.trim(),
+      if (_kitBatch && expiry.isNotEmpty) 'expiry_date': expiry,
+      // A blank box leaves the part to the batch the last assembly took
+      // it from, which the server works out.
+      if (!widget.assemble &&
+          _partBatches.any((box) => box.text.trim().isNotEmpty))
+        'part_batches': <Json>[
+          for (int i = 0; i < _partBatches.length; i++)
+            if (_partBatches[i].text.trim().isNotEmpty)
+              <String, dynamic>{
+                'product_id': widget.batchParts[i].componentProductId,
+                'batch_number': _partBatches[i].text.trim(),
+              },
+        ],
     };
     // Closes with the repack the server posted, so the page can name it.
     await saveAndClose<dynamic>(() => widget.onSave(body));
@@ -475,6 +523,50 @@ class _KitStockDialogState extends State<KitStockDialog> with SaveInDialog {
                   ),
                 ),
               ]),
+              if (_kitBatch) ...[
+                const SizedBox(height: AppSpacing.md),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey('kit-batch'),
+                      controller: _batch,
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: 'Batch number',
+                        helperText: 'The batch the kits go into',
+                      ),
+                    ),
+                  ),
+                  if (widget.kitTracksExpiry) ...[
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: TextField(
+                        key: const ValueKey('kit-expiry'),
+                        controller: _expiry,
+                        enabled: !saving,
+                        decoration: const InputDecoration(
+                          labelText: 'Expiry date',
+                          helperText: 'YYYY-MM-DD, for a new batch',
+                        ),
+                      ),
+                    ),
+                  ],
+                ]),
+              ],
+              if (!widget.assemble)
+                for (int i = 0; i < widget.batchParts.length; i++) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    key: ValueKey('kit-part-batch-$i'),
+                    controller: _partBatches[i],
+                    enabled: !saving,
+                    decoration: InputDecoration(
+                      labelText: 'Batch for ${widget.batchParts[i].label}',
+                      helperText: 'Blank: the batch the last assembly here '
+                          'took it from',
+                    ),
+                  ),
+                ],
               const SizedBox(height: AppSpacing.md),
               TextField(
                 key: const ValueKey('kit-remarks'),

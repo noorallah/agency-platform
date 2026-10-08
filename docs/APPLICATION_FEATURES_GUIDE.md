@@ -1323,6 +1323,10 @@ And two documents:
   assembled kits assembles the shortfall from the components. A part kept in
   batches leaves earliest expiry first, and when a kit is broken it goes back
   into the batch the kit's last assembly in that warehouse drew it from.
+  Where no assembly there says so -- a kit brought in as opening stock --
+  the *Disassemble kits* dialog has a **Batch for** box for each such part,
+  and a kit that is itself kept in batches is given its **Batch number**
+  and **Expiry date** on *Assemble kits*.
 
 ## 7.3 Tracking
 

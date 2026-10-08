@@ -203,6 +203,21 @@ live batch `INVB1` in MAIN.
 | SC-ST-091 | Negative | FA | The same repack; Batch number `R4NEW` (new), Expiry date empty; **Post repack** | "INVSCR-B tracks expiry, so batch R4NEW needs an expiry date. Enter the expiry date, or the manufacturing date where the product has a shelf life."; dialog open, the number still typed; no repack saved; no batch made |
 | SC-ST-092 | Positive | FA | The same repack; Batch number `INVB1` (a batch the product has); **Post repack** | "Repack posted."; one more repack; `INVB1` holds one more, the other batches are unchanged; `INVSCR-N` holds one less |
 
+---
+Added 2026-10-09 with round 5 (D-UI-85, D-STK-51, D-STK-53). Part `round5` of
+`sc_st_test.dart`. The flow makes its own kit `R5K...` (one of `INVSCR-B` a
+kit) and brings two in as opening stock in MAIN, so no assembly there says
+which batch the part came from. It needs `INVSCR-B` to hold a live batch
+`INVB1` in MAIN.
+
+| Id | Kind | User | Steps on screen | Expected on screen |
+| --- | --- | --- | --- | --- |
+| SC-ST-093 | Positive | FA | Home; read the stock rows of TO DO | A row for each kind the server counts above nought (*out of stock*, *below reorder level*, *near expiry*, *over maximum*, *in transit*, *count sheets open*), each reading the server's count; no row for a kind at nought; no overflow |
+| SC-ST-094 | Negative | FA | Masters > Products; pick the kit; **Disassemble kits**; branch, MAIN, Number of kits 1; leave **Batch for INVSCR-B** empty; **Disassemble** | The dialog shows **Batch for INVSCR-B - ...** ("Blank: the batch the last assembly here took it from") and no box for the kit's own batch; "INVSCR-B - ... is kept in batches, and no assembly of R5K... in this warehouse says which batch it came from. Name the batch it goes back into."; dialog open, the 1 still typed; no repack saved; stock unchanged; no overflow |
+| SC-ST-095 | Positive | FA | The same dialog; Batch for INVSCR-B `INVB1`; **Disassemble** | "Kits disassembled as RPK-...."; one more repack; one kit fewer; `INVB1` holds one more, the other batches unchanged |
+| SC-ST-096 | Positive | FA | Pick the kit; **Assemble kits**; MAIN, 1; **Assemble** | No batch box (the kit is not kept in batches); "Kits assembled as RPK-...."; one kit more; `INVSCR-B` holds one less, taken from a batch; no batch row below nought and no row without a batch |
+| SC-ST-097 | Positive | FA | Pick the kit; **Disassemble kits**; MAIN, 1; the batch box empty; **Disassemble** | "Kits disassembled as RPK-...."; one kit fewer; the part is back in the batch the assembly took it from |
+
 ## Role cases (stock)
 
 | Id | Kind | User | Steps | Expected |
