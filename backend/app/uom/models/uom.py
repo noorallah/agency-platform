@@ -204,6 +204,13 @@ class ConversionRule(BaseEntity):
     reason: Mapped[str | None] = mapped_column(Text)
 
 
+#: The columns of a packaging level a scanned code can live in, in the order
+#: they are tried. A barcode is what a scanner reads; the three trade
+#: identifiers are what the packaging is registered as, and firms fill in
+#: whichever their suppliers give them.
+PACK_CODE_COLUMNS: tuple[str, ...] = ("barcode", "gtin", "ean", "upc")
+
+
 class ProductPackagingLevel(BaseEntity):
     """Store unlimited product packaging hierarchy levels."""
 

@@ -1615,7 +1615,11 @@ that order through `SalesOrderService.create_order`.
 each level carrying its own `barcode`, `gtin`, `ean` and `upc`.
 `GET /barcode-lookup` resolves a code across all four columns and then the
 product's own barcode, and answers with the product **and how many base units
-one scan is**.
+one scan is**. Since 2026-10-08 a pack's code is read wherever a document is
+written (backlog 89, gap 3): the counter bill's scan field adds what the pack
+holds, a document line's product box finds the product by it, and the product
+list search matches it. `docs/UOM_FRAMEWORK.md`, *Where a pack's code is
+read*, is the reference.
 
 ## How to use it (1.3.0 menu)
 

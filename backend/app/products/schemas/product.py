@@ -396,6 +396,11 @@ class ProductResponse(ProductSchema):
     #: True when any warehouse holds it at or below its reorder level (else
     #: its minimum level, else zero) -- the inventory summary's definition.
     low_stock: bool = False
+    #: Read from the packaging levels by the router, not the ORM row: every
+    #: barcode, GTIN, EAN and UPC a pack of this product carries, so a line's
+    #: product box finds the product by a carton's code as it does by the
+    #: product's own (backlog 89, market gap 3).
+    pack_codes: list[str] = Field(default_factory=list)
 
 
 class ProductSummary(ProductSchema):

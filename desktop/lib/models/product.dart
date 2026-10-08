@@ -527,6 +527,7 @@ class Product {
     required this.media,
     this.stockOnHand = '',
     this.lowStock = false,
+    this.packCodes = const <String>[],
     this.goodsTypeId = '',
     this.unitSetId = '',
   });
@@ -665,6 +666,10 @@ class Product {
   /// Held at or below its reorder level somewhere -- shown in red.
   final bool lowStock;
 
+  /// Every barcode, GTIN, EAN and UPC a pack of this product carries, so a
+  /// product box finds it by a carton's code as by its own (backlog 89).
+  final List<String> packCodes;
+
   factory Product.fromJson(Json json) => Product(
         id: stringValue(json['id']),
         version: (json['version'] as num?)?.toInt() ?? 0,
@@ -746,6 +751,11 @@ class Product {
             _objects(json['media']).map(ProductMediaRecord.fromJson).toList(),
         stockOnHand: stringValue(json['stock_on_hand']),
         lowStock: boolValue(json['low_stock']),
+        packCodes: <String>[
+          for (final Object? code
+              in json['pack_codes'] as List<dynamic>? ?? const <dynamic>[])
+            if (stringValue(code).isNotEmpty) stringValue(code),
+        ],
         goodsTypeId: stringValue(json['goods_type_id']),
         unitSetId: stringValue(json['unit_set_id']),
       );

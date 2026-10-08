@@ -305,6 +305,8 @@ class BarcodeLookup {
     this.packagingLevelId = '',
     this.levelName = '',
     this.matchedField = '',
+    this.uomCode = '',
+    this.stockUomCode = '',
   });
 
   final String code;
@@ -322,6 +324,13 @@ class BarcodeLookup {
   /// `barcode`, `gtin`, `ean`, `upc`, or `product`.
   final String matchedField;
 
+  /// The unit the pack is recorded in (BOX); empty where it names none.
+  final String uomCode;
+
+  /// The product's stock unit: what [baseQuantity] counts in, and the unit of
+  /// a document line that names none.
+  final String stockUomCode;
+
   factory BarcodeLookup.fromJson(Json json) => BarcodeLookup(
         code: stringValue(json['code']),
         productId: stringValue(json['product_id']),
@@ -331,5 +340,7 @@ class BarcodeLookup {
         packagingLevelId: stringValue(json['packaging_level_id']),
         levelName: stringValue(json['level_name']),
         matchedField: stringValue(json['matched_field']),
+        uomCode: stringValue(json['uom_code']),
+        stockUomCode: stringValue(json['stock_uom_code']),
       );
 }

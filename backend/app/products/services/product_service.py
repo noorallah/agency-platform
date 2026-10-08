@@ -76,7 +76,12 @@ from app.products.services.product_import import (
 )
 from app.tax.models import TaxProfile
 from app.trade_licences.models import TradeLicenceType
-from app.uom.models import ConversionRule, Uom
+from app.uom.models import (
+    PACK_CODE_COLUMNS,
+    ConversionRule,
+    ProductPackagingLevel,
+    Uom,
+)
 from app.uom.schemas import ConversionRuleCreate
 from app.uom.services import UnitSetService, UomService
 
@@ -185,6 +190,24 @@ class ProductService:
                             Product.brand,
                             Product.hsn_sac,
                         )
+                    )
+                )
+            )
+            # A pack's own code finds its product (backlog 89, gap 3): a carton
+            # label scanned into a search box is not on the product row.
+            matches.append(
+                Product.id.in_(
+                    select(ProductPackagingLevel.product_id).where(
+                        ProductPackagingLevel.firm_id == firm_scope,
+                        ProductPackagingLevel.is_deleted.is_(False),
+                        or_(
+                            *(
+                                func.lower(getattr(ProductPackagingLevel, name)).like(
+                                    needle
+                                )
+                                for name in PACK_CODE_COLUMNS
+                            )
+                        ),
                     )
                 )
             )
@@ -318,6 +341,35 @@ class ProductService:
             product_id: (Decimal(str(quantity)), bool(low))
             for product_id, quantity, low in result
         }
+
+    def pack_codes_for_many(self, rows: Iterable[Product]) -> dict[UUID, list[str]]:
+        """Every code the packs of each product carry, read at once.
+
+        One read of the packaging levels for a page of products. A product
+        with no level, or whose levels carry no code, is absent.
+        """
+        ids = [row.id for row in rows]
+        if not ids:
+            return {}
+        found: dict[UUID, list[str]] = {}
+        for product_id, *codes in self._session.execute(
+            select(
+                ProductPackagingLevel.product_id,
+                *(getattr(ProductPackagingLevel, name) for name in PACK_CODE_COLUMNS),
+            )
+            .where(
+                ProductPackagingLevel.product_id.in_(ids),
+                ProductPackagingLevel.is_deleted.is_(False),
+            )
+            .order_by(
+                ProductPackagingLevel.display_order, ProductPackagingLevel.level_name
+            )
+        ).all():
+            held = found.setdefault(product_id, [])
+            held.extend(
+                code for code in codes if code and code.strip() and code not in held
+            )
+        return {product_id: codes for product_id, codes in found.items() if codes}
 
     def create_product(
         self, data: ProductCreate, *, firm_id: UUID, actor_id: UUID

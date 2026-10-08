@@ -14,7 +14,6 @@ from decimal import (
     ROUND_UP,
     Decimal,
 )
-from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, literal, or_, select
@@ -32,6 +31,7 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError, Validation
 from app.core.utils.dates import utc_now
 from app.products.models import Product
 from app.uom.models import (
+    PACK_CODE_COLUMNS,
     UNIT_SLOTS,
     ConversionRule,
     PackagingType,
@@ -1160,12 +1160,6 @@ class UomService:
         )
         return into_stock / out_of_stock
 
-    #: The columns a scanned code can live in, in the order they are tried.
-    #: A barcode is what a scanner reads; the three trade identifiers are what
-    #: the packaging is registered as, and firms fill in whichever their
-    #: suppliers give them.
-    _CODE_COLUMNS: ClassVar[tuple[str, ...]] = ("barcode", "gtin", "ean", "upc")
-
     def lookup_barcode(self, *, firm_scope: UUID, code: str) -> BarcodeLookupResponse:
         """Resolve a scanned code to a product and the stock one scan means.
 
@@ -1187,7 +1181,7 @@ class UomService:
             raise ValidationError("Scan or type a code to look up.")
 
         matches: list[tuple[ProductPackagingLevel | None, Product, str]] = []
-        for column in self._CODE_COLUMNS:
+        for column in PACK_CODE_COLUMNS:
             for level in self._session.scalars(
                 select(ProductPackagingLevel).where(
                     ProductPackagingLevel.firm_id == firm_scope,
@@ -1228,6 +1222,11 @@ class UomService:
             )
 
         matched_level, product, matched_field = matches[0]
+        base_quantity = (
+            Decimal("1")
+            if matched_level is None
+            else matched_level.conversion_to_base_factor
+        )
         return BarcodeLookupResponse(
             code=code,
             product_id=product.id,
@@ -1237,12 +1236,16 @@ class UomService:
             level_name=None if matched_level is None else matched_level.level_name,
             # A product's own barcode is one base unit by definition; there is
             # no packaging around it to multiply by.
-            base_quantity=(
-                Decimal("1")
-                if matched_level is None
-                else matched_level.conversion_to_base_factor
-            ),
+            base_quantity=base_quantity,
             matched_field=matched_field,
+            uom_code=(
+                None
+                if matched_level is None or matched_level.uom_id is None
+                else unit_named(self._session, matched_level.uom_id).strip() or None
+            ),
+            stock_uom_code=(
+                unit_named(self._session, stock_unit_of(product)).strip() or None
+            ),
         )
 
     def list_packaging_levels(

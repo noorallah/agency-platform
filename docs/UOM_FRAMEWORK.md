@@ -617,6 +617,49 @@ would question it.
 
 Levels are per firm per product and are unique on `(firm, product, level_name)`.
 
+### Where a pack's code is read (backlog 89, market gap 3; built 2026-10-08)
+
+Until 2026-10-08 only the Packaging Levels screen asked the lookup. The counter
+bill matched a scan against each product's own barcode in the list it had
+read, every document line's product box filtered on the product's name, code
+and own barcode, and the product list search looked at `products.barcode` -- so
+a carton label found nothing anywhere a document is written. Three things read
+a pack's code now, and they are the whole list:
+
+| Where | What it does with a pack's code |
+| --- | --- |
+| **The counter bill's scan field** (`_scanned` in `desktop/lib/ui/sales/sales_invoice_editor_dialog.dart`) | A product's own barcode, then its code, is answered from the list already read, with no call. Anything else is asked of `GET /barcode-lookup`, and one scan of a pack adds `base_quantity` to the product's line -- a carton of 24 adds 24, a second scan 24 more -- with a note beside the field (*Carton (CTN) of P-1: 24 PCS added.*). A 404 reads *No product has the barcode*, a 409 is shown in the server's words, and a pack of a product the bill's list does not hold is named and not added. |
+| **A document line's product box** in the five phase 2 editors -- sales invoice, sales order, quotation, purchase order, supplier bill (`productEntriesMatching` and `productEntryToHighlight` in `desktop/lib/ui/workspace/product_box_search.dart`) | Each product row carries `pack_codes`, every barcode, GTIN, EAN and UPC of its packs, read once for the page (`ProductService.pack_codes_for_many`). The box keeps its match on the label and adds those codes, and puts the highlight on the product a pack's code leaves, so the Enter a scanner sends picks it. **It finds the product; it does not set the quantity** -- the line is the person's to fill, and the unit they are typing in is theirs to say. |
+| **Every search fed by the product list** -- `GET /api/v1/products?search=`, so the Products screen and the seven screens using `ProductSearchBox` (batches, bill of entry, principal claims, requisitions, rate contracts, RFQs, supplier schemes) | The search matches a pack's four code columns as well as the product's own (`PACK_CODE_COLUMNS` in `app/uom/models/uom.py`, the one list the lookup also reads). |
+
+**The quantity a scan adds is in the product's stock unit, and that is exact.**
+A level's factor counts in the product's base unit; `stock_unit_of` makes the
+base unit the unit stock is kept in; and a document line that names no unit is
+a line in that unit. So the counter bill adds `base_quantity` to a line as it
+stands and never names the pack's unit on it -- the level's factor and the
+conversion rules are different tables that do not read each other, and a line
+in CARTON would be converted by the rule, not by the label that was scanned.
+The lookup answers `uom_code` (the pack's unit) and `stock_uom_code` (the
+product's) so the screen can say what it added without another call.
+
+**Not read from a pack:** global search (Ctrl+K) still matches the product's
+own barcode only; the opening-stock import matches a file's barcode column
+against the product's own; the old (phase 1) editors were left alone. A pack
+holds one barcode, one GTIN, one EAN and one UPC -- a second supplier's label
+on the same box goes in whichever of the four is free, and a fifth has
+nowhere to go until a firm needs it. A code two things carry is still saved
+without complaint and refused only when scanned (409); the product search
+lists both, which is how somebody finds the second one.
+
+`tests/unit/test_uom_packaging_framework.py` holds the server's half (the two
+unit codes, the search, the row's `pack_codes`, and that every role able to
+write a counter bill holds `UOM_VIEW`, which the lookup needs);
+`desktop/test/counter_billing_test.dart` the scan field;
+`desktop/test/product_box_pack_codes_test.dart` the product box, and it fails
+when a sixth editor with a *Product (code, name or barcode)* column leaves
+the two callbacks out. TC-MAST-032 is the case and
+`docs/qa/checks/goods_types/tc_mast_032.py` drives it.
+
 **Until 2026-08-23 none of this was reachable and none of it was read.** The
 four CRUD endpoints had existed since the module was written with nothing in
 the desktop calling them, so no firm could record a level; and no code path

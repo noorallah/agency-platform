@@ -2,6 +2,7 @@
 
 from app.uom.models.unit_set import UNIT_SLOTS, UnitSet, UnitSetGoodsType
 from app.uom.models.uom import (
+    PACK_CODE_COLUMNS,
     ConversionRule,
     PackagingType,
     ProductPackagingLevel,
@@ -12,6 +13,7 @@ from app.uom.models.uom import (
 )
 
 __all__ = [
+    "PACK_CODE_COLUMNS",
     "UNIT_SLOTS",
     "ConversionRule",
     "PackagingType",
