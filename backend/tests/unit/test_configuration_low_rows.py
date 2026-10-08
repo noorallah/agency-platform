@@ -271,6 +271,7 @@ def test_a_print_template_names_a_printable_type_and_keeps_what_was_not_sent() -
 
 def test_every_print_service_reads_a_printable_type() -> None:
     from app.delivery_note.services import challan_print_service
+    from app.proforma.services import proforma_print_service
     from app.purchase.services import purchase_print_service
     from app.quotation.services import quotation_print_service
     from app.sales_invoice.services import invoice_print_service
@@ -281,6 +282,7 @@ def test_every_print_service_reads_a_printable_type() -> None:
         module.DOCUMENT_TYPE
         for module in (
             challan_print_service,
+            proforma_print_service,
             purchase_print_service,
             quotation_print_service,
             invoice_print_service,

@@ -306,6 +306,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
+    // No order until one is chosen: Raise with nothing touched raises
+    // nothing and says what is missing (D-UI-66).
+    expect(find.text('Toothpaste 150g'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('proforma-raise')));
+    await tester.pumpAndSettle();
+    expect(api.raised, isNull);
+    expect(
+      find.text('Choose the sales order this proforma states.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('proforma-order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('SO-2026-2027-000004').last);
+    await tester.pumpAndSettle();
+
     // The order's line, named from the products, at what the order agreed.
     expect(find.text('Toothpaste 150g'), findsWidgets);
     expect(find.text('900.00'), findsWidgets);
@@ -354,6 +370,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
       expect(find.textContaining('Kumar Stores ·'), findsOneWidget);
+      // A document made to be handed over can be printed (D-UI-71).
+      expect(find.text('Print'), findsOneWidget);
       // The side pane is gone: its warning is not on the page.
       expect(find.textContaining('Not a tax invoice'), findsNothing);
 

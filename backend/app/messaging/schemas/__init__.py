@@ -180,6 +180,7 @@ class ManualSendRequest(MessagingSchema):
         "SALES_INVOICE",
         "SALES_QUOTATION",
         "SALES_ORDER",
+        "PROFORMA_INVOICE",
         "CUSTOMER_STATEMENT",
         "RECEIPT",
         "PURCHASE_ORDER",

@@ -184,10 +184,22 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
       }
       if (!mounted) return;
     }
+    // The editor runs the save and stays open on a refusal (D-UI-65); what
+    // it saved is kept here for the sentence, the printer and the reload.
+    Quotation? saved;
     final Json? payload = await showDocument<Json>(
       context,
       title: existing == null ? 'New quotation' : 'Edit quotation',
       builder: (_) => QuotationEditorDialog(
+        onSave: (Json values) async {
+          saved = existing == null
+              ? await widget.api.createQuotation(values)
+              : await widget.api.updateQuotation(
+                  existing.id,
+                  values,
+                  expectedVersion: preconditionFor(existing.version),
+                );
+        },
         customers: customers,
         products: products,
         branches: branches,
@@ -215,32 +227,24 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
             : null,
       ),
     );
-    if (payload == null) return;
+    final Quotation? written = saved;
+    if (payload == null || written == null || !mounted) return;
     final bool printAfter =
         payload.remove(QuotationEditorDialog.printAfterSave) == true;
+    NotificationService.show(
+      context,
+      existing == null
+          ? '${written.quotationNumber} drafted, good until '
+              '${written.validUntil}. Nothing is reserved by it.'
+          : '${written.quotationNumber} revised.',
+      kind: AppNotificationKind.success,
+    );
     try {
-      final Quotation saved = existing == null
-          ? await widget.api.createQuotation(payload)
-          : await widget.api.updateQuotation(
-              existing.id,
-              payload,
-              expectedVersion: preconditionFor(existing.version),
-            );
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        existing == null
-            ? '${saved.quotationNumber} drafted, good until ${saved.validUntil}. '
-                'Nothing is reserved by it.'
-            : '${saved.quotationNumber} revised.',
-        kind: AppNotificationKind.success,
-      );
-      if (printAfter) await _printQuotation(saved);
+      if (printAfter) await _printQuotation(written);
       await _load(requestedPage: existing == null ? 1 : _page);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() => _error =
-          saveFailureMessage(exception, 'quotation', changesKept: false));
+      setState(() => _error = exception.message);
     }
   }
 
@@ -637,10 +641,11 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
       ),
       // How long the offer stands is what a status word cannot carry: SENT
       // reads the same the day before and the day after the prices lapse.
+      // The word is the Open window's badge (D-UI-68).
       ChoosableColumn(
         column: const GridColumn(key: 'valid', label: 'Valid Until'),
         cell: (item) =>
-            _lapsed(item) ? '${item.validUntil} · lapsed' : item.validUntil,
+            _lapsed(item) ? '${item.validUntil} · EXPIRED' : item.validUntil,
         shownByDefault: true,
       ),
       ChoosableColumn(

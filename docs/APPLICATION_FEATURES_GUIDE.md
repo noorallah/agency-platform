@@ -554,7 +554,9 @@ a credit note naming each invoice it returns goods from (see 8.3).
 **Proforma.** A statement, in advance, of what an approved order will be
 billed: for a customer who needs a document to arrange payment or credit
 before the goods move. It changes nothing: no stock, no sale, no amount owed,
-and it has its own number series, separate from tax invoices.
+and it has its own number series, separate from tax invoices. Choose the order
+it states when raising it; **Print** gives the document to hand over and
+**Send** emails it, and every copy says *This is not a tax invoice.*
 
 **Credit Notes.** Money credited to a customer **without goods coming
 back**: a rate agreed after invoicing, a quality allowance, a billing error.

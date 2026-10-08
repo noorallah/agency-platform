@@ -761,3 +761,83 @@ def test_a_proforma_cannot_lapse_before_it_starts() -> None:
             firm_scope=books.firm.id,
             actor_id=books.actor_id,
         )
+
+
+def test_a_proforma_prints_and_says_it_is_not_a_tax_invoice() -> None:
+    """D-UI-71: a document made to be handed over could not be printed."""
+    from app.proforma.services import ProformaPrintService
+
+    books = _Books(_session_factory()())
+    row = books.raise_proforma(valid_until=WHEN + timedelta(days=15))
+    printer = ProformaPrintService(books.session)
+
+    draft = printer.document(row, firm_scope=books.firm.id)
+    assert draft.not_final is not None and draft.not_final.startswith("DRAFT")
+    assert "not a tax invoice" in draft.not_final
+
+    ProformaService(books.session).issue_proforma(
+        row.id, firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+    issued = printer.document(row, firm_scope=books.firm.id)
+    assert issued.not_final == "This is not a tax invoice."
+    assert issued.number == row.proforma_number
+    assert issued.buyer.name == "Kumar Stores"
+    assert ("Against order", books.order.order_number) in issued.references
+    assert issued.lines[0].free_quantity == Decimal("1.0000")
+    # What the copy adds up to is what the screen states.
+    assert issued.taxable_total + issued.tax_total + issued.charges == row.grand_total
+
+    pdf, filename = printer.render(row.id, firm_scope=books.firm.id)
+    assert pdf.startswith(b"%PDF")
+    assert filename == f"{row.proforma_number}.pdf"
+
+
+def test_another_firm_cannot_print_a_proforma() -> None:
+    """The print reads the firm's own proformas and nobody else's."""
+    from app.proforma.services import ProformaPrintService
+
+    books = _Books(_session_factory()())
+    row = books.raise_proforma()
+    with pytest.raises(ResourceNotFoundError):
+        ProformaPrintService(books.session).render(row.id, firm_scope=uuid4())
+
+
+def test_a_proforma_is_sent_by_hand_until_it_is_withdrawn() -> None:
+    """D-UI-71: it goes by email as a quotation does, with its own PDF."""
+    from app.messaging.services.hand_documents import (
+        load_hand_document,
+        render_attachment,
+    )
+
+    books = _Books(_session_factory()())
+    row = books.raise_proforma()
+    hand = load_hand_document(
+        books.session,
+        firm_id=books.firm.id,
+        document_type="PROFORMA_INVOICE",
+        document_id=row.id,
+    )
+    assert hand.label == "proforma invoice"
+    assert hand.document.document_number == row.proforma_number
+    attached = render_attachment(
+        books.session,
+        firm_id=books.firm.id,
+        document_type="PROFORMA_INVOICE",
+        document_id=row.id,
+        on=WHEN,
+    )
+    assert attached is not None and attached[0].startswith(b"%PDF")
+
+    ProformaService(books.session).cancel_proforma(
+        row.id,
+        reason="Customer withdrew",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    with pytest.raises(ValidationError, match="is not sent"):
+        load_hand_document(
+            books.session,
+            firm_id=books.firm.id,
+            document_type="PROFORMA_INVOICE",
+            document_id=row.id,
+        )

@@ -18,7 +18,9 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/proforma.dart';
+import '../settings/send_message_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/printed_document.dart';
 import '../workspace/reason_prompt.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
@@ -139,6 +141,39 @@ class _ProformaPageState extends State<ProformaPage> {
   /// The order is the only thing asked for. Its lines are snapshotted server
   /// side, because a caller that could name its own would be stating a price
   /// the order never agreed.
+  /// Render the proforma and hand it to whatever prints on this machine.
+  Future<void> _print(ProformaRecord row) async {
+    try {
+      final List<int> pdf = await widget.api.proformaPdf(row.id);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: row.proformaNumber,
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  /// Email the proforma to its customer.
+  Future<void> _email(ProformaRecord row) async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => SendMessageDialog(
+        api: widget.api,
+        invoiceId: row.id,
+        invoiceNumber: row.proformaNumber,
+        documentType: 'PROFORMA_INVOICE',
+      ),
+    );
+  }
+
   Future<void> _raise() async {
     final List<Json> orders = await _statableOrders();
     if (!mounted) return;
@@ -310,6 +345,26 @@ class _ProformaPageState extends State<ProformaPage> {
                 }
               },
               commands: [
+                // On every proforma whatever its state (D-UI-71): the copy
+                // itself says when it is a draft or was withdrawn.
+                ToolbarCommand(
+                  id: 'print',
+                  label: 'Print',
+                  icon: Icons.print_outlined,
+                  onPressed: selected == null
+                      ? null
+                      : () => unawaited(_print(selected)),
+                ),
+                // Emails it to the customer; a withdrawn one is not sent.
+                if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+                  ToolbarCommand(
+                    id: 'email',
+                    label: 'Send',
+                    icon: Icons.forward_to_inbox_outlined,
+                    onPressed: selected == null || selected.isCancelled
+                        ? null
+                        : () => unawaited(_email(selected)),
+                  ),
                 ToolbarCommand(
                   id: 'issue',
                   label: 'Issue',
@@ -666,7 +721,9 @@ class _RaiseProformaDialog extends StatefulWidget {
 
 class _RaiseProformaDialogState extends State<_RaiseProformaDialog>
     with SaveInDialog<_RaiseProformaDialog> {
-  late String _orderId = '${widget.orders.first['id']}';
+  /// Null until an order is chosen: the first of the list is nobody's
+  /// choice (D-UI-66).
+  String? _orderId;
   final TextEditingController _paymentTerms = TextEditingController();
   final TextEditingController _deliveryTerms = TextEditingController();
   final TextEditingController _validUntil = TextEditingController();
@@ -754,7 +811,7 @@ class _RaiseProformaDialogState extends State<_RaiseProformaDialog>
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: saving ? null : () => saveAndClose<ProformaRecord>(() => widget.onSave(<String, dynamic>{
+            onPressed: saving ? null : _orderId == null ? () => setState(() => saveError = 'Choose the sales order this proforma states.') : () => saveAndClose<ProformaRecord>(() => widget.onSave(<String, dynamic>{
               'sales_order_id': _orderId,
               'proforma_date': _today(),
               // Blank means no deadline, which is a real choice -- so an

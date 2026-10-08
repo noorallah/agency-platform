@@ -900,35 +900,28 @@ class _SettlementsPageState extends State<SettlementsPage> {
         availableLabel: 'on account',
         invoiceLabel: isReceipt ? 'Invoice' : 'Bill',
         invoices: invoices,
+        // The dialog runs the call and stays open on a refusal, the bill
+        // and the amount kept (D-UI-70).
+        onSave: (_Application application) => isReceipt
+            ? widget.api.allocateReceipt(
+                id: row.id,
+                invoiceId: application.invoiceId,
+                amount: application.amount,
+              )
+            : widget.api.allocatePayment(
+                id: row.id,
+                invoiceId: application.invoiceId,
+                amount: application.amount,
+              ),
       ),
     );
     if (chosen == null || !mounted) return;
-    try {
-      if (isReceipt) {
-        await widget.api.allocateReceipt(
-          id: row.id,
-          invoiceId: chosen.invoiceId,
-          amount: chosen.amount,
-        );
-      } else {
-        await widget.api.allocatePayment(
-          id: row.id,
-          invoiceId: chosen.invoiceId,
-          amount: chosen.amount,
-        );
-      }
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '${row.settlementNumber} applied to ${chosen.invoiceNumber}.',
-        kind: AppNotificationKind.success,
-      );
-      await _load();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(context, error.message,
-          kind: AppNotificationKind.error);
-    }
+    NotificationService.show(
+      context,
+      '${row.settlementNumber} applied to ${chosen.invoiceNumber}.',
+      kind: AppNotificationKind.success,
+    );
+    await _load();
   }
 
   /// Ask whose credit, from the money screens' own supplier list.
@@ -1037,26 +1030,21 @@ class _SettlementsPageState extends State<SettlementsPage> {
         availableLabel: 'of credit',
         invoiceLabel: 'Bill',
         invoices: bills,
+        // As the receipt's Apply: a refusal is read with the amount still
+        // typed (D-UI-70).
+        onSave: (application) => widget.api.applySupplierCredit(
+          sourceId: credit.sourceId,
+          invoiceId: application.invoiceId,
+          amount: application.amount,
+        ),
       ),
     );
     if (chosen == null || !mounted) return;
-    try {
-      await widget.api.applySupplierCredit(
-        sourceId: credit.sourceId,
-        invoiceId: chosen.invoiceId,
-        amount: chosen.amount,
-      );
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '${credit.label} set against ${chosen.invoiceNumber}.',
-        kind: AppNotificationKind.success,
-      );
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(context, error.message,
-          kind: AppNotificationKind.error);
-    }
+    NotificationService.show(
+      context,
+      '${credit.label} set against ${chosen.invoiceNumber}.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   /// Set what a customer's return or credit note left on a paid bill
@@ -1481,7 +1469,14 @@ class _ApplyDialogState extends State<_ApplyDialog>
                 ? null
                 : () {
                     final String amount = _amount.text.trim();
-                    if (amount.isEmpty) return;
+                    // Said here: the server's answer to 0 is only "The
+                    // request validation failed." (D-UI-70).
+                    if ((double.tryParse(amount) ?? 0) <= 0) {
+                      setState(
+                        () => saveError = 'An application must be for more than nothing.',
+                      );
+                      return;
+                    }
                     unawaited(submit<_Application>(
                       _Application(
                         invoiceId: _invoiceId,

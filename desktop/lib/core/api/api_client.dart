@@ -1815,7 +1815,8 @@ class ApiClient {
 
   /// Queues a document to go out by hand (MSG-4): [documentType] is
   /// `SALES_INVOICE`, or -- by email only -- `SALES_QUOTATION`,
-  /// `SALES_ORDER`, `CUSTOMER_STATEMENT` (the id is the customer's),
+  /// `SALES_ORDER`, `PROFORMA_INVOICE`, `CUSTOMER_STATEMENT` (the id is the
+  /// customer's),
   /// `RECEIPT` or `PURCHASE_ORDER`.
   Future<void> sendDocumentMessage(
     String documentType,
@@ -11788,6 +11789,11 @@ class ApiClient {
   /// The offer a customer is sent.
   Future<List<int>> quotationPdf(String id) =>
       downloadBytes('/api/v1/quotations/$id/print');
+
+  /// The proforma a customer is handed; every copy says it is not a tax
+  /// invoice (D-UI-71).
+  Future<List<int>> proformaPdf(String id) =>
+      downloadBytes('/api/v1/proforma-invoices/$id/print');
 
   /// The credit note a customer files.
   Future<List<int>> creditNotePdf(String id, {bool referenceCopy = false}) =>

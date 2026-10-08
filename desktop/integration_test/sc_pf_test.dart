@@ -84,8 +84,10 @@ void main() {
         await openProformas();
         final List<String> missing = <String>[
           for (final String h in <String>[
+            // Taxable Value and Tax are under Columns, not shown at first
+            // (D-UI-67: the book was wrong, not the list).
             'Number', 'Customer', 'Date', 'Valid Until', 'Sales Order',
-            'Status', 'Taxable Value', 'Tax', 'Grand Total',
+            'Status', 'Grand Total',
           ])
             if (!screenHas(tester, h)) h,
         ];

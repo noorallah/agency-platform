@@ -207,6 +207,32 @@ void main() {
         reason: 'the server refuses this edit, so the button must not offer it');
   });
 
+  testWidgets('a refused Cancel shows what the server said (D-UI-69)',
+      (tester) async {
+    _setDesktopSurface(tester);
+    final _RefusingCancelApi api = _RefusingCancelApi()..status = 'RECEIVED';
+    await _pumpWorkspace(tester, api: api);
+
+    await tester.tap(find.text('PO-0001').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Cancel').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Reason'),
+      'Ordered twice',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
+    await tester.pumpAndSettle();
+
+    expect(api.cancelAsked, isTrue);
+    expect(tester.takeException(), isNull);
+    expect(
+      find.text('Received purchase orders cannot be cancelled.'),
+      findsOneWidget,
+    );
+    expect(find.text('Purchase order cancelled.'), findsNothing);
+  });
+
   testWidgets('open purchase order offers Submit, and moves without closing',
       (tester) async {
     _setDesktopSurface(tester);
@@ -798,6 +824,23 @@ class _PricingPurchaseApi extends _PurchaseApi {
   Future<PurchaseOrder> createPurchaseOrder(PurchaseOrder order) async {
     created = order;
     return order.copyWith(id: 'po-2', poNumber: 'PO-0002');
+  }
+}
+
+/// A server that refuses to cancel, as it does once goods were received.
+class _RefusingCancelApi extends _PurchaseApi {
+  bool cancelAsked = false;
+
+  @override
+  Future<PurchaseOrder> cancelPurchaseOrder(
+    String id, {
+    String reason = '',
+  }) async {
+    cancelAsked = true;
+    throw const ApiException(
+      'Received purchase orders cannot be cancelled.',
+      statusCode: 409,
+    );
   }
 }
 

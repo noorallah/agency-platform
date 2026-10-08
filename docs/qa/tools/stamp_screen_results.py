@@ -24,6 +24,7 @@ case with only SKIP lines is skipped.
 """
 from __future__ import annotations
 
+import datetime
 import glob
 import json
 import os
@@ -36,6 +37,9 @@ BOOK = ROOT / "docs" / "qa" / "SCREEN_TEST_CASES_BUY_SELL_PRICE.md"
 REPORT = ROOT / "docs" / "qa" / "SCREEN_FLOW_CHECK_ROUND_2_2026-10-07.md"
 STORE = ROOT / "docs" / "qa" / "tools" / "screen_results_round2.json"
 DATE = "2026-10-07"
+#: The day of the run being filed. A case run again on a later day (the
+#: re-drive after a fix) carries that day, not the round's.
+RUN_DATE = os.environ.get("SCREEN_RUN_DATE") or datetime.date.today().isoformat()
 
 LINE = re.compile(
     r"FLOW: (PASS|FAIL|SKIP|DEFECT|INFO) \[([^\]]+)\] (SC-[A-Z]+-\d{3})\b(.*)$"
@@ -215,8 +219,10 @@ def write_report(results: dict[str, dict], kinds: dict[str, str]) -> None:
         r = results[cid]
         shown = clean("; ".join(r["notes"]) or "-", 600)
         user = f" ({r['user']})" if r.get("user") else ""
+        again = r.get("date", DATE)
+        word = r["result"] + (f" (run again {again})" if again != DATE else "")
         out.append(
-            f"| {cid} | {kinds.get(cid, '?')} | {r['result']} | {shown} | "
+            f"| {cid} | {kinds.get(cid, '?')} | {word} | {shown} | "
             f"`{r['file']}`{user} |"
         )
     REPORT.write_text("\n".join(out) + "\n", encoding="utf-8")
@@ -238,7 +244,9 @@ def stamp_book(results: dict[str, dict]) -> int:
         auto = f"`{r['file']}`" + (f" ({r['user']})" if r.get("user") else "")
         note = clean("; ".join(r["notes"]), 160)
         word = {"PASS": "Pass", "FAIL": "Fail", "SKIP": "Skipped"}[r["result"]]
-        result = f"{word} {DATE}" + (f": {note}" if note and note != "-" else "")
+        result = f"{word} {r.get('date', DATE)}" + (
+            f": {note}" if note and note != "-" else ""
+        )
         cells[-2] = auto
         cells[-1] = result + " |"
         lines[i] = " | ".join(cells)
@@ -259,7 +267,10 @@ def main(argv: list[str]) -> None:
     store: dict[str, dict] = (
         json.loads(STORE.read_text(encoding="utf-8")) if STORE.exists() else {}
     )
-    store.update(parse(paths))
+    fresh = parse(paths)
+    for entry in fresh.values():
+        entry["date"] = RUN_DATE
+    store.update(fresh)
     STORE.write_text(json.dumps(store, indent=1, sort_keys=True), encoding="utf-8")
     kinds = book_kinds()
     write_report(store, kinds)

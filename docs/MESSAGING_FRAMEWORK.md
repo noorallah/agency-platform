@@ -321,8 +321,9 @@ balance of nothing, refuse both. `app/messaging/services/reminders.py`.
 ## Documents sent by hand beyond the invoice (MSG-4, 2026-10-03)
 
 `POST /api/v1/messaging/send` takes `document_type` SALES_QUOTATION,
-SALES_ORDER, CUSTOMER_STATEMENT (the `document_id` is the customer's), RECEIPT
-or PURCHASE_ORDER as well as SALES_INVOICE. Those five go by **email only**,
+SALES_ORDER, PROFORMA_INVOICE (added 2026-10-08, D-UI-71; a withdrawn one is
+refused), CUSTOMER_STATEMENT (the `document_id` is the customer's), RECEIPT
+or PURCHASE_ORDER as well as SALES_INVOICE. Those six go by **email only**,
 because WhatsApp and SMS from the firm's account send templates registered for
 events; each is queued with a covering note naming it and its PDF rendered when
 the worker sends it (`app/messaging/services/hand_documents.py`). The recipient

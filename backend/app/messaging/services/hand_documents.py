@@ -32,6 +32,7 @@ from app.messaging.services.common import MessagingDocument
 LABELS = {
     "SALES_QUOTATION": "quotation",
     "SALES_ORDER": "order confirmation",
+    "PROFORMA_INVOICE": "proforma invoice",
     "CUSTOMER_STATEMENT": "statement of account",
     "RECEIPT": "receipt",
     "PURCHASE_ORDER": "purchase order",
@@ -94,6 +95,22 @@ def load_hand_document(
             order.order_date,
             order.customer_id,
             order.grand_total,
+        )
+    if document_type == "PROFORMA_INVOICE":
+        from app.proforma.models import ProformaInvoice
+
+        proforma = session.get(ProformaInvoice, document_id)
+        if proforma is None or proforma.firm_id != firm_id or proforma.is_deleted:
+            raise ResourceNotFoundError("Proforma invoice not found.")
+        _refuse_dead(proforma.status, "proforma invoice")
+        return _for_customer(
+            session,
+            document_type,
+            document_id,
+            proforma.proforma_number,
+            proforma.proforma_date,
+            proforma.customer_id,
+            proforma.grand_total,
         )
     if document_type == "CUSTOMER_STATEMENT":
         customer = session.get(Customer, document_id)
@@ -194,6 +211,10 @@ def render_attachment(
         )
 
         return SalesOrderPrintService(session).render(document_id, firm_scope=firm_id)
+    if document_type == "PROFORMA_INVOICE":
+        from app.proforma.services import ProformaPrintService
+
+        return ProformaPrintService(session).render(document_id, firm_scope=firm_id)
     if document_type == "RECEIPT":
         from app.settlements.services.receipt_print import ReceiptPrintService
 

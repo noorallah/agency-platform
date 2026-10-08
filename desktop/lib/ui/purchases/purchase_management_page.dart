@@ -714,11 +714,24 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     );
     if (reason == null) return;
     if (!mounted) return;
-    final PurchaseOrder result = await AppDialogs.whileLoading(
-      context,
-      action(reason),
-      message: '$title...',
-    );
+    final PurchaseOrder result;
+    try {
+      result = await AppDialogs.whileLoading(
+        context,
+        action(reason),
+        message: '$title...',
+      );
+    } on ApiException catch (error) {
+      // The server's sentence ("Received purchase orders cannot be
+      // cancelled."), which went to the crash log and nowhere else (D-UI-69).
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+      return;
+    }
     if (!mounted) return;
     NotificationService.show(
       context,

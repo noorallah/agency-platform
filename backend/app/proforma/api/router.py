@@ -5,6 +5,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -26,7 +27,7 @@ from app.proforma.schemas import (
     ProformaResponse,
     ProformaUpdate,
 )
-from app.proforma.services import ProformaService
+from app.proforma.services import ProformaPrintService, ProformaService
 
 router = APIRouter(
     prefix="/api/v1/proforma-invoices",
@@ -133,6 +134,32 @@ def proformas_outstanding(
     """Issued proformas a customer is still arranging payment against."""
     return ApiResponse(
         data=ProformaService(db).outstanding_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/{proforma_id}/print",
+    response_class=StreamingResponse,
+    status_code=status.HTTP_200_OK,
+)
+def print_proforma(
+    proforma_id: UUID,
+    scope: ProformaViewScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    """Render one proforma as the document a customer is handed (D-UI-71).
+
+    Viewing is the permission, as on a quotation: the document states what the
+    screen already shows. Every copy says it is not a tax invoice, and a draft
+    or a withdrawn one says that too.
+    """
+    pdf, filename = ProformaPrintService(db).render(
+        proforma_id, firm_scope=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 

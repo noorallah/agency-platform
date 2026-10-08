@@ -127,16 +127,21 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
                   ),
                   OutlinedButton(
                     key: const ValueKey('quotation-save-print'),
-                    onPressed: () => _finish(print: true),
+                    onPressed: _saving ? null : () => _finish(print: true),
                     child: const Text('Save & print'),
                   ),
                   FilledButton(
                     key: const ValueKey('quotation-save'),
-                    onPressed: () => _finish(print: false),
+                    onPressed: _saving ? null : () => _finish(print: false),
                     child: Text(revising ? 'Save revision' : 'Save draft'),
                   ),
                 ],
               ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: _errorBanner(),
+                ),
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) => Row(
@@ -187,17 +192,6 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
     _addLine();
     _current = _lines.length - 1;
     _schedulePreview();
-  }
-
-  /// Save, and print the saved offer if asked: handed back to the list,
-  /// which owns the save and the printer.
-  void _finish({required bool print}) {
-    final Json? payload = _payload();
-    if (payload == null) return;
-    Navigator.of(context).pop(<String, dynamic>{
-      ...payload,
-      if (print) QuotationEditorDialog.printAfterSave: true,
-    });
   }
 
   Customer? get _customer {

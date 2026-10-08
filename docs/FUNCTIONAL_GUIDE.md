@@ -2861,6 +2861,7 @@ it runs no tax engine of its own.
 | 3 | Issue it | `PROFORMA_MANAGE` | `ISSUED`, and now frozen |
 | 4 | Replace it, if terms change | `PROFORMA_MANAGE` | A new proforma whose `supersedes_id` points at the old one |
 | 5 | Cancel it | `PROFORMA_MANAGE` | `CANCELLED`; nothing to unwind, because nothing posted |
+| 6 | Print it, or send it by email | `PROFORMA_VIEW` to print, `DOCUMENT_SEND` to send | A PDF titled PROFORMA INVOICE that names the order and says *This is not a tax invoice.* on every copy; a draft says DRAFT, a withdrawn one WITHDRAWN and is not sent |
 
 The sales chain is untouched by all of this. The order proceeds to delivery
 and a tax invoice exactly as it would have.
@@ -2871,6 +2872,12 @@ and a tax invoice exactly as it would have.
 **Register** lists what was issued over a period, and **Outstanding** lists
 proformas that have not yet turned into an invoice — the follow-up list for
 whoever is chasing an advance.
+
+**New** opens with no order chosen: pick the approved order the proforma
+states, and Raise without one is refused in words. **Print** is on the bar for
+every proforma and **Send** for one that is not withdrawn
+(`GET /api/v1/proforma-invoices/{id}/print`, `ProformaPrintService`); a firm
+may save a print template for `PROFORMA_INVOICE` as for the other documents.
 
 ```powershell
 uv run python scripts/dump_route_permissions.py --markdown proforma
