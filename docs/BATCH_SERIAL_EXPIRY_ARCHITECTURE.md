@@ -728,6 +728,14 @@ The rules live in `app/batch_serial/services/product_tracking.py`
   refuses an expiry or best-before date earlier than the manufacturing date on
   a batch added or edited by hand, judged on what the batch will hold; the same
   day is allowed. A goods receipt is not asked: goods on the dock are received.
+- **A batch, lot or serial added from the screen names its product** (D-UI-72,
+  2026-10-08). The three dialogs under **Stock > Batches / Lots / Serial
+  Numbers** had no product box, so the server refused every one of them
+  (`product_id: Field required`) and the rules above could not be met from a
+  screen at all. Each now opens with a product box that searches as it is
+  typed (`ProductSearchBox`), says *Choose the product this batch is of.* when
+  none is picked, and keeps what was typed when the server refuses. An edit
+  does not offer the box: a record keeps its product.
 
 ### Batch-wise PTR / PTS (PG-14, backlog 86 #22, 55 G5)
 

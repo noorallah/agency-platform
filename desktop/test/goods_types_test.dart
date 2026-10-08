@@ -23,7 +23,7 @@ class _Write {
 }
 
 class _TypesApi extends ApiClient {
-  _TypesApi({this.refuseWith})
+  _TypesApi({this.refuseWith, this.refuseDeleteWith})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -33,6 +33,9 @@ class _TypesApi extends ApiClient {
 
   /// When set, every create is refused with this message.
   final String? refuseWith;
+
+  /// When set, every delete is refused 409 with this message.
+  final String? refuseDeleteWith;
 
   final List<_Write> writes = <_Write>[];
   int goodsTypeReads = 0;
@@ -52,6 +55,9 @@ class _TypesApi extends ApiClient {
           Map<String, dynamic>.from(body ?? const <String, dynamic>{})));
       if (refuseWith != null && method == 'POST') {
         throw ApiException(refuseWith!, statusCode: 422);
+      }
+      if (refuseDeleteWith != null && method == 'DELETE') {
+        throw ApiException(refuseDeleteWith!, statusCode: 409);
       }
       return {
         'data': <String, dynamic>{...?body, 'id': 'new-1'},
@@ -293,6 +299,47 @@ void main() {
     expect(api.writes.single.path,
         '/api/v1/products/goods-types/gt-shared/use');
     expect(api.writes.single.body, {'in_use': true});
+  });
+
+  // D-UI-73: a 409 on a delete is the server refusing for a reason of its
+  // own far more often than a lost race, and "somebody else saved this goods
+  // type" told the person nothing about the category that still carries it.
+  testWidgets('a refused delete shows the reason the server gave',
+      (tester) async {
+    const String reason = 'Cold chain is still the goods type of category '
+        'VACCINES, so it cannot be deleted.';
+    final _TypesApi api = _TypesApi(refuseDeleteWith: reason);
+    await _openTypes(tester, api, _permissions(manage));
+
+    // Rows are in code order, so the firm's own COLD_CHAIN is the first; the
+    // shared row under it offers no Delete.
+    await tester.tap(find.byIcon(Icons.more_vert).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.textContaining('still the goods type of category VACCINES'),
+        findsOneWidget);
+    expect(find.textContaining('Somebody else saved'), findsNothing);
+  });
+
+  test('only the stale-write sentence reads as a lost race', () {
+    expect(
+      const ApiException(
+        'This record changed since you loaded it. Reload and try again.',
+        statusCode: 409,
+      ).isStaleWrite,
+      isTrue,
+    );
+    expect(
+      const ApiException('Medicine is still the goods type of a category.',
+              statusCode: 409)
+          .isStaleWrite,
+      isFalse,
+    );
   });
 
   testWidgets('a type in use offers Stop using', (tester) async {

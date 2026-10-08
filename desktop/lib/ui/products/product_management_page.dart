@@ -4167,7 +4167,14 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       if (mounted) {
         setState(() {
           _validationSummary = [
-            saveFailureMessage(exception, 'product', changesKept: true),
+            // A new product has no version to lose a race on: a 409 there
+            // is a code or barcode that already exists.
+            saveFailureMessage(
+              exception,
+              'product',
+              changesKept: true,
+              isNew: widget.product == null,
+            ),
           ];
         });
       }

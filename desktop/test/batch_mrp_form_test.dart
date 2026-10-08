@@ -8,6 +8,7 @@ import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/batch_serial.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/inventory/batch_management_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -57,6 +58,26 @@ class _BatchApi extends ApiClient {
   }
 
   @override
+  Future<PagedResult<Product>> products({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    ProductQuery filters = const ProductQuery(),
+  }) async =>
+      PagedResult<Product>(
+        items: <Product>[
+          Product.fromJson(<String, dynamic>{
+            'id': 'p-1',
+            'code': 'PRD-001',
+            'name': 'Pain Relief',
+          }),
+        ],
+        total: 1,
+      );
+
+  @override
   Future<BatchSummaryRecord> batchSummary() async => const BatchSummaryRecord(
         totalBatches: 1,
         nearExpiry: 0,
@@ -98,6 +119,15 @@ Future<void> _open(WidgetTester tester, _BatchApi api) async {
   await tester.pumpAndSettle();
 }
 
+/// A new batch names its product (D-UI-72).
+Future<void> _pickProduct(WidgetTester tester) async {
+  await tester.enterText(
+      find.byKey(const ValueKey('batch-form-product')), 'Pain');
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('PRD-001 · Pain Relief').last);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('the list shows each batch MRP', (tester) async {
     await _open(tester, _BatchApi());
@@ -115,6 +145,7 @@ void main() {
     await tester.enterText(find.byKey(const ValueKey('batch-form-mrp')), '120');
     await tester.enterText(
         find.byKey(const ValueKey('batch-form-selling-price')), '95.5');
+    await _pickProduct(tester);
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
 
@@ -129,6 +160,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Batch Number *'), 'B-901');
+    await _pickProduct(tester);
     await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await tester.pumpAndSettle();
 

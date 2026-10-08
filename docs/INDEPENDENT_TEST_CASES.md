@@ -744,7 +744,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-017 — A goods type, a category that carries it, and a product that takes it
 
-*Added 2026-10-08 from the code (backlog 89, step 1); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**. What the type fills on the product is TC-MAST-020.*
+*Added 2026-10-08 from the code (backlog 89, step 1); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`). What the type fills on the product is TC-MAST-020.*
 
 - **Covers:** backlog 89 test group 1 (goods type)
 - **Fixture:** `product-master`
@@ -754,7 +754,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-018 — A category changes type, a product changes category, and a type in use cannot go
 
-*Added 2026-10-08 from the code (backlog 89, step 1); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 1); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 test group 4 (a category changes type)
 - **Fixture:** `product-master`
@@ -765,7 +765,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-019 — Who keeps goods types, and what a new firm starts with
 
-*Added 2026-10-08 from the code (backlog 89, step 1); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 1); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 test groups 7 (what a new firm starts with) and 8 (roles)
 - **Fixture:** `firm-admin`
@@ -787,7 +787,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-021 — The product form shows its goods type's properties and no others
 
-*Added 2026-10-08 from the code (backlog 89, step 2); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 2); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 test group 5 (the product form)
 - **Fixture:** `product-master`
@@ -798,7 +798,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-022 — A unit set fills a new product's units and its own conversion rule
 
-*Added 2026-10-08 from the code (backlog 89, step 3); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 3); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 test group 11 (unit sets)
 - **Fixture:** `product-master`
@@ -809,7 +809,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-023 — A batch, a serial and their dates are allowed by the product's switches, not the firm's profile
 
-*Added 2026-10-08 from the code (backlog 89, step 4); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 4); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 test group on batch and serial checks
 - **Fixture:** `product-master`
@@ -820,7 +820,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-024 — An extra field is shown and required by goods type, customer group and supplier type
 
-*Added 2026-10-08 from the code (backlog 89, step 5); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 5); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 test group 6 (extra fields) and group 8 (who may keep the rules)
 - **Fixture:** `product-master`
@@ -831,7 +831,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-025 — A firm switches a shared extra field off, and its values are kept
 
-*Added 2026-10-08 from the code (backlog 89, step 5); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 5); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 test group 6 (a firm switching a catalogue field off) and group 7 (what the profile no longer does)
 - **Fixture:** `product-master`
@@ -842,7 +842,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-026 — The Inventory menu shows only the tracking the firm's goods need
 
-*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 point 6 (menus follow the goods); `docs/BUSINESS_PROFILE_FRAMEWORK.md`, *Menus follow the goods*
 - **Fixture:** `product-master`
@@ -853,7 +853,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-027 — A product import with no switch columns takes its category's goods type
 
-*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 import point (a); `docs/FUNCTIONAL_GUIDE.md`, products
 - **Fixture:** `product-master`
@@ -875,7 +875,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-029 — What a business profile no longer does
 
-*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89 "Business profiles stay, smaller"; `docs/BUSINESS_PROFILE_FRAMEWORK.md`
 - **Fixture:** `product-master`, plus a platform administrator
@@ -886,7 +886,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-030 — Copying a product keeps its pack size
 
-*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
+*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen were clicked the same day where `docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md` lists them (cases in `docs/qa/SCREEN_TEST_CASES_GOODS_TYPES.md`).*
 
 - **Covers:** backlog 89, `ProductService.duplicate_product`
 - **Fixture:** `product-master`

@@ -129,6 +129,15 @@ class ApiException implements Exception {
   /// version it read never sees this and silently overwrites instead.
   bool get isConflict => statusCode == HttpStatus.conflict;
 
+  /// A 409 that really is a lost race: the server's own sentence for a write
+  /// whose version was no longer the newest (`app/core/concurrency.py` and
+  /// the stale-write handler send exactly this). Any other 409 is the server
+  /// refusing for a reason of its own -- a goods type a category still
+  /// carries -- and that reason is what the person needs to read.
+  bool get isStaleWrite =>
+      isConflict &&
+      message.startsWith('This record changed since you loaded it');
+
   /// A stock movement above the poster's limit (STK-8): the server refuses the
   /// direct post and says it can be submitted for approval instead.
   bool get needsApproval {

@@ -11,6 +11,8 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
+import '../../models/product.dart';
+import '../purchases/purchase_requisition_page.dart' show ProductSearchBox;
 import '../workspace/desktop_framework.dart';
 
 enum BatchSerialSection {
@@ -1250,6 +1252,8 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
   final _ptr = TextEditingController();
   final _pts = TextEditingController();
   final _remarks = TextEditingController();
+  final _product = TextEditingController();
+  String _productId = '';
   String _status = 'AVAILABLE';
   bool _saving = false;
   String? _error;
@@ -1282,6 +1286,7 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
     _ptr.dispose();
     _pts.dispose();
     _remarks.dispose();
+    _product.dispose();
     super.dispose();
   }
 
@@ -1308,12 +1313,18 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    // The server needs the product and judges the batch by its switches.
+    if (widget.existing == null && _productId.isEmpty) {
+      setState(() => _error = 'Choose the product this batch is of.');
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
       final Json data = {
+        if (widget.existing == null) 'product_id': _productId,
         'batch_number': _batchNumber.text.trim(),
         if (_supplierBatch.text.isNotEmpty)
           'supplier_batch': _supplierBatch.text.trim(),
@@ -1354,7 +1365,12 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
       Navigator.pop(context, true);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() => _error = saveFailureMessage(exception, 'batch', changesKept: false));
+      setState(() => _error = saveFailureMessage(
+            exception,
+            'batch',
+            changesKept: true,
+            isNew: widget.existing == null,
+          ));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1377,6 +1393,18 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.error,
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (widget.existing == null) ...[
+                    ProductSearchBox(
+                      fieldKey: const ValueKey('batch-form-product'),
+                      api: widget.api,
+                      controller: _product,
+                      enabled: !_saving,
+                      onPicked: (Product p) =>
+                          setState(() => _productId = p.id),
+                      onCleared: () => _productId = '',
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -1526,6 +1554,8 @@ class _LotFormDialogState extends State<_LotFormDialog> {
   final _expiryDate = TextEditingController();
   final _productionDate = TextEditingController();
   final _remarks = TextEditingController();
+  final _product = TextEditingController();
+  String _productId = '';
   String _lotType = 'PRODUCTION';
   String _status = 'ACTIVE';
   bool _saving = false;
@@ -1552,17 +1582,24 @@ class _LotFormDialogState extends State<_LotFormDialog> {
     _expiryDate.dispose();
     _productionDate.dispose();
     _remarks.dispose();
+    _product.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    // The server needs the product and judges the lot by its switches.
+    if (widget.existing == null && _productId.isEmpty) {
+      setState(() => _error = 'Choose the product this lot is of.');
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
       final Json data = {
+        if (widget.existing == null) 'product_id': _productId,
         'lot_number': _lotNumber.text.trim(),
         'quantity': double.tryParse(_quantity.text.trim()) ?? 0,
         'lot_type': _lotType,
@@ -1585,7 +1622,12 @@ class _LotFormDialogState extends State<_LotFormDialog> {
       Navigator.pop(context, true);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() => _error = saveFailureMessage(exception, 'lot', changesKept: false));
+      setState(() => _error = saveFailureMessage(
+            exception,
+            'lot',
+            changesKept: true,
+            isNew: widget.existing == null,
+          ));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1608,6 +1650,18 @@ class _LotFormDialogState extends State<_LotFormDialog> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.error,
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (widget.existing == null) ...[
+                    ProductSearchBox(
+                      fieldKey: const ValueKey('lot-form-product'),
+                      api: widget.api,
+                      controller: _product,
+                      enabled: !_saving,
+                      onPicked: (Product p) =>
+                          setState(() => _productId = p.id),
+                      onCleared: () => _productId = '',
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -1697,6 +1751,8 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
   final _currentOwner = TextEditingController();
   final _assetReference = TextEditingController();
   final _remarks = TextEditingController();
+  final _product = TextEditingController();
+  String _productId = '';
   String _status = 'AVAILABLE';
   bool _saving = false;
   String? _error;
@@ -1725,17 +1781,24 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
     _currentOwner.dispose();
     _assetReference.dispose();
     _remarks.dispose();
+    _product.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    // The server needs the product and judges the serial number by its switches.
+    if (widget.existing == null && _productId.isEmpty) {
+      setState(() => _error = 'Choose the product this serial number is of.');
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
       final Json data = {
+        if (widget.existing == null) 'product_id': _productId,
         'serial_number': _serialNumber.text.trim(),
         'status': _status,
         if (_warrantyStart.text.isNotEmpty)
@@ -1763,7 +1826,12 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
       Navigator.pop(context, true);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() => _error = saveFailureMessage(exception, 'serial number', changesKept: false));
+      setState(() => _error = saveFailureMessage(
+            exception,
+            'serial number',
+            changesKept: true,
+            isNew: widget.existing == null,
+          ));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1787,6 +1855,18 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.error,
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (widget.existing == null) ...[
+                    ProductSearchBox(
+                      fieldKey: const ValueKey('serial-form-product'),
+                      api: widget.api,
+                      controller: _product,
+                      enabled: !_saving,
+                      onPicked: (Product p) =>
+                          setState(() => _productId = p.id),
+                      onCleared: () => _productId = '',
                     ),
                     const SizedBox(height: 12),
                   ],
