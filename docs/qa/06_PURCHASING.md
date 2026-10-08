@@ -848,6 +848,14 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Also needs:** the firm's GST template applied; the four reverse-charge rules switched **on** (Settings > Tax > **Tax Rules**: `RCM_GTA_5_LOCAL`, `RCM_GTA_5_INTERSTATE`, `RCM_LEGAL_18_LOCAL`, `RCM_LEGAL_18_INTERSTATE` are created inactive; make them active, and inactive again afterwards); a supplier (a goods transport agency); a service product on the tax profile `RCM_GTA_5`; a stocked product and the prepared customer for a sales invoice. Best run in a firm that has raised no self-invoice before 2026-10-05.
 - **Steps:** as the prepared **Firm admin**: (1) raise and approve a sales invoice; note its number. (2) Buy > Purchase Invoices → bill the transport service at 1,000 → Save → **Approve**; read the bill's row and its journal. (3) Raise and approve a second sales invoice. (4) Approve a second reverse-charge bill.
 - **Expect:** the sales invoices read `SI-26-27-000001` and `SI-26-27-000002`. The first bill's row carries "· Self-invoice **RSI-26-27-000001**" (16 characters), with reverse charge 50.00 posted to 2270 and 2280 Reverse Charge Payable, 25.00 each; the second reads `RSI-26-27-000002`. The two lists share no number: a self-invoice never takes a number a tax invoice will carry. A supplier rate contract is likewise `RTC-2026-2027-000001`, and a customer receipt stays `RC-`.
+### TC-BUY-099 — A receipt brings in no more free goods than its order line has left
+
+*Added 2026-10-09 with inventory round 4 (D-BUY-67). Driven over HTTP by `docs/qa/checks/inventory/p_receipt_free_cap.py`.*
+
+- **Preconditions:** The buying firm described in this section's preparation table.
+- **Also needs:** an approved purchase order for **10** of `QA-B` with **2** free, and a second approved order for 10 with none free.
+- **Steps:** as the prepared **Firm admin**: (a) receive **5** against the first order with Free **2**; complete. (b) receive the other 5 with Free **1**; then with Free empty. (c) against the second order receive 5 with Free **1**. (d) cancel the first receipt and receive 5 with Free 2 again.
+- **Expect:** (a) completed: seven on the shelf. (b) refused: *Line 1 brings in 1 free, and line 1 of PO-... has 0 left to give: 2 free on the order, 2 already received.*; with Free empty it completes and the shelf holds 12. (c) refused: the order promised none. (d) a cancelled receipt gives its free units back, so the two are accepted. A draft receipt counts against the line as a completed one does. Free goods a supplier adds after the order are put on the order first.
 
 ## Screen checks
 

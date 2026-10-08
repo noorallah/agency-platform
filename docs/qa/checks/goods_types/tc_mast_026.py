@@ -5,9 +5,8 @@ from _lib import clear_tracked_products, must, product
 
 c = Check("tc_mast_026")
 tag = suffix()
-admin, manager, cashier = client("generic_admin"), client("generic_manager"), client("generic_cashier")
+admin, manager, cashier = client("plain_admin"), client("plain_manager"), client("plain_cashier")
 test02 = client("test02_admin")
-generic = state()["own_firms"]["generic"]["id"]
 AM = "/api/v1/business-framework/active-modules"
 
 
@@ -46,7 +45,8 @@ def clear_categories() -> None:
             use(code, False)
 
 
-# the firm is this suite's own: remove tracked products an earlier check (029) left
+# the firm is this check's alone (setup_firms.py, ``plain``); a tracked product an
+# interrupted run of this check left is removed
 clear_tracked_products(admin)
 clear_categories()
 # (a) nothing in use, nothing on the menu
@@ -82,7 +82,7 @@ s, b = admin.inside(None).get(AM)
 c.eq((s, [r for r in data(b) if r["goods_tracking"] is not None] if s == 200 else None), (200, []),
      "(h) with no X-Firm-ID the call is answered and no row carries tracking")
 # platform admin inside the firm sees the same as the firm's admin
-c.eq(tracking(client("generic_platform"))[1], ["BATCH", "SERIAL"], "(h) the platform admin inside the firm")
+c.eq(tracking(client("plain_platform"))[1], ["BATCH", "SERIAL"], "(h) the platform admin inside the firm")
 
 # (d) clear and stop using both
 clear_categories()

@@ -1,7 +1,7 @@
 """TC-MAST-023: a batch, a serial and their dates follow the product's switches."""
 import pathlib, sys; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from common import Check, client, data, message, suffix
-from _lib import must, product
+from _lib import must, one_in_stock, product
 
 c = Check("tc_mast_023")
 tag = suffix()
@@ -36,6 +36,8 @@ c.refused(admin.post("/api/v1/batch-serial/batches", {
     422, "is not tracked by batch", "(c) batch for a product not tracked by batch")
 
 # (d) serial with warranty for the phone; serial for the paint refused
+# a number is added only for a unit the firm holds (D-STK-50)
+one_in_stock(admin, phone["id"], tag)
 d1 = admin.post("/api/v1/batch-serial/serials", {
     "product_id": phone["id"], "serial_number": f"SN{tag}",
     "warranty_start": "2026-10-01", "warranty_end": "2027-10-01"})

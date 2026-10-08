@@ -32,8 +32,11 @@ if created[0] == 201:
 
 # the two firms of their own
 own = state()["own_firms"]
-pharma, generic = own["pharma"]["id"], own["generic"]["id"]
-pp, gp = client("pharma_platform"), client("generic_platform")
+# ``plain`` is the Generic firm nothing else writes to; the inventory checks take
+# goods types into use in ``generic`` and in the pharmacy firm (their "other firm"),
+# so the pharmacy firm is asked about Medicine alone
+pharma, generic = own["pharma"]["id"], own["plain"]["id"]
+pp, gp = client("pharma_platform"), client("plain_platform")
 
 
 def in_use(api) -> list[str]:
@@ -49,7 +52,7 @@ if starting:
 c.eq(len(audit_actions(gp, generic, "goods_type.starting_set")), 0,
      "the generic firm has none")
 c.eq(in_use(gp), [], "the generic firm starts with no goods type in use")
-now = in_use(pp)
+now = [code for code in in_use(pp) if code == "MEDICINE"]
 c.ok(now in (["MEDICINE"], []), "the pharmacy firm started with Medicine (or it was dropped by an earlier run)", now)
 if now == []:
     print("note: Medicine was already dropped by an earlier run; the first-run expectation is consumed")
@@ -64,7 +67,7 @@ profiles = {p["code"]: p["id"] for p in data(b)}
 for code in ("AGENCY", "PHARMACY"):
     r = pp.put(f"{base}/profile-assignment", {"business_profile_id": profiles[code], "is_active": True})
     c.eq(r[0], 200, f"the profile is changed to {code}")
-c.eq(in_use(pp), [], "after the round trip Medicine is still not in use")
+c.ok("MEDICINE" not in in_use(pp), "after the round trip Medicine is still not in use", in_use(pp))
 c.eq(len(audit_actions(pp, pharma, "goods_type.starting_set")), 1,
      "and no second starting_set row was written")
 c.done()

@@ -28,7 +28,7 @@ IT_EMAIL=t10069cwy.tradeadmin@fixtures.local IT_PASSWORD='Fixture@2026pw' \
   IT_PART=lists,actions LIMIT=900 bash integration_test/run.sh sc_st_test.dart
 # sc_st parts: lists, actions, adjust, opening, count, views, transfers,
 #              repack, approvals, settings, round2 (or its pieces r2xfer,
-#              r2doc, r2open, r2ref), backorder, round3
+#              r2doc, r2open, r2ref), backorder, round3, round4
 # sc_bs parts: batches, lots, serials, expiry
 # any other user (qfmgr, qstore, qro, qsmgr, qsexe) runs the Role cases only
 ```
@@ -190,6 +190,18 @@ in MAIN and stops as blocked where there is none.
 | --- | --- | --- | --- | --- |
 | SC-ST-088 | Negative | FA | Stock > Repacking; **New repack**; consume 1 of `INVSCR-S` (serial-tracked), produce 1 of `INVSCR-N`; **Post repack** | "INVSCR-S is tracked by serial number, and a repack moves a quantity without naming units. Move the units as themselves: a transfer, a sale or a write-off names each one."; dialog open with its lines; no repack saved; stock unchanged |
 | SC-ST-089 | Positive | FA | **New repack**; consume 1 of `INVSCR-B` (held in batches, none named on the line), produce 1 of `INVSCR-N`; **Post repack** | "Repack posted."; one more repack in the list; the batch expiring first holds one less, the other batches are unchanged |
+
+## Round 4: what a repack produces of a batch-tracked product
+
+Added 2026-10-09 with round 4 (D-STK-53, D-STK-48). Part `round4` of
+`sc_st_test.dart`. It needs `INVSCR-B` (Medicine: batch and expiry) to hold a
+live batch `INVB1` in MAIN.
+
+| Id | Kind | User | Steps on screen | Expected on screen |
+| --- | --- | --- | --- | --- |
+| SC-ST-090 | Negative | FA | Stock > Repacking; **New repack**; consume 1 of `INVSCR-N`, produce 1 of `INVSCR-B`; read the produce line; **Post repack** with Batch number empty | The produce line shows **Batch number** ("One it already has, or a new number") and **Expiry date** ("YYYY-MM-DD, for a new batch") once the product is chosen, and not before; the consumed line shows neither; "INVSCR-B - ... is kept in batches. Enter the batch the produced goods go into."; dialog open; no repack saved; stock unchanged; no overflow |
+| SC-ST-091 | Negative | FA | The same repack; Batch number `R4NEW` (new), Expiry date empty; **Post repack** | "INVSCR-B tracks expiry, so batch R4NEW needs an expiry date. Enter the expiry date, or the manufacturing date where the product has a shelf life."; dialog open, the number still typed; no repack saved; no batch made |
+| SC-ST-092 | Positive | FA | The same repack; Batch number `INVB1` (a batch the product has); **Post repack** | "Repack posted."; one more repack; `INVB1` holds one more, the other batches are unchanged; `INVSCR-N` holds one less |
 
 ## Role cases (stock)
 
