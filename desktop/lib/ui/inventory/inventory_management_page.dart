@@ -2382,29 +2382,29 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
     super.dispose();
   }
 
-  /// The batches the chosen product has in the chosen warehouse. A product
-  /// with none shows no Batch box (D-STK-1).
+  /// The product's batches, whichever warehouse is chosen: a batch is the
+  /// product's, and stock is added to one in a warehouse that holds none of
+  /// it yet. Asking for the warehouse's own hid the box there, and hid a
+  /// batch recorded with no warehouse everywhere. A product with none shows
+  /// no Batch box (D-STK-1).
   Future<void> _loadBatches() async {
     final String? productId = _productId;
-    final String? warehouseId = _warehouseId;
     setState(() {
       _batches = const [];
       _batchId = null;
     });
-    if (productId == null || warehouseId == null) return;
+    if (productId == null) return;
     List<BatchRecord> found = const [];
     try {
       final PagedResult<BatchRecord> result = await widget.api.batches(
         pageSize: maxApiPageSize,
-        filters: BatchQuery(productId: productId, warehouseId: warehouseId),
+        filters: BatchQuery(productId: productId),
       );
       found = result.items;
     } on Exception {
       found = const [];
     }
-    if (!mounted || _productId != productId || _warehouseId != warehouseId) {
-      return;
-    }
+    if (!mounted || _productId != productId) return;
     setState(() => _batches = found);
   }
 
@@ -2469,7 +2469,6 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
                           : _filteredWarehouses.first.id;
                     });
                     _loadStorageNodes();
-                    _loadBatches();
                   },
                 ),
                 const SizedBox(height: 12),
@@ -2496,7 +2495,6 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog>
                   onChanged: (value) {
                     setState(() => _warehouseId = value);
                     _loadStorageNodes();
-                    _loadBatches();
                   },
                 ),
                 const SizedBox(height: 12),
