@@ -503,8 +503,9 @@ sheet up and posting it:
 - **The variance is measured against what the system holds when the sheet is
   posted**, not against the snapshot it was drawn up from. Stock moves while a
   warehouse is being counted, and posting a stale figure would put back every
-  dispatch made in between. The snapshot is kept on the line as
-  `expected_quantity`, for the person reading it afterwards.
+  dispatch made in between. The snapshot is on the line as
+  `expected_quantity` while the sheet is a draft; posting replaces it on a
+  counted line with the figure it measured against (D-STK-45).
 - **A line nobody walked is not a line that found nothing.** `counted_quantity`
   is null until somebody counts it, and posting skips those: treating them as
   zero would write off the stock that was simply not reached.

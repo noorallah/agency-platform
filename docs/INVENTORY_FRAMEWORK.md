@@ -230,6 +230,24 @@ sheet is the one exception, on purpose: two people fill one sheet, a save
 writes only the lines it names, and so `PUT /inventory/counts/{id}` does not
 read `If-Match`. Two saves of the same line keep the later figure.
 
+**A posted count line adds up.** While a sheet is a draft, Expected is what
+the row held when the sheet was drawn up. Posting measures each counted line
+against what the row holds at that moment and writes that figure into
+Expected, so Expected, Counted and Variance agree on the posted sheet
+(D-STK-45). A line nobody counted keeps the figure it was drawn up with.
+
+**Near expiry means one thing.** Home's stock alerts and the batch card count
+a batch that still holds stock -- on the shelf, in quarantine, damaged or
+blocked -- and expires inside the firm's own window (*Batch sale rules*, 30
+days unless the firm set another). The expiry dashboard's 7 and 30 day cards
+are named for their windows and do not follow the setting (D-STK-47).
+
+**The stock account and the valuation can part by paise.** Stock is valued to
+four places and the ledger posts two, so a movement's journal is the rounded
+share of a figure the valuation keeps whole. It is a known limit (D-STK-20,
+D-PRC-56): paise per product, gone when the product is sold out, and the
+trial balance always balances.
+
 ## Valuation
 
 A moving weighted average per firm and product, rolled forward in

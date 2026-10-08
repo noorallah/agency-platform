@@ -132,12 +132,15 @@ class PhysicalCountLine(BaseEntity):
     #: the bin kept stock that was not there (D-STK-13). No foreign key, like
     #: ``batch_id`` beside it: the line records what was counted.
     storage_node_id: Mapped[UUID | None] = mapped_column(UUIDType())
-    #: What the system thought when the sheet was drawn up.
+    #: What the system held: when the sheet was drawn up while it is a draft,
+    #: and when it was posted once it is.
     #:
-    #: Kept for the person reading the sheet afterwards -- "we expected 50" --
-    #: and deliberately **not** what the variance is computed from. Stock moves
-    #: while a warehouse is being counted, and posting against a snapshot taken
-    #: hours earlier would undo every dispatch made in between.
+    #: The draft figure is a guide for the counter and deliberately **not**
+    #: what the variance is computed from. Stock moves while a warehouse is
+    #: being counted, and posting against a snapshot taken hours earlier would
+    #: undo every dispatch made in between. Posting writes the figure it
+    #: measured against over a counted line's snapshot, so the three columns
+    #: of a posted line add up (D-STK-45); a line nobody counted keeps its own.
     expected_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0")
     )

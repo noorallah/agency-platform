@@ -141,8 +141,20 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
             )
 
     window = BatchSalePolicyService(session).near_expiry_days(firm_id)
+    # The batch card's test of a batch that still holds stock
+    # (``batch_holds_stock``) and its window, so Home and the card count
+    # the same batches: a batch held only in quarantine was on the card
+    # and not here (D-STK-47).
     near = session.execute(
-        select(BatchRecord, func.sum(InventoryRecord.current_quantity))
+        select(
+            BatchRecord,
+            func.sum(
+                InventoryRecord.current_quantity
+                + InventoryRecord.quarantine_quantity
+                + InventoryRecord.damaged_quantity
+                + InventoryRecord.blocked_quantity
+            ),
+        )
         .join(InventoryRecord, InventoryRecord.batch_id == BatchRecord.id)
         .where(
             BatchRecord.firm_id == firm_id,

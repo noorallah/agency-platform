@@ -365,6 +365,9 @@ class PhysicalCountService(TransactionalDocumentService):
         would silently undo every dispatch made in between -- the count would
         put back goods that had left the building.
 
+        A counted line's ``expected_quantity`` becomes that figure as it is
+        posted, so Expected, Counted and Variance agree on the posted sheet.
+
         Lines nobody walked are skipped. An uncounted line is not a line that
         found nothing, and treating it as zero would write off the stock that
         was simply not reached before the sheet was posted.
@@ -400,6 +403,11 @@ class PhysicalCountService(TransactionalDocumentService):
             )
             variance = Decimal(str(line.counted_quantity)) - on_hand
             line.variance_quantity = variance
+            # The figure the difference was measured against, so the posted
+            # line adds up: with the opening figure left here a line read
+            # Expected 50, Counted 49, Variance +9 after ten were written off
+            # while the sheet was open (D-STK-45).
+            line.expected_quantity = on_hand
             line.updated_by = actor_id
             if variance == ZERO:
                 continue

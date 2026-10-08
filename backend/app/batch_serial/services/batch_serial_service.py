@@ -1079,9 +1079,20 @@ class BatchSerialService:
         the test the expiry dashboard applies (``batch_holds_stock``): an
         emptied batch read 1 on this card and 0 on that one (D-STK-18). The
         total and the quarantine count are of the register itself.
+
+        Near expiry is the firm's own window (``batch_sale_settings``),
+        the one Home's stock alerts and the batch list use; a fixed 30
+        days here parted from both for a firm that set another
+        (D-STK-47). The dashboard's 7 and 30 day cards are named for
+        their windows and stay fixed.
         """
+        from app.batch_serial.services.batch_sale_policy import (
+            BatchSalePolicyService,
+        )
+
         today = firm_today(self._session, firm_scope)
-        near_expiry_cutoff = today + timedelta(days=30)
+        window = BatchSalePolicyService(self._session).near_expiry_days(firm_scope)
+        near_expiry_cutoff = today + timedelta(days=window)
         total = int(
             self._session.scalar(
                 select(func.count())
