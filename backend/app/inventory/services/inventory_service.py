@@ -1778,6 +1778,25 @@ class InventoryService:
         reference = self._movement_reference(
             data, "WRITE_OFF", firm_id=firm_scope, actor_id=actor_id
         )
+        # The journal is keyed on the reference and would refuse the second
+        # one in its own words, about a journal entry nobody here typed
+        # (D-STK-44).
+        if self._session.scalar(
+            select(InventoryTransaction.id)
+            .where(
+                InventoryTransaction.firm_id == firm_scope,
+                InventoryTransaction.reference_number == reference,
+                InventoryTransaction.transaction_type
+                == InventoryTransactionType.WRITE_OFF.value,
+                InventoryTransaction.is_deleted.is_(False),
+            )
+            .limit(1)
+        ):
+            raise ConflictError(
+                f"A write-off with the reference {reference} already exists: "
+                "give this one a reference of its own, or leave the box "
+                "empty to have it numbered."
+            )
         from app.inventory.services.adjustment_reasons import (
             AdjustmentReasonService,
         )
@@ -3590,6 +3609,130 @@ class InventoryService:
                 held[batch_id] = quantity
         return held
 
+    def shippable_past_back_orders(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_id: UUID | None,
+        product_id: UUID,
+        reference_number: str,
+    ) -> tuple[Decimal, dict[UUID, Decimal]]:
+        """Return what one order may ship where holds exceed the stock.
+
+        An order holds its whole quantity, and the part no stock covers is a
+        back order sitting on the stock row as a hold like any other. Read
+        as a plain sum, that hold stopped the goods that *were* there from
+        leaving: four held and one order for ten could not ship the four, and
+        an order for three could not ship beside a later one for four, with
+        four on the shelf (D-STK-39).
+
+        A hold with no stock behind it stops nobody. On a row holding less
+        than is reserved on it, the holds are read in the order they were
+        made: the stock stands behind the earliest first, and what is left
+        over when it runs out is the back order. This order may draw what
+        the row holds less what stands behind the holds made *before* its
+        own, and less what still stands behind later ones once its own hold
+        is counted. Its own hold never stands in its own way.
+
+        A row that covers its holds is unchanged: what is available on it
+        plus this order's own hold there.
+
+        Returns:
+            What the order may ship from this place in all, and for each row
+            that holds less than is reserved on it, what may be drawn from
+            it, by row id -- ``allocate_for_dispatch`` takes that.
+
+        """
+        rows = list(
+            self._session.scalars(
+                select(InventoryRecord).where(
+                    InventoryRecord.firm_id == firm_scope,
+                    InventoryRecord.branch_id == branch_id,
+                    InventoryRecord.warehouse_id == warehouse_id,
+                    InventoryRecord.storage_node_id == storage_node_id,
+                    InventoryRecord.product_id == product_id,
+                    InventoryRecord.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        over = {row.id for row in rows if Decimal(str(row.available_quantity)) < ZERO}
+        if not over:
+            # Nothing here is short of its holds: the plain sum stands.
+            return ZERO, {}
+        holds: dict[UUID, list[tuple[str | None, Decimal, Any]]] = {}
+        if rows:
+            for row_id, reference, total, first in self._session.execute(
+                select(
+                    InventoryTransaction.inventory_id,
+                    InventoryTransaction.reference_number,
+                    func.coalesce(
+                        func.sum(InventoryTransaction.reserved_quantity_delta), 0
+                    ),
+                    func.min(InventoryTransaction.created_at),
+                )
+                .where(
+                    InventoryTransaction.firm_id == firm_scope,
+                    InventoryTransaction.inventory_id.in_([row.id for row in rows]),
+                    InventoryTransaction.reserved_quantity_delta != 0,
+                    InventoryTransaction.is_deleted.is_(False),
+                    # Every hold on a row short of its holds, and this
+                    # order's own on the rest.
+                    or_(
+                        InventoryTransaction.inventory_id.in_(over),
+                        InventoryTransaction.reference_number == reference_number,
+                    ),
+                )
+                .group_by(
+                    InventoryTransaction.inventory_id,
+                    InventoryTransaction.reference_number,
+                )
+            ).all():
+                quantity = Decimal(str(total))
+                if quantity > ZERO:
+                    holds.setdefault(row_id, []).append((reference, quantity, first))
+        shippable = ZERO
+        past: dict[UUID, Decimal] = {}
+        for row in rows:
+            held = holds.get(row.id, [])
+            own = sum((qty for ref, qty, _ in held if ref == reference_number), ZERO)
+            if row.id not in over:
+                shippable += max(Decimal(str(row.available_quantity)) + own, ZERO)
+                continue
+            stock = max(
+                Decimal(str(row.current_quantity)) - Decimal(str(row.blocked_quantity)),
+                ZERO,
+            )
+            mine = next(
+                (first for ref, _, first in held if ref == reference_number), None
+            )
+            # A hold the ledger cannot name, and every hold where this order
+            # has none, comes before it: nothing is looked past on a guess.
+            earlier = max(
+                Decimal(str(row.reserved_quantity))
+                - sum((qty for _, qty, _ in held), ZERO),
+                ZERO,
+            )
+            later = ZERO
+            for ref, qty, first in held:
+                if ref == reference_number:
+                    continue
+                before = (
+                    mine is None
+                    or ref is None
+                    or (first, ref) < (mine, reference_number)
+                )
+                if before:
+                    earlier += qty
+                else:
+                    later += qty
+            behind_later = min(max(stock - earlier - own, ZERO), later)
+            drawable = max(stock - min(stock, earlier) - behind_later, ZERO)
+            past[row.id] = drawable
+            shippable += drawable
+        return shippable, past
+
     def _expiry_ranked_rows(
         self,
         *,
@@ -3702,8 +3845,17 @@ class InventoryService:
         quantity: Decimal,
         as_of: date | None = None,
         keep_until: date | None = None,
+        past_back_orders: Mapping[UUID, Decimal] | None = None,
     ) -> list[tuple[UUID | None, Decimal]]:
         """Choose which batches a dispatch consumes, earliest expiry first.
+
+        ``past_back_orders`` is what the order shipping may draw from each
+        row that holds less than is reserved on it, by row id
+        (``shippable_past_back_orders``): a hold with no stock behind it
+        leaves the row showing nothing available while the goods stand
+        there, and this order's place among the holds says how much of them
+        is its to take (D-STK-39). A row not named is drawn by what it has
+        available, as before.
 
         ``keep_until`` is the date a customer's minimum shelf life asks the
         goods to last to (backlog 79 row 6): a batch expiring before it is
@@ -3746,8 +3898,24 @@ class InventoryService:
             branch_id=branch_id,
             warehouse_id=warehouse_id,
             product_id=product_id,
-            column=InventoryRecord.available_quantity,
+            column=(
+                InventoryRecord.current_quantity
+                if past_back_orders
+                else InventoryRecord.available_quantity
+            ),
         )
+        drawable = {
+            row.id: max(
+                Decimal(str(row.available_quantity)),
+                min(
+                    (past_back_orders or {}).get(row.id, ZERO),
+                    Decimal(str(row.current_quantity))
+                    - Decimal(str(row.blocked_quantity)),
+                ),
+            )
+            for row in rows
+        }
+        rows = [row for row in rows if drawable[row.id] > ZERO]
         # `require_batch_on_issue` is the product saying its goods cannot leave
         # unidentified. Untracked stock -- the row whose batch is NULL -- is
         # exactly what that forbids, so it is dropped from the candidates and
@@ -3784,7 +3952,7 @@ class InventoryService:
         for row in rows:
             if outstanding <= ZERO:
                 break
-            take = min(outstanding, Decimal(str(row.available_quantity)))
+            take = min(outstanding, drawable[row.id])
             if take <= ZERO:
                 continue
             allocation.append((row.batch_id, take))

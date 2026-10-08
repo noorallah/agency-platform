@@ -232,7 +232,31 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
         ],
       };
 
+  /// The first line whose box holds something that is not a count.
+  ///
+  /// Sent as typed, -4 came back as "The request validation failed." and
+  /// nothing said which line (D-UI-83).
+  String? _badCount() {
+    for (final PhysicalCountLine line in _sheet.lines) {
+      final String typed = _counted[line.id]?.text.trim() ?? '';
+      if (typed.isEmpty) continue;
+      final double? counted = double.tryParse(typed);
+      if (counted == null) {
+        return '${line.productLabel}: the count must be a number.';
+      }
+      if (counted < 0) {
+        return '${line.productLabel}: a count cannot be less than nothing.';
+      }
+    }
+    return null;
+  }
+
   Future<void> _save({bool thenPost = false}) async {
+    final String? bad = _badCount();
+    if (bad != null) {
+      setState(() => _error = bad);
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;

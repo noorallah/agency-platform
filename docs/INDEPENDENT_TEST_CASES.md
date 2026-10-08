@@ -2426,6 +2426,17 @@ the fixture builds (a minute or two).
 - **Expect:** the first post is refused asking for 4 more serial numbers; the second posts and the six units are **AVAILABLE** in MAIN, each trail starting on the opening stock document. The one-step transfer is refused until one unit is picked per unit moved, then the two units read the second warehouse. The transfer document saves with fewer units picked than it sends and is refused at dispatch until all four are picked; dispatched, its units read **IN_TRANSIT** and can be picked nowhere else. The receipt is refused until it says which unit did not arrive and which is damaged; then two units are AVAILABLE and one **DAMAGED** in the second warehouse and one is **LOST**. The delivery note for the two good units dispatches from the second warehouse; the damaged unit is refused. A cancelled transfer's units are AVAILABLE at the source again. An opening stock line of a serial product with no numbers at all still posts as a quantity.
 - **Leaves:** stock and serial numbers in two warehouses.
 
+### TC-STOCK-022 — An order owed more than is held ships what is on the shelf
+
+*Added 2026-10-08 with the fix (D-STK-39). Driven over HTTP by `docs/qa/checks/inventory/p_backorder_ships.py` and `p_overreserve.py`.*
+
+- **Covers:** D-STK-39
+- **Fixture:** `selling-firm`
+- **Also needs:** two products with no batches, **4** of each in MAIN and nothing else held or ordered.
+- **Steps:** as the fixture's **Firm admin**: (a) raise and approve a sales order for **10** of the first product; raise a delivery note for **4** of it, approve and dispatch. (b) for the second product raise and approve an order for **3**, then another for **4**; raise and approve a note for each in full; dispatch the note of the **later** order, then the note of the **earlier** one, then the later one again. Open Inventory > Stock for both products.
+- **Expect:** (a) the four ship; the stock row reads On hand 0, Reserved 6 -- the six still owed. (b) the later order's note is refused (*Insufficient available stock for dispatch line.*) both times; the earlier order's note ships its three, leaving On hand 1 and Reserved 4. Available reads below zero while an order is owed more than is held.
+- **Leaves:** two orders part or not delivered.
+
 
 ### Known defects found while writing these cases
 

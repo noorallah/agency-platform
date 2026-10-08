@@ -184,7 +184,11 @@ def assert_warranty_order(start: date | None, end: date | None) -> None:
 
 
 def assert_trade_rates_within_mrp(
-    *, mrp: Decimal | None, ptr: Decimal | None, pts: Decimal | None
+    *,
+    mrp: Decimal | None,
+    ptr: Decimal | None,
+    pts: Decimal | None,
+    selling_price: Decimal | None = None,
 ) -> None:
     """Refuse a price to retailer or stockist above the batch's MRP (PG-14).
 
@@ -199,12 +203,20 @@ def assert_trade_rates_within_mrp(
     not the batch has an MRP, on every path that writes a rate: all of them
     come through here.
 
+    ``selling_price`` is the batch's own selling price, where the caller is
+    writing the batch itself: 90 against an MRP of 50 saved without a word
+    while PTR and PTS were held under it (D-STK-49).
+
     Raises:
         ValidationError: When a rate exceeds the MRP, or PTS exceeds PTR.
 
     """
     if mrp is not None:
-        for label, rate in (("PTR", ptr), ("PTS", pts)):
+        for label, rate in (
+            ("PTR", ptr),
+            ("PTS", pts),
+            ("Selling price", selling_price),
+        ):
             if rate is not None and rate > mrp:
                 raise ValidationError(
                     f"{label} {rate:.2f} cannot exceed the MRP {mrp:.2f}."
@@ -652,7 +664,12 @@ class BatchSerialService:
             expiry_date=data.expiry_date,
             best_before_date=data.best_before_date,
         )
-        assert_trade_rates_within_mrp(mrp=data.mrp, ptr=data.ptr, pts=data.pts)
+        assert_trade_rates_within_mrp(
+            mrp=data.mrp,
+            ptr=data.ptr,
+            pts=data.pts,
+            selling_price=data.selling_price,
+        )
         record = BatchRecord(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -955,6 +972,7 @@ class BatchSerialService:
             mrp=update_data.get("mrp", record.mrp),
             ptr=update_data.get("ptr", record.ptr),
             pts=update_data.get("pts", record.pts),
+            selling_price=update_data.get("selling_price", record.selling_price),
         )
         for field, value in update_data.items():
             setattr(record, field, value)

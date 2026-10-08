@@ -202,6 +202,27 @@ void main() {
           reason: 'nobody walked it, so it is not a count of nothing');
     });
 
+    testWidgets('a count below nothing is refused here, in words',
+        (tester) async {
+      // Sent as typed it came back as "The request validation failed."
+      // (D-UI-83).
+      final _CountApi api = _CountApi();
+      await _pumpSheet(
+        tester,
+        api,
+        _sheet(lines: [_line(id: 'l-1', expected: '10')]),
+      );
+
+      await tester.enterText(find.byType(TextField).first, '-4');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Save progress'));
+      await tester.pumpAndSettle();
+
+      expect(api.recorded, isNull, reason: 'nothing was sent');
+      expect(find.textContaining('a count cannot be less than nothing'),
+          findsOneWidget);
+    });
+
     testWidgets('posting warns about the lines nobody walked', (tester) async {
       final _CountApi api = _CountApi();
       await _pumpSheet(

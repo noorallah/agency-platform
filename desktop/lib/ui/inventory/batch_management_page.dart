@@ -1598,6 +1598,16 @@ class _LotFormDialogState extends State<_LotFormDialog> {
       setState(() => _error = 'Choose the product this lot is of.');
       return;
     }
+    // Sent as typed, -5 came back in the validator's words (D-UI-83).
+    final String typedQuantity = _quantity.text.trim();
+    final double? lotQuantity =
+        typedQuantity.isEmpty ? 0 : double.tryParse(typedQuantity);
+    if (lotQuantity == null || lotQuantity < 0) {
+      setState(() => _error = lotQuantity == null
+          ? 'The quantity must be a number.'
+          : 'A lot cannot hold less than nothing.');
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
