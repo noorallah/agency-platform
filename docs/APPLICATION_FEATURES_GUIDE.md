@@ -1041,7 +1041,9 @@ period. On a purchase order a scheme of the **same product** fills the line's
 **Free** box where it was left blank, and the side panel reads *Scheme 10+2
 applied*; a figure you type is kept, and a typed 0 refuses the scheme. A
 scheme that gives **another product** adds that product as a line of its own
-with nothing charged, once. The receipt and the bill inherit the free goods.
+with nothing charged, once. The receipt and the bill inherit the free goods,
+and a receipt brings in no more free goods than its order line still has to
+give: free goods a supplier adds later are put on the order first.
 A supplier's own scheme beats one for every supplier; two schemes of the same
 reach on one product may not overlap in dates.
 
@@ -1270,6 +1272,12 @@ From the Inventory screen, each its own action:
 - **Write off**: remove stock that is lost, broken or expired.
 - **Quarantine**: set stock aside so it cannot be sold, and release it later.
 
+Where the firm has opened its books, every one of these, and a stock transfer,
+a count and a repack, is dated inside an open accounting period: a date in a
+closed or unopened year is refused in words. Goods a customer sent back
+**damaged or as scrap** stand under *Damaged stock* on the stock row, and a
+write-off takes them first, then what is in quarantine, then the shelf.
+
 An adjustment or write-off names a reason from the firm's own list (*Settings →
 Stock → Adjustment Reasons*); *internal use*, *staff* and *display or samples*
 are posted to their own expense accounts, while damage, expiry and loss stay on
@@ -1288,7 +1296,9 @@ And two documents:
 - **Physical Count**: a stock-take. Open a count for a warehouse, record what
   was found line by line (over hours, by several people if needed; the list
   shows how many lines are counted), then post it: every difference becomes
-  an adjustment. **Count plans** choose what to count and how often -- a
+  an adjustment, measured against the stock at the moment of posting, and a
+  posted line shows that figure as Expected so that Expected, Counted and
+  Variance agree. **Count plans** choose what to count and how often -- a
   warehouse, a bin or an ABC class (fast sellers more often) -- draw the sheet,
   can hide the system quantity on a **blind sheet**, and limit what a counter
   may post.
@@ -1302,11 +1312,17 @@ And two documents:
   different GSTINs is refused: bill it as a sale to the other branch (9.3). The
   quick *Transfer* action above stays for a shift within a building.
 - **Repacking** (*Stock → All Stock screens → Movements → Repacking*). Break a bulk product into smaller packs
-  (or the reverse); the output carries the cost of what went in.
+  (or the reverse); the output carries the cost of what went in. A product
+  kept in batches is taken from its batches earliest expiry first, and what
+  is **produced** of one names its batch on the line: a batch the product
+  already has, or a new number with its expiry date where the product is
+  dated. A product tracked by serial number is not repacked.
 - **Kits and combo packs.** A product of type bundle is a *kit* with
   components. *Assemble* and *Disassemble* turn components into kits and back;
   a kit is stocked and sold as itself, and a delivery that is short of
-  assembled kits assembles the shortfall from the components.
+  assembled kits assembles the shortfall from the components. A part kept in
+  batches leaves earliest expiry first, and when a kit is broken it goes back
+  into the batch the kit's last assembly in that warehouse drew it from.
 
 ## 7.3 Tracking
 
@@ -1325,9 +1341,18 @@ whatever the goods.
 
 - **Batches** and **Lots**: stock held by batch, with manufacturing and
   expiry dates; deliveries pick the batch earliest expiry first, or the
-  batches chosen on the delivery note.
+  batches chosen on the delivery note. A product that tracks expiry does not
+  take a batch without an expiry date (a manufacturing date fills it where
+  the product has a shelf life), and a batch number typed for a product that
+  keeps no batches is ignored: the goods go onto the product's own row. Goods
+  standing in a storage bin are found by a delivery note line that names no
+  bin. *Near expiry* on Home and on the batch card is the firm's own window
+  (*Batch sale rules*, 30 days unless changed).
 - **Serial Numbers**: each unit held by its serial number, from receipt to
-  sale, with warranty where it applies.
+  sale, with warranty where it applies. *Add Serial* numbers a unit the firm
+  already holds: it is refused past the quantity in stock, so receive the
+  goods first (a receipt, opening stock and a transfer number their own
+  units).
 - **Expiry Monitor**: batches that have expired or expire soon, and their
   value.
 

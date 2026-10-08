@@ -69,6 +69,37 @@ result is recorded in the screens file of this round.
 - The goods-receipt import path against the free-goods cap.
 - The integration suite.
 
+## Added on 2026-10-09 with the screens of the round
+
+`SCREEN_FLOW_CHECK_INVENTORY_ROUND_4_2026-10-09.md` is the screens file: three
+Repacking cases clicked, three pass, and the D-STK-55 line (seen live over
+HTTP after the restart on #1374).
+
+**One more kept check, `p_serial_past_stock.py` (16 checks, clean):** D-STK-50
+had only its unit tests. With nothing held a number is refused, with a
+warehouse named or without; two held take two numbers and refuse the third
+(*This warehouse holds 2 of ... and 2 are already numbered*); a unit in another
+warehouse makes no room in the first and takes its own number; a scrapped
+number is not counted, and is refused its way back past the stock. That makes
+67 kept checks; the 66 were not run again as a whole after it.
+
+**The goods-types checks, which share two fixture firms with this folder,
+were run as a whole: 35 of 35 clean** after five of them were sorted. None was
+a defect of the application:
+
+| Check | What it was | What was done |
+| --- | --- | --- |
+| `tc_mast_026` | it asks for *a firm with no tracked product*, and the inventory checks leave batch- and serial-tracked products holding stock in the generic firm, which nothing may delete; the menu rightly read BATCH, EXPIRY, SERIAL | the check has a Generic firm of its own (`plain` in `setup_firms.py`, T10099EJJ-F) |
+| `tc_mast_019` | it read the pharmacy firm's whole list of goods types in use, and the inventory checks take Electronics into use there | it asks about Medicine alone, and reads the firm that starts with nothing from `plain` |
+| `tc_mast_023`, `tc_mast_029`, `q_serial_twice`, `q_serial_move_untracked` | each added a serial number for a product with no stock, which D-STK-50 refuses | each brings the units in first (`one_in_stock` in `goods_types/_lib.py`) |
+
+The case lines are written: TC-STOCK-024 to 029 in `07_INVENTORY.md`,
+TC-BUY-099 in `06_PURCHASING.md`, and section 7.2, 7.3 and 6 of the
+application guide carry the rules. Still not done from the list above: the
+kit dialog, Home's tile and the batch card on screen, D-UI-84, the two
+free-goods cases over HTTP, the receipt import path and the integration
+suite.
+
 ## Round 4 is not a clean round
 
 It found one new row (R4-1, Low, fixed) and pinned the cause of an old one

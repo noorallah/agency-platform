@@ -1,8 +1,11 @@
-"""Make the two firms of their own that TC-MAST-019, 026 and 029 need.
+"""Make the three firms of their own that TC-MAST-019, 026 and 029 need.
 
     python setup_firms.py                      # build what the state does not name
-    python setup_firms.py PHARMA_CODE GEN_CODE  # adopt two firms made by
+    python setup_firms.py PHARMA_CODE GEN_CODE [PLAIN_CODE]
+                                               # adopt firms made by
                                                # ``test_fixture.py unfinished-firm``
+                                               # (a code the state already holds
+                                               # is not replaced)
 
 Needs ``setup.py`` to have run (the ``platform`` account). Records the firms and
 their users under ``own_firms`` / ``accounts`` and can be re-run: anything the
@@ -10,6 +13,10 @@ state or the server already holds is found, not made again.
 
 * ``pharma`` -- first profile Pharmacy (hands out Medicine once)
 * ``generic`` -- first profile Generic (hands out nothing)
+* ``plain``   -- a second Generic firm that only TC-MAST-026 touches: the
+  inventory checks work in ``generic`` and leave tracked products holding
+  stock there, which no check may delete, so "a firm with no tracked product"
+  needs a firm nothing else writes to
 * ``test02``  -- fixture firm TEST02, with an administrator of this run
 """
 
@@ -25,7 +32,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from common import PASSWORD, data, message, save_state, sign_in, state  # noqa: E402
 
 BACKEND = pathlib.Path(__file__).resolve().parents[4] / "backend"
-PROFILE = {"pharma": "PHARMACY", "generic": "GENERIC"}
+PROFILE = {"pharma": "PHARMACY", "generic": "GENERIC", "plain": "GENERIC"}
 ROLES = {"admin": "FIRM_ADMIN", "manager": "FIRM_MANAGER", "cashier": "CASHIER"}
 
 
@@ -85,7 +92,7 @@ def main() -> None:
     held = state()
     platform = sign_in(held["accounts"]["platform"]["email"])
     own = dict(held.get("own_firms", {}))
-    adopt = dict(zip(("pharma", "generic"), sys.argv[1:3], strict=False))
+    adopt = dict(zip(PROFILE, sys.argv[1:4], strict=False))
     accounts = dict(held["accounts"])
     for handle, profile_code in PROFILE.items():
         if handle not in own:
@@ -117,7 +124,7 @@ def main() -> None:
         # group) and the head office (warehouses and routes need a branch).
         readiness = platform.get(f"/api/v1/firms/{firm_id}/readiness")[1]
         steps = {x["key"]: x["status"] for x in data(readiness)["steps"]}
-        if handle == "generic":
+        if handle in ("generic", "plain"):
             for key, path in (("tax", "apply-tax-template"), ("branches", "create-default-branch")):
                 if steps.get(key) != "DONE":
                     status, body = platform.post(f"/api/v1/firms/{firm_id}/{path}", None)

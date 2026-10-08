@@ -19,7 +19,8 @@ import 'sc_gt_test.dart'
 // lists, actions, adjust, opening, count, views, transfers, repack,
 // approvals, settings, round2 (serial units on the move, a used reference;
 // in pieces r2xfer, r2doc, r2open, r2ref), backorder, round3 (what a repack
-// may take). Role users run only the role section.
+// may take), round4 (what a repack produces of a batch-tracked product).
+// Role users run only the role section.
 
 const String _part = String.fromEnvironment('IT_PART');
 bool wants(String section) =>
@@ -1308,7 +1309,7 @@ void main() {
     }
 
     // ---------------- repacking -----------------------------------------------
-    if (wants('repack') || wants('round3')) {
+    if (wants('repack') || wants('round3') || wants('round4')) {
       Future<void> openNewRepack() async {
         await openStock(tester, 'repacking');
         await tapKey(tester, 'repack-new');
@@ -1498,6 +1499,98 @@ void main() {
               'INVSCR-B ${held(before)} -> ${held(after)}';
           if (now != count + 1 ||
               !sameMoney(inBatches(after), inBatches(before) - 1)) {
+            throw StateError(log.saw!);
+          }
+        });
+        await clean(tester);
+      }
+
+      // ---------------- round 4: a produced batch-tracked product names its batch
+      if (wants('round4')) {
+        final Json pB = await productByCode('INVSCR-B');
+        Future<Map<String, double>> batchesOfB() async => <String, double>{
+              for (final dynamic r in (await me.get(
+                      '/api/v1/inventory?page_size=100&product_id=${pB['id']}'))
+                  as List<dynamic>)
+                if ((r as Json)['warehouse_id'] == whMain['id'])
+                  '${r['batch_number'] ?? 'no batch'}':
+                      num2(r['current_quantity']),
+            };
+        Finder box(String key) => find.byKey(ValueKey<String>(key));
+
+        await log.step(
+            'SC-ST-090 a produced batch-tracked product shows a Batch number box and is refused without one',
+            () async {
+          final Map<String, double> before = await batchesOfB();
+          // The first press on a list that has only just opened is lost.
+          await openStock(tester, 'repacking');
+          await pumpFor(tester, const Duration(seconds: 2));
+          await openNewRepack();
+          final bool early = box('repack-produce-batch-0').evaluate().isNotEmpty;
+          await fillRepack('INVSCR-N', '1', 'INVSCR-B', '1');
+          final bool batchBox = box('repack-produce-batch-0').evaluate().isNotEmpty;
+          final bool expiryBox =
+              box('repack-produce-expiry-0').evaluate().isNotEmpty;
+          final bool consumeBox =
+              box('repack-consume-batch-0').evaluate().isNotEmpty;
+          overflow('Repack dialog with a batch line');
+          final String saw = await refuse(
+              'New repack', () => tapKey(tester, 'repack-save'),
+              count: repackCount, mustSay: 'kept in batches');
+          final Map<String, double> after = await batchesOfB();
+          log.saw = '$saw; boxes before a product was chosen=$early, '
+              'batch=$batchBox, expiry=$expiryBox, on the consumed line=$consumeBox; '
+              'INVSCR-B $before -> $after';
+          if (early || !batchBox || !expiryBox || consumeBox ||
+              '$before' != '$after') {
+            throw StateError(log.saw!);
+          }
+        });
+        await clean(tester);
+
+        await log.step(
+            'SC-ST-091 a new batch number with no expiry date is refused for a dated product',
+            () async {
+          final Map<String, double> before = await batchesOfB();
+          await openNewRepack();
+          await fillRepack('INVSCR-N', '1', 'INVSCR-B', '1');
+          await tester.enterText(box('repack-produce-batch-0'), 'R4NEW');
+          await pumpFor(tester, const Duration(milliseconds: 300));
+          final String saw = await refuse(
+              'New repack', () => tapKey(tester, 'repack-save'),
+              typed: 'R4NEW', count: repackCount, mustSay: 'expiry');
+          final Map<String, double> after = await batchesOfB();
+          log.saw = '$saw; INVSCR-B $before -> $after';
+          if ('$before' != '$after') throw StateError(log.saw!);
+        });
+        await clean(tester);
+
+        await log.step(
+            'SC-ST-092 the produced goods go into the batch named, one the product has',
+            () async {
+          final Map<String, double> before = await batchesOfB();
+          final double nBefore = await onHand(pN, whMain);
+          final int count = await repackCount();
+          await openNewRepack();
+          await fillRepack('INVSCR-N', '1', 'INVSCR-B', '1');
+          await tester.enterText(box('repack-produce-batch-0'), 'INVB1');
+          await pumpFor(tester, const Duration(milliseconds: 300));
+          final String said =
+              await pressAndRead(tester, () => tapKey(tester, 'repack-save'));
+          await pumpFor(tester, const Duration(seconds: 2));
+          final Map<String, double> after = await batchesOfB();
+          final double nAfter = await onHand(pN, whMain);
+          final int now = await repackCount();
+          log.saw = 'said "$said"; repacks $count -> $now; '
+              'INVSCR-N $nBefore -> $nAfter; INVSCR-B $before -> $after';
+          final bool othersSame = before.keys
+              .where((String k) => k != 'INVB1')
+              .every((String k) => sameMoney(before[k]!, after[k] ?? -1));
+          if (now != count + 1 ||
+              !sameMoney(after['INVB1'] ?? -1, (before['INVB1'] ?? 0) + 1) ||
+              !sameMoney(nAfter, nBefore - 1) ||
+              !othersSame ||
+              after.length != before.length) {
             throw StateError(log.saw!);
           }
         });

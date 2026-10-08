@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from common import Api, all_rows, data, message  # noqa: E402,F401
+from common import Api, all_rows, data, message, suffix  # noqa: E402,F401
 
 
 def uom(api: Api, code: str = "PIECE") -> str:
@@ -34,6 +34,30 @@ def product(api: Api, code: str, **extra: object) -> tuple[int, object]:
     }
     body.update(extra)
     return api.post("/api/v1/products", body)
+
+
+def one_in_stock(api: Api, product_id: str, tag: str, quantity: int = 1) -> str:
+    """Put units of a product into a new warehouse; return the warehouse id.
+
+    A serial number is added only for a unit the firm holds (D-STK-50), so a
+    check that adds one by hand gives the product its stock first.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    tag = f"{tag}{suffix(3)}"
+    branch = must(api.get("/api/v1/branches"), "branches")[0]["id"]
+    warehouse = must(api.post("/api/v1/warehouses", {
+        "code": f"GW{tag}"[:20], "name": f"GT stock {tag}", "branch_id": branch}),
+        "warehouse")
+    today = (datetime.now(UTC) + timedelta(hours=5, minutes=30)).date()
+    made = must(api.post("/api/v1/inventory/opening-stock", {
+        "branch_id": branch, "warehouse_id": warehouse["id"],
+        "reference_number": f"GO-{tag}", "posting_date": today.isoformat(),
+        "lines": [{"product_id": product_id, "quantity": str(quantity),
+                   "unit_cost": "60"}]}), "opening stock")
+    must(api.post(f"/api/v1/inventory/opening-stock/{made['id']}/post", {}),
+         "opening stock posted")
+    return warehouse["id"]
 
 
 def must(answer: tuple[int, object], what: str) -> dict:

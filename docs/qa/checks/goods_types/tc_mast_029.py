@@ -1,7 +1,7 @@
 """TC-MAST-029: what a business profile no longer does."""
 import pathlib, sys; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from common import Check, client, data, message, state, suffix
-from _lib import audit_actions, clear_tracked_products, must, product
+from _lib import audit_actions, clear_tracked_products, must, one_in_stock, product
 
 c = Check("tc_mast_029")
 tag = suffix()
@@ -29,6 +29,8 @@ if a[0] == 201:
          "(a) both read back")
 # (b) a serial with warranty dates
 ser = must(product(admin, f"SW-{tag}", track_serial=True, track_warranty=True), "serial product")
+# a number is added only for a unit the firm holds (D-STK-50)
+one_in_stock(admin, ser["id"], tag)
 b1 = admin.post("/api/v1/batch-serial/serials", {
     "product_id": ser["id"], "serial_number": f"S{tag}",
     "warranty_start": "2026-10-01", "warranty_end": "2027-10-01"})

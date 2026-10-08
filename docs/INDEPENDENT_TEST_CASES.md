@@ -2174,6 +2174,16 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Expect:** the sales invoices read `SI-26-27-000001` and `SI-26-27-000002`. The first bill's row carries "· Self-invoice **RSI-26-27-000001**" (16 characters), with reverse charge 50.00 posted to 2270 and 2280 Reverse Charge Payable, 25.00 each; the second reads `RSI-26-27-000002`. The two lists share no number: a self-invoice never takes a number a tax invoice will carry. A supplier rate contract is likewise `RTC-2026-2027-000001`, and a customer receipt stays `RC-`.
 - **Leaves:** two sales invoices, two reverse-charge bills.
 
+### TC-BUY-099 — A receipt brings in no more free goods than its order line has left
+
+*Added 2026-10-09 with inventory round 4 (D-BUY-67). Driven over HTTP by `docs/qa/checks/inventory/p_receipt_free_cap.py`.*
+
+- **Covers:** D-BUY-67
+- **Fixture:** `buy-ready`
+- **Also needs:** an approved purchase order for **10** of `<SUFFIX>-B` with **2** free, and a second approved order for 10 with none free.
+- **Steps:** as the fixture's **Firm admin**: (a) receive **5** against the first order with Free **2**; complete. (b) receive the other 5 with Free **1**; then with Free empty. (c) against the second order receive 5 with Free **1**. (d) cancel the first receipt and receive 5 with Free 2 again.
+- **Expect:** (a) completed: seven on the shelf. (b) refused: *Line 1 brings in 1 free, and line 1 of PO-... has 0 left to give: 2 free on the order, 2 already received.*; with Free empty it completes and the shelf holds 12. (c) refused: the order promised none. (d) a cancelled receipt gives its free units back, so the two are accepted. A draft receipt counts against the line as a completed one does. Free goods a supplier adds after the order are put on the order first.
+- **Leaves:** the first order received in full with its 2 free; the second order half received.
 
 
 ## Stock
@@ -2448,6 +2458,79 @@ the fixture builds (a minute or two).
 - **Steps:** as the fixture's **Firm admin**: (a) on KIT set the components to **5 of MED** and assemble **1** in MAIN; open Inventory > Stock for MED. (b) assemble **4** more. (c) raise and approve a sales order for **3** of KIT, raise, approve and dispatch a delivery note for the three. (d) on Repacking, post a repack that consumes **1 of ELE** and produces 1 of any plain product; then one that consumes the plain product and produces **1 of ELE**. (e) on a second kit, set the components to **1 of ELE**.
 - **Expect:** (a) the kit is assembled: KA reads 0 and KB 15 -- the four expiring first went, then one of the later batch; the repack shows one consumed line per batch. (b) refused, naming MED: fifteen are held and twenty are needed; nothing moves. (c) the note is dispatched, assembling the two kits it lacks: KB reads 5 and no kit is left. (d) both repacks are refused: *ELE is tracked by serial number, and a repack moves a quantity without naming units ...*; ELE still reads 3 on hand with three units Available. (e) refused: *A part tracked by serial number cannot go into a kit ...*.
 - **Leaves:** MED 5 in batch KB, three kits sold.
+
+
+### TC-STOCK-024 — A stock movement is dated inside an open period, a changed draft transfer moves on, and a posted count adds up
+
+*Added 2026-10-09 with inventory round 4 (D-STK-41, D-STK-42, D-STK-45). Driven over HTTP by `docs/qa/checks/inventory/p_dates.py`, `p_stale_version.py` and `p_count_adds_up.py`.*
+
+- **Covers:** D-STK-41, D-STK-42, D-STK-45
+- **Fixture:** `selling-firm`
+- **Also needs:** books opened for the current year only; a plain product with **50** in MAIN; a second warehouse.
+- **Steps:** as the fixture's **Firm admin**: (a) Inventory > Stock → **Transfer** 1 to the second warehouse dated **2030-01-01**; the same date on **Quarantine**, on a new **Stock transfer** document, on a new **Physical count** and on a new **Repack**. (b) save a draft stock transfer of 2; open it on two computers; on the first change the quantity to 3 and save; on the second save without reloading. (c) open a physical count for MAIN; before counting, write off **10** of the product; type **49** as counted and post; open the posted sheet.
+- **Expect:** (a) each is refused in words (*No open accounting period covers 2030-01-01 ...*) and nothing moves; dated today each saves. A firm that has never opened books is not asked. (b) the second save is refused (*This record changed since you loaded it*): a change to the lines alone moves the draft on. (c) the posted line reads **Expected 40, Counted 49, Variance +9** and the warehouse holds 49: the difference is measured against the stock at posting, and the three columns agree. A line nobody counted keeps the figure it was drawn up with.
+- **Leaves:** a posted count sheet, a draft transfer of 3.
+
+
+### TC-STOCK-025 — What a product does not track is not recorded, what it tracks is asked for, and a serial number needs a unit
+
+*Added 2026-10-09 with inventory round 4 (D-STK-43, D-STK-48, D-STK-50). Driven over HTTP by `docs/qa/checks/inventory/p_tracking.py`, `p_batch_dates.py` and `p_serial_past_stock.py`.*
+
+- **Covers:** D-STK-43, D-STK-48, D-STK-50
+- **Fixture:** `selling-firm`
+- **Also needs:** the Medicine and Electronics goods types in use; a plain product **PLAIN**, a Medicine product **MED** (batch and expiry) and an Electronics product **ELE** (serial numbers), none with stock.
+- **Steps:** as the fixture's **Firm admin**: (a) receive 5 of PLAIN on a goods receipt, typing batch number **X1** on the line; open Stock > Batches and Inventory > Stock. (b) receive 5 of MED as batch **M1** with no expiry date; then with one. On Stock > Batches add batch **M2** for MED with no expiry date. (c) Stock > Serial Numbers → **Add Serial** for ELE. Post opening stock of **2** of ELE with no numbers typed; add two serial numbers, then a third. Mark the first **Scrapped**; add another; set the scrapped one back to Available.
+- **Expect:** (a) the receipt completes; no batch X1 is registered and the five stand on the product's own row; the text stays on the receipt line as typed. (b) refused (*... tracks expiry, so batch M1 needs an expiry date ...*) on the receipt and on the batch master alike; with the date both save. A manufacturing date fills the expiry where the product has a shelf life. (c) with nothing held the number is refused (*The firm holds 0 of ... Receive the goods first ...*). Two are added against the two held; the third is refused (*This warehouse holds 2 of ... and 2 are already numbered*). A scrapped number is not counted, so one more is added; the scrapped number is then refused its way back.
+- **Leaves:** PLAIN 5 on its own row, MED 5 in batch M1, ELE 2 with two live serial numbers and one scrapped.
+
+
+### TC-STOCK-026 — Goods a customer returned damaged or as scrap are held as damaged, and a write-off takes them first
+
+*Added 2026-10-09 with inventory round 4 (D-STK-46). Covered by `backend/tests/unit/test_inventory_round_4.py`; the return itself is driven over HTTP by `docs/qa/checks/inventory/tc_stock_018.py`.*
+
+- **Covers:** D-STK-46
+- **Fixture:** `selling-firm`
+- **Also needs:** a dispatched and invoiced sale of **10** of a plain product.
+- **Steps:** as the fixture's **Firm admin**: raise, approve and complete a sales return of **5**: 2 good, 1 damaged, 2 scrap. Open Inventory > Stock for the product. **Write off** 3. Cancel a second return that brought scrap in.
+- **Expect:** the stock row reads **Damaged 3** (the damaged unit and the two scrapped) beside the good units held for checking; nothing returned stands outside a figure on the screen. The write-off of 3 takes the damaged figure to 0 before it touches quarantine or the shelf, and the stock value falls by their cost. A cancelled return takes its damaged and scrap units out again. Goods written off as *given to a customer* never come out of the damaged figure.
+- **Leaves:** a completed return; nothing in the damaged figure.
+
+
+### TC-STOCK-027 — What a repack or a broken kit produces of a batch-tracked product goes into a named batch
+
+*Added 2026-10-09 with inventory round 4 (D-STK-53). Driven over HTTP by `docs/qa/checks/inventory/p_repack_batchless.py` and `p_kit_break_batch.py`; on screen SC-ST-090 to 092.*
+
+- **Covers:** D-STK-53
+- **Fixture:** `selling-firm`
+- **Also needs:** the Medicine goods type in use; a Medicine product **MED** with batch **KA** in MAIN; a plain product with stock; a kit whose part is 5 of MED, one assembled in MAIN, and one more kit brought in as opening stock in a second warehouse.
+- **Steps:** as the fixture's **Firm admin**: (a) Repacking → **New repack**: consume 1 of the plain product, produce 1 of MED; read the produce line; **Post repack** with the Batch number empty. (b) type a new batch number and no expiry date; post. (c) type **KA**; post. (d) **Disassemble** the kit assembled in MAIN. (e) disassemble the kit in the second warehouse; then again naming the batch.
+- **Expect:** (a) the produce line of MED shows **Batch number** and **Expiry date**; a line of the plain product shows neither; refused: *MED is kept in batches. Enter the batch the produced goods go into.* (b) refused: *... tracks expiry, so batch ... needs an expiry date ...*. (c) posted; KA holds one more and no stock of MED stands on a row with no batch. (d) the five parts go back into the batch the kit's last assembly drew from. (e) refused, naming the part (*Name the batch it goes back into*), nothing moves; with the batch named it breaks.
+- **Leaves:** one posted repack; both kits broken.
+
+
+### TC-STOCK-028 — A delivery note line that names no bin takes the goods from the bins
+
+*Added 2026-10-09 with inventory round 4 (D-STK-54). Driven over HTTP by `docs/qa/checks/inventory/p_bins.py` and `p_bin_batch_split.py`.*
+
+- **Covers:** D-STK-54
+- **Fixture:** `selling-firm`
+- **Also needs:** a warehouse with bin **B1**; a plain product with **4** in B1 and none on the warehouse's own row; a Medicine product with **3** of an early-expiring batch in B1 and **5** of a later batch on the warehouse's own row.
+- **Steps:** as the fixture's **Firm admin**: (a) raise and approve an order for 4 of the plain product; raise, approve and dispatch a delivery note for the four, naming no bin. (b) raise a note for 5 of it. (c) order 8 of the Medicine product; dispatch a note for 6, naming no bin and no batch. Open Inventory > Stock and the Stock Ledger.
+- **Expect:** (a) dispatched: the four leave B1, and the movement names the bin. (b) refused, saying what stands free in each bin (*... in bin B1*). (c) the early batch leaves whole from the bin and three of the later batch from the warehouse's own row: two movements, no row below zero, and the two still owed stay reserved. A unit with a serial number is not drawn this way: it leaves from the bin named on the line.
+- **Leaves:** the plain product at 0; two of the Medicine product still reserved for the order.
+
+
+### TC-STOCK-029 — Near expiry means the same batches on Home and on the batch card
+
+*Added 2026-10-09 with inventory round 4 (D-STK-47). Covered by `backend/tests/unit/test_near_expiry_is_one_definition.py`; not driven over HTTP on its own.*
+
+- **Covers:** D-STK-47
+- **Fixture:** `selling-firm`
+- **Also needs:** a Medicine product with one batch expiring in **20** days on the shelf, one expiring in 20 days held in quarantine, and one expiring in **45** days; *Batch sale rules* at the default 30 days.
+- **Steps:** as the fixture's **Firm admin**: read the *near expiry* count on Home's stock alerts and on the Stock > Batches card. Set the firm's window to **60** days under *Batch sale rules*; read both again; read the Expiry Monitor's *7 days* and *30 days* cards.
+- **Expect:** Home and the batch card count the **same two** batches at 30 days (a batch held in quarantine holds stock) and the same three at 60. The Expiry Monitor's two cards are named for their windows and do not move with the firm's setting.
+- **Leaves:** the firm's near-expiry window at 60 days: set it back to 30.
+
 
 
 ### Known defects found while writing these cases
