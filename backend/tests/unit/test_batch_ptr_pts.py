@@ -96,6 +96,9 @@ def _receipt(fixture: _Fixture, quantity: str = "2", **line: object) -> object:
 def _pharma_receiver(code: str) -> _Fixture:
     """Build a receiving firm whose profile has BATCH_PTR_PTS."""
     fixture = _Fixture(_session_factory()(), code)
+    # A batch number typed for a product that keeps none is ignored.
+    fixture.product.track_batch = True
+    fixture.session.commit()
     _give_profile(fixture.session, fixture.firm.id, f"PH-{code}", _PHARMA_FEATURES)
     return fixture
 

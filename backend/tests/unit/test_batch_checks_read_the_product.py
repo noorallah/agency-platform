@@ -8,6 +8,7 @@ firm carries a medicine, a paint and a phone, each by its own rules.
 """
 
 from datetime import date
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -47,6 +48,7 @@ from app.customers.schemas.customer import (
 )
 from app.customers.services import CustomerService
 from app.firms.models import Firm
+from app.inventory.models import InventoryRecord
 from app.products.models import Product
 
 #: Every product-behaviour feature the profile used to gate on.
@@ -155,6 +157,23 @@ def _phone(session: Session, firm: Firm) -> Product:
     return _product(session, firm.id, "PHONE-1", track_serial=True, track_warranty=True)
 
 
+def _held(session: Session, product: Product, quantity: str = "5") -> Product:
+    """Put stock of a product on a shelf, so its units can be numbered."""
+    session.add(
+        InventoryRecord(
+            firm_id=product.firm_id,
+            branch_id=uuid4(),
+            warehouse_id=uuid4(),
+            storage_locator="MAIN",
+            product_id=product.id,
+            current_quantity=Decimal(quantity),
+            available_quantity=Decimal(quantity),
+        )
+    )
+    session.commit()
+    return product
+
+
 def _batch(product: Product, number: str = "B-1", **fields: object) -> BatchCreate:
     return BatchCreate(
         product_id=product.id,
@@ -191,7 +210,7 @@ def test_one_firm_carries_a_medicine_a_paint_and_a_phone() -> None:
         firm_scope=firm.id,
         actor_id=actor,
         data=SerialCreate(
-            product_id=_phone(session, firm).id,
+            product_id=_held(session, _phone(session, firm)).id,
             serial_number="IMEI-0001",
             warranty_start=date(2026, 10, 1),
             warranty_end=date(2027, 10, 1),
@@ -307,7 +326,7 @@ def test_a_serial_is_refused_a_warranty_its_product_does_not_track() -> None:
     """On the way in and on a later change; without the dates it is taken."""
     session = _session()
     firm = _firm(session, "FLD2", enabled=_OLD_CODES)
-    numbered = _product(session, firm.id, "TOOL-1", track_serial=True)
+    numbered = _held(session, _product(session, firm.id, "TOOL-1", track_serial=True))
     service = BatchSerialService(session)
 
     with pytest.raises(ValidationError, match="TOOL-1 does not track warranty"):
@@ -571,8 +590,9 @@ def test_a_batch_moved_to_another_product_is_judged_against_that_product() -> No
         actor_id=actor,
         data=_batch(medicine, "B-DATED", expiry_date=date(2027, 6, 1)),
     )
+    tin = _product(session, firm.id, "TIN-1", track_batch=True)
     plain = service.create_batch(
-        firm_scope=firm.id, actor_id=actor, data=_batch(medicine, "B-PLAIN")
+        firm_scope=firm.id, actor_id=actor, data=_batch(tin, "B-PLAIN")
     )
 
     def move(batch: BatchRecord, **fields: object) -> BatchRecord:
@@ -610,6 +630,7 @@ def test_a_batch_or_serial_that_has_moved_stock_keeps_its_product() -> None:
     service = BatchSerialService(session)
     actor = uuid4()
     both = _product(session, firm.id, "BOTH-1", track_batch=True, track_serial=True)
+    _held(session, both)
     twin = _product(session, firm.id, "BOTH-2", track_batch=True, track_serial=True)
     batch = service.create_batch(
         firm_scope=firm.id, actor_id=actor, data=_batch(both, "B-HELD")
@@ -667,7 +688,7 @@ def test_a_serial_or_lot_moved_to_another_product_is_judged_against_it() -> None
     firm = _firm(session, "MOV4")
     service = BatchSerialService(session)
     actor = uuid4()
-    phone = _phone(session, firm)
+    phone = _held(session, _phone(session, firm))
     paint = _paint(session, firm)
     medicine = _medicine(session, firm)
     serial = service.create_serial(
@@ -759,6 +780,7 @@ def test_a_batch_is_refused_an_expiry_before_its_manufacturing_date() -> None:
                 medicine,
                 "B-BEST",
                 manufacturing_date=date(2027, 6, 1),
+                expiry_date=date(2027, 12, 1),
                 best_before_date=date(2027, 5, 31),
             ),
         )

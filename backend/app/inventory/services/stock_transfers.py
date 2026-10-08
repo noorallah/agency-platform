@@ -29,6 +29,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.batch_serial.models.batch_serial import BatchRecord
 from app.batch_serial.schemas.batch_serial import PickedSerial
@@ -37,12 +38,16 @@ from app.branches.services.registration import BranchRegistration
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.dates import utc_now
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
-from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.document_posting import (
+    DocumentPostingService,
+    assert_stock_date_in_open_period,
+)
 from app.inventory.models.stock_transfer import StockTransfer, StockTransferLine
 from app.inventory.schemas.inventory import InventoryTransactionType
 from app.inventory.services.inventory_service import InventoryService
@@ -221,6 +226,9 @@ class StockTransferService(TransactionalDocumentService):
         self, data: StockTransferWrite, *, firm_id: UUID, actor_id: UUID
     ) -> StockTransfer:
         """Save a draft transfer and give it its number; commit."""
+        assert_stock_date_in_open_period(
+            self._session, firm_id, data.transfer_date, what="A transfer"
+        )
         source, destination = self._ends(data, firm_id)
         self._check_lines(data.lines, firm_id)
         _, rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
@@ -274,6 +282,9 @@ class StockTransferService(TransactionalDocumentService):
         assert_version(row.version, expected_version)
         if row.status != "DRAFT":
             raise ValidationError("Only a draft transfer can be changed.")
+        assert_stock_date_in_open_period(
+            self._session, firm_id, data.transfer_date, what="A transfer"
+        )
         source, destination = self._ends(data, firm_id)
         self._check_lines(data.lines, firm_id)
         TransferSerials(self._session).clear(row)
@@ -289,6 +300,10 @@ class StockTransferService(TransactionalDocumentService):
         row.transporter_name = data.transporter_name
         row.remarks = data.remarks
         row.updated_by = actor_id
+        # The lines are the document: an edit that moves nothing on the
+        # header still has to move its version, or a stale copy saves over it.
+        row.updated_at = utc_now()
+        flag_modified(row, "updated_at")
         self._write_lines(row, data.lines, actor_id)
         self._audit("stock_transfer.updated", row, actor_id)
         self._session.commit()
@@ -317,6 +332,9 @@ class StockTransferService(TransactionalDocumentService):
         on = data.dispatched_on or row.transfer_date
         if on < row.transfer_date:
             raise ValidationError("Goods cannot leave before the transfer's date.")
+        assert_stock_date_in_open_period(
+            self._session, firm_id, on, what="A transfer's dispatch"
+        )
         if data.vehicle_number is not None:
             row.vehicle_number = data.vehicle_number
         if data.transporter_name is not None:
@@ -396,6 +414,9 @@ class StockTransferService(TransactionalDocumentService):
         on = data.received_on or row.dispatched_on or row.transfer_date
         if row.dispatched_on is not None and on < row.dispatched_on:
             raise ValidationError("Goods cannot arrive before they left.")
+        assert_stock_date_in_open_period(
+            self._session, firm_id, on, what="A transfer's receipt"
+        )
         lines = {line.line_number: line for line in self.lines(row.id)}
         told: dict[int, StockTransferReceiptLine] = {}
         for entry in data.lines:

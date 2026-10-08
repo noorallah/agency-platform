@@ -133,6 +133,8 @@ def test_a_receipt_labels_every_piece_with_its_batch_and_mrp() -> None:
     fixture = _Fixture(_session_factory()(), "LBL3")
     fixture.product.mrp = Decimal("120")
     fixture.product.selling_price = Decimal("110")
+    # The free piece is the order's to give (D-BUY-67).
+    fixture.order_line.free_quantity = Decimal("1")
     fixture.session.commit()
     payload = fixture.receipt_payload("4")
     data = payload.model_dump()

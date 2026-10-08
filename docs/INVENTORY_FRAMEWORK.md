@@ -97,6 +97,7 @@ Where each document stands:
 | `sales_order` | holds batches by earliest expiry when the order is approved |
 | `delivery_note` | releases those batches and allocates by earliest expiry, one movement per batch |
 | `purchase_return` | posts against the batch the line names, and **never creates** one |
+| repack, kit assembly | draws what it consumes by earliest expiry; what it produces names its batch, **creating** it when the number is new |
 
 The asymmetry between the first and last row is deliberate. Goods that have
 physically arrived have to be receivable, so an unknown number on a receipt is
@@ -212,6 +213,41 @@ Plus opening stock batches, `create_adjustment` and `reverse_transaction` from
 the inventory API itself. **Sales invoices do not move stock** — the delivery
 note does. Invoicing is a receivable and a tax event, not a stock event.
 
+**A movement that posts no journal still keeps to the periods.** A transfer,
+a quarantine hold, a transfer document, a count and a repack call
+`assert_stock_date_in_open_period` (`app/finance/services/document_posting.py`)
+with the date they carry, and are refused where no open accounting period
+covers it -- the answer a write-off already got from its journal (D-STK-41).
+The rule holds only for a firm that has opened books; one with no period at
+all keeps any date. `stage_quarantine` does not ask, because its composing
+caller is a goods receipt whose journal has already answered.
+
+**A stale save is refused, except on a count sheet.** Every versioned stock
+record reads `If-Match` on its edit and answers 409 to an older version. A
+draft transfer's lines are replaced on each save, and the save moves the
+transfer's version even when nothing on its header changed (D-STK-42). A count
+sheet is the one exception, on purpose: two people fill one sheet, a save
+writes only the lines it names, and so `PUT /inventory/counts/{id}` does not
+read `If-Match`. Two saves of the same line keep the later figure.
+
+**A posted count line adds up.** While a sheet is a draft, Expected is what
+the row held when the sheet was drawn up. Posting measures each counted line
+against what the row holds at that moment and writes that figure into
+Expected, so Expected, Counted and Variance agree on the posted sheet
+(D-STK-45). A line nobody counted keeps the figure it was drawn up with.
+
+**Near expiry means one thing.** Home's stock alerts and the batch card count
+a batch that still holds stock -- on the shelf, in quarantine, damaged or
+blocked -- and expires inside the firm's own window (*Batch sale rules*, 30
+days unless the firm set another). The expiry dashboard's 7 and 30 day cards
+are named for their windows and do not follow the setting (D-STK-47).
+
+**The stock account and the valuation can part by paise.** Stock is valued to
+four places and the ledger posts two, so a movement's journal is the rounded
+share of a figure the valuation keeps whole. It is a known limit (D-STK-20,
+D-PRC-56): paise per product, gone when the product is sold out, and the
+trial balance always balances.
+
 ## Valuation
 
 A moving weighted average per firm and product, rolled forward in
@@ -281,8 +317,15 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
   `_stage_movement`.
 - **A sales invoice moves no stock.** Reconciling stock against invoices will
   not balance — reconcile against delivery notes.
-- **`ADJUSTMENT` is the only way into the damaged, quarantine and in-transit
-  buckets.** They are not dead columns, but nothing routine fills them.
+- **The damaged bucket is filled two ways, and they are not the same place.**
+  Goods that arrive damaged on a goods receipt or a transfer stay in
+  `current` and are counted in `blocked` as well as `damaged`. Goods a
+  customer sends back damaged **or as scrap** (D-STK-46) are in `damaged`
+  alone, outside `current`, because they never go back on the shelf. A
+  write-off takes that second kind first, then quarantine, then the shelf;
+  it reads it as `damaged - blocked`, which can fall short on a row that
+  also holds stock blocked for another reason and never runs over. Goods
+  written off as given to a customer are never drawn from it.
 - **Movements are timed by the statement clock, not the transaction clock.**
   `func.now()` is PostgreSQL's `transaction_timestamp()`, so every row a request
   writes shares an instant -- a delivery note's UNRESERVE and DISPATCH were
@@ -355,9 +398,27 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
   through the same call, so the rule is theirs too. A serial-tracked product
   is refused on either side of a repack and as a kit's part, because a
   quantity moved with no unit named leaves the units reading AVAILABLE for
-  goods that are gone. Still open: a *produced* line of a batch-tracked
-  product lands on the row with no batch (D-STK-53), and stock in a bin is
-  seen only by a line that names the bin (D-STK-54).
+  goods that are gone. A *produced* line of a batch-tracked product names
+  the batch it goes into (D-STK-53): by id, or by a number that
+  `resolve_for_receipt` finds or opens with the line's dates, so a batch
+  made by a repack is held to the same dates as one made by a receipt. A
+  line naming none is refused. A broken kit gives a batch-tracked part back
+  to the batch its most recent assembly in that warehouse drew it from
+  (the last line of that repack), unless the request names another in
+  `part_batches`; with neither it is refused. A kit that is itself kept in
+  batches takes its batch on the assembly request and is not assembled by
+  a delivery note, which has nowhere to name one.
+- **A delivery note line that names no bin asks the warehouse**
+  (D-STK-54). The warehouse's own row leaves first, because the
+  order's hold is there; what it cannot cover is drawn from the bins by
+  the product's issue rule across them, and each movement names the bin
+  it left (`InventoryService.allocate_across_bins`). The line keeps no
+  bin of its own, so a return of those goods comes back to the
+  warehouse's own row. A unit with a serial number and a line whose
+  batches a person chose are not drawn from bins: the line names the
+  bin, and a refusal says what stands free in each. An order's hold is
+  not moved onto a bin, so an order that names no bin does not keep
+  goods in a bin from a note that names it.
 
 ## Where the code is
 

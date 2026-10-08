@@ -16,8 +16,10 @@ c.eq((plain["track_batch"], plain["track_expiry"], plain["track_serial"]), (Fals
 c.eq((medicine["track_batch"], medicine["track_expiry"]), (True, True), "a Medicine product tracks batch and expiry")
 c.eq((paint["track_batch"], paint["track_expiry"]), (True, False), "a Paint product tracks batch only")
 r = receive(w, wh["id"], plain["id"], 3, batch=f"X{w.tag}")
-c.ok(r["create"][0] in (409, 422) or r.get("status", (0,))[0] in (409, 422), "a batch number on a product that does not track batches is refused",
-     (r["create"][0], r.get("status", (0, ""))[0], [x["batch_number"] for x in w.rows(plain["id"])]))
+# D-STK-43 (owner's rule, round 4): the number is ignored, the receipt goes through, no batch is made.
+c.eq(r.get("status", (0,))[0], 200, "a receipt naming a batch for a product that tracks none still goes through")
+c.eq([(x["batch_number"], D(x["current_quantity"])) for x in w.rows(plain["id"])], [(None, D(3))],
+     "the goods are on the product's own row and no batch was made")
 r = receive(w, wh["id"], plain["id"], 3, serials=["S1" + w.tag, "S2" + w.tag, "S3" + w.tag])
 c.ok(r["create"][0] in (409, 422) or r.get("status", (0,))[0] in (409, 422), "serial numbers on a product that does not track serials are refused",
      (r["create"][0], r.get("status", (0, ""))[0]))

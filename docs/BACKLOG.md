@@ -503,8 +503,9 @@ sheet up and posting it:
 - **The variance is measured against what the system holds when the sheet is
   posted**, not against the snapshot it was drawn up from. Stock moves while a
   warehouse is being counted, and posting a stale figure would put back every
-  dispatch made in between. The snapshot is kept on the line as
-  `expected_quantity`, for the person reading it afterwards.
+  dispatch made in between. The snapshot is on the line as
+  `expected_quantity` while the sheet is a draft; posting replaces it on a
+  counted line with the figure it measured against (D-STK-45).
 - **A line nobody walked is not a line that found nothing.** `counted_quantity`
   is null until somebody counts it, and posting skips those: treating them as
   zero would write off the stock that was simply not reached.
@@ -6453,5 +6454,5 @@ be overruled.
 | 5 | Freezing stock while a count is open | M | Not built; the count adjusts by difference, as the others do |
 | 6 | A transfer between two GST registrations of one firm billed as a supply, with its e-way bill | M | For the compliance pass; needs the accountant's reading |
 | 7 | Units named on a repack and on a kit: a serial-tracked product consumed, produced or made part of a kit, with the units picked and made as a transfer picks them | M | Not built; refused in words since round 3 (D-STK-52), which is what Tally and Busy do by not tracking units there. ERPNext asks for the serial numbers on the repack entry |
-| 8 | A batch on a repack's produced line (an existing batch or a new one with its dates), and the batch a broken kit's parts go back into | S | Should have, with the screen: D-STK-53. The consumed side picks its batches itself since round 3 |
-| 9 | A rule for stock in bins on a line that names no bin (draw from the bins in a set order, or say where the goods are) | S | Low: D-STK-54. Only firms that run bins meet it; the note naming the bin ships |
+| 8 | A batch on a repack's produced line (an existing batch or a new one with its dates), and the batch a broken kit's parts go back into | S | Should have, with the screen: D-STK-53. The consumed side picks its batches itself since round 3. **Built 2026-10-08 (inventory round 4): the request and the Repacking screen take the batch; a broken kit's part goes back to the batch its last assembly drew it from.** |
+| 9 | A rule for stock in bins on a line that names no bin (draw from the bins in a set order, or say where the goods are) | S | Low: D-STK-54. Only firms that run bins meet it; the note naming the bin ships. **Built 2026-10-08 (inventory round 4): the warehouse's own row first, then the bins by the product's issue rule; a refusal says what stands in each bin. Serial units and hand-picked batches still name the bin** |

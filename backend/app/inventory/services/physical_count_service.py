@@ -34,7 +34,10 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
-from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.document_posting import (
+    DocumentPostingService,
+    assert_stock_date_in_open_period,
+)
 from app.inventory.models import (
     InventoryRecord,
     PhysicalCount,
@@ -222,6 +225,9 @@ class PhysicalCountService(TransactionalDocumentService):
         _, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
+        assert_stock_date_in_open_period(
+            self._session, firm_id, data.count_date, what="A stock count"
+        )
         number = self._issue_number(
             numbering_rule,
             typed=(
@@ -359,6 +365,9 @@ class PhysicalCountService(TransactionalDocumentService):
         would silently undo every dispatch made in between -- the count would
         put back goods that had left the building.
 
+        A counted line's ``expected_quantity`` becomes that figure as it is
+        posted, so Expected, Counted and Variance agree on the posted sheet.
+
         Lines nobody walked are skipped. An uncounted line is not a line that
         found nothing, and treating it as zero would write off the stock that
         was simply not reached before the sheet was posted.
@@ -379,6 +388,9 @@ class PhysicalCountService(TransactionalDocumentService):
                 "counted quantity before posting it."
             )
         self._assert_within_limit(row, sheet, firm_id=firm_id, actor_id=actor_id)
+        assert_stock_date_in_open_period(
+            self._session, firm_id, row.count_date, what="A stock count"
+        )
         adjusted = 0
         differences: list[tuple[str, Decimal]] = []
         for line in sheet:
@@ -391,6 +403,11 @@ class PhysicalCountService(TransactionalDocumentService):
             )
             variance = Decimal(str(line.counted_quantity)) - on_hand
             line.variance_quantity = variance
+            # The figure the difference was measured against, so the posted
+            # line adds up: with the opening figure left here a line read
+            # Expected 50, Counted 49, Variance +9 after ten were written off
+            # while the sheet was open (D-STK-45).
+            line.expected_quantity = on_hand
             line.updated_by = actor_id
             if variance == ZERO:
                 continue

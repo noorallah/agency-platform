@@ -28,7 +28,10 @@ from app.core.utils.chunks import chunks
 from app.core.utils.csv_text import csv_text, sheet_text
 from app.core.utils.money import quantize_money
 from app.finance.services.control_accounts import ControlAccountPurpose
-from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.document_posting import (
+    DocumentPostingService,
+    assert_stock_date_in_open_period,
+)
 from app.inventory.models import (
     InventoryRecord,
     InventoryTransaction,
@@ -1303,13 +1306,17 @@ class InventoryService:
 
         """
         number = (line.batch_number or "").strip()
+        product = self._session.get(Product, line.product_id)
         if not number:
-            product = self._session.get(Product, line.product_id)
             if product is not None and product.require_batch_on_receipt:
                 raise ValidationError(
                     f"{product.code} must be taken in with a batch number, "
                     "including as opening stock."
                 )
+            return None
+        if product is not None and not product.track_batch:
+            # As on a goods receipt: a number typed for a product that keeps
+            # no batches registers none (D-STK-43).
             return None
         # Imported here rather than at the top: `batch_serial` reads stock
         # totals from this service, so the two modules would import each other
@@ -1765,16 +1772,28 @@ class InventoryService:
             actor_id=actor_id,
             batch_id=data.batch_id,
         )
-        held = inventory.current_quantity + inventory.quarantine_quantity
+        # What a customer sent back damaged or as scrap is held off the
+        # shelf, in the damaged bucket alone, and nothing could take it out
+        # again (D-STK-46). Goods given to a customer are never drawn from it.
+        set_aside = (
+            ZERO
+            if data.reason.strip().upper() in CUSTOMER_REASONS
+            else self._damaged_off_the_shelf(inventory)
+        )
+        held = inventory.current_quantity + inventory.quarantine_quantity + set_aside
         if base_quantity > held:
             raise ValidationError(
                 f"This location holds {held}, so {base_quantity} cannot be "
                 "written off from it."
             )
-        # Quarantined stock is condemned first: it is in quarantine because
-        # somebody already doubted it, so it is the likeliest thing going.
-        from_quarantine = min(base_quantity, inventory.quarantine_quantity)
-        from_current = base_quantity - from_quarantine
+        # What is already condemned goes first, then what is doubted: it is
+        # in quarantine because somebody already doubted it, so it is the
+        # likeliest thing going.
+        from_damaged = min(base_quantity, set_aside)
+        from_quarantine = min(
+            base_quantity - from_damaged, inventory.quarantine_quantity
+        )
+        from_current = base_quantity - from_damaged - from_quarantine
         reference = self._movement_reference(
             data, "WRITE_OFF", firm_id=firm_scope, actor_id=actor_id
         )
@@ -1833,6 +1852,7 @@ class InventoryService:
                 transaction_date=data.transaction_date,
                 quantity=base_quantity,
                 current_delta=-from_current,
+                damaged_delta=-from_damaged,
                 quarantine_delta=-from_quarantine,
                 # The whole amount leaves the firm, whichever bucket held it.
                 owned_delta=-base_quantity,
@@ -1911,6 +1931,12 @@ class InventoryService:
             ValidationError: If there is not that much to hold or release.
 
         """
+        assert_stock_date_in_open_period(
+            self._session,
+            firm_scope,
+            data.transaction_date,
+            what="A quarantine hold or release",
+        )
         transaction = self.stage_quarantine(
             data, firm_scope=firm_scope, actor_id=actor_id
         )
@@ -2029,6 +2055,9 @@ class InventoryService:
             ValidationError: If the source does not hold enough to send.
 
         """
+        assert_stock_date_in_open_period(
+            self._session, firm_scope, data.transaction_date, what="A transfer"
+        )
         (
             base_quantity,
             entered_quantity,
@@ -3073,6 +3102,20 @@ class InventoryService:
         self._session.flush()
         return transaction
 
+    @staticmethod
+    def _damaged_off_the_shelf(inventory: InventoryRecord) -> Decimal:
+        """Say how much of the damaged bucket stands outside current stock.
+
+        Two things fill the bucket. Goods that arrive damaged on a receipt or
+        a transfer stay in current stock and are blocked from sale as well,
+        so a write-off already reaches them. Goods a customer sent back
+        damaged or as scrap are in the damaged bucket only. The row does not
+        say which is which, so what is blocked is taken to be the first kind:
+        the answer can fall short where stock is blocked for another reason,
+        and never runs over.
+        """
+        return max(inventory.damaged_quantity - inventory.blocked_quantity, ZERO)
+
     def _held_in_batches(self, inventory: InventoryRecord, *, product_id: UUID) -> bool:
         """Say whether this warehouse holds the product in a batch's own row."""
         return (
@@ -3119,7 +3162,8 @@ class InventoryService:
         The mirror of ``record_purchase_return``, in the other direction. Only
         ``restock_quantity`` returns to the sellable bucket: goods that came
         back broken are still the firm's and still worth what they cost, but
-        they cannot be sold, so they arrive in the damaged bucket instead. The
+        they cannot be sold, so they arrive in the damaged bucket instead, and
+        scrap arrives there with them: a write-off takes both out. The
         firm gains ownership of all of it either way, which is why the
         valuation follows the whole return rather than the sellable part --
         without that, damaged goods would come back onto the shelf at no cost
@@ -3182,10 +3226,10 @@ class InventoryService:
                 transaction_date=transaction_date,
                 quantity=base_quantity,
                 current_delta=ZERO if hold_for_check else restock_base,
-                damaged_delta=damaged_base,
-                # Scrapped goods came back and were condemned in the same
-                # movement, so they land nowhere: the firm owns them for
-                # valuation and can neither sell nor repair them.
+                # Scrapped goods arrive with the damaged ones. They landed in
+                # no bucket at all while the valuation went on carrying them,
+                # so nothing on screen could write them off (D-STK-46).
+                damaged_delta=damaged_base + scrap_base,
                 blocked_delta=ZERO,
                 quarantine_delta=restock_base if hold_for_check else ZERO,
                 # Everything that came back is owned, sellable or not, so the
@@ -3931,6 +3975,116 @@ class InventoryService:
             the available stock across all of them is short.
 
         """
+        return [
+            (batch_id, taken)
+            for _, batch_id, taken in self._draw_for_dispatch(
+                firm_scope=firm_scope,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                product_id=product_id,
+                quantity=quantity,
+                as_of=as_of,
+                keep_until=keep_until,
+                past_back_orders=past_back_orders,
+            )
+        ]
+
+    def allocate_across_bins(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        quantity: Decimal,
+        as_of: date | None = None,
+        keep_until: date | None = None,
+        past_back_orders: Mapping[UUID, Decimal] | None = None,
+    ) -> list[tuple[UUID | None, UUID | None, Decimal]]:
+        """Choose the places and batches a line naming no bin leaves from.
+
+        A line that names no bin asks the warehouse, and goods standing in a
+        bin of it are in the warehouse: four in a bin and a note for four was
+        refused for want of stock (D-STK-54). What stands on the warehouse's
+        own row goes first -- that is where the order's hold is -- and then
+        the bins, by the product's issue rule across them, so the earliest
+        expiry leaves whichever bin it is in. The same refusals as
+        ``allocate_for_dispatch``: expired, short-dated, pick-only.
+
+        Returns:
+            (storage node, batch, quantity) in the order to draw; the node is
+            None for the warehouse's own row. Raises if all of it is short.
+
+        """
+        return self._draw_for_dispatch(
+            firm_scope=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            quantity=quantity,
+            as_of=as_of,
+            keep_until=keep_until,
+            past_back_orders=past_back_orders,
+            warehouse_row_first=True,
+        )
+
+    def free_in_bins(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+    ) -> list[tuple[str, Decimal]]:
+        """Return what each bin of a warehouse holds free of a product.
+
+        By bin code, with the quantity no hold or block stands on, summed
+        over its batches. The warehouse's own row is not a bin and is left
+        out. For the dispatch gate, and for a refusal that says where the
+        goods stand rather than that there are none.
+        """
+        rows = self._session.execute(
+            select(
+                WarehouseStorageNode.code,
+                func.sum(InventoryRecord.available_quantity),
+            )
+            .join(
+                WarehouseStorageNode,
+                WarehouseStorageNode.id == InventoryRecord.storage_node_id,
+            )
+            .where(
+                InventoryRecord.firm_id == firm_scope,
+                InventoryRecord.branch_id == branch_id,
+                InventoryRecord.warehouse_id == warehouse_id,
+                InventoryRecord.product_id == product_id,
+                InventoryRecord.is_deleted.is_(False),
+                InventoryRecord.available_quantity > ZERO,
+            )
+            .group_by(WarehouseStorageNode.code)
+            .order_by(WarehouseStorageNode.code.asc())
+        ).all()
+        return [(code, Decimal(str(free))) for code, free in rows]
+
+    def _draw_for_dispatch(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        quantity: Decimal,
+        as_of: date | None,
+        keep_until: date | None,
+        past_back_orders: Mapping[UUID, Decimal] | None,
+        warehouse_row_first: bool = False,
+    ) -> list[tuple[UUID | None, UUID | None, Decimal]]:
+        """Draw a dispatch from a product's stock rows, naming each row's place.
+
+        The one body behind ``allocate_for_dispatch`` and
+        ``allocate_across_bins``. ``warehouse_row_first`` puts the rows that
+        stand in no bin ahead of the rest, each group keeping the order its
+        goods leave in.
+        """
         rows = self._expiry_ranked_rows(
             firm_scope=firm_scope,
             branch_id=branch_id,
@@ -3942,6 +4096,9 @@ class InventoryService:
                 else InventoryRecord.available_quantity
             ),
         )
+        if warehouse_row_first:
+            # A stable sort: the ranking above holds within each group.
+            rows.sort(key=lambda row: row.storage_node_id is not None)
         drawable = {
             row.id: max(
                 Decimal(str(row.available_quantity)),
@@ -3986,14 +4143,14 @@ class InventoryService:
             keep_until=keep_until,
         )
         outstanding = Decimal(str(quantity))
-        allocation: list[tuple[UUID | None, Decimal]] = []
+        allocation: list[tuple[UUID | None, UUID | None, Decimal]] = []
         for row in rows:
             if outstanding <= ZERO:
                 break
             take = min(outstanding, drawable[row.id])
             if take <= ZERO:
                 continue
-            allocation.append((row.batch_id, take))
+            allocation.append((row.storage_node_id, row.batch_id, take))
             outstanding -= take
         if outstanding > ZERO:
             raise ValidationError(

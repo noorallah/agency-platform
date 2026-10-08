@@ -122,6 +122,8 @@ class _RepackingPageState extends State<RepackingPage> {
             RepackOption(
               id: product.id,
               label: '${product.code} - ${product.name}',
+              tracksBatch: product.trackBatch,
+              tracksExpiry: product.trackExpiry,
             ),
         ],
         onSave: (body) async {

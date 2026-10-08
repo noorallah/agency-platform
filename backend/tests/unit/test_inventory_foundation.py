@@ -837,6 +837,8 @@ def test_opening_stock_arrives_in_a_batch() -> None:
     firm = _firm(session, "OPENBAT")
     profile = _profile(session, firm.id)
     branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    product.track_batch = True
+    session.commit()
     service = InventoryService(session)
     actor_id = uuid4()
 

@@ -5,7 +5,8 @@
 //   * a new repack posts consume and produce lines with the wastage;
 //   * a refusal keeps the dialog open with the server's message;
 //   * cancelling posts the reason typed;
-//   * posting and cancelling need INVENTORY_ADJUST.
+//   * posting and cancelling need INVENTORY_ADJUST;
+//   * a produced product kept in batches names its batch (D-STK-53).
 
 import 'dart:convert';
 
@@ -107,7 +108,9 @@ const WarehouseRecord _warehouse = WarehouseRecord(
   createdAt: '2026-08-01T00:00:00Z',
 );
 
-Product _product(String id, String code, String name) => Product(
+Product _product(String id, String code, String name,
+        {bool batches = false}) =>
+    Product(
       id: id,
       firmId: 'firm-1',
       code: code,
@@ -134,6 +137,8 @@ Product _product(String id, String code, String name) => Product(
       updatedAt: '2026-08-01T00:00:00Z',
       attributes: const [],
       media: const [],
+      trackBatch: batches,
+      trackExpiry: batches,
     );
 
 class _Api extends ApiClient {
@@ -189,6 +194,7 @@ class _Api extends ApiClient {
     final List<Product> items = [
       _product('p-sack', 'SACK', 'Rice sack'),
       _product('p-pkt', 'PKT', 'Rice packet'),
+      _product('p-syr', 'SYR', 'Syrup', batches: true),
     ];
     return PagedResult<Product>(items: items, total: items.length);
   }
@@ -341,6 +347,53 @@ void main() {
 
       expect(api.createCalls, 0);
       expect(find.text('Add at least one product to consume.'), findsOneWidget);
+    });
+
+    testWidgets('a produced product kept in batches names its batch',
+        (tester) async {
+      final _Api api = _Api();
+      await _pump(tester, api, ['INVENTORY_VIEW', 'INVENTORY_ADJUST']);
+      await _fillDialog(tester);
+      // A product not kept in batches is asked for none.
+      expect(find.byKey(const ValueKey('repack-produce-batch-0')), findsNothing);
+
+      await _pick(tester, 'repack-produce-product-0', 'SYR - Syrup');
+      expect(
+          find.byKey(const ValueKey('repack-produce-batch-0')), findsOneWidget);
+      expect(find.byKey(const ValueKey('repack-consume-batch-0')), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('repack-save')));
+      await tester.pumpAndSettle();
+      expect(api.createCalls, 0);
+      expect(
+        find.text('SYR - Syrup is kept in batches. '
+            'Enter the batch the produced goods go into.'),
+        findsOneWidget,
+      );
+
+      await _enter(tester, 'repack-produce-batch-0', 'B-77');
+      await _enter(tester, 'repack-produce-expiry-0', '31/03/2027');
+      await tester.tap(find.byKey(const ValueKey('repack-save')));
+      await tester.pumpAndSettle();
+      expect(api.createCalls, 0);
+      expect(find.text('Enter the expiry date as YYYY-MM-DD.'), findsOneWidget);
+
+      await _enter(tester, 'repack-produce-expiry-0', '2027-03-31');
+      await tester.tap(find.byKey(const ValueKey('repack-save')));
+      await tester.pumpAndSettle();
+
+      expect(api.created!['lines'], [
+        {'kind': 'CONSUME', 'product_id': 'p-sack', 'quantity': '10'},
+        {
+          'kind': 'PRODUCE',
+          'product_id': 'p-syr',
+          'quantity': '490',
+          'batch_number': 'B-77',
+          'expiry_date': '2027-03-31',
+        },
+      ]);
+      expect(find.byType(RepackDialog), findsNothing);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('cancelling posts the reason typed', (tester) async {

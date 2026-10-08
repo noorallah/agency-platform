@@ -135,3 +135,26 @@ def assert_date_order(
                 f"manufacturing date {manufacturing_date.isoformat()}. Check "
                 "the two dates."
             )
+
+
+def assert_expiry_stated(
+    product: Product, *, batch_number: str, expiry_date: date | None
+) -> None:
+    """Refuse a batch with no expiry date where the product tracks expiry.
+
+    A medicine taken in with a batch number and no date sat in stock as a
+    batch that never came due: the expiry monitor passed over it and it was
+    sold last instead of first (D-STK-48). The goods type says whether the
+    date is kept at all; where it is, the batch has to carry one.
+
+    Raises:
+        ValidationError: If the product tracks expiry and no date is stated.
+
+    """
+    if not product.track_expiry or expiry_date is not None:
+        return
+    raise ValidationError(
+        f"{product.code} tracks expiry, so batch {batch_number} needs an "
+        "expiry date. Enter the expiry date, or the manufacturing date where "
+        "the product has a shelf life."
+    )

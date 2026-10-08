@@ -27,6 +27,7 @@ def test_a_receipt_sets_a_new_batch_mrp_and_fills_one_without() -> None:
         actor_id=shop.actor,
         product_id=shop.drug.id,
         batch_number="NEW",
+        expiry_date=date(2031, 12, 31),
         mrp=Decimal("120.00"),
         selling_price=Decimal("95.00"),
     )
@@ -37,6 +38,7 @@ def test_a_receipt_sets_a_new_batch_mrp_and_fills_one_without() -> None:
         actor_id=shop.actor,
         product_id=shop.drug.id,
         batch_number="EARLY",
+        expiry_date=date(2031, 12, 31),
         mrp=Decimal("110.00"),
     )
     assert early.mrp == Decimal("110.00")

@@ -749,6 +749,38 @@ The rules live in `app/batch_serial/services/product_tracking.py`
   none is picked, and keeps what was typed when the server refuses. An edit
   does not offer the box: a record keeps its product.
 
+### What a switch requires (inventory round 4, 2026-10-08)
+
+The switches above say what a product *may* carry. Three rules, agreed by the
+owner on 2026-10-08, say what follows from them when goods arrive or a unit is
+numbered.
+
+- **A batch number typed for a product that keeps no batches is ignored**
+  (D-STK-43). The receipt, or the opening stock, goes through; the goods land
+  on the product's own stock row; no batch is registered. The text stays on
+  the line as what was typed. `track_batch` is the switch read, in
+  `GoodsReceiptService` where a receipt is stocked and in
+  `InventoryService._opening_stock_batch_id`.
+- **A batch of a product that tracks expiry has to carry an expiry date**
+  (D-STK-48, `assert_expiry_stated` in `product_tracking.py`). The batch
+  master refuses a new batch without one, and a receipt or opening stock is
+  refused when it would register one. Only the manufacturing date typed is
+  enough where there is a shelf life -- the line's or the product's -- since
+  that fills the expiry, on the master as on a receipt. A batch registered
+  before the rule takes the date the next delivery states and is refused with
+  none. An edit is judged only when it touches the date, so an old undated
+  batch can still be held or recalled.
+- **Add Serial stops at the stock held** (D-STK-50,
+  `BatchSerialService._assert_unit_is_held`). A unit that is on hand
+  (`AVAILABLE`, `RESERVED`, `DAMAGED`) is counted against what the warehouse
+  holds of the product on the shelf, in quarantine, damaged or blocked; one
+  more than that is refused in words. A unit naming no warehouse is judged
+  against everything the firm holds. An edit that moves a unit to another
+  warehouse or product, or brings a sold or scrapped unit back on hand, is
+  judged as a new unit there is. Units a receipt, opening stock or a transfer
+  number are not asked: those number exactly what they bring. Units numbered
+  above the stock before the rule are left as they are.
+
 ### Batch-wise PTR / PTS (PG-14, backlog 86 #22, 55 G5)
 
 A pharma or FMCG distributor keeps two trade rates on every batch beside its

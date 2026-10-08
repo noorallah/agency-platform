@@ -2608,6 +2608,10 @@ def _seed_inventory_opening_stock(
             batch_number=(
                 f"{product.code}-OPENING" if product.requires_batch else None
             ),
+            # A traced product tracks expiry here, and a batch of one has to
+            # say when it comes due (D-STK-48): eighteen months from the day
+            # the books open, as the seeded receipts date theirs.
+            expiry_date=date(2027, 9, 30) if product.requires_batch else None,
             minimum_level=Decimal("20"),
             reorder_level=Decimal("30"),
             safety_stock=Decimal("10"),

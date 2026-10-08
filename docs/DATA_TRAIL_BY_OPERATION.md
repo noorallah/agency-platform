@@ -1063,7 +1063,8 @@ from the document framework, with no lifecycle events (0 rows in every store).
   `counted_quantity` is **not null**: `variance_quantity` = counted − **what the
   line's row holds now** — product, batch and storage location, never the
   warehouse summed (re-read, not `expected_quantity`, so a dispatch made
-  while you counted is not undone); when the variance is not zero, one
+  while you counted is not undone), and `expected_quantity` is overwritten
+  with that re-read figure so the posted line adds up (D-STK-45); when the variance is not zero, one
   `ADJUSTMENT` movement (`reference_number` = **the count number**,
   `reference_type` `PHYSICAL_COUNT`, `quantity` 1, `current_quantity_delta` −1,
   `transaction_date` = the count date, `remarks` "Physical count PC-…: counted

@@ -144,10 +144,27 @@ def _stock(
     session.commit()
 
 
+def _held(session: Session, product: Product, quantity: str = "5") -> None:
+    """Put stock of a product on a shelf, so its units can be numbered."""
+    session.add(
+        InventoryRecord(
+            firm_id=product.firm_id,
+            branch_id=uuid4(),
+            warehouse_id=uuid4(),
+            storage_locator="SPARE",
+            product_id=product.id,
+            current_quantity=Decimal(quantity),
+            available_quantity=Decimal(quantity),
+        )
+    )
+    session.commit()
+
+
 def _batch_create(product_id: UUID, batch_number: str = "BATCH-001") -> BatchCreate:
     return BatchCreate(
         product_id=product_id,
         batch_number=batch_number,
+        expiry_date=date(2031, 12, 31),
         status=BatchStatus.AVAILABLE,
     )
 
@@ -175,6 +192,7 @@ def test_a_batch_names_its_product_warehouse_and_branch() -> None:
         data=BatchCreate(
             product_id=product.id,
             batch_number="NAMED-001",
+            expiry_date=date(2031, 12, 31),
             branch_id=branch.id,
             warehouse_id=warehouse.id,
         ),
@@ -237,6 +255,7 @@ def test_naming_a_page_of_batches_does_not_query_per_row() -> None:
                 data=BatchCreate(
                     product_id=product.id,
                     batch_number=f"BULK-{index}",
+                    expiry_date=date(2031, 12, 31),
                     branch_id=branch.id,
                     warehouse_id=warehouse.id,
                 ),
@@ -426,6 +445,7 @@ def test_expiry_dashboard() -> None:
         data=BatchCreate(
             product_id=product.id,
             batch_number="EXP-001",
+            expiry_date=business_today("IN") - timedelta(days=1),
             status=BatchStatus.EXPIRED,
         ),
     )
@@ -446,6 +466,7 @@ def test_expiry_dashboard() -> None:
         data=BatchCreate(
             product_id=product.id,
             batch_number="QRN-001",
+            expiry_date=date(2031, 12, 31),
             status=BatchStatus.QUARANTINE,
         ),
     )
@@ -494,6 +515,7 @@ def test_create_serial_success() -> None:
     actor_id = uuid4()
     service = BatchSerialService(session)
 
+    _held(session, product)
     serial = service.create_serial(
         firm_scope=firm.id,
         actor_id=actor_id,
@@ -528,6 +550,7 @@ def test_serial_links_to_batch() -> None:
         data=_batch_create(product.id, "LINK-BATCH"),
     )
 
+    _held(session, product)
     serial = service.create_serial(
         firm_scope=firm.id,
         actor_id=actor_id,
@@ -760,6 +783,7 @@ def test_batch_and_serial_audit_rows_are_named_and_say_what_was_written() -> Non
         batch_id=batch.id,
         data=BatchUpdate(remarks="relabelled"),
     )
+    _held(session, product)
     serial = service.create_serial(
         firm_scope=firm.id,
         actor_id=actor_id,

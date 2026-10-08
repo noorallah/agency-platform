@@ -16,6 +16,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
+from app.batch_serial.services.batch_serial_service import BatchSerialService
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.pricing import apportion
@@ -24,7 +25,10 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
-from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.document_posting import (
+    DocumentPostingService,
+    assert_stock_date_in_open_period,
+)
 from app.inventory.models.repack import Repack, RepackLine
 from app.inventory.services.inventory_service import InventoryService
 from app.products.models import Product
@@ -40,7 +44,29 @@ class RepackLineWrite(BaseModel):
     kind: str = Field(pattern="^(CONSUME|PRODUCE)$")
     product_id: UUID
     batch_id: UUID | None = None
+    #: The batch a produce line goes into, by number: found if the product
+    #: has one of that number, opened with these dates if it has not.
+    batch_number: str | None = Field(default=None, min_length=1, max_length=100)
+    manufacturing_date: date | None = None
+    expiry_date: date | None = None
     quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
+
+    @model_validator(mode="after")
+    def _one_way_to_name_a_batch(self) -> "RepackLineWrite":
+        """Keep the batch typed by number to the goods coming out."""
+        typed = (self.batch_number, self.manufacturing_date, self.expiry_date)
+        if self.kind == "CONSUME" and any(value is not None for value in typed):
+            raise ValueError(
+                "A consume line names a batch that is already held, by its id; "
+                "only a produce line opens one by number."
+            )
+        if self.batch_id is not None and any(value is not None for value in typed):
+            raise ValueError(
+                "Name the batch by its id or by its number and dates, not both."
+            )
+        if self.batch_number is None and any(value is not None for value in typed):
+            raise ValueError("A batch's dates need its number.")
+        return self
 
 
 class RepackWrite(BaseModel):
@@ -150,6 +176,7 @@ class RepackService(TransactionalDocumentService):
 
         """
         on = data.repack_date
+        assert_stock_date_in_open_period(self._session, firm_id, on, what="A repack")
         products = {
             p.id: p
             for p in self._session.scalars(
@@ -164,7 +191,9 @@ class RepackService(TransactionalDocumentService):
         if missing:
             raise ValidationError("Unknown product(s) on the repack.")
         inventory = InventoryService(self._session)
-        lines = self._lines_by_batch(data, products, inventory, firm_id=firm_id)
+        lines = self._lines_by_batch(
+            data, products, inventory, firm_id=firm_id, actor_id=actor_id
+        )
         _, rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
         number = self._issue_number(
             rule,
@@ -394,6 +423,7 @@ class RepackService(TransactionalDocumentService):
         inventory: InventoryService,
         *,
         firm_id: UUID,
+        actor_id: UUID,
     ) -> list[RepackLineWrite]:
         """Return the lines as they are posted: one per batch drawn from.
 
@@ -409,9 +439,16 @@ class RepackService(TransactionalDocumentService):
         quantity and has nowhere to name units, so the stock moved while
         every unit went on reading AVAILABLE (D-STK-52).
 
+        A produce line of a batch-tracked product names the batch it goes
+        into, by id or by number. With neither the goods landed on the stock
+        row with no batch: a medicine on hand with no expiry, sold last and
+        never short-dated (D-STK-53). A number is resolved the way a goods
+        receipt resolves one, so a new batch is held to the same dates.
+
         Raises:
-            ValidationError: If a line names a serial-tracked product, or the
-                batches do not hold what a consume line asks for.
+            ValidationError: If a line names a serial-tracked product, the
+                batches do not hold what a consume line asks for, or a
+                produce line of a batch-tracked product names no batch.
 
         """
         tracked = sorted(
@@ -432,6 +469,13 @@ class RepackService(TransactionalDocumentService):
         lines: list[RepackLineWrite] = []
         for line in data.lines:
             product = products[line.product_id]
+            if line.kind == "PRODUCE":
+                lines.append(
+                    self._produced_into_a_batch(
+                        data, line, product, firm_id=firm_id, actor_id=actor_id
+                    )
+                )
+                continue
             if (
                 line.kind != "CONSUME"
                 or line.batch_id is not None
@@ -451,6 +495,54 @@ class RepackService(TransactionalDocumentService):
                     line.model_copy(update={"batch_id": batch_id, "quantity": quantity})
                 )
         return lines
+
+    def _produced_into_a_batch(
+        self,
+        data: RepackWrite,
+        line: RepackLineWrite,
+        product: Product,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> RepackLineWrite:
+        """Return a produce line naming its batch by id (D-STK-53).
+
+        Raises:
+            ValidationError: If the product is kept in batches and the line
+                names none, or names one for a product that is not.
+
+        """
+        if line.batch_number is None:
+            if product.track_batch and line.batch_id is None:
+                raise ValidationError(
+                    f"{product.code} - {product.name} is kept in batches. "
+                    "Name the batch the repacked goods go into: one it "
+                    "already has, or a new number with its dates."
+                )
+            return line
+        if not product.track_batch:
+            raise ValidationError(
+                f"{product.code} - {product.name} is not kept in batches, "
+                "so the repacked goods cannot go into one."
+            )
+        batch = BatchSerialService(self._session).resolve_for_receipt(
+            firm_scope=firm_id,
+            actor_id=actor_id,
+            product_id=product.id,
+            batch_number=line.batch_number,
+            branch_id=data.branch_id,
+            warehouse_id=data.warehouse_id,
+            expiry_date=line.expiry_date,
+            manufacturing_date=line.manufacturing_date,
+        )
+        return line.model_copy(
+            update={
+                "batch_id": batch.id,
+                "batch_number": None,
+                "manufacturing_date": None,
+                "expiry_date": None,
+            }
+        )
 
     def _line(
         self,

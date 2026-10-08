@@ -6,10 +6,23 @@ import '../workspace/save_in_dialog.dart';
 
 /// A choice in one of the repack dialog's pickers: an id and how it reads.
 class RepackOption {
-  const RepackOption({required this.id, required this.label, this.parentId});
+  const RepackOption({
+    required this.id,
+    required this.label,
+    this.parentId,
+    this.tracksBatch = false,
+    this.tracksExpiry = false,
+  });
 
   final String id;
   final String label;
+
+  /// For a product, whether it is kept in batches: what a repack produces
+  /// of it has to name the batch it goes into (D-STK-53).
+  final bool tracksBatch;
+
+  /// For a product, whether its batches carry an expiry date.
+  final bool tracksExpiry;
 
   /// For a warehouse, the branch it belongs to.
   final String? parentId;
@@ -20,8 +33,14 @@ class _LineDraft {
 
   String? productId;
   final TextEditingController quantity = TextEditingController();
+  final TextEditingController batch = TextEditingController();
+  final TextEditingController expiry = TextEditingController();
 
-  void dispose() => quantity.dispose();
+  void dispose() {
+    quantity.dispose();
+    batch.dispose();
+    expiry.dispose();
+  }
 }
 
 /// Post a repack or bulk-breaking document (STK-4): what is consumed, what is
@@ -98,8 +117,43 @@ class _RepackDialogState extends State<RepackDialog> with SaveInDialog {
               'kind': kind,
               'product_id': draft.productId,
               'quantity': draft.quantity.text.trim(),
+              if (kind == 'PRODUCE' && _inBatches(draft.productId)) ...{
+                if (draft.batch.text.trim().isNotEmpty)
+                  'batch_number': draft.batch.text.trim(),
+                if (draft.batch.text.trim().isNotEmpty &&
+                    draft.expiry.text.trim().isNotEmpty)
+                  'expiry_date': draft.expiry.text.trim(),
+              },
             },
       ];
+
+  RepackOption? _product(String? id) {
+    for (final RepackOption product in widget.products) {
+      if (product.id == id) return product;
+    }
+    return null;
+  }
+
+  bool _inBatches(String? productId) =>
+      _product(productId)?.tracksBatch ?? false;
+
+  /// What the produce lines still need said about their batches, or null.
+  String? _batchProblem() {
+    for (final _LineDraft draft in _produce) {
+      final RepackOption? product = _product(draft.productId);
+      if (product == null || !product.tracksBatch) continue;
+      if (draft.batch.text.trim().isEmpty) {
+        return '${product.label} is kept in batches. '
+            'Enter the batch the produced goods go into.';
+      }
+      final String expiry = draft.expiry.text.trim();
+      if (expiry.isNotEmpty &&
+          (expiry.length != 10 || DateTime.tryParse(expiry) == null)) {
+        return 'Enter the expiry date as YYYY-MM-DD.';
+      }
+    }
+    return null;
+  }
 
   String? _validate(List<Json> consume, List<Json> produce) {
     if (_branchId == null) return 'Choose the branch.';
@@ -117,7 +171,7 @@ class _RepackDialogState extends State<RepackDialog> with SaveInDialog {
         return 'Enter a quantity above zero on every line.';
       }
     }
-    return null;
+    return _batchProblem();
   }
 
   Future<void> _save() async {
@@ -156,7 +210,7 @@ class _RepackDialogState extends State<RepackDialog> with SaveInDialog {
             label: const Text('Add line'),
           ),
         ]),
-        for (int index = 0; index < drafts.length; index++)
+        for (int index = 0; index < drafts.length; index++) ...[
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: Row(
@@ -207,6 +261,46 @@ class _RepackDialogState extends State<RepackDialog> with SaveInDialog {
               ],
             ),
           ),
+          if (keyPrefix == 'repack-produce' &&
+              _inBatches(drafts[index].productId))
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: ValueKey('$keyPrefix-batch-$index'),
+                      controller: drafts[index].batch,
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: 'Batch number',
+                        helperText: 'One it already has, or a new number',
+                      ),
+                    ),
+                  ),
+                  if (_product(drafts[index].productId)?.tracksExpiry ??
+                      false) ...[
+                    const SizedBox(width: AppSpacing.md),
+                    SizedBox(
+                      width: 220,
+                      child: TextField(
+                        key: ValueKey('$keyPrefix-expiry-$index'),
+                        controller: drafts[index].expiry,
+                        enabled: !saving,
+                        decoration: const InputDecoration(
+                          labelText: 'Expiry date',
+                          helperText: 'YYYY-MM-DD, for a new batch',
+                        ),
+                      ),
+                    ),
+                  ],
+                  // Lines up with the remove button of the row above.
+                  const SizedBox(width: 48),
+                ],
+              ),
+            ),
+        ],
       ],
     );
   }

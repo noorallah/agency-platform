@@ -341,7 +341,8 @@ def test_the_variance_is_measured_when_the_sheet_is_posted() -> None:
     books.session.commit()
 
     line = books.counts.lines_for(count_id)[0]
-    assert line.expected_quantity == Decimal("10.0000"), "what we expected, kept"
+    # The posted line adds up: six held, ten counted, four found (D-STK-45).
+    assert line.expected_quantity == Decimal("6.0000"), "held when posted"
     assert line.variance_quantity == Decimal("4.0000"), "measured against six"
     assert books.on_hand() == Decimal("10.0000"), "the count is what is there"
 
