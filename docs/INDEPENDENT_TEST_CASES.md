@@ -2486,7 +2486,7 @@ the fixture builds (a minute or two).
 
 ### TC-STOCK-026 — Goods a customer returned damaged or as scrap are held as damaged, and a write-off takes them first
 
-*Added 2026-10-09 with inventory round 4 (D-STK-46). Covered by `backend/tests/unit/test_inventory_round_4.py`; the return itself is driven over HTTP by `docs/qa/checks/inventory/tc_stock_018.py`.*
+*Added 2026-10-09 with inventory round 4 (D-STK-46). Covered by `backend/tests/unit/test_inventory_round_4.py`; driven over HTTP by `docs/qa/checks/inventory/p_scrap_return.py` and, for a batch-tracked product, `p_scrap_return_batch.py` (round 5).*
 
 - **Covers:** D-STK-46
 - **Fixture:** `selling-firm`
@@ -2522,7 +2522,7 @@ the fixture builds (a minute or two).
 
 ### TC-STOCK-029 — Near expiry means the same batches on Home and on the batch card
 
-*Added 2026-10-09 with inventory round 4 (D-STK-47). Covered by `backend/tests/unit/test_near_expiry_is_one_definition.py`; not driven over HTTP on its own.*
+*Added 2026-10-09 with inventory round 4 (D-STK-47). Covered by `backend/tests/unit/test_near_expiry_is_one_definition.py`; driven over HTTP by `docs/qa/checks/inventory/p_alert_windows.py` (round 5).*
 
 - **Covers:** D-STK-47
 - **Fixture:** `selling-firm`
@@ -2530,6 +2530,19 @@ the fixture builds (a minute or two).
 - **Steps:** as the fixture's **Firm admin**: read the *near expiry* count on Home's stock alerts and on the Stock > Batches card. Set the firm's window to **60** days under *Batch sale rules*; read both again; read the Expiry Monitor's *7 days* and *30 days* cards.
 - **Expect:** Home and the batch card count the **same two** batches at 30 days (a batch held in quarantine holds stock) and the same three at 60. The Expiry Monitor's two cards are named for their windows and do not move with the firm's setting.
 - **Leaves:** the firm's near-expiry window at 60 days: set it back to 30.
+
+
+### TC-STOCK-030 — A kit is made and broken on screen where a batch has to be named
+
+*Added 2026-10-09 with inventory round 5 (D-UI-85). On screen SC-ST-094 to 097; the server's half is `docs/qa/checks/inventory/p_kit_break_batch.py` and `p_kit_tracked_parts.py`.*
+
+- **Covers:** D-UI-85, D-STK-51, D-STK-53
+- **Fixture:** `selling-firm`
+- **Also needs:** the Medicine goods type in use; a Medicine product **MED** with batch **KA** holding stock in MAIN; a kit whose part is 1 of MED, **two** of it brought in as opening stock in MAIN and none assembled there.
+- **Steps:** as the fixture's **Firm admin**: Masters > Products, pick the kit. (a) **Disassemble kits**: MAIN, 1 kit, leave **Batch for MED** empty; Disassemble. (b) type **KA** in the box; Disassemble. (c) **Assemble kits**: MAIN, 1 kit; Assemble. (d) **Disassemble kits** again: MAIN, 1 kit, the box empty; Disassemble.
+- **Expect:** (a) the dialog shows **Batch for MED** and is refused inside it: *MED is kept in batches, and no assembly of the kit in this warehouse says which batch it came from. Name the batch it goes back into.*; nothing moves. (b) the kit is broken and KA holds one more. (c) the Assemble dialog has no batch box for a kit that is not itself kept in batches; one kit more, one of MED less, taken from its batches earliest expiry first. (d) broken with the box empty: the part goes back into the batch the assembly took it from. A kit that is itself kept in batches shows **Batch number** and **Expiry date** on Assemble.
+- **Leaves:** three posted repacks; one kit in MAIN.
+
 
 
 

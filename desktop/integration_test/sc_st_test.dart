@@ -19,7 +19,8 @@ import 'sc_gt_test.dart'
 // lists, actions, adjust, opening, count, views, transfers, repack,
 // approvals, settings, round2 (serial units on the move, a used reference;
 // in pieces r2xfer, r2doc, r2open, r2ref), backorder, round3 (what a repack
-// may take), round4 (what a repack produces of a batch-tracked product).
+// may take), round4 (what a repack produces of a batch-tracked product),
+// round5 (Home's stock rows; a kit made and broken, and its part's batch).
 // Role users run only the role section.
 
 const String _part = String.fromEnvironment('IT_PART');
@@ -327,6 +328,260 @@ void main() {
       await pickProduct(tester, code, not: not);
       await command(tester, id, label);
       await pumpUntil(tester, find.byType(Dialog), waitingFor: 'the $label dialog');
+    }
+
+    // ---------------- round 5: Home's stock rows, a kit and its batches ----------
+    if (admin && wants('round5')) {
+      await log.step(
+          "SC-ST-093 Home's stock rows read the counts the server gives",
+          () async {
+        final Finder home = find.byKey(const ValueKey<String>('menu-area-home'));
+        if (home.evaluate().isNotEmpty) {
+          await tester.tap(home.first);
+        }
+        await pumpFor(tester, const Duration(seconds: 5));
+        final Json a = (await me.get('/api/v1/inventory/alerts')) as Json;
+        const Map<String, String> rowOf = <String, String>{
+          'out': 'out',
+          'low': 'low',
+          'near_expiry': 'near-expiry',
+          'over_maximum': 'over',
+          'in_transit': 'transit',
+          'open_counts': 'counts',
+        };
+        final List<String> faults = <String>[];
+        final List<String> saw = <String>[];
+        for (final MapEntry<String, String> e in rowOf.entries) {
+          final int count = num2(a[e.key]).round();
+          final Finder row =
+              find.byKey(ValueKey<String>('home-todo-stock-${e.value}'));
+          final List<String> texts = row.evaluate().isEmpty
+              ? <String>[]
+              : <String>[
+                  for (final Text t in tester.widgetList<Text>(find.descendant(
+                      of: row.first, matching: find.byType(Text))))
+                    t.data ?? '',
+                ];
+          saw.add('${e.key}=$count ${texts.isEmpty ? '(no row)' : texts}');
+          if (count == 0 && texts.isNotEmpty) {
+            faults.add('${e.key}: a row for a count of nought');
+          }
+          if (count > 0 &&
+              (!texts.contains('$count') ||
+                  !texts.any((String t) => t.startsWith('$count ')))) {
+            faults.add('${e.key}: the row does not read $count');
+          }
+        }
+        overflow('Home');
+        log.saw = saw.join('; ');
+        if (faults.isNotEmpty) throw StateError('${faults.join('; ')} [${log.saw}]');
+      });
+
+      final Json pB = await productByCode('INVSCR-B');
+      final String kitCode = 'R5K$stamp';
+      final Json kit = (await me.write('POST', '/api/v1/products', <String, dynamic>{
+        'code': kitCode,
+        'name': 'Round five kit $stamp',
+        'product_type': 'BUNDLE',
+        'tax_profile_group_code': pN['tax_profile_group_code'],
+        'selling_price': '100',
+        'purchase_price': '60',
+        'base_uom_id': pN['base_uom_id'],
+        'inventory_uom_id': pN['inventory_uom_id'],
+        'sales_uom_id': pN['sales_uom_id'],
+        'purchase_uom_id': pN['purchase_uom_id'],
+      })) as Json;
+      await me.write('PUT', '/api/v1/products/${kit['id']}/components',
+          <String, dynamic>{
+            'components': <Json>[
+              <String, dynamic>{
+                'component_product_id': pB['id'],
+                'quantity': '1',
+              }
+            ]
+          });
+      // Two kits brought in as stock: no assembly here says where the part
+      // came from.
+      final Json opening = (await me.write(
+          'POST', '/api/v1/inventory/opening-stock', <String, dynamic>{
+        'branch_id': branchId,
+        'warehouse_id': whMain['id'],
+        'reference_number': 'R5-$stamp',
+        'posting_date': today,
+        'lines': <Json>[
+          <String, dynamic>{
+            'product_id': kit['id'],
+            'quantity': '2',
+            'unit_cost': '60',
+          }
+        ],
+      })) as Json;
+      await me.write('POST',
+          '/api/v1/inventory/opening-stock/${opening['id']}/post', <String, dynamic>{});
+
+      Future<Map<String, double>> partBatches() async => <String, double>{
+            for (final dynamic r in (await me.get(
+                    '/api/v1/inventory?page_size=100&product_id=${pB['id']}'))
+                as List<dynamic>)
+              if ((r as Json)['warehouse_id'] == whMain['id'])
+                '${r['batch_number'] ?? 'no batch'}':
+                    num2(r['current_quantity']),
+          };
+      double sum(Map<String, double> m) =>
+          m.values.fold<double>(0, (double a, double b) => a + b);
+      Future<int> repacks() => me.total('/api/v1/inventory/repacks');
+      final String branchCode = '${((await me.get('/api/v1/branches?page_size=50')) as List<dynamic>).firstWhere((dynamic b) => (b as Json)['id'] == branchId)['code']}';
+      Finder box(String key) => find.byKey(ValueKey<String>(key));
+      bool kitDialogOpen() => box('kit-save').evaluate().isNotEmpty;
+
+      Future<void> openKitDialog(String id, String label) async {
+        await clean(tester);
+        await openArea(tester, 'masters', 'masters/products');
+        await searchList(tester, kitCode);
+        final Finder row = find.byWidgetPredicate(
+            (Widget w) => w is Text && (w.data ?? '').trim() == kitCode);
+        await pumpUntil(tester, row, waitingFor: 'the row of $kitCode');
+        await tester.tap(row.last);
+        await pumpFor(tester, const Duration(milliseconds: 700));
+        await command(tester, id, label);
+        await pumpUntil(tester, box('kit-save'), waitingFor: 'the $label dialog');
+        if (box('kit-warehouse-$branchId').evaluate().isEmpty) {
+          await chooseIn(tester, 'kit-branch', branchCode);
+        }
+        await chooseInKeyed(tester, 'kit-warehouse-', 'MAIN');
+      }
+
+      await log.step(
+          'SC-ST-094 breaking a kit never assembled here asks for the batch of its batch-tracked part, in a box the dialog has',
+          () async {
+        final Map<String, double> before = await partBatches();
+        final double kitsBefore = await onHand(kit, whMain);
+        final int count = await repacks();
+        await openKitDialog('disassemble-kits', 'Disassemble kits');
+        final bool partBox = box('kit-part-batch-0').evaluate().isNotEmpty;
+        final bool label = screenHas(tester, 'Batch for INVSCR-B');
+        final bool kitBox = box('kit-batch').evaluate().isNotEmpty;
+        overflow('Disassemble kits dialog with a batch box');
+        await tester.enterText(box('kit-quantity'), '1');
+        await pumpFor(tester, const Duration(milliseconds: 300));
+        final String said = await pressAndRead(
+            tester, () => tapKey(tester, 'kit-save'),
+            seconds: 4);
+        final bool open = kitDialogOpen();
+        final Map<String, double> after = await partBatches();
+        final double kitsAfter = await onHand(kit, whMain);
+        final int now = await repacks();
+        log.saw = 'part box=$partBox, labelled=$label, a box for the kit '
+            'itself=$kitBox; open=$open, saved=${now - count}, said "$said"; '
+            'kits $kitsBefore -> $kitsAfter; INVSCR-B $before -> $after';
+        if (!partBox ||
+            !label ||
+            kitBox ||
+            !open ||
+            now != count ||
+            !said.contains('Name the batch') ||
+            !sameMoney(kitsBefore, kitsAfter) ||
+            '$before' != '$after') {
+          throw StateError(log.saw!);
+        }
+      });
+
+      await log.step(
+          'SC-ST-095 with the batch typed the kit is broken and its part goes into that batch',
+          () async {
+        final Map<String, double> before = await partBatches();
+        final double kitsBefore = await onHand(kit, whMain);
+        final int count = await repacks();
+        if (!kitDialogOpen()) {
+          await openKitDialog('disassemble-kits', 'Disassemble kits');
+          await tester.enterText(box('kit-quantity'), '1');
+        }
+        await tester.enterText(box('kit-part-batch-0'), 'INVB1');
+        await pumpFor(tester, const Duration(milliseconds: 300));
+        final String said = await pressAndRead(
+            tester, () => tapKey(tester, 'kit-save'),
+            seconds: 5);
+        final bool open = kitDialogOpen();
+        final Map<String, double> after = await partBatches();
+        final double kitsAfter = await onHand(kit, whMain);
+        final int now = await repacks();
+        log.saw = 'open=$open, repacks $count -> $now, said "$said"; kits '
+            '$kitsBefore -> $kitsAfter; INVSCR-B $before -> $after';
+        final bool othersSame = before.keys
+            .where((String k) => k != 'INVB1')
+            .every((String k) => sameMoney(before[k]!, after[k] ?? -1));
+        if (open ||
+            now != count + 1 ||
+            !said.contains('Kits disassembled') ||
+            !sameMoney(kitsAfter, kitsBefore - 1) ||
+            !sameMoney(after['INVB1'] ?? -1, (before['INVB1'] ?? 0) + 1) ||
+            !othersSame ||
+            after.length != before.length) {
+          throw StateError(log.saw!);
+        }
+      });
+
+      await log.step(
+          'SC-ST-096 assembling a kit takes its batch-tracked part from the batches, with no batch box to fill',
+          () async {
+        final Map<String, double> before = await partBatches();
+        final double kitsBefore = await onHand(kit, whMain);
+        final int count = await repacks();
+        await openKitDialog('assemble-kits', 'Assemble kits');
+        final bool anyBox = box('kit-batch').evaluate().isNotEmpty ||
+            box('kit-part-batch-0').evaluate().isNotEmpty;
+        await tester.enterText(box('kit-quantity'), '1');
+        await pumpFor(tester, const Duration(milliseconds: 300));
+        final String said = await pressAndRead(
+            tester, () => tapKey(tester, 'kit-save'),
+            seconds: 5);
+        final bool open = kitDialogOpen();
+        final Map<String, double> after = await partBatches();
+        final double kitsAfter = await onHand(kit, whMain);
+        final int now = await repacks();
+        log.saw = 'a batch box=$anyBox; open=$open, repacks $count -> $now, '
+            'said "$said"; kits $kitsBefore -> $kitsAfter; INVSCR-B $before -> '
+            '$after';
+        if (anyBox ||
+            open ||
+            now != count + 1 ||
+            !said.contains('Kits assembled') ||
+            !sameMoney(kitsAfter, kitsBefore + 1) ||
+            !sameMoney(sum(after), sum(before) - 1) ||
+            after.values.any((double q) => q < 0) ||
+            (after['no batch'] ?? 0) != (before['no batch'] ?? 0)) {
+          throw StateError(log.saw!);
+        }
+      });
+
+      await log.step(
+          'SC-ST-097 a kit assembled here is broken with the batch box blank, and the part goes back where it came from',
+          () async {
+        final Map<String, double> before = await partBatches();
+        final double kitsBefore = await onHand(kit, whMain);
+        final int count = await repacks();
+        await openKitDialog('disassemble-kits', 'Disassemble kits');
+        await tester.enterText(box('kit-quantity'), '1');
+        await pumpFor(tester, const Duration(milliseconds: 300));
+        final String said = await pressAndRead(
+            tester, () => tapKey(tester, 'kit-save'),
+            seconds: 5);
+        final bool open = kitDialogOpen();
+        final Map<String, double> after = await partBatches();
+        final double kitsAfter = await onHand(kit, whMain);
+        final int now = await repacks();
+        log.saw = 'open=$open, repacks $count -> $now, said "$said"; kits '
+            '$kitsBefore -> $kitsAfter; INVSCR-B $before -> $after';
+        if (open ||
+            now != count + 1 ||
+            !said.contains('Kits disassembled') ||
+            !sameMoney(kitsAfter, kitsBefore - 1) ||
+            !sameMoney(sum(after), sum(before) + 1) ||
+            (after['no batch'] ?? 0) != (before['no batch'] ?? 0)) {
+          throw StateError(log.saw!);
+        }
+      });
+      await clean(tester);
     }
 
     // ================= Role cases for the other users =================

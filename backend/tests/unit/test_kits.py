@@ -231,3 +231,16 @@ def test_a_kit_holds_no_kit_and_only_a_bundle_has_components() -> None:
             actor_id=shop.actor,
         )
     assert isinstance(other.id, UUID)
+
+
+def test_a_listed_component_says_whether_it_is_kept_in_batches() -> None:
+    """The break dialog offers a batch box for those parts alone (D-UI-85)."""
+    shop = _Shop(_session_factory()())
+    kits = KitService(shop.session)
+    shop.soap.track_batch = True
+    shop.session.flush()
+    listed = kits.responses(kits.components(shop.pack.id, firm_id=shop.firm.id))
+    assert {row.component_code: row.track_batch for row in listed} == {
+        shop.soap.code: True,
+        shop.towel.code: False,
+    }

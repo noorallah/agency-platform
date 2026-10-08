@@ -66,6 +66,9 @@ class KitComponentResponse(BaseModel):
     component_code: str
     component_name: str
     quantity: Decimal
+    #: Kept in batches, so breaking a kit has to put it back into one: the
+    #: dialog offers a batch box for these parts alone (D-UI-85).
+    track_batch: bool = False
 
 
 class KitPartBatch(BaseModel):
@@ -130,6 +133,9 @@ class KitService:
                 component_code=getattr(names.get(row.component_product_id), "code", ""),
                 component_name=getattr(names.get(row.component_product_id), "name", ""),
                 quantity=row.quantity,
+                track_batch=bool(
+                    getattr(names.get(row.component_product_id), "track_batch", False)
+                ),
             )
             for row in rows
         ]

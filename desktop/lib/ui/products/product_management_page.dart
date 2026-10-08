@@ -14,6 +14,7 @@ import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/vendor.dart';
 import '../../models/file_import.dart';
+import '../../models/kit.dart';
 import 'kit_components_section.dart';
 import 'price_revisions_section.dart';
 import '../inventory/repack_dialog.dart' show RepackOption;
@@ -1275,11 +1276,29 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     }
     if (!mounted) return;
     final KitActions actions = KitActions.of(widget.api);
+    // Breaking a kit puts a batch-tracked part back into a batch, so the
+    // dialog needs to know which parts those are (D-UI-85). A list that
+    // cannot be read leaves the dialog as it was: the server still decides.
+    List<KitComponent> batchParts = const [];
+    if (!assemble) {
+      try {
+        batchParts = [
+          for (final KitComponent part in await actions.load(kit.id))
+            if (part.trackBatch) part,
+        ];
+      } on ApiException {
+        batchParts = const [];
+      }
+      if (!mounted) return;
+    }
     final dynamic posted = await showDialog<dynamic>(
       context: context,
       builder: (context) => KitStockDialog(
         kitName: kit.name,
         assemble: assemble,
+        kitTracksBatch: kit.trackBatch,
+        kitTracksExpiry: kit.trackExpiry,
+        batchParts: batchParts,
         branches: [
           for (final BranchRecord branch in branches)
             RepackOption(id: branch.id, label: '${branch.code} - ${branch.name}'),

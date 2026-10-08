@@ -123,6 +123,9 @@ Future<void> _pumpStockDialog(
   WidgetTester tester,
   _Recorder recorder, {
   required bool assemble,
+  bool kitTracksBatch = false,
+  bool kitTracksExpiry = false,
+  List<KitComponent> batchParts = const [],
 }) async {
   tester.view.physicalSize = const Size(1200, 900);
   tester.view.devicePixelRatio = 1;
@@ -137,6 +140,9 @@ Future<void> _pumpStockDialog(
             builder: (context) => KitStockDialog(
               kitName: 'Gift pack',
               assemble: assemble,
+              kitTracksBatch: kitTracksBatch,
+              kitTracksExpiry: kitTracksExpiry,
+              batchParts: batchParts,
               branches: const [RepackOption(id: 'b-1', label: 'BR1 - Main')],
               warehouses: const [
                 RepackOption(id: 'w-1', label: 'WH1 - Store', parentId: 'b-1'),
@@ -303,6 +309,95 @@ void main() {
     expect(recorder.disassembled, hasLength(1));
     expect(recorder.assembled, isEmpty);
     expect(recorder.disassembled.single['remarks'], isNull);
+  });
+
+  testWidgets('a kit kept in batches is assembled into the batch typed',
+      (tester) async {
+    final _Recorder recorder = _Recorder();
+    await _pumpStockDialog(tester, recorder,
+        assemble: true, kitTracksBatch: true, kitTracksExpiry: true);
+    await tester.enterText(find.byKey(const ValueKey('kit-quantity')), '1');
+    await tester.enterText(find.byKey(const ValueKey('kit-batch')), 'KB1');
+    await tester.enterText(find.byKey(const ValueKey('kit-expiry')), '2027-13');
+    await tester.tap(find.byKey(const ValueKey('kit-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter the expiry date as YYYY-MM-DD.'), findsOneWidget);
+    expect(recorder.assembled, isEmpty);
+    await tester.enterText(
+        find.byKey(const ValueKey('kit-expiry')), '2027-12-31');
+    await tester.tap(find.byKey(const ValueKey('kit-save')));
+    await tester.pumpAndSettle();
+    final Json body = recorder.assembled.single;
+    expect(body['batch_number'], 'KB1');
+    expect(body['expiry_date'], '2027-12-31');
+    expect(body.containsKey('part_batches'), isFalse);
+  });
+
+  testWidgets('a plain kit is offered no batch box, assembling or breaking',
+      (tester) async {
+    final _Recorder recorder = _Recorder();
+    await _pumpStockDialog(tester, recorder, assemble: true);
+    expect(find.byKey(const ValueKey('kit-batch')), findsNothing);
+    expect(find.byKey(const ValueKey('kit-expiry')), findsNothing);
+    expect(find.byKey(const ValueKey('kit-part-batch-0')), findsNothing);
+  });
+
+  testWidgets('breaking a kit names the batch a batch-tracked part goes into',
+      (tester) async {
+    const List<KitComponent> parts = [
+      KitComponent(
+          componentProductId: 'p-med',
+          componentCode: 'MED',
+          componentName: 'Syrup',
+          trackBatch: true),
+      KitComponent(
+          componentProductId: 'p-pill',
+          componentCode: 'PILL',
+          componentName: 'Tablets',
+          trackBatch: true),
+    ];
+    final _Recorder recorder = _Recorder();
+    await _pumpStockDialog(tester, recorder,
+        assemble: false, kitTracksBatch: true, batchParts: parts);
+    // The kit's own batch is asked for when kits are made, not broken.
+    expect(find.byKey(const ValueKey('kit-batch')), findsNothing);
+    expect(find.text('Batch for MED - Syrup'), findsOneWidget);
+    expect(find.text('Batch for PILL - Tablets'), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('kit-quantity')), '1');
+    await tester.enterText(
+        find.byKey(const ValueKey('kit-part-batch-1')), ' B77 ');
+    await tester.tap(find.byKey(const ValueKey('kit-save')));
+    await tester.pumpAndSettle();
+    final Json body = recorder.disassembled.single;
+    expect(body['part_batches'], [
+      {'product_id': 'p-pill', 'batch_number': 'B77'},
+    ]);
+    expect(body.containsKey('batch_number'), isFalse);
+  });
+
+  testWidgets('breaking with every batch box blank sends no part_batches',
+      (tester) async {
+    final _Recorder recorder = _Recorder();
+    await _pumpStockDialog(tester, recorder, assemble: false, batchParts: const [
+      KitComponent(componentProductId: 'p-med', trackBatch: true),
+    ]);
+    await tester.enterText(find.byKey(const ValueKey('kit-quantity')), '1');
+    await tester.tap(find.byKey(const ValueKey('kit-save')));
+    await tester.pumpAndSettle();
+    expect(recorder.disassembled.single.keys.toSet(),
+        {'branch_id', 'warehouse_id', 'quantity', 'on', 'remarks'});
+  });
+
+  test('a component says whether it is kept in batches', () {
+    expect(
+        KitComponent.fromJson(const {
+          'component_product_id': 'p',
+          'track_batch': true,
+        }).trackBatch,
+        isTrue);
+    expect(
+        KitComponent.fromJson(const {'component_product_id': 'p'}).trackBatch,
+        isFalse);
   });
 
   test('the client reaches the four endpoints', () async {
