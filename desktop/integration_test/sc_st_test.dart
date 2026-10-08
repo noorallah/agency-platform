@@ -20,7 +20,8 @@ import 'sc_gt_test.dart'
 // approvals, settings, round2 (serial units on the move, a used reference;
 // in pieces r2xfer, r2doc, r2open, r2ref), backorder, round3 (what a repack
 // may take), round4 (what a repack produces of a batch-tracked product),
-// round5 (Home's stock rows; a kit made and broken, and its part's batch).
+// round5 (Home's stock rows; a kit made and broken, and its part's batch),
+// round6 (a kit kept in batches assembled; Home's below reorder level row).
 // Role users run only the role section.
 
 const String _part = String.fromEnvironment('IT_PART');
@@ -330,51 +331,83 @@ void main() {
       await pumpUntil(tester, find.byType(Dialog), waitingFor: 'the $label dialog');
     }
 
+    Finder box(String key) => find.byKey(ValueKey<String>(key));
+    bool kitDialogOpen() => box('kit-save').evaluate().isNotEmpty;
+
+    /// Open Home and compare each stock row on it with the server's count.
+    Future<({List<String> faults, List<String> saw, Json counts})>
+        homeStockRows() async {
+      final Finder home = find.byKey(const ValueKey<String>('menu-area-home'));
+      if (home.evaluate().isNotEmpty) {
+        await tester.tap(home.first);
+      }
+      await pumpFor(tester, const Duration(seconds: 5));
+      final Json a = (await me.get('/api/v1/inventory/alerts')) as Json;
+      const Map<String, String> rowOf = <String, String>{
+        'out': 'out',
+        'low': 'low',
+        'near_expiry': 'near-expiry',
+        'over_maximum': 'over',
+        'in_transit': 'transit',
+        'open_counts': 'counts',
+      };
+      final List<String> faults = <String>[];
+      final List<String> saw = <String>[];
+      for (final MapEntry<String, String> e in rowOf.entries) {
+        final int count = num2(a[e.key]).round();
+        final Finder row =
+            find.byKey(ValueKey<String>('home-todo-stock-${e.value}'));
+        final List<String> texts = row.evaluate().isEmpty
+            ? <String>[]
+            : <String>[
+                for (final Text t in tester.widgetList<Text>(find.descendant(
+                    of: row.first, matching: find.byType(Text))))
+                  t.data ?? '',
+              ];
+        saw.add('${e.key}=$count ${texts.isEmpty ? '(no row)' : texts}');
+        if (count == 0 && texts.isNotEmpty) {
+          faults.add('${e.key}: a row for a count of nought');
+        }
+        if (count > 0 &&
+            (!texts.contains('$count') ||
+                !texts.any((String t) => t.startsWith('$count ')))) {
+          faults.add('${e.key}: the row does not read $count');
+        }
+      }
+      return (faults: faults, saw: saw, counts: a);
+    }
+
+    /// Open the kit dialog [id] on the row of the kit [code], at MAIN.
+    Future<void> openKitDialogOn(
+        String code, String branchCode, String id, String label) async {
+      await clean(tester);
+      await openArea(tester, 'masters', 'masters/products');
+      await searchList(tester, code);
+      final Finder row = find.byWidgetPredicate(
+          (Widget w) => w is Text && (w.data ?? '').trim() == code);
+      await pumpUntil(tester, row, waitingFor: 'the row of $code');
+      await tester.tap(row.last);
+      await pumpFor(tester, const Duration(milliseconds: 700));
+      await command(tester, id, label);
+      await pumpUntil(tester, box('kit-save'), waitingFor: 'the $label dialog');
+      if (box('kit-warehouse-$branchId').evaluate().isEmpty) {
+        await chooseIn(tester, 'kit-branch', branchCode);
+      }
+      await chooseInKeyed(tester, 'kit-warehouse-', 'MAIN');
+    }
+
     // ---------------- round 5: Home's stock rows, a kit and its batches ----------
     if (admin && wants('round5')) {
       await log.step(
           "SC-ST-093 Home's stock rows read the counts the server gives",
           () async {
-        final Finder home = find.byKey(const ValueKey<String>('menu-area-home'));
-        if (home.evaluate().isNotEmpty) {
-          await tester.tap(home.first);
-        }
-        await pumpFor(tester, const Duration(seconds: 5));
-        final Json a = (await me.get('/api/v1/inventory/alerts')) as Json;
-        const Map<String, String> rowOf = <String, String>{
-          'out': 'out',
-          'low': 'low',
-          'near_expiry': 'near-expiry',
-          'over_maximum': 'over',
-          'in_transit': 'transit',
-          'open_counts': 'counts',
-        };
-        final List<String> faults = <String>[];
-        final List<String> saw = <String>[];
-        for (final MapEntry<String, String> e in rowOf.entries) {
-          final int count = num2(a[e.key]).round();
-          final Finder row =
-              find.byKey(ValueKey<String>('home-todo-stock-${e.value}'));
-          final List<String> texts = row.evaluate().isEmpty
-              ? <String>[]
-              : <String>[
-                  for (final Text t in tester.widgetList<Text>(find.descendant(
-                      of: row.first, matching: find.byType(Text))))
-                    t.data ?? '',
-                ];
-          saw.add('${e.key}=$count ${texts.isEmpty ? '(no row)' : texts}');
-          if (count == 0 && texts.isNotEmpty) {
-            faults.add('${e.key}: a row for a count of nought');
-          }
-          if (count > 0 &&
-              (!texts.contains('$count') ||
-                  !texts.any((String t) => t.startsWith('$count ')))) {
-            faults.add('${e.key}: the row does not read $count');
-          }
-        }
+        final ({List<String> faults, List<String> saw, Json counts}) home =
+            await homeStockRows();
         overflow('Home');
-        log.saw = saw.join('; ');
-        if (faults.isNotEmpty) throw StateError('${faults.join('; ')} [${log.saw}]');
+        log.saw = home.saw.join('; ');
+        if (home.faults.isNotEmpty) {
+          throw StateError('${home.faults.join('; ')} [${log.saw}]');
+        }
       });
 
       final Json pB = await productByCode('INVSCR-B');
@@ -431,25 +464,8 @@ void main() {
           m.values.fold<double>(0, (double a, double b) => a + b);
       Future<int> repacks() => me.total('/api/v1/inventory/repacks');
       final String branchCode = '${((await me.get('/api/v1/branches?page_size=50')) as List<dynamic>).firstWhere((dynamic b) => (b as Json)['id'] == branchId)['code']}';
-      Finder box(String key) => find.byKey(ValueKey<String>(key));
-      bool kitDialogOpen() => box('kit-save').evaluate().isNotEmpty;
-
-      Future<void> openKitDialog(String id, String label) async {
-        await clean(tester);
-        await openArea(tester, 'masters', 'masters/products');
-        await searchList(tester, kitCode);
-        final Finder row = find.byWidgetPredicate(
-            (Widget w) => w is Text && (w.data ?? '').trim() == kitCode);
-        await pumpUntil(tester, row, waitingFor: 'the row of $kitCode');
-        await tester.tap(row.last);
-        await pumpFor(tester, const Duration(milliseconds: 700));
-        await command(tester, id, label);
-        await pumpUntil(tester, box('kit-save'), waitingFor: 'the $label dialog');
-        if (box('kit-warehouse-$branchId').evaluate().isEmpty) {
-          await chooseIn(tester, 'kit-branch', branchCode);
-        }
-        await chooseInKeyed(tester, 'kit-warehouse-', 'MAIN');
-      }
+      Future<void> openKitDialog(String id, String label) =>
+          openKitDialogOn(kitCode, branchCode, id, label);
 
       await log.step(
           'SC-ST-094 breaking a kit never assembled here asks for the batch of its batch-tracked part, in a box the dialog has',
@@ -580,6 +596,148 @@ void main() {
             (after['no batch'] ?? 0) != (before['no batch'] ?? 0)) {
           throw StateError(log.saw!);
         }
+      });
+      await clean(tester);
+    }
+
+    // -------- round 6: a kit kept in batches, and Home's reorder row --------
+    if (admin && wants('round6')) {
+      final Json pB = await productByCode('INVSCR-B');
+      final String kitCode = 'R6K$stamp';
+      final String batch = 'R6B$stamp';
+      final String expiry = DateTime.now()
+          .add(const Duration(days: 365))
+          .toIso8601String()
+          .substring(0, 10);
+      final Json kit = (await me.write('POST', '/api/v1/products', <String, dynamic>{
+        'code': kitCode,
+        'name': 'Round six kit $stamp',
+        'product_type': 'BUNDLE',
+        'category_id': pB['category_id'],
+        'tax_profile_group_code': pN['tax_profile_group_code'],
+        'selling_price': '100',
+        'purchase_price': '60',
+        'base_uom_id': pN['base_uom_id'],
+        'inventory_uom_id': pN['inventory_uom_id'],
+        'sales_uom_id': pN['sales_uom_id'],
+        'purchase_uom_id': pN['purchase_uom_id'],
+      })) as Json;
+      if (kit['track_batch'] != true) {
+        throw StateError('PRECONDITION: a kit under the category of INVSCR-B '
+            'is not kept in batches (track_batch=${kit['track_batch']})');
+      }
+      await me.write('PUT', '/api/v1/products/${kit['id']}/components',
+          <String, dynamic>{
+            'components': <Json>[
+              <String, dynamic>{
+                'component_product_id': pN['id'],
+                'quantity': '1',
+              }
+            ]
+          });
+      Future<Map<String, double>> kitBatches() async => <String, double>{
+            for (final dynamic r in (await me.get(
+                    '/api/v1/inventory?page_size=100&product_id=${kit['id']}'))
+                as List<dynamic>)
+              if ((r as Json)['warehouse_id'] == whMain['id'])
+                '${r['batch_number'] ?? 'no batch'}':
+                    num2(r['current_quantity']),
+          };
+      Future<int> repacks() => me.total('/api/v1/inventory/repacks');
+      final String branchCode = '${((await me.get('/api/v1/branches?page_size=50')) as List<dynamic>).firstWhere((dynamic b) => (b as Json)['id'] == branchId)['code']}';
+
+      await log.step(
+          'SC-ST-098 a kit kept in batches is assembled into the batch typed, and not without one',
+          () async {
+        final double partBefore = await onHand(pN, whMain);
+        final int count = await repacks();
+        await openKitDialogOn(kitCode, branchCode, 'assemble-kits', 'Assemble kits');
+        final bool batchBox = box('kit-batch').evaluate().isNotEmpty;
+        final bool expiryBox = box('kit-expiry').evaluate().isNotEmpty;
+        overflow('Assemble kits dialog with a batch box');
+        await tester.enterText(box('kit-quantity'), '1');
+        await pumpFor(tester, const Duration(milliseconds: 300));
+        final String blank = await pressAndRead(
+            tester, () => tapKey(tester, 'kit-save'),
+            seconds: 4);
+        final bool openAfterBlank = kitDialogOpen();
+        final int afterBlank = await repacks();
+        final double partAfterBlank = await onHand(pN, whMain);
+        if (batchBox) await tester.enterText(box('kit-batch'), batch);
+        if (expiryBox) await tester.enterText(box('kit-expiry'), expiry);
+        await pumpFor(tester, const Duration(milliseconds: 300));
+        final String said = await pressAndRead(
+            tester, () => tapKey(tester, 'kit-save'),
+            seconds: 5);
+        final bool open = kitDialogOpen();
+        final int now = await repacks();
+        final Map<String, double> held = await kitBatches();
+        final double partAfter = await onHand(pN, whMain);
+        log.saw = 'batch box=$batchBox, expiry box=$expiryBox; blank: '
+            'open=$openAfterBlank, saved=${afterBlank - count}, said "$blank"; '
+            'typed $batch / $expiry: open=$open, repacks $count -> $now, said '
+            '"$said"; kits $held; INVSCR-N $partBefore -> $partAfter';
+        if (!batchBox ||
+            !openAfterBlank ||
+            afterBlank != count ||
+            blank.isEmpty ||
+            !blank.toLowerCase().contains('batch') ||
+            !sameMoney(partAfterBlank, partBefore) ||
+            open ||
+            now != count + 1 ||
+            !said.contains('Kits assembled') ||
+            held.length != 1 ||
+            !sameMoney(held[batch] ?? -1, 1) ||
+            !sameMoney(partAfter, partBefore - 1)) {
+          throw StateError(log.saw!);
+        }
+      });
+
+      await log.step(
+          "SC-ST-099 an item at its reorder level shows on Home's below reorder level row",
+          () async {
+        final Json row = (await invRow(pN2, whMain))!;
+        // The alert is the item's across the firm: every row of it counts.
+        double held = 0;
+        for (final dynamic r in (await me.get(
+                '/api/v1/inventory?page_size=100&product_id=${pN2['id']}'))
+            as List<dynamic>) {
+          held += num2((r as Json)['available_quantity']);
+        }
+        Future<void> level(Object? value) => me.write(
+                'PUT', '/api/v1/inventory/${row['id']}', <String, dynamic>{
+              'branch_id': row['branch_id'],
+              'warehouse_id': row['warehouse_id'],
+              'product_id': row['product_id'],
+              'reorder_level': value,
+            });
+        if (held <= 0) {
+          throw StateError('PRECONDITION: INVSCR-N2 has $held free');
+        }
+        final int lowBefore = num2(((await me.get('/api/v1/inventory/alerts'))
+                as Json)['low'])
+            .round();
+        await clean(tester);
+        await openStock(tester, 'inventory');
+        await level('${held.round() + 5}');
+        try {
+          final ({List<String> faults, List<String> saw, Json counts}) home =
+              await homeStockRows();
+          overflow('Home with a below reorder level row');
+          final int low = num2(home.counts['low']).round();
+          log.saw = 'INVSCR-N2 has $held free in the firm, level ${held.round() + 5}; low '
+              '$lowBefore -> $low; ${home.saw.join('; ')}';
+          if (low != lowBefore + 1 || home.faults.isNotEmpty) {
+            throw StateError('${home.faults.join('; ')} [${log.saw}]');
+          }
+        } finally {
+          await level(row['reorder_level']);
+        }
+        final int lowAfter = num2(((await me.get('/api/v1/inventory/alerts'))
+                as Json)['low'])
+            .round();
+        log.saw = '${log.saw}; level put back, low=$lowAfter';
+        if (lowAfter != lowBefore) throw StateError(log.saw!);
       });
       await clean(tester);
     }

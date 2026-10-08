@@ -260,6 +260,16 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Steps:** as the prepared **Firm admin**: Masters > Products, pick the kit. (a) **Disassemble kits**: MAIN, 1 kit, leave **Batch for MED** empty; Disassemble. (b) type **KA** in the box; Disassemble. (c) **Assemble kits**: MAIN, 1 kit; Assemble. (d) **Disassemble kits** again: MAIN, 1 kit, the box empty; Disassemble.
 - **Expect:** (a) the dialog shows **Batch for MED** and is refused inside it: *MED is kept in batches, and no assembly of the kit in this warehouse says which batch it came from. Name the batch it goes back into.*; nothing moves. (b) the kit is broken and KA holds one more. (c) the Assemble dialog has no batch box for a kit that is not itself kept in batches; one kit more, one of MED less, taken from its batches earliest expiry first. (d) broken with the box empty: the part goes back into the batch the assembly took it from. A kit that is itself kept in batches shows **Batch number** and **Expiry date** on Assemble.
 
+### TC-STOCK-031 — A kit that is itself kept in batches
+
+*Added 2026-10-09 with inventory round 6. On screen SC-ST-098; over HTTP `docs/qa/checks/inventory/p_kit_batch_tracked_kit.py`.*
+
+- **Covers:** D-UI-85, D-STK-53
+- **Also needs:** the Medicine goods type in use; a plain product **PART** holding 10 in MAIN; a kit **under a Medicine category** (so it is kept in batches and dated) whose part is 2 of PART.
+- **Steps:** as the prepared **Firm admin**: Masters > Products, pick the kit. (a) **Assemble kits**: MAIN, 1 kit, **Batch number** empty; Assemble. (b) Batch number **KX**, Expiry date 200 days on, 2 kits; Assemble. (c) Batch number **KY**, Expiry date 90 days on, 1 kit; Assemble. (d) Batch number **KX** again with an expiry date 5 days on, 1 kit; Assemble. (e) **Disassemble kits**: MAIN, 2 kits; Disassemble. (f) Disassemble 3 more.
+- **Expect:** (a) the dialog shows **Batch number** and **Expiry date** and is refused inside it: *... is kept in batches. Name the batch the repacked goods go into: one it already has, or a new number with its dates.*; nothing moves. (b) and (c) the kits stand in KX (2) and KY (1) and PART holds 4. (d) accepted: the kit joins KX, and KX keeps the expiry date it was made with -- a date typed beside a batch that already exists is not taken, as on a goods receipt. (e) the kits leave soonest expiry first: KY is emptied, KX holds 2, PART holds 6. (f) refused naming the kit, with 2 held; nothing moves.
+- **Also:** the component list of a kit (`GET /products/{id}/components`) says of each part whether it is kept in batches as the part is **now**: switch a part's batch tracking on, while it holds nothing, and the list follows without the kit being saved again. Moving a product to a category of another goods type changes its type and leaves its switches as they were.
+
 ## Screen checks
 
 One standard check for every screen in this area. Run it once per screen as the firm administrator, then confirm the access line with a role that lacks the code. Where a detailed case above already covers an action, the check only asks that the screen behaves consistently with it.

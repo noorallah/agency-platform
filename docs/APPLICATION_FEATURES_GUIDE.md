@@ -1326,7 +1326,8 @@ And two documents:
   Where no assembly there says so -- a kit brought in as opening stock --
   the *Disassemble kits* dialog has a **Batch for** box for each such part,
   and a kit that is itself kept in batches is given its **Batch number**
-  and **Expiry date** on *Assemble kits*.
+  and **Expiry date** on *Assemble kits*. A batch the kit already has keeps
+  the date it was made with; such kits are broken soonest expiry first.
 
 ## 7.3 Tracking
 
