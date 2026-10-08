@@ -242,6 +242,47 @@ def test_opening_stock_post_creates_inventory_and_immutable_history() -> None:
     assert session.scalar(select(func.count()).select_from(StockLedgerEntry)) == 1
 
 
+def test_a_refused_opening_stock_import_leaves_no_draft_behind() -> None:
+    """An import whose posting is refused writes nothing (D-STK-56).
+
+    It saved the draft and posted it in two commits, so the refusal left the
+    draft holding the reference number and the corrected payload was refused
+    for a number already used.
+    """
+    from app.inventory.models import OpeningStockBatch
+    from app.inventory.schemas.inventory import OpeningStockImportRequest
+
+    session = _session_factory()()
+    firm = _firm(session, "INV")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    service = InventoryService(session)
+    actor_id = uuid4()
+
+    def payload(reference: str) -> OpeningStockImportRequest:
+        """Ten of the product under this reference, posted as it is imported."""
+        return OpeningStockImportRequest(
+            reference_number=reference,
+            posting_date=date(2026, 8, 1),
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            lines=[{"product_id": product.id, "quantity": "10"}],
+        )
+
+    service.import_opening_stock_json(
+        payload("OS-FIRST"), firm_scope=firm.id, actor_id=actor_id
+    )
+    # The same item again is refused at posting, after the draft is built.
+    with pytest.raises(ValidationError, match="already has posted opening stock"):
+        service.import_opening_stock_json(
+            payload("OS-AGAIN"), firm_scope=firm.id, actor_id=actor_id
+        )
+
+    references = session.scalars(select(OpeningStockBatch.reference_number)).all()
+    assert references == ["OS-FIRST"]
+    assert session.scalar(select(func.count()).select_from(InventoryTransaction)) == 1
+
+
 def test_adjustment_updates_projection_and_negative_stock_summary() -> None:
     """An issue larger than the balance is reported as negative.
 

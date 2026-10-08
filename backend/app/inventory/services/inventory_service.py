@@ -1525,24 +1525,36 @@ class InventoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> OpeningStockBatch:
-        """Build opening-stock lines from a JSON payload."""
-        batch = self.create_opening_stock_batch(
-            OpeningStockBatchCreate(
-                branch_id=payload.branch_id,
-                warehouse_id=payload.warehouse_id,
-                reference_number=payload.reference_number,
-                posting_date=payload.posting_date,
-                remarks=payload.remarks,
-                lines=payload.lines,
-            ),
-            firm_id=firm_scope,
-            actor_id=actor_id,
-            source_format="JSON",
-        )
-        if payload.auto_post:
-            return self.post_opening_stock_batch(
-                batch.id, firm_scope=firm_scope, actor_id=actor_id
+        """Build opening-stock lines from a JSON payload.
+
+        The draft and its posting are staged and committed once (D-STK-56):
+        saved and then posted in two commits, a posting that was refused left
+        the draft behind holding the reference number, so the corrected
+        payload was refused for a number already used.
+        """
+        try:
+            batch = self.stage_opening_stock_batch(
+                OpeningStockBatchCreate(
+                    branch_id=payload.branch_id,
+                    warehouse_id=payload.warehouse_id,
+                    reference_number=payload.reference_number,
+                    posting_date=payload.posting_date,
+                    remarks=payload.remarks,
+                    lines=payload.lines,
+                ),
+                firm_id=firm_scope,
+                actor_id=actor_id,
+                source_format="JSON",
             )
+            if payload.auto_post:
+                self.stage_post_opening_stock_batch(
+                    batch, firm_scope=firm_scope, actor_id=actor_id
+                )
+        except Exception:
+            self._session.rollback()
+            raise
+        self._commit()
+        self._session.refresh(batch)
         return batch
 
     def import_opening_stock_csv(
