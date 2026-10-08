@@ -1,5 +1,6 @@
 {
  "SC-CC-001": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
@@ -12,10 +13,11 @@
   "user": "tradeadmin"
  },
  "SC-CC-002": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
-   "the dialog offered \"150.00\"; says \"RC-2026-2027-000111 applied to SI-26-27-000145.\"; on account 120.0; second bill owes 35.56 -> 5.56"
+   "the dialog offered \"150.00\"; says \"RC-2026-2027-000114 applied to SI-26-27-000148.\"; on account 120.0; second bill owes 35.56 -> 5.56"
   ],
   "pass": 1,
   "result": "PASS",
@@ -23,10 +25,11 @@
   "user": "tradeadmin"
  },
  "SC-CC-003": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
-   "says \"RC-2026-2027-000111 applied to SI-26-27-000144.\"; on account 150.0; bill owes 106.68 -> 56.68; journals posted 0"
+   "says \"RC-2026-2027-000114 applied to SI-26-27-000147.\"; on account 150.0; bill owes 106.68 -> 56.68; journals posted 0"
   ],
   "pass": 1,
   "result": "PASS",
@@ -34,10 +37,11 @@
   "user": "tradeadmin"
  },
  "SC-CC-004": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
-   "says \"RC-2026-2027-000111 reversed.\"; receipt status REVERSED; bill owes 56.68 -> 106.68 (bill total 106.6816)"
+   "says \"RC-2026-2027-000114 reversed.\"; receipt status REVERSED; bill owes 56.68 -> 106.68 (bill total 106.6816)"
   ],
   "pass": 1,
   "result": "PASS",
@@ -45,6 +49,7 @@
   "user": "tradeadmin"
  },
  "SC-CC-005": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
@@ -56,32 +61,35 @@
   "user": "tradeadmin"
  },
  "SC-CC-006": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
-   "Bad state: N2: the dialog closed, the amount typed is gone [open=false, on account 200.0 -> 200.0, bill owes 106.68 -> 106.68, says \"RC-2026-2027-000111 has only 200.00 left unapplied.\"]"
+   "open=true, on account 200.0 -> 200.0, bill owes 106.68 -> 106.68, says \"Apply RC-2026-2027-000114 | RC-2026-2027-000114 has only 200.00 left unapplied. | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000147 \u2014 owes 106.68 | Invoice | Amount | 200.00 on account, 106.68 still owed | Cancel | Apply\" dialog \"Apply RC-2026-2027-000114 | RC-2026-2027-000114 has only 200.00 left unapplied. | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000147 \u2014 owes 106.68 | Invoice | Amount | 200.00 on account, 106.68 still owed | Cancel | Appl\""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-CC-007": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
-   "Bad state: N2: the dialog closed, the amount typed is gone [open=false, on account 186.0 -> 186.0, bill owes 35.56 -> 35.56, says \"SI-26-27-000145 owes only 35.56.\"]"
+   "open=true, on account 186.0 -> 186.0, bill owes 35.56 -> 35.56, says \"Apply RC-2026-2027-000115 | SI-26-27-000148 owes only 35.56. | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000148 \u2014 owes 35.56 | Invoice | Amount | 186.00 on account, 35.56 still owed | Cancel | Apply\" dialog \"Apply RC-2026-2027-000115 | SI-26-27-000148 owes only 35.56. | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000148 \u2014 owes 35.56 | Invoice | Amount | 186.00 on account, 35.56 still owed | Cancel | Apply\""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-CC-008": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
-   "the Apply dialog has the bill and the amount only, no date box (dialog: \"Apply RC-2026-2027-000111 | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000144 \u2014 owes 106.68 | Invoice | Amount | 200.00 on account, 106.68 still owed | Cancel \"; date labels in it: [200.00 on account, 106.68 still owed]): an application is dated today by the server, so a future date cannot be typed (prevention)"
+   "the Apply dialog has the bill and the amount only, no date box (dialog: \"Apply RC-2026-2027-000114 | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000147 \u2014 owes 106.68 | Invoice | Amount | 200.00 on account, 106.68 still owed | Cancel \"; date labels in it: [200.00 on account, 106.68 still owed]): an application is dated today by the server, so a future date cannot be typed (prevention)"
   ],
   "pass": 1,
   "result": "PASS",
@@ -89,10 +97,11 @@
   "user": "tradeadmin"
  },
  "SC-CC-009": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
-   "answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"RC-2026-2027-000111 is already applied to SI-26-27-000144.\"},\"timestamp\":\"2026-10-07T17:53:27.732379Z\",\"requestId\":\"52835879-403a-46e4-9ba7-bb8cc05c3c53\"}"
+   "answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"RC-2026-2027-000114 is already applied to SI-26-27-000147.\"},\"timestamp\":\"2026-10-08T07:09:16.504484Z\",\"requestId\":\"d7dd3444-5bc6-483b-8b41-437ef455dca0\"}"
   ],
   "pass": 1,
   "result": "PASS",
@@ -100,18 +109,20 @@
   "user": "tradeadmin"
  },
  "SC-CC-010": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
-   "Bad state: N2: the dialog closed, the amount typed is gone [open=false, on account 200.0 -> 200.0, bill owes 106.68 -> 106.68, says \"The request validation failed.\"]",
-   "open=true, says \"Apply RC-2026-2027-000111 | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000144 \u2014 owes 106.68 | Invoice | Amount | 200.00 on account, 106.68 still owed | Cancel | Apply\", on account 200.0"
+   "open=true, on account 200.0 -> 200.0, bill owes 106.68 -> 106.68, says \"Apply RC-2026-2027-000114 | An application must be for more than nothing. | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000147 \u2014 owes 106.68 | Invoice | Amount | 200.00 on account, 106.68 still owed | Cancel | Apply\" dialog \"Apply RC-2026-2027-000114 | An application must be for more than nothing. | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000147 \u2014 owes 106.68 | Invoice | Amount | 200.00 on account, 106.68 still owed | Cancel | Apply\"",
+   "open=true, says \"Apply RC-2026-2027-000114 | An application must be for more than nothing. | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000147 \u2014 owes 106.68 | Invoice | Amount | 200.00 on account, 106.68 still owed | Cancel | Apply\", on account 200.0"
   ],
-  "pass": 1,
-  "result": "FAIL",
+  "pass": 2,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-CC-011": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
@@ -156,6 +167,7 @@
   "user": "qro"
  },
  "SC-CC-015": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
@@ -167,10 +179,11 @@
   "user": "tradeadmin"
  },
  "SC-CC-016": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_cc_test.dart",
   "notes": [
-   "says \"RC-2026-2027-000113 has only 0.00 left unapplied.\"; bill owes 82.24 -> 82.24; on account 0.0"
+   "says \"Apply RC-2026-2027-000116 | RC-2026-2027-000116 has only 0.00 left unapplied. | Nothing moves in the ledger. The money arrived when the receipt was recorded; this says which invoice it clears. | SI-26-27-000149 \u2014 owes 142.24 | Invoice | Amount | 60.00 on account, 142.24 still owed | Cancel | Apply\"; bill owes 82.24 -> 82.24; on account 0.0"
   ],
   "pass": 1,
   "result": "PASS",
@@ -2346,10 +2359,11 @@
   "user": "tradeadmin"
  },
  "SC-PF-001": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "saved=1; says \"PF-2026-2027-000017 raised. Issue it when the customer needs it.\"; newest PF-2026-2027-000017 for SO-2026-2027-000346 status DRAFT; journals posted 0"
+   "saved=1; says \"PF-2026-2027-000021 raised. Issue it when the customer needs it.\"; newest PF-2026-2027-000021 for SO-2026-2027-000353 status DRAFT; journals posted 0"
   ],
   "pass": 1,
   "result": "PASS",
@@ -2357,21 +2371,23 @@
   "user": "tradeadmin"
  },
  "SC-PF-002": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "Bad state: not on screen: Taxable Value, Tax"
+   "missing []; header Number / Customer / Date / Sales Order / Valid Until / Status / Grand Total; {+ New: enabled, New: absent, Issue: absent, Withdraw: absent}"
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-PF-003": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "status ISSUED; says \"PF-2026-2027-000013 issued.\"; journals posted 0"
+   "status ISSUED; says \"PF-2026-2027-000018 issued.\"; journals posted 0"
   ],
   "pass": 1,
   "result": "PASS",
@@ -2379,11 +2395,12 @@
   "user": "tradeadmin"
  },
  "SC-PF-004": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "status CANCELLED; says \"PF-2026-2027-000014 withdrawn.\"; order APPROVED -> APPROVED",
-   "dialog open=true; status ISSUED; says \"Withdraw PF-2026-2027-000013 | Nothing is reversed, because a proforma posts nothing. The document stays on the record: the customer holds a copy, and one that vanished would leave them with a number nobody here can explain. | Reason | A reason is needed | Keep it | Withdraw\""
+   "status CANCELLED; says \"PF-2026-2027-000019 withdrawn.\"; order APPROVED -> APPROVED",
+   "dialog open=true; status ISSUED; says \"Withdraw PF-2026-2027-000018 | Nothing is reversed, because a proforma posts nothing. The document stays on the record: the customer holds a copy, and one that vanished would leave them with a number nobody here can explain. | Reason | A reason is needed | Keep it | Withdraw\""
   ],
   "pass": 2,
   "result": "PASS",
@@ -2391,6 +2408,7 @@
   "user": "tradeadmin"
  },
  "SC-PF-005": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
@@ -2402,21 +2420,23 @@
   "user": "tradeadmin"
  },
  "SC-PF-006": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "Bad state: neither Print nor Send is offered on an Issued proforma: {Print: absent, Send: absent, Open: enabled, View: absent}"
+   "{Print: enabled, Send: enabled, Open: enabled, View: absent} (Print not pressed: the system print preview never returns to a test run)"
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-PF-007": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "searched PF-2026-2027-000013: shown=true, PF-2026-2027-000014 shown=false; after clearing PF-2026-2027-000014 is back=true"
+   "searched PF-2026-2027-000018: shown=true, PF-2026-2027-000019 shown=false; after clearing PF-2026-2027-000019 is back=true"
   ],
   "pass": 1,
   "result": "PASS",
@@ -2424,10 +2444,11 @@
   "user": "tradeadmin"
  },
  "SC-PF-008": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "picker entries naming the Draft order SO-2026-2027-000348: 0; over HTTP the raise answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"Only an approved order can be stated on a proforma. A draft is not a deal and a cancelled one has been called off.\"},\"timestamp\":\"2026-10-07T17:43:31.360657Z"
+   "picker entries naming the Draft order SO-2026-2027-000355: 0; over HTTP the raise answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"Only an approved order can be stated on a proforma. A draft is not a deal and a cancelled one has been called off.\"},\"timestamp\":\"2026-10-08T06:50:09.802560Z"
   ],
   "pass": 1,
   "result": "PASS",
@@ -2435,10 +2456,11 @@
   "user": "tradeadmin"
  },
  "SC-PF-009": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "HTTP 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"Only an approved order can be stated on a proforma. A draft is not a deal and a cancelled one has been called off.\"},\"timestamp\":\"2026-10-07T17:43:44.021107Z\",\"requestId\":\"9d920 (the picker lists approved orders only, as in SC-PF-008)"
+   "HTTP 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"Only an approved order can be stated on a proforma. A draft is not a deal and a cancelled one has been called off.\"},\"timestamp\":\"2026-10-08T06:50:22.308583Z\",\"requestId\":\"6d8e4 (the picker lists approved orders only, as in SC-PF-008)"
   ],
   "pass": 1,
   "result": "PASS",
@@ -2446,17 +2468,19 @@
   "user": "tradeadmin"
  },
  "SC-PF-010": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "Bad state: N3: a proforma was raised for an order nobody chose (the box opened on \"SO-2026-2027-000347 \u2014 Vijaya Stores t10069cwy \u2014 71.1213\"); said \"PF-2026-2027-000016 raised. Issue it when the customer needs it.\""
+   "the editor opened with the order box reading \"\"; Raise pressed with nothing touched: saved=0, editor open=true, says \"\""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-PF-011": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
@@ -2468,10 +2492,11 @@
   "user": "tradeadmin"
  },
  "SC-PF-012": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "{+ New: enabled, New: absent, Issue: absent, Withdraw: absent}; over HTTP Issue answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"PF-2026-2027-000014 is cancelled and cannot be issued.\"},\"timestamp\":\"2026-10-07T17:44:58.240415Z"
+   "{+ New: enabled, New: absent, Issue: absent, Withdraw: absent}; over HTTP Issue answered 422: {\"success\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"PF-2026-2027-000019 is cancelled and cannot be issued.\"},\"timestamp\":\"2026-10-08T06:51:36.938204Z"
   ],
   "pass": 1,
   "result": "PASS",
@@ -2479,6 +2504,7 @@
   "user": "tradeadmin"
  },
  "SC-PF-013": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
@@ -2534,10 +2560,11 @@
   "user": "qsexe"
  },
  "SC-PF-018": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_pf_test.dart",
   "notes": [
-   "says \"PF-2026-2027-000015 has already been issued.\"; status ISSUED"
+   "says \"PF-2026-2027-000020 has already been issued.\"; status ISSUED"
   ],
   "pass": 1,
   "result": "PASS",
@@ -2563,10 +2590,11 @@
   "user": ""
  },
  "SC-PO-001": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
-   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Receipts | Purchase Orders | Purchase Orders | All | 279 | Draft | 48 | Open | 95 | Cancelled | 8 | Closed | 8 | History | + filter | Views | All dates | \u2026 | + New | PO Number | Vendor | Branch | Warehouse | Buyer | Purchase Date | Expected Delivery | Purchase Type | Priority | Status | Grand Total | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Received | 708.00 | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Received | 708.00 | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Submitted | 708.00 | Head Office",
+   "note: :: short texts: QA Agency | > | Selling t10069cwy | Home | Sell | Buy | Stock | Accounts | Masters | Reports | Search or jump to\u2026 | Ctrl+K | 1 | Selling t10069cwy | S( | Quotations | Purchase Orders | Purchase Orders | All | 291 | Draft | 51 | Open | 100 | Cancelled | 9 | Closed | 9 | History | + filter | Views | All dates | \u2026 | + New | PO Number | Vendor | Branch | Warehouse | Buyer | Purchase Date | Expected Delivery | Purchase Type | Priority | Status | Grand Total | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-08 | STANDARD PURCHASE | Normal | Received | 708.00 | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-08 | STANDARD PURCHASE | Normal | Received | 708.00 | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-08 | STANDARD PURCHASE | Normal | Submitted | 708.00 | Head Office",
    "columns and cards present"
   ],
   "pass": 1,
@@ -2611,6 +2639,7 @@
   "user": ""
  },
  "SC-PO-006": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2622,6 +2651,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-007": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2633,6 +2663,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-008": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2644,6 +2675,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-009": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2655,10 +2687,11 @@
   "user": "tradeadmin"
  },
  "SC-PO-010": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
-   "asked \"\"; sent_at 2026-10-07T22:59:53.786703+05:30, status APPROVED, screen says \"PO-T10069CWY-S-HO-2026-2027-000274 marked as sent.\""
+   "asked \"\"; sent_at 2026-10-08T12:33:50.962276+05:30, status APPROVED, screen says \"PO-T10069CWY-S-HO-2026-2027-000286 marked as sent.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -2666,6 +2699,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-011": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2677,6 +2711,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-012": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2688,6 +2723,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-013": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2699,6 +2735,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-014": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2710,6 +2747,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-015": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2721,6 +2759,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-016": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2732,6 +2771,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-017": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2743,10 +2783,11 @@
   "user": "tradeadmin"
  },
  "SC-PO-018": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
-   "note: :: newest order: PO-T10069CWY-S-HO-2026-2027-000279 vendor 4a737e55-f062-4871-b02a-089c7797c3a5 lines 1 status RECEIVED",
+   "note: :: newest order: PO-T10069CWY-S-HO-2026-2027-000291 vendor 4a737e55-f062-4871-b02a-089c7797c3a5 lines 1 status RECEIVED",
    "open=true, saved=0, said=\"Choose the vendor. | Enter a quantity above zero.\""
   ],
   "pass": 1,
@@ -2755,6 +2796,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-019": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2766,6 +2808,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-020": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2778,6 +2821,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-021": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2789,6 +2833,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-022": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2800,6 +2845,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-024": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2811,6 +2857,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-025": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2822,6 +2869,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-026": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2833,28 +2881,31 @@
   "user": "tradeadmin"
  },
  "SC-PO-027": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
-   "Bad state: N1: nothing says the goods received stand in the way (said \"Cancel purchase order... \")"
+   "status RECEIVED, screen says \"Received purchase orders cannot be cancelled. \""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-PO-028": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
-   "Bad state: N1: nothing says the bill stands in the way (said \"Cancel purchase order... \")"
+   "status RECEIVED, screen says \"Received purchase orders cannot be cancelled. \""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-PO-029": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2867,6 +2918,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-030": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2878,6 +2930,7 @@
   "user": "tradeadmin"
  },
  "SC-PO-031": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2945,6 +2998,7 @@
   "user": "qro"
  },
  "SC-PO-037": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
@@ -2956,10 +3010,11 @@
   "user": "tradeadmin"
  },
  "SC-PO-038": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
-   "editor open=true; status SUBMITTED; quantity 10.0; says \"\" / \"Somebody else saved this purchase order while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs. | Dismiss | 780.00 | 920.40 | Nine hundred twenty and forty paise only | Taxable  780.00 | CGST  70.20 | SGST  70.20 | Total  920.40 | 780.00 | 70.20 | 70.20 | 920.40\""
+   "editor open=true; status SUBMITTED; quantity 10.0; says \"\" / \"Somebody else saved this purchase order while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs. | Dismiss\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -2967,10 +3022,11 @@
   "user": "tradeadmin"
  },
  "SC-PO-039": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
-   "status APPROVED, screen says \"PO-T10069CWY-S-HO-2026-2027-000275 approved.\""
+   "status APPROVED, screen says \"PO-T10069CWY-S-HO-2026-2027-000287 approved.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -2978,10 +3034,11 @@
   "user": "tradeadmin"
  },
  "SC-PO-040": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_po_test.dart",
   "notes": [
-   "row reads: PO-T10069CWY-S-HO-2026-2027-000277 | Principal supplier t10069cwy | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-07 | STANDARD PURCHASE | Normal | Approved | 708.00"
+   "row reads: PO-T10069CWY-S-HO-2026-2027-000289 | Principal supplier t10069cwy | Head Office | Main Warehouse | Q acct (t10069cwy) | 2026-10-08 | STANDARD PURCHASE | Normal | Approved | 708.00"
   ],
   "pass": 1,
   "result": "PASS",
@@ -3583,6 +3640,7 @@
   "user": "tradeadmin"
  },
  "SC-QT-001": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3612,6 +3670,7 @@
   "user": ""
  },
  "SC-QT-004": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3659,10 +3718,11 @@
   "user": ""
  },
  "SC-QT-009": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "status DECLINED; screen says \"QT-2026-2027-000032 declined.\"; row Open / Print / Attachments / Send / Withdraw; Convert to order absent"
+   "status DECLINED; screen says \"QT-2026-2027-000042 declined.\"; row Open / Print / Attachments / Send / Withdraw; Convert to order absent"
   ],
   "pass": 1,
   "result": "PASS",
@@ -3670,10 +3730,11 @@
   "user": "tradeadmin"
  },
  "SC-QT-010": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "status CANCELLED; screen says \"QT-2026-2027-000033 withdrawn.\"; afterwards {Revise: absent, Convert to order: absent, Mark as sent: absent}"
+   "status CANCELLED; screen says \"QT-2026-2027-000043 withdrawn.\"; afterwards {Revise: absent, Convert to order: absent, Mark as sent: absent}"
   ],
   "pass": 1,
   "result": "PASS",
@@ -3681,10 +3742,11 @@
   "user": "tradeadmin"
  },
  "SC-QT-011": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "Print enabled (not pressed: the system print preview never returns to a test run); Send opened=true (\"Send QT-2026-2027-000031 / Email / Channel\"); Attachments opened=true (\"Attachments \u00b7 QT-2026-2027-000031 / Nothing is attached yet. / Caption (optional)\")"
+   "Print enabled (not pressed: the system print preview never returns to a test run); Send opened=true (\"Send QT-2026-2027-000041 / Email / Channel\"); Attachments opened=true (\"Attachments \u00b7 QT-2026-2027-000041 / Nothing is attached yet. / Caption (optional)\")"
   ],
   "pass": 1,
   "result": "PASS",
@@ -3692,10 +3754,11 @@
   "user": "tradeadmin"
  },
  "SC-QT-012": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "QT-2026-2027-000038: taxable 37.6701, tax 6.7806, grand 44.4507; line discount 62.3299 percent (the customer's own arrangement comes off the 100), rate box was number 3; stored rate 100.0000 (with tax 118.00)"
+   "QT-2026-2027-000048: taxable 37.6701, tax 6.7806, grand 44.4507; line discount 62.3299 percent (the customer's own arrangement comes off the 100), rate box was number 3; stored rate 100.0000 (with tax 118.00)"
   ],
   "pass": 1,
   "result": "PASS",
@@ -3703,10 +3766,11 @@
   "user": "tradeadmin"
  },
  "SC-QT-013": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "saved QT-2026-2027-000039 with coupon NOSUCH2180988; the editor said of it: \"Customer (type code, name or phone) | Coupon | Product (code, name or barcode)\"",
+   "saved QT-2026-2027-000049 with coupon NOSUCH2429807; the editor said of it: \"Customer (type code, name or phone) | Coupon | Product (code, name or barcode)\"",
    "note: :: the half with a real coupon (WELCOME10 lowering the line) is driven in the coupon file, SC-CP-012/013"
   ],
   "pass": 1,
@@ -3715,10 +3779,11 @@
   "user": "tradeadmin"
  },
  "SC-QT-014": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "searched QT-2026-2027-000031: shown=true, another row (QT-2026-2027-000036) shown=false; after clearing the other row is back=true"
+   "searched QT-2026-2027-000041: shown=true, another row (QT-2026-2027-000046) shown=false; after clearing the other row is back=true"
   ],
   "pass": 1,
   "result": "PASS",
@@ -3726,6 +3791,7 @@
   "user": "tradeadmin"
  },
  "SC-QT-015": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3737,21 +3803,23 @@
   "user": "tradeadmin"
  },
  "SC-QT-016": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "Save is refused: Bad state: N1: nothing on screen says why [open=true, saved=0, said=\"\"]"
+   "open=true, saved=0, said=\"Choose the customer.\""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-QT-017": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "open=true, saved=0, said=\"Enter the quantity. | Enter the price.\""
+   "open=true, saved=0, said=\"Choose a product on line 1. | Enter the quantity. | Enter the price.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -3759,11 +3827,12 @@
   "user": "tradeadmin"
  },
  "SC-QT-018": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
    "note: :: boxes: Detergent 1kg t10069cwy  T10069CWY-DET / 0 /  / 80.00 /",
-   "open=true, saved=0, said=\"Enter the quantity.\""
+   "open=true, saved=0, said=\"Check the fields marked below. | Enter the quantity.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -3771,11 +3840,12 @@
   "user": "tradeadmin"
  },
  "SC-QT-019": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
    "note: :: boxes: Detergent 1kg t10069cwy  T10069CWY-DET / -5 /  / 80.00 /",
-   "open=true, saved=0, said=\"Enter the quantity.\""
+   "open=true, saved=0, said=\"Check the fields marked below. | Enter the quantity.\""
   ],
   "pass": 1,
   "result": "PASS",
@@ -3783,6 +3853,7 @@
   "user": "tradeadmin"
  },
  "SC-QT-020": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3794,6 +3865,7 @@
   "user": "tradeadmin"
  },
  "SC-QT-021": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3805,11 +3877,12 @@
   "user": "tradeadmin"
  },
  "SC-QT-022": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
    "Convert to order is absent on a Converted quotation",
-   "screen says \"Quotation QT-2026-2027-000035 already became SO-2026-2027-000326.\"; orders raised by the second press: 0"
+   "screen says \"Quotation QT-2026-2027-000045 already became SO-2026-2027-000358.\"; orders raised by the second press: 0"
   ],
   "pass": 2,
   "result": "PASS",
@@ -3817,6 +3890,7 @@
   "user": "tradeadmin"
  },
  "SC-QT-023": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3828,17 +3902,19 @@
   "user": "tradeadmin"
  },
  "SC-QT-024": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "Bad state: no EXPIRED badge on the row"
+   "QT-2026-2027-000047: EXPIRED badge=true; {Mark as sent: absent, Revise: absent, Customer accepted: absent, Customer declined: absent, Convert to order: absent, Withdraw: absent}; Mark as sent says \"\""
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },
  "SC-QT-025": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3850,6 +3926,7 @@
   "user": "tradeadmin"
  },
  "SC-QT-026": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3883,6 +3960,7 @@
   "user": "qro"
  },
  "SC-QT-029": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3894,6 +3972,7 @@
   "user": "tradeadmin"
  },
  "SC-QT-030": {
+  "date": "2026-10-08",
   "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
@@ -3916,13 +3995,14 @@
   "user": "qsmgr"
  },
  "SC-QT-032": {
-  "fail": 1,
+  "date": "2026-10-08",
+  "fail": 0,
   "file": "sc_qt_test.dart",
   "notes": [
-   "Bad state: N2: the editor closed and the typing is gone [editor open=false; says \"Somebody else saved this quotation while you were editing it. Your changes were not saved. Open it again to see theirs and redo yours.\" [Somebody else saved this quotation while you were editing it. Your changes were not saved. Open it again to see theirs and redo yours.]; the record now holds quantity 9.0 (the other user saved 9, this one typed 4)]"
+   "editor open=true; says \"Somebody else saved this quotation while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs.\" [Somebody else saved this quotation while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs.]; the record now holds quantity 9.0 (the other user saved 9, this one typed 4)"
   ],
-  "pass": 0,
-  "result": "FAIL",
+  "pass": 1,
+  "result": "PASS",
   "skip": 0,
   "user": "tradeadmin"
  },

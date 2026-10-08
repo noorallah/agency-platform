@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart' show ApiException;
+import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
@@ -116,7 +117,14 @@ class QuotationEditorDialog extends StatefulWidget {
     this.rateIncludesTax = false,
     this.loadUnitPrices,
     this.loadAttributes,
+    this.onSave,
   });
+
+  /// Writes the offer (D-UI-65). With it the editor runs the save itself and
+  /// stays open, everything typed kept, when the server refuses; it closes
+  /// with the payload only once this returned. Null closes with the payload
+  /// at once, for a caller with no call to make (a test).
+  final Future<void> Function(Json payload)? onSave;
 
   /// Reads the firm's own fields for a quotation (MST-6). Null leaves the
   /// section out and `attributes` unsent.
@@ -180,6 +188,12 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   String? _branchId;
   String? _warehouseId;
   late DateTime _validUntil;
+
+  /// Why the last save did not happen -- something missing that no box can
+  /// mark (D-UI-64), or the server's refusal (D-UI-65) -- and whether one is
+  /// on its way.
+  String? _error;
+  bool _saving = false;
 
   /// Phase 2: the offer as the server priced it last, and the line the side
   /// panel follows.
@@ -631,15 +645,80 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   String _iso(DateTime value) => value.toIso8601String().split('T').first;
 
   Json? _payload() {
-    if (!(_form.currentState?.validate() ?? false)) return null;
-    // A mandatory field left blank stops the save here, with its name, since
-    // this form hands the payload to its caller rather than saving itself.
+    if (!(_form.currentState?.validate() ?? false)) {
+      // The phase 2 customer and product boxes are not form fields, so a
+      // save they stop has to be said in words (D-UI-64).
+      setState(() => _error = _missing() ?? 'Check the fields marked below.');
+      return null;
+    }
+    // A mandatory field left blank stops the save here, with its name.
     final String? customField = _customFields?.validate();
     if (customField != null) {
       setState(() => _customFieldError = customField);
       return null;
     }
-    return _buildPayload();
+    final Json? payload = _buildPayload();
+    if (payload == null) setState(() => _error = _missing());
+    return payload;
+  }
+
+  /// What a save with nothing marked on screen is missing, said in words.
+  String? _missing() {
+    if (_customerId == null) return 'Choose the customer.';
+    if (_branchId == null || _warehouseId == null) {
+      return 'Choose the branch and the warehouse the goods ship from.';
+    }
+    final int blank = _lines.indexWhere((_LineDraft l) => l.productId == null);
+    if (blank >= 0) return 'Choose a product on line ${blank + 1}.';
+    return null;
+  }
+
+  /// Save and close; [print] asks the list to print what was saved. A refusal
+  /// leaves the editor open with the server's sentence and every keystroke.
+  Future<void> _finish({required bool print}) async {
+    if (_saving) return;
+    final Json? payload = _payload();
+    if (payload == null) return;
+    final Json result = <String, dynamic>{
+      ...payload,
+      if (print) QuotationEditorDialog.printAfterSave: true,
+    };
+    final Future<void> Function(Json payload)? onSave = widget.onSave;
+    if (onSave == null) {
+      Navigator.of(context).pop(result);
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await onSave(payload);
+      if (!mounted) return;
+      Navigator.of(context).pop(result);
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = saveFailureMessage(exception, 'quotation', changesKept: true);
+      });
+    }
+  }
+
+  /// The sentence of a save that did not happen, above the form.
+  Widget _errorBanner() {
+    final String? message = _error;
+    if (message == null) return const SizedBox.shrink();
+    return MaterialBanner(
+      key: const ValueKey<String>('quotation-save-error'),
+      content: SelectionArea(child: Text(message)),
+      actions: [
+        TextButton(
+          onPressed: () => setState(() => _error = null),
+          child: const Text('Dismiss'),
+        ),
+      ],
+    );
   }
 
   String? _customFieldError;
@@ -865,10 +944,8 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
           ? 'Revise ${widget.existing!.quotationNumber}'
           : 'New quotation',
       saveLabel: revising ? 'Save revision' : 'Create draft',
-      onSave: () {
-        final Json? payload = _payload();
-        if (payload != null) Navigator.of(context).pop(payload);
-      },
+      loading: _saving,
+      onSave: () => unawaited(_finish(print: false)),
       body: widget.customers.isEmpty || widget.products.isEmpty
           ? const StandardEmptyState(
               type: EmptyStateType.noRecords,
@@ -886,6 +963,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    _errorBanner(),
                     DropdownButtonFormField<String>(
                       isExpanded: true,
                       initialValue: _customerId,

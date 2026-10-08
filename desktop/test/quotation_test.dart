@@ -1284,7 +1284,8 @@ void main() {
         phase2: true,
       );
 
-      expect(find.text('2026-09-13 · lapsed'), findsOneWidget);
+      // The Open window's word, so the row and the window agree (D-UI-68).
+      expect(find.text('2026-09-13 · EXPIRED'), findsOneWidget);
     });
 
     testWidgets('the bar names the offer and runs its step', (tester) async {

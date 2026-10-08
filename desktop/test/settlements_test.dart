@@ -217,6 +217,8 @@ class _SettlementApi extends ApiClient {
     required String invoiceId,
     required String amount,
   }) async {
+    final String? refusal = allocateRefusal;
+    if (refusal != null) throw ApiException(refusal, statusCode: 422);
     allocated = <String, dynamic>{
       'id': id,
       'invoice_id': invoiceId,
@@ -224,6 +226,9 @@ class _SettlementApi extends ApiClient {
     };
     return rows.first;
   }
+
+  /// What the server says to an Apply it refuses, when it refuses.
+  String? allocateRefusal;
 
   @override
   Future<Settlement> allocatePayment({
@@ -1830,6 +1835,54 @@ void main() {
       await tester.pumpAndSettle();
       expect(api.recorded, isNotNull);
       expect(api.recorded!.containsKey('credit_source_id'), isFalse);
+    });
+  });
+
+  group('applying a receipt to an invoice', () {
+    Future<_SettlementApi> open(WidgetTester tester) async {
+      final _SettlementApi api = _SettlementApi(
+        rows: [_settlement(unallocated: '200.00')],
+        outstanding: [_invoice('a', 'SI-1', '106.68')],
+      );
+      await _pump(tester, api);
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    testWidgets('a refused Apply keeps the dialog, the bill and the amount '
+        '(D-UI-70)', (tester) async {
+      final _SettlementApi api = await open(tester)
+        ..allocateRefusal = 'SI-1 owes only 106.68.';
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '150');
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('SI-1 owes only 106.68.'), findsOneWidget);
+      expect(find.text('150'), findsOneWidget);
+      expect(api.allocated, isNull);
+
+      api.allocateRefusal = null;
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '100');
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(api.allocated?['amount'], '100');
+      expect(api.allocated?['invoice_id'], 'a');
+    });
+
+    testWidgets('an amount of 0 is named before the server is asked',
+        (tester) async {
+      final _SettlementApi api = await open(tester);
+      await tester.enterText(find.widgetWithText(TextField, 'Amount'), '0');
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('An application must be for more than nothing.'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(api.allocated, isNull);
     });
   });
 }

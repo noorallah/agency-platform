@@ -157,10 +157,10 @@ promotion, or the customer's standing rate).
 
 - **Preconditions:** As *selling-firm*, plus the order described in the preparation table, approved.
 - **Steps**
-  1. Sell > All Sell screens > Documents > Proforma → **New** → the prepared order ("SO-… — Vijaya Stores qa — total") → Raise → **Issue**. Journal Entries; Masters > Customers → C01.
+  1. Sell > All Sell screens > Documents > Proforma → **New**. Press **Raise proforma** with no order chosen. Then choose the prepared order ("SO-… — Vijaya Stores qa — total") → Raise → **Issue** → **Print**. Journal Entries; Masters > Customers → C01.
   2. Sell > Sales Orders → the order → **Cancel**. Proforma → Refresh → reopen the proforma.
 - **Expect**
-  - Step 1: "PF-… raised. Issue it when the customer needs it." then "PF-… issued."; a `PF` series number (never `PI`, which purchase invoices use); **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
+  - Step 1: the order box opens empty, and Raise without an order says "Choose the sales order this proforma states." and raises nothing. With the order chosen: "PF-… raised. Issue it when the customer needs it." then "PF-… issued."; the print is titled PROFORMA INVOICE, names the order under *Against order* and says "This is not a tax invoice." (a draft's copy says DRAFT); **Send** emails it where the firm has email set up; a `PF` series number (never `PI`, which purchase invoices use); **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
   - Step 2: the proforma's lines and totals are unchanged — snapshotted when it was raised.
 ---
 

@@ -13,6 +13,7 @@ fresh interpreter.
 PRINTABLE_DOCUMENT_TYPES = frozenset(
     {
         "DELIVERY_NOTE",
+        "PROFORMA_INVOICE",
         "PURCHASE_ORDER",
         "SALES_INVOICE",
         "SALES_ORDER",

@@ -42,7 +42,9 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
     DocumentColumn('Amount', 104, numeric: true),
   ];
 
-  late Json _order = widget.orders.first;
+  /// Empty until an order is chosen: the first of the list is nobody's
+  /// choice, and Raise with nothing touched stated it (D-UI-66).
+  Json _order = const <String, dynamic>{};
   DateTime? _validUntil;
   final TextEditingController _paymentTerms = TextEditingController();
   final TextEditingController _deliveryTerms = TextEditingController();
@@ -76,7 +78,17 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
       _number(line['discount_amount']) -
       _number(line['bill_discount_amount']);
 
-  void _raise() => saveAndClose<ProformaRecord>(() => widget.onSave(<String, dynamic>{
+  void _raise() {
+    if (_order.isEmpty) {
+      setState(
+        () => saveError = 'Choose the sales order this proforma states.',
+      );
+      return;
+    }
+    _send();
+  }
+
+  void _send() => saveAndClose<ProformaRecord>(() => widget.onSave(<String, dynamic>{
         'sales_order_id': stringValue(_order['id']),
         'proforma_date': _iso(widget.today),
         // Blank means no deadline, which is a real choice.
@@ -110,7 +122,10 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
             children: [
               DocumentPageBand(
                 title: 'New proforma invoice',
-                chips: ['states ${stringValue(_order['order_number'])}'],
+                chips: [
+                  if (_order.isNotEmpty)
+                    'states ${stringValue(_order['order_number'])}',
+                ],
                 hint: 'Ctrl+S raise',
                 actions: [
                   TextButton(
@@ -187,7 +202,8 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
         ),
         child: DropdownMenu<String>(
           key: const ValueKey('proforma-order'),
-          initialSelection: stringValue(_order['id']),
+          initialSelection: _order.isEmpty ? null : stringValue(_order['id']),
+          hintText: 'Choose an approved order',
           width: 440,
           enableFilter: true,
           requestFocusOnTap: true,
@@ -340,9 +356,11 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
 
   Widget _sidePanel(List<Json> lines) {
     if (lines.isEmpty) {
-      return const DocumentSidePanel(children: [
-        DocumentSideHeading('Proforma'),
-        DocumentSideNote('this order has no lines'),
+      return DocumentSidePanel(children: [
+        const DocumentSideHeading('Proforma'),
+        DocumentSideNote(
+          _order.isEmpty ? 'choose the order' : 'this order has no lines',
+        ),
       ]);
     }
     final Json line = lines[_current.clamp(0, lines.length - 1)];
