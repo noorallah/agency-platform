@@ -29,6 +29,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.batch_serial.models.batch_serial import BatchRecord
 from app.batch_serial.schemas.batch_serial import PickedSerial
@@ -37,6 +38,7 @@ from app.branches.services.registration import BranchRegistration
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.dates import utc_now
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
@@ -298,6 +300,10 @@ class StockTransferService(TransactionalDocumentService):
         row.transporter_name = data.transporter_name
         row.remarks = data.remarks
         row.updated_by = actor_id
+        # The lines are the document: an edit that moves nothing on the
+        # header still has to move its version, or a stale copy saves over it.
+        row.updated_at = utc_now()
+        flag_modified(row, "updated_at")
         self._write_lines(row, data.lines, actor_id)
         self._audit("stock_transfer.updated", row, actor_id)
         self._session.commit()

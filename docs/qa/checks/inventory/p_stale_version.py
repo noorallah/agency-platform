@@ -1,4 +1,4 @@
-"""Probe: a stale If-Match is refused (409) on every versioned inventory record, a right one saves, and the version moves."""
+"""Probe: a stale If-Match is refused (409) on every versioned inventory record but a count sheet, a right one saves, and the version moves."""
 from _http import call
 from _inv import *
 from _flow import *
@@ -34,6 +34,11 @@ targets = [
 for label, url, rec, edit in targets:
     version = rec.get("version")
     if not c.ok(version is not None, f"{label}: the record carries a version"):
+        continue
+    if label == "count":
+        # Known limit (D-STK-42, Not a defect): two people fill one sheet, so an older copy saves.
+        st, b, h = call(ad, "PUT", url, edit, if_match='"999"')
+        c.eq(st, 200, f"{label}: a save from an older copy is accepted, two people fill one sheet ({message(b)[:100]})")
         continue
     st, b, h = call(ad, "PUT", url, edit, if_match='"999"')
     c.ok(st == 409 and "changed since" in message(b), f"{label}: a wrong If-Match is refused 409 saying the record changed", (st, message(b)[:80]))

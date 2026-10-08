@@ -222,6 +222,14 @@ The rule holds only for a firm that has opened books; one with no period at
 all keeps any date. `stage_quarantine` does not ask, because its composing
 caller is a goods receipt whose journal has already answered.
 
+**A stale save is refused, except on a count sheet.** Every versioned stock
+record reads `If-Match` on its edit and answers 409 to an older version. A
+draft transfer's lines are replaced on each save, and the save moves the
+transfer's version even when nothing on its header changed (D-STK-42). A count
+sheet is the one exception, on purpose: two people fill one sheet, a save
+writes only the lines it names, and so `PUT /inventory/counts/{id}` does not
+read `If-Match`. Two saves of the same line keep the later figure.
+
 ## Valuation
 
 A moving weighted average per firm and product, rolled forward in

@@ -21,7 +21,7 @@ from sqlalchemy.pool import StaticPool
 from app.batch_serial.models.batch_serial import BatchRecord
 from app.branches.models.branch_warehouse import Warehouse
 from app.core.database.base import Base
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.inventory.models import InventoryRecord
 from app.inventory.services.inventory_service import InventoryService
@@ -335,6 +335,35 @@ def test_only_a_draft_changes_and_the_challan_waits_for_dispatch(
             firm_id=firm.firm.id,
             actor_id=firm.actor_id,
         )
+
+
+def test_an_edit_of_the_lines_alone_moves_the_version(firm: _Firm) -> None:
+    """D-STK-42: a stale copy of a draft whose lines changed is refused."""
+    service = StockTransferService(firm.session)
+    transfer = _draft(firm)
+    seen = transfer.version  # type: ignore[attr-defined]
+
+    def save(quantity: str) -> object:
+        return service.update(
+            transfer.id,  # type: ignore[attr-defined]
+            StockTransferWrite(
+                transfer_date=ON,
+                from_warehouse_id=firm.warehouse.id,
+                to_warehouse_id=firm.depot.id,  # type: ignore[attr-defined]
+                vehicle_number="KA01AB1234",
+                lines=[{"product_id": firm.product.id, "quantity": quantity}],  # type: ignore[list-item]
+            ),
+            firm_id=firm.firm.id,
+            actor_id=firm.actor_id,
+            expected_version=seen,
+        )
+
+    assert save("2").version > seen  # type: ignore[attr-defined]
+    with pytest.raises(ConflictError):
+        save("3")
+    assert [line.quantity for line in service.lines(transfer.id)] == [  # type: ignore[attr-defined]
+        Decimal("2")
+    ]
 
 
 def test_a_transfer_goes_somewhere_else() -> None:
