@@ -715,6 +715,19 @@ The rules live in `app/batch_serial/services/product_tracking.py`
   `GET /api/v1/business-framework/active-modules`
   (`GoodsTypeRepository.tracking_in_use`); added on 2026-10-08, not yet tested by
   hand. See `docs/BUSINESS_PROFILE_FRAMEWORK.md`, *Menus follow the goods*.
+- **A batch, lot or serial moved to another product is judged against that
+  product** (D-STK-22, 2026-10-08). An update naming a new `product_id` used to
+  be judged against the old one. `_product_after` in
+  `batch_serial_service.py` asks the new product what a record added by hand
+  is asked: it must be the firm's own, track such a record, and allow every
+  dated field the record already holds. A record that stock, a movement or a
+  serial stands on cannot change product at all (*cannot be moved to another
+  product*), and a product cannot be cleared off a record. A serial number is
+  refused a batch of another product, on create and on update.
+- **A batch does not expire before it is made** (D-STK-23). `assert_date_order`
+  refuses an expiry or best-before date earlier than the manufacturing date on
+  a batch added or edited by hand, judged on what the batch will hold; the same
+  day is allowed. A goods receipt is not asked: goods on the dock are received.
 
 ### Batch-wise PTR / PTS (PG-14, backlog 86 #22, 55 G5)
 

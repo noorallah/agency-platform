@@ -464,9 +464,13 @@ def test_a_unit_set_column_fills_the_units_and_warns_of_another_types_set() -> N
     assert checked.issues == []
     assert [(item.row, item.code, item.column) for item in checked.warnings] == [
         (3, "ENM-1", "UnitSet"),
+        (5, "ENM-3", "Unit"),
         (5, "ENM-3", "UnitSet"),
     ]
     assert "other goods types" in checked.warnings[0].message
+    # A row naming a Unit beside the set is told its Unit was passed over.
+    assert "is passed over" in checked.warnings[1].message
+    assert "Piece, box of 10" in checked.warnings[1].message
     assert _codes(factory) == []
 
     report = _run(session, firm.id, content, apply=True)
@@ -481,15 +485,16 @@ def test_a_unit_set_column_fills_the_units_and_warns_of_another_types_set() -> N
             )
             if rule.product_id is not None
         }
-    for code in ("TAB-1", "ENM-1"):
+    # The set speaks for every unit, a Unit on the row or not: kept, the
+    # Unit made the purchase unit the stock unit and the pack rule was
+    # dropped without a word (D-MST-17).
+    for code in ("TAB-1", "ENM-1", "ENM-3"):
         assert (rows[code].base_uom_id, rows[code].purchase_uom_id) == (
             units["PCS"],
             units["BOX"],
         )
         assert rules[rows[code].id].conversion_factor == 10
     assert rows["ENM-2"].purchase_uom_id is None and rows["ENM-2"].id not in rules
-    # A unit on the row is the row's: the set fills only what it left unsaid.
-    assert rows["ENM-3"].base_uom_id == units["KG"]
 
 
 def test_an_unknown_unit_set_is_a_problem_and_an_existing_product_keeps_its_units() -> (

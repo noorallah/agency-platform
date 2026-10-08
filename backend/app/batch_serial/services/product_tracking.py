@@ -19,6 +19,7 @@ Two kinds of question are asked:
 """
 
 from collections.abc import Mapping
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
@@ -105,4 +106,32 @@ def assert_product_fields(product: Product, values: Mapping[str, object]) -> Non
                 f"{product.code} does not track {tracking}, so "
                 f"{', '.join(filled)} cannot be set. Switch it on for the "
                 "product first."
+            )
+
+
+def assert_date_order(
+    *,
+    manufacturing_date: date | None,
+    expiry_date: date | None,
+    best_before_date: date | None,
+) -> None:
+    """Refuse a batch that expires before it was made.
+
+    A batch typed with the two dates the wrong way round was accepted, and
+    the expiry monitor then called good stock years out of date (D-STK-23).
+    The same day is allowed; a date left blank is not judged.
+
+    Raises:
+        ValidationError: If the expiry or best-before date is before the
+            manufacturing date.
+
+    """
+    if manufacturing_date is None:
+        return
+    for label, value in (("expiry", expiry_date), ("best-before", best_before_date)):
+        if value is not None and value < manufacturing_date:
+            raise ValidationError(
+                f"The {label} date {value.isoformat()} is before the "
+                f"manufacturing date {manufacturing_date.isoformat()}. Check "
+                "the two dates."
             )

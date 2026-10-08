@@ -176,6 +176,21 @@ def test_a_name_the_firm_or_the_catalogue_has_is_refused() -> None:
         _own_set(session, firm.id)
     with pytest.raises(ConflictError, match="Strip, box of 10"):
         _own_set(session, firm.id, name="Strip, box of 10")
+    # In any case: the import finds a set by name without regard to it, so
+    # two names differing only there left the file's meaning to chance.
+    with pytest.raises(ConflictError):
+        _own_set(session, firm.id, name="strip, BOX of 10")
+    with pytest.raises(ConflictError):
+        _own_set(session, firm.id, name="JAR, CASE OF 6")
+    # Renaming a set to its own name in another case is not a clash.
+    own = _named(session, firm.id, "Jar, case of 6")
+    renamed = UnitSetService(session).update(
+        own.id,
+        UnitSetUpdate(name="Jar, Case of 6"),
+        firm_id=firm.id,
+        actor_id=ACTOR,
+    )
+    assert renamed.name == "Jar, Case of 6"
 
 
 def test_a_set_is_refused_what_does_not_fit() -> None:

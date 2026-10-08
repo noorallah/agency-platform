@@ -744,7 +744,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-017 — A goods type, a category that carries it, and a product that takes it
 
-*Added 2026-10-08 from the code (backlog 89, step 1); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it. What the type fills on the product is TC-MAST-020.*
+*Added 2026-10-08 from the code (backlog 89, step 1); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**. What the type fills on the product is TC-MAST-020.*
 
 - **Covers:** backlog 89 test group 1 (goods type)
 - **Fixture:** `product-master`
@@ -754,7 +754,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-018 — A category changes type, a product changes category, and a type in use cannot go
 
-*Added 2026-10-08 from the code (backlog 89, step 1); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-08 from the code (backlog 89, step 1); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 test group 4 (a category changes type)
 - **Fixture:** `product-master`
@@ -765,7 +765,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-019 — Who keeps goods types, and what a new firm starts with
 
-*Added 2026-10-08 from the code (backlog 89, step 1); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-08 from the code (backlog 89, step 1); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 test groups 7 (what a new firm starts with) and 8 (roles)
 - **Fixture:** `firm-admin`
@@ -776,18 +776,18 @@ warehouse rename its capability flags.
 
 ### TC-MAST-020 — A new product starts with its goods type's switches, HSN code and tax group
 
-*Added 2026-10-08 from the code (backlog 89, step 2); **not yet driven through a fixture** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-08 from the code (backlog 89, step 2); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`): passes, with the receipt refused at completion.*
 
 - **Covers:** backlog 89 test groups 1 (what a new product starts with), 3 (override and its limit) and 7 (what the profile no longer refuses)
 - **Fixture:** `product-master`
 - **Also needs:** Medicine in use with defaults HSN `3004` and one of the firm's tax groups; Electronics in use with no defaults; categories *Tablets* (Medicine), *Phones* (Electronics) and *Sundries* (General); a warehouse to receive into.
-- **Steps:** as the fixture's **Firm admin**, over the API: `POST /api/v1/products` in *Tablets* naming no switch, no HSN and no tax group (P1); in *Tablets* with `"track_batch": false` (P2); in *Tablets* with `"hsn_sac": "3003"` and another of the firm's tax groups (P3); in *Phones* naming no switch (P4); in *Sundries* naming no switch (P5); in *Sundries* with a `barcode`, a `qr_code`, `"track_warranty": true` and `"shelf_life_days": 365` (P6). Read each back. `GET /api/v1/products/metadata?category_id=<Tablets>`. `PUT` P5 moving it to *Tablets* and read it. `POST /api/v1/products/{P1}/duplicate`. Receive P1 on a goods receipt with no batch number, then with one; then `PUT` P1 with `"track_batch": false`.
-- **Expect:** P1 has `track_batch`, `track_expiry`, `track_manufacturing_date`, `require_batch_on_receipt` and `require_batch_on_issue` true, serial and warranty false, `hsn_sac` `3004` and the default tax group. P2 has `track_batch` false, **both `require_batch_*` false**, and `track_expiry` still true. P3 keeps `3003` and its own tax group. P4 has `track_serial`, `track_warranty` and both `require_serial_*` true and no batch switch. P5 has every tracking switch false and no HSN. P6 is saved on any profile -- none of the four fields is refused with *does not enable*. The metadata names Medicine in `goods_type_id` and lists each type's nine `switches`. Moved to *Tablets*, P5 carries Medicine's `goods_type_id` and **its switches are unchanged**. The copy of P1 carries P1's switches. The receipt of P1 with no batch is refused *must be received with a batch number* and accepted with one; switching P1's batch tracking off is then refused because it holds stock.
+- **Steps:** as the fixture's **Firm admin**, over the API: `POST /api/v1/products` in *Tablets* naming no switch, no HSN and no tax group (P1); in *Tablets* with `"track_batch": false` (P2); in *Tablets* with `"hsn_sac": "3003"` and another of the firm's tax groups (P3); in *Phones* naming no switch (P4); in *Sundries* naming no switch (P5); in *Sundries* with a `barcode`, a `qr_code`, `"track_warranty": true` and `"shelf_life_days": 365` (P6). Read each back. `GET /api/v1/products/metadata?category_id=<Tablets>`. `PUT` P5 moving it to *Tablets* and read it. `POST /api/v1/products/{P1}/duplicate`. Receive P1 on a goods receipt with no batch number and **complete** it, then with one; then `PUT` P1 with `"track_batch": false`.
+- **Expect:** P1 has `track_batch`, `track_expiry`, `track_manufacturing_date`, `require_batch_on_receipt` and `require_batch_on_issue` true, serial and warranty false, `hsn_sac` `3004` and the default tax group. P2 has `track_batch` false, **both `require_batch_*` false**, and `track_expiry` still true. P3 keeps `3003` and its own tax group. P4 has `track_serial`, `track_warranty` and both `require_serial_*` true and no batch switch. P5 has every tracking switch false and no HSN. P6 is saved on any profile -- none of the four fields is refused with *does not enable*. The metadata names Medicine in `goods_type_id` and lists each type's nine `switches`. Moved to *Tablets*, P5 carries Medicine's `goods_type_id` and **its switches are unchanged**. The copy of P1 carries P1's switches. The receipt of P1 with no batch is saved as a draft and refused when it is **completed** (*must be received with a batch number*), and one with a batch completes; switching P1's batch tracking off is then refused because it holds stock.
 - **Leaves:** six products and a copy, one with stock in a batch.
 
 ### TC-MAST-021 — The product form shows its goods type's properties and no others
 
-*Added 2026-10-08 from the code (backlog 89, step 2); **not yet driven on screen** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-08 from the code (backlog 89, step 2); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 test group 5 (the product form)
 - **Fixture:** `product-master`
@@ -798,7 +798,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-022 — A unit set fills a new product's units and its own conversion rule
 
-*Added 2026-10-08 from the code (backlog 89, step 3); **not yet driven through a fixture or on screen** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-08 from the code (backlog 89, step 3); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 test group 11 (unit sets)
 - **Fixture:** `product-master`
@@ -809,7 +809,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-023 — A batch, a serial and their dates are allowed by the product's switches, not the firm's profile
 
-*Added 2026-10-08 from the code (backlog 89, step 4); **not yet run** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-08 from the code (backlog 89, step 4); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 test group on batch and serial checks
 - **Fixture:** `product-master`
@@ -820,7 +820,7 @@ warehouse rename its capability flags.
 
 ### TC-MAST-024 — An extra field is shown and required by goods type, customer group and supplier type
 
-*Added 2026-10-08 from the code (backlog 89, step 5); **not yet run** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-08 from the code (backlog 89, step 5); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 test group 6 (extra fields) and group 8 (who may keep the rules)
 - **Fixture:** `product-master`
@@ -831,29 +831,29 @@ warehouse rename its capability flags.
 
 ### TC-MAST-025 — A firm switches a shared extra field off, and its values are kept
 
-*Added 2026-10-08 from the code (backlog 89, step 5); **not yet run** -- drive it and correct the expectation before relying on it.*
+*Added 2026-10-08 from the code (backlog 89, step 5); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 test group 6 (a firm switching a catalogue field off) and group 7 (what the profile no longer does)
 - **Fixture:** `product-master`
-- **Also needs:** one **shared** customer field (added by the platform administrator under Platform > Dynamic Attributes, for example `TRADE_LICENCE_NO`); a second firm in the same store; a **Firm manager** on the first firm.
+- **Also needs:** one **shared** customer field (added by the platform administrator under Platform > Dynamic Attributes, for example `TRADE_LICENCE_NO`); a second firm in the **same store** -- two firms of the shared store, which the `shared-pair` fixture gives; the `product-master` firm and a second fixture firm are stores of their own, where a shared field of one does not exist in the other, so step (e) cannot be driven on them; a **Firm manager** on the first firm.
 - **Steps:** as the **Firm admin** of the first firm: (a) save a customer with a value in the shared field; (b) under Set up > Custom Fields, switch the shared field off for this firm; (c) open that customer, and open a new customer; (d) send, over the API, a new customer carrying a value for the field; (e) open a new customer in the **second** firm; (f) switch the field on again and open the first customer; (g) try the switch on one of the firm's **own** fields. As the **Firm manager**: (h) switch the shared field off.
 - **Expect:** (b) accepted; the list shows the field as off for this firm. (c) the existing customer still shows the value it holds; the new customer is not offered the field. (d) refused with 422, "do not apply". (e) the second firm is still offered the field. (f) the value saved in (a) is there, unchanged. (g) refused with 404: a firm's own field is retired by making it inactive. (h) refused with 403. The audit trail of the first firm holds two `firm_custom_field.use_changed` rows, off then on.
 - **Leaves:** one shared field, two customers.
 
 ### TC-MAST-026 — The Inventory menu shows only the tracking the firm's goods need
 
-*Added 2026-10-08, not yet run; from the code (backlog 89, step 6). Drive it and correct the expectation before relying on it.*
+*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 point 6 (menus follow the goods); `docs/BUSINESS_PROFILE_FRAMEWORK.md`, *Menus follow the goods*
 - **Fixture:** `product-master`
 - **Also needs:** a firm of its own with **no** goods type in use, no category carrying a type, and no product with a tracking switch on; the shared goods types *Paint* (batch only), *Electronics* (serial and warranty) and *Medicine*; a second user on the firm whose role lacks `BATCH_VIEW`; a second firm in the same store holding one product with *Track batch* on and no goods type (the old kind, filed before goods types existed).
 - **Steps:** as the **Firm admin** of the first firm: (a) sign in and open the Inventory menu (Stock, and All Stock screens > Tracking). (b) Set up > Goods Types: **Use in this firm** on *Paint*; file a category *Enamels* under it. Without signing out, read the menu; then sign out and in again and read it. (c) Use *Electronics* the same way, sign out and in. (d) Stop using both types after clearing the categories' types; sign out and in. (e) As the user without `BATCH_VIEW`: with Paint in use again, sign in and read the menu. (f) As the **Firm admin** of the second firm: sign in and read the menu. (g) Switch from the first firm to the second and back through the firm switcher. (h) Read `GET /api/v1/business-framework/active-modules` with no `X-Firm-ID` header, then with each firm.
-- **Expect:** (a) Batches, Lots, Serial Numbers and Expiry Monitor are all absent; the rest of Stock is there. (b) before signing in again the menu is unchanged (the answer is read at sign-in and at a firm switch); after it Batches and Lots show and Serial Numbers and Expiry Monitor do not. (c) Serial Numbers is added; Expiry Monitor is still absent, Paint and Electronics track no expiry. (d) all four are gone again. (e) the user without `BATCH_VIEW` does not see Batches or Lots although the firm's goods need them. (f) Batches and Lots show, because a live product has *Track batch* on although the firm uses no goods type; Serial Numbers does not. (g) the menu changes with the firm each time, with no further sign-in. (h) the INVENTORY row carries `goods_tracking` as a list (for the first firm `BATCH` while Paint is in use, `BATCH` and `SERIAL` once Electronics is too); every other row carries null; with no `X-Firm-ID` every row carries null. Opening the menu makes no extra request beyond the `active-modules` call the shell already makes at start.
+- **Expect:** (a) Batches, Lots, Serial Numbers and Expiry Monitor are all absent; the rest of Stock is there. (b) before signing in again the menu is unchanged (the answer is read at sign-in and at a firm switch); after it Batches and Lots show and Serial Numbers and Expiry Monitor do not. (c) Serial Numbers is added; Expiry Monitor is still absent, Paint and Electronics track no expiry. (d) all four are gone again. (e) the user without `BATCH_VIEW` does not see Batches or Lots although the firm's goods need them. (f) Batches and Lots show, because a live product has *Track batch* on although the firm uses no goods type; Serial Numbers does not. (g) the menu changes with the firm each time, with no further sign-in. (h) the INVENTORY row carries `goods_tracking` as a list (for the first firm `BATCH` while Paint is in use, `BATCH` and `SERIAL` once Electronics is too); every other row carries null; with no `X-Firm-ID` the call answers 200 with an empty list, because the modules are kept in each firm's store and there is no firm to answer for (it answered 503 before D-CFG-26). The client does not ask while no firm is selected, and shows every screen. Opening the menu makes no extra request beyond the `active-modules` call the shell already makes at start.
 - **Leaves:** two goods types used then dropped, one category.
 
 ### TC-MAST-027 — A product import with no switch columns takes its category's goods type
 
-*Added 2026-10-08, not yet run; from the code (backlog 89, step 6).*
+*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 import point (a); `docs/FUNCTIONAL_GUIDE.md`, products
 - **Fixture:** `product-master`
@@ -864,29 +864,29 @@ warehouse rename its capability flags.
 
 ### TC-MAST-028 — The UnitSet column fills a new product's units and its pack rule
 
-*Added 2026-10-08, not yet run; from the code (backlog 89, step 6).*
+*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day and corrected: a Unit beside a UnitSet is passed over with a warning (D-MST-17).*
 
 - **Covers:** backlog 89 import point (b), unit sets in an import
 - **Fixture:** `product-master`
-- **Also needs:** the shared unit sets (*Strip, box of 10* is tied to Medicine, *Tin, loose* is tied to no type); categories *Tablets* (Medicine) and *Emulsions* (Paint); one existing product `UX-OLD` in *Tablets* with its own units.
-- **Steps:** as the **Firm admin**: download the template and read the Lists sheet. Build a file with a UnitSet column: (1) `UX-1` in *Tablets*, UnitSet `Strip, box of 10`, no Unit; (2) `UX-2` in *Tablets*, UnitSet `Strip, box of 10`, Unit `Box`; (3) `UX-3` in *Tablets*, UnitSet `Blister, box of 99`; (4) `UX-4` in *Emulsions*, UnitSet `Strip, box of 10`; (5) `UX-5` in *Emulsions*, UnitSet `Tin, loose`; (6) `UX-OLD` again, UnitSet `Strip, box of 10`. Check. Remove row 3 and check again, then Import. Open each product. Repeat the file with the column headed `Pack size`.
-- **Expect:** the Lists sheet has a Unit set column holding every set offered to the firm. The first check names row 3 as a problem on UnitSet ("'Blister, box of 99' is not an active unit set.") and imports nothing. After row 3 is removed the check is clean in problems but lists two warnings under "2 to look at. These do not stop the import.": row 4 ("is marked for other goods types than this product's. It is imported as written.") and row 6 ("is passed over: a unit set fills a new product only, and this product keeps its units."). Import writes `UX-1` with the set's units and its own pack conversion (1 Box = 10 Strip), `UX-2` with the same conversion but the row's own Unit kept, `UX-4` with the Strip set as written, `UX-5` with Tin and no conversion. `UX-OLD` keeps its units and gains no conversion. The `Pack size` heading is read as the UnitSet column.
+- **Also needs:** the shared unit sets (*Strip, box of 10* is tied to Medicine, *Piece, loose* is tied to no type); categories *Tablets* (Medicine) and *Emulsions* (Paint); one existing product `UX-OLD` in *Tablets* with its own units.
+- **Steps:** as the **Firm admin**: download the template and read the Lists sheet. Build a file with a UnitSet column: (1) `UX-1` in *Tablets*, UnitSet `Strip, box of 10`, no Unit; (2) `UX-2` in *Tablets*, UnitSet `Strip, box of 10`, Unit `Box`; (3) `UX-3` in *Tablets*, UnitSet `Blister, box of 99`; (4) `UX-4` in *Emulsions*, UnitSet `Strip, box of 10`; (5) `UX-5` in *Emulsions*, UnitSet `Piece, loose`; (6) `UX-OLD` again, UnitSet `Strip, box of 10`. Check. Remove row 3 and check again, then Import. Open each product. Repeat the file with the column headed `Pack size`.
+- **Expect:** the Lists sheet has a Unit set column holding every set offered to the firm. The first check names row 3 as a problem on UnitSet ("'Blister, box of 99' is not an active unit set.") and imports nothing. After row 3 is removed the check is clean in problems but lists three warnings under "3 to look at. These do not stop the import.": row 2 on Unit ("is passed over: the unit set 'Strip, box of 10' fills this product's units and its pack conversion."), row 4 ("is marked for other goods types than this product's. It is imported as written.") and row 6 ("is passed over: a unit set fills a new product only, and this product keeps its units."). Import writes `UX-1` with the set's units and its own pack conversion (1 Box = 10 Strip), `UX-2` exactly as `UX-1` -- the set's units and the same conversion, its own Unit passed over (kept, the Unit made the purchase unit the stock unit and the conversion was dropped without a word: D-MST-17) -- `UX-4` with the Strip set as written, `UX-5` with Piece and no conversion. `UX-OLD` keeps its units and gains no conversion. The `Pack size` heading is read as the UnitSet column.
 - **Leaves:** four new products, one unchanged.
 
 ### TC-MAST-029 — What a business profile no longer does
 
-*Added 2026-10-08, not yet run; from the code (backlog 89, step 6).*
+*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89 "Business profiles stay, smaller"; `docs/BUSINESS_PROFILE_FRAMEWORK.md`
 - **Fixture:** `product-master`, plus a platform administrator
-- **Also needs:** a firm on the **Generic** business profile (nothing but `ATTACHMENTS`); a **Firm manager** on it; a second firm on the **Pharmacy** profile.
+- **Also needs:** a firm on the **Generic** business profile (nothing but `ATTACHMENTS`); a **Firm manager** on it; a second firm on the **Pharmacy** profile; the sales hierarchy levels saved for the Generic firm by the **platform administrator** before step (d) -- a route needs them, and the firm administrator is refused that save (403).
 - **Steps:** as the platform administrator: Settings > Business profile > Feature Management; read the list. Open the Generic profile and read its features. As the **Firm admin** of the Generic firm: (a) save a product with a barcode and a QR code; (b) on a product with *Track serial* and *Track warranty* on, add a serial number with warranty dates; (c) on a product with *Track expiry* on, add a batch with an expiry date; (d) Masters > Territory: create a route; (e) Masters > Warehouses: add a second warehouse; (f) record a vehicle number on a delivery note; (g) attach a file to a sales order. As the **Firm manager** of the same firm: repeat (c). As the platform administrator: assign the **Pharmacy** profile to the Generic firm and read the goods types of the firm; then assign the Generic profile again; read the goods types of the pharmacy firm.
-- **Expect:** the feature list holds five rows -- Attachments, Vehicle Tracking, Drug License, Commission and Batch PTR / PTS -- and none of Batch Tracking, Expiry Tracking, Serial Number, Warranty, Barcode, QR Code, Territory, Multiple Warehouses or Approval Workflow. The Generic profile lists Attachments only. (a) to (e) are accepted with no refusal naming a profile or a feature. (f) is refused with 403 ("This firm's business profile does not enable VEHICLE_TRACKING, so ... cannot be set."): vehicle details are one of the five firm features and Generic does not map it. (g) is accepted. The firm manager's batch is refused for the missing permission when the role lacks `BATCH_CREATE`, and for no reason to do with the profile otherwise. Assigning Pharmacy to a firm that holds no goods type puts Medicine in use once, with one `goods_type.starting_set` audit row; assigning Generic back changes nothing, and the pharmacy firm's goods types are unchanged by the round trip.
+- **Expect:** the feature list holds five rows -- Attachments, Vehicle Tracking, Drug License, Commission and Batch PTR / PTS -- and none of Batch Tracking, Expiry Tracking, Serial Number, Warranty, Barcode, QR Code, Territory, Multiple Warehouses or Approval Workflow. The Generic profile lists Attachments only. (a) to (e) are accepted with no refusal naming a profile or a feature. (f) is refused with 403 ("This firm's business profile does not enable VEHICLE_TRACKING, so ... cannot be set."): vehicle details are one of the five firm features and Generic does not map it. (g) is accepted. The firm manager's batch is refused for the missing permission when the role lacks `BATCH_CREATE`, and for no reason to do with the profile otherwise. Assigning Pharmacy to the Generic firm hands it **no** goods type and writes no `goods_type.starting_set` row: a firm takes its profile's goods types with its **first** profile only, as TC-MAST-019 says. Assigning Generic back changes nothing, and the pharmacy firm's goods types are unchanged by the round trip.
 - **Leaves:** a product, a route, a warehouse, a batch, a serial, a delivery note, an attachment.
 
 ### TC-MAST-030 — Copying a product keeps its pack size
 
-*Added 2026-10-08, not yet run; from the code (backlog 89, step 6).*
+*Added 2026-10-08 from the code (backlog 89, step 6); driven over HTTP the same day (`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`). The steps that read a screen are **not yet driven**.*
 
 - **Covers:** backlog 89, `ProductService.duplicate_product`
 - **Fixture:** `product-master`

@@ -197,8 +197,6 @@ def downgrade() -> None:
             "WHERE permission_id IN "
             "(SELECT id FROM permissions WHERE code IN :codes)"
         ).bindparams(
-            sa.bindparam(
-                "codes", value=[code for code, _, _ in _CODES], expanding=True
-            )
+            sa.bindparam("codes", value=[code for code, _, _ in _CODES], expanding=True)
         )
     )

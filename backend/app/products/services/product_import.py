@@ -103,7 +103,7 @@ COLUMNS: tuple[Column, ...] = (
         ("unitset", "packing", "packsize"),
         False,
         "A unit set, by name (see the Lists sheet): it fills a new product's "
-        "units and its pack conversion. A Unit on the same row is kept.",
+        "units and its pack conversion, so a Unit on the same row is passed over.",
         "",
     ),
     Column(
@@ -236,6 +236,14 @@ _MONEY_FIELDS: dict[str, str] = {
     "MinimumPrice": "minimum_selling_price",
     "MRP": "mrp",
 }
+#: What the Unit column writes, and so what a unit set on the row takes over.
+_UNIT_COLUMN_FILLS = (
+    "unit",
+    "base_uom_id",
+    "inventory_uom_id",
+    "purchase_uom_id",
+    "sales_uom_id",
+)
 _FLAG_FIELDS: dict[str, str] = {
     "TrackBatch": "track_batch",
     "TrackExpiry": "track_expiry",
@@ -444,6 +452,11 @@ class ProductFileImporter(FileImporter[Product]):
         so on a product that exists the cell is said to be passed over. A
         set marked for other goods types than the product's is a choice the
         form allows through *Show all unit sets*: said, never refused.
+
+        The set speaks for every unit of a new product, so a Unit named on
+        the same row is passed over and said to be: kept, it made the
+        purchase unit the stock unit and the set's pack rule was dropped
+        without a word (D-MST-17).
         """
         text = row.cells.get("UnitSet", "")
         if not text:
@@ -468,12 +481,25 @@ class ProductFileImporter(FileImporter[Product]):
                 )
             ]
         values["unit_set_id"] = option.id
+        warnings: list[ImportIssue] = []
+        if row.cells.get("Unit", ""):
+            for named in _UNIT_COLUMN_FILLS:
+                values.pop(named, None)
+            warnings.append(
+                ImportIssue(
+                    row.number,
+                    code,
+                    "Unit",
+                    f"is passed over: the unit set '{option.name}' fills this "
+                    "product's units and its pack conversion.",
+                )
+            )
         category_id = values.get("sub_category_id") or values.get("category_id")
         goods_type_id = self._references.goods_type_of(
             category_id if isinstance(category_id, UUID) else None
         )
         if option.goods_type_ids and goods_type_id not in option.goods_type_ids:
-            return [
+            warnings.append(
                 ImportIssue(
                     row.number,
                     code,
@@ -481,8 +507,8 @@ class ProductFileImporter(FileImporter[Product]):
                     f"'{option.name}' is marked for other goods types than this "
                     "product's. It is imported as written.",
                 )
-            ]
-        return []
+            )
+        return warnings
 
     @staticmethod
     def _resolve(

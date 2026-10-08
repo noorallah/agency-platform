@@ -93,15 +93,34 @@ class GoodsTypeRepository:
             .limit(1)
         )
 
-    def product_holding(self, goods_type_id: UUID, firm_id: UUID) -> str | None:
-        """Return the code of one live product of the firm carrying the type."""
+    def product_holding(
+        self, goods_type_id: UUID, firm_id: UUID, *, deleted: bool = False
+    ) -> str | None:
+        """Return the code of one product of the firm carrying the type.
+
+        A live one unless ``deleted`` asks for one that was removed: a removed
+        product still names its type and can be restored (D-MST-19).
+        """
         return self._session.scalar(
             select(Product.code)
             .where(
                 Product.firm_id == firm_id,
                 Product.goods_type_id == goods_type_id,
-                Product.is_deleted.is_(False),
+                Product.is_deleted.is_(deleted),
             )
+            .limit(1)
+        )
+
+    def dropped_use(self, firm_id: UUID, goods_type_id: UUID) -> FirmGoodsType | None:
+        """Return the use row the firm last dropped for this type, if any."""
+        return self._session.scalar(
+            select(FirmGoodsType)
+            .where(
+                FirmGoodsType.firm_id == firm_id,
+                FirmGoodsType.goods_type_id == goods_type_id,
+                FirmGoodsType.is_deleted.is_(True),
+            )
+            .order_by(FirmGoodsType.deleted_at.desc(), FirmGoodsType.id.desc())
             .limit(1)
         )
 

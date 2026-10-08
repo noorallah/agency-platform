@@ -15,7 +15,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.batch_serial.models.batch_serial import BatchRecord
+from app.batch_serial.models.batch_serial import BatchRecord, DocumentLineSerial
 from app.batch_serial.schemas.batch_serial import (
     BatchCreate,
     BatchStatus,
@@ -550,3 +550,244 @@ def test_no_batch_or_serial_code_asks_the_firms_profile_about_a_product() -> Non
             if f'"{code}"' in text:
                 offenders.append(f"{path.relative_to(app_root)}: {code}")
     assert offenders == []
+
+
+# ── Moving a record to another product (D-STK-22) ────────────────────────────
+
+
+def test_a_batch_moved_to_another_product_is_judged_against_that_product() -> None:
+    """The new product decides, as it would for a batch added by hand."""
+    session = _session()
+    firm = _firm(session, "MOV1")
+    other = _firm(session, "MOV2")
+    service = BatchSerialService(session)
+    actor = uuid4()
+    medicine = _medicine(session, firm)
+    paint = _paint(session, firm)
+    phone = _phone(session, firm)
+    theirs = _medicine(session, other)
+    dated = service.create_batch(
+        firm_scope=firm.id,
+        actor_id=actor,
+        data=_batch(medicine, "B-DATED", expiry_date=date(2027, 6, 1)),
+    )
+    plain = service.create_batch(
+        firm_scope=firm.id, actor_id=actor, data=_batch(medicine, "B-PLAIN")
+    )
+
+    def move(batch: BatchRecord, **fields: object) -> BatchRecord:
+        return service.update_batch(
+            firm_scope=firm.id,
+            actor_id=actor,
+            batch_id=batch.id,
+            data=BatchUpdate(**fields),  # type: ignore[arg-type]
+        )
+
+    # A phone tracks no batch, so it takes none by this door either.
+    with pytest.raises(ValidationError, match="not tracked by batch"):
+        move(plain, product_id=phone.id)
+    # Another firm's product is not found, whatever it tracks.
+    with pytest.raises(ResourceNotFoundError):
+        move(plain, product_id=theirs.id)
+    # A product is not cleared off a batch.
+    with pytest.raises(ValidationError, match="must belong to a product"):
+        move(plain, product_id=None)
+    # The date the batch already holds is judged against the new product,
+    # though this save does not mention it.
+    with pytest.raises(ValidationError, match="expiry_date"):
+        move(dated, product_id=paint.id)
+    # Cleared in the same save, the move stands.
+    assert move(dated, product_id=paint.id, expiry_date=None).product_id == paint.id
+    assert move(plain, product_id=paint.id).product_id == paint.id
+    # Naming the product it already has changes nothing and judges nothing.
+    assert move(plain, product_id=paint.id, remarks="held").remarks == "held"
+
+
+def test_a_batch_or_serial_that_has_moved_stock_keeps_its_product() -> None:
+    """What is recorded under it belongs to the product it was recorded for."""
+    session = _session()
+    firm = _firm(session, "MOV3")
+    service = BatchSerialService(session)
+    actor = uuid4()
+    both = _product(session, firm.id, "BOTH-1", track_batch=True, track_serial=True)
+    twin = _product(session, firm.id, "BOTH-2", track_batch=True, track_serial=True)
+    batch = service.create_batch(
+        firm_scope=firm.id, actor_id=actor, data=_batch(both, "B-HELD")
+    )
+    serial = service.create_serial(
+        firm_scope=firm.id,
+        actor_id=actor,
+        data=SerialCreate(
+            product_id=both.id, serial_number="SN-HELD", batch_id=batch.id
+        ),
+    )
+
+    # A serial stands on the batch, so the batch cannot change product.
+    with pytest.raises(ValidationError, match="cannot be moved to another product"):
+        service.update_batch(
+            firm_scope=firm.id,
+            actor_id=actor,
+            batch_id=batch.id,
+            data=BatchUpdate(product_id=twin.id),
+        )
+    # The serial may not leave its batch's product behind it either.
+    with pytest.raises(ValidationError, match="belongs to another product"):
+        service.update_serial(
+            firm_scope=firm.id,
+            actor_id=actor,
+            serial_id=serial.id,
+            data=SerialUpdate(product_id=twin.id),
+        )
+    # A movement that named the serial pins it for good.
+    session.add(
+        DocumentLineSerial(
+            firm_id=firm.id,
+            serial_id=serial.id,
+            document_type="DELIVERY_NOTE",
+            document_id=uuid4(),
+            document_line_id=uuid4(),
+            line_number=1,
+            created_by=actor,
+            updated_by=actor,
+        )
+    )
+    session.commit()
+    with pytest.raises(ValidationError, match="cannot be moved to another product"):
+        service.update_serial(
+            firm_scope=firm.id,
+            actor_id=actor,
+            serial_id=serial.id,
+            data=SerialUpdate(product_id=twin.id, batch_id=None),
+        )
+
+
+def test_a_serial_or_lot_moved_to_another_product_is_judged_against_it() -> None:
+    """The same door for the other two records, and for a serial's batch."""
+    session = _session()
+    firm = _firm(session, "MOV4")
+    service = BatchSerialService(session)
+    actor = uuid4()
+    phone = _phone(session, firm)
+    paint = _paint(session, firm)
+    medicine = _medicine(session, firm)
+    serial = service.create_serial(
+        firm_scope=firm.id,
+        actor_id=actor,
+        data=SerialCreate(product_id=phone.id, serial_number="SN-1"),
+    )
+    lot = service.create_lot(
+        firm_scope=firm.id,
+        actor_id=actor,
+        data=LotCreate(
+            product_id=medicine.id,
+            lot_number="L-1",
+            lot_type=LotType.PRODUCTION,
+            expiry_date=date(2027, 6, 1),
+        ),
+    )
+    paint_batch = service.create_batch(
+        firm_scope=firm.id, actor_id=actor, data=_batch(paint, "B-PAINT")
+    )
+
+    with pytest.raises(ValidationError, match="not tracked by serial number"):
+        service.update_serial(
+            firm_scope=firm.id,
+            actor_id=actor,
+            serial_id=serial.id,
+            data=SerialUpdate(product_id=paint.id),
+        )
+    # Filed under a batch of some other product, by an update or when added.
+    with pytest.raises(ValidationError, match="belongs to another product"):
+        service.update_serial(
+            firm_scope=firm.id,
+            actor_id=actor,
+            serial_id=serial.id,
+            data=SerialUpdate(batch_id=paint_batch.id),
+        )
+    with pytest.raises(ValidationError, match="belongs to another product"):
+        service.create_serial(
+            firm_scope=firm.id,
+            actor_id=actor,
+            data=SerialCreate(
+                product_id=phone.id, serial_number="SN-2", batch_id=paint_batch.id
+            ),
+        )
+    # The lot's expiry is the paint's to refuse, and a phone takes no lot.
+    with pytest.raises(ValidationError, match="expiry_date"):
+        service.update_lot(
+            firm_scope=firm.id,
+            actor_id=actor,
+            lot_id=lot.id,
+            data=LotUpdate(product_id=paint.id),
+        )
+    with pytest.raises(ValidationError, match="not tracked by lot or batch"):
+        service.update_lot(
+            firm_scope=firm.id,
+            actor_id=actor,
+            lot_id=lot.id,
+            data=LotUpdate(product_id=phone.id),
+        )
+
+
+# ── A batch does not expire before it is made (D-STK-23) ─────────────────────
+
+
+def test_a_batch_is_refused_an_expiry_before_its_manufacturing_date() -> None:
+    """On the dates the batch will hold, whichever of them a save names."""
+    session = _session()
+    firm = _firm(session, "DAT1")
+    service = BatchSerialService(session)
+    actor = uuid4()
+    medicine = _medicine(session, firm)
+
+    with pytest.raises(ValidationError, match="before the manufacturing date"):
+        service.create_batch(
+            firm_scope=firm.id,
+            actor_id=actor,
+            data=_batch(
+                medicine,
+                "B-BACK",
+                manufacturing_date=date(2027, 6, 1),
+                expiry_date=date(2026, 6, 1),
+            ),
+        )
+    with pytest.raises(ValidationError, match="best-before date"):
+        service.create_batch(
+            firm_scope=firm.id,
+            actor_id=actor,
+            data=_batch(
+                medicine,
+                "B-BEST",
+                manufacturing_date=date(2027, 6, 1),
+                best_before_date=date(2027, 5, 31),
+            ),
+        )
+    # The same day is a batch made and expiring on it, and is allowed.
+    batch = service.create_batch(
+        firm_scope=firm.id,
+        actor_id=actor,
+        data=_batch(
+            medicine,
+            "B-SAME",
+            manufacturing_date=date(2026, 6, 1),
+            expiry_date=date(2026, 6, 1),
+        ),
+    )
+    # An update is judged on what the batch will hold, not on what it names.
+    with pytest.raises(ValidationError, match="before the manufacturing date"):
+        service.update_batch(
+            firm_scope=firm.id,
+            actor_id=actor,
+            batch_id=batch.id,
+            data=BatchUpdate(manufacturing_date=date(2026, 7, 1)),
+        )
+    # A save that touches no date is not held up by dates already on file.
+    session.get(BatchRecord, batch.id).manufacturing_date = date(2026, 7, 1)  # type: ignore[union-attr]
+    session.commit()
+    held = service.update_batch(
+        firm_scope=firm.id,
+        actor_id=actor,
+        batch_id=batch.id,
+        data=BatchUpdate(status=BatchStatus.QUARANTINE),
+    )
+    assert held.status == BatchStatus.QUARANTINE
