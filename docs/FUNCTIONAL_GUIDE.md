@@ -2701,6 +2701,13 @@ stays reserved** while held: holding says "not yet", not "never".
 The delivery note moves stock and posts cost of goods sold, and moves the
 order — derived by summing the notes that have left the warehouse.
 
+**An order owed more than is held ships what is on the shelf.** An order for
+ten with four in the warehouse holds all ten; a note for the four dispatches
+and six stay owed. Orders are served in the order they were approved: where
+two orders together ask for more than is held, the earlier one ships first and
+the later one's note is refused until goods arrive -- its hold does not stop
+the earlier order, and it cannot take what the earlier order is owed.
+
 A note line carries **two quantities and they are not interchangeable**:
 `current_delivery_quantity` is what the customer is charged for, and
 `delivered_quantity` is that plus free goods converted into inventory units.

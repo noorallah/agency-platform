@@ -3635,14 +3635,27 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             # A kit shipped beyond what is assembled is assembled from its
             # components first, in this transaction (STK-15).
-            if available + own_hold < line.delivered_quantity and KitService(
+            can_ship = self._q(available + own_hold)
+            # Holds with no stock behind them -- this order's own back order,
+            # or a later order's -- stop nothing that is on the shelf
+            # (D-STK-39); asked only when the plain sum falls short.
+            past_back_orders: dict[UUID, Decimal] = {}
+            if can_ship < line.delivered_quantity:
+                shippable, past_back_orders = self._past_back_orders(
+                    row,
+                    line,
+                    branch_id=goods_branch_id,
+                    warehouse_id=line.warehouse_id,
+                )
+                can_ship = max(can_ship, shippable)
+            if can_ship < line.delivered_quantity and KitService(
                 self._session
             ).assemble_for_dispatch(
                 firm_id=row.firm_id,
                 branch_id=goods_branch_id,
                 warehouse_id=line.warehouse_id,
                 product_id=line.product_id,
-                shortfall=line.delivered_quantity - available - own_hold,
+                shortfall=line.delivered_quantity - can_ship,
                 on=row.delivery_date,
                 reference=row.delivery_note_number,
                 actor_id=actor_id,
@@ -3654,7 +3667,16 @@ class DeliveryNoteService(TransactionalDocumentService):
                     storage_node_id=line.storage_node_id,
                     product_id=line.product_id,
                 )
-            if available + own_hold < line.delivered_quantity:
+                can_ship = self._q(available + own_hold)
+                if can_ship < line.delivered_quantity:
+                    shippable, past_back_orders = self._past_back_orders(
+                        row,
+                        line,
+                        branch_id=goods_branch_id,
+                        warehouse_id=line.warehouse_id,
+                    )
+                    can_ship = max(can_ship, shippable)
+            if can_ship < line.delivered_quantity:
                 raise ValidationError("Insufficient available stock for dispatch line.")
             chosen = (
                 None
@@ -3794,6 +3816,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     as_of=row.delivery_date,
                     # Nor is a batch too short-dated for this customer.
                     keep_until=keep_until,
+                    past_back_orders=past_back_orders,
                 )
                 shares = self._trail.deal(
                     picks, [allocated for _, allocated in allocation]
@@ -3894,6 +3917,29 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         return batch_notes
+
+    def _past_back_orders(
+        self,
+        row: DeliveryNote,
+        line: DeliveryNoteLine,
+        *,
+        branch_id: UUID,
+        warehouse_id: UUID,
+    ) -> tuple[Decimal, dict[UUID, Decimal]]:
+        """Return what a line's order may ship past holds nothing stands behind.
+
+        The total, and what may be drawn from each stock row that holds less
+        than is reserved on it (``shippable_past_back_orders``).
+        """
+        shippable, past = self._inventory.shippable_past_back_orders(
+            firm_scope=row.firm_id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=line.storage_node_id,
+            product_id=line.product_id,
+            reference_number=row.sales_order_reference,
+        )
+        return self._q(shippable), past
 
     def _deliver_service(self, line: DeliveryNoteLine, *, actor_id: UUID) -> None:
         """Let go of what the order held for a service line; move nothing."""

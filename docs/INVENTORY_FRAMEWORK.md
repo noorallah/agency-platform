@@ -65,9 +65,10 @@ available = current - reserved - blocked
 derived on every movement, plus the planning levels `minimum_level`,
 `maximum_level`, `reorder_level` and `safety_stock`.
 
-Each bucket has its own delta on a movement and each is validated non-negative,
-so a reservation cannot exceed what is there. That is what lets the sales flow
-be three movements instead of one:
+Each bucket has its own delta on a movement and each is validated non-negative.
+`available` is not a bucket and may read below zero: an order holds its whole
+quantity, and the part no stock covers is a back order (see *Traps*). That is
+what lets the sales flow be three movements instead of one:
 
 ```
 sales order approved   RESERVE     +reserved            on hand unchanged
@@ -330,6 +331,19 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
   as a goods receipt does (`opening_serials.py`,
   `opening_stock_line_serials`); a line naming none still posts, because
   stores seeded or opened before this are already in that state.
+- **A hold with no stock behind it stops nobody.** An order holds its whole
+  quantity at approval, so `reserved` can exceed what a row holds and the rest
+  is a back order. The dispatch gate read the plain sum, and the goods that
+  *were* there could not leave: four held and one order for ten could not ship
+  the four; an order for three could not ship beside a later one for four
+  (D-STK-39). Where a row is short of its holds, `shippable_past_back_orders`
+  reads them in the order they were made -- the stock stands behind the
+  earliest first -- and tells the gate and `allocate_for_dispatch` what this
+  order may draw. Its own hold never stands in its own way; a later order
+  still waits for an earlier one, and a sale with no order behind it still
+  cannot take held stock. A row that covers its holds is read exactly as
+  before. Anything else that gates on `available` for an order's own goods
+  has to ask the same question.
 
 ## Where the code is
 
