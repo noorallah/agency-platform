@@ -445,6 +445,8 @@ class OpeningStockLineRecord {
     required this.safetyStock,
     required this.remarks,
     required this.transactionId,
+    this.serialTracked = false,
+    this.serialNumbers = const [],
   });
 
   final String id;
@@ -470,6 +472,12 @@ class OpeningStockLineRecord {
   final String remarks;
   final String transactionId;
 
+  /// Whether every unit of the product carries its own serial number.
+  final bool serialTracked;
+
+  /// The serial numbers typed on the line, one per unit.
+  final List<String> serialNumbers;
+
   factory OpeningStockLineRecord.fromJson(Json json) => OpeningStockLineRecord(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -490,6 +498,13 @@ class OpeningStockLineRecord {
         safetyStock: stringValue(json['safety_stock']),
         remarks: stringValue(json['remarks']),
         transactionId: stringValue(json['transaction_id']),
+        serialTracked: json['serial_tracked'] == true,
+        serialNumbers: [
+          for (final dynamic item in json['serial_numbers'] is List
+              ? json['serial_numbers'] as List
+              : const [])
+            stringValue(item),
+        ],
       );
 }
 

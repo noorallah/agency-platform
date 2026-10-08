@@ -17,6 +17,10 @@ Nothing else posts: the firm owns the goods the whole way, and there is one
 inventory account. A transfer between branches with their own GSTINs, which
 is a sale, is refused here (STK-2): it is billed on a sales invoice to the
 other branch.
+
+A serial-tracked line names its units (D-STK-40): picked off the source's
+shelf while a draft, IN_TRANSIT from dispatch, and at the receipt AVAILABLE
+or DAMAGED at the destination, or LOST where they never came.
 """
 
 from datetime import date
@@ -27,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
 from app.batch_serial.models.batch_serial import BatchRecord
+from app.batch_serial.schemas.batch_serial import PickedSerial
 from app.branches.models.branch_warehouse import Warehouse
 from app.branches.services.registration import BranchRegistration
 from app.common.audit.services import record_audit
@@ -41,6 +46,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.inventory.models.stock_transfer import StockTransfer, StockTransferLine
 from app.inventory.schemas.inventory import InventoryTransactionType
 from app.inventory.services.inventory_service import InventoryService
+from app.inventory.services.transfer_serials import TransferSerials
 from app.products.models import Product
 
 ZERO = Decimal("0")
@@ -56,6 +62,9 @@ class StockTransferLineWrite(BaseModel):
     batch_id: UUID | None = None
     quantity: Decimal = QUANTITY
     remarks: str | None = Field(default=None, max_length=500)
+    #: The units a serial-tracked line sends, picked from the source's
+    #: AVAILABLE serials. A draft may name fewer; dispatch asks for the rest.
+    serial_ids: list[UUID] = Field(default_factory=list, max_length=10000)
 
 
 class StockTransferWrite(BaseModel):
@@ -99,6 +108,10 @@ class StockTransferReceiptLine(BaseModel):
     damaged_quantity: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
+    #: Which of a serial-tracked line's units never arrived, and which came
+    #: damaged: one per unit short and one per unit damaged.
+    short_serial_ids: list[UUID] = Field(default_factory=list, max_length=10000)
+    damaged_serial_ids: list[UUID] = Field(default_factory=list, max_length=10000)
 
     @model_validator(mode="after")
     def _damaged_within_received(self) -> "StockTransferReceiptLine":
@@ -147,6 +160,11 @@ class StockTransferLineResponse(BaseModel):
     short_quantity: Decimal | None
     unit_cost: Decimal | None
     remarks: str | None
+    #: Whether the product carries a serial per unit, so the line names them.
+    serial_tracked: bool = False
+    #: The units the line names, each with where it stands now: AVAILABLE
+    #: while picked or once received, IN_TRANSIT, DAMAGED or LOST.
+    serials: list[PickedSerial] = Field(default_factory=list)
 
 
 class StockTransferResponse(BaseModel):
@@ -258,6 +276,7 @@ class StockTransferService(TransactionalDocumentService):
             raise ValidationError("Only a draft transfer can be changed.")
         source, destination = self._ends(data, firm_id)
         self._check_lines(data.lines, firm_id)
+        TransferSerials(self._session).clear(row)
         for line in self.lines(row.id):
             self._session.delete(line)
         self._session.flush()
@@ -303,8 +322,10 @@ class StockTransferService(TransactionalDocumentService):
         if data.transporter_name is not None:
             row.transporter_name = data.transporter_name
         inventory = InventoryService(self._session)
+        serials = TransferSerials(self._session)
         total = ZERO
         for line in self.lines(row.id):
+            units = serials.check_dispatch(row, line)
             out, value = inventory.stage_transfer_leg(
                 firm_scope=firm_id,
                 branch_id=row.from_branch_id,
@@ -341,6 +362,7 @@ class StockTransferService(TransactionalDocumentService):
             line.dispatch_transaction_id = out.id
             line.transit_transaction_id = transit.id
             line.updated_by = actor_id
+            serials.dispatch(row, line, units, movement=out, actor_id=actor_id)
             total += value
         row.status = "DISPATCHED"
         row.dispatched_on = on
@@ -420,6 +442,16 @@ class StockTransferService(TransactionalDocumentService):
             line.short_quantity = short
             line.receive_transaction_id = moved.id
             line.updated_by = actor_id
+            TransferSerials(self._session).receive(
+                row,
+                line,
+                movement=moved,
+                short=short,
+                damaged=damaged,
+                short_ids=[] if said is None else said.short_serial_ids,
+                damaged_ids=[] if said is None else said.damaged_serial_ids,
+                actor_id=actor_id,
+            )
             if short > ZERO:
                 shortage += value
         row.status = "RECEIVED"
@@ -467,6 +499,7 @@ class StockTransferService(TransactionalDocumentService):
         if was == "DISPATCHED":
             inventory = InventoryService(self._session)
             for line in self.lines(row.id):
+                TransferSerials(self._session).recall(row, line, actor_id=actor_id)
                 # Out of transit first, then back onto the source's shelf.
                 for movement in (
                     line.transit_transaction_id,
@@ -553,6 +586,18 @@ class StockTransferService(TransactionalDocumentService):
             if product_ids
             else {}
         )
+        tracked = (
+            set(
+                self._session.scalars(
+                    select(Product.id).where(
+                        Product.id.in_(product_ids), Product.track_serial.is_(True)
+                    )
+                ).all()
+            )
+            if product_ids
+            else set()
+        )
+        picked = TransferSerials(self._session).picked([line.id for line in lines])
         batch_ids = {line.batch_id for line in lines if line.batch_id is not None}
         batches: dict[UUID, str] = (
             {
@@ -617,6 +662,8 @@ class StockTransferService(TransactionalDocumentService):
                         short_quantity=line.short_quantity,
                         unit_cost=line.unit_cost,
                         remarks=line.remarks,
+                        serial_tracked=line.product_id in tracked,
+                        serials=picked.get(line.id, []),
                     )
                     for line in lines
                     if line.transfer_id == row.id
@@ -677,7 +724,12 @@ class StockTransferService(TransactionalDocumentService):
                 (
                     str(line.line_number),
                     line.product_code,
-                    line.product_name,
+                    (
+                        f"{line.product_name} (S/N "
+                        f"{', '.join(s.serial_number for s in line.serials)})"
+                        if line.serials
+                        else line.product_name
+                    ),
                     line.batch_number or "",
                     f"{Decimal(str(line.quantity)).normalize():f}",
                 )
@@ -775,9 +827,10 @@ class StockTransferService(TransactionalDocumentService):
         lines: list[StockTransferLineWrite],
         actor_id: UUID,
     ) -> None:
-        """Stage the draft's lines, numbered in order."""
+        """Stage the draft's lines, numbered in order, and what they pick."""
+        staged: list[StockTransferLine] = []
         for number, line in enumerate(lines, start=1):
-            self._session.add(
+            staged.append(
                 StockTransferLine(
                     transfer_id=row.id,
                     firm_id=row.firm_id,
@@ -790,6 +843,12 @@ class StockTransferService(TransactionalDocumentService):
                     updated_by=actor_id,
                 )
             )
+        self._session.add_all(staged)
+        # Written first: a pick names its line by id.
+        self._session.flush()
+        TransferSerials(self._session).pick(
+            row, staged, [line.serial_ids for line in lines], actor_id=actor_id
+        )
 
     def _event(
         self,

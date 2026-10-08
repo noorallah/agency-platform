@@ -369,6 +369,7 @@ trigger each schema owns its own copy of.
 | `inventories` | firm store ¹ | Persist one firm-scoped inventory projection per product location. | `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `batches`, `business_profiles`, `uoms` |
 | `inventory_transactions` | firm store ¹ | Persist one immutable inventory movement event. | `inventories`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms`, `batches`, `lots`, `serial_numbers` |
 | `opening_stock_batches` | firm store ¹ | Persist a draft or posted opening-stock document. | `firms`, `branches`, `warehouses` |
+| `opening_stock_line_serials` | firm store ¹ | One serial number typed on an opening stock line (D-STK-40). | `opening_stock_batches`, `opening_stock_lines` |
 | `opening_stock_lines` | firm store ¹ | Persist one opening-stock line before or after posting. | `opening_stock_batches`, `products`, `warehouse_storage_nodes`, `business_profiles`, `uoms`, `batches`, `inventory_transactions` |
 | `physical_count_lines` | firm store ¹ | Store one stock row's count on one sheet. | `firms`, `physical_counts` |
 | `physical_counts` | firm store ¹ | Store one count sheet for one warehouse. | `firms` |

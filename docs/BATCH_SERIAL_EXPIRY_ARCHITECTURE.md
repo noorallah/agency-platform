@@ -345,6 +345,18 @@ the history generator as they were sold. Now the receipt line carries them:
   the firm, is refused by name. A product nobody tracks by serial refuses a
   non-empty list. The line response carries `serial_numbers` and
   `serial_tracked`.
+- **Opening stock types its units the same way** (D-STK-40): `serial_numbers`
+  on an opening stock line, held in `opening_stock_line_serials` (migration
+  `20261008_0354`) and made into units at posting, whose first pick is
+  `OPENING_STOCK`. A draft's lines are replaced on every save, so absent
+  there means none. A line that names some must name one per unit of its
+  stock quantity; a line that names none posts as a quantity.
+- **A transfer names the units it moves** (D-STK-40), as `document_line_serials`
+  rows: `STOCK_MOVE` for the one-step transfer, whose line is its outbound
+  movement, and `STOCK_TRANSFER` for a line of the transfer document. The
+  statuses `IN_TRANSIT` and `DAMAGED` exist for the document's two steps.
+  `SerialTrailService.move_units` is the one place a transfer changes a
+  unit's status and place.
 - **A draft holds them as typed**, in `goods_receipt_line_serials` (migration
   `20261005_0311`), and may be short. Nothing is a unit yet, so two drafts may
   type the same number.

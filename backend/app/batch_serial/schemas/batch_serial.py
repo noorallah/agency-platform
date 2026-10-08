@@ -50,6 +50,10 @@ class SerialStatus(StrEnum):
     REPAIRED = "REPAIRED"
     SCRAPPED = "SCRAPPED"
     LOST = "LOST"
+    #: On a dispatched stock transfer: off the source, not yet received.
+    IN_TRANSIT = "IN_TRANSIT"
+    #: Arrived damaged on a stock transfer: in the warehouse, not for sale.
+    DAMAGED = "DAMAGED"
 
 
 class BatchSchema(BaseModel):

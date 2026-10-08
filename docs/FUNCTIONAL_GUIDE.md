@@ -3680,7 +3680,7 @@ uv run python scripts/dump_route_permissions.py --markdown inventory
 | `inventory_transactions` | Every movement, with the before and after of each bucket |
 | `stock_ledger_entries` | The ledger view of those movements, with `average_cost_after` |
 | `product_valuations` | The moving weighted-average cost, one row per **firm and product** |
-| `opening_stock_batches`, `opening_stock_lines` | The opening-balance document |
+| `opening_stock_batches`, `opening_stock_lines`, `opening_stock_line_serials` | The opening-balance document, and the serial numbers a line typed |
 | `physical_counts`, `physical_count_lines` | The counting sheet |
 
 ## Rules that bite

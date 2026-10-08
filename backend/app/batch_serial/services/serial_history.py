@@ -3,9 +3,11 @@
 Every document that moved a unit left a moved pick in
 ``document_line_serials``: the receipt it arrived on, the delivery notes it
 left on, the sales returns it came back on, the purchase return that sent it
-to the supplier. Read in order -- the receipt first, since that is where the
-trail starts, then by when each moved -- with each document's number, date and
-counterparty, one read per document type.
+to the supplier, the transfers that took it to another warehouse, and the
+opening stock it was counted in on day one. Read in order -- the receipt or
+the opening stock first, since that is where the trail starts, then by when
+each moved -- with each document's number, date and counterparty, one read
+per document type.
 """
 
 from __future__ import annotations
@@ -25,10 +27,14 @@ from app.batch_serial.schemas.batch_serial import (
 )
 from app.batch_serial.services.batch_serial_service import BatchSerialService
 from app.batch_serial.services.serial_trail_service import (
+    ARRIVALS,
     DELIVERY_NOTE,
     GOODS_RECEIPT,
+    OPENING_STOCK,
     PURCHASE_RETURN,
     SALES_RETURN,
+    STOCK_MOVE,
+    STOCK_TRANSFER,
 )
 from app.common.report_names import customer_names, vendor_names
 from app.core.utils.dates import as_utc, utc_now
@@ -41,6 +47,8 @@ def _headers(session: Session, wanted: dict[str, set[UUID]]) -> dict[UUID, _Head
     """Read each document's number, date and party, one read per type."""
     from app.delivery_note.models import DeliveryNote
     from app.goods_receipt.models import GoodsReceipt
+    from app.inventory.models import InventoryTransaction, OpeningStockBatch
+    from app.inventory.models.stock_transfer import StockTransfer
     from app.purchase_return.models import PurchaseReturn
     from app.sales_return.models import SalesReturn
 
@@ -85,6 +93,34 @@ def _headers(session: Session, wanted: dict[str, set[UUID]]) -> dict[UUID, _Head
             ).where(SalesReturn.id.in_(wanted[SALES_RETURN]))
         ).all():
             found[row_id] = (number, on, party, False)
+    # The three below have no counterparty: the goods never left the firm.
+    if wanted.get(STOCK_TRANSFER):
+        for row_id, number, on in session.execute(
+            select(
+                StockTransfer.id,
+                StockTransfer.transfer_number,
+                StockTransfer.transfer_date,
+            ).where(StockTransfer.id.in_(wanted[STOCK_TRANSFER]))
+        ).all():
+            found[row_id] = (number, on, None, False)
+    if wanted.get(STOCK_MOVE):
+        for row_id, number, on in session.execute(
+            select(
+                InventoryTransaction.id,
+                InventoryTransaction.reference_number,
+                InventoryTransaction.transaction_date,
+            ).where(InventoryTransaction.id.in_(wanted[STOCK_MOVE]))
+        ).all():
+            found[row_id] = (number or "", on, None, False)
+    if wanted.get(OPENING_STOCK):
+        for row_id, number, on in session.execute(
+            select(
+                OpeningStockBatch.id,
+                OpeningStockBatch.reference_number,
+                OpeningStockBatch.posting_date,
+            ).where(OpeningStockBatch.id.in_(wanted[OPENING_STOCK]))
+        ).all():
+            found[row_id] = (number, on, None, False)
     return found
 
 
@@ -111,11 +147,11 @@ def serial_trail(session: Session, *, firm_id: UUID, serial_id: UUID) -> SerialT
     customers = customer_names(session, (h[2] for h in headers.values() if not h[3]))
 
     def order(pick: DocumentLineSerial) -> tuple[int, datetime]:
-        """Put the receipt first, then everything in the order it moved."""
+        """Put where the unit arrived first, then the rest as it moved."""
         # Read through `as_utc`: SQLite hands back naive what PostgreSQL
         # hands back aware.
         moved = as_utc(pick.moved_at) if pick.moved_at is not None else utc_now()
-        return (0 if pick.document_type == GOODS_RECEIPT else 1, moved)
+        return (0 if pick.document_type in ARRIVALS else 1, moved)
 
     events: list[SerialTrailEvent] = []
     for pick in sorted(picks, key=order):

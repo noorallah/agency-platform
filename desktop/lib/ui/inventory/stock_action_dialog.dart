@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/serial_pick_chips.dart';
 import 'stock_evidence_picker.dart';
 
 /// What is being done to the stock on a selected row.
@@ -125,7 +127,17 @@ class StockActionDialog extends StatefulWidget {
     this.onSubmitForApproval,
     this.pickFiles,
     this.searchCustomers,
+    this.trackSerial = false,
+    this.loadSerials,
   });
+
+  /// Whether the product carries a serial number on every unit. A transfer of
+  /// such a product names the units moving (D-STK-40).
+  final bool trackSerial;
+
+  /// The AVAILABLE serials of the product in the source warehouse; null hides
+  /// the picker.
+  final Future<List<PickedSerial>> Function()? loadSerials;
 
   /// Finds customers by what was typed, for the write-off reasons that name
   /// one (BUY-1). Null: the picker finds nothing.
@@ -178,6 +190,8 @@ class _StockActionDialogState extends State<StockActionDialog>
   String? _error;
   String? _customerId;
   List<Json> _attachments = const [];
+  List<PickedSerial> _onShelf = const [];
+  final List<String> _serialIds = [];
 
   /// The draft the server refused as too large, kept so it can be sent for
   /// approval as it stands (STK-8).
@@ -212,6 +226,33 @@ class _StockActionDialogState extends State<StockActionDialog>
     });
   }
 
+  bool get _namesUnits =>
+      widget.action == StockAction.transfer &&
+      widget.trackSerial &&
+      widget.loadSerials != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_namesUnits) _readSerials();
+  }
+
+  Future<void> _readSerials() async {
+    try {
+      final List<PickedSerial> found = await widget.loadSerials!();
+      if (mounted) setState(() => _onShelf = found);
+    } on ApiException {
+      // The picker then says there is nothing to pick; the server decides.
+    }
+  }
+
+  /// How many units are moving, where the quantity is a whole number.
+  int? get _unitsMoving {
+    final double? quantity = double.tryParse(_quantity.text.trim());
+    if (quantity == null || quantity != quantity.roundToDouble()) return null;
+    return quantity.toInt();
+  }
+
   @override
   void dispose() {
     _quantity.dispose();
@@ -244,6 +285,12 @@ class _StockActionDialogState extends State<StockActionDialog>
       setState(() => _error = problem);
       return;
     }
+    final int? units = _unitsMoving;
+    if (_namesUnits && units != null && _serialIds.length != units) {
+      setState(() => _error = 'Pick one serial number per unit moving: '
+          '$units needed, ${_serialIds.length} picked.');
+      return;
+    }
     if (widget.action == StockAction.writeOff &&
         _reason == freeToCustomerReason &&
         _customerId == null) {
@@ -258,6 +305,7 @@ class _StockActionDialogState extends State<StockActionDialog>
       if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
       if (widget.action == StockAction.transfer)
         'to_warehouse_id': _destination,
+      if (_namesUnits && _serialIds.isNotEmpty) 'serial_ids': [..._serialIds],
       if (widget.action == StockAction.writeOff) 'reason': _reason,
       if (widget.action == StockAction.writeOff &&
           _customerId != null &&
@@ -339,6 +387,23 @@ class _StockActionDialogState extends State<StockActionDialog>
               ]),
               const SizedBox(height: AppSpacing.md),
               ..._actionFields(),
+              if (_namesUnits && _destination.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.md),
+                SerialPickChips(
+                  title: 'Pick the units that are moving',
+                  onShelf: _onShelf,
+                  picked: _serialIds,
+                  needed: _unitsMoving,
+                  enabled: !saving,
+                  onToggle: (id, picked) => setState(() {
+                    if (picked) {
+                      _serialIds.add(id);
+                    } else {
+                      _serialIds.remove(id);
+                    }
+                  }),
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               TextField(
                 controller: _remarks,

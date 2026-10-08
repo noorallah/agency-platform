@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from io import BytesIO
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import case, func, or_, select
@@ -75,6 +75,9 @@ from app.uom.services.uom_service import (
     quantize_by_rule,
     round_by_rule,
 )
+
+if TYPE_CHECKING:
+    from app.inventory.services.opening_serials import OpeningSerials
 
 ZERO = Decimal("0")
 #: How many rows an export reads at a time; it reads until there are no more.
@@ -173,6 +176,14 @@ class ReservationPlan:
 
     batches: list[tuple[UUID | None, Decimal]]
     expired_note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class _TypedSerials:
+    """The serials a page of opening stock lines typed, read once."""
+
+    by_line: Mapping[UUID, Sequence[str]]
+    tracked: frozenset[UUID] | set[UUID]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1161,6 +1172,7 @@ class InventoryService:
         )
         self._session.add(batch)
         self._session.flush()
+        self._write_opening_serials(batch, data.lines, actor_id=actor_id)
         record_audit(
             self._session,
             action="opening_stock.created",
@@ -1207,6 +1219,7 @@ class InventoryService:
         batch.posting_date = data.posting_date
         batch.remarks = data.remarks
         batch.updated_by = actor_id
+        self._opening_serials().clear_batch(batch.id)
         for existing in list(batch.lines):
             self._session.delete(existing)
         # Written before the new lines are staged: the unit of work inserts
@@ -1219,6 +1232,8 @@ class InventoryService:
             lines=data.lines,
             actor_id=actor_id,
         )
+        self._session.flush()
+        self._write_opening_serials(batch, data.lines, actor_id=actor_id)
         record_audit(
             self._session,
             action="opening_stock.updated",
@@ -1235,6 +1250,35 @@ class InventoryService:
         self._commit()
         self._session.refresh(batch)
         return batch
+
+    def _opening_serials(self) -> OpeningSerials:
+        """Return the keeper of what opening stock lines typed.
+
+        Imported here for the reason `BatchSerialService` is, below: the
+        serial trail's package reads stock totals from this module.
+        """
+        from app.inventory.services.opening_serials import OpeningSerials
+
+        return OpeningSerials(self._session)
+
+    def _write_opening_serials(
+        self,
+        batch: OpeningStockBatch,
+        lines: Sequence[OpeningStockLineCreate],
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Keep the serials each freshly written line typed (D-STK-40).
+
+        The lines were built from ``lines`` in order, so the two pair up by
+        position. Nothing is created yet: posting makes the units.
+        """
+        serials = self._opening_serials()
+        written = sorted(batch.lines, key=lambda line: line.line_number)
+        for line, stated in zip(written, lines, strict=True):
+            if stated.serial_numbers:
+                serials.replace(batch, line, stated.serial_numbers, actor_id=actor_id)
+        serials.refuse_repeats(batch, written)
 
     def _opening_stock_batch_id(
         self,
@@ -1421,6 +1465,15 @@ class InventoryService:
             line.transaction_id = transaction.id
             line.updated_by = actor_id
             movement_ids.append(transaction.id)
+            # The units the line named arrive with its stock (D-STK-40).
+            self._opening_serials().receive(
+                batch,
+                line,
+                transaction,
+                units=base_quantity,
+                batch_id=line_batch_id,
+                actor_id=actor_id,
+            )
         # Day-one stock arrived from nowhere the ledger can see, so it is
         # debited to inventory against opening balance equity. The flush is
         # required for the same reason it is on adjustments: request sessions
@@ -2070,6 +2123,19 @@ class InventoryService:
                 conversion_version=conversion_version,
                 remarks=data.remarks,
             ),
+        )
+        # Imported here for the reason `BatchSerialService` is, further up:
+        # the serial trail's package reads stock totals from this module.
+        from app.inventory.services.transfer_serials import TransferSerials
+
+        # The units go where the goods went (D-STK-40), or a dispatch from
+        # the destination refuses them as not being in that warehouse.
+        TransferSerials(self._session).move(
+            serial_ids=data.serial_ids,
+            quantity=base_quantity,
+            outbound=outbound,
+            inbound=inbound,
+            actor_id=actor_id,
         )
         StockEvidenceService(self._session).stage_for_movement(
             outbound, data.attachments, actor_id=actor_id
@@ -4375,10 +4441,15 @@ class InventoryService:
             batches={},
             profiles={},
         )
-        return [self._opening_stock_batch_response(row, labels) for row in rows]
+        serials = self._opening_serials()
+        typed = _TypedSerials(
+            by_line=serials.typed(line.id for line in lines),
+            tracked=serials.tracked(line.product_id for line in lines),
+        )
+        return [self._opening_stock_batch_response(row, labels, typed) for row in rows]
 
     def _opening_stock_batch_response(
-        self, row: OpeningStockBatch, labels: _Labels
+        self, row: OpeningStockBatch, labels: _Labels, typed: _TypedSerials
     ) -> OpeningStockBatchResponse:
         """Build one opening-stock batch's response from a page's labels."""
         return OpeningStockBatchResponse.model_validate(
@@ -4399,7 +4470,7 @@ class InventoryService:
                 "remarks": row.remarks,
                 "posted_at": row.posted_at,
                 "lines": [
-                    self._opening_stock_line_response(line, labels)
+                    self._opening_stock_line_response(line, labels, typed)
                     for line in row.lines
                     if not line.is_deleted
                 ],
@@ -4409,7 +4480,7 @@ class InventoryService:
         )
 
     def _opening_stock_line_response(
-        self, row: OpeningStockLine, labels: _Labels
+        self, row: OpeningStockLine, labels: _Labels, typed: _TypedSerials
     ) -> OpeningStockLineResponse:
         return OpeningStockLineResponse.model_validate(
             {
@@ -4436,6 +4507,8 @@ class InventoryService:
                 "safety_stock": row.safety_stock,
                 "remarks": row.remarks,
                 "transaction_id": row.transaction_id,
+                "serial_tracked": row.product_id in typed.tracked,
+                "serial_numbers": list(typed.by_line.get(row.id, [])),
             }
         )
 

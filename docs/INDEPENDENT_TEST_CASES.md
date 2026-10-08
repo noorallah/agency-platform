@@ -2415,6 +2415,18 @@ the fixture builds (a minute or two).
 - **Leaves:** product settings.
 
 
+### TC-STOCK-021 — Serial numbers follow a transfer, and opening stock types its units
+
+*Added 2026-10-08 with the build (D-STK-40). Driven over HTTP by `docs/qa/checks/inventory/d_stk_19.py`.*
+
+- **Covers:** D-STK-40, backlog 90 gap 1
+- **Fixture:** `selling-firm`
+- **Also needs:** a second warehouse; a product whose goods type keeps serial numbers (Electronics), with no stock.
+- **Steps:** as the fixture's **Firm admin**: Inventory > Opening stock → new document for MAIN, the serial product, quantity 6, cost 10; type two numbers in **Serial numbers** and save; press **Post**. Reopen the draft, type all six, save, post. Inventory > Stock → **Transfer** 2 of the product to the second warehouse: save with no units picked, then with one, then with two. Inventory > Stock transfers → new transfer of the other 4, picking one unit; **Dispatch**; edit the draft and pick all four; dispatch; **Receive** with received 3, damaged 1, without ticking units, then ticking one as not arrived and one as damaged. Batches & serials > Serial numbers: read the six. Raise a delivery note from the second warehouse for two of the units that arrived, and try the damaged one. Start another transfer, dispatch it, **Cancel** it.
+- **Expect:** the first post is refused asking for 4 more serial numbers; the second posts and the six units are **AVAILABLE** in MAIN, each trail starting on the opening stock document. The one-step transfer is refused until one unit is picked per unit moved, then the two units read the second warehouse. The transfer document saves with fewer units picked than it sends and is refused at dispatch until all four are picked; dispatched, its units read **IN_TRANSIT** and can be picked nowhere else. The receipt is refused until it says which unit did not arrive and which is damaged; then two units are AVAILABLE and one **DAMAGED** in the second warehouse and one is **LOST**. The delivery note for the two good units dispatches from the second warehouse; the damaged unit is refused. A cancelled transfer's units are AVAILABLE at the source again. An opening stock line of a serial product with no numbers at all still posts as a quantity.
+- **Leaves:** stock and serial numbers in two warehouses.
+
+
 ### Known defects found while writing these cases
 
 - **D-8-1 — Dispatch drew an expired batch. Fixed 2026-09-16.** In a Pharmacy firm with batches expired 30 days ago, expiring in 20 days and in 400 days, dispatching 5 took them from the **expired** batch — its status still AVAILABLE. "Earliest expiry first" read literally does that; for a pharmacy it ships expired medicine. `InventoryService.allocate_for_dispatch` now drops expired stock from the candidates rather than ranking it first, and when that leaves the document short it says so **by name** — "10 of this product's stock is past its expiry date (X expired 2026-08-17) and cannot be dispatched: write it off or quarantine it" — because the screen still shows that stock as on hand and "short by 5" beside it explains nothing. Expiry is judged on the **document's own date**, which the delivery note passes, so rebuilding a year of history posts what it posted at the time. Three tests in `tests/unit/test_inventory_foundation.py`.

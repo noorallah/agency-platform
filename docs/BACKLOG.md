@@ -6446,7 +6446,7 @@ be overruled.
 
 | # | Gap | Size | Decision |
 | --- | --- | --- | --- |
-| 1 | Serial numbers named on the one-step transfer, on the transfer document (dispatch, receive, short and damaged) and on an opening stock line; the serial's warehouse follows the goods | M | **Build next** (D-STK-40): the next unit of the inventory pass |
+| 1 | Serial numbers named on the one-step transfer, on the transfer document (dispatch, receive, short and damaged) and on an opening stock line; the serial's warehouse follows the goods | M | **Built 2026-10-08** (#1366, D-STK-40): a line naming no serial still posts as a quantity, and the file import still refuses serial-numbered stock |
 | 2 | A count typed or scanned elsewhere and brought in as a file, on the import framework | M | Should have; after gap 1 |
 | 3 | Costing methods other than the moving weighted average (FIFO per item) | L | Not asked for; average is one of the two methods AS 2 allows |
 | 4 | A firm's switch for selling below zero stock (allow, warn, refuse) | S | Low; dispatch refuses today, and a product may be marked to run below zero |

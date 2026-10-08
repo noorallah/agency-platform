@@ -152,8 +152,28 @@ class _StockTransfersPageState extends State<StockTransfersPage> {
             TransferOption(
               id: product.id,
               label: '${product.code} - ${product.name}',
+              trackSerial: product.trackSerial,
             ),
         ],
+        loadSerials: (productId, warehouseId) async {
+          final List<SerialRecord> found = await fetchAllPages<SerialRecord>(
+            (page) => widget.api.serials(
+              page: page,
+              pageSize: maxApiPageSize,
+              sortBy: 'serial_number',
+              descending: false,
+              filters: SerialQuery(
+                productId: productId,
+                warehouseId: warehouseId,
+                status: 'AVAILABLE',
+              ),
+            ),
+          );
+          return [
+            for (final SerialRecord serial in found)
+              PickedSerial(id: serial.id, serialNumber: serial.serialNumber),
+          ];
+        },
         loadBatches: (productId, warehouseId) async {
           final result = await widget.api.batches(
             pageSize: maxApiPageSize,
@@ -475,9 +495,30 @@ class _StockTransfersPageState extends State<StockTransfersPage> {
                   ],
                 ]),
               ),
+            // The units a serial-tracked line names, and where each is now.
+            for (final StockTransferLineRecord line in row.lines)
+              if (line.serials.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    key: ValueKey('transfer-serials-${line.lineNumber}'),
+                    'Serial numbers, line ${line.lineNumber}: '
+                    '${[
+                      for (final PickedSerial s in line.serials)
+                        s.status.isEmpty || s.status == 'AVAILABLE'
+                            ? s.serialNumber
+                            : '${s.serialNumber} (${_serialStatus(s.status)})',
+                    ].join(', ')}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
           ],
         ),
       ),
     );
   }
+
+  /// A serial's status in words: IN_TRANSIT reads "in transit".
+  String _serialStatus(String status) =>
+      status.replaceAll('_', ' ').toLowerCase();
 }

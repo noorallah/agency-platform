@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/design/design_tokens.dart';
+import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../../models/stock_transfer.dart';
 import '../workspace/save_in_dialog.dart';
@@ -132,6 +133,11 @@ class _ReceiptDraft {
   final TextEditingController received;
   final TextEditingController damaged;
 
+  /// Which of a serial-tracked line's units did not arrive, and which came
+  /// damaged, by serial id.
+  final List<String> shortIds = [];
+  final List<String> damagedIds = [];
+
   void dispose() {
     received.dispose();
     damaged.dispose();
@@ -191,6 +197,18 @@ class _ReceiveTransferDialogState extends State<ReceiveTransferDialog>
     return value.toStringAsFixed(4).replaceFirst(RegExp(r'0+$'), '');
   }
 
+  /// Whole units, or null where the box does not hold one yet.
+  int? _units(double? value) =>
+      value == null || value != value.roundToDouble() ? null : value.toInt();
+
+  /// Whether the units of this line have to be named: it is serial-tracked,
+  /// and some arrived short or damaged.
+  bool _namesUnits(_ReceiptDraft row) =>
+      row.line.serialTracked &&
+      row.line.serials.isNotEmpty &&
+      (((_short(row) ?? 0) > 0) ||
+          ((double.tryParse(row.damaged.text.trim()) ?? 0) > 0));
+
   String? _validate() {
     for (final _ReceiptDraft row in _rows) {
       final double? received = double.tryParse(row.received.text.trim());
@@ -207,6 +225,18 @@ class _ReceiveTransferDialogState extends State<ReceiveTransferDialog>
       }
       if (damaged > received) {
         return 'More of $name is damaged than was received.';
+      }
+      if (_namesUnits(row)) {
+        final int? shortUnits = _units(_short(row));
+        final int? damagedUnits = _units(damaged);
+        if (shortUnits != null && row.shortIds.length != shortUnits) {
+          return 'Tick which $shortUnits unit(s) of $name did not arrive: '
+              '${row.shortIds.length} ticked.';
+        }
+        if (damagedUnits != null && row.damagedIds.length != damagedUnits) {
+          return 'Tick which $damagedUnits unit(s) of $name arrived damaged: '
+              '${row.damagedIds.length} ticked.';
+        }
       }
     }
     return null;
@@ -228,10 +258,132 @@ class _ReceiveTransferDialogState extends State<ReceiveTransferDialog>
             'line_number': row.line.lineNumber,
             'received_quantity': row.received.text.trim(),
             'damaged_quantity': row.damaged.text.trim(),
+            if (_namesUnits(row) && row.shortIds.isNotEmpty)
+              'short_serial_ids': [...row.shortIds],
+            if (_namesUnits(row) && row.damagedIds.isNotEmpty)
+              'damaged_serial_ids': [...row.damagedIds],
           },
       ],
     };
     await submit<Json>(body, widget.onSave);
+  }
+
+  Widget _receiveRow(int index) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.md),
+            child: Text(
+              _rows[index].line.productLabel,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 90,
+          child: Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.md),
+            child: Text('Sent ${_rows[index].line.quantity}'),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        SizedBox(
+          width: 110,
+          child: TextField(
+            key: ValueKey('receive-received-$index'),
+            controller: _rows[index].received,
+            enabled: !saving,
+            decoration: const InputDecoration(labelText: 'Received'),
+            keyboardType: TextInputType.number,
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        SizedBox(
+          width: 110,
+          child: TextField(
+            key: ValueKey('receive-damaged-$index'),
+            controller: _rows[index].damaged,
+            enabled: !saving,
+            decoration: const InputDecoration(labelText: 'Damaged'),
+            keyboardType: TextInputType.number,
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        SizedBox(
+          width: 90,
+          child: Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.md),
+            child: Text(
+              'Short ${_shortText(_rows[index])}',
+              key: ValueKey('receive-short-$index'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Tick the units of a serial-tracked line that are short and the ones that
+  /// arrived damaged. A unit is one or the other, so ticking it in one list
+  /// takes it out of the other.
+  Widget _unitPicks(int index) {
+    final _ReceiptDraft row = _rows[index];
+    final int? shortUnits = _units(_short(row));
+    final int? damagedUnits = _units(double.tryParse(row.damaged.text.trim()));
+    final TextStyle? label = Theme.of(context).textTheme.labelMedium;
+    Widget chips(String part, List<String> mine, List<String> other) => Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            for (final PickedSerial serial in row.line.serials)
+              FilterChip(
+                key: ValueKey<String>('receive-$part-pick-$index-${serial.id}'),
+                label: Text(serial.serialNumber),
+                selected: mine.contains(serial.id),
+                onSelected: saving
+                    ? null
+                    : (value) => setState(() {
+                          if (value) {
+                            mine.add(serial.id);
+                            other.remove(serial.id);
+                          } else {
+                            mine.remove(serial.id);
+                          }
+                        }),
+              ),
+          ],
+        );
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.xs),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if ((shortUnits ?? 0) > 0) ...[
+            Text(
+              'Which units did not arrive - ${row.shortIds.length} of '
+              '$shortUnits ticked',
+              style: label,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            chips('short', row.shortIds, row.damagedIds),
+          ],
+          if ((damagedUnits ?? 0) > 0) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Which units arrived damaged - ${row.damagedIds.length} of '
+              '$damagedUnits ticked',
+              style: label,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            chips('damaged', row.damagedIds, row.shortIds),
+          ],
+        ],
+      ),
+    );
   }
 
   @override
@@ -285,61 +437,11 @@ class _ReceiveTransferDialogState extends State<ReceiveTransferDialog>
               for (int index = 0; index < _rows.length; index++)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: AppSpacing.md),
-                          child: Text(
-                            _rows[index].line.productLabel,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 90,
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: AppSpacing.md),
-                          child: Text('Sent ${_rows[index].line.quantity}'),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      SizedBox(
-                        width: 110,
-                        child: TextField(
-                          key: ValueKey('receive-received-$index'),
-                          controller: _rows[index].received,
-                          enabled: !saving,
-                          decoration:
-                              const InputDecoration(labelText: 'Received'),
-                          keyboardType: TextInputType.number,
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      SizedBox(
-                        width: 110,
-                        child: TextField(
-                          key: ValueKey('receive-damaged-$index'),
-                          controller: _rows[index].damaged,
-                          enabled: !saving,
-                          decoration:
-                              const InputDecoration(labelText: 'Damaged'),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      SizedBox(
-                        width: 90,
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: AppSpacing.md),
-                          child: Text(
-                            'Short ${_shortText(_rows[index])}',
-                            key: ValueKey('receive-short-$index'),
-                          ),
-                        ),
-                      ),
+                      _receiveRow(index),
+                      if (_namesUnits(_rows[index])) _unitPicks(index),
                     ],
                   ),
                 ),

@@ -432,6 +432,8 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
           'REPAIRED',
           'SCRAPPED',
           'LOST',
+          'IN_TRANSIT',
+          'DAMAGED',
         ],
     };
 

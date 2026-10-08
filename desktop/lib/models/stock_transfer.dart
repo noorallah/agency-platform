@@ -1,3 +1,4 @@
+import 'batch_serial.dart';
 import 'entities.dart';
 
 /// One line of a stock transfer (STK-1): what was sent, what arrived and what
@@ -16,6 +17,8 @@ class StockTransferLineRecord {
     this.shortQuantity = '',
     this.unitCost = '',
     this.remarks = '',
+    this.serialTracked = false,
+    this.serials = const [],
   });
 
   final int lineNumber;
@@ -30,6 +33,12 @@ class StockTransferLineRecord {
   final String shortQuantity;
   final String unitCost;
   final String remarks;
+
+  /// Whether every unit of the product carries its own serial number.
+  final bool serialTracked;
+
+  /// The units this line names, with where each one is now.
+  final List<PickedSerial> serials;
 
   String get productLabel =>
       productCode.isEmpty ? productName : '$productCode - $productName';
@@ -48,6 +57,8 @@ class StockTransferLineRecord {
         shortQuantity: stringValue(json['short_quantity']),
         unitCost: stringValue(json['unit_cost']),
         remarks: stringValue(json['remarks']),
+        serialTracked: json['serial_tracked'] == true,
+        serials: PickedSerial.listFrom(json['serials']),
       );
 }
 
