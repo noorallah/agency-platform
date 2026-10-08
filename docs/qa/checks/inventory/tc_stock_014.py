@@ -8,10 +8,14 @@ c = Check("tc_stock_014")
 w = World()
 wh = w.warehouse()
 x, z = w.product("X"), w.product("Z")
-w.stock_in(wh["id"], x["id"], 1500, 60)
+# Dearer than every earlier run's heavy mover: the firm keeps them all, and
+# equal movers share class A by product id, so a flat 60 stopped being the
+# heaviest once enough runs had gone by (round 10).
+cost = 60 + len(data(w.admin.get(f"{INV}/abc-classes")[1]))
+w.stock_in(wh["id"], x["id"], 1500, cost)
 w.stock_in(wh["id"], z["id"], 10, 60)
 s = sell_and_dispatch(w, wh["id"], x["id"], 1000)
-c.eq(s["dispatch"][0], 200, "1000 dispatched (60,000 at cost)")
+c.eq(s["dispatch"][0], 200, "1000 dispatched (the heaviest mover of the firm)")
 st, b = w.admin.get(f"{INV}/abc-classes")
 classes = data(b)
 c.eq(classes.get(x["id"]), "A", "the heavy mover is class A")

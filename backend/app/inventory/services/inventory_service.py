@@ -1731,6 +1731,44 @@ class InventoryService:
         sign = Decimal("-1") if data.quantity < 0 else Decimal("1")
         return abs(base_quantity) * sign
 
+    def assert_postable(
+        self,
+        data: InventoryAdjustmentCreate | StockWriteOffCreate,
+        *,
+        firm_scope: UUID,
+    ) -> None:
+        """Refuse what names a record the firm does not keep, writing nothing.
+
+        A request for approval is posted later, by somebody else. One naming
+        an unknown product, warehouse, batch or reason was accepted and could
+        then never be approved, or was refused as a conflict by the database
+        rather than by name (D-STK-60).
+
+        Raises:
+            ValidationError: Naming the record that is not the firm's.
+
+        """
+        self._validate_references(
+            firm_id=firm_scope,
+            branch_id=data.branch_id,
+            warehouse_id=data.warehouse_id,
+            storage_node_id=data.storage_node_id,
+            product_id=data.product_id,
+        )
+        if data.batch_id is not None:
+            self._require_batch_of(
+                data.batch_id, firm_id=firm_scope, product_id=data.product_id
+            )
+        code = (
+            data.reason if isinstance(data, StockWriteOffCreate) else data.reason_code
+        )
+        if code:
+            from app.inventory.services.adjustment_reasons import (
+                AdjustmentReasonService,
+            )
+
+            AdjustmentReasonService(self._session).resolve(firm_scope, code)
+
     def write_off_stock(
         self,
         data: StockWriteOffCreate,

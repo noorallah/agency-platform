@@ -227,10 +227,10 @@ class StockAdjustmentApprovalService:
         assert body is not None
         from app.inventory.services import InventoryService
 
+        inventory = InventoryService(self._session)
+        inventory.assert_postable(body, firm_scope=firm_id)
         # In the stock unit: three boxes of twelve are worth 36 pieces.
-        moved = InventoryService(self._session).moved_base_quantity(
-            body, firm_scope=firm_id
-        )
+        moved = inventory.moved_base_quantity(body, firm_scope=firm_id)
         row = StockAdjustmentRequest(
             firm_id=firm_id,
             kind=data.kind,
@@ -265,7 +265,39 @@ class StockAdjustmentApprovalService:
             )
             .limit(500)
         ).all()
-        return [self.response(row) for row in rows]
+        # What it is worth now is what an approver is asked to let go; a
+        # decided request keeps the figure it was decided at.
+        worth = self._worth_now(firm_id, rows) if status == "PENDING" else {}
+        return [self.response(row, worth.get(row.id)) for row in rows]
+
+    def _worth_now(
+        self, firm_id: UUID, rows: Sequence[StockAdjustmentRequest]
+    ) -> dict[UUID, Decimal]:
+        """Return each request's value at today's average cost, in one read.
+
+        A request keeps the quantity it was asked for and waits; the cost of
+        the goods does not. One asked for at 400 and approved after a dearer
+        receipt moved 4,000 under a limit of 500 (D-STK-59).
+        """
+        if not rows:
+            return {}
+        costs = {
+            product_id: Decimal(str(cost))
+            for product_id, cost in self._session.execute(
+                select(
+                    ProductValuation.product_id, ProductValuation.average_cost
+                ).where(
+                    ProductValuation.firm_id == firm_id,
+                    ProductValuation.product_id.in_({row.product_id for row in rows}),
+                )
+            )
+        }
+        return {
+            row.id: (
+                abs(row.quantity) * costs.get(row.product_id, Decimal("0"))
+            ).quantize(_CENT, rounding=ROUND_HALF_UP)
+            for row in rows
+        }
 
     def get(self, request_id: UUID, *, firm_id: UUID) -> StockAdjustmentRequest:
         """Return one of the firm's requests."""
@@ -287,12 +319,15 @@ class StockAdjustmentApprovalService:
         from app.inventory.services import InventoryService
 
         row = self._pending(request_id, firm_id)
+        # Judged at what the goods are worth today, not on the day of asking.
+        worth = self._worth_now(firm_id, [row])[row.id]
         limit = self.limit_for(firm_id, actor_id)
-        if limit is not None and Decimal(str(row.estimated_value)) > limit:
+        if limit is not None and worth > limit:
             raise ValidationError(
-                f"This request moves stock worth {row.estimated_value}, above "
+                f"This request moves stock worth {worth}, above "
                 f"your limit of {limit}. It needs somebody allowed more."
             )
+        row.estimated_value = worth
         row.status = "APPROVED"
         row.decided_by = actor_id
         row.decided_at = utc_now()
@@ -333,15 +368,17 @@ class StockAdjustmentApprovalService:
         self._session.commit()
         return self.response(row)
 
-    def response(self, row: StockAdjustmentRequest) -> StockAdjustmentRequestResponse:
-        """Shape one request for the wire."""
+    def response(
+        self, row: StockAdjustmentRequest, worth: Decimal | None = None
+    ) -> StockAdjustmentRequestResponse:
+        """Shape one request for the wire, at ``worth`` where one is given."""
         return StockAdjustmentRequestResponse(
             id=row.id,
             kind=row.kind,
             product_id=row.product_id,
             warehouse_id=row.warehouse_id,
             quantity=row.quantity,
-            estimated_value=row.estimated_value,
+            estimated_value=row.estimated_value if worth is None else worth,
             status=row.status,
             requested_by=row.created_by,
             requested_at=row.created_at,

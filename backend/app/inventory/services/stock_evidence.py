@@ -19,10 +19,11 @@ from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryTransaction, PhysicalCount, StockAttachment
 from app.inventory.schemas import (
+    MAX_STOCK_ATTACHMENTS,
     InventoryTransactionType,
     StockAttachmentResponse,
     StockAttachmentWrite,
@@ -182,6 +183,21 @@ class StockEvidenceService:
             feature="ATTACHMENTS",
             values={"attachments": list(files)},
         )
+        parent = (
+            StockAttachment.physical_count_id == count_id
+            if count_id is not None
+            else StockAttachment.inventory_transaction_id == movement_id
+        )
+        held = len(self._listed(parent))
+        if held + len(files) > MAX_STOCK_ATTACHMENTS:
+            # The cap on one request is the cap on what the record keeps, or
+            # it is no cap: ten at a time, any number of times (D-STK-62).
+            what = "A count sheet" if count_id is not None else "A stock movement"
+            raise ValidationError(
+                f"{what} keeps at most {MAX_STOCK_ATTACHMENTS} files and this "
+                f"one holds {held}, so {len(files)} more cannot be added. "
+                "Remove one first."
+            )
         rows = [
             StockAttachment(
                 firm_id=firm_id,

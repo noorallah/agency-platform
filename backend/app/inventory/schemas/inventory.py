@@ -11,6 +11,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    field_validator,
     model_validator,
 )
 
@@ -506,6 +507,15 @@ class StockAttachmentWrite(InventorySchema):
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
     caption: str | None = Field(default=None, max_length=200)
+
+    @field_validator("file_name", "file_path")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Refuse a name or a place of only spaces: nobody could open it."""
+        value = value.strip()
+        if not value:
+            raise ValueError("Name the file and say where it is kept.")
+        return value
 
 
 class StockAttachmentResponse(InventorySchema):

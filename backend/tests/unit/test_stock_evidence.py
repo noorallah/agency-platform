@@ -11,11 +11,12 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.audit.models import AuditLog
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.firms.models import Firm
 from app.inventory.models import InventoryRecord, StockAttachment
 from app.inventory.schemas import (
@@ -203,3 +204,47 @@ def test_another_firms_movement_is_not_found() -> None:
         StockEvidenceService(session).attach_to_movement(
             movement.id, [_PHOTO], firm_id=stranger, actor_id=firm.id
         )
+
+
+def test_a_file_with_no_name_or_no_place_is_refused() -> None:
+    """D-STK-61: a name of only spaces was kept as an empty one."""
+    for name, path in (("   ", "C:/evidence/a.jpg"), ("a.jpg", "   ")):
+        with pytest.raises(PydanticValidationError, match="Name the file"):
+            StockAttachmentWrite(file_name=name, file_path=path)
+    kept = StockAttachmentWrite(file_name=" a.jpg ", file_path=" C:/e/a.jpg ")
+    assert (kept.file_name, kept.file_path) == ("a.jpg", "C:/e/a.jpg")
+
+
+def test_a_movement_keeps_at_most_ten_files() -> None:
+    """D-STK-62: ten per request was no cap on what one movement held."""
+    session, firm = _stocked()
+    record = _rice(session, firm)
+    movement = InventoryService(session).write_off_stock(
+        StockWriteOffCreate(
+            branch_id=record.branch_id,
+            warehouse_id=record.warehouse_id,
+            product_id=record.product_id,
+            reason="DAMAGE",  # type: ignore[arg-type]
+            quantity=Decimal("1"),
+            transaction_date=_ON + timedelta(days=2),
+            attachments=[_PHOTO],
+        ),
+        firm_scope=firm.id,
+        actor_id=firm.id,
+    )
+    evidence = StockEvidenceService(session)
+    evidence.attach_to_movement(
+        movement.id, [_PHOTO] * 9, firm_id=firm.id, actor_id=firm.id
+    )
+    with pytest.raises(ValidationError, match="at most 10 files"):
+        evidence.attach_to_movement(
+            movement.id, [_PHOTO], firm_id=firm.id, actor_id=firm.id
+        )
+    session.rollback()
+    files = evidence.for_movement(movement.id, firm_id=firm.id)
+    assert len(files) == 10
+    evidence.remove(files[0].id, firm_id=firm.id, actor_id=firm.id)
+    evidence.attach_to_movement(
+        movement.id, [_PHOTO], firm_id=firm.id, actor_id=firm.id
+    )
+    assert len(evidence.for_movement(movement.id, firm_id=firm.id)) == 10
