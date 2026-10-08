@@ -97,6 +97,7 @@ Where each document stands:
 | `sales_order` | holds batches by earliest expiry when the order is approved |
 | `delivery_note` | releases those batches and allocates by earliest expiry, one movement per batch |
 | `purchase_return` | posts against the batch the line names, and **never creates** one |
+| repack, kit assembly | draws what it consumes by earliest expiry; what it produces names its batch, **creating** it when the number is new |
 
 The asymmetry between the first and last row is deliberate. Goods that have
 physically arrived have to be receivable, so an unknown number on a receipt is
@@ -371,9 +372,17 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
   through the same call, so the rule is theirs too. A serial-tracked product
   is refused on either side of a repack and as a kit's part, because a
   quantity moved with no unit named leaves the units reading AVAILABLE for
-  goods that are gone. Still open: a *produced* line of a batch-tracked
-  product lands on the row with no batch (D-STK-53), and stock in a bin is
-  seen only by a line that names the bin (D-STK-54).
+  goods that are gone. A *produced* line of a batch-tracked product names
+  the batch it goes into (D-STK-53): by id, or by a number that
+  `resolve_for_receipt` finds or opens with the line's dates, so a batch
+  made by a repack is held to the same dates as one made by a receipt. A
+  line naming none is refused. A broken kit gives a batch-tracked part back
+  to the batch its most recent assembly in that warehouse drew it from
+  (the last line of that repack), unless the request names another in
+  `part_batches`; with neither it is refused. A kit that is itself kept in
+  batches takes its batch on the assembly request and is not assembled by
+  a delivery note, which has nowhere to name one. Still open: stock in a
+  bin is seen only by a line that names the bin (D-STK-54).
 
 ## Where the code is
 
