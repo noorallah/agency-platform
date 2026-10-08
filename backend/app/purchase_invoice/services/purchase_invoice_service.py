@@ -43,6 +43,7 @@ from app.core.utils.pricing import (
     resolve_line_discount,
 )
 from app.core.utils.quantities import plain_quantity
+from app.core.validation.payloads import stage_records
 from app.document_files.services import purchase_invoice_file_counts
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -383,6 +384,14 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseInvoice:
         """Create one purchase invoice and commit it."""
+        row = self._stage_typed_invoice(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def _stage_typed_invoice(
+        self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> PurchaseInvoice:
+        """Stage a bill somebody typed or imported, with its custom fields."""
         self._refuse_empty_bill_lines(data)
         row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
         if data.attributes:
@@ -413,7 +422,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             firm_id=row.firm_id,
             actor_id=actor_id,
         )
-        self._session.commit()
         return row
 
     def _refuse_empty_bill_lines(self, data: PurchaseInvoiceCreate) -> None:
@@ -2412,11 +2420,23 @@ class PurchaseInvoiceService(TransactionalDocumentService):
     def import_invoices(
         self, data: PurchaseInvoiceImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[PurchaseInvoice]:
-        """Import a validated batch of purchase invoices atomically."""
-        return [
-            self.create_invoice(record, firm_id=firm_scope, actor_id=actor_id)
-            for record in data.records
-        ]
+        """Import a file of purchase invoices, all of them or none.
+
+        It said "atomically" and looped over the committing
+        ``create_invoice``, so a file refused at its second record left the
+        first behind as a draft bill (D-BUY-73). Each record is staged and
+        the file committed once; a record the service refuses is named:
+        "Record 2 of 2: ... Nothing was imported."
+        """
+        rows = stage_records(
+            data.records,
+            lambda record: self._stage_typed_invoice(
+                record, firm_id=firm_scope, actor_id=actor_id
+            ),
+            rollback=self._session.rollback,
+        )
+        self._session.commit()
+        return rows
 
     def _replace_sources(
         self,

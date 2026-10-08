@@ -2185,6 +2185,17 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Expect:** (a) completed: seven on the shelf. (b) refused: *Line 1 brings in 1 free, and line 1 of PO-... has 0 left to give: 2 free on the order, 2 already received.*; with Free empty it completes and the shelf holds 12. (c) refused: the order promised none. (d) a cancelled receipt gives its free units back, so the two are accepted. A draft receipt counts against the line as a completed one does. Free goods a supplier adds after the order are put on the order first.
 - **Leaves:** the first order received in full with its 2 free; the second order half received.
 
+### TC-BUY-100 — A refused import of goods receipts or purchase orders writes nothing
+
+*Added 2026-10-09 with inventory round 7 (D-BUY-73). Driven over HTTP by `docs/qa/checks/inventory/p_receipt_import_free.py`; the order half was driven by hand on both servers (`docs/qa/INVENTORY_API_CHECK_ROUND_7_2026-10-09.md`).*
+
+- **Covers:** D-BUY-73, D-BUY-67
+- **Fixture:** `buy-ready`
+- **Also needs:** an approved purchase order for **10** of `<SUFFIX>-B` with **2** free, nothing received against it.
+- **Steps:** **(HTTP)** as the fixture's **Firm admin** (the screens offer no import of goods receipts or purchase orders): note how many receipts the order has. (1) `POST /api/v1/goods-receipts/import` with two records on the order line, **5** each, the first with Free **2** and the second with Free **1**. (2) The same file with Free **1** and **1**; complete both receipts. (3) `POST /api/v1/purchases/import` with two orders, the second naming a product that is not the firm's. (4) The same file with both products right.
+- **Expect:** (1) **422**, "Record 2 of 2: Line 1 brings in 1 free, and line 1 of PO-... has 0 left to give: 2 free on the order, 2 already received. Nothing was imported." The order has the same receipts as before: the good first record was not left behind as a draft. (2) **201**, two draft receipts with their own numbers; completed, the shelf holds 12. (3) **422**, "Record 2 of 2: Selected product is not available in this firm. Nothing was imported.", and no order was written. (4) **201**, two draft orders, numbered one after the other.
+- **Leaves:** the order received in full with its 2 free; two draft purchase orders.
+
 
 ## Stock
 
@@ -2553,6 +2564,7 @@ the fixture builds (a minute or two).
 - **Steps:** as the fixture's **Firm admin**: Masters > Products, pick the kit. (a) **Assemble kits**: MAIN, 1 kit, **Batch number** empty; Assemble. (b) Batch number **KX**, Expiry date 200 days on, 2 kits; Assemble. (c) Batch number **KY**, Expiry date 90 days on, 1 kit; Assemble. (d) Batch number **KX** again with an expiry date 5 days on, 1 kit; Assemble. (e) **Disassemble kits**: MAIN, 2 kits; Disassemble. (f) Disassemble 3 more.
 - **Expect:** (a) the dialog shows **Batch number** and **Expiry date** and is refused inside it: *... is kept in batches. Name the batch the repacked goods go into: one it already has, or a new number with its dates.*; nothing moves. (b) and (c) the kits stand in KX (2) and KY (1) and PART holds 4. (d) accepted: the kit joins KX, and KX keeps the expiry date it was made with -- a date typed beside a batch that already exists is not taken, as on a goods receipt. (e) the kits leave soonest expiry first: KY is emptied, KX holds 2, PART holds 6. (f) refused naming the kit, with 2 held; nothing moves.
 - **Also:** the component list of a kit (`GET /products/{id}/components`) says of each part whether it is kept in batches as the part is **now**: switch a part's batch tracking on, while it holds nothing, and the list follows without the kit being saved again. Moving a product to a category of another goods type changes its type and leaves its switches as they were.
+- **Also (a note never assembles it):** with 2 of the kit in KX and parts on the shelf, a delivery note for **3** is refused at dispatch (*Insufficient available stock for dispatch line.*) and no part is taken; assemble 1 more into KX and the same note ships. A kit **not** kept in batches has what it lacks assembled behind the note. Over HTTP `docs/qa/checks/inventory/p_kit_batch_kit_dispatch.py` (round 7).
 - **Leaves:** five posted repacks; two kits in KX.
 
 

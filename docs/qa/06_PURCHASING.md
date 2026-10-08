@@ -857,6 +857,15 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Steps:** as the prepared **Firm admin**: (a) receive **5** against the first order with Free **2**; complete. (b) receive the other 5 with Free **1**; then with Free empty. (c) against the second order receive 5 with Free **1**. (d) cancel the first receipt and receive 5 with Free 2 again.
 - **Expect:** (a) completed: seven on the shelf. (b) refused: *Line 1 brings in 1 free, and line 1 of PO-... has 0 left to give: 2 free on the order, 2 already received.*; with Free empty it completes and the shelf holds 12. (c) refused: the order promised none. (d) a cancelled receipt gives its free units back, so the two are accepted. A draft receipt counts against the line as a completed one does. Free goods a supplier adds after the order are put on the order first.
 
+### TC-BUY-100 — A refused import of goods receipts or purchase orders writes nothing
+
+*Added 2026-10-09 with inventory round 7 (D-BUY-73). Driven over HTTP by `docs/qa/checks/inventory/p_receipt_import_free.py`; the order half was driven by hand on both servers (`docs/qa/INVENTORY_API_CHECK_ROUND_7_2026-10-09.md`).*
+
+- **Preconditions:** The buying firm described in this section's preparation table.
+- **Also needs:** an approved purchase order for **10** of `QA-B` with **2** free, nothing received against it.
+- **Steps:** **(HTTP)** as the prepared **Firm admin** (the screens offer no import of goods receipts or purchase orders): note how many receipts the order has. (1) `POST /api/v1/goods-receipts/import` with two records on the order line, **5** each, the first with Free **2** and the second with Free **1**. (2) The same file with Free **1** and **1**; complete both receipts. (3) `POST /api/v1/purchases/import` with two orders, the second naming a product that is not the firm's. (4) The same file with both products right.
+- **Expect:** (1) **422**, "Record 2 of 2: Line 1 brings in 1 free, and line 1 of PO-... has 0 left to give: 2 free on the order, 2 already received. Nothing was imported." The order has the same receipts as before: the good first record was not left behind as a draft. (2) **201**, two draft receipts with their own numbers; completed, the shelf holds 12. (3) **422**, "Record 2 of 2: Selected product is not available in this firm. Nothing was imported.", and no order was written. (4) **201**, two draft orders, numbered one after the other.
+
 ## Screen checks
 
 One standard check for every screen in this area. Run it once per screen as the firm administrator, then confirm the access line with a role that lacks the code. Where a detailed case above already covers an action, the check only asks that the screen behaves consistently with it.

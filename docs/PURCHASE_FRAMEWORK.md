@@ -747,6 +747,16 @@ the single save's own, naming the record: "Record 2 of 2: Batch NO-SUCH-BATCH
 was never received for this product, so no stock can be taken out of it.
 Nothing was imported."
 
+**So is a file of orders, of goods receipts and of bills** (D-BUY-73).
+`POST /purchases/import`, `/goods-receipts/import` and
+`/purchase-invoices/import` looped over the committing save until 2026-10-09.
+A file of two receipts on one order line, refused at the second for free
+goods the order no longer had, left the first behind as a draft holding
+them, so the corrected file was refused for goods "already received". Each
+now stages its records through `stage_records` and commits once; the records
+of one file count against each other, as a draft receipt counts against its
+order line, and the refusal names the record.
+
 ### What the supplier gives back, and a bill already paid (A34, D-BUY-20)
 
 A return records an **outcome**, changeable until it is cancelled because the
