@@ -20,6 +20,10 @@ from app.products.models import Product
 
 ZERO = Decimal("0")
 #: How many rows each kind lists; the count is always the full number.
+#: They are the worst of the kind -- the largest shortfall, the largest
+#: excess, the most in transit, the nearest expiry -- because ten rows in
+#: whatever order the database returned them say nothing once a firm has
+#: eleven (D-STK-55).
 ROWS_PER_KIND = 10
 
 
@@ -89,7 +93,7 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
         else {}
     )
     alerts = StockAlerts()
-    listed: dict[str, list[StockAlertRow]] = {
+    listed: dict[str, list[tuple[Decimal, StockAlertRow]]] = {
         "OUT": [],
         "LOW": [],
         "OVER_MAXIMUM": [],
@@ -97,10 +101,9 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
         "NEAR_EXPIRY": [],
     }
 
-    def add(kind: str, row: StockAlertRow) -> None:
-        """Keep the first rows of each kind."""
-        if len(listed[kind]) < ROWS_PER_KIND:
-            listed[kind].append(row)
+    def add(kind: str, row: StockAlertRow, worse: Decimal = ZERO) -> None:
+        """Keep a row with how bad it is; the worst are listed."""
+        listed[kind].append((worse, row))
 
     for product_id, free, on_hand, reorder, top, moving in grouped:
         product = products.get(product_id)
@@ -110,7 +113,11 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
         on_hand = Decimal(str(on_hand or 0))
         if free <= ZERO and reorder is not None:
             alerts.out += 1
-            add("OUT", StockAlertRow("OUT", product.code, product.name, free, reorder))
+            add(
+                "OUT",
+                StockAlertRow("OUT", product.code, product.name, free, reorder),
+                Decimal(str(reorder)) - free,
+            )
         elif reorder is not None and free <= Decimal(str(reorder)):
             alerts.low += 1
             add(
@@ -118,6 +125,7 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
                 StockAlertRow(
                     "LOW", product.code, product.name, free, Decimal(str(reorder))
                 ),
+                Decimal(str(reorder)) - free,
             )
         if top is not None and on_hand > Decimal(str(top)):
             alerts.over_maximum += 1
@@ -130,6 +138,7 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
                     on_hand,
                     Decimal(str(top)),
                 ),
+                on_hand - Decimal(str(top)),
             )
         if moving and Decimal(str(moving)) > ZERO:
             alerts.in_transit += 1
@@ -138,6 +147,7 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
                 StockAlertRow(
                     "IN_TRANSIT", product.code, product.name, Decimal(str(moving))
                 ),
+                Decimal(str(moving)),
             )
 
     window = BatchSalePolicyService(session).near_expiry_days(firm_id)
@@ -179,7 +189,7 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
         if near
         else {}
     )
-    for batch, quantity in near:
+    for position, (batch, quantity) in enumerate(near):
         if not quantity or Decimal(str(quantity)) <= ZERO:
             continue
         alerts.near_expiry += 1
@@ -193,6 +203,7 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
                 Decimal(str(quantity)),
                 detail=f"{batch.batch_number} expires {batch.expiry_date.isoformat()}",
             ),
+            Decimal(-position),
         )
 
     alerts.open_counts = int(
@@ -206,5 +217,8 @@ def stock_alerts(session: Session, firm_id: UUID, *, on: date) -> StockAlerts:
         or 0
     )
     for kind in ("OUT", "LOW", "NEAR_EXPIRY", "OVER_MAXIMUM", "IN_TRANSIT"):
-        alerts.rows.extend(listed[kind])
+        worst_first = sorted(
+            listed[kind], key=lambda entry: (-entry[0], entry[1].product_code)
+        )
+        alerts.rows.extend(row for _, row in worst_first[:ROWS_PER_KIND])
     return alerts

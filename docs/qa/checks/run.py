@@ -47,6 +47,7 @@ def main() -> int:
             failed += 1
             lines = (result.stdout + result.stderr).strip().splitlines()
             shown = [line for line in lines if line.startswith("FAIL")] or lines[-3:]
+            print(f"-- {script.name}", flush=True)
             for line in shown:
                 print(line)
     print(f"{len(scripts) - failed} of {len(scripts)} checks clean, {failed} failing")
