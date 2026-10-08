@@ -225,13 +225,19 @@ class StockAdjustmentApprovalService:
         """Record one request for approval."""
         body = data.adjustment if data.kind == "ADJUSTMENT" else data.write_off
         assert body is not None
+        from app.inventory.services import InventoryService
+
+        # In the stock unit: three boxes of twelve are worth 36 pieces.
+        moved = InventoryService(self._session).moved_base_quantity(
+            body, firm_scope=firm_id
+        )
         row = StockAdjustmentRequest(
             firm_id=firm_id,
             kind=data.kind,
             product_id=body.product_id,
             warehouse_id=body.warehouse_id,
-            quantity=body.quantity,
-            estimated_value=self.estimate(firm_id, body.product_id, body.quantity),
+            quantity=moved,
+            estimated_value=self.estimate(firm_id, body.product_id, moved),
             payload_json=body.model_dump_json(),
             created_by=actor_id,
             updated_by=actor_id,

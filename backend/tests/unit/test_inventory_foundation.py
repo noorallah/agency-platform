@@ -283,6 +283,65 @@ def test_a_refused_opening_stock_import_leaves_no_draft_behind() -> None:
     assert session.scalar(select(func.count()).select_from(InventoryTransaction)) == 1
 
 
+def test_an_opening_stock_file_with_an_unreadable_cell_is_refused_by_line() -> None:
+    """A CSV or XLSX cell that cannot be read is a refusal, not a crash (D-STK-58).
+
+    The readers built each line model by hand, so "lots" for a quantity raised
+    past every handler and the route answered 500.
+    """
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    from app.inventory.models import OpeningStockBatch
+
+    session = _session_factory()()
+    firm = _firm(session, "INV")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    service = InventoryService(session)
+    common: dict[str, object] = {
+        "posting_date": date(2026, 8, 1),
+        "branch_id": branch.id,
+        "warehouse_id": warehouse.id,
+        "remarks": None,
+        "auto_post": True,
+        "firm_scope": firm.id,
+        "actor_id": uuid4(),
+    }
+    head = "ProductId,Quantity,ReorderLevel\n"
+    refused = {
+        f"{product.id},4,\n{product.id},lots,\n": r"lines\[2\]\.quantity",
+        f"{product.id},4,\nnot-an-id,3,\n": r"lines\[2\]\.product_id",
+        f"{product.id},-4,\n": r"lines\[1\]\.quantity",
+        f"{product.id},4,few\n": r"lines\[1\]\.reorder_level",
+        ",,\n": "no row with a ProductId and a Quantity",
+    }
+    for number, (rows, names) in enumerate(refused.items()):
+        with pytest.raises(ValidationError, match=names):
+            service.import_opening_stock_csv(
+                head + rows, reference_number=f"OS-BAD-{number}", **common
+            )
+    with pytest.raises(ValidationError, match="could not be opened"):
+        service.import_opening_stock_xlsx(
+            b"not a workbook", reference_number="OS-BAD-X", **common
+        )
+    assert session.scalars(select(OpeningStockBatch.reference_number)).all() == []
+
+    workbook = Workbook()
+    workbook.active.append(["ProductId", "Quantity", "Remarks"])
+    workbook.active.append([str(product.id), 6, None])
+    held = BytesIO()
+    workbook.save(held)
+    service.import_opening_stock_xlsx(
+        held.getvalue(), reference_number="OS-GOOD", **common
+    )
+    assert session.scalars(select(OpeningStockBatch.reference_number)).all() == [
+        "OS-GOOD"
+    ]
+    assert session.scalar(select(func.count()).select_from(InventoryTransaction)) == 1
+
+
 def test_adjustment_updates_projection_and_negative_stock_summary() -> None:
     """An issue larger than the balance is reported as negative.
 

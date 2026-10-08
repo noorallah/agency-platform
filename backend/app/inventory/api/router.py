@@ -993,8 +993,15 @@ async def import_opening_stock(
         raise ValidationError("posting_date must be a valid ISO date.") from error
     content = await file.read()
     if format == "csv":
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError as error:
+            raise ValidationError(
+                "The file is not UTF-8 text, so nothing was imported. Save it "
+                "as CSV UTF-8 and send it again."
+            ) from error
         row = service.import_opening_stock_csv(
-            content.decode("utf-8"),
+            text,
             reference_number=reference_number,
             posting_date=parsed_posting_date,
             branch_id=branch_id,

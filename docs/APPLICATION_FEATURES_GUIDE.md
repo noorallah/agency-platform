@@ -1285,7 +1285,8 @@ Inventory Adjustment. **Large adjustments need approval:** under *Settings →
 Stock → Adjustment Limits* each role has a limit; above it the post is refused
 and *Submit for approval* sends it to **Adjustment Approvals** (*Stock → All Stock
 screens → Movements*), where someone with a higher limit approves or rejects it, singly
-or in bulk. Files (a photo, a note) can be attached to an adjustment, a
+or in bulk. The limit is on value: the pieces moved at the item's average cost,
+whatever unit the quantity was sent in. Files (a photo, a note) can be attached to an adjustment, a
 write-off, a transfer or a count sheet as evidence.
 
 And two documents:

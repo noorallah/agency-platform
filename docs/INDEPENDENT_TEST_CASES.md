@@ -2389,6 +2389,7 @@ the fixture builds (a minute or two).
 - **Also needs:** a user with INVENTORY_ADJUST but a low limit (a Warehouse job), and the administrator with INVENTORY_MANAGE_SETTINGS.
 - **Steps:** as the **Firm admin**: Settings > Stock > **Adjustment Limits** → Warehouse role limit **500** → Save. As the **Warehouse** user: write off stock worth 2,000 at cost. Press **Submit for approval**. As the administrator: Stock > All Stock screens > Movements > **Adjustment Approvals** → Approve; submit and **Reject** another with a reason; bulk-approve two.
 - **Expect:** an adjustment or write-off worth more than the role's limit (quantity at the product's average cost) is refused when posted directly, naming the limit, and offers *Submit for approval*. A person whose own limit covers it approves the request and it posts unchanged through the same service; a rejection keeps its reason. A firm with no limits behaves as before.
+- **Also (in packs, over HTTP):** the limit judges the pieces a pack moves. With a box of 12 at 60 a piece and a limit of 500, a write-off or an adjustment of **3 boxes** (`entered_uom_id` the box) is refused naming 2,160; a request for it says 2,160 and 36 pieces, the requester cannot approve it, and the administrator's approval takes 36 pieces off (D-STK-57; `docs/qa/checks/inventory/p_limit_in_packs.py`, round 9). The two forms on screen type pieces.
 - **Leaves:** requests, a posted adjustment.
 
 ### TC-STOCK-017 — Incoming and outgoing on availability
@@ -2578,6 +2579,17 @@ the fixture builds (a minute or two).
 - **Steps:** **(HTTP)** as the fixture's **Firm admin** (no screen offers this route; Opening Stock's **Import from file** is another route, over HTTP in `p_opening_import.py`): `POST /api/v1/inventory/opening-stock/import` as a form with `format=json` and a `payload` of one line. (1) Reference **OS-A**, 10 of P1. (2) Reference **OS-B**, 10 of P1 again. (3) Reference **OS-B**, 4 of P2. (4) Reference **OS-C**, 1 of P2 with `auto_post` false.
 - **Expect:** (1) **201**, the document is POSTED and MAIN holds 10 of P1. (2) **422**, "Line 1 already has posted opening stock in this warehouse (OS-A). Opening stock is posted once per item; correct it with a stock adjustment."; the Opening Stock list shows **no** document OS-B and P1 still holds 10. (3) **201**, POSTED under OS-B: the refused import did not use the number up; MAIN holds 4 of P2. (4) **201**, a DRAFT that stocks nothing.
 - **Leaves:** two posted opening-stock documents and one draft.
+
+### TC-STOCK-033 — An opening-stock CSV with an unreadable cell is refused by line
+
+*Added 2026-10-09 with inventory round 9 (D-STK-58). Driven over HTTP by `docs/qa/checks/inventory/p_opening_import_csv.py`.*
+
+- **Covers:** D-STK-58
+- **Fixture:** `selling-firm`
+- **Also needs:** two plain products **P1** and **P2** holding nothing in MAIN, with no opening stock posted for either.
+- **Steps:** **(HTTP)** as the fixture's **Firm admin** (no screen offers this route): `POST /api/v1/inventory/opening-stock/import` as a form with `format=csv`, a reference number, today's posting date, the branch and MAIN, and a file headed `ProductId,Quantity`. (1) One row, 10 of P1. (2) Two rows of P2, the second with a product id of **not-an-id**. (3) The second row's quantity **lots**. (4) One row, quantity **-4**. (5) A column `ReorderLevel` holding **few**. (6) The heading alone. (7) A file that is not text; and `format=xlsx` with a file that is not a workbook. (8) The file of (2) corrected, under (2)'s number.
+- **Expect:** (1) **201**, POSTED, MAIN holds 10 of P1. (2) to (5) **422** naming the line and the field (`lines[2].product_id`, `lines[2].quantity`, `lines[1].quantity`, `lines[1].reorder_level`); (6) **422**, "The file has no row with a ProductId and a Quantity, so nothing was imported."; (7) **422** each, saying the file is not UTF-8 text, or could not be opened as an XLSX workbook. After each refusal the Opening Stock list shows **no** document under that number and P2 holds nothing. (8) **201**, POSTED: the refused number was not used up.
+- **Leaves:** two posted opening-stock documents.
 
 
 
