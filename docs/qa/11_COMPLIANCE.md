@@ -4,8 +4,8 @@ Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
 end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
-bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
-daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+bar, `Sell > Documents > Proforma` is a screen in the
+Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
 right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
@@ -47,7 +47,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 ### TC-COMP-004 — The e-invoice screen says it is a rehearsal
 
 - **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
-- **Steps:** Accounts > All Accounts screens > Tax filing > **E-Invoice**.
+- **Steps:** Accounts > Tax filing > **E-Invoice**.
 - **Expect:** a banner, "References marked sandbox are a rehearsal: nothing was filed with the tax authority..."; columns Invoice, Customer, Reference, E-way bill; **two** rows (A and B), each Reference an `SBX…` value (hover for `SBX… (sandbox — nothing filed)`), E-way bill —. If anything reads LIVE, stop.
 ### TC-COMP-005 — An invoice to a buyer with no GSTIN is refused locally
 
@@ -68,7 +68,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 ### TC-COMP-007 — TCS: the settings stay, and nothing is collected from 1 April 2025
 
 - **Preconditions:** As *selling-invoiced*, plus the two receipts and the second invoice in the preparation table.
-- **Steps:** as the prepared **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS**; open **Settings** (close without saving). Accounts > Journal Entries → search `TCS-RC`.
+- **Steps:** as the prepared **Firm admin**, Accounts > Tax filing > **TCS**; open **Settings** (close without saving). Accounts > Journal Entries → search `TCS-RC`.
 - **Expect**
   - The register is **empty**: both receipts are dated after 1 April 2025, when the Finance Act 2025 omitted section 206C(1H), so neither was charged. *(Checked on 2026-10-05: `tcs_collections` holds no row for the two receipts and the ledger has no 2500 TCS Payable line.)*
   - Settings still read as the firm keyed them: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0. Switching it on does not bring the tax back.
@@ -88,7 +88,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (decision A42).*
 
 - **Preconditions:** a GST-registered firm with two approved B2B invoices to registered buyers, not yet registered.
-- **Steps:** Settings > Tax > **GST Documents** → *E-invoice filing* → **Offline** → Save. Accounts > All Accounts screens > Tax filing > E-Invoice → **Export for portal** → tick both → save the JSON file. Open it. Then **Import portal result** with a JSON file shaped like the portal's answer (for each invoice: `DocDtls.No` the invoice number, `Irn`, `AckNo`, `AckDt`, `SignedQRCode`; give the second invoice no `Irn` and an `ErrorDetails` text). Then try **Register** on a third approved invoice.
+- **Steps:** Settings > Tax > **GST Documents** → *E-invoice filing* → **Offline** → Save. Accounts > Tax filing > E-Invoice → **Export for portal** → tick both → save the JSON file. Open it. Then **Import portal result** with a JSON file shaped like the portal's answer (for each invoice: `DocDtls.No` the invoice number, `Irn`, `AckNo`, `AckDt`, `SignedQRCode`; give the second invoice no `Irn` and an `ErrorDetails` text). Then try **Register** on a third approved invoice.
 - **Expect:** the export holds one object per invoice in the portal's schema (`Version`, `TranDtls`, `DocDtls`, `SellerDtls`, `BuyerDtls`, `ItemList`, `ValDtls`), and both invoices show **PENDING**, mode **LIVE**, route **OFFLINE**. After the import the first is **REGISTERED** with that IRN and acknowledgement, the second **FAILED** with the error text, and the message counts 1 registered, 1 refused. Register on the third comes back refused with directions to export it instead.
 
 ### TC-COMP-010 — E-way bills without an IRN, on a challan, and by hand
@@ -96,7 +96,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 rows 9-10).*
 
 - **Preconditions:** a firm with no *e-invoicing applies* date; Settings > Tax > GST Documents → *E-way bill needed above* **1,000**. An approved invoice worth more than 1,000 without an e-way bill; an approved **Job work** delivery note that no invoice bills; a second approved invoice.
-- **Steps:** Accounts > All Accounts screens > Tax filing > E-Invoice → **E-way bills due**. Raise the first invoice's e-way bill (distance 120, road, a vehicle). Raise the job-work note's. On the second invoice choose **Record e-way bill...**: number `3510 1234 5678`. Then set an *e-invoicing applies* date in the past and try to raise an e-way bill on a new, unregistered B2B invoice. Dispatch a delivery note worth more than 1,000.
+- **Steps:** Accounts > Tax filing > E-Invoice → **E-way bills due**. Raise the first invoice's e-way bill (distance 120, road, a vehicle). Raise the job-work note's. On the second invoice choose **Record e-way bill...**: number `3510 1234 5678`. Then set an *e-invoicing applies* date in the past and try to raise an e-way bill on a new, unregistered B2B invoice. Dispatch a delivery note worth more than 1,000.
 - **Expect:** the due list shows the invoices and the note with the limit 1,000. The first invoice's bill is raised without an IRN; the note's bill carries supply type **Job work**; the recorded one shows `351012345678`, marked as entered by hand. Each leaves the due list. With e-invoicing on, the unregistered invoice is refused: "Register the invoice before raising its e-way bill". Dispatching the note prompts to raise its e-way bill.
 
 ### TC-COMP-011 — Registering a credit note and a debit note
@@ -104,7 +104,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 row 4).*
 
 - **Preconditions:** a GST-registered firm on the **Sandbox** route; an approved, registered B2B invoice of 1,000 + 18% GST; an approved credit note of 200 + 36 against it, and an approved debit note to the customer of 100 + 18.
-- **Steps:** Sell > Returns & notes > Credit Notes → the note → **E-invoice** → **Register**. The same on the debit note. Accounts > All Accounts screens > Tax filing > E-Invoice: look at the list. Switch the firm to **Offline**, raise another credit note, and **Export for portal** with an invoice and that note ticked; open the file.
+- **Steps:** Sell > Credit Notes → the note → **E-invoice** → **Register**. The same on the debit note. Accounts > Tax filing > E-Invoice: look at the list. Switch the firm to **Offline**, raise another credit note, and **Export for portal** with an invoice and that note ticked; open the file.
 - **Expect:** each note registers with an `SBX` IRN and shows mode **SANDBOX**; the list shows them as *Credit note* and *Debit note* with their own numbers. The exported file holds the invoice (`Typ` INV) and the note (`Typ` CRN) whose `RefDtls` names the invoice it corrects, CGST and SGST each 18.00 on the 200.
 ---
 
@@ -121,7 +121,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 78 row 4).*
 
 - **Preconditions:** an approved supplier bill of 400 + 18% local GST (CGST 36, SGST 36) dated more than 180 days ago, nothing paid; Settings > Tax > GST Documents, *180-day unpaid bills* on **Report and post**.
-- **Steps:** Accounts > All Accounts screens > Tax filing > Rule 37 (180 days), as of today. **Post reversals and reclaims.** Open the trial balance and GSTR-3B for this month. Pay the bill in full. Back to Rule 37, post again; GSTR-3B for that month.
+- **Steps:** Accounts > Tax filing > Rule 37 (180 days), as of today. **Post reversals and reclaims.** Open the trial balance and GSTR-3B for this month. Pay the bill in full. Back to Rule 37, post again; GSTR-3B for that month.
 - **Expect:** the bill is listed to REVERSE CGST 36 and SGST 36. After posting the list is empty, input tax is down 72 and *Input Tax Not Claimable* up 72, and 3B shows 72 in 4(B)(2), "of which rule 37" 72. After payment the bill is listed to RECLAIM 72; once posted the books are back, and that month's 3B shows the 72 in 4(A)(5) and in 4(D)(1). With the setting on **Report only**, the list shows but posting is refused with the reason.
 
 ### TC-COMP-014 — The supplier's IRN on a bill
@@ -145,7 +145,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 row 6, decision A43).*
 
 - **Preconditions:** a GST-registered firm on the **Sandbox** route with *E-invoicing applies from* set to a day in the past (Settings > Tax > GST Documents). An approved invoice dated on or after that day to a buyer **with** a GSTIN, not registered; an approved invoice to a buyer **without** a GSTIN; an approved credit note against the first invoice, not registered. Messaging switched on with an email channel that can send.
-- **Steps:** (a) Sell > Sales Invoices → the B2B invoice → **Print**. Read the dialog, choose **Cancel**; Print again and choose **Print reference copy**. (b) **Send** it by email. (c) Print the consumer's invoice. (d) Print the credit note. (e) Accounts > All Accounts screens > Tax filing > E-Invoice → register the B2B invoice, then Print and Send it again.
+- **Steps:** (a) Sell > Sales Invoices → the B2B invoice → **Print**. Read the dialog, choose **Cancel**; Print again and choose **Print reference copy**. (b) **Send** it by email. (c) Print the consumer's invoice. (d) Print the credit note. (e) Accounts > Tax filing > E-Invoice → register the B2B invoice, then Print and Send it again.
 - **Expect:** (a) a *No IRN yet* dialog: "<number> has no IRN yet. The firm e-invoices from <date> and the buyer is registered for GST, so it is not a valid tax invoice until it is registered on the portal (CGST rule 48(4)). Register it under E-invoice first, or print a reference copy marked not valid." Cancel prints nothing; the reference copy prints with **NO IRN YET - NOT A VALID TAX INVOICE** across its top. (b) the email is refused with the same sentence. (c) the consumer's bill prints as before, with no dialog. (d) the credit note is refused the same way, naming its own number. (e) once registered the invoice prints with its IRN box and no banner, and the email is accepted. A WhatsApp or SMS send is never held.
 
 ### TC-COMP-017 — The automatic invoice email waits for the IRN
@@ -153,7 +153,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 row 6, decision A43).*
 
 - **Preconditions:** TC-COMP-016's firm; Settings > Firm > Messaging → *Events*: *Invoice approved* on, by email; a B2B customer with an email address.
-- **Steps:** Approve a new invoice to that customer. After the next messaging pass, Settings > Firm > Messaging → **Message log**. Then Accounts > All Accounts screens > Tax filing > E-Invoice → register the invoice; wait at least five minutes and look at the log again.
+- **Steps:** Approve a new invoice to that customer. After the next messaging pass, Settings > Firm > Messaging → **Message log**. Then Accounts > Tax filing > E-Invoice → register the invoice; wait at least five minutes and look at the log again.
 - **Expect:** the row stays **Queued** with the Reason "Waiting for <number>'s IRN: it goes out on the first pass after the invoice is registered on the portal." Nothing is sent and Tries does not climb. After registration the row is sent on the next pass (looked at again every 5 minutes) with the registered invoice attached -- one email, not two. Other queued messages keep going out while it waits.
 
 ### TC-COMP-018 — The 30-day limit and the To register list
@@ -161,7 +161,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 row 7, decision A44).*
 
 - **Preconditions:** TC-COMP-016's firm, *30-day reporting limit applies from* set to a day in the past (not before the e-invoicing date). Three approved B2B invoices, not registered: one dated 35 days ago, one dated 27 days ago, one dated today.
-- **Steps:** Accounts > All Accounts screens > Tax filing > E-Invoice → **To register**. Choose **Register** on the 27-day-old invoice. Try to register the 35-day-old one from **Register an invoice** (and, on the Offline route, by **Export for portal**). Clear the *30-day reporting limit* date, Save, and open **To register** again.
+- **Steps:** Accounts > Tax filing > E-Invoice → **To register**. Choose **Register** on the 27-day-old invoice. Try to register the 35-day-old one from **Register an invoice** (and, on the Offline route, by **Export for portal**). Clear the *30-day reporting limit* date, Save, and open **To register** again.
 - **Expect:** the list shows every approved B2B document without an IRN, oldest first, with Document, Number, Date, Customer, Amount, **Last day** (date + 30), **Days left** and Status: the 35-day-old one **Late**, with no Register button and the note "A late document cannot be registered: cancel it and raise it again under today's date."; the 27-day-old one "3 days left" (due soon, within 5 days); today's **Open**. Register on the 27-day-old one registers it and it leaves the list. Registering or exporting the late one is refused: "<number> is dated <date>; the last day to register it was <date>. The IRP refuses a document more than 30 days old ... Cancel it and raise it again under today's date." With the date cleared the list still shows the pending documents, says "The 30-day limit does not apply to this firm (Settings > Tax > GST Documents).", and has no Last day or Days left columns.
 
 ### TC-COMP-019 — A sales return's credit note on the IRP
@@ -169,7 +169,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (D-TAX-2, decision A45).*
 
 - **Preconditions:** TC-COMP-016's firm on the **Sandbox** route. A B2B customer with two approved invoices for the same product; a sales return of goods from **both** invoices, completed; a second completed return of goods that were only delivered, never invoiced.
-- **Steps:** Sell > Returns & notes > Sales Returns → the first return → **Print credit note**. Accounts > All Accounts screens > Tax filing > E-Invoice → **To register**: find it and **Register**. Print its credit note again. Switch to **Offline**, raise and complete another return of billed goods, **Export for portal** with it ticked, and open the file. Look for the second return in **To register**.
+- **Steps:** Sell > Sales Returns → the first return → **Print credit note**. Accounts > Tax filing > E-Invoice → **To register**: find it and **Register**. Print its credit note again. Switch to **Offline**, raise and complete another return of billed goods, **Export for portal** with it ticked, and open the file. Look for the second return in **To register**.
 - **Expect:** before registration the credit note print is refused with the no-IRN sentence and offers a reference copy. The return is listed as **Sales return**; it registers with an `SBX` IRN, and its credit note then prints with the E-INVOICE box. The exported entry is a `CRN` whose `RefDtls` names **each** invoice it returns goods from. The return of goods never invoiced is not listed and is never registered ("... returns goods no invoice billed, so it credits no tax invoice and is not registered.").
 
 ### TC-COMP-020 — The 30 November limits and 16-character document numbers
@@ -186,7 +186,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 
 - **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
 - **Also needs:** an invoice to a buyer whose GSTIN has a wrong check character; a product with no HSN; an approved invoice to a registered buyer for a firm that e-invoices but with no IRN; a credit note dated late; a credit note on a cancelled invoice; a supplier bill with a bad GSTIN.
-- **Steps:** as the prepared **Firm admin**: Accounts > All Accounts screens > Tax filing > **GST checks** → choose the month → Run. Read each finding. Click a row. Fix one problem and run again. As a role without SALES_VIEW open the screen.
+- **Steps:** as the prepared **Firm admin**: Accounts > Tax filing > **GST checks** → choose the month → Run. Read each finding. Click a row. Fix one problem and run again. As a role without SALES_VIEW open the screen.
 - **Expect:** findings are named by code and each row names its document (type, number, date, party): GSTIN_INVALID (the firm's own, a buyer's on invoices and notes, a supplier's on bills as a **warning**), HSN_MISSING and HSN_SHORT (six digits once the firm e-invoices, four below), PLACE_OF_SUPPLY_MISSING, IRN_MISSING, CREDIT_NOTE_LATE (after 30 November following the supply's year) and CREDIT_NOTE_ON_CANCELLED_INVOICE. The checks read the same invoices GSTR-1 declares. *Open document* is disabled (the desktop cannot open a sales invoice by id yet). After fixing, the finding is gone on the next run. Needs SALES_VIEW.
 ### TC-COMP-022 — A filed return is kept, and a change becomes an amendment
 
@@ -201,7 +201,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
-- **Steps:** as the prepared **Firm admin**: Settings > Tax > **GST Documents** → **Return filing**: frequency *Quarterly*, from a quarter's start, payment method *fixed sum* (then *self-assessed*). Accounts > All Accounts screens > Tax filing > **PMT-06 deposits** → take the suggested amount → record the deposit; reverse it. Open **GST Returns**: the quarterly GSTR-1 and the **IFF** view for month 1 or 2; Mark filed the IFF. Home → Tax calendar. Then GST Payment for a quarter and for month 1.
+- **Steps:** as the prepared **Firm admin**: Settings > Tax > **GST Documents** → **Return filing**: frequency *Quarterly*, from a quarter's start, payment method *fixed sum* (then *self-assessed*). Accounts > Tax filing > **PMT-06 deposits** → take the suggested amount → record the deposit; reverse it. Open **GST Returns**: the quarterly GSTR-1 and the **IFF** view for month 1 or 2; Mark filed the IFF. Home → Tax calendar. Then GST Payment for a quarter and for month 1.
 - **Expect:** the filing plan says which months are quarterly, the period each month files under and every due date (3B on the 22nd or 24th by the GSTIN's state). The calendar shows IFF (optional) and PMT-06 for months 1-2 and the quarter's GSTR-1 and 3B. A deposit is Dr *GST Electronic Cash Ledger* / Cr bank, reversible while the quarter is unsettled. The quarterly GSTR-1 leaves out what a filed IFF already furnished. GST payment spans the quarter, refuses months 1-2, and pays from the cash-ledger deposits before the bank. A cancellation's "after the return was due" reads the quarterly date too.
 ### TC-COMP-024 — Common credit reversal, rule 42
 
@@ -209,7 +209,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 
 - **Preconditions:** The GST-registered firm described in this section's preparation table, with its three invoices.
 - **Also needs:** taxable and exempt sales and eligible input credit in the month and later months of the year.
-- **Steps:** as the prepared **Firm admin**: Settings > Tax > **GST Documents** → *Rule 42 mode* on. Accounts > All Accounts screens > Tax filing > **Rule 42** → the month → work out; post. Open GSTR-3B. Run the annual true-up and post it; reverse a posting.
+- **Steps:** as the prepared **Firm admin**: Settings > Tax > **GST Documents** → *Rule 42 mode* on. Accounts > Tax filing > **Rule 42** → the month → work out; post. Open GSTR-3B. Run the annual true-up and post it; reverse a posting.
 - **Expect:** per period the reversal is D1 = C2 × E / F from GSTR-3B's own figures (every eligible credit taken as common), posting Dr *Input Tax Not Claimable* / Cr input tax; the year's true-up is summed month by month against what was posted and a true-up reclaim posts the mirror. GSTR-3B carries *itc reversed rule 42* (4(B)(1)) and *itc reclaimed rule 42* (4(A)(5)) in net ITC. Reversing a posting undoes it. Rule 43 (capital goods) and credit used only for taxable or only for exempt supplies are not done.
 ### TC-COMP-025 — A branch with its own GSTIN
 
@@ -233,9 +233,9 @@ One standard check for every screen in this area. Run it once per screen as the 
 
 | ID | Screen | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
-| 11-S01 | **Accounts > All Accounts screens > Tax filing > E-Invoice** | Offered to any role holding `EINVOICE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 11-S01 | **Accounts > Tax filing > E-Invoice** | Offered to any role holding `EINVOICE_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
 | 11-S02 | **Accounts > GST Returns** | Offered to any role holding `SALES_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
-| 11-S03 | **Accounts > All Accounts screens > Tax filing > TCS** | Offered to any role holding `TCS_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
+| 11-S03 | **Accounts > Tax filing > TCS** | Offered to any role holding `TCS_VIEW`. Opens without an error; shows its records, or an empty-state message rather than a blank grid. **Refresh** re-reads. Search, filters and column sorting narrow and order the list. Where the screen offers them: **New** refuses a save with a required field empty and names the field, and a complete save appears in the list; **Edit** changes only what was changed; **Delete** is refused while something uses the record, and a deleted record can be restored where **Restore** is offered; **Export** gives a file matching the grid; **Import** with one bad row imports nothing. A role without the code is not offered the screen (see `01_ROLES_AND_ACCESS.md`) | Not run | |
 
 ## Results summary
 

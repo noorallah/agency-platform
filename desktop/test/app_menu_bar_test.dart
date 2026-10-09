@@ -78,90 +78,110 @@ void main() {
     expect(pill.height, lessThan(AppMenuBar.height - 8));
   });
 
-  testWidgets('an area drops its daily list, and choosing one opens it',
-      (tester) async {
-    final List<MenuItemSpec> opened = await _pump(tester, width: 1920);
-    await tester.tap(find.byKey(const ValueKey('menu-area-sell')));
-    await tester.pumpAndSettle();
-    final MenuAreaSpec sell = MenuLayout.areas[1];
-    // The light menu (backlog 72): seven a day, the rest one click away.
-    for (final MenuDailyGroup group in sell.daily) {
-      for (final String path in group.paths) {
-        if (path == MenuLayout.returnsAndNotes) continue;
-        expect(find.byKey(ValueKey('menu-item-$path')), findsOneWidget,
-            reason: path);
-      }
-    }
-    expect(find.byKey(const ValueKey('menu-item-sales/beat-plans')),
-        findsNothing);
-    expect(find.text('FIELD SALES'), findsNothing);
-    expect(tester.takeException(), isNull);
-    await tester.tap(find.text('Sales Orders'));
-    await tester.pumpAndSettle();
-    expect(opened.single.path, 'salesOrders');
-    // The panel closes on a choice.
-    expect(find.byKey(const ValueKey('menu-show-all')), findsNothing);
-  });
-
-  testWidgets('All Sell screens shows every group, and Back returns',
+  testWidgets('an area drops every screen it has, and choosing one opens it',
       (tester) async {
     // The laptop's 1366: the widest panel must fit it with no overflow.
     final List<MenuItemSpec> opened = await _pump(tester);
     await tester.tap(find.byKey(const ValueKey('menu-area-sell')));
     await tester.pumpAndSettle();
     final MenuAreaSpec sell = MenuLayout.areas[1];
-    expect(find.text('All Sell screens (${sell.items.length})'),
-        findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('menu-show-all')));
-    await tester.pumpAndSettle();
-    // Still open, now with every screen of the area, grouped in columns.
+    // The full menu (owner, 2026-10-09): nothing is one click further away.
     for (final MenuItemSpec item in sell.items) {
       expect(find.byKey(ValueKey('menu-item-${item.path}')), findsOneWidget,
           reason: item.label);
     }
     expect(find.text('FIELD SALES'), findsOneWidget);
-    expect(opened, isEmpty);
+    // What the light menu had, and the full menu does not need.
+    expect(find.byKey(const ValueKey('menu-show-all')), findsNothing);
+    expect(find.byKey(const ValueKey('menu-show-daily')), findsNothing);
+    expect(find.byKey(const ValueKey('menu-returns-toggle')), findsNothing);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byKey(const ValueKey('menu-show-daily')));
+    await tester.tap(find.text('Sales Orders'));
     await tester.pumpAndSettle();
+    expect(opened.single.path, 'salesOrders');
+    // The panel closes on a choice.
     expect(find.text('FIELD SALES'), findsNothing);
-    expect(find.byKey(const ValueKey('menu-show-all')), findsOneWidget);
   });
 
-  testWidgets('Returns & notes opens its short list beside it',
+  testWidgets('in each group the daily screens come first, above a line',
       (tester) async {
-    final List<MenuItemSpec> opened = await _pump(tester, width: 1920);
+    await _pump(tester, width: 1920);
     await tester.tap(find.byKey(const ValueKey('menu-area-sell')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('menu-item-sales/credit-notes')),
-        findsNothing);
-    await tester.tap(find.byKey(const ValueKey('menu-returns-toggle')));
-    await tester.pumpAndSettle();
-    final Finder short = find.byKey(const ValueKey('menu-returns-and-notes'));
-    for (final String path in MenuLayout.areas[1].shortList) {
-      expect(
-          find.descendant(
-              of: short, matching: find.byKey(ValueKey('menu-item-$path'))),
-          findsOneWidget,
-          reason: path);
+    final MenuAreaSpec sell = MenuLayout.areas[1];
+    final Set<String> often = sell.dailyPaths;
+    // Returns and notes are daily screens too, shown in place.
+    expect(often, containsAll(sell.shortList));
+    double top(String path) =>
+        tester.getTopLeft(find.byKey(ValueKey('menu-item-$path'))).dy;
+    for (final MenuGroupSpec group in sell.groups) {
+      final List<String> daily = [
+        for (final MenuItemSpec item in group.items)
+          if (often.contains(item.path)) item.path,
+      ];
+      final List<String> rest = [
+        for (final MenuItemSpec item in group.items)
+          if (!often.contains(item.path)) item.path,
+      ];
+      for (final String first in daily) {
+        for (final String later in rest) {
+          expect(top(first), lessThan(top(later)),
+              reason: '$first stands above $later in ${group.label}');
+        }
+      }
     }
-    expect(tester.takeException(), isNull);
-    await tester.tap(find.text('Credit Notes'));
-    await tester.pumpAndSettle();
-    expect(opened.single.path, 'sales/credit-notes');
+    // Documents and Money each hold both kinds, so each has its line; a
+    // group that is all one kind has none.
+    expect(find.byKey(const ValueKey('menu-daily-line')), findsNWidgets(2));
+    // A daily screen is drawn heavier than the rest.
+    FontWeight? weight(String label) => tester
+        .widget<DefaultTextStyle>(find
+            .ancestor(
+                of: find.text(label), matching: find.byType(DefaultTextStyle))
+            .first)
+        .style
+        .fontWeight;
+    expect(weight('Sales Orders'), FontWeight.w600);
+    expect(weight('Enquiries'), isNot(FontWeight.w600));
   });
 
-  testWidgets('Masters links its set-up lists to Settings', (tester) async {
+  testWidgets('every area fits the laptop width with its full menu',
+      (tester) async {
+    await _pump(tester);
+    for (final MenuAreaSpec area in MenuLayout.areas) {
+      if (area.items.length == 1) continue;
+      final Finder button = find.byKey(ValueKey('menu-area-${area.id}'));
+      if (button.evaluate().isEmpty) continue; // folded under More
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: area.label);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+    }
+  });
+
+  testWidgets('each area links to its own sections of Settings',
+      (tester) async {
     final List<String?> setUps = [];
     await _pump(tester, width: 1920, setUps: setUps);
     await tester.tap(find.byKey(const ValueKey('menu-area-masters')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('menu-item-masters/vendor-categories')),
         findsNothing);
-    expect(find.text('SET UP IN SETTINGS'), findsOneWidget);
+    expect(find.text('SETTINGS'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('menu-setup-Item lists')));
     await tester.pumpAndSettle();
     expect(setUps, ['Item lists']);
+    // Buy and Stock had no link at all before; now each opens its settings.
+    await tester.tap(find.byKey(const ValueKey('menu-area-buy')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-setup-Buying')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-area-stock')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-setup-Stock')));
+    await tester.pumpAndSettle();
+    expect(setUps, ['Item lists', 'Buying', 'Stock']);
     expect(tester.takeException(), isNull);
   });
 

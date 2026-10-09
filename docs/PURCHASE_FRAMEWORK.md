@@ -1046,7 +1046,7 @@ comes from its own series (`RFQ`, document framework).
 - **Permissions.** `RFQ_VIEW` and `RFQ_MANAGE`, in the purchase group, so the
   purchase executive, the purchase manager and the firm administrator hold
   both.
-- **On the desktop** (PR #1128). Buy > All Buy screens > Documents >
+- **On the desktop** (PR #1128). Buy > Documents >
   *Requests for quotation* (`desktop/lib/ui/purchases/rfq_page.dart`): the
   list with a status filter, the request window (suppliers invited, lines),
   **Send**, **Enter quotes** (one supplier at a time), **Compare** with the
@@ -1094,7 +1094,7 @@ document framework). The purchase orders priced from it are its releases.
   contract, oldest first, with `counts_as_drawn`.
 - **Permissions.** `RATE_CONTRACT_VIEW` and `RATE_CONTRACT_MANAGE`, in the
   purchase group; approving takes `PURCHASE_APPROVE`.
-- **On the desktop** (PR #1130). Buy > All Buy screens > Documents > *Rate
+- **On the desktop** (PR #1130). Buy > Documents > *Rate
   contracts* (`desktop/lib/ui/purchases/rate_contract_page.dart`): the list
   with status and supplier filters, the contract window with drawn and
   remaining per line, **Approve**, **Close**, **Cancel** with a reason,
@@ -1222,7 +1222,7 @@ optional other product given free, a period, and either one supplier or none
   free goods. Free goods add units and no value: the receipt's cost per unit
   is the line's value before tax over accepted plus free -- per unit of the
   line, divided by the line's conversion factor on its way into stock.
-- **On the desktop** (PR #1134). Buy > All Buy screens > Documents > *Supplier
+- **On the desktop** (PR #1134). Buy > Documents > *Supplier
   schemes*; on the phase 2 purchase order the side panel says "Scheme 10+2
   applied" for each line a scheme filled.
 - **QA.** TC-BUY-066 to TC-BUY-069.

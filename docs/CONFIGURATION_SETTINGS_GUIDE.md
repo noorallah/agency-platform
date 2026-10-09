@@ -109,7 +109,7 @@ Seven rules hold for every setting:
 | Tax Settings (labels) | Settings > Tax | "Tax", "Component", "Profile" | `TAX_MANAGE_SETTINGS` |
 | GST Documents (+ e-invoice route) | Settings > Tax | Dispatch before invoice **warns**; e-invoice not applicable; sandbox | `TAX_MANAGE_SETTINGS` |
 | TDS on Purchases (194Q) | Settings > Tax | **Off** | `ACCOUNT_MANAGE` |
-| Party adjustment limits | Accounts > All Accounts screens > Books > Party Adjustments | 1,000 / rounding 10 | `PARTY_ADJUSTMENT_APPROVE` |
+| Party adjustment limits | Accounts > Books > Party Adjustments | 1,000 / rounding 10 | `PARTY_ADJUSTMENT_APPROVE` |
 | Print settings | The Print button on a document | Standard layout | `SETTINGS_UPDATE` |
 | Application Settings | The gear on the sign-in screen | This PC's server | Anyone at this PC |
 | Agency branding (name, tagline, logo) | Settings > Platform > Agency > Branding | Not set: Agency Platform's own name shows | `PLATFORM_SETTINGS` |
@@ -825,7 +825,7 @@ registers and 26Q work as before.
 - **Month close check** and **ageing columns** -- on Settings > Firm >
   Financial Years; see [section 5](#financial-years).
 - **Party adjustment limits** -- on the **Party Adjustments** screen (Accounts >
-  All Accounts screens > Books), button *Adjustment limits*. Changing needs `PARTY_ADJUSTMENT_APPROVE`.
+  Books), button *Adjustment limits*. Changing needs `PARTY_ADJUSTMENT_APPROVE`.
 
 | Field | Default | What it does |
 | --- | --- | --- |

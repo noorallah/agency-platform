@@ -4,8 +4,8 @@
 test pass of 1.3.0**, and 1.3.0 includes everything in 1.2.0 (no 1.2.0 installer
 was ever built), so the whole firm below, from the first sign-in to the GST
 return, is being driven by hand for the first time on this build. Every menu
-path in this book is the **1.3.0 path**: the light menu (each drop-down shows
-daily work; the rest is behind **All <Area> screens** at its foot) and the gear's
+path in this book is the **1.3.0 path**: the light menu (since 2026-10-09 each
+drop-down shows every screen of its area, the daily ones first) and the gear's
 **Settings page** (Settings, Set up, Platform). The Admin area is gone from the
 bar. Where a path could not be confirmed it is marked *(confirm)*.
 
@@ -58,12 +58,10 @@ on where you can; mark later steps `Blocked` when they cannot run.
 
 - **Menus.** A path such as *Buy → Purchase Orders* means: click **Buy** in
   the top bar, then **Purchase Orders** in the panel that drops down. Each
-  drop-down shows only daily work; **All Buy screens** at its foot opens every
-  other screen under its group name, so *Buy → All Buy screens → Money →
-  Landed Costs* means: open Buy, choose *All Buy screens*, then the Money
-  group. *Returns & notes* in a drop-down opens a short list (Sell: Sales
-  Returns, Credit Notes, Customer Debit Notes; Buy: Purchase Returns, Debit
-  Notes). **Settings** is the gear at the right of the bar: *Settings → Selling →
+  drop-down shows every screen of its area in group columns, the daily ones
+  first in heavier type, so *Buy → Money → Landed Costs* means: open Buy, then
+  find Landed Costs in the Money column. Returns, credit notes and debit notes
+  are ordinary items in the Documents column. **Settings** is the gear at the right of the bar: *Settings → Selling →
   Credit Control* means: click the gear, then the **Selling** group, then the
   **Credit Control** card. Alt plus the underlined letter opens a menu from
   the keyboard. **Ctrl+K** (or the *Search or jump to* box) finds any screen
@@ -171,7 +169,7 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 | W20 | Open the draft again (select → **F2**) and look at the buttons on its top line | **Approve is not offered**, only **Send for approval**: an order cannot be approved before it is submitted | Not run | |
 | W21 | **Send for approval**, then **Approve** | Two notices, submitted and approved. Status **Approved** | Not run | |
 | W22 | Buy → **Goods Receipts** → **+ New** → choose the order. The line shows Ordered 10, Due 10; type Accepted **4**; the side panel's warehouse is MAIN. **Save receipt**, then on the list select it → **Complete** | Saved as a draft first. After Complete: **Completed**, and the order reads **Partially received** | Not run | |
-| W23 | Stock → **All Stock screens** → Stock → **Inventory**, search QA-P1 | MAIN holds **4** | Not run | |
+| W23 | Stock → Stock → **Inventory**, search QA-P1 | MAIN holds **4** | Not run | |
 | W24 | Buy → Goods Receipts → **+ New** against the same order | Accepted starts at the remaining **6** (Received before 4, Due 6). Save and Complete: the order reads **Received**, MAIN holds **10** | Not run | |
 | W25 | Buy → **Purchase Invoices** → **+ New** → choose the receipt of **6**. Type **Supplier's invoice number** `QA-V1-INV-001`; supplier's invoice date today | Before saving, the bill is priced: **708.00** (600.00 plus 18% GST); the rate box shows the receipt price 100 as its hint. **Save bill**, then on the list **Approve**: approved at **708.00** | Not run | |
 | W25a | Start another bill for the receipt of 4 and type `QA-V1-INV-001` again as the supplier's number | While typing, a warning says a purchase invoice with this supplier invoice number already exists. **Cancel** without saving | Not run | |
@@ -186,7 +184,7 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 | --- | --- | --- | --- | --- |
 | W30 | Stock → **Stock Ledger**, search QA-P1 | Two `GOODS_RECEIPT` rows, +4 and +6, each naming its receipt, the balance ending at **10** | Not run | |
 | W31 | Stock → **Stock Summary** | QA-P1 **10**, agreeing with the Inventory screen | Not run | |
-| W32 | Stock → All Stock screens → Stock → **Inventory**, select the MAIN row for QA-P1 → **Transfer** 2 to STORE2. **Reference** is optional; leave it blank | MAIN **8**, STORE2 **2**, total still 10. Blank reference: numbered from its own series (`ST-…`) | Not run | |
+| W32 | Stock → Stock → **Inventory**, select the MAIN row for QA-P1 → **Transfer** 2 to STORE2. **Reference** is optional; leave it blank | MAIN **8**, STORE2 **2**, total still 10. Blank reference: numbered from its own series (`ST-…`) | Not run | |
 | W33 | Accounts → Journal Entries, newest first | **No** entry for the transfer: moving stock between warehouses posts nothing to the books | Not run | |
 | W34 | Transfer the 2 back from STORE2 to MAIN, reference left blank again | MAIN **10**, STORE2 0. A second `ST-…` number, not the first reused | Not run | |
 
@@ -199,12 +197,12 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 | W36 | On the list: **Mark as sent** → **Customer accepted** (give a reason) → **Convert to order** (look under **…** if a button is not on the line) | Three notices; the last says the quotation became `SO-…` and that approving the order reserves the stock | Not run | |
 | W37 | Look at the quotation's buttons again | **Convert to order** is gone: a quotation converts once | Not run | |
 | W38 | Sell → **Sales Orders** → the new order → **Approve** | **Approved**. No credit warning, since QA-C1 has no limit | Not run | |
-| W39 | Stock → All Stock screens → Stock → **Inventory**, QA-P1 | MAIN: current **10**, reserved **4**, available **6** | Not run | |
+| W39 | Stock → Stock → **Inventory**, QA-P1 | MAIN: current **10**, reserved **4**, available **6** | Not run | |
 | W40 | Sales Orders → the order → **Hold**, reason *awaiting cheque* | Status reads *Approved (on hold)* | Not run | |
 | W41 | Sell → **Delivery Notes** → **+ New** → choose the order → **Save delivery note** | Refused: the order is on hold, naming the reason. Reserved stays 4 | Not run | |
 | W42 | Sales Orders → the order → **Release** | Status back to plain **Approved** | Not run | |
 | W43 | Delivery Notes → **+ New** → the order. The line shows Reserved 4 and Delivering **4**; the side panel shows warehouse MAIN and the stock it is expected to ship from. Save → on the list **Approve** → **Dispatch** | Created as a draft, reason **Sale**. Dispatch finds no approved invoice and asks (the firm's policy defaults to **Warn**): choose **Dispatch anyway**. Then **Dispatched**, the order **Delivered** | Not run | |
-| W44 | Stock → All Stock screens → Stock → **Inventory**, QA-P1 | MAIN current **6**, reserved **0** | Not run | |
+| W44 | Stock → Stock → **Inventory**, QA-P1 | MAIN current **6**, reserved **0** | Not run | |
 | W45 | Stock Ledger, QA-P1 | A `DISPATCH` row of **−4** naming the delivery note | Not run | |
 | W46 | Sell → **Sales Invoices** → **+ New** (bill from delivery notes). Pick the customer QA-C1 first, then tick its dispatched delivery note in the list. Type **5** in the quantity to bill | The line shows red and the bill cannot be saved: only 4 left to bill | Not run | |
 | W47 | Set it to **4**. Before saving, read the totals | Taxable **600.00**, CGST **54.00**, SGST **54.00**, total **708.00**, in words. The *Place of supply* box reads CGST + SGST | Not run | |
@@ -225,17 +223,17 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 | W54 | Start another receipt for QA-C1 | The invoice is no longer in the list to apply against | Not run | |
 | W55 | Accounts → **GST Returns** → this month → **GSTR-1** | *Filing as 33ABCDE1234F1Z5.* **B2CS**: one row, place **33**, 18%, taxable **600.00**, CGST **54.00**, SGST **54.00**. B2B empty, since QA-C1 has no GST number. HSN summary: quantity 4, taxable 600.00, under 3401 | Not run | |
 | W56 | Same month → **GSTR-3B** | 3.1(a) taxable **600.00**, CGST 54.00, SGST 54.00: equal to GSTR-1 | Not run | |
-| W57 | Accounts → **All Accounts screens** → Tax filing → **E-Invoice** | The screen says plainly that it is a sandbox rehearsal, never *LIVE* | Not run | |
+| W57 | Accounts → Tax filing → **E-Invoice** | The screen says plainly that it is a sandbox rehearsal, never *LIVE* | Not run | |
 
 ## 7. A return and a credit
 
 | ID | Step | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
-| W58 | Sell → **Returns & notes** → **Sales Returns** → **+ New** → *Returned against* the invoice. **Taken back into** MAIN. Every line of the invoice is listed, each starting at 0. Type Returning **5** on line 1 → **Save draft** | The figure shows red, and saving is refused: only 4 went out | Not run | |
+| W58 | Sell → **Sales Returns** → **+ New** → *Returned against* the invoice. **Taken back into** MAIN. Every line of the invoice is listed, each starting at 0. Type Returning **5** on line 1 → **Save draft** | The figure shows red, and saving is refused: only 4 went out | Not run | |
 | W59 | Returning **1**. Before saving read the totals: then **Save draft**, and on the list **Approve** → **Complete** | Before saving: *To shelf* 1, and **Credit to customer 177.00** (150 plus 18%). After Complete: a notice of 1 back on the shelf and 177.00 credited | Not run | |
-| W60 | Stock → All Stock screens → Stock → **Inventory**, QA-P1 | MAIN **7**. The Stock Ledger shows a `SALES_RETURN` of +1 | Not run | |
+| W60 | Stock → Stock → **Inventory**, QA-P1 | MAIN **7**. The Stock Ledger shows a `SALES_RETURN` of +1 | Not run | |
 | W61 | Masters → Customers → QA-C1 | **177.00** in the customer's favour, shown as an advance or a credit balance. Note which | Not run | |
-| W62 | Sell → **Returns & notes** → **Credit Notes** → **+ New**: the invoice; reason *Rate difference*; on line 1 type **50** in *Credit* | Before raising: GST 18%, tax back **9.00**, total **59.00**, *Credit to customer 59.00*. **Raise credit note**, then on the list **Approve**: the row reads **59.00 (tax 9.00)** | Not run | |
+| W62 | Sell → **Credit Notes** → **+ New**: the invoice; reason *Rate difference*; on line 1 type **50** in *Credit* | Before raising: GST 18%, tax back **9.00**, total **59.00**, *Credit to customer 59.00*. **Raise credit note**, then on the list **Approve**: the row reads **59.00 (tax 9.00)** | Not run | |
 | W63 | **+ New** again on the same line and type **1,000** in *Credit* | Refused while typing -- a banner says a credit note cannot credit more than the line was charged, naming what it was charged and what is already credited. **Cancel** | Not run | |
 
 ## 8. The books agree
@@ -258,7 +256,7 @@ Sign in as the firm administrator for W70 and W72.
 | W70 | Settings (gear) → Platform → People → Users → **+ New**: `counter@qa01.test`, a password, **Job template** *Counter Sales*. Save | Created in QA01 | Not run | |
 | W71 | Sign in as `counter@qa01.test`. Change the password when asked. Open each menu in the top bar | Sell and Stock offered. The only money screens are **Receipts** (Sell) and **Payments** (Buy). No ledger screens anywhere: no Chart of Accounts, Journal Entries, Trial Balance. The gear offers no *Platform* part | Not run | |
 | W72 | As the firm administrator, create `field@qa01.test` with *Field Sales* | Created | Not run | |
-| W73 | Sign in as `field@qa01.test` | The gear offers no *Platform* part. Under Sell → All Sell screens no Incentives (Commission, Targets); under Sell → Returns & notes no Credit Notes; no Settings → Set up → Pricing (Price Lists, Promotions); no GST Returns or TCS anywhere | Not run | |
+| W73 | Sign in as `field@qa01.test` | The gear offers no *Platform* part. Under Sell no Incentives (Commission, Targets); under Sell → Documents no Credit Notes; no Settings → Set up → Pricing (Price Lists, Promotions); no GST Returns or TCS anywhere | Not run | |
 | W74 | As `field@qa01.test`, Settings (gear) → **Selling** → **Credit Control** (or Masters → Customers → **…** → **Settings**) | The credit policy opens read-only, saying that changing it needs the manage customer settings permission | Not run | |
 
 ## 10. The data survives
@@ -305,9 +303,9 @@ Every figure below is QA-P1 at 150 with 18% GST.
 | G5 | Edit QA-C3: change only its billing address to Tamil Nadu. Quote it again | Still **IGST**: a GSTIN's state outranks the address. Put the address back to Karnataka | Not run | |
 | G6 | Bill one piece to each of QA-C3, QA-C4 and QA-C5, the way section 5 did (order → approve → delivery note → dispatch → invoice of 1 → approve) | Each invoice is taxable **150.00**, total **177.00**: QA-C3 and QA-C4 IGST 27.00; QA-C5 CGST 13.50 + SGST 13.50 | Not run | |
 | G7 | Accounts → **GST Returns** → this month → **GSTR-1** | **B2B** now lists QA-C3's invoice (IGST 27.00, place 29) and QA-C5's (CGST 13.50, SGST 13.50). **B2CS** gains a row for place **29** at 18%, taxable 150.00, IGST 27.00 (QA-C4). QA-C1's sales stay in the place-33 row | Not run | |
-| G8 | Accounts → All Accounts screens → Tax filing → **E-Invoice**: raise the e-invoice for QA-C4's bill, then for QA-C3's | QA-C4's is **refused** before anything is sent: an e-invoice needs the buyer's GSTIN. QA-C3's gets a sandbox reference, marked *sandbox* | Not run | |
-| G9 | Settings (gear) → **Selling** → **TCS Settings** (also Accounts → All Accounts screens → Tax filing → **TCS** → **Settings**): *Collect under section 206C(1H)* on, preceding-year turnover **150000000**, threshold **0**, rate **0.1**, without a PAN **1.0**. Save | The banner reads the threshold 0 and *0.1% (1.0% without a PAN)* | Not run | |
-| G10 | Sell → Receipts → **+ New**: **QA-C5** (has a PAN) pays **177.00** against its invoice. Then **QA-C4** (no PAN) pays **177.00** | Accounts → All Accounts screens → Tax filing → TCS lists both: QA-C5 at **0.1%**, TCS **0.18**; QA-C4 at **1.0% (no PAN)**, TCS **1.77**. Each has its own `TCS-RC-…` journal to 2500 TCS Payable | Not run | |
+| G8 | Accounts → Tax filing → **E-Invoice**: raise the e-invoice for QA-C4's bill, then for QA-C3's | QA-C4's is **refused** before anything is sent: an e-invoice needs the buyer's GSTIN. QA-C3's gets a sandbox reference, marked *sandbox* | Not run | |
+| G9 | Settings (gear) → **Selling** → **TCS Settings** (also Accounts → Tax filing → **TCS** → **Settings**): *Collect under section 206C(1H)* on, preceding-year turnover **150000000**, threshold **0**, rate **0.1**, without a PAN **1.0**. Save | The banner reads the threshold 0 and *0.1% (1.0% without a PAN)* | Not run | |
+| G10 | Sell → Receipts → **+ New**: **QA-C5** (has a PAN) pays **177.00** against its invoice. Then **QA-C4** (no PAN) pays **177.00** | Accounts → Tax filing → TCS lists both: QA-C5 at **0.1%**, TCS **0.18**; QA-C4 at **1.0% (no PAN)**, TCS **1.77**. Each has its own `TCS-RC-…` journal to 2500 TCS Payable | Not run | |
 | G11 | Settings → Selling → TCS Settings: turn collection **off** again | Later receipts carry no TCS | Not run | |
 
 ## 13. Units: buying in boxes, stocking in pieces
@@ -317,8 +315,8 @@ QA-P1 is kept in **PIECE**. A box holds 12.
 | ID | Step | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
 | U1 | Settings (gear) → **Set up** → **Item lists** → **Conversion Rules** → **+ New**: Product **QA-P1**, From **BOX**, To **PIECE**, Factor **12**. Save | Listed: QA-P1, BOX → PIECE, 12 | Not run | |
-| U2 | Note MAIN's QA-P1 figure on Stock → All Stock screens → Stock → **Inventory**. Then Buy → Purchase Orders → **+ New**: QA-V1, QA-P1, **Unit BOX**, quantity **2**, rate **1,200** (a box) | Before saving: taxable **2,400.00**, CGST **216.00**, SGST **216.00**, total **2,832.00**. Save, Send for approval, Approve | Not run | |
-| U3 | Buy → Goods Receipts → **+ New** against it: Ordered 2, accept **2**. Save and Complete | Stock → All Stock screens → Stock → Inventory: MAIN is up by **24** pieces -- 2 boxes of 12 | Not run | |
+| U2 | Note MAIN's QA-P1 figure on Stock → Stock → **Inventory**. Then Buy → Purchase Orders → **+ New**: QA-V1, QA-P1, **Unit BOX**, quantity **2**, rate **1,200** (a box) | Before saving: taxable **2,400.00**, CGST **216.00**, SGST **216.00**, total **2,832.00**. Save, Send for approval, Approve | Not run | |
+| U3 | Buy → Goods Receipts → **+ New** against it: Ordered 2, accept **2**. Save and Complete | Stock → Stock → Inventory: MAIN is up by **24** pieces -- 2 boxes of 12 | Not run | |
 | U4 | Add a **firm-wide** rule: Product *Firm-wide*, BOX → PIECE, Factor **10**. Order and receive **1 BOX** of QA-P1 again | MAIN is up by **12**, not 10: the product's own rule outranks the firm-wide one | Not run | |
 | U5 | A purchase order for QA-P1 with **Unit KG**, quantity 1. Save | Refused, naming the product and both units: *QA-P1: no active conversion rule converts KG to PIECE …*, and saying where to add one | Not run | |
 | U6 | Sell 30 pieces of QA-P1 on a sales order | Priced per piece: 30 × 150; nothing about boxes on the order | Not run | |
@@ -369,14 +367,14 @@ longer history helps.
 | N4 | Period: choose *This month*, then ◀ | The list narrows to this month, then to last month; *All dates* brings everything back | Not run | |
 | N5 | Columns: add *Remarks*, remove *Status*, close the screen and open it again | The choice is kept | Not run | |
 | N6 | Buy → Goods Receipts, Purchase Invoices, Purchase Returns | Each has a **Supplier** column; typing `QA Supplies` in the search finds that supplier's documents; the bar names the supplier | Not run | |
-| N7 | Sell → Quotations and Sell → Returns & notes → Sales Returns | Both are grids like Sales Orders (no list-and-pane); double-click opens the document in a window | Not run | |
+| N7 | Sell → Quotations and Sell → Sales Returns | Both are grids like Sales Orders (no list-and-pane); double-click opens the document in a window | Not run | |
 | N8 | Sell → Receipts: search `QA Retail`, then pick the receipt from section 6 | Found by customer name. If it still has money on account, the bar offers *Apply to an invoice*; it offers *Reverse* | Not run | |
 | N9 | Accounts → Journal Entries: choose "Posted by: Sales invoices" and a Period | Only entries the sales invoices posted, in that period. A hand-written draft offers Post on the bar; a document's entry offers no Reverse | Not run | |
 | N10 | Accounts → Trial Balance, Profit & Loss, Balance Sheet | The period is chosen on the page line, not in a band above the table. Totals as in section 8 | Not run | |
 | N11 | Sell → Customer Statements | Ageing is a grid with a column per age band; double-click a customer: their statement opens as a grid with Opening and Closing as figures on the line | Not run | |
 | N12 | Stock → Physical Count, Stock Summary, Expiry Monitor | Physical Count names each count's warehouse and shows "n of m lines counted"; Stock Summary and Expiry Monitor show figures on the line, not rows of cards | Not run | |
 | N13 | Masters → Customers: pick a customer | The bar names them (name · code · city · status) with Open, Edit and Delete | Not run | |
-| N14 | Accounts → All Accounts screens → Books → Chart of Accounts in QA01 | An *Indirect Expenses* group with Rent, Salaries and Wages, Electricity, Telephone and Internet, Travel and Conveyance, Office and General Expenses, Repairs and Maintenance, Bank Charges (6000 to 6700) | Not run | |
+| N14 | Accounts → Books → Chart of Accounts in QA01 | An *Indirect Expenses* group with Rent, Salaries and Wages, Electricity, Telephone and Internet, Travel and Conveyance, Office and General Expenses, Repairs and Maintenance, Bank Charges (6000 to 6700) | Not run | |
 | N15 | Record rent as a journal (P&L guide, section 3): debit 6000 Rent 5,000, credit 1010 Bank 5,000, and post it | Profit & Loss shows Rent 5,000 among the expenses; the bank balance falls by 5,000 | Not run | |
 | N16 | Settings (gear) → Platform → System → Audit Logs: pick an entry, then Open | A grid; the entry's field changes open in a window, not in a side pane | Not run | |
 | N17 | Resize the window to 1366 × 768 and repeat N1 and N2 on Purchase Invoices | Everything fits on the line (steps fold under … when short); the bar's steps stay reachable | Not run | |
@@ -393,24 +391,24 @@ read rather than a number.
 
 | ID | Step | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
-| X1 | Sell → **All Sell screens** → Documents → **Enquiries** → **+ New**: a prospect *QA Walk-in* with phone `+919800000201` and city, source *Walk-in*, expected value 1,500, next follow-up tomorrow; one line `QA-P1` × 10. Save | Numbered `ENQ-…`, status open, listed under *Follow-ups due* tomorrow (TC-SELL-028) | Not run | |
+| X1 | Sell → Documents → **Enquiries** → **+ New**: a prospect *QA Walk-in* with phone `+919800000201` and city, source *Walk-in*, expected value 1,500, next follow-up tomorrow; one line `QA-P1` × 10. Save | Numbered `ENQ-…`, status open, listed under *Follow-ups due* tomorrow (TC-SELL-028) | Not run | |
 | X2 | On it choose **Convert to quotation** | A customer *QA Walk-in* is created from the prospect (code from the customer series) and a **draft quotation** for 10 × 150 = taxable **1,500.00** plus 18% GST is made; the enquiry names both | Not run | |
 | X3 | Open the quotation, **Convert to sales order**; look at the enquiry again | The enquiry now reads **WON**. A second enquiry marked **Lost** with a reason appears in Reports → Operational → *Enquiries lost* | Not run | |
 | X4 | Settings (gear) → **Firm** → **Approval Levels** → New: *Sales order*, level 1, from **5,000**, role *Firm Administrator*. As the **field salesperson** raise an order for QA-C1 of 40 × 150 (total 7,080.00) and try **Approve** | Refused, naming the level and the role that may sign it (TC-FIN-021) | Not run | |
-| X5 | As the administrator, Sell → All Sell screens → Documents → **Approvals**, find the order and **Sign off** (or Approve it on the order) | The last open level is signed, so the order is **Approved**. An order of 10 × 150 (1,770.00) approves with no sign-off | Not run | |
-| X6 | Buy → **All Buy screens** → Documents → **Requisitions** → **+ New**: `QA-P1` × 20, supplier QA-V1 → Submit → Approve → **Convert to orders** | A draft purchase order for QA-V1 is made (taxable 2,000.00, tax 360.00, total 2,360.00), priced from the supplier's terms; the requisition reads Ordered (TC-BUY-020) | Not run | |
+| X5 | As the administrator, Sell → Documents → **Approvals**, find the order and **Sign off** (or Approve it on the order) | The last open level is signed, so the order is **Approved**. An order of 10 × 150 (1,770.00) approves with no sign-off | Not run | |
+| X6 | Buy → Documents → **Requisitions** → **+ New**: `QA-P1` × 20, supplier QA-V1 → Submit → Approve → **Convert to orders** | A draft purchase order for QA-V1 is made (taxable 2,000.00, tax 360.00, total 2,360.00), priced from the supplier's terms; the requisition reads Ordered (TC-BUY-020) | Not run | |
 | X7 | Stock → **Stock Transfers** → **+ New**: MAIN to STORE2, QA-P1 × 4. Note MAIN's quantity, then **Dispatch** | MAIN falls by 4; the 4 are **in transit** at STORE2 (Stock Summary shows them as incoming there). No journal is posted: Accounts → Journal Entries has nothing new (TC-STOCK-009) | Not run | |
 | X8 | **Receive** the transfer with all 4 arrived, then print the **challan** | STORE2 holds 4 more, none damaged; the challan has no values; the transfer is final | Not run | |
 | X9 | Masters → Products → **+ New** `QA-KIT` *QA Gift Pack*, type **Bundle**; **Components**: `QA-P1` × 2. Then **Assemble** 2 kits | `QA-P1` falls by **4**, `QA-KIT` holds **2**, carrying a cost of 200 each (the components' cost) (TC-STOCK-012) | Not run | |
-| X10 | Buy → All Buy screens → Money → **Landed Costs** → **+ New**: the two goods receipts of section 3, a freight charge of **1,000** from QA-V1 with its bill number, spread **by value**. Post | The 600 and 400 shares go to the receipts' lines; the part that belongs to goods still on hand **raises the stock's average cost**, and the part belonging to goods already sold goes to cost of goods sold. Journal: Dr Inventory and Cost of Goods Sold, Cr *Expenses Included in Valuation* (TC-BUY-026) | Not run | |
+| X10 | Buy → Money → **Landed Costs** → **+ New**: the two goods receipts of section 3, a freight charge of **1,000** from QA-V1 with its bill number, spread **by value**. Post | The 600 and 400 shares go to the receipts' lines; the part that belongs to goods still on hand **raises the stock's average cost**, and the part belonging to goods already sold goes to cost of goods sold. Journal: Dr Inventory and Cost of Goods Sold, Cr *Expenses Included in Valuation* (TC-BUY-026) | Not run | |
 | X11 | Sell → **Sales Invoices** → **+ New** by product for QA-C1 (counter bill): give `QA-P1` a barcode first, type it into the **scan field** twice, split the tender **Cash 100 / UPI** for the rest, press **Save & print (F9)** | Quantity 2 on one line; the bill is approved, printed and a new blank bill opens; two receipts exist (cash and UPI), both allocated to the bill, which shows paid (TC-SELL-029) | Not run | |
-| X12 | Sell → All Sell screens → Money → **Post-dated Cheques** → **+ New**: QA-C1, 500.00, a cheque dated tomorrow. Try **Deposit** today; then **Bounce** it after depositing on the date (or back-date) with charges 50 | Deposit is refused before the cheque's date; a bounce reverses the receipt and posts the charges to QA-C1's account (TC-FIN-013) | Not run | |
+| X12 | Sell → Money → **Post-dated Cheques** → **+ New**: QA-C1, 500.00, a cheque dated tomorrow. Try **Deposit** today; then **Bounce** it after depositing on the date (or back-date) with charges 50 | Deposit is refused before the cheque's date; a bounce reverses the receipt and posts the charges to QA-C1's account (TC-FIN-013) | Not run | |
 | X13 | Accounts → **Bank Reconciliation**: import a statement file for the bank account with a line for the 1,180.00 payment of W28, then **Auto-match** | The line is matched to the payment's posting (amount, date within 3 days, reference); the reconciliation statement shows only the lines left unmatched and checks against the statement's closing balance (TC-FIN-012) | Not run | |
 | X14 | Masters → Customers → **+ New** `QA-C7` *QA Retail Stores* with the same phone number as QA-C1 | Before saving, a **duplicate warning** names QA-C1 (it does not block). Save anyway, then select `QA-C7` → **Merge into...** → QA-C1 (TC-MAST-012) | Not run | |
 | X15 | Open QA-C1's statement, then the customer list | `QA-C7` is gone from the list; anything raised for it now sits on QA-C1, and QA-C1's balances are the sum of both | Not run | |
-| X16 | Accounts → All Accounts screens → Tax filing → **GST checks** for this month | The findings are listed by code with the document they are about. A made-up GSTIN such as `33ABCDE1234F1Z5` may be flagged for its check character; that is the check working, not a fault (TC-COMP-021) | Not run | |
-| X17 | Accounts → All Accounts screens → Books → **Export to Tally**: today's month, **Export** | An XML file is saved; every posted journal of the period is a voucher typed by its source, with a ledger per customer and supplier (TC-FIN-020) | Not run | |
-| X18 | Accounts → All Accounts screens → Statements → **Cash Flow** for the same periods as Profit & Loss | Operating, investing and financing sections, opening and closing cash, and a line saying whether it reconciles (TC-FIN-018) | Not run | |
+| X16 | Accounts → Tax filing → **GST checks** for this month | The findings are listed by code with the document they are about. A made-up GSTIN such as `33ABCDE1234F1Z5` may be flagged for its check character; that is the check working, not a fault (TC-COMP-021) | Not run | |
+| X17 | Accounts → Books → **Export to Tally**: today's month, **Export** | An XML file is saved; every posted journal of the period is a voucher typed by its source, with a ledger per customer and supplier (TC-FIN-020) | Not run | |
+| X18 | Accounts → Statements → **Cash Flow** for the same periods as Profit & Loss | Operating, investing and financing sections, opening and closing cash, and a line saying whether it reconciles (TC-FIN-018) | Not run | |
 | X19 | Home: open the bell | Lists what waits for you (for example the purchase order awaiting approval from X6, stock alerts), each counted (TC-FIN-022) | Not run | |
 
 ## Results summary

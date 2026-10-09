@@ -60,12 +60,13 @@ def load_menu() -> tuple[dict[str, tuple[str, int, str]], list[str]]:
         for gm in re.finditer(r"MenuGroupSpec\('([^']+)',\s*\[(.*?)\]\)", chunk[:cut], re.S):
             for key, item in _items(gm.group(2)):
                 order += 1
-                if key in SHORT_LISTS.get(label, ()):
-                    where = f"{label} > Returns & notes > {item}"
-                elif key in daily:
+                # The full menu (2026-10-09): every screen is in its area's
+                # drop-down. A daily screen, a return or a note stands first
+                # in its column and is named alone; any other under its group.
+                if key in SHORT_LISTS.get(label, ()) or key in daily:
                     where = f"{label} > {item}"
                 else:
-                    where = f"{label} > All {label} screens > {gm.group(1)} > {item}"
+                    where = f"{label} > {gm.group(1)} > {item}"
                 paths[key] = (where, order, label)
     sset = MENU_SRC[MENU_SRC.index("static const MenuAreaSpec settings"):MENU_SRC.index("/// Every area, the gear")]
     for gm in re.finditer(r"MenuGroupSpec\('([^']+)',\s*\[(.*?)\](?:,\s*part: MenuPart\.(\w+))?\)", sset, re.S):

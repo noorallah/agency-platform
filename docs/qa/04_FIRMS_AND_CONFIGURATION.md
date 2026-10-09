@@ -4,8 +4,8 @@ Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
 end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
-bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
-daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+bar, `Sell > Documents > Proforma` is a screen in the
+Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
 right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
@@ -200,7 +200,7 @@ step and does four of them.
   2. **(HTTP)** As that user: `GET /api/v1/firms`, `POST /api/v1/firms` (any body), `GET /api/v1/firms/{QA01's id}/readiness`, `POST /api/v1/firms/{QA01's id}/open-books`.
 - **Expect**
   - Step 1: **no Firms** and **no Business Profiles** card under Platform, so no setup panel. `FIRM_VIEW` and `PLATFORM_VIEW` are platform codes no firm role can hold.
-  - Step 2: **403** for all four. No permission code can grant them. What they would show, a firm administrator reads as their own Accounts > All Accounts screens > Books > Chart of Accounts and Financial Years.
+  - Step 2: **403** for all four. No permission code can grant them. What they would show, a firm administrator reads as their own Accounts > Books > Chart of Accounts and Financial Years.
 ### TC-FIRM-017 — A firm whose people have been deleted cannot be deleted either
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
@@ -329,7 +329,7 @@ opens any screen by name.
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Also needs:** to be run **between midnight and 05:30 India time**, the hours in which the server's own (UTC) date is still yesterday's; at any other hour every step passes without showing anything. A supplier with a completed purchase return whose **Outcome** is *Refund*, dated today (TC-BUY-009 shows how); an approved, unpaid sales invoice to the prepared customer; a goods receipt or an opening stock entry of a product dated today.
-- **Steps:** as the prepared **Firm admin**: (1) Buy > Payments → **Supplier refunds** → the supplier → on the return, **Record refund** dated **today** → Save. (2) Masters > Customers → the prepared customer → Opening bills → **Add opening bill** dated **today** → Save; then one dated tomorrow. (3) Sell > All Sell screens > Money > Collection Sheet → the bill → **Record promise**, *Promised on* **today** → Save promise. (4) Reports > Operational → **Stock valuation**, with no date and then as on today. (5) Record a customer receipt without typing a date, and open it. (6) Settings > Set up > Pricing > **Promotions** → New, an offer whose first day is **today**; raise an order line it applies to.
+- **Steps:** as the prepared **Firm admin**: (1) Buy > Payments → **Supplier refunds** → the supplier → on the return, **Record refund** dated **today** → Save. (2) Masters > Customers → the prepared customer → Opening bills → **Add opening bill** dated **today** → Save; then one dated tomorrow. (3) Sell > Money > Collection Sheet → the bill → **Record promise**, *Promised on* **today** → Save promise. (4) Reports > Operational → **Stock valuation**, with no date and then as on today. (5) Record a customer receipt without typing a date, and open it. (6) Settings > Set up > Pricing > **Promotions** → New, an offer whose first day is **today**; raise an order line it applies to.
 - **Expect:** (1) the refund is accepted; one dated tomorrow is refused, "A refund cannot be received on a future date." (2) the opening bill dated today is accepted and the one dated tomorrow refused, "An opening bill is one raised before the books here start, so its date cannot be after <today>." (3) the promise is accepted and reads **Due today**. (4) the valuation includes the stock that arrived today and its total equals account 1200 Inventory on the trial balance. (5) a document the server dates is dated today, the firm's day, not yesterday. (6) an offer that starts today is in force today, and one whose last day was yesterday is not; the same holds for a price list, a rate contract and a supplier scheme (this step, #1226, is unit-tested and was not driven on a running server). Nothing asks the tester to date a document on another day or to wait for the morning. The Counter Shifts list and the printed shift report use the same day (#1228).
 ---
 

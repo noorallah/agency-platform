@@ -106,11 +106,11 @@ already does — a promotion prices an order, a credit note follows an invoice.
 | --- | ---: | --- | --- |
 | `promotions` | 11 | Offers that stack, with coupons and a redemption ledger | Settings › Set up › Pricing › Promotions, coupon dialog |
 | `loyalty` | 7 | Points a customer earns and spends, as one ledger | Settings › Set up › Pricing › Loyalty |
-| `credit_note` | 6 | A document that reverses the tax it credits | Sell › Returns & notes › Credit Notes |
-| `proforma` | 6 | A stated bill that posts nothing | Sell › All Sell screens › Documents › Proforma |
-| `sales_targets` | 6 | What a firm expects to sell, and how it went | Sell › All Sell screens › Incentives › Targets |
-| `einvoice` | 7 | Invoice registration and e-way bills, in sandbox | Accounts › All Accounts screens › Tax filing › E-Invoice |
-| `tcs` | 4 | Tax collected at source, charged on the receipt | Accounts › All Accounts screens › Tax filing › TCS |
+| `credit_note` | 6 | A document that reverses the tax it credits | Sell › Credit Notes |
+| `proforma` | 6 | A stated bill that posts nothing | Sell › Documents › Proforma |
+| `sales_targets` | 6 | What a firm expects to sell, and how it went | Sell › Incentives › Targets |
+| `einvoice` | 7 | Invoice registration and e-way bills, in sandbox | Accounts › Tax filing › E-Invoice |
+| `tcs` | 4 | Tax collected at source, charged on the receipt | Accounts › Tax filing › TCS |
 | `gst_returns` | 2 | GSTR-1 and 3B, derived on read and stored nowhere | Accounts › GST Returns |
 
 **None of the eight is a business-profile capability**, and that is worth
@@ -124,7 +124,7 @@ industry wants them or not. The catalogue is working as designed; the product
 has simply outgrown its granularity.
 
 A ninth module followed on 2026-10-02: `customer_debit_note` (more charged to a
-customer on an invoice already raised, **Sell › Returns & notes › Customer Debit Notes**). It is folded
+customer on an invoice already raised, **Sell › Customer Debit Notes**). It is folded
 into module 18 beside the credit note it mirrors. The same day's GST work for
 the sales and purchase chains is folded into modules 15, 16, 18 and 25.
 
@@ -138,15 +138,15 @@ are in `MODULE_STATUS.md`.
 
 | Module | What it does | Where it surfaces | Main tables |
 | --- | --- | --- | --- |
-| `enquiry` | Leads and enquiries with follow-ups; **convert** stages the customer from the prospect and a quotation and commits once; won when the quotation becomes an order; lost with a reason from a fixed list. Numbered `ENQ`; the quotation's own permissions | Sell › All Sell screens › Documents › Enquiries | `enquiries`, `enquiry_lines`, `enquiry_follow_ups` |
-| `approvals` | Up to three sign-off levels by document type, amount and role, over sales orders, sales invoices, purchase orders and purchase bills; bulk reject | Sell › All Sell screens › Documents › Approvals, Buy › All Buy screens › Documents › Approvals; Settings › Firm › Approval Levels | `approval_rules`, `approval_decisions` |
-| `principal_claims` | What a principal owes: scheme redemptions at its share (the discount, and the free goods its offers gave at cost), free goods typed on bills of its products at cost, expiry write-offs and damaged returns, each source claimed once; and, as a claim of its own, a price cut on the stock in hand the day before it took effect (rate difference: old purchase rate less new, by product and batch); settled by its credit note or payment | Buy › All Buy screens › Money › Principal Claims | `principal_claims`, `principal_claim_lines`, `principal_claim_receipts` |
-| `landed_costs` | Freight, duty and handling spread over completed receipts by value, quantity or weight; the on-hand share revalues stock, the rest goes to cost of goods sold | Buy › All Buy screens › Money › Landed Costs | `landed_cost_vouchers`, `landed_cost_charges`, `landed_cost_allocations` |
-| `supplier_rebates` | Volume rebate agreements, accrued and reversed, settled by a party adjustment of kind `SUPPLIER_REBATE` | Buy › All Buy screens › Money › Supplier Rebates | `supplier_rebate_agreements`, `supplier_rebate_slabs` |
-| `customer_rebates` | Turnover rebate agreements for a customer or a customer group, accrued and reversed, settled by a party adjustment of kind `CUSTOMER_REBATE`; no GST (SG-9) | Sell › All Sell screens › Documents › Customer Rebates (screen added 2026-10-05); the report *Customer rebate statement* | `customer_rebate_agreements`, `customer_rebate_slabs` |
+| `enquiry` | Leads and enquiries with follow-ups; **convert** stages the customer from the prospect and a quotation and commits once; won when the quotation becomes an order; lost with a reason from a fixed list. Numbered `ENQ`; the quotation's own permissions | Sell › Documents › Enquiries | `enquiries`, `enquiry_lines`, `enquiry_follow_ups` |
+| `approvals` | Up to three sign-off levels by document type, amount and role, over sales orders, sales invoices, purchase orders and purchase bills; bulk reject | Sell › Documents › Approvals, Buy › Documents › Approvals; Settings › Firm › Approval Levels | `approval_rules`, `approval_decisions` |
+| `principal_claims` | What a principal owes: scheme redemptions at its share (the discount, and the free goods its offers gave at cost), free goods typed on bills of its products at cost, expiry write-offs and damaged returns, each source claimed once; and, as a claim of its own, a price cut on the stock in hand the day before it took effect (rate difference: old purchase rate less new, by product and batch); settled by its credit note or payment | Buy › Money › Principal Claims | `principal_claims`, `principal_claim_lines`, `principal_claim_receipts` |
+| `landed_costs` | Freight, duty and handling spread over completed receipts by value, quantity or weight; the on-hand share revalues stock, the rest goes to cost of goods sold | Buy › Money › Landed Costs | `landed_cost_vouchers`, `landed_cost_charges`, `landed_cost_allocations` |
+| `supplier_rebates` | Volume rebate agreements, accrued and reversed, settled by a party adjustment of kind `SUPPLIER_REBATE` | Buy › Money › Supplier Rebates | `supplier_rebate_agreements`, `supplier_rebate_slabs` |
+| `customer_rebates` | Turnover rebate agreements for a customer or a customer group, accrued and reversed, settled by a party adjustment of kind `CUSTOMER_REBATE`; no GST (SG-9) | Sell › Documents › Customer Rebates (screen added 2026-10-05); the report *Customer rebate statement* | `customer_rebate_agreements`, `customer_rebate_slabs` |
 | `bank_reconciliation` | Statements imported on the shared importer, matched to postings on the bank ledger, a reconciliation statement as on a date | Accounts › Bank Reconciliation | `bank_statements`, `bank_statement_lines`, `bank_reconciliation_matches` |
 | `notifications` | The bell: derived on read, only what was read is stored | The bell on the menu bar | `notification_reads` |
-| `report_layouts` | A person's saved layouts of the analysis screens | Sell › All Sell screens › Insight › Sales Analysis; Buy › All Buy screens › Insight › Purchase Analysis | `report_layouts` |
+| `report_layouts` | A person's saved layouts of the analysis screens | Sell › Insight › Sales Analysis; Buy › Insight › Purchase Analysis | `report_layouts` |
 
 The settlements package also gained the **post-dated cheque** registers
 (`post_dated_cheques`), **payment runs** (`payment_runs`) and **cheque
@@ -295,13 +295,13 @@ Eight are new backend packages:
 
 | Module | What it does | Where it surfaces | Main tables |
 | --- | --- | --- | --- |
-| `rfq` | A request for quotation to several suppliers, their quotes, a comparison by rate after discount, a choice per line (a reason off the lowest), and one draft purchase order per chosen supplier. `RFQ_VIEW`, `RFQ_MANAGE` | Buy › All Buy screens › Documents › Requests for quotation | `rfqs`, `rfq_lines`, `rfq_suppliers`, `supplier_quotations`, `supplier_quotation_lines` |
-| `rate_contracts` | A rate, discount and optional quantity agreed with one supplier for a period; prices a blank order line ahead of the price list; drawn and remaining derived from approved orders; over-drawing warns. `RATE_CONTRACT_VIEW`, `RATE_CONTRACT_MANAGE`; approval `PURCHASE_APPROVE` | Buy › All Buy screens › Documents › Rate contracts | `rate_contracts`, `rate_contract_lines` |
-| `supplier_schemes` | "Buy n, get m" of the same or another product, for one supplier or all, dated; fills a blank free quantity on the order line. `SUPPLIER_SCHEME_VIEW`, `SUPPLIER_SCHEME_MANAGE` | Buy › All Buy screens › Documents › Supplier schemes | `supplier_schemes` |
-| `bill_of_entry` | The customs document of an import: duty and surcharge landed on the linked receipts' stock, IGST claimed, customs payable booked. `BILL_OF_ENTRY_VIEW`, `BILL_OF_ENTRY_MANAGE`; posting `PURCHASE_APPROVE` | Buy › All Buy screens › Documents › Bills of entry | `bills_of_entry`, `bill_of_entry_lines`, `bill_of_entry_documents`, `bill_of_entry_allocations` |
-| `fixed_assets` | Asset classes, the register, depreciation runs, disposal and the Income-tax block schedule; an asset is raised by a bill line marked capital goods. `FIXED_ASSET_VIEW`, `FIXED_ASSET_MANAGE`; runs and disposal also `JOURNAL_POST` | Accounts › All Accounts screens › Fixed assets | `asset_classes`, `fixed_assets`, `depreciation_runs`, `depreciation_run_lines` |
-| `collections` | Promises to pay with a derived status, the collection sheet and its PDF, the chase list; a collector on the customer. `RECEIPT_VIEW`, `RECEIPT_CREATE` | Sell › All Sell screens › Money › Collection Sheet, Payment Promises | `payment_promises` |
-| `counter_shifts` | A cashier's till: an opening float, expected cash derived from the cash tenders, a counted close whose difference posts to *Cash Short and Over*. `SALES_INVOICE_CREATE` to open; the list `SALES_VIEW` | The counter bill's shift strip; Sell › All Sell screens › Documents › Counter Shifts | `counter_shifts` |
+| `rfq` | A request for quotation to several suppliers, their quotes, a comparison by rate after discount, a choice per line (a reason off the lowest), and one draft purchase order per chosen supplier. `RFQ_VIEW`, `RFQ_MANAGE` | Buy › Documents › Requests for quotation | `rfqs`, `rfq_lines`, `rfq_suppliers`, `supplier_quotations`, `supplier_quotation_lines` |
+| `rate_contracts` | A rate, discount and optional quantity agreed with one supplier for a period; prices a blank order line ahead of the price list; drawn and remaining derived from approved orders; over-drawing warns. `RATE_CONTRACT_VIEW`, `RATE_CONTRACT_MANAGE`; approval `PURCHASE_APPROVE` | Buy › Documents › Rate contracts | `rate_contracts`, `rate_contract_lines` |
+| `supplier_schemes` | "Buy n, get m" of the same or another product, for one supplier or all, dated; fills a blank free quantity on the order line. `SUPPLIER_SCHEME_VIEW`, `SUPPLIER_SCHEME_MANAGE` | Buy › Documents › Supplier schemes | `supplier_schemes` |
+| `bill_of_entry` | The customs document of an import: duty and surcharge landed on the linked receipts' stock, IGST claimed, customs payable booked. `BILL_OF_ENTRY_VIEW`, `BILL_OF_ENTRY_MANAGE`; posting `PURCHASE_APPROVE` | Buy › Documents › Bills of entry | `bills_of_entry`, `bill_of_entry_lines`, `bill_of_entry_documents`, `bill_of_entry_allocations` |
+| `fixed_assets` | Asset classes, the register, depreciation runs, disposal and the Income-tax block schedule; an asset is raised by a bill line marked capital goods. `FIXED_ASSET_VIEW`, `FIXED_ASSET_MANAGE`; runs and disposal also `JOURNAL_POST` | Accounts › Fixed assets | `asset_classes`, `fixed_assets`, `depreciation_runs`, `depreciation_run_lines` |
+| `collections` | Promises to pay with a derived status, the collection sheet and its PDF, the chase list; a collector on the customer. `RECEIPT_VIEW`, `RECEIPT_CREATE` | Sell › Money › Collection Sheet, Payment Promises | `payment_promises` |
+| `counter_shifts` | A cashier's till: an opening float, expected cash derived from the cash tenders, a counted close whose difference posts to *Cash Short and Over*. `SALES_INVOICE_CREATE` to open; the list `SALES_VIEW` | The counter bill's shift strip; Sell › Documents › Counter Shifts | `counter_shifts` |
 | `document_files` | The shared file store behind **Attachments** on the purchase bill, the goods receipt and the five sales documents: PDF, JPG or PNG up to 10 MB | The Attachments action and Files column of each list | `document_files`, `document_file_contents` |
 
 `customer_rebates` (in the table above) gained its screen the same day.
@@ -351,7 +351,7 @@ Bills of Entry. A charge on a sales bill is in GSTR-1 and 3B under its own SAC.
 
 **Section 28 (Reports).** Reports › Financial gains *GST sales register*, *HSN
 summary of sales*, *GST purchase register*, *HSN summary of purchases*, *TCS
-paid to suppliers* and *Customer rebate statement*. Buy › All Buy screens ›
+paid to suppliers* and *Customer rebate statement*. Buy › 
 Money › *Payables by Month* is a screen of its own.
 
 **Not built**: see the end of sections 15 and 16. The eight defects found
@@ -460,10 +460,12 @@ Release 1.3.0 changed where every screen is reached, not what any of them does.
 `APPLICATION_FEATURES_GUIDE.md` sections 2 and 12 describe it in full; this is
 what a module section below needs.
 
-- **The light menu.** Each of Sell, Buy, Stock, Accounts and Masters opens a
-  short drop-down of daily screens; **All <Area> screens (N)** at its foot opens
-  the rest under their group names (`Sell › All Sell screens › Insight › Sales
-  Analysis`). The **Admin** area is gone from the bar. Reports is unchanged.
+- **The light menu.** Since 2026-10-09 each of Sell, Buy, Stock, Accounts and
+  Masters opens a drop-down that shows every screen of the area at once, in its
+  group columns (`Sell › Insight › Sales Analysis`), with the daily screens
+  first in each group, in heavier type, above a thin line. There is no "All
+  screens" link and no "Returns & notes" item. The **Admin** area is gone from
+  the bar. Reports is unchanged.
 - **The Settings page** (the gear) is one tab: **Settings** (This PC and me,
   Firm, Selling, Buying, Stock, Tax, Business profile), **Set up** (Pricing,
   Territories & routes, Account structure, Party lists, Item lists, Locations)
@@ -490,11 +492,11 @@ An older path in this guide translates as:
 | Settings › Audit Log(s), Diagnostics; Administration › Licensing | Settings › Platform › System › Audit Logs, Diagnostics, Licensing |
 | Masters › Firm Settings, Financial Years; Settings › Numbering Series | Settings › Firm › Firm Settings, Financial Years, Numbering Series |
 | Tax configuration, rules, simulator, log, settings | Settings › Tax › the same names |
-| Sales › Proforma, Credit Notes, Debit Notes | Sell › All Sell screens › Documents › Proforma; Sell › Returns & notes › Credit Notes, Customer Debit Notes |
-| Sales › GST Returns, GSTR-2B, E-Invoice, TCS | Accounts › GST Returns; Accounts › All Accounts screens › Tax filing › the rest (TCS settings: Settings › Selling › TCS Settings) |
+| Sales › Proforma, Credit Notes, Debit Notes | Sell › Documents › Proforma; Sell › Credit Notes, Customer Debit Notes |
+| Sales › GST Returns, GSTR-2B, E-Invoice, TCS | Accounts › GST Returns; Accounts › Tax filing › the rest (TCS settings: Settings › Selling › TCS Settings) |
 | Sales workspace tabs: price lists, promotions, territories | Settings › Set up › Pricing, Territories & routes |
-| Purchases workspace | Buy › Purchase Orders, Goods Receipts, Purchase Invoices; the rest under Buy › All Buy screens |
-| Inventory › Inventory, Stock Ledger, Opening Stock, Physical Count | Stock › All Stock screens › Stock › Inventory; Stock › Stock Ledger; Stock › All Stock screens › Movements › Opening Stock; Stock › Physical Count |
+| Purchases workspace | Buy › Purchase Orders, Goods Receipts, Purchase Invoices; the rest under Buy |
+| Inventory › Inventory, Stock Ledger, Opening Stock, Physical Count | Stock › Stock › Inventory; Stock › Stock Ledger; Stock › Movements › Opening Stock; Stock › Physical Count |
 | Finance › Journal Entries; Control Accounts, Cost and Profit Centres | Accounts › Journal Entries; Settings › Set up › Account structure |
 | Masters › Branches, Warehouses | Unchanged (Masters drop-down) |
 | Masters › Storage Areas, Branch Types, Warehouse Types; Geography masters | Settings › Set up › Locations › Storage Areas, Branch Types, Warehouse Types, Places |
@@ -1422,7 +1424,7 @@ discovered in a report.
 | --- | --- |
 | Open and close years and periods | **Settings › Firm › Financial Years** |
 | Post and reverse journal entries | **Accounts › Journal Entries** |
-| Trial balance, P&L, balance sheet, ledger statement | **Accounts › Trial Balance, Profit & Loss, Balance Sheet, Ledgers**; Cash Flow under **All Accounts screens › Statements** |
+| Trial balance, P&L, balance sheet, ledger statement | **Accounts › Trial Balance, Profit & Loss, Balance Sheet, Ledgers**; Cash Flow under Statements** |
 | Map control accounts | **Settings › Set up › Account structure › Control Accounts** (`ACCOUNT_VIEW` to read, `ACCOUNT_MANAGE` to write) |
 | Cost centres and profit centres | **Settings › Set up › Account structure › Cost Centres**, **Profit Centres**. An account's *Requires a cost centre* / *Requires a profit centre* flag on the chart makes a journal line on it name one |
 
@@ -1946,7 +1948,7 @@ store, so that half of the module runs on unit tests alone.
 | Categories, brands, principals | **Settings › Set up › Item lists › Product Categories, Principals, Brands** |
 | Goods types (Medicine, Food, Paint ...) and which the firm uses | **Settings › Firm › Goods Types** -- added on 2026-10-08, not yet tested by hand |
 | Custom fields and which are mandatory | **Settings › Business profile › Attribute Definitions, Mandatory Attributes**; a firm's own, and its shared-field switches and rules by goods type, customer group and supplier type: **Settings › Firm › Custom Fields, Custom Field Rules** |
-| Batches, lots, serials, expiry | **Stock › Batches, Expiry Monitor**; **All Stock screens › Tracking** (shown only when the firm's goods need them: Batches and Lots for batch tracking, Serial Numbers for serial tracking, Expiry Monitor for expiry tracking) |
+| Batches, lots, serials, expiry | **Stock › Batches, Expiry Monitor**; Tracking** (shown only when the firm's goods need them: Batches and Lots for batch tracking, Serial Numbers for serial tracking, Expiry Monitor for expiry tracking) |
 
 ## Tables
 
@@ -2261,7 +2263,7 @@ in `visit_sequence` order. That is the ordinary case and needs no rows at all.
 | Task | Where |
 | --- | --- |
 | Territories, route types, routes | **Settings › Set up › Territories & routes › Territories, Route Types, Route Builder** |
-| Beat plans, call lists, coverage | **Sell › All Sell screens › Field sales** |
+| Beat plans, call lists, coverage | **Sell › Field sales** |
 
 ## Tables
 
@@ -2590,7 +2592,7 @@ set is taxed by the rules as before, because a GSTIN nobody typed in does not
 make a supplier unregistered. Reverse charge still applies to any of them.
 
 **GSTR-2B** (the portal's file of what suppliers reported) is imported under
-**Accounts › All Accounts screens › Tax filing › GSTR-2B Reconciliation** and matched to the firm's approved bills by supplier
+**Accounts › Tax filing › GSTR-2B Reconciliation** and matched to the firm's approved bills by supplier
 GSTIN, bill number and date, with a ₹1 tolerance. Each document reads Matched,
 Different, In 2B only or In books only. By default 3B keeps claiming **every**
 bill and lists what 2B lacks; a firm can switch to claiming **matched bills
@@ -2612,10 +2614,9 @@ and expired reports filter on exactly those flags.
 ## How to use it
 
 **Buy › Purchase Orders**, then **Goods Receipts** and **Purchase Invoices**
-(all in the Buy drop-down; **Returns & notes** opens Purchase Returns and Debit
-Notes). New → lines → Submit → Approve. Receive from the order's own dialog;
+(all in the Buy drop-down, with Purchase Returns and Debit Notes). New → lines → Submit → Approve. Receive from the order's own dialog;
 bill from the receipt; return from the receipt. Requisitions, Approvals and
-Quality Inspection are under **Buy › All Buy screens › Documents**; the
+Quality Inspection are under **Buy › Documents**; the
 purchase-side money screens (Payment Runs, Post-dated Cheques, Supplier Gifts,
 Supplier Rebates, Principal Claims, Landed Costs) under **Money**; Purchase
 Settings, Approval Limits and Purchase Budgets under **Settings › Buying**.
@@ -2629,7 +2630,7 @@ Built and merged on their own tests; **not yet through a full suite, CI or a
 hand test**. Screens new to the menu: **Requests for quotation, Rate
 contracts, Supplier schemes** and **Bills of entry** under **Buy › All Buy
 screens › Documents**, **Payables by Month** under **Money**, and **Fixed
-assets** under **Accounts › All Accounts screens**.
+assets** under Accounts.
 
 | Feature | How to use it | Its rules |
 | --- | --- | --- |
@@ -2646,7 +2647,7 @@ assets** under **Accounts › All Accounts screens**.
 | **Imports** | Give the supplier a **Currency**; raise the order with **Currency** and **Exchange rate**, receive it, and bill the receipt (or type the bill alone, in that currency with its rate); pay it from Payments in the currency | Lines and totals as typed; stock and the journal in rupees, the receipt at the order's rate and the bill at its own. A bill is in its order's currency: another is refused, and another rate posts only the difference to price variance. An order's currency and rate cannot change after a completed receipt. No TCS, TDS or Paid now. The payment's rate against the bill's posts the exchange gain or loss. Rupees are refused against a foreign bill |
 | **Bill of Entry** | New → link the bills and receipts → per line the assessable value and the duty rates or amounts → **Post** | Basic duty and surcharge (10% of the duty by default) land on the linked receipts' stock; a line no receipt carries is an expense. IGST and cess are input tax. The linked receipts must be completed. Cancel reverses |
 | **Fixed assets** | Tick **Capital goods** on the order line (or the receipt line), then pick an asset class on the bill line; or tick it on a bill typed alone; or type an opening asset in the **Asset register**. **Depreciation runs** → run a period. **Dispose** on an asset | The line debits the asset account instead of stock, one asset per line. A line marked on the order or the receipt is received without entering stock; a line a receipt already took into stock is refused at the bill. A run is pro rata by days, one journal, forward only, the latest cancellable. Disposal books the gain or loss. The Income-tax block schedule posts nothing |
-| **GST purchase register, Payables by Month** | Reports › Financial; Buy › All Buy screens › Money | Read on every call, nothing stored. Debit notes and returns after billing are minus rows. Payables are checked against control account 2100 |
+| **GST purchase register, Payables by Month** | Reports › Financial; Buy › Money | Read on every call, nothing stored. Debit notes and returns after billing are minus rows. Payables are checked against control account 2100 |
 
 **Two things that bite.** A machine must be marked **Capital goods** on the
 order or the receipt **before** the receipt is completed: once a receipt has
@@ -2854,9 +2855,8 @@ splits into 300 and 200, and only that row remembers the split.
 ## How to use it
 
 **Sell** drop-down, one tab per document: **Quotations, Sales Orders, Delivery
-Notes, Sales Invoices** and **Returns & notes** (Sales Returns, Credit Notes,
-Customer Debit Notes); Enquiries, Proforma and Approvals under **All Sell
-screens › Documents**; which stages the firm types under **Settings › Selling ›
+Notes, Sales Invoices**, Sales Returns, Credit Notes and Customer Debit Notes;
+Enquiries, Proforma and Approvals in the same **Documents** column; which stages the firm types under **Settings › Selling ›
 Sales Stages**. The invoice can be raised from the billable-notes picker; the order carries deposits and promotion claims in its
 own dialog.
 
@@ -2864,7 +2864,7 @@ own dialog.
 
 Built and merged on their own tests; **not yet through a full suite, CI or a
 hand test**. Screens new to the menu: **Counter Shifts** and **Customer
-Rebates** under **Sell › All Sell screens › Documents**, **Collection Sheet**
+Rebates** under **Sell › Documents**, **Collection Sheet**
 and **Payment Promises** under **Money**, and **Transporters** under
 **Settings › Set up › Territories & routes**.
 
@@ -2974,7 +2974,7 @@ and a tax invoice exactly as it would have.
 
 ## How to use it
 
-**Sell › All Sell screens › Documents › Proforma** (`PROFORMA_VIEW`). Two reports sit beside the register:
+**Sell › Documents › Proforma** (`PROFORMA_VIEW`). Two reports sit beside the register:
 **Register** lists what was issued over a period, and **Outstanding** lists
 proformas that have not yet turned into an invoice — the follow-up list for
 whoever is chasing an advance.
@@ -3065,7 +3065,7 @@ that the firm owes money back should not be the only person who agrees it.
 
 ## How to use it
 
-**Sell › Returns & notes › Credit Notes** (`CREDIT_NOTE_VIEW`; customer debit notes beside it). Three reports: **Register**,
+**Sell › Credit Notes** (`CREDIT_NOTE_VIEW`; customer debit notes beside it). Three reports: **Register**,
 **By customer**, and **By reason** — the last is the one that tells a firm
 whether it is crediting for quality, for pricing, or for its own billing
 mistakes.
@@ -3110,7 +3110,7 @@ uv run python scripts/dump_route_permissions.py --markdown credit_note
 
 The credit note turned the other way: **more** charged on an invoice already
 raised — a price that rose after billing, a short-billed quantity, an extra
-charge. **Sell › Returns & notes › Customer Debit Notes**, `/api/v1/customer-debit-notes`, number prefix
+charge. **Sell › Customer Debit Notes**, `/api/v1/customer-debit-notes`, number prefix
 `SDN` (`DN` is the delivery note's).
 
 - It names an **approved** invoice and the lines being charged more, moves no
@@ -3181,8 +3181,8 @@ original row** — never recomputed, because only that row remembers the split.
 | --- | --- |
 | Receipts, customer statements | **Sell › Receipts**, **Sell › Customer Statements** |
 | Payments, supplier statements | **Buy › Payments**, **Buy › Supplier Statements** |
-| Refunds, post-dated cheques | **Sell › All Sell screens › Money › Refunds, Post-dated Cheques**; **Buy › All Buy screens › Money › Post-dated Cheques** |
-| Payment runs | **Buy › All Buy screens › Money › Payment Runs** |
+| Refunds, post-dated cheques | **Sell › Money › Refunds, Post-dated Cheques**; **Buy › Money › Post-dated Cheques** |
+| Payment runs | **Buy › Money › Payment Runs** |
 
 ## Tables
 
@@ -3348,7 +3348,7 @@ approved payout is a liability that outlives the month it was earned in.
 
 ## How to use it (1.3.0 menu)
 
-**Sell › All Sell screens › Incentives › Commission** (rates, collected, payouts).
+**Sell › Incentives › Commission** (rates, collected, payouts).
 
 ## Tables
 
@@ -3400,7 +3400,7 @@ what was sold would otherwise be measured against sales that no longer exist.
 
 ## How to use it (1.3.0 menu)
 
-**Sell › All Sell screens › Incentives › Targets**.
+**Sell › Incentives › Targets**.
 
 ---
 
@@ -3449,8 +3449,8 @@ find its control account is refused rather than posted to a guess.**
 | Task | Where |
 | --- | --- |
 | Journal entries, expenses, ledgers, bank reconciliation | **Accounts** drop-down |
-| Trial balance, profit and loss, balance sheet | **Accounts** drop-down; Cash Flow under **All Accounts screens › Statements** |
-| Chart of accounts, opening balances, party adjustments, contra vouchers, Tally export | **Accounts › All Accounts screens › Books** |
+| Trial balance, profit and loss, balance sheet | **Accounts** drop-down; Cash Flow under Statements** |
+| Chart of accounts, opening balances, party adjustments, contra vouchers, Tally export | **Accounts › Books** |
 | Control accounts, cost and profit centres | **Settings › Set up › Account structure** |
 
 ## Tables
@@ -3503,7 +3503,7 @@ cycle, and netting the two would put a quarterly payment inside a monthly one.
 
 ## How to use it
 
-**Accounts › All Accounts screens › Tax filing › TCS** (`TCS_VIEW`) — settings, a preview calculator, and the
+**Accounts › Tax filing › TCS** (`TCS_VIEW`) — settings, a preview calculator, and the
 collections register.
 
 ```powershell
@@ -3593,7 +3593,7 @@ and 18).
 
 ## How to use it
 
-**Accounts › GST Returns** (`SALES_VIEW`); the rest of tax filing (GSTR-2B Reconciliation, Rule 37, Rule 42, GST checks, GST Payment, PMT-06 deposits, TDS Challans, Bank Details) under **Accounts › All Accounts screens › Tax filing**; the GST settings under **Settings › Tax › GST Documents**.
+**Accounts › GST Returns** (`SALES_VIEW`); the rest of tax filing (GSTR-2B Reconciliation, Rule 37, Rule 42, GST checks, GST Payment, PMT-06 deposits, TDS Challans, Bank Details) under **Accounts › Tax filing**; the GST settings under **Settings › Tax › GST Documents**.
 
 ```powershell
 uv run python scripts/dump_route_permissions.py --markdown gst_returns
@@ -3670,7 +3670,7 @@ module is shaped around.
 
 ## How to use it
 
-**Accounts › All Accounts screens › Tax filing › E-Invoice** (`EINVOICE_VIEW`); the route and dates under **Settings › Tax › GST Documents**.
+**Accounts › Tax filing › E-Invoice** (`EINVOICE_VIEW`); the route and dates under **Settings › Tax › GST Documents**.
 
 ```powershell
 uv run python scripts/dump_route_permissions.py --markdown einvoice
@@ -3765,12 +3765,12 @@ journal.
 
 | Task | Where |
 | --- | --- |
-| What is on hand | **Stock › Stock Summary**, and **Stock › All Stock screens › Stock › Inventory** (`INVENTORY_VIEW`), with by-firm, by-branch, by-warehouse and by-product reads |
-| How it got there | **Stock › Stock Ledger** (`INVENTORY_LEDGER_VIEW`) and **All Stock screens › Stock › Transactions** (`INVENTORY_TRANSACTION_VIEW`) |
-| Opening balances | **Stock › All Stock screens › Movements › Opening Stock** |
-| Adjust, transfer, write off, quarantine | **Inventory**, each its own action (`INVENTORY_ADJUST`); large adjustments wait under **All Stock screens › Movements › Adjustment Approvals** |
-| Stock transfers, repacking | **Stock › Stock Transfers**; **All Stock screens › Movements › Repacking** |
-| Batches, expiry, lots, serial numbers | **Stock › Batches**, **Expiry Monitor**; **All Stock screens › Tracking › Lots, Serial Numbers** |
+| What is on hand | **Stock › Stock Summary**, and **Stock › Stock › Inventory** (`INVENTORY_VIEW`), with by-firm, by-branch, by-warehouse and by-product reads |
+| How it got there | **Stock › Stock Ledger** (`INVENTORY_LEDGER_VIEW`) and Stock › Transactions** (`INVENTORY_TRANSACTION_VIEW`) |
+| Opening balances | **Stock › Movements › Opening Stock** |
+| Adjust, transfer, write off, quarantine | **Inventory**, each its own action (`INVENTORY_ADJUST`); large adjustments wait under Movements › Adjustment Approvals** |
+| Stock transfers, repacking | **Stock › Stock Transfers**; Movements › Repacking** |
+| Batches, expiry, lots, serial numbers | **Stock › Batches**, **Expiry Monitor**; Tracking › Lots, Serial Numbers** |
 | The firm's stock rules | **Settings › Stock** (Inventory Settings, Adjustment Reasons, Adjustment Limits, Batch Rules) |
 | Count the shelves | **Stock › Physical Count** |
 

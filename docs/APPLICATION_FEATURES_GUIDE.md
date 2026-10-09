@@ -19,8 +19,8 @@ without an IRN, rule 37, supplier IRNs and India Post places brought up to
 #947 the same night; the backlog build of 2026-10-02/03 (enquiries, approval
 levels, the bell, bank reconciliation, landed cost, stock transfer documents,
 branch GSTINs, QRMP filing, Tally export and the rest) brought in on
-2026-10-03; **brought up to 1.3.0 on 2026-10-04**: the light menu with
-*All <Area> screens*, Settings > Set up and Platform, favourites, My
+2026-10-03; **brought up to 1.3.0 on 2026-10-04**: the light menu
+(from 2026-10-09 every screen of an area in its drop-down), Settings > Set up and Platform, favourites, My
 preferences, and the agency's own branding (sign-in screen, header, first-run
 and Settings > Platform > Agency > Branding). Release 1.2.0 was never shipped,
 so 1.3.0 is the first release after 1.1.0 and carries everything of both. Every
@@ -49,10 +49,11 @@ copying a product, copying from any screen, the firm's state chosen from a
 list and purchase bills numbered per branch, which were built on 2026-10-04
 and had not been written here.
 
-**How paths are written.** *Sell → Sales Invoices* is a screen in Sell's daily
-drop-down. *Sell → All Sell screens → Documents → Enquiries* is a screen
-behind **All Sell screens** at the foot of that drop-down, under its group
-name. *Settings → Set up → Pricing → Price Levels* and *Settings → Platform →
+**How paths are written.** Each drop-down shows every screen of its area in
+group columns, so a path names the area, the group and the screen: *Sell →
+Documents → Enquiries*. The screens used every day come first in each group, in
+heavier type, so *Sell → Sales Invoices* is also written without the group.
+*Settings → Set up → Pricing → Price Levels* and *Settings → Platform →
 People → Users* are on the Settings page behind the gear (12). **Ctrl+K**
 finds any screen by name if you lose one.
 
@@ -178,25 +179,27 @@ appears.
 
 ## The light menu
 
-Each of **Sell, Buy, Stock, Accounts** and **Masters** opens a short
-drop-down of the screens used every day. At its foot **All <Area> screens (N)**
-opens every screen of that area side by side, under its group names; *Back to
-daily list* returns. Nothing is lost: the screens not in the daily list are
-one click away, and Ctrl+K finds any of them. *Reports* has no short form (its
-two screens are always shown).
+Since 2026-10-09 each of **Sell, Buy, Stock, Accounts** and **Masters** opens
+a drop-down that shows every screen of the area at once, in its group columns.
+In each column the screens used every day come first, in heavier type, above a
+thin line; the rest follow. There is no separate "all screens" view and no
+"Returns & notes" item: returns, credit notes and debit notes are ordinary items
+in the Documents column. Ctrl+K still finds any screen. *Reports* shows its two
+screens as before.
 
-| Area | The daily drop-down shows | Behind *All screens*, by group |
+| Area | Columns | Shown first, in heavier type |
 | --- | --- | --- |
-| **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, **Returns & notes** (opens Sales Returns, Credit Notes, Customer Debit Notes); under Money: Receipts, Customer Statements | Documents (Enquiries, Counter Shifts, Proforma, Approvals, Customer Rebates ...), Money (Collection Sheet, Payment Promises, Post-dated Cheques, Refunds ...), Incentives, Insight, Field sales |
-| **Buy** | Purchase Orders, Goods Receipts, Purchase Invoices, **Returns & notes** (Purchase Returns, Debit Notes); under Money: Payments, Supplier Statements | Documents (Requisitions, Requests for quotation, Rate contracts, Supplier schemes, Bills of entry, Approvals, Quality Inspection ...), Money (Payment Runs, Payables by Month, Post-dated Cheques, Supplier Gifts, Supplier Rebates, Principal Claims, Landed Costs), Insight |
-| **Stock** | Stock Summary, Stock Ledger, Stock Transfers, Physical Count; under Tracking: Batches, Expiry Monitor | Stock (Inventory, Stock Search, Transactions), Movements (Opening Stock, Adjustment Approvals, Repacking), Tracking (Lots, Serial Numbers), Data (Import, Export) |
-| **Accounts** | Books: Journal Entries, Expenses, Ledgers, Bank Reconciliation; Statements: Trial Balance, Profit & Loss, Balance Sheet; Tax: GST Returns | Books (Chart of Accounts, Opening Balances, Party Adjustments, Contra Vouchers, Export to Tally), Fixed assets (Asset register, Asset classes, Depreciation runs, Income-tax block schedule), Statements (Cash Flow), Tax filing |
-| **Masters** | Customers, Vendors, Products; under Organisation: Branches, Warehouses | Parties, Items, Organisation, Compliance (Trade Licences) |
+| **Sell** | Documents, Money, Incentives, Insight, Field sales | Documents: Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Credit Notes, Debit Notes; Money: Receipts, Customer Statements |
+| **Buy** | Documents, Money, Insight | Documents: Purchase Orders, Goods Receipts, Purchase Invoices, Purchase Returns, Debit Notes; Money: Payments, Supplier Statements |
+| **Stock** | Stock, Movements, Tracking, Data | Stock: Stock Summary, Stock Ledger; Movements: Stock Transfers, Physical Count; Tracking: Batches, Expiry Monitor |
+| **Accounts** | Books, Fixed assets, Statements, Tax filing | Books: Journal Entries, Expenses, Ledgers, Bank Reconciliation; Statements: Trial Balance, Profit & Loss, Balance Sheet; Tax filing: GST Returns |
+| **Masters** | Parties, Items, Organisation, Compliance | Parties: Customers, Vendors; Items: Products; Organisation: Branches, Warehouses |
 
-The foot of Sell, Accounts and Masters also carries **SET UP IN SETTINGS**:
-links to the Settings sections that hold the lists set up once and changed
-rarely (Sell: Pricing, Territories & routes; Accounts: Account structure;
-Masters: Party lists, Item lists, Locations). Those lists are no longer in the
+The foot of every drop-down carries **SETTINGS** and links to the Settings
+sections that hold the lists set up once and changed rarely (Sell: Selling,
+Pricing, Territories & routes; Buy: Buying; Stock: Stock; Accounts: Account
+structure, Tax; Masters: Party lists, Item lists, Locations). A person sees only
+the links to sections they are offered. Those lists are no longer in the
 drop-downs (12.3). The menu is built in the app from what the person may open;
 opening it asks the server nothing.
 
@@ -425,12 +428,12 @@ delivery and every report still adds up.
 
 ## 5.2 Documents
 
-*Quotations, Sales Orders, Delivery Notes* and *Sales Invoices* are in the Sell
-drop-down; **Returns & notes** opens Sales Returns, Credit Notes and Customer
-Debit Notes; Enquiries, Proforma and Approvals are under *Sell → All Sell
-screens → Documents*.
+*Quotations, Sales Orders, Delivery Notes* and *Sales Invoices* are in the
+Documents column of the Sell drop-down, with Sales Returns, Credit Notes and
+Customer Debit Notes; Enquiries, Proforma and Approvals are in the same column,
+under the thin line (*Sell → Documents*).
 
-**Enquiries** (*Sell → All Sell screens → Documents → Enquiries*). A customer, or somebody who
+**Enquiries** (*Sell → Documents → Enquiries*). A customer, or somebody who
 is not yet a customer, asks about goods. Record who (name, company, phone,
 email, city), where the lead came from, the salesman, the lines they asked
 about, the value you expect, the date you expect to close and the date to
@@ -468,7 +471,7 @@ level, and anyone else uses *Sign off* to record theirs. The last sign-off
 approves the document. *Reject* needs a reason, clears the sign-offs and sends
 a purchase order back to draft; several documents can be rejected together. A
 sign-off counts while the total is no more than it was when signed. The
-**Approvals** screens (*Sell → All Sell screens → Documents* and *Buy → All Buy
+**Approvals** screens (*Sell → Documents* and *Buy → All Buy
 screens → Documents*) list what is
 waiting. Platform administrators are not limited by the levels. A level, a
 purchase **approval limit** and a **discount limit** are each set on a role
@@ -662,7 +665,7 @@ held bills and brings the chosen one back. A held bill can be edited and is
 **never approved while held**; only a draft can be held. Holding changes
 nothing in stock. The Sales Invoices list marks held bills.
 
-**Counter Shifts** (*Sell → All Sell screens → Documents → Counter Shifts*,
+**Counter Shifts** (*Sell → Documents → Counter Shifts*,
 and the strip above the scan field on the counter bill). A shift is one
 cashier's till for a sitting:
 
@@ -683,7 +686,7 @@ it; the approver's own shift takes it only when the maker has none open. Not
 built: a refund at the counter against a bill, a count by denomination, and
 handing a shift to another cashier.
 
-**Customer Rebates** (*Sell → All Sell screens → Documents → Customer
+**Customer Rebates** (*Sell → Documents → Customer
 Rebates*). "2% back on the year's purchases over 10 lakh", promised to **one
 customer or one customer group** for a period, with slabs. The turnover is
 counted from the documents GSTR-1 counts (approved bills before tax, less
@@ -759,8 +762,8 @@ tries those again. Journal entries have *Post selected*.
 bank transfer, UPI) and the instrument date; the cash and bank books show
 *Mode* and *Instrument*, and collections by mode read from it.
 
-**Post-dated cheques** (*Sell → All Sell screens → Money → Post-dated Cheques*
-for cheques received; *Buy → All Buy screens → Money → Post-dated Cheques* for
+**Post-dated cheques** (*Sell → Money → Post-dated Cheques*
+for cheques received; *Buy → Money → Post-dated Cheques* for
 cheques issued). A cheque is
 **held** (nothing posted), then **deposited** (or presented) on or after its
 date -- which records the receipt or payment -- then **cleared**. A cheque that
@@ -809,7 +812,7 @@ reports, on the selling side and the buying side.
 
 ## 5.4 Incentives
 
-*Sell → All Sell screens → Incentives* (Commission, Targets).
+*Sell → Incentives* (Commission, Targets).
 
 **Commission.** What each salesman earns. *Rates* set the rules: a flat
 percentage, or slabs that rise with the amount, on sales or on collections,
@@ -850,7 +853,7 @@ For a firm whose salesmen visit shops on fixed rounds:
 - **Coverage**: which shops were visited or ordered from, and which were
   missed.
 
-Beat Plans, Call Lists and Coverage are under *Sell → All Sell screens → Field
+Beat Plans, Call Lists and Coverage are under *Sell → Field
 sales*.
 
 Orders, deliveries and invoices carry the salesman, route and territory, so
@@ -859,7 +862,7 @@ the reports can be read by any of them.
 ## 5.7 Pricing (Settings → Set up → Pricing)
 
 *Price Lists, Price Levels, Promotions* and *Loyalty* are in the **Pricing**
-section of *Settings → Set up*, reached from the **SET UP IN SETTINGS** link
+section of *Settings → Set up*, reached from the **SETTINGS** link
 at the foot of the Sell drop-down.
 
 **Price Lists.** What a customer pays for a product before any offer. A price
@@ -910,7 +913,7 @@ Promotions) shows what the offers do to any order on any date, before
 launch, and why each one applied or did not. The printed bill names the
 offers given and what the customer **saved**.
 
-**Sales Analysis** (*Sell → All Sell screens → Insight → Sales Analysis*). Billed sales by any one or two of
+**Sales Analysis** (*Sell → Insight → Sales Analysis*). Billed sales by any one or two of
 day, week, month, quarter, year, product, category, goods type, customer,
 customer group, salesman, territory, route and branch -- product by month,
 customer by quarter -- with totals both ways, net of returns, and a click on
@@ -951,12 +954,12 @@ nothing. Typing a percentage replaces it and typing 0 removes it.
 ## 6.2 Documents
 
 *Purchase Orders, Goods Receipts* and *Purchase Invoices* are in the Buy
-drop-down; **Returns & notes** opens Purchase Returns and Debit Notes;
+drop-down, with Purchase Returns and Debit Notes;
 Requisitions, Requests for quotation, Rate contracts, Supplier schemes, Bills
-of entry, Approvals and Quality Inspection are under *Buy → All Buy screens →
+of entry, Approvals and Quality Inspection are under *Buy → 
 Documents*.
 
-**Requisitions** (*Buy → All Buy screens → Documents → Requisitions*). An indent: someone asks
+**Requisitions** (*Buy → Documents → Requisitions*). An indent: someone asks
 for goods, a manager approves, and an approved requisition is converted into a
 purchase order. *Raise requisition* on *Below reorder level* (see 6.3) makes
 them from the shortages.
@@ -1005,7 +1008,7 @@ firm's e-way bill limit without one is warned about -- for an unregistered
 supplier, as the buyer's to raise.
 
 **Quality inspection.** A product or category marked *Inspect on receipt* is
-received into **quarantine**: owned and valued, but not for sale. *Buy → All Buy screens →
+received into **quarantine**: owned and valued, but not for sale. *Buy → 
 Documents → Quality Inspection* lists the lines waiting; recording the result
 releases what passes to stock, and what is rejected is written off at once or
 left in quarantine for a purchase return. Cancelling the receipt releases the
@@ -1015,7 +1018,7 @@ hold.
 line can name the **scheme** the free goods came under, and a write-off can name
 the customer they were given to (reasons *Free to customer* and *Sample*).
 *Free goods* in the operational reports adds it up. Gifts from a supplier are
-recorded in the **Supplier Gifts** register (*Buy → All Buy screens → Money*): each is booked as
+recorded in the **Supplier Gifts** register (*Buy → Money*): each is booked as
 income (or as drawings, if the owner kept it), and the **194R summary** shows
 the value by supplier.
 
@@ -1065,7 +1068,7 @@ as a return off a paid bill does.
 
 ### Added on 2026-10-05 (not yet tested by hand)
 
-**Requests for quotation** (*Buy → All Buy screens → Documents → Requests for
+**Requests for quotation** (*Buy → Documents → Requests for
 quotation*). Ask several suppliers for their prices and order from the best.
 
 1. New: the products and quantities, and the suppliers invited. An approved
@@ -1082,7 +1085,7 @@ A supplier who was not invited cannot quote. Raising orders needs the right to
 create purchase orders as well as to manage RFQs. Emailing the RFQ to the
 suppliers is not built.
 
-**Rate contracts** (*Buy → All Buy screens → Documents → Rate contracts*). A
+**Rate contracts** (*Buy → Documents → Rate contracts*). A
 rate, a discount and optionally a quantity agreed with one supplier for a
 period. **Approve** makes it active. From then on a purchase order line for
 that supplier with the price left blank takes the contract's rate, ahead of
@@ -1094,7 +1097,7 @@ a warning and is **never refused**. An active contract past its last day reads
 same product may not overlap. **Close**, **Cancel** (with a reason) and
 **Releases** (the orders priced from it) are on the same window.
 
-**Supplier schemes** (*Buy → All Buy screens → Documents → Supplier schemes*).
+**Supplier schemes** (*Buy → Documents → Supplier schemes*).
 "Buy 10, get 2", for one supplier or for every supplier of the product, for a
 period. On a purchase order a scheme of the **same product** fills the line's
 **Free** box where it was left blank, and the side panel reads *Scheme 10+2
@@ -1179,7 +1182,7 @@ against a foreign-currency bill is typed in the bill's currency and posts
 rupees at the bill's own rate (D-BUY-41), and GSTR-2B matching, rule 37 and
 rule 42 read such a bill in rupees (D-CMP-23).
 
-**Bills of entry** (*Buy → All Buy screens → Documents → Bills of entry*).
+**Bills of entry** (*Buy → Documents → Bills of entry*).
 The customs document for an import. Link the bills and receipts it covers;
 per line give the assessable value and the rates or amounts of basic customs
 duty, social welfare surcharge (10% of the duty unless typed), IGST and cess;
@@ -1204,7 +1207,7 @@ it, or cancel the receipt and mark the line on the order or the receipt.
 *Payments* and *Supplier Statements* are in the Buy drop-down; the rest of
 Money (Payment Runs, Payables by Month, Post-dated Cheques, Supplier Gifts, Supplier Rebates,
 Principal Claims, Landed Costs) and Insight (Purchase Dashboard, Purchase
-Analysis, Rate Trend) are under *Buy → All Buy screens*.
+Analysis, Rate Trend) are under Buy.
 
 **Payments.** Money paid to a supplier, applied to one or more of their
 invoices; any excess is held as an advance. Reversed, never edited, like a
@@ -1213,7 +1216,7 @@ receipt.
 A supplier's **credit** (from a return or a debit note on a paid bill) can be
 set against a supplier's **opening bill** as well as a purchase bill.
 
-**Payment Runs** (*Buy → All Buy screens → Money → Payment Runs*). Proposes the supplier bills
+**Payment Runs** (*Buy → Money → Payment Runs*). Proposes the supplier bills
 falling due by a date; a draft run holds the bills and amounts chosen (never
 more than a bill still owes). Approving -- a separate permission the cashier
 does not hold -- records one payment per supplier by bank transfer, all or
@@ -1225,7 +1228,7 @@ leaf (CTS-2010 style: date boxes, payee, amount in words, A/c payee crossing);
 *Cheque layout* moves the print to suit the bank's leaf, kept per bank account.
 A cash or non-cheque payment, or a reversed one, is refused.
 
-**Supplier Rebates** (*Buy → All Buy screens → Money → Supplier Rebates*). A volume rebate agreed
+**Supplier Rebates** (*Buy → Money → Supplier Rebates*). A volume rebate agreed
 with a supplier: set up the agreement, *accrue* what is earned (booked as a
 receivable from the supplier), reverse an accrual that was wrong, and settle it
 with a supplier adjustment of kind *Supplier rebate* rather than a debit note
@@ -1233,14 +1236,14 @@ with a supplier adjustment of kind *Supplier rebate* rather than a debit note
 
 Customer rebates, the same thing the other way round, are under Sell (5.2).
 
-**Payables by Month** (*Buy → All Buy screens → Money → Payables by Month*;
+**Payables by Month** (*Buy → Money → Payables by Month*;
 added 2026-10-05, not yet tested by hand). What each supplier is owed, month
 by month, with *Older*, *Credits* (advances and supplier credit) and
 *Outstanding*, a total row, a chart and a check that the total agrees with the
 payables account in the books. A switch shows what was **paid** instead of
 what is **owed**, and a filter narrows to a branch.
 
-**Principal Claims** (*Buy → All Buy screens → Money → Principal Claims*). What a principal (the
+**Principal Claims** (*Buy → Money → Principal Claims*). What a principal (the
 brand owner) owes the firm: for each principal and period it gathers, once
 each, the redemptions of the schemes the principal funds (at its share), expiry
 write-offs of its products, and damaged goods on completed sales returns.
@@ -1259,7 +1262,7 @@ by batch, with the stock on hand, the old and new rate and the amount. A rate
 can be corrected, a row taken off and a product added by hand before *Raise
 claim*. The claim shows *Rate difference* as its own amount.
 
-**Landed Costs** (*Buy → All Buy screens → Money → Landed Costs*). Freight, duty and handling
+**Landed Costs** (*Buy → Money → Landed Costs*). Freight, duty and handling
 that belong to goods already received. Name the completed receipts and the
 charges (each with its own bill), choose to spread them by value, quantity or
 weight, and post. The share for goods still on hand adds to their value (so the
@@ -1269,7 +1272,7 @@ cost of goods sold. Cancelling reverses it.
 **Purchase Dashboard.** What is on order, what is waiting to be received,
 what is overdue, and spend by supplier.
 
-**Purchase Analysis** (*Buy → All Buy screens → Insight*). The same as Sales Analysis, for the
+**Purchase Analysis** (*Buy → Insight*). The same as Sales Analysis, for the
 suppliers' bills: by supplier, supplier category, product, category, goods
 type, branch and period.
 
@@ -1309,7 +1312,7 @@ than about a trade.
 ## 7.1 Seeing the stock
 
 *Stock Summary* and *Stock Ledger* are in the Stock drop-down; *Inventory,
-Stock Search* and *Transactions* are under *Stock → All Stock screens →
+Stock Search* and *Transactions* are under *Stock → 
 Stock*.
 
 - **Inventory**: what is on hand, by product and warehouse: available,
@@ -1331,7 +1334,7 @@ books, so the stock account in the Balance Sheet matches the stock screens.
 ## 7.2 Movements
 
 *Stock Transfers* and *Physical Count* are in the Stock drop-down; Opening
-Stock, Adjustment Approvals and Repacking are under *Stock → All Stock screens
+Stock, Adjustment Approvals and Repacking are under Stock
 → Movements*.
 
 From the Inventory screen, each its own action:
@@ -1412,7 +1415,7 @@ And two documents:
   or is marked lost. The quick transfer moves the units it names in one step.
   An opening-stock line of serial-numbered goods types its units too (typed
   on screen; the file import does not take serial-numbered stock).
-- **Repacking** (*Stock → All Stock screens → Movements → Repacking*). Break a bulk product into smaller packs
+- **Repacking** (*Stock → Movements → Repacking*). Break a bulk product into smaller packs
   (or the reverse); the output carries the cost of what went in. A product
   kept in batches is taken from its batches earliest expiry first, and what
   is **produced** of one names its batch on the line: a batch the product
@@ -1433,7 +1436,7 @@ And two documents:
 ## 7.3 Tracking
 
 *Batches* and *Expiry Monitor* are in the Stock drop-down; *Lots* and *Serial
-Numbers* are under *Stock → All Stock screens → Tracking*.
+Numbers* are under *Stock → Tracking*.
 
 These tabs are shown only when the firm's goods need them (added on 2026-10-08,
 not yet tested by hand): *Batches* and *Lots* when any goods type the firm uses,
@@ -1482,7 +1485,7 @@ on a part sheet.
 
 ## 7.4 Data
 
-*Stock → All Stock screens → Data*.
+*Stock → Data*.
 
 - **Import**: load stock (opening balances, adjustments) from an Excel file,
   checked before anything is posted.
@@ -1502,7 +1505,7 @@ adjustments) and reading the statements.
 
 *Journal Entries, Expenses, Ledgers* and *Bank Reconciliation* are in the
 Accounts drop-down; Chart of Accounts, Opening Balances, Party Adjustments,
-Contra Vouchers and Export to Tally are under *Accounts → All Accounts screens
+Contra Vouchers and Export to Tally are under Accounts
 → Books*.
 
 **Chart of Accounts.** The accounts, in groups: assets, liabilities, equity,
@@ -1549,19 +1552,19 @@ series, instead of a hand journal.
 **Files on entries.** *Files* on a journal entry, a receipt or a payment keeps
 the bill or letter behind it.
 
-**Export to Tally** (*Accounts → All Accounts screens → Books → Export to Tally*). Writes the period's posted vouchers
+**Export to Tally** (*Accounts → Books → Export to Tally*). Writes the period's posted vouchers
 as a TallyPrime import file: each is typed by what made it (Sales, Purchase,
 Credit Note, Debit Note, Contra, Receipt, Payment, else Journal), with a ledger
 per customer and supplier under Sundry Debtors or Creditors. The *mappings* give
 each account the name and group it has in the firm's Tally. Try a sample in
 Tally before relying on it.
 
-**Bank Details** (*Accounts → All Accounts screens → Tax filing → Bank Details*). The firm's bank
+**Bank Details** (*Accounts → Tax filing → Bank Details*). The firm's bank
 accounts for its bills, one marked *print on documents*: its details print in
 the bank block of every document that has one. Only people who may manage
 accounts or record payments see the full number; others see the last four.
 
-**Fixed assets** (*Accounts → All Accounts screens → Fixed assets*; added
+**Fixed assets** (*Accounts → Fixed assets*; added
 2026-10-05, not yet tested by hand). Four screens:
 
 - **Asset classes**: how each kind of asset is depreciated. Straight line or
@@ -1592,7 +1595,7 @@ Income-tax book posting.
 ## 8.2 Statements
 
 *Trial Balance, Profit & Loss* and *Balance Sheet* are in the Accounts
-drop-down; *Cash Flow* is under *Accounts → All Accounts screens →
+drop-down; *Cash Flow* is under *Accounts → 
 Statements*.
 
 - **Trial Balance**: every account's balance at a date; debits equal credits.
@@ -1614,7 +1617,7 @@ Each chooses its period on the page line and opens a line to its ledger.
 *GST Returns* is in the Accounts drop-down. Everything else of tax filing --
 GSTR-2B Reconciliation, Rule 37, Rule 42, GST checks, GST Payment, PMT-06
 deposits, E-Invoice, TCS, TDS Challans and Bank Details -- is under *Accounts →
-All Accounts screens → Tax filing*. The tax *settings* are under *Settings →
+Tax filing*. The tax *settings* are under *Settings →
 Tax*.
 
 **GST Returns.** **GSTR-1** (outward supplies: B2B invoice by invoice, B2C
@@ -1638,7 +1641,7 @@ months 1 and 2 and the quarter's GSTR-1 and GSTR-3B on their due dates;
 *PMT-06 deposits* (beside GST Payment) records the deposit, and the quarterly
 GST payment uses it before the bank.
 
-**GST checks** (*Accounts → All Accounts screens → Tax filing → GST checks*). Before filing, lists what
+**GST checks** (*Accounts → Tax filing → GST checks*). Before filing, lists what
 a return would trip over: an invalid GSTIN (the firm's, a buyer's, a supplier's),
 a missing or short HSN code, a missing place of supply, an invoice with no IRN,
 a credit note raised after the last date allowed (30 November after the year),
@@ -1648,7 +1651,7 @@ document number longer than the 16 characters GST allows (the default series
 are now shortened to fit) each raise a warning when saved. Each line also keeps
 the tax rule that taxed it, shown in the line's tax detail.
 
-**Rule 42** (*Accounts → All Accounts screens → Tax filing → Rule 42*). Credit on goods and services
+**Rule 42** (*Accounts → Tax filing → Rule 42*). Credit on goods and services
 used for both taxable and exempt supplies is reversed in proportion: the
 monthly reversal, the year's true-up and the reclaim post against Input Tax Not
 Claimable, and GSTR-3B carries them. Rule 43 (capital goods) is not built.
@@ -1708,7 +1711,7 @@ cash payable, and the credit carried to next month. Recording the challan
 (CPIN, bank, interest) posts it in one journal; only the latest month can be
 reversed.
 
-**TDS challans** (*Accounts → All Accounts screens → Tax filing → TDS Challans*). The tax deducted
+**TDS challans** (*Accounts → Tax filing → TDS Challans*). The tax deducted
 and not yet deposited is listed by section; make a challan from it (one
 section, the tax equals the deductions' sum, with the bank's counterfoil
 details), and the challan's serial, BSR code and date flow into the TDS return;
@@ -1851,7 +1854,7 @@ sale*.
 ## 9.3 Organisation and locations
 
 *Branches* and *Warehouses* are in the Masters drop-down. **Trade Licences**
-(*Masters → All Masters screens → Compliance*) is the register of licences --
+(*Masters → Compliance*) is the register of licences --
 the firm's, a branch's, a customer's or a supplier's, with their validity
 dates -- whose numbers print on invoices and whose expiry is raised on Home; a
 product or category can require one, and the sale (and purchase) then warns or
@@ -1875,7 +1878,7 @@ blocks as the firm sets. *Licence Types* and *Licence Check* are set up under
 
 # 10. Reports
 
-*Reports* on the menu bar has no daily list: its two screens are always shown.
+*Reports* on the menu bar shows its two screens at once.
 Two screens, **Operational** and **Financial**, holding more than fifty
 reports. Each can be filtered, sorted and exported.
 
@@ -2073,7 +2076,7 @@ law is a new rule, not an edit to every product.
 
 *Settings → Set up* holds what the drop-downs used to carry under a
 CONFIGURATION heading. Each section is exactly one of those old groups, and
-each area's drop-down ends with a **SET UP IN SETTINGS** link to its own
+each area's drop-down ends with a **SETTINGS** link to its own
 sections. Every screen is offered only to a person who may open it.
 
 | Section | Screens | See |

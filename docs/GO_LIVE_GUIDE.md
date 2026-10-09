@@ -4,11 +4,10 @@ What to do on the first day, and the jobs that come round every month,
 quarter and year. Written 2026-10-01 for the first firms going live
 (`docs/GO_LIVE_PLAN.md`), and brought up to release 1.3.0 on 2026-10-04.
 Menu paths are the new screens': the menu bar along the top, and the **gear**
-at its right for settings. Since 1.2.0 each top drop-down (Sell, Buy, Stock,
-Accounts, Masters) shows daily work only; every other screen of the area is
-behind **All <Area> screens** at the foot of the drop-down, under its group
-name, so `Accounts > All Accounts screens > Books > Opening Balances` means:
-open Accounts, choose *All Accounts screens*, then the Books group. The lists
+at its right for settings. Since 2026-10-09 each top drop-down (Sell, Buy,
+Stock, Accounts, Masters) shows every screen of the area at once, in group
+columns, so `Accounts > Books > Opening Balances` means:
+open Accounts, then find Opening Balances in the Books column. The lists
 set up once (price lists, units, locations and so on) are under the gear, in
 **Settings > Set up**, and the old Admin area is under **Settings > Platform**.
 **Ctrl+K** finds any screen by name if you lose one.
@@ -43,8 +42,8 @@ the earlier ones created.
 | 3. Suppliers | Masters > Vendors > Import | Codes, GSTIN, PAN |
 | 4. Customers' opening bills | Masters > Customers > ... > Import opening bills | Every unpaid bill, at what was still owed on it |
 | 5. Suppliers' opening bills | Masters > Vendors > ... > Import opening bills | Every unpaid supplier bill |
-| 6. Opening trial balance | Accounts > All Accounts screens > Books > Opening Balances | Every other ledger balance on the cutover date |
-| 7. Opening stock | Stock > All Stock screens > Movements > Opening Stock > Import from file | Quantity, cost, batch and expiry per item per warehouse |
+| 6. Opening trial balance | Accounts > Books > Opening Balances | Every other ledger balance on the cutover date |
+| 7. Opening stock | Stock > Movements > Opening Stock > Import from file | Quantity, cost, batch and expiry per item per warehouse |
 
 Every import works the same way:
 
@@ -213,7 +212,7 @@ Licence Check**, separately for sales and purchases:
 When it **blocks**:
 
 - **The usual cause is a lapsed or missing licence.** Add or renew it, then
-  approve again: the firm's own licence under **Masters > All Masters screens > Compliance >
+  approve again: the firm's own licence under **Masters > Compliance >
   Trade Licences**,
   the customer's or supplier's on their screen. A licence that lapsed before
   the document's date does not count for it.
@@ -235,8 +234,8 @@ When it **blocks**:
 | Daily | Expenses | Accounts > Expenses |
 | By the 7th | TDS challan for last month, as a journal | Accounts > Journal Entries |
 | By the 11th | GSTR-1 | Accounts > GST Returns |
-| Before the 20th | Import the month's **GSTR-2B** from the portal and look at what it lacks: bills you booked that the supplier has not filed | Accounts > All Accounts screens > Tax filing > GSTR-2B Reconciliation |
-| By the 20th | GSTR-3B, and pay the GST due: credit set off, the rest by challan | Accounts > GST Returns, then Accounts > All Accounts screens > Tax filing > GST Payment |
+| Before the 20th | Import the month's **GSTR-2B** from the portal and look at what it lacks: bills you booked that the supplier has not filed | Accounts > Tax filing > GSTR-2B Reconciliation |
+| By the 20th | GSTR-3B, and pay the GST due: credit set off, the rest by challan | Accounts > GST Returns, then Accounts > Tax filing > GST Payment |
 | Month end | Reconcile, then close the month | Gear > Firm > Financial Years |
 | Quarter end | TDS deducted list to the CA for 26Q; tick TDS by customers against 26AS | Reports > Financial |
 | Year end | Close every month, then the year | Gear > Firm > Financial Years |

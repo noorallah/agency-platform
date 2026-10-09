@@ -8,9 +8,9 @@ telephone -- so the profit it shows is the firm's real profit.
 Written 2026-09-26 against the version 2 screens (Accounts menu in the top
 bar); brought up to date 2026-10-04, release 1.3.0: menu paths, the seeded
 expense accounts and the account codes below. the
-Accounts drop-down shows daily work only (Journal Entries, Expenses, Ledgers,
-Bank Reconciliation, Trial Balance, Profit & Loss, Balance Sheet, GST Returns)
-and every other screen is behind **All Accounts screens** at its foot. The steps were taken from the product's own tested cases
+Accounts drop-down shows every screen in its columns, with the daily ones first
+and in heavier type (Journal Entries, Expenses, Ledgers, Bank Reconciliation,
+Trial Balance, Profit & Loss, Balance Sheet, GST Returns). The steps were taken from the product's own tested cases
 (`INDEPENDENT_TEST_CASES.md`, TC-FIN-001 and TC-FIN-003).
 
 ## 1. What the Profit & Loss screen shows
@@ -59,7 +59,7 @@ item 1); this section is the accountant's way, by journal.
 
 ### Step A -- open an expense account (once per kind of expense)
 
-**Accounts → All Accounts screens → Books → Chart of Accounts → + New.**
+**Accounts → Books → Chart of Accounts → + New.**
 
 | Field | What to enter |
 | --- | --- |

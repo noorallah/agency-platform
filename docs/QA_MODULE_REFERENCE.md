@@ -50,8 +50,8 @@ what you saw.
 5. **A refusal is often the pass.** Where a case says something must be
    refused, the refusal and its message are the result.
 6. Paths use the 1.3.0 light menu: **Sell, Buy, Stock, Accounts, Masters**
-   each open a short daily drop-down; everything else is behind **All <Area>
-   screens** at its foot, by group. **Settings** is the gear at the right of the
+   each open a drop-down showing every screen of the area in group columns, the
+   daily ones first in heavier type. **Settings** is the gear at the right of the
    bar and has three parts: **Settings** (This PC and me, Firm, Selling,
    Buying, Stock, Tax, Business profile), **Set up** (Pricing, Territories &
    routes, Account structure, Party lists, Item lists, Locations) and
@@ -105,7 +105,7 @@ person's own preferences (theme, text size, date format, first screen).
 | --- | --- | --- |
 | Sign-in | On opening the app | Version 1.3.0; message on a wrong password does not say whether the account exists |
 | Home | First screen after sign-in | Figures, RECENT INVOICES, TO DO, TAX CALENDAR, FAVOURITES; no Admin on the menu bar |
-| Sell / Buy / Stock / Accounts / Masters drop-downs | Menu bar | Daily list only; **All <Area> screens (N)** at the foot; **Returns & notes** short list on Sell and Buy |
+| Sell / Buy / Stock / Accounts / Masters drop-downs | Menu bar | Every screen of the area in group columns, the daily ones first in heavier type; **SETTINGS** links at the foot |
 | Settings page | Gear | Sections, cards, search box (`price` finds Price Lists, Price Levels, Price Floor) |
 | Ctrl+K search | Keyboard | Opens screens and records; starred screens first |
 | My preferences | User menu (initials, top right) > My preferences | Four boxes (five with two firms); Save with no change just closes; Esc and Cancel keep the old values |
@@ -115,7 +115,7 @@ person's own preferences (theme, text size, date format, first screen).
 | Flow / edge case | Cases |
 | --- | --- |
 | Sign in, wrong password, sign out; firm switcher reads QB01 | QA-SIG-01, 02, 20; TC-SESS-001, TC-SESS-002, TC-ME-001 |
-| Light menu: daily lists, Returns & notes, All screens, Settings page, Ctrl+K | QA-SIG-03..07; TC-ME-012, TC-ME-013 |
+| Light menu: every screen in group columns, daily ones first, SETTINGS links, Settings page, Ctrl+K | QA-SIG-03..07; TC-ME-012, TC-ME-013 |
 | Favourites: star, reorder, remove, starred-first in Ctrl+K, same on another PC | QA-SIG-08..11; TC-ME-011 |
 | My preferences: dialog, no-change Save, Esc/Cancel, theme, text size, date format, first screen, start in firm | QA-SIG-12..18; TC-ME-009, TC-ME-010, TC-ME-002..004, TC-ME-007 |
 | Password change refusals | QA-SIG-19; TC-ME-008 |
@@ -230,7 +230,7 @@ Run in this order as the **platform administrator**, then switch to the firm.
 | Firms | Settings > Platform > Firms > Firms | + New refusals; Set up panel (seven rows, verdict) |
 | Set up panel | Firms > pick firm > **Set up** | Storage, Business profile, Books, Tax, Geography, Branches and warehouses, People; verdict ends **Finished. Every step is done.** |
 | Profile Assignment | Settings > Business profile > Profile Assignment | QB01 on Food Distribution |
-| Chart of Accounts | Accounts > All Accounts screens > Books | Cash 1000, Bank 1010, Trade Receivables 1100, Inventory 1200, Trade Payables 2100, Sales 4000, Cost of Goods Sold 5200 |
+| Chart of Accounts | Accounts > Books | Cash 1000, Bank 1010, Trade Receivables 1100, Inventory 1200, Trade Payables 2100, Sales 4000, Cost of Goods Sold 5200 |
 | Numbering Series | Settings > Firm > Numbering Series | Next number per document type, locked counter, Preview |
 | Sales Stages / Credit Control / GST Documents / Batch Rules | Settings > Selling, Tax, Stock cards | Defaults as above; close without saving |
 | Rule Simulator | Settings > Tax > Rule Simulator | CGST+SGST in state, IGST across |
@@ -299,7 +299,7 @@ merge, and import and export.
 | Vendors | Masters > Vendors | Address, bank account under *Pay to*; Catalogue, Ratings tabs |
 | Products | Masters > Products | General, UOM & Size, Pricing, Tax; Margin in the side panel; Components (kit) |
 | Branches, Warehouses | Masters daily drop-down (Organisation) | Branch GSTIN; warehouse under a branch |
-| Trade Licences | Masters > All Masters screens > Compliance | Licence register with validity dates |
+| Trade Licences | Masters > Compliance | Licence register with validity dates |
 | Product Categories, Principals, Brands, Units | Settings > Set up > Item lists | Category tree, units, conversion rules |
 | Customer Groups, Vendor lists | Settings > Set up > Party lists | Default discount; refuses removal while customers are in it (PRC-12) |
 | Custom Fields | Settings > Firm > Custom Fields | Section appears on the customer form |
@@ -366,30 +366,30 @@ return and debit note: the buying chain and what it books.
 | Messaging on, WhatsApp channel on, template for *Purchase order sent to the supplier* | Settings > Firm > Messaging | Off | TC-BUY-054, 055 |
 | Batch PTR / PTS feature (Pharmacy, Food, Wholesale profiles); customer **Trade class** | Business profile; on the customer | By profile | TC-BUY-082..085 |
 | A serial-tracked product | Masters > Products | -- | TC-BUY-063..065 |
-| Asset classes (five come with the firm) | Accounts > All Accounts screens > Fixed assets > Asset classes | Seeded | TC-BUY-077..081 |
+| Asset classes (five come with the firm) | Accounts > Fixed assets > Asset classes | Seeded | TC-BUY-077..081 |
 
 ### Screens to open
 | Screen | Menu path | What to look at |
 | --- | --- | --- |
-| Requisitions | Buy > All Buy screens > Documents > Requisitions | Submit, approve, **Convert to orders** (one draft per supplier) |
+| Requisitions | Buy > Documents > Requisitions | Submit, approve, **Convert to orders** (one draft per supplier) |
 | Purchase Orders | Buy > Purchase Orders | Totals and Tax box (CGST+SGST or IGST) before saving; status moves by receiving, never by hand |
 | Goods Receipts | Buy > Goods Receipts | Remaining quantity pre-fills; Complete; e-way bill field |
 | Purchase Invoices | Buy > Purchase Invoices | Supplier's invoice number; duplicate warning; Approve |
 | Payments | Buy > Payments | Oldest first; TDS fields; offers only unpaid bills |
 | Supplier Statements | Buy > Supplier Statements | Running balance in date order |
-| Purchase Returns, Debit Notes | Buy > Returns & notes | Cap at received; credit/replacement/refund outcome |
-| Approvals, Quality Inspection | Buy > All Buy screens > Documents | Waiting items |
-| Payment Runs, Landed Costs, Supplier Rebates, Principal Claims, Post-dated Cheques, Supplier Gifts | Buy > All Buy screens > Money | Not in the test book; see TC-BUY-023..028 |
-| Purchase Dashboard, Purchase Analysis, Rate Trend | Buy > All Buy screens > Insight | Orders, spend, rates |
-| Requests for quotation | Buy > All Buy screens > Documents > Requests for quotation | Send, Enter quotes, Compare (lowest marked), Save selections, Raise orders; **Create RFQ** on an approved requisition |
-| Rate contracts | Buy > All Buy screens > Documents > Rate contracts | Approve; drawn and remaining per line; Close, Cancel with a reason, Releases; the mark on an order line's rate and the over-draw banner |
-| Supplier schemes | Buy > All Buy screens > Documents > Supplier schemes | Buy and free quantity, free product, dates; on the order the Free box and *Scheme 10+2 applied* |
-| Bills of entry | Buy > All Buy screens > Documents > Bills of entry | Linked bills and receipts, duty rate and amount pairs, Post, Cancel with a reason |
-| Payables by Month | Buy > All Buy screens > Money > Payables by Month | Months, Older, Credits, Outstanding, total row, books check, Owed / Paid, branch |
+| Purchase Returns, Debit Notes | Buy > Documents | Cap at received; credit/replacement/refund outcome |
+| Approvals, Quality Inspection | Buy > Documents | Waiting items |
+| Payment Runs, Landed Costs, Supplier Rebates, Principal Claims, Post-dated Cheques, Supplier Gifts | Buy > Money | Not in the test book; see TC-BUY-023..028 |
+| Purchase Dashboard, Purchase Analysis, Rate Trend | Buy > Insight | Orders, spend, rates |
+| Requests for quotation | Buy > Documents > Requests for quotation | Send, Enter quotes, Compare (lowest marked), Save selections, Raise orders; **Create RFQ** on an approved requisition |
+| Rate contracts | Buy > Documents > Rate contracts | Approve; drawn and remaining per line; Close, Cancel with a reason, Releases; the mark on an order line's rate and the over-draw banner |
+| Supplier schemes | Buy > Documents > Supplier schemes | Buy and free quantity, free product, dates; on the order the Free box and *Scheme 10+2 applied* |
+| Bills of entry | Buy > Documents > Bills of entry | Linked bills and receipts, duty rate and amount pairs, Post, Cancel with a reason |
+| Payables by Month | Buy > Money > Payables by Month | Months, Older, Credits, Outstanding, total row, books check, Owed / Paid, branch |
 | Purchase bill window | Buy > Purchase Invoices | **Attachments**; TCS rate and amount; Currency and rate for a foreign supplier; **Capital goods** tick and asset class on a line; the Approve dialog's TDS proposal and **Paid now** |
 | Goods receipt window | Buy > Goods Receipts | **Attachments**; the **Serials** cell; PTR and PTS on a batch line |
 | Purchase order window | Buy > Purchase Orders | **Send** > WhatsApp |
-| Fixed assets | Accounts > All Accounts screens > Fixed assets | Asset register, Asset classes, Depreciation runs, Income-tax block schedule |
+| Fixed assets | Accounts > Fixed assets | Asset register, Asset classes, Depreciation runs, Income-tax block schedule |
 | GST purchase register, HSN summary of purchases, TCS paid to suppliers | Reports > Financial | By tax head; by HSN and unit; by quarter |
 
 ### What to test
@@ -436,11 +436,11 @@ return and debit note: the buying chain and what it books.
 | TDS on payment | **Cr TDS Payable**; Reports > Financial > TDS deducted (GST-16) |
 | Every step | Audit trail; numbering series (PO-, GRN-, own series each) |
 | Approve a bill with **Paid now** | A payment `PY-` for the amount on Buy > Payments, allocated to the bill; the bill owes the rest (TC-BUY-036, 037) |
-| Approve a bill with TDS proposed | **Cr TDS Payable** for the deduction; the supplier is owed the bill less TDS; Accounts > All Accounts screens > Tax filing > TDS Challans can take the bill (TC-BUY-043) |
+| Approve a bill with TDS proposed | **Cr TDS Payable** for the deduction; the supplier is owed the bill less TDS; Accounts > Tax filing > TDS Challans can take the bill (TC-BUY-043) |
 | Approve a bill with TCS | **Dr TCS Receivable** (1430); the bill owes total plus TCS; Reports > Financial > TCS paid to suppliers (TC-BUY-050) |
 | Raise orders from an RFQ | One **draft** order per chosen supplier on Purchase Orders; the RFQ Closed; a source requisition reads Ordered (TC-BUY-057, 058) |
 | Approve an order priced from a rate contract | The contract's drawn goes up and remaining down; cancelling the order gives it back (TC-BUY-061) |
-| Complete a receipt with serials | Stock > All Stock screens > Tracking > Serial Numbers: one unit per serial, in the receipt's warehouse, its trail starting at the receipt (TC-BUY-063) |
+| Complete a receipt with serials | Stock > Tracking > Serial Numbers: one unit per serial, in the receipt's warehouse, its trail starting at the receipt (TC-BUY-063) |
 | Complete the receipt of a foreign-currency order; approve its bill; pay it | Stock in rupees at the order's rate; the bill's journal in rupees at the bill's rate, a rate difference in Purchase Price Variance; on payment **Exchange Gain/Loss** (4950) for the difference; the GST purchase register shows the bill in rupees (TC-BUY-070, 071, 087, 089) |
 | Post a Bill of Entry | Duty and surcharge added to the stock value of the linked receipts; **Dr Input IGST / Cr Customs Duty Payable** (2800); GSTR-3B 4(A)(1) (TC-BUY-074) |
 | Complete a receipt with a capital-goods line; approve its bill | The receipt moves no stock and posts nothing; then an asset in the Asset register; **Dr Fixed Assets** (1500), no stock; GST purchase register shows the capital goods tax apart (TC-BUY-077) |
@@ -489,13 +489,13 @@ kits and approvals.
 | Physical Count | Stock > Physical Count | Open Count, counted lines, Post count; count plans |
 | Batches | Stock > Batches | Quantity and expiry per batch; reserved |
 | Expiry Monitor | Stock > Expiry Monitor | Expire in 30 days, expired |
-| Inventory | Stock > All Stock screens > Stock > Inventory | On hand, reserved, available, in transit; Write off, Adjust, Transfer, Quarantine |
-| Stock Search, Transactions | Stock > All Stock screens > Stock | Where a product is held; every movement |
-| Opening Stock | Stock > All Stock screens > Movements > Opening Stock | New, Post |
-| Adjustment Approvals | Stock > All Stock screens > Movements | Submitted requests; Reject needs a reason |
-| Repacking | Stock > All Stock screens > Movements > Repacking | Cost carries from the input |
-| Lots, Serial Numbers | Stock > All Stock screens > Tracking | Where the profile tracks them |
-| Import, Export | Stock > All Stock screens > Data | Checked before posting |
+| Inventory | Stock > Stock > Inventory | On hand, reserved, available, in transit; Write off, Adjust, Transfer, Quarantine |
+| Stock Search, Transactions | Stock > Stock | Where a product is held; every movement |
+| Opening Stock | Stock > Movements > Opening Stock | New, Post |
+| Adjustment Approvals | Stock > Movements | Submitted requests; Reject needs a reason |
+| Repacking | Stock > Movements > Repacking | Cost carries from the input |
+| Lots, Serial Numbers | Stock > Tracking | Where the profile tracks them |
+| Import, Export | Stock > Data | Checked before posting |
 | Stock valuation report | Reports > Operational (confirm: the features guide lists it with Statements) | Agrees with Inventory on the trial balance |
 
 ### What to test
@@ -566,21 +566,21 @@ debit notes, proforma, the counter bill, holds, batches, and customer statements
 ### Screens to open
 | Screen | Menu path | What to look at |
 | --- | --- | --- |
-| Enquiries | Sell > All Sell screens > Documents > Enquiries | ENQ-, follow-ups due, Convert to quotation, Lost reason |
+| Enquiries | Sell > Documents > Enquiries | ENQ-, follow-ups due, Convert to quotation, Lost reason |
 | Quotations | Sell > Quotations | Totals, place of supply, in words; convert once |
 | Sales Orders | Sell > Sales Orders | Approve reserves stock; Hold/Release; credit warning |
 | Delivery Notes | Sell > Delivery Notes | Dispatch; Dispatch and invoice; batch picker; pick list, loading sheet |
 | Sales Invoices | Sell > Sales Invoices | + New (from delivery notes), + New by product (counter bill), Save & print (F9), draft banner |
-| Returns & notes | Sell > Returns & notes | Sales Returns, Credit Notes, Customer Debit Notes (menu label reads "Debit Notes" in `menu_layout.dart`: confirm) |
+| Returns and notes | Sell > Documents | Sales Returns, Credit Notes, Customer Debit Notes (menu label reads "Debit Notes" in `menu_layout.dart`: confirm) |
 | Receipts | Sell > Receipts | Apply to invoices; on account; no TCS |
 | Customer Statements | Sell > Customer Statements | Ageing and statement; running balance in date order |
-| Proforma, Approvals | Sell > All Sell screens > Documents | PF- series, "Not a tax invoice" |
-| Post-dated Cheques, Refunds | Sell > All Sell screens > Money | See Finance |
-| Sales Analysis | Sell > All Sell screens > Insight | See Reports |
+| Proforma, Approvals | Sell > Documents | PF- series, "Not a tax invoice" |
+| Post-dated Cheques, Refunds | Sell > Money | See Finance |
+| Sales Analysis | Sell > Insight | See Reports |
 | Counter bill | Sell > Sales Invoices > New (stages off) or + New by product | **Walk-in** and the buyer's name and phone; **Other charges** > Add charge; **Hold (F8)**, **Recall**; the shift strip (Open shift, Close shift) |
-| Counter Shifts | Sell > All Sell screens > Documents > Counter Shifts | Status and date filters, View, Print report |
-| Customer Rebates | Sell > All Sell screens > Documents > Customer Rebates | Agreement with slabs for a customer or a group; statement; accrue, reverse, cancel, settle against bills |
-| Collection Sheet, Payment Promises | Sell > All Sell screens > Money | Open bills by collector with days overdue and the latest promise; the PDF; a promise's status |
+| Counter Shifts | Sell > Documents > Counter Shifts | Status and date filters, View, Print report |
+| Customer Rebates | Sell > Documents > Customer Rebates | Agreement with slabs for a customer or a group; statement; accrue, reverse, cancel, settle against bills |
+| Collection Sheet, Payment Promises | Sell > Money | Open bills by collector with days overdue and the latest promise; the PDF; a promise's status |
 | Transporters | Settings > Set up > Territories & routes > Transporters | Name, GSTIN or TRANSIN, phone, mode, active |
 | Delivery note window | Sell > Delivery Notes | **Carrier (master)**, **Freight** |
 | Attachments | Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns lists | The **Attachments** action and the **Files** column |
@@ -640,7 +640,7 @@ Order of effect (`docs/SALES_CHAIN_RULES.md`, `docs/SALES_TO_RECEIPT_FLOW.md`):
 | Close a shift short or over | One journal between cash and **Cash Short and Over** (6960) for the difference; an exact count posts nothing (TC-SELL-069, 070) |
 | Record or withdraw a promise | **No journal**; Payment Promises shows the status; a receipt in the window turns it *kept*, reversing it un-keeps it (TC-SELL-074, 075) |
 | Accrue a customer rebate | **Dr Rebates Allowed (5310) / Cr Customer Rebates Payable (2900)**, dated the period's last day (TC-SELL-081) |
-| Settle a rebate | A party adjustment of kind *Customer rebate* under Accounts > All Accounts screens > Books > Party Adjustments; the customer owes less (TC-SELL-082) |
+| Settle a rebate | A party adjustment of kind *Customer rebate* under Accounts > Books > Party Adjustments; the customer owes less (TC-SELL-082) |
 
 ### Permissions to check
 **Field Sales** raises quotations, orders and invoices but cannot approve, cancel or change masters; **Counter Sales** bills and takes receipts; **Sales Manager** approves and works the sales desk but may not change Credit Control, Sales Stages or commission payment; **Customer Support** and **Read Only** do not create documents. Price floor override needs `SALES_PRICE_OVERRIDE` (not Sales Manager by default).
@@ -671,8 +671,8 @@ commission and targets.
 | Promotions `QB-BULK`, `QB-WELCOME` and coupon `QBW1` | Settings > Set up > Pricing > Promotions | None | PRC-13..18 |
 | Customer Group `RETAIL` | Settings > Set up > Party lists > Customer Groups | None | PRC-12 |
 | Standing discount on Ravi Traders | Masters > Customers > Money > Default discount % | 0 | PRC-11 |
-| Commission rule (Arun, Money collected, 2%) | Sell > All Sell screens > Incentives > Commission | None | PRC-01..07 |
-| Sales target | Sell > All Sell screens > Incentives > Targets | None | PRC-02, 07 |
+| Commission rule (Arun, Money collected, 2%) | Sell > Incentives > Commission | None | PRC-01..07 |
+| Sales target | Sell > Incentives > Targets | None | PRC-02, 07 |
 | Price Levels | Settings > Set up > Pricing > Price Levels | None | TC-SELL-033 |
 | Discount Limits | Settings > Selling > Discount Limits | No limits | Limits apply to **hand-typed** discounts only, never to a list, promotion or standing rate |
 | Order of the run | Commission first, before any discount exists | -- | PRC-03 sale is at full price |
@@ -680,8 +680,8 @@ commission and targets.
 ### Screens to open
 | Screen | Menu path | What to look at |
 | --- | --- | --- |
-| Commission | Sell > All Sell screens > Incentives > Commission | Rates, Collected, Payouts (Accrue, Approve, Pay) |
-| Targets | Sell > All Sell screens > Incentives > Targets | Achievement view |
+| Commission | Sell > Incentives > Commission | Rates, Collected, Payouts (Accrue, Approve, Pay) |
+| Targets | Sell > Incentives > Targets | Achievement view |
 | Price Lists, Price Levels, Promotions, Loyalty | Settings > Set up > Pricing | Lists; revisions; Coupons view; Adjust points |
 | Quotation / order editor | Sell > Quotations, Sales Orders | Side panel says where each discount came from ("2% from the price list"); read the figures before saving, then close without saving |
 | Loyalty Scheme | Settings > Selling > Loyalty Scheme | Banner states the scheme |
@@ -733,7 +733,7 @@ routes, beat plans, call lists and coverage.
 | Territory records: region, territory, route type, route | Settings > Set up > Territories & routes > Territories, Route Types | None | TER-01, 02 |
 | Route Builder: the round and its order | Settings > Set up > Territories & routes > Route Builder | -- | TER-03 |
 | Salespeople on the route (Arun primary) | Open the route > Salespeople | None | TER-04, 07, 08 |
-| Beat plan | Sell > All Sell screens > Field sales > Beat Plans | None | TER-05, 06 |
+| Beat plan | Sell > Field sales > Beat Plans | None | TER-05, 06 |
 | A route's effective window | On the route | Judged on the document's own date | TC-TERR-003 |
 
 ### Screens to open
@@ -742,9 +742,9 @@ routes, beat plans, call lists and coverage.
 | Territories | Settings > Set up > Territories & routes > Territories | Tree (Expand all): Chennai Region > Chennai North > Anna Nagar Beat |
 | Route Types | same section | `SALES` Sales Route |
 | Route Builder | same section | Add outlets, **Save round and order** |
-| Beat Plans | Sell > All Sell screens > Field sales > Beat Plans | Weekly, Monday |
-| Call Lists | Sell > All Sell screens > Field sales > Call Lists | Move to next Monday: *Runs on Monday*; another day: *Not on Tuesday* with the reason |
-| Coverage | Sell > All Sell screens > Field sales > Coverage | Outlets visited or missed (confirm columns) |
+| Beat Plans | Sell > Field sales > Beat Plans | Weekly, Monday |
+| Call Lists | Sell > Field sales > Call Lists | Move to next Monday: *Runs on Monday*; another day: *Not on Tuesday* with the reason |
+| Coverage | Sell > Field sales > Coverage | Outlets visited or missed (confirm columns) |
 | Sales order editor | Sell > Sales Orders | Salesman, territory, route fill |
 
 ### What to test
@@ -800,8 +800,8 @@ e-way bill (sandbox), TCS, TDS 194Q, GST checks, payment, calendar, GSTR-2B.
 | Screen | Menu path | What to look at |
 | --- | --- | --- |
 | GST Returns (GSTR-1, GSTR-3B) | Accounts > GST Returns | "Filing as 33AAQCB1201B1ZH"; sections B2B, B2CS, CDNR, HSN; 3B tables 3.1(a), 4; Mark filed |
-| E-Invoice | Accounts > All Accounts screens > Tax filing > E-Invoice | Sandbox banner; To register list; IRN box on print |
-| GST checks | Accounts > All Accounts screens > Tax filing > GST checks | Findings by code |
+| E-Invoice | Accounts > Tax filing > E-Invoice | Sandbox banner; To register list; IRN box on print |
+| GST checks | Accounts > Tax filing > GST checks | Findings by code |
 | Rule 37, Rule 42 | same group | Listed credits (nothing at 180 days in the book) |
 | GST Payment, PMT-06 deposits | same group | Liability per head; read, do not record |
 | GSTR-2B Reconciliation | same group | Matched, Different, Not in books |
@@ -858,9 +858,9 @@ statements, bank reconciliation, post-dated cheques, month close, Tally export.
 | --- | --- | --- | --- |
 | Books opened; control accounts mapped | FRM-06, 20 | -- | Every posting |
 | Financial Years: month-close check; ageing columns | Settings > Firm > Financial Years | **Warn**; 30, 60, 90 | FIN-17 |
-| Party Adjustments: second approver above; rounding limit | Accounts > All Accounts screens > Books > Party Adjustments > Adjustment limits | 1,000 / 10 | Receipts/payments rounding |
-| Bank Details (print on documents) | Accounts > All Accounts screens > Tax filing > Bank Details | None | Printed bills |
-| Tally mappings | Accounts > All Accounts screens > Books > Export to Tally | -- | FIN-19 |
+| Party Adjustments: second approver above; rounding limit | Accounts > Books > Party Adjustments > Adjustment limits | 1,000 / 10 | Receipts/payments rounding |
+| Bank Details (print on documents) | Accounts > Tax filing > Bank Details | None | Printed bills |
+| Tally mappings | Accounts > Books > Export to Tally | -- | FIN-19 |
 | Control Accounts, Cost Centres, Profit Centres | Settings > Set up > Account structure | Mapped; none | FRM-20; TC-FIN-007 |
 | Run order | Opening balances first so ledger figures include them | -- | FIN-11 onwards |
 | Month for closing | A completed past month | -- | FIN-17 |
@@ -873,10 +873,10 @@ statements, bank reconciliation, post-dated cheques, month close, Tally export.
 | Ledgers | Accounts > Ledgers | Running balance, e.g. Trade Receivables |
 | Bank Reconciliation | Accounts > Bank Reconciliation | Import, Auto-match, reconciliation statement |
 | Trial Balance, Profit & Loss, Balance Sheet | Accounts daily drop-down | **Balanced** chips; figures per the book |
-| Cash Flow | Accounts > All Accounts screens > Statements > Cash Flow | Operating, investing, financing; says it reconciles |
-| Opening Balances | Accounts > All Accounts screens > Books | One journal OTB-; sub-ledger accounts refused |
-| Contra Vouchers, Party Adjustments, Export to Tally | Accounts > All Accounts screens > Books | Contra series; XML by voucher type |
-| Post-dated Cheques | Sell > All Sell screens > Money, Buy > All Buy screens > Money | Held, deposit refused early |
+| Cash Flow | Accounts > Statements > Cash Flow | Operating, investing, financing; says it reconciles |
+| Opening Balances | Accounts > Books | One journal OTB-; sub-ledger accounts refused |
+| Contra Vouchers, Party Adjustments, Export to Tally | Accounts > Books | Contra series; XML by voucher type |
+| Post-dated Cheques | Sell > Money, Buy > Money | Held, deposit refused early |
 | Financial Years | Settings > Firm > Financial Years | Close, Open, checklist |
 | Customer/Supplier statements, opening bills import | Sell > Customer Statements; Masters > Customers/Vendors | OBC- and OB- numbers |
 
@@ -940,8 +940,8 @@ screens beside Sell and Buy, filtered, sorted and exported.
 | --- | --- | --- |
 | Operational | Reports > Operational | Sales invoice register, Purchase invoice register, Stock valuation (confirm), Overdue sales invoices, Orders not yet received, Purchase order register, Stock ageing, Promotion claims, Enquiries lost |
 | Financial | Reports > Financial | Customer outstanding, Vendor outstanding, Customer PAN check, TDS deducted, purchase price variance |
-| Sales Analysis | Sell > All Sell screens > Insight > Sales Analysis | By product/month etc.; returns netted (confirm) |
-| Purchase Analysis | Buy > All Buy screens > Insight > Purchase Analysis | Quantity and average rate |
+| Sales Analysis | Sell > Insight > Sales Analysis | By product/month etc.; returns netted (confirm) |
+| Purchase Analysis | Buy > Insight > Purchase Analysis | Quantity and average rate |
 | Export | Any report > Export | File holds the grid's rows |
 
 ### What to test
@@ -993,8 +993,8 @@ bulk approval, and messaging (which is off by default).
 | Screen | Menu path | What to look at |
 | --- | --- | --- |
 | Approval Levels | Settings > Firm > Approval Levels | Rule list |
-| Approvals (sales) | Sell > All Sell screens > Documents > Approvals | Sign off, Reject (reason) |
-| Approvals (purchase) | Buy > All Buy screens > Documents > Approvals | Same |
+| Approvals (sales) | Sell > Documents > Approvals | Sign off, Reject (reason) |
+| Approvals (purchase) | Buy > Documents > Approvals | Same |
 | The bell | Menu bar | *Documents awaiting the next sign-off*, orders to approve, adjustments waiting, failed messages, stock alerts; counted |
 | Home > TO DO | Home | Each to-do opens a list with the number of rows it said |
 | Sales Orders list | Sell > Sales Orders | Tick rows > **Approve selected** (each on its own) |

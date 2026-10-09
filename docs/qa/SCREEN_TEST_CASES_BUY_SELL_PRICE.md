@@ -71,8 +71,8 @@ Two refusals are common to all editors and are not repeated per case:
 
 - **By hand.** Sign in as the user named, follow the steps, compare with
   Expected, write the result. Menu paths are the 1.3.0 light menu: **Sell** and
-  **Buy** show the daily list; **All Sell screens** and **All Buy screens** are one
-  click further; the gear opens **Settings** (price lists, promotions and
+  **Buy** show every screen of the area in group columns, the daily ones first in
+  heavier type; the gear opens **Settings** (price lists, promotions and
   loyalty are under **Settings > Set up > Pricing**). Each case stands alone: it
   says what it needs under Before.
 - **By flow.** A case with a name in Automated in is run by
@@ -136,7 +136,7 @@ are the counters above a grid.
 
 ## QT. Quotations
 
-**Where and who.** Sell > Quotations (daily list). Offered to FA, FM, SM, FS, RO (read only). Not offered to CS, WH, PU, PM, AC, SUP.
+**Where and who.** Sell > Quotations (shown first in its column). Offered to FA, FM, SM, FS, RO (read only). Not offered to CS, WH, PU, PM, AC, SUP.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -175,7 +175,7 @@ are the counters above a grid.
 
 ## SO. Sales orders
 
-**Where and who.** Sell > Sales Orders (daily list). Offered to FA, FM, SM, FS, RO. Hold, Release, Approve and Close need SALES_APPROVE.
+**Where and who.** Sell > Sales Orders (shown first in its column). Offered to FA, FM, SM, FS, RO. Hold, Release, Approve and Close need SALES_APPROVE.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -193,7 +193,7 @@ are the counters above a grid.
 | SC-SO-012 | Positive | SM | A fully delivered and billed order | Press Close. | Status Closed. | SELL-009 | not yet |  |
 | SC-SO-013 | Positive | SM | Several Draft orders | Tick three rows. Press Approve selected. Then tick two and press Cancel selected. | A result per row: each approved or refused with its own message. A refusal does not stop the others. | 08-S02 | `sc_so_test.dart` (tradeadmin) | Skipped 2026-10-07: bulk selection checkboxes not reached in two attempts |
 | SC-SO-014 | Positive | FS | Order | Press Print, Send, Attachments. | Print preview opens; Send and Attachments behave as on the quotation. | SELL-034 | not yet |  |
-| SC-SO-015 | Positive | SM | Approved order | Raise a Proforma from it (Sell > All Sell screens > Documents > Proforma > New). | The proforma names the order. See Proforma section. | SELL-017 | not yet |  |
+| SC-SO-015 | Positive | SM | Approved order | Raise a Proforma from it (Sell > Documents > Proforma > New). | The proforma names the order. See Proforma section. | SELL-017 | not yet |  |
 | SC-SO-016 | Positive | SM | Order with one line and a delivery charge | Open the order. Add a delivery charge and a document discount. | Both reach the line and the tax; grand total agrees with the lines. | SELL-050 | not yet |  |
 | SC-SO-017 | Negative | FS | Fixture firm; Vijaya Stores; Detergent (84, GST 18, 100 in stock) | New order without a customer. Save. | Checks N1 to N3 hold. Customer named as missing. | 08-S02 | `sc_so_test.dart` (tradeadmin) | Pass 2026-10-07: open=true, saved=0, said="Choose the customer. / Enter the quantity." |
 | SC-SO-018 | Negative | FS | Fixture firm; Vijaya Stores; Detergent (84, GST 18, 100 in stock) | New order, no lines. Save. | Checks N1 to N3 hold. A line is required. | 08-S02 | `sc_so_test.dart` (tradeadmin) | Pass 2026-10-07: note: :: editor after the customer is chosen: Selling t10069cwy / S( / Purchase Orders / Sales Orders / New sales order / New sales order / Draft / Enter nex... |
@@ -218,7 +218,7 @@ are the counters above a grid.
 
 ## DN. Delivery notes
 
-**Where and who.** Sell > Delivery Notes (daily list). Offered to FA, FM, SM, WH (needs the sales codes: WH sees it only if its role grants SALES_VIEW; to be confirmed), RO.
+**Where and who.** Sell > Delivery Notes (shown first in its column). Offered to FA, FM, SM, WH (needs the sales codes: WH sees it only if its role grants SALES_VIEW; to be confirmed), RO.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -255,7 +255,7 @@ are the counters above a grid.
 
 ## SB. Sales bills (sales invoices, including the counter bill)
 
-**Where and who.** Sell > Sales Invoices (daily list). The counter bill is the same editor with Counter sale ticked; shifts are at Sell > All Sell screens > Documents > Counter Shifts. Offered to FA, FM, SM, FS, CS (Billing Executive role), RO.
+**Where and who.** Sell > Sales Invoices (shown first in its column). The counter bill is the same editor with Counter sale ticked; shifts are at Sell > Documents > Counter Shifts. Offered to FA, FM, SM, FS, CS (Billing Executive role), RO.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -303,7 +303,7 @@ are the counters above a grid.
 
 ## PF. Proforma
 
-**Where and who.** Sell > All Sell screens > Documents > Proforma. Offered to FA, FM, SM (PROFORMA_VIEW and PROFORMA_MANAGE), RO.
+**Where and who.** Sell > Documents > Proforma. Offered to FA, FM, SM (PROFORMA_VIEW and PROFORMA_MANAGE), RO.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -321,14 +321,14 @@ are the counters above a grid.
 | SC-PF-012 | Negative | SM | Withdrawn proforma | Try Issue. | Not offered or refused: only the right status can be issued. | SELL-017 | `sc_pf_test.dart` (tradeadmin) | Pass 2026-10-08: {+ New: enabled, New: absent, Issue: absent, Withdraw: absent}; over HTTP Issue answered 422: {"success":false,"error":{"code":"validation_error","message":"... |
 | SC-PF-013 | Negative | SM | A proforma | Look for any receipt or journal link on it. | None exists; by design a proforma cannot be paid or posted. | SELL-017 | `sc_pf_test.dart` (tradeadmin) | Pass 2026-10-08: fields naming money or the ledger on the record: []; buttons {Record a receipt: absent, Receipt: absent, Post: absent, Journal: absent, Approve: absent} |
 | SC-PF-014 | Role | SM | Sales Manager | Open Proforma. | Offered; New, Issue, Withdraw offered (PROFORMA_MANAGE). | 01-ROLES R05 | `sc_pf_test.dart` (qsmgr) | Pass 2026-10-07: offered=true, list 200; on a Draft: {+ New: enabled, New: absent, Issue: enabled, Withdraw: enabled} |
-| SC-PF-015 | Role | FS | Field Sales | Look in the All Sell screens list. | Proforma not offered (no PROFORMA_VIEW). | 01-ROLES R04 | `sc_pf_test.dart` (qsexe) | Pass 2026-10-07: offered=false; list answers 403 |
+| SC-PF-015 | Role | FS | Field Sales | Look in the Sell drop-down. | Proforma not offered (no PROFORMA_VIEW). | 01-ROLES R04 | `sc_pf_test.dart` (qsexe) | Pass 2026-10-07: offered=false; list answers 403 |
 | SC-PF-016 | Role | RO | Read Only | Open Proforma. | Readable; no New, Issue, Withdraw. | 01-ROLES R11 | `sc_pf_test.dart` (qro) | Pass 2026-10-07: offered=true, list 200; {+ New: disabled, New: absent, Issue: absent, Withdraw: absent} |
 | SC-PF-017 | Multi-user | FS, SM | FS's order approved by SM | SM raises a proforma and issues it; FS asks for it. | FS cannot raise it but the customer-facing print is shared by SM; the order list still shows the order unchanged. | SELL-017 | `sc_pf_test.dart` (qsexe) | Pass 2026-10-07: raise answered 403; the order still reads APPROVED |
 | SC-PF-018 | Multi-user | SM and FA | Same Draft proforma open twice | FA issues it; SM presses Withdraw from the old copy. | SM is told the status moved; nothing is lost. | SELL-017 | `sc_pf_test.dart` (tradeadmin) | Pass 2026-10-08: says "PF-2026-2027-000020 has already been issued."; status ISSUED |
 
 ## RC. Receipts
 
-**Where and who.** Sell > Receipts (daily Money list). Offered to FA, FM, CS (Cashier role), AC (RECEIPT_CREATE and RECEIPT_VIEW), RO. Related: Collection Sheet, Payment Promises, Post-dated Cheques, Refunds under Sell > All Sell screens > Money.
+**Where and who.** Sell > Receipts (daily Money list). Offered to FA, FM, CS (Cashier role), AC (RECEIPT_CREATE and RECEIPT_VIEW), RO. Related: Collection Sheet, Payment Promises, Post-dated Cheques, Refunds under Sell > Money.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -342,7 +342,7 @@ are the counters above a grid.
 | SC-RC-008 | Positive | CS | A recorded receipt | Press Print, Files. | Print preview opens; Files lists attachments. Send is not offered on a receipt. | 08 Screen checks | `sc_rc_test.dart` (tradeadmin) | Pass 2026-10-07: Send absent (not offered, as the book says); Print enabled; Files opened=true |
 | SC-RC-009 | Positive | AC | A recorded receipt | Select it, press Reverse, type the reason, press Reverse. | Receipt shows Reversed; the bill's outstanding is back; the deltas come off the original row. | SELL-014 | `sc_rc_test.dart` (tradeadmin) | Pass 2026-10-07: receipt REVERSED; bill outstanding null of 71.1213; screen says "RC-2026-2027-000100 reversed." |
 | SC-RC-010 | Positive | AC | A promise to pay recorded | Record a receipt for that customer. | The promise moves to kept. | SELL-075 | `sc_rc_test.dart` (tradeadmin) | Skipped 2026-10-07: no payment promise recorded in the fixture firm |
-| SC-RC-011 | Positive | CS | Collection Sheet | Open Sell > All Sell screens > Money > Collection Sheet. | Rows by collector with what is due; a receipt can be started from a row. | SELL-073 | `sc_rc_test.dart` (tradeadmin) | Skipped 2026-10-07: Collection Sheet is under All Sell screens; not reached |
+| SC-RC-011 | Positive | CS | Collection Sheet | Open Sell > Money > Collection Sheet. | Rows by collector with what is due; a receipt can be started from a row. | SELL-073 | `sc_rc_test.dart` (tradeadmin) | Skipped 2026-10-07: Collection Sheet is under All Sell screens; not reached |
 | SC-RC-012 | Negative | CS | Receipt dialog | Press Record with amount 0 or empty. | Dialog stays open; 'must be for more than nothing' style message; nothing saved. | SELL-013 | `sc_rc_test.dart` (tradeadmin) | Pass 2026-10-07: open=true, saved=0, said="Record a receipt / Money already received. Recording it posts to the ledger. / Enter how much money moved. / Dismiss / Received fro... |
 | SC-RC-013 | Negative | CS | Receipt dialog | Type a negative amount. | Refused in words; typed values kept. | SELL-013 | `sc_rc_test.dart` (tradeadmin) | Pass 2026-10-07: open=true, saved=0, said="Record a receipt / Money already received. Recording it posts to the ledger. / Enter how much money moved. / Dismiss / Received fro... |
 | SC-RC-014 | Negative | CS | Receipt dialog | Set 'Date the money moved' to a future date. | Refused in words (not future-dated). | SELL-013 | `sc_rc_test.dart` (tradeadmin) | Pass 2026-10-07: note: :: date picker open=true; note: :: Next month present=false enabled=false; saved 0; newest receipt dates [settlement_date=2026-10-07] (today 2026-10-07... |
@@ -388,7 +388,7 @@ are the counters above a grid.
 
 ## SR. Sales returns
 
-**Where and who.** Sell > Returns & notes > Sales Returns (short list). Offered to FA, FM, SM; RO reads. FS and CS do not hold SALES_RETURN.
+**Where and who.** Sell > Sales Returns (short list). Offered to FA, FM, SM; RO reads. FS and CS do not hold SALES_RETURN.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -420,7 +420,7 @@ are the counters above a grid.
 
 ## CN. Credit notes (and customer debit notes)
 
-**Where and who.** Sell > Returns & notes > Credit Notes and Debit Notes. Offered to FA, FM, SM (draft only), AC, RO. Approve needs CREDIT_NOTE_APPROVE or CUSTOMER_DEBIT_NOTE_APPROVE, which Sales Manager does not hold.
+**Where and who.** Sell > Credit Notes and Debit Notes. Offered to FA, FM, SM (draft only), AC, RO. Approve needs CREDIT_NOTE_APPROVE or CUSTOMER_DEBIT_NOTE_APPROVE, which Sales Manager does not hold.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -453,7 +453,7 @@ are the counters above a grid.
 
 ## PO. Purchase orders
 
-**Where and who.** Buy > Purchase Orders (daily list). Offered to FA, FM, PM, PU, RO. Approve needs PURCHASE_APPROVE (not PU).
+**Where and who.** Buy > Purchase Orders (shown first in its column). Offered to FA, FM, PM, PU, RO. Approve needs PURCHASE_APPROVE (not PU).
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -500,7 +500,7 @@ are the counters above a grid.
 
 ## GR. Goods receipts
 
-**Where and who.** Buy > Goods Receipts (daily list). Offered to FA, FM, WH (PURCHASE_RECEIVE), PM, PU, RO. A warehouse user sees receipts, not bills or returns.
+**Where and who.** Buy > Goods Receipts (shown first in its column). Offered to FA, FM, WH (PURCHASE_RECEIVE), PM, PU, RO. A warehouse user sees receipts, not bills or returns.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -537,7 +537,7 @@ are the counters above a grid.
 
 ## PB. Supplier bills (purchase invoices)
 
-**Where and who.** Buy > Purchase Invoices (daily list). Offered to FA, FM, PM, PU, AC (reads), RO. Approve needs PURCHASE_APPROVE; Pay now needs PAYMENT_CREATE.
+**Where and who.** Buy > Purchase Invoices (shown first in its column). Offered to FA, FM, PM, PU, AC (reads), RO. Approve needs PURCHASE_APPROVE; Pay now needs PAYMENT_CREATE.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -638,7 +638,7 @@ are the counters above a grid.
 
 ## PR. Purchase returns
 
-**Where and who.** Buy > Returns & notes > Purchase Returns (short list). Offered to FA, FM, PM, PU, RO. Warehouse does not hold the bills and returns codes.
+**Where and who.** Buy > Purchase Returns (short list). Offered to FA, FM, PM, PU, RO. Warehouse does not hold the bills and returns codes.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -673,7 +673,7 @@ are the counters above a grid.
 
 ## DB. Debit notes (to a supplier)
 
-**Where and who.** Buy > Returns & notes > Debit Notes. Offered to FA, FM, PM (draft only), AC, RO. Approve needs DEBIT_NOTE_APPROVE, which Purchase Manager does not hold.
+**Where and who.** Buy > Debit Notes. Offered to FA, FM, PM (draft only), AC, RO. Approve needs DEBIT_NOTE_APPROVE, which Purchase Manager does not hold.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -887,7 +887,7 @@ are the counters above a grid.
 
 ## CM. Commission rules and payouts
 
-**Where and who.** Sell > All Sell screens > Incentives > Commission, tabs Rates and Payouts. Offered to FA, FM, AC (COMMISSION_MANAGE and COMMISSION_PAY), SM (view only), RO. A role holding MANAGE without PAY is a hired job template: no seeded role is one.
+**Where and who.** Sell > Incentives > Commission, tabs Rates and Payouts. Offered to FA, FM, AC (COMMISSION_MANAGE and COMMISSION_PAY), SM (view only), RO. A role holding MANAGE without PAY is a hired job template: no seeded role is one.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -924,7 +924,7 @@ are the counters above a grid.
 
 ## PC. Principal claims (scheme, free goods, expired stock, breakage, price cut)
 
-**Where and who.** Buy > All Buy screens > Money > Principal Claims. Offered to FA, FM, PM, PU, RO (PURCHASE_VIEW). The claim kinds are Schemes, Free goods, Expired stock, Breakage; a price cut is its own claim.
+**Where and who.** Buy > Money > Principal Claims. Offered to FA, FM, PM, PU, RO (PURCHASE_VIEW). The claim kinds are Schemes, Free goods, Expired stock, Breakage; a price cut is its own claim.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -957,7 +957,7 @@ are the counters above a grid.
 
 ## SS. Supplier schemes (buy so many, get so many free)
 
-**Where and who.** Buy > All Buy screens > Documents > Supplier schemes. Offered to FA, FM, PM, PU (SUPPLIER_SCHEME_VIEW and SUPPLIER_SCHEME_MANAGE), RO.
+**Where and who.** Buy > Documents > Supplier schemes. Offered to FA, FM, PM, PU (SUPPLIER_SCHEME_VIEW and SUPPLIER_SCHEME_MANAGE), RO.
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

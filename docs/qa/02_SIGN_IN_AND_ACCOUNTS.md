@@ -4,8 +4,8 @@ Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
 end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
-bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
-daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+bar, `Sell > Documents > Proforma` is a screen in the
+Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
 right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
@@ -331,21 +331,19 @@ being signed in and nothing else.
   - Step 3: the order changes and the removed box goes; that screen's star in its drop-down is no longer gold.
   - Step 4: starred screens are listed **first** among the matches.
   - Step 5: the same favourites, in the same order.
-### TC-ME-012 — The light menu: daily work first, everything one click away
+### TC-ME-012 — The light menu: every screen at once, daily work first
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps**
   1. Sign in as the prepared **Firm admin**. Open **Sell**.
-  2. Click **Returns & notes**.
-  3. Click **All Sell screens** at the foot.
-  4. Open **Buy**, **Stock**, **Accounts** and **Masters** the same way.
-  5. Look along the menu bar for **Admin**.
+  2. Look in the Documents column for Sales Returns, Credit Notes and Debit Notes, and at the foot of the drop-down.
+  3. Open **Buy**, **Stock**, **Accounts** and **Masters** the same way.
+  4. Look along the menu bar for **Admin**.
 - **Expect**
-  - Step 1: a short list — Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns & notes, Receipts, Customer Statements — and **All Sell screens (N)** at the foot. Price Lists, Promotions and Territories are **not** here.
-  - Step 2: a short list beside it: Sales Returns, Credit Notes, Customer Debit Notes.
-  - Step 3: every Sell screen this user may open, under its group (Documents, Money, Incentives, Insight, Field sales); any of them opens in a tab.
-  - Step 4: each area works the same way; Masters shows Customers, Vendors, Products, Branches and Warehouses, and its lists (Customer Groups, Product Categories, Units, Places …) are under Settings > Set up.
-  - Step 5: **no Admin** on the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform**, for those who may open them.
+  - Step 1: every Sell screen this user may open, at once, under its group (Documents, Money, Incentives, Insight, Field sales); any of them opens in a tab. In each group the daily screens come first, in heavier type, above a thin line (Documents: Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Credit Notes, Debit Notes; Money: Receipts, Customer Statements). There is no "All Sell screens" link and no "Returns & notes" item. Price Lists, Promotions and Territories are **not** here.
+  - Step 2: Sales Returns, Credit Notes and Debit Notes are ordinary items in the Documents column. The foot carries the caption **SETTINGS** and links to Selling, Pricing and Territories & routes, for those who are offered those sections.
+  - Step 3: each area works the same way, with its own columns (Buy: Documents, Money, Insight; Stock: Stock, Movements, Tracking, Data; Accounts: Books, Fixed assets, Statements, Tax filing; Masters: Parties, Items, Organisation, Compliance). The foot links are Buy: Buying; Stock: Stock; Accounts: Account structure, Tax; Masters: Party lists, Item lists, Locations. The lists (Customer Groups, Product Categories, Units, Places …) are under Settings > Set up.
+  - Step 4: **no Admin** on the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform**, for those who may open them.
 ### TC-ME-013 — Settings > Set up: cards and a search across every section
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template). (, then `two-firm-user`)

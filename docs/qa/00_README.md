@@ -10,9 +10,8 @@ been through a tester's hands yet: the light menu, the Settings page, favourites
 My preferences, the whole backlog build of 2026-10-02 and 2026-10-03, and the
 agency's branding are all new to this pass. Every menu path in the files is
 the 1.3.0 menu: `Sell > Quotations` is the **Sell** drop-down on the menu bar,
-`Sell > All Sell screens > Documents > Proforma` is a screen that is not daily
-work, `Sell > Returns & notes > Credit Notes` is the short list beside the daily
-one, and the gear at the right of the bar opens **Settings**
+`Sell > Documents > Proforma` is a screen in the Documents
+column, `Sell > Credit Notes` may be written without its group, and the gear at the right of the bar opens **Settings**
 (`Settings > Firm > Numbering Series`, `Settings > Set up > Pricing > Price
 Lists`, `Settings > Platform > People > Users`).
 
@@ -118,7 +117,7 @@ box and no import on screen. `01_ROLES_AND_ACCESS` now shows Field Sales
 holding `CUSTOMER_CREATE`. `14_TEST_DATA` is written by hand and has no rows
 for the new cases yet: each new case states its own values.
 
-**What 1.2.0 changed (carried into 1.3.0): the menu.** Each drop-down now shows daily work only; every other screen is behind **All <area> screens** at its foot, under the same group name, so a path such as *Sell > Insight > Sales Analysis* is now *Sell > All Sell screens > Insight > Sales Analysis*. **Returns & notes** opens the returns and notes. The **Admin** area has left the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform** (People, Firms, Agency, System); the set-up lists (price lists, promotions, territories, customer groups, product categories, units, places) are under **Settings > Set up**. Ctrl+K finds any screen by name. Cases TC-ME-009 to TC-ME-013 (`02_SIGN_IN_AND_ACCOUNTS`) cover the new menu, Settings > Set up, favourites and My preferences, which replaces the *Primary firm* menu entry. For one tester's book across every module, with sample data and what to check after each action, see `docs/QA_TEST_BOOK.md`. For a module-by-module reference (what to configure, which screens to open, what to verify elsewhere, known limits) see `docs/QA_MODULE_REFERENCE.md`.
+**What 1.2.0 changed (carried into 1.3.0): the menu.** Since 2026-10-09 each drop-down shows every screen of its area at once, in its group columns, the daily ones first in heavier type, so a path such as *Sell > Insight > Sales Analysis* names the area, the group and the screen. Returns, credit notes and debit notes are ordinary items in the Documents column, and the foot of each drop-down carries SETTINGS links to that area's sections of the Settings page. The **Admin** area has left the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform** (People, Firms, Agency, System); the set-up lists (price lists, promotions, territories, customer groups, product categories, units, places) are under **Settings > Set up**. Ctrl+K finds any screen by name. Cases TC-ME-009 to TC-ME-013 (`02_SIGN_IN_AND_ACCOUNTS`) cover the new menu, Settings > Set up, favourites and My preferences, which replaces the *Primary firm* menu entry. For one tester's book across every module, with sample data and what to check after each action, see `docs/QA_TEST_BOOK.md`. For a module-by-module reference (what to configure, which screens to open, what to verify elsewhere, known limits) see `docs/QA_MODULE_REFERENCE.md`.
 
 **What 1.3.0 adds: the agency's branding.** The sign-in screen, the header and the first sign-in now show the agency's own name, tagline and logo, set on a Branding page of a fresh server install or under **Settings > Platform > Agency > Branding**. Cases TC-ME-014 to TC-ME-018 (`02_SIGN_IN_AND_ACCOUNTS`) cover the sign-in screen, More help and the offline fallback, the first-run *Set up your agency* dialog, the Branding settings page and the header; the installer page is in `docs/INSTALLER_QA_CHECKLIST.md` (A4a and section F). **Written from the code and not yet driven against a running server.** They are in `docs/INDEPENDENT_TEST_CASES.md` too, so regenerating keeps them.
 
