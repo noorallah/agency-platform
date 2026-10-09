@@ -14,10 +14,19 @@ class DesktopWindowController with WindowListener {
 
   final DesktopPreferencesService _preferences;
 
-  Future<void> initialize(BrandingConfig branding) async {
+  /// Size, place and show the window. With [ownTitleBar] the operating
+  /// system's title bar is hidden so the app can draw its own (D-UI-6);
+  /// the answer is whether the window really has none now, which is only
+  /// ever true on Windows.
+  Future<bool> initialize(
+    BrandingConfig branding, {
+    bool ownTitleBar = false,
+  }) async {
     // A phone has one full-screen window and no window manager plugin;
     // calling it there throws before the first frame.
-    if (!AppStorage.isDesktop) return;
+    if (!AppStorage.isDesktop) return false;
+    final bool hideTitleBar =
+        ownTitleBar && defaultTargetPlatform == TargetPlatform.windows;
     try {
       await windowManager.ensureInitialized();
       final Map<String, dynamic> state = _preferences.current.windowState;
@@ -46,6 +55,8 @@ class DesktopWindowController with WindowListener {
           center: !placed,
           minimumSize: const Size(960, 640),
           backgroundColor: branding.loginBackgroundColor,
+          titleBarStyle:
+              hideTitleBar ? TitleBarStyle.hidden : TitleBarStyle.normal,
         ),
       );
       if (placed) {
@@ -62,8 +73,10 @@ class DesktopWindowController with WindowListener {
       await windowManager.show();
       await windowManager.focus();
       windowManager.addListener(this);
+      return hideTitleBar;
     } on Exception catch (error, stack) {
       debugPrint('Window manager initialization failed: $error\n$stack');
+      return false;
     }
   }
 

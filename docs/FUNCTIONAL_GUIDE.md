@@ -3970,7 +3970,7 @@ The endpoints, all under `/api/v1/branding` (a platform path):
 | --- | --- |
 | Give or change the name, tagline, logo | **Settings › Platform › Agency › Branding** (`PLATFORM_SETTINGS`; no firm needed) |
 | Give it on a new PC | The installer's Branding page; or `agency-server set-branding --file branding.json` on the server PC |
-| See it | The sign-in screen (logo or initials, name, tagline; the strengths panel at the left; **More help**); the header, before Home; the window title **<agency> > <firm>** |
+| See it | The sign-in screen (logo or initials, name, tagline; the strengths panel at the left; **More help**); the app's own title bar: the agency's logo, name and tagline, then **>** and the firm, with the window buttons; the menu bar under it starts with Home |
 | See the changes made | **Settings › Platform › System › Audit Logs**, no firm chosen |
 
 The form takes the agency name (required), tagline and logo (PNG or JPG), shows a

@@ -254,13 +254,24 @@ step 1 only; U8 Help > About stays parked).
 
 ### 8.3 Main app header (U6, option 1)
 
-- The app keeps Windows' own title bar, which cannot hold a logo, so option 1
-  is built in two halves: the **window title** reads "<agency> > <firm>"
-  (the firm part only while one is selected), and the agency's **logo, name
-  and tagline lead the existing menu strip**, before Home, with no added
-  height. Then the selected firm as plain text; the firm switcher stays.
-- Below 820 px only the logo shows; the tagline shows from 1280 px. Clicking
-  the agency opens Home.
+- **The app draws its own title bar** (D-UI-6, 2026-10-09). On Windows, phase
+  2 hides the operating system's title bar (`TitleBarStyle.hidden`) and
+  `AppTitleBarStrip` (`desktop/lib/phase2/app_title_bar.dart`) takes its
+  place, 32 px high: the agency's **logo, name and tagline**, then **>** and
+  the selected firm as plain text (nothing when no firm is selected), and
+  minimise, maximise and close. Drag it to move the window; double-click to
+  maximise. The agency therefore shows **once**, and the menu strip below
+  starts with Home. The firm switcher stays on the menu strip.
+- The strip is put above every route from `MaterialApp.builder`
+  (`AppTitleBar.wrap`), so a dialog does not cover it, and the page below is
+  told the height it really has. The sign-in screen shows its own line there
+  ("<product> - Sign in"). Long names are cut short with an ellipsis.
+- It was first built in two halves -- the agency in Windows' own title text
+  and again at the left of the menu strip -- which is what option 4 looked
+  like. That form remains only where the window keeps its own title bar:
+  Linux, macOS, phase 1 and a widget test (`AppTitleBar.enabled` is false),
+  where `AgencyHeader` still leads the menu strip (below 820 px only the
+  logo, the tagline from 1280 px, a click opens Home).
 - **No added requests**: the header reads the copy sign-in cached
   (`agency_branding_cache.dart`), once per shell; fallback `branding.json`,
   then initials.

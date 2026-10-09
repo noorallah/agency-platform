@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'app_title_bar.dart';
 import '../core/auth/session_controller.dart';
 import '../core/branding/agency_branding_cache.dart';
 import '../core/branding/branding_config.dart';
@@ -115,6 +116,8 @@ class _Phase2SignInScreenState extends State<Phase2SignInScreen> {
     } on Object {
       // Nothing to title.
     }
+    // After the await, so never while a frame is being built.
+    if (AppTitleBar.enabled) AppTitleBar.showText(title);
   }
 
   Future<void> _refresh() async {

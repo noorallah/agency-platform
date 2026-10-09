@@ -7,6 +7,7 @@ import 'core/preferences/desktop_preferences_service.dart';
 import 'core/preferences/user_preferences.dart';
 import 'core/security/permission_service.dart';
 import 'core/theme/theme_manager.dart';
+import 'phase2/app_title_bar.dart';
 import 'phase2/display_dates.dart';
 import 'phase2/sign_in_screen.dart';
 import 'ui/auth_screens.dart';
@@ -171,7 +172,13 @@ class _AgencyAppState extends State<AgencyApp> {
           // Navigator's overlay -- see the note on `home` -- is touched.
           builder: (context, child) => MediaQuery(
             data: _themes.scaleText(MediaQuery.of(context)),
-            child: child ?? const SizedBox.shrink(),
+            // The app's own title bar, above every route (D-UI-6). Nothing
+            // is added unless the window has no title bar of its own.
+            child: Builder(
+              builder: (context) => widget.phase2
+                  ? AppTitleBar.wrap(context, child ?? const SizedBox.shrink())
+                  : child ?? const SizedBox.shrink(),
+            ),
           ),
           // Flutter's `Text` is not selectable, which is the opposite of the
           // web and of every other desktop application: nothing on screen could

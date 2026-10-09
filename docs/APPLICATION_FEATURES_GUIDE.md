@@ -151,12 +151,13 @@ appears.
 
 ## The screen
 
-- **The header.** At the left of the top strip, before Home, the **agency's
-  logo, name and tagline**, then the **name of the firm** being worked in as
-  plain text (the firm switcher is unchanged). Clicking the agency opens Home.
-  The Windows title bar reads **<agency> > <firm>**, or the agency alone when no
-  firm is chosen. In a narrow window (below 820 px) only the logo is drawn; the
-  tagline appears from 1280 px. The strip is no taller than before.
+- **The header.** The window's own title bar carries the **agency's logo,
+  name and tagline**, then **>** and the **name of the firm** being worked in
+  as plain text (nothing when no firm is chosen), with minimise, maximise and
+  close at the right. Drag it to move the window; double-click it to maximise.
+  The menu bar below starts with **Home**, and the firm switcher is unchanged.
+  A name too long for the bar is cut short. *Changed on 2026-10-09: the agency
+  used to show twice, in the Windows title and at the left of the menu bar.*
 - **The product's own name.** At the right end of the status line, *Agency
   Platform 1.3.0 by* its company, with the same in a tooltip. Clicking it does
   nothing (*Help > About* is not built, 15).
