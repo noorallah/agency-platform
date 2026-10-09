@@ -5,6 +5,14 @@
 **Applies to:** FastAPI backend, PostgreSQL, Flutter Desktop, and all future ERP modules  
 **Compatibility:** Existing Authentication, RBAC, Firm, Customer, audit, and desktop framework contracts remain unchanged
 
+> **Read this as history (note of 2026-10-09).** This is the design proposal of
+> 2026-10-01. What was built is different: a product's tracking follows its
+> **goods type**, not a profile capability, and the `INVENTORY.BATCH_TRACKING`,
+> `EXPIRY_TRACKING`, `SERIAL_TRACKING` and IMEI capabilities named below do not
+> exist in the code (the profile features that stood for them were withdrawn by
+> migration `20261008_0353`). `docs/GOODS_TYPES.md` and
+> `docs/BUSINESS_PROFILE_FRAMEWORK.md` say what the code does today.
+
 ## 1. Executive Summary
 
 Agency Platform should evolve into a configurable Business ERP Platform rather

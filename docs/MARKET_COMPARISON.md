@@ -271,7 +271,7 @@ months of use.
 | N10 | Geography auto-fill (districts, cities, pin codes) | Most cloud tools via pin-code lookup | States are seeded; the rest is typing | M | BACKLOG §41 |
 | N11 | Home gadgets by role; phone layout | Zoho, Odoo, Marg | Home is built and approved for now | M each | BACKLOG §49, §48 |
 | N12 | BOM, job work, marketplace and courier integrations | Busy (BOM, job work); Zoho (courier, Shopify, Amazon) | Outside the distributor profile | L | BACKLOG §42.15 |
-| N13 | Declared industry features: IMEI, prescription, recipe, kitchen, service contracts, projects | Various vertical products | Not our segment; honest placeholders | varies | MODULE_STATUS "Declared, not built" |
+| N13 | Declared industry features: IMEI, prescription, recipe, kitchen, service contracts, projects | Various vertical products | Not our segment. The placeholders were withdrawn on 2026-10-08 (migration `20261008_0353`), so nothing is declared and unbuilt any more | varies | `BUSINESS_PROFILE_FRAMEWORK.md` |
 
 ### 3.4 Found on a second pass, 2026-09-27
 
