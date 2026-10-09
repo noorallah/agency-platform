@@ -71,6 +71,7 @@ from app.commission.schemas.payout import (
 from app.commission.services import CommissionPayoutService, CommissionService
 from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.core.config.settings import Settings
+from app.core.database import all_models  # noqa: F401 - every table, for the mapper
 from app.core.database.engine import DatabaseManager, EngineFactory
 from app.core.exceptions import (
     BusinessRuleError,
@@ -3071,9 +3072,16 @@ def build_for_firm(
     # approved.
     builder.run_a_loyalty_scheme()
 
-    cycle = 0
+    # Every year before the first document, not each as its turn comes: a
+    # sales return or a credit note of an early year holds stock and posts on
+    # the day it is approved, which is today, and today's period belongs to
+    # the last year. Opened one by one, every such document was refused with
+    # "No open accounting period covers" today.
     for year_start in years_in_scope:
         builder.ensure_year(year_start)
+
+    cycle = 0
+    for year_start in years_in_scope:
         for month_index, month_start in enumerate(_month_starts(year_start, today)):
             buy_on = _day_in(month_start, 4, today)
             if buy_on is None:

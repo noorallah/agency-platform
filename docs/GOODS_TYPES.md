@@ -1,8 +1,9 @@
 # Goods types
 
 The reference for goods types: what one is, the tables, the rules the server
-keeps, and how far the build of `docs/BACKLOG.md` §89 has got. §89 holds the
-design and the reasons; this file says what the code does today.
+keeps, the routes and the screens. `docs/BACKLOG.md` §89 holds the design and
+the reasons; this file says what the code does today. The build was finished
+and merged on 2026-10-08 (#1358, #1361, #1362).
 
 ## The idea
 
@@ -164,8 +165,8 @@ the form makes **no call of its own for goods types**:
 
 ## The product form
 
-`desktop/lib/ui/products/product_management_page.dart`. Added 2026-10-08,
-not yet tested by hand.
+`desktop/lib/ui/products/product_management_page.dart`. Added 2026-10-08;
+clicked through by the screen tests that day, not yet by a person.
 
 - **Goods type: X** is shown read-only beside the category (*Set by the
   category*). A new product shows its category's type; a stored product the
@@ -225,25 +226,31 @@ arrives in the metadata call the page already makes, so the filter costs no
 server call. The filter is not kept between sessions. `tests/unit/test_goods_type_in_reports.py`
 pins each row of the table.
 
-## How far §89 has got
+## What a goods type reaches
 
-| Step of §89's order | State |
+Everything §89 set out is built. Where each part is described:
+
+| What a goods type decides | Where it is described |
 | --- | --- |
-| 1. The goods type, the two columns, the migration and the seeds | **Built 2026-10-08, not yet tested by hand** |
-| 2. Product save and the product form | **Built 2026-10-08, not yet tested by hand** |
-| 3. Unit sets and their picker on the product form | **Built 2026-10-08, not yet tested by hand** (`docs/UOM_FRAMEWORK.md`, *Unit sets*) |
-| 4. Batch and serial checks read the product | **Built 2026-10-08, not yet tested by hand.** Adding a batch, lot or serial by hand needs the product's `track_batch` / `track_lot` / `track_serial`; expiry, manufacturing and warranty fields need `track_expiry`, `track_manufacturing_date`, `track_warranty`. Existing records can always be changed or removed. A goods receipt still creates its batch. The six profile features no longer enforce anything (`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, *What a product's switches allow*) |
-| 5. Extra fields and compulsory rules by goods type | **Built 2026-10-08, not yet tested by hand.** A rule ties a field to a goods type, a customer group or a supplier type and says whether it is compulsory there; a firm switches a shared field off for itself; the two profile columns are dropped by `20261008_0352` (`docs/CUSTOM_FIELDS_FRAMEWORK.md`, *Fields by kind of record*) |
-| 6. Menus, import, the profile clean-up, the docs | **Built 2026-10-08**, driven over HTTP and on screen the same day (`docs/BUSINESS_PROFILE_FRAMEWORK.md`) |
-| 7. Closing sweep | **Done 2026-10-08** (`tests/unit/test_backlog_89_removed_names_stay_gone.py`) |
-| 8. Goods type in the reports and the product list | **Built 2026-10-08** -- see *Goods type in reports and lists* below |
+| How a new product starts: its tracking switches, HSN and tax group | *The rules the server keeps* and *The product form*, above |
+| Which unit sets the product form offers first | `docs/UOM_FRAMEWORK.md`, *Unit sets* |
+| What may be recorded on a batch, a lot or a serial number. The product's own switches decide (`track_batch`, `track_lot`, `track_serial`, `track_expiry`, `track_manufacturing_date`, `track_warranty`), not the firm's profile; existing records can always be changed or removed, and a goods receipt still creates its batch | `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, *What a product's switches allow* |
+| Which extra fields a product is offered and which are compulsory. A rule ties a field to a goods type, a customer group or a supplier type; a firm switches a shared field off for itself | `docs/CUSTOM_FIELDS_FRAMEWORK.md`, *Fields by kind of record* |
+| Which Stock tabs a firm sees (Batches, Lots, Serial Numbers, Expiry Monitor), and the tracking columns of the product import | `docs/BUSINESS_PROFILE_FRAMEWORK.md` |
+| Reports and the product list by goods type | *Goods type in reports and lists*, above |
 
-So after step 4 a goods type decides how a **new** product starts, what its
-form shows and which unit sets it is offered first, and the product's switches
+So a goods type decides how a **new** product starts, what its form shows,
+which unit sets and extra fields it is offered, and the product's switches
 (not the profile) decide what may be recorded on a batch or a serial number.
-After step 5 its extra fields follow it too: a field a rule ties to Medicine
-is offered on Medicine products and on no other, and the firm's profile is
-asked nothing.
+The firm's profile is asked nothing after it has handed over the starting
+types. `tests/unit/test_backlog_89_removed_names_stay_gone.py` keeps the
+profile-driven names from coming back.
+
+**How it was tested.** Driven over HTTP and clicked on screen on 2026-10-08
+(`docs/qa/GOODS_TYPES_API_CHECK_ROUND_1_2026-10-08.md`,
+`docs/qa/GOODS_TYPES_REPORTS_CHECK_2026-10-08.md`,
+`docs/qa/SCREEN_FLOW_CHECK_GOODS_TYPES_2026-10-08.md`). It has not been
+through a person's hand test from the test book yet.
 
 ## Related
 

@@ -10,6 +10,35 @@ is the rule.
 The commands are in `CLAUDE.md`; this is what the seeders produce and the
 class of defect building the history has repeatedly exposed.
 
+## A clean rebuild finds what a re-run cannot, 2026-10-09
+
+The whole database was dropped and rebuilt on 2026-10-09 (`reset_tenancy_layout.py`,
+then `seed_multi_firm_demo.py`). The seeders had only ever been re-run over
+stores that already held their masters, and a re-run skips every master that
+exists, so five faults had been invisible for weeks. Each stopped or thinned
+the first seed of an empty database:
+
+| Fault | What it did | Fix |
+| --- | --- | --- |
+| A supplier's TAN was written as the letters TAN and seven digits | The server refuses a TAN that is not four letters, five digits and a letter, so the first supplier failed and the seed stopped | A TAN of the right shape, in both `seed_multi_firm_demo.py` and `generate_sample_data.py` |
+| `ConversionRuleCreate(version=1)` | The schema's field is `version_number` and forbids unknown fields; the seed stopped at the first product with a selling unit | `version_number=1` |
+| Neither demo seeder imported `app.core.database.all_models` | The first sales invoice could not resolve `counter_shifts`, a table added on 2026-10-05; the seed stopped in the history | Both import the one model list, as `CLAUDE.md` asks |
+| MEDI01's two batch-tracked medicines carried an MRP of 75 and 35 | The history bills every product at up to 195 before tax, and a bill above the MRP printed on a batch is refused: MEDI01 came out with 20 deliveries for 60 orders | An MRP of 260 on both |
+| Each financial year was opened as the history reached it | A sales return holds stock and a credit note posts on the day it is approved, which is today, and today's period belongs to the last year: every return and credit note of the earlier years was refused | Every year is opened before the first document |
+
+`seed_multi_firm_demo.py` now prints up to forty notes for a firm, not five:
+the reason for a shortfall was behind "...and 39 more".
+
+**A fresh seed does not make `master.ops@agency.local` a platform
+administrator.** No route grants the designation, and the account had held it
+since somebody added the row by hand. `scripts/test_fixture.py` signs in as it
+to create firms, so after a reset the row is written in-process the way that
+script writes it for its own people, before any fixture is run.
+
+**What the rebuilt set holds** is in `docs/DEMO_FIRMS_USERS_AND_FEATURES.md`:
+the four trading firms across the three tenancy modes, DEMO01 (one firm
+trading in medicines, food and paints by goods type, built through the API)
+and TEST01 and TEST02. PERF01 and the per-run fixture firms were not rebuilt.
 ## A table that RESTRICTs a reset table blocks the whole reseed
 
 **A table that RESTRICTs a reset table blocks the whole reseed, and the

@@ -61,6 +61,7 @@ from app.business.models import (
 from app.commission.schemas import CommissionRuleCreate
 from app.commission.services import CommissionService
 from app.core.config.settings import Settings
+from app.core.database import all_models  # noqa: F401 - every table, for the mapper
 from app.core.database.engine import DatabaseManager
 from app.core.tenancy import (
     DeploymentMode,
@@ -289,7 +290,10 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 sales_uom_factor=Decimal("10"),
                 purchase_price=Decimal("58"),
                 selling_price=Decimal("72"),
-                mrp=Decimal("75"),
+                # Above what the history charges with tax (up to 195 a strip
+                # before tax): a bill over the MRP printed on a batch is
+                # refused, which left MEDI01 with a third of its deliveries.
+                mrp=Decimal("260"),
                 requires_batch=True,
             ),
             ProductSeed(
@@ -304,7 +308,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 sales_uom_factor=Decimal("15"),
                 purchase_price=Decimal("24"),
                 selling_price=Decimal("31"),
-                mrp=Decimal("35"),
+                mrp=Decimal("260"),
                 requires_batch=True,
             ),
             ProductSeed(
@@ -710,10 +714,10 @@ def main() -> int:
                     # printed the tally and dropped them on the floor, so a
                     # firm seeding differently from its siblings was
                     # invisible here while the standalone script showed it.
-                    for note in tally.skipped[:5]:
+                    for note in tally.skipped[:40]:
                         print(f"  note: {note}")
-                    if len(tally.skipped) > 5:
-                        print(f"  note: ...and {len(tally.skipped) - 5} more")
+                    if len(tally.skipped) > 40:
+                        print(f"  note: ...and {len(tally.skipped) - 40} more")
                     # After the history: serials sit on stock the history put
                     # there, and a journal needs the books the history opened.
                     _seed_serial_numbers(tenant_session, firm, blueprint, actor_id)
@@ -1312,7 +1316,9 @@ def _seed_vendors(
                     VendorTaxInput(
                         gstin=_gstin(firm.code, index),
                         pan=_pan(index + 500),
-                        tan=f"TAN{index:07d}",
+                        # Four letters, five digits and a letter: the shape
+                        # `check_tan_if_set` asks for.
+                        tan=f"DEMO{index:05d}V",
                         extra_fields={"seeded": True},
                         is_primary=True,
                     )
@@ -2526,7 +2532,7 @@ def _seed_sales_conversion_rule(
             to_uom_id=to_uom.id,
             conversion_factor=factor,
             effective_from=date(2024, 4, 1),
-            version=1,
+            version_number=1,
             reason=(
                 f"One {from_uom.code} is {factor} {to_uom.code} " f"for {product_code}."
             ),

@@ -281,10 +281,12 @@ items; `BACKLOG_BUILD_PLAN.md` section 5.1 says what unblocks each.
 
 Twenty-three more items were built in one day: fourteen on the buying side
 (PG-1 to PG-14, `BACKLOG.md` §86) and nine on the selling side (SG-1 to SG-9,
-§87). They are part of release 1.3.0, which has not been distributed.
-**None has been through a full test suite, a CI run or a hand test**: each was
-merged on its own tests, so every statement about them in this guide is from
-the code and is to be confirmed on a screen. The manual cases are TC-BUY-029 to
+§87). They are part of release 1.3.0, which has not been distributed. Each
+was merged on its own tests; since then buying and selling were driven twice
+against the running server (2026-10-05 and 10-06, the check files are in
+`docs/qa`) and the full suites passed on 2026-10-08. **None has been through a
+hand test**, so a label in this guide about them is to be confirmed on a
+screen. The manual cases are TC-BUY-029 to
 090 and TC-SELL-036 to 087 (`docs/qa/`). `PURCHASE_FRAMEWORK.md` and
 `SALES_FRAMEWORK.md` are the references; the rules are in
 `LEDGER_POSTING_RULES.md` and `SALES_CHAIN_RULES.md`.
@@ -356,6 +358,101 @@ Money › *Payables by Month* is a screen of its own.
 while the cases were written (D-BUY-35 to D-BUY-40, D-SELL-51, D-SELL-52)
 and the five found after them (D-BUY-41 to D-BUY-43, D-CMP-23, D-UI-11) were
 fixed on 2026-10-05.
+
+## What shipped from 2026-10-06 to 2026-10-09
+
+Still release 1.3.0. Three kinds of work: the pricing rounds (2026-10-06 and
+10-07), goods types (`BACKLOG.md` §89, 2026-10-08) and the inventory rounds
+(2026-10-08 and 10-09). Each rule below was driven against the running server
+by a kept check under `docs/qa/checks`, and the dated check files in `docs/qa`
+record each round; none has been through a hand test. The register
+(`DEFECTS.md`) holds the defect behind each rule.
+
+**Goods types** (`GOODS_TYPES.md` is the reference). A product's tracking
+follows the goods type of its category (Medicine, Food, Cosmetics, Paint,
+Electronics, or the firm's own), not the firm's business profile. The profile
+hands a firm its starting types once and is asked nothing afterwards; seventeen
+profile feature codes were withdrawn and five remain
+(`BUSINESS_PROFILE_FRAMEWORK.md`). Tables `goods_types`, `firm_goods_types`,
+and `goods_type_id` on categories and products (migration `20261008_0350`).
+Goods type is a dimension of the sales and purchase analyses, a column of four
+stock reports and a filter of the product list. A pack's barcode is read
+wherever a document line is written and adds what the pack holds.
+
+**Section 9 (Products, batch and serial).** *Copy as new product* opens an
+unsaved form filled from a product; code, barcodes, stock, batches, serials,
+price history and prices by level are not carried. A product that tracks
+expiry does not take a batch with no expiry date (a manufacturing date fills
+it where the product has a shelf life). A batch number typed for a product
+that keeps no batches is ignored. *Add Serial* is refused past the quantity
+the warehouse holds.
+
+**Section 15 (Buying).** A goods receipt line brings in no more free goods
+than its order line still has to give; an order line that promised none takes
+none (D-BUY-67). A refused import of receipts, orders or bills writes nothing
+(D-BUY-73). A service on a goods receipt is received and billed and never held as stock; its bill debits purchases (D-BUY-74, #1384).
+
+**Section 16 (Selling).** A bill discount typed as an amount stays an amount
+on a re-save (`sales_invoices.bill_discount_typed_as`, migration
+`20261006_0341`).
+
+**Section 14 (Promotions and coupons).** A scheme carries a budget in money
+and one in free units. The promotion claims report shows what was claimed at
+approval beside what was given, net of releases and returns. A principal's
+price cut is claimed on the stock in hand, as a claim of its own (*Price cut
+claim* on Principal Claims).
+
+**Section 20 (Loyalty and cashback).** Points redeemed in error can be put
+back, and lapsed points are shown beside those earned and redeemed.
+
+**Section 19 (Receipts and payments).** The credit a return or credit note
+leaves on a paid bill can be set against another bill of the same customer and
+taken back (`customer_credit_applications`, migration `20261006_0348`;
+`GET /receipts/customer-credits`, `POST .../{source_id}/apply`,
+`POST .../applications/{id}/reverse`). No journal: one `ADVANCE_APPLY`
+receivable row. A refund names its source, so a credit paid back cannot be
+applied as well.
+
+**Section 27 (Inventory operations).** `INVENTORY_FRAMEWORK.md` carries each
+rule in full.
+
+- *Dates.* No stock write is dated after today. Once a firm has opened books,
+  a transfer, a quarantine hold or release, a transfer document, a count and
+  a repack keep to the open periods, as a write-off and an adjustment did.
+- *Serial numbers go with the goods.* Both transfers name their units; the
+  transfer document holds them `IN_TRANSIT` from dispatch and lands them
+  `AVAILABLE`, `DAMAGED` or `LOST` at the receipt. An opening-stock line types
+  its units (`opening_stock_line_serials`, migration `20261008_0354`).
+- *Back orders* ship what is on the shelf and cannot be jumped by a later
+  order naming a batch or a unit.
+- *Kits and repacks.* A part kept in batches leaves earliest expiry first; a
+  produced line of a batch-tracked product names its batch; a broken kit's
+  part goes back to the batch it came from; a serial-tracked product is not
+  repacked or made a kit part.
+- *Bins.* A delivery note line naming no bin draws from the warehouse's bins.
+- *Returns.* Units returned as scrap go into the damaged bucket, and a
+  write-off can reach that bucket.
+- *Counts.* A posted count line shows the stock it was measured against as
+  Expected. A plan switched off draws no sheet. The count sheet does not
+  refuse a stale save (two people fill one sheet); that is a known limit.
+- *Adjustments.* The limit judges the pieces a pack moves; a limit names a
+  role the firm has; a request for approval is judged at its value when
+  decided. Evidence files need a name, and a record keeps at most ten.
+- *Services.* A service is never brought into stock by inventory's own
+  writes.
+- *Alerts.* Home lists each kind of stock alert worst first, and *near
+  expiry* uses the firm's own window everywhere.
+
+**Section 23 (Journals and ledgers).** The paisa that can stand between the
+stock account and the stock valuation is a known limit: stock is valued to
+four places and the ledger posts two (D-STK-20, D-PRC-56 in *Not a defect*).
+
+**Platform and screens (built 2026-10-04, not written here until now).** The
+firm form chooses its **State** from a list and proposes it from the GST
+number. Purchase bills, purchase returns and supplier debit notes of a new
+firm are numbered per firm and branch, like the order and the receipt
+(`BACKLOG.md` §84). Text, rows and cells can be copied from every screen
+(§83).
 
 ## What 1.3.0 changed in the menu
 
