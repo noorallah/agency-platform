@@ -11757,9 +11757,25 @@ class ApiClient {
         query: referenceCopy ? <String, String>{'reference_copy': 'true'} : null,
       );
 
+  /// Several bills as one PDF, in the order given, each with the firm's
+  /// copies. One still waiting for its IRN prints as the reference copy.
+  Future<List<int>> salesInvoicesPdf(List<String> invoiceIds) => downloadBytes(
+        '/api/v1/sales-invoices/bulk-print',
+        method: 'POST',
+        body: <String, dynamic>{'invoice_ids': invoiceIds},
+      );
+
   /// The challan that travels with the goods.
   Future<List<int>> deliveryChallanPdf(String id) =>
       downloadBytes('/api/v1/delivery-notes/$id/print');
+
+  /// Several challans as one PDF, in the order given, each with the firm's
+  /// copies.
+  Future<List<int>> deliveryChallansPdf(List<String> noteIds) => downloadBytes(
+        '/api/v1/delivery-notes/bulk-print',
+        method: 'POST',
+        body: <String, dynamic>{'note_ids': noteIds},
+      );
 
   /// What to pick from the shelves for these notes, products and batches
   /// summed over them (SEL-13).

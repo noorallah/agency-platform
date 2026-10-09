@@ -583,6 +583,15 @@ name.
 *Pick list* (what to take from where, for the warehouse) or *Loading sheet*
 (what is on the vehicle); each is an A4 PDF.
 
+**Printing several at once.** Tick two or more sales invoices, or two or more
+delivery notes, and choose *Print selected*. They print as one document, in
+the order the list shows them, each with the firm's own copies (Original,
+Duplicate, Triplicate, as set under *Print settings*), so a morning's bills are
+one trip to the printer. Anyone who may see the documents may print them. One
+run takes up to 100. A bill still waiting for its IRN prints as the reference
+copy, marked not a valid tax invoice. A firm that prints on the 80 mm thermal
+roll prints one at a time: every bill on a roll is a page of its own length.
+
 **Sales Returns.** Goods coming back against an invoice. Approving puts the
 stock back into the warehouse (or into a damaged or quarantine bucket) and
 reduces what the customer owes, with the tax reversed. For a firm that

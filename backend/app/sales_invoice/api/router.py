@@ -63,6 +63,7 @@ from app.sales_invoice.schemas import (
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_invoice.services.discount_report import DiscountReportService
 from app.sales_invoice.services.gst_sales_register import GstSalesRegisterService
+from app.sales_invoice.services.invoice_pdf import MAX_PRINT_RUN
 from app.sales_invoice.services.invoice_print_service import (
     SalesInvoicePrintService,
 )
@@ -1237,6 +1238,37 @@ def import_sales_invoices(
     rows = service.import_invoices(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     db.commit()
     return ApiResponse(data=service.invoice_responses(rows))
+
+
+class InvoicePrintRunRequest(BaseModel):
+    """The sales invoices one print run covers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invoice_ids: list[UUID] = Field(min_length=1, max_length=MAX_PRINT_RUN)
+
+
+@router.post("/bulk-print", response_class=StreamingResponse)
+def print_sales_invoices(
+    data: InvoicePrintRunRequest,
+    scope: SalesInvoiceViewScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    """Print the chosen invoices as one PDF, in the order given.
+
+    Each bill prints as it would alone, with the firm's copies. One still
+    waiting for its IRN prints as the reference copy, marked not a valid tax
+    invoice, rather than stopping the run. Viewing is the permission, as for
+    one bill.
+    """
+    pdf, filename = SalesInvoicePrintService(db).render_many(
+        data.invoice_ids, firm_scope=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.get(

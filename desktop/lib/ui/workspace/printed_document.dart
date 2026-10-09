@@ -6,6 +6,11 @@ import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
 import '../../core/notifications/notification_service.dart';
 
+/// The most documents one print run takes: the server's own limit
+/// (`MAX_PRINT_RUN`), stated here so a screen can say so by the number
+/// before asking.
+const int maxPrintRun = 100;
+
 /// Send a rendered document to the printer, through the system print dialog.
 ///
 /// Print means print. This used to save a PDF and hand it to whatever opens

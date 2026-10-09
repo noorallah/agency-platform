@@ -16,6 +16,7 @@ installer free of GTK and Pango.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from io import BytesIO
@@ -39,9 +40,14 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from app.core.exceptions import BusinessRuleError
 from app.sales_invoice.services.upi_qr import UpiPayment
 
 ZERO = Decimal("0")
+
+#: The most documents one print run takes. A run is one PDF held in memory
+#: and sent whole, and a hundred bills of three copies is already a ream.
+MAX_PRINT_RUN = 100
 
 #: Indian numbering, because the amount in words on an Indian invoice is read
 #: in lakh and crore rather than in millions.
@@ -402,16 +408,18 @@ class InvoicePdfRenderer:
             title=f"{self._template.title_text} {document.number}",
             author=document.seller.name,
         )
-        width = doc.width
+        doc.build(self.story(document, doc.width))
+        return buffer.getvalue()
 
+    def story(self, document: InvoiceDocument, width: float) -> list[object]:
+        """Build every copy of one document, each starting its own page."""
         story: list[object] = []
         copies = self._template.copy_labels or ("",)
         for index, label in enumerate(copies):
             if index:
                 story.append(PageBreak())
             story.extend(self._one_copy(document, width, label))
-        doc.build(story)
-        return buffer.getvalue()
+        return story
 
     # ------------------------------------------------------------------
     def _one_copy(
@@ -899,3 +907,45 @@ class InvoicePdfRenderer:
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ]
         )
+
+
+def render_together(
+    items: Sequence[tuple[TemplateSettings, InvoiceDocument]], *, title: str
+) -> bytes:
+    """Return several documents as one PDF, each on pages of its own.
+
+    Every document keeps the template it would print with alone -- its copies
+    and its batch columns -- and starts on a fresh page, so the run reads as
+    the single prints stacked in the order given. The paper and the margins
+    are the first document's: they are the firm's, and the same for all.
+
+    Raises:
+        BusinessRuleError: For a firm that prints on a thermal roll, where
+            every bill is a page of its own length and a run cannot share one.
+
+    """
+    first = items[0][0]
+    if first.page_size.upper() == "THERMAL80":
+        raise BusinessRuleError(
+            "Several documents print together on A4 or A5 paper. This firm "
+            "prints on a thermal roll, so print them one at a time."
+        )
+    buffer = BytesIO()
+    margin = float(first.margin_mm) * mm
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A5 if first.page_size.upper() == "A5" else A4,
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=margin,
+        bottomMargin=margin,
+        title=title,
+        author=items[0][1].seller.name,
+    )
+    story: list[object] = []
+    for index, (template, document) in enumerate(items):
+        if index:
+            story.append(PageBreak())
+        story.extend(InvoicePdfRenderer(template).story(document, doc.width))
+    doc.build(story)
+    return buffer.getvalue()
