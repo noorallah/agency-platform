@@ -6483,3 +6483,39 @@ the rest held on account. A promise to pay is taken from the sheet.
 challans as one document (#1394); a document view naming its branch,
 warehouse and the people who created and approved it (D-UI-87, D-UI-88).
 
+## 92. Every select can be searched by typing -- after the demo
+
+Owner, 2026-10-09, testing the demo firm: "wherever we have a select option
+we can have search by typing also; it will help to find things quickly", then
+"add to backlog, we will do after demo".
+
+**What exists.** The customer, supplier and product boxes on the phase 2
+document screens already narrow as you type (Flutter's `DropdownMenu`, 25
+uses). Everything else is a plain `DropdownButtonFormField`: **348 in 134
+files** on 2026-10-09 (count again: `grep -rc "DropdownButtonFormField<"
+desktop/lib`). About 160 of them list records that grow with the firm --
+category, brand, account, warehouse, salesperson, route, tax profile, unit --
+and those are where typing helps. The rest are short fixed lists (status, yes
+or no), where it adds nothing.
+
+**Proposed, not yet decided.**
+
+1. **One shared control** in `desktop/lib/ui/workspace/`, a drop-in for
+   `DropdownButtonFormField` (same items, value, `onChanged`, decoration and
+   validator). Up to about eight choices it stays an ordinary drop-down; past
+   that it opens with a search box, typing narrows the list on the words
+   shown, and the arrow keys and Enter choose. One control, so every screen
+   behaves alike and a new screen gets it for nothing.
+2. **Replace all of them in one pass**, not screen by screen: a control that
+   behaves two ways across the app is worse than either.
+3. **Size: L.** Most of the work is the tests: many widget tests find the old
+   control by its type, so they change with it, and the pass needs the full
+   desktop suite. Not to be done while somebody is testing for a
+   demonstration.
+4. **Must not regress:** the 1366x768 no-overflow rule, keyboard-only entry
+   (Tab into the box, type, Enter, Tab on), and a list of several hundred
+   rows opening without a pause.
+
+Related and already open: a client cache for static lists (backlog 80), which
+decides how fast such a list opens.
+
