@@ -80,7 +80,7 @@ us6 = make("US6", base_uom_id=units["PIECE"], purchase_uom_id=units["BOX"], unit
 c.eq(rule_of(us6["id"]), [(units["BOX"], units["PIECE"], 12.0)], "US-6 own rule 1 Box = 12 Piece")
 
 # Back-dated order of 2 Box of US-1 converts to 20 Strip.
-warehouse = next(w for w in data(admin.get("/api/v1/warehouses?page_size=50")[1]) if w["code"] == "MAIN")
+warehouse = next(w for w in data(admin.get("/api/v1/warehouses?search=MAIN&page_size=50")[1]) if w["code"] == "MAIN")
 branch = next(b for b in data(admin.get("/api/v1/branches?page_size=50")[1]) if b["code"] == "HO")
 vendor = data(admin.post("/api/v1/vendors", {"code": f"{tag}-V", "name": f"Supplier {tag}"})[1])
 today = datetime.date.today()

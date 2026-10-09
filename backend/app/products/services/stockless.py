@@ -20,6 +20,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import ValidationError
 from app.products.models import Product
 
 #: The product types that never hold stock.
@@ -29,6 +30,25 @@ STOCKLESS_TYPES = frozenset({"SERVICE"})
 def is_stockless(product: Product | None) -> bool:
     """Say whether a product is a service."""
     return product is not None and product.product_type in STOCKLESS_TYPES
+
+
+def assert_held_as_stock(product: Product | None) -> None:
+    """Refuse to bring a service into a warehouse.
+
+    Opening stock, an adjustment upwards, a repack and a stock row made by
+    hand each took a service and held it, valued, beside the goods
+    (D-STK-71). Taking out what is already there is not refused: that is how
+    a firm that has some gets rid of it.
+
+    Raises:
+        ValidationError: Naming the service.
+
+    """
+    if product is not None and is_stockless(product):
+        raise ValidationError(
+            f"{product.name} is a service, and a service is never held as "
+            "stock. Bill it; there is nothing to bring into a warehouse."
+        )
 
 
 def stockless_products(session: Session, product_ids: Iterable[UUID]) -> set[UUID]:
@@ -49,4 +69,9 @@ def stockless_products(session: Session, product_ids: Iterable[UUID]) -> set[UUI
     )
 
 
-__all__ = ["STOCKLESS_TYPES", "is_stockless", "stockless_products"]
+__all__ = [
+    "STOCKLESS_TYPES",
+    "assert_held_as_stock",
+    "is_stockless",
+    "stockless_products",
+]

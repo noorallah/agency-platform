@@ -69,6 +69,44 @@ class InventoryTransactionType(StrEnum):
 REVERSAL_SUFFIX = "_REVERSAL"
 
 
+#: The largest whole figure a ``Numeric(18, 4)`` column holds. Past it the
+#: database refused the write and the caller was told the database was
+#: temporarily unavailable (D-STK-69).
+MAX_STOCK_FIGURE = Decimal("99999999999999")
+#: The same for a unit cost, kept to six places.
+MAX_UNIT_COST = Decimal("999999999999")
+
+
+def check_stock_levels(
+    minimum: Decimal | None, maximum: Decimal | None, reorder: Decimal | None
+) -> None:
+    """Refuse levels that contradict each other, wherever they are typed.
+
+    Raises:
+        ValueError: Naming the pair that disagrees.
+
+    """
+    if maximum is not None and minimum is not None and maximum < minimum:
+        raise ValueError(
+            "Maximum level must be greater than or equal to minimum level."
+        )
+    if reorder is not None and maximum is not None and reorder > maximum:
+        raise ValueError("Reorder level cannot exceed maximum level.")
+
+
+def typed_reference(value: str) -> str:
+    """Return a reference without the spaces around it, refusing an empty one.
+
+    Raises:
+        ValueError: If nothing but spaces was typed.
+
+    """
+    value = value.strip()
+    if len(value) < 2:
+        raise ValueError("Give the reference number, at least two characters.")
+    return value
+
+
 #: One serial number as typed; the service trims it and compares without case.
 SerialText = Annotated[str, StringConstraints(max_length=200)]
 
@@ -93,29 +131,24 @@ class InventoryWrite(InventorySchema):
     warehouse_id: UUID
     storage_node_id: UUID | None = None
     product_id: UUID
-    minimum_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    maximum_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    reorder_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    safety_stock: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    minimum_level: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
+    maximum_level: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
+    reorder_level: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
+    safety_stock: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
     status: InventoryStatus = InventoryStatus.ACTIVE
 
     @model_validator(mode="after")
     def validate_thresholds(self) -> "InventoryWrite":
         """Reject a maximum level below the minimum."""
-        if (
-            self.maximum_level is not None
-            and self.minimum_level is not None
-            and self.maximum_level < self.minimum_level
-        ):
-            raise ValueError(
-                "Maximum level must be greater than or equal to minimum level."
-            )
-        if (
-            self.reorder_level is not None
-            and self.maximum_level is not None
-            and self.reorder_level > self.maximum_level
-        ):
-            raise ValueError("Reorder level cannot exceed maximum level.")
+        check_stock_levels(self.minimum_level, self.maximum_level, self.reorder_level)
         return self
 
 
@@ -345,13 +378,17 @@ class OpeningStockLineWrite(InventorySchema):
 
     product_id: UUID
     storage_node_id: UUID | None = None
-    quantity: Decimal = Field(gt=0, max_digits=18)
+    quantity: Decimal = Field(gt=0, max_digits=18, le=MAX_STOCK_FIGURE)
     #: What the stock was worth per unit on day one. Optional, because a firm
     #: that does not know is better served recording the quantity than nothing
     #: -- but stock entered without it is worth nothing, in the valuation and
     #: in the ledger alike, and nothing posts.
-    unit_cost: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
+    unit_cost: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_UNIT_COST
+    )
+    entered_quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
     entered_uom_id: UUID | None = None
     conversion_version: int | None = Field(default=None, ge=1)
     #: The batch this day-one stock is in, read off the carton the same way a
@@ -359,16 +396,41 @@ class OpeningStockLineWrite(InventorySchema):
     #: number registers the batch rather than being refused.
     batch_number: str | None = Field(default=None, max_length=120)
     expiry_date: date | None = None
-    minimum_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    maximum_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    reorder_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    safety_stock: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    minimum_level: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
+    maximum_level: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
+    reorder_level: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
+    safety_stock: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
     remarks: str | None = None
     #: The units of a serial-tracked product, typed or scanned (D-STK-40). A
     #: draft may hold some; posting a line that names any asks for one per
     #: unit of its stock quantity. A draft's lines are replaced on every
     #: save, so the form sends back what the line held, as it does the cost.
     serial_numbers: list[SerialText] | None = Field(default=None, max_length=10000)
+
+    @model_validator(mode="after")
+    def _levels_agree(self) -> "OpeningStockLineWrite":
+        """Hold a line's levels to what the stock row accepts (D-STK-72).
+
+        And its worth to what a column holds (D-STK-69).
+        """
+        check_stock_levels(self.minimum_level, self.maximum_level, self.reorder_level)
+        if (
+            self.unit_cost is not None
+            and self.quantity * self.unit_cost > MAX_STOCK_FIGURE
+        ):
+            raise ValueError(
+                "The line is worth more than can be recorded. Check the "
+                "quantity and the unit cost."
+            )
+        return self
 
 
 class OpeningStockLineCreate(OpeningStockLineWrite):
@@ -416,6 +478,7 @@ class OpeningStockBatchWrite(InventorySchema):
     branch_id: UUID
     warehouse_id: UUID
     reference_number: str = Field(min_length=2, max_length=80)
+    _reference = field_validator("reference_number")(typed_reference)
     posting_date: date
     remarks: str | None = None
     lines: list[OpeningStockLineCreate] = Field(default_factory=list, max_length=5000)
@@ -468,6 +531,7 @@ class OpeningStockImportRequest(InventorySchema):
     """JSON import payload for opening stock."""
 
     reference_number: str = Field(min_length=2, max_length=80)
+    _reference = field_validator("reference_number")(typed_reference)
     posting_date: date
     branch_id: UUID
     warehouse_id: UUID
@@ -550,8 +614,10 @@ class StockWriteOffCreate(InventorySchema):
     #: Who free goods or a sample went to (BUY-1); required for
     #: FREE_TO_CUSTOMER.
     customer_id: UUID | None = None
-    quantity: Decimal = Field(gt=0, max_digits=18)
-    entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
+    quantity: Decimal = Field(gt=0, max_digits=18, le=MAX_STOCK_FIGURE)
+    entered_quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
     entered_uom_id: UUID | None = None
     #: Optional: left out, the movement is numbered from its series (D-QA-16).
     reference_number: str | None = Field(default=None, min_length=2, max_length=80)
@@ -585,7 +651,7 @@ class StockQuarantineCreate(InventorySchema):
     product_id: UUID
     batch_id: UUID | None = None
     action: QuarantineAction
-    quantity: Decimal = Field(gt=0, max_digits=18)
+    quantity: Decimal = Field(gt=0, max_digits=18, le=MAX_STOCK_FIGURE)
     #: Optional: left out, the movement is numbered from its series (D-QA-16).
     reference_number: str | None = Field(default=None, min_length=2, max_length=80)
     transaction_date: date
@@ -612,8 +678,10 @@ class StockTransferCreate(InventorySchema):
     #: Carried across so a batch stays traceable through the move, which is the
     #: whole point of batch tracking for anyone who has to answer a recall.
     batch_id: UUID | None = None
-    quantity: Decimal = Field(gt=0, max_digits=18)
-    entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
+    quantity: Decimal = Field(gt=0, max_digits=18, le=MAX_STOCK_FIGURE)
+    entered_quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
     entered_uom_id: UUID | None = None
     #: Optional: left out, the movement is numbered from its series (D-QA-16).
     reference_number: str | None = Field(default=None, min_length=2, max_length=80)
@@ -650,8 +718,10 @@ class InventoryAdjustmentCreate(InventorySchema):
     #: on the product's untracked row -- creating one if there is none -- and
     #: the batch that was actually short or over never moves (D-STK-1).
     batch_id: UUID | None = None
-    quantity: Decimal = Field(max_digits=18)
-    entered_quantity: Decimal | None = Field(default=None, max_digits=18)
+    quantity: Decimal = Field(max_digits=18, ge=-MAX_STOCK_FIGURE, le=MAX_STOCK_FIGURE)
+    entered_quantity: Decimal | None = Field(
+        default=None, max_digits=18, ge=-MAX_STOCK_FIGURE, le=MAX_STOCK_FIGURE
+    )
     entered_uom_id: UUID | None = None
     #: Optional: left out, the movement is numbered from its series (D-QA-16).
     reference_number: str | None = Field(default=None, min_length=2, max_length=80)
@@ -685,7 +755,9 @@ class PhysicalCountLineWrite(InventorySchema):
     storage_node_id: UUID | None = None
     #: What was on the shelf. Left out for a line nobody has walked yet, which
     #: is how a half-finished sheet is told apart from one that found nothing.
-    counted_quantity: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    counted_quantity: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
+    )
     remarks: str | None = None
 
 

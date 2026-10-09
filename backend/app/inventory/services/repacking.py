@@ -32,6 +32,7 @@ from app.finance.services.document_posting import (
 from app.inventory.models.repack import Repack, RepackLine
 from app.inventory.services.inventory_service import InventoryService
 from app.products.models import Product
+from app.products.services.stockless import assert_held_as_stock
 
 ZERO = Decimal("0")
 
@@ -190,6 +191,9 @@ class RepackService(TransactionalDocumentService):
         missing = {line.product_id for line in data.lines} - set(products)
         if missing:
             raise ValidationError("Unknown product(s) on the repack.")
+        for line in data.lines:
+            if line.kind == "PRODUCE":
+                assert_held_as_stock(products[line.product_id])
         inventory = InventoryService(self._session)
         lines = self._lines_by_batch(
             data, products, inventory, firm_id=firm_id, actor_id=actor_id

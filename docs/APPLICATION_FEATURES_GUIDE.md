@@ -1311,6 +1311,14 @@ And two documents:
   entry is saved, so a write-off, adjustment, transfer, count or opening
   stock dated tomorrow is refused. An **adjustment limit** is set on a role
   the firm has; a role that does not exist is refused rather than kept.
+  **A service is never held as stock**: opening stock, an adjustment
+  upwards, a repack and a stock row made by hand refuse one by name (taking
+  out what a firm already holds is still allowed). **Stock levels** follow
+  one rule wherever they are typed, on the stock row or on an opening-stock
+  line: the maximum is not below the minimum and the reorder level is not
+  above the maximum. An opening-stock **reference** needs two characters
+  that are not spaces; a movement's reference left as spaces is numbered
+  from its series, as one left empty is.
 - **Stock Transfers** (*Stock → Stock Transfers*). A move between branches or
   warehouses as a document: *Dispatch* takes the goods off the source at their
   cost and holds them **in transit** (still the firm's, so the books do not

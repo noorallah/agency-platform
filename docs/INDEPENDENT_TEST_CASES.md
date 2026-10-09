@@ -2646,6 +2646,39 @@ the fixture builds (a minute or two).
 - **Expect:** (1) The blank name is refused, "Give the reason a name."; RX is saved. (3) The reason leaves the list; the approval is refused, "'RX' is not an active stock adjustment reason of this firm. ...", nothing moves and the request still waits. (4) The code is free again; the request is approved and P is 48. (5) Refused while the reason is off; approved once it is on: P is 45. (6) **422**, not 500. (7) **422** each ("NO_SUCH_ROLE is not a role of this firm, so a limit on it would bind nobody. ..."), **403** for the storekeeper, and the saved list is unchanged. (8) Saved as `INVENTORY_MANAGER`, and the storekeeper's write-off of 1 of P (worth 10) is refused as above their limit of 5. (9) P refused, offering approval; Z (worth nothing) saved; the Firm admin's saved. (10) The storekeeper posts again: a role left out of the list has no limit.
 - **Leaves:** the limits as they were found; P a few pieces lower.
 
+### TC-STOCK-039 — Text that is only spaces, and a reference left blank
+
+*Added 2026-10-09 with inventory round 12 (D-STK-68). Driven over HTTP by `docs/qa/checks/inventory/p_blank_text.py`.*
+
+- **Covers:** D-STK-68, D-QA-16
+- **Fixture:** `selling-firm`
+- **Also needs:** a plain product **P** with 100 in MAIN at a cost of 10; a second warehouse **B**; the storekeeper (Inventory manager) and the Firm admin.
+- **Steps:** (1) As the fixture's **Firm admin**, save a draft stock transfer of 5 of P from MAIN to B; cancel it with a reason of three spaces; then with " wrong warehouse ". (2) Post a repack that consumes 2 of P and produces 2 of P; reverse it with a reason of three spaces; then with "miscounted". (3) As the storekeeper, submit a write-off of 1 of P for approval; as the Firm admin reject it with a reason of three spaces; then with "not damaged". (4) Save opening stock for P with a reference of four spaces; with " X "; **(HTTP)** the JSON import with a reference of spaces. (5) Write off 1 of P, adjust P by 1, hold 1 of P in quarantine and transfer 1 of P to B, each with a reference of three spaces. (6) Save opening stock for P with a reference typed " bo1 " and a batch number of three spaces.
+- **Expect:** (1) The blank reason is refused and the transfer stays a draft; the second cancels it and the reason is kept as "wrong warehouse". (2) Refused, the repack still stands; then reversed with "miscounted". (3) Refused, the request still waits; then rejected. (4) Each refused, **422**, "Give the reference number, at least two characters."; nothing is saved. (5) Each is saved and carries the next number of its own series; none carries an empty reference. (6) Saved under **BO1**; the line names no batch.
+- **Leaves:** P a few pieces lower in MAIN, 1 in B, one opening-stock draft.
+
+### TC-STOCK-040 — Stock levels, wherever they are typed, and a figure too large
+
+*Added 2026-10-09 with inventory round 12 (D-STK-69, D-STK-70, D-STK-72). Driven over HTTP by `docs/qa/checks/inventory/p_level_settings.py`.*
+
+- **Covers:** D-STK-69, D-STK-70, D-STK-72
+- **Fixture:** `selling-firm`
+- **Also needs:** a plain product **P** with 10 in MAIN; products **H** and **O** with no stock; the storekeeper, a sales user, a read-only user and the Firm admin.
+- **Steps:** (1) As the fixture's **Firm admin**, *Stock → Inventory*, edit P's row: minimum 2, maximum 50, reorder 5, safety 1. Save the same as the storekeeper; as the sales user; as the read-only user. (2) Edit the row with a reorder level of 50.0001; a minimum of -0.0001; **(HTTP)** a level of "plenty", "NaN", "Infinity", and a maximum of 999999999999999999. (3) **(HTTP)** `PUT` the row naming only `minimum_level`. (4) **(HTTP)** `POST /api/v1/inventory` for H with a reorder level of 4; the same again; delete the row; `PUT` its levels. (5) Save opening stock for O with a line whose minimum is 9 and maximum 3; whose reorder level is 9 and maximum 3; whose quantity is 999999999999999999; whose cost is 999999999999999999. (6) **(HTTP)** adjust, write off and hold in quarantine 999999999999999999 of P; import opening stock of 99999999999999 of O at a cost of 999999999999.
+- **Expect:** (1) Saved by the Firm admin and the storekeeper; **403** for the other two. (2) Each refused, **422**, and the levels stay 2 / 50 / 5 / 1; the eighteen-digit figure is a 422 naming the field, not "The database is temporarily unavailable". (3) Saved; the levels left out are cleared, as the editor's whole-row save means. (4) **201** holding nothing; **409**; removed; **404**, and the row does not come back. (5) Each refused, **422** ("Maximum level must be greater than or equal to minimum level.", "Reorder level cannot exceed maximum level.", the field named for the two large figures); O gets no row. (6) Each **422**; the import says "The line is worth more than can be recorded. ..."; P still holds 10.
+- **Leaves:** P's levels at 2 / 50 / 5 / 1.
+
+### TC-STOCK-041 — A service is never held as stock
+
+*Added 2026-10-09 with inventory round 12 (D-STK-71). Driven over HTTP by `docs/qa/checks/inventory/p_level_settings.py`.*
+
+- **Covers:** D-STK-71, SG-3
+- **Fixture:** `selling-firm`
+- **Also needs:** a product **S** of type *Service*; a plain product **P** with 10 in MAIN; the storekeeper and the Firm admin.
+- **Steps:** (1) As the fixture's **Firm admin**, *Stock → Adjust Stock*: add 5 of S. (2) As the storekeeper, submit the same adjustment for approval. (3) *Opening Stock*: a document with 3 of S. (4) *Repacking*: consume 1 of P, produce 1 of S. (5) **(HTTP)** `POST /api/v1/inventory` for S in MAIN.
+- **Expect:** Each is refused, **422**: "S is a service, and a service is never held as stock. Bill it; there is nothing to bring into a warehouse." S has no stock row and P still holds 10. (A firm that already holds units of a service may still adjust them **down**; a goods receipt of a service is D-BUY-74, open.)
+- **Leaves:** nothing.
+
 ### Known defects found while writing these cases
 
 - **D-8-1 — Dispatch drew an expired batch. Fixed 2026-09-16.** In a Pharmacy firm with batches expired 30 days ago, expiring in 20 days and in 400 days, dispatching 5 took them from the **expired** batch — its status still AVAILABLE. "Earliest expiry first" read literally does that; for a pharmacy it ships expired medicine. `InventoryService.allocate_for_dispatch` now drops expired stock from the candidates rather than ranking it first, and when that leaves the document short it says so **by name** — "10 of this product's stock is past its expiry date (X expired 2026-08-17) and cannot be dispatched: write it off or quarantine it" — because the screen still shows that stock as on hand and "short by 5" beside it explains nothing. Expiry is judged on the **document's own date**, which the delivery note passes, so rebuilding a year of history posts what it posted at the time. Three tests in `tests/unit/test_inventory_foundation.py`.

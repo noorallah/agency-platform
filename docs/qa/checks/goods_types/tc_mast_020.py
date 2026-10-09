@@ -85,7 +85,7 @@ if status == 201:
     c.eq(flags(dup, *names), flags(p1, *names), "the copy carries P1's switches")
 
 # Receipt of P1.
-warehouse = next(w for w in data(admin.get("/api/v1/warehouses?page_size=50")[1]) if w["code"] == "MAIN")
+warehouse = next(w for w in data(admin.get("/api/v1/warehouses?search=MAIN&page_size=50")[1]) if w["code"] == "MAIN")
 branch = next(b for b in data(admin.get("/api/v1/branches?page_size=50")[1]) if b["code"] == "HO")
 status, body = admin.post("/api/v1/vendors", {"code": f"{tag}-V", "name": f"Supplier {tag}"})
 c.eq(status, 201, f"vendor ({message(body)})")
