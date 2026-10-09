@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/business/business_features.dart';
+import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
@@ -20,6 +21,112 @@ enum BatchSerialSection {
   lots,
   serials,
   expiryMonitor,
+}
+
+/// How near an expiry date is: gone, within thirty days, or further off.
+enum ExpiryBand { expired, soon, good }
+
+/// An expiry date with a label beside it saying how near it is: red once it
+/// has passed, amber inside thirty days, green beyond. The words carry the
+/// meaning as well as the colour, so it reads without telling colours apart.
+class ExpiryDateCell extends StatelessWidget {
+  const ExpiryDateCell({super.key, required this.date, this.today});
+
+  /// The date as the server sends it, `yyyy-MM-dd`.
+  final String date;
+
+  /// The day to count from; this PC's date when not given.
+  final DateTime? today;
+
+  /// Days from today to [date]; null when it is not a date.
+  int? get daysLeft {
+    final DateTime? expiry = DateTime.tryParse(date);
+    if (expiry == null) return null;
+    final DateTime now = today ?? DateTime.now();
+    return DateTime.utc(expiry.year, expiry.month, expiry.day)
+        .difference(DateTime.utc(now.year, now.month, now.day))
+        .inDays;
+  }
+
+  static ExpiryBand bandFor(int days) => days <= 0
+      ? ExpiryBand.expired
+      : days <= 30
+          ? ExpiryBand.soon
+          : ExpiryBand.good;
+
+  /// What the label adds to the width of its text: the gap, the padding,
+  /// the edge and the marker.
+  static const double labelRoom = 44;
+
+  /// The date and its label as one line of text: "2026-12-31 - 83 days left".
+  static String textFor(String date, {DateTime? today}) {
+    final int? days = ExpiryDateCell(date: date, today: today).daysLeft;
+    return days == null ? date : '$date - ${wordsFor(days)}';
+  }
+
+  static String wordsFor(int days) {
+    if (days == 0) return 'Expires today';
+    if (days < 0) {
+      return days == -1 ? 'Expired 1 day ago' : 'Expired ${-days} days ago';
+    }
+    if (days == 1) return '1 day left';
+    if (days <= 90) return '$days days left';
+    return '${days ~/ 30} months left';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final int? days = daysLeft;
+    if (days == null) return Text(date, overflow: TextOverflow.ellipsis);
+    final ThemeData theme = Theme.of(context);
+    final AppSemanticColors semantic = context.semanticColors;
+    final ExpiryBand band = bandFor(days);
+    final Color color = switch (band) {
+      ExpiryBand.expired => theme.colorScheme.error,
+      ExpiryBand.soon => semantic.warning,
+      ExpiryBand.good => semantic.success,
+    };
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(date),
+        const SizedBox(width: 8),
+        Flexible(
+            child: Container(
+          key: ValueKey('expiry-${band.name}'),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: .14),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withValues(alpha: .55)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration:
+                    BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  wordsFor(days),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        )),
+      ],
+    );
+  }
 }
 
 class BatchManagementPage extends StatefulWidget {
@@ -559,6 +666,11 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   }
 
   Widget _buildBatchTable() {
+    // The Expiry Monitor says how near each date is, in colour and in words,
+    // beside the date.
+    final bool expiryLabels =
+        widget.section == BatchSerialSection.expiryMonitor &&
+            Phase2Scope.of(context);
     return EnterpriseDataGrid<BatchRecord>(
       items: _batches,
       total: _total,
@@ -570,7 +682,10 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         const GridColumn(key: 'status', label: 'Status'),
         const GridColumn(key: 'quantity', label: 'Qty'),
         const GridColumn(key: 'available', label: 'Available'),
-        const GridColumn(key: 'expiry', label: 'Expiry Date'),
+        GridColumn(
+            key: 'expiry',
+            label: 'Expiry Date',
+            extraWidth: expiryLabels ? ExpiryDateCell.labelRoom : 0),
         const GridColumn(key: 'mrp', label: 'MRP'),
         if (_ptrPts) const GridColumn(key: 'ptr', label: 'PTR'),
         if (_ptrPts) const GridColumn(key: 'pts', label: 'PTS'),
@@ -586,12 +701,25 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         b.status,
         b.quantity,
         b.availableQuantity,
-        b.expiryDate.isNotEmpty ? b.expiryDate : '—',
+        // With its label in words, so the column is measured for both and
+        // a copied row says what the screen says.
+        b.expiryDate.isEmpty
+            ? '—'
+            : expiryLabels
+                ? ExpiryDateCell.textFor(b.expiryDate)
+                : b.expiryDate,
         b.mrp.isNotEmpty ? b.mrp : '—',
         if (_ptrPts) b.ptr.isNotEmpty ? b.ptr : '—',
         if (_ptrPts) b.pts.isNotEmpty ? b.pts : '—',
         b.warehouseName.isNotEmpty ? b.warehouseName : '—',
       ],
+      // Column 5 is the expiry date.
+      cellBuilder: expiryLabels
+          ? (int column, String value, BatchRecord b) =>
+              column == 5 && b.expiryDate.isNotEmpty
+                  ? ExpiryDateCell(date: b.expiryDate)
+                  : null
+          : null,
       onSelect: (b) => setState(() => _selectedBatch = b),
       onPageChanged: _handlePageChange,
       onOpen: _canViewBatch ? (b) => _openBatchDetailsDialog(b) : null,
@@ -856,10 +984,16 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SummaryCards(children: [
-              SummaryCount(label: 'Expired today', value: '${dash.expiredToday}'),
+              SummaryCount(
+                  label: 'Expired today',
+                  value: '${dash.expiredToday}',
+                  alert: true),
               SummaryCount(label: 'In 7 days', value: '${dash.expireIn7Days}'),
               SummaryCount(label: 'In 30 days', value: '${dash.expireIn30Days}'),
-              SummaryCount(label: 'Expired', value: '${dash.totalExpired}'),
+              SummaryCount(
+                  label: 'Expired',
+                  value: '${dash.totalExpired}',
+                  alert: true),
               SummaryCount(label: 'Quarantine', value: '${dash.quarantine}'),
               SummaryCount(label: 'Recalled', value: '${dash.recalled}'),
             ]),
