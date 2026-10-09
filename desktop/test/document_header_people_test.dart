@@ -101,6 +101,47 @@ void main() {
     expect(find.text('Vehicle number'), findsNothing);
   });
 
+  test("a purchase order's own history words are read the same way", () {
+    // Its history writes `purchase.approved`, not `APPROVED`.
+    final List<DocumentTimelineSnapshot> history = <DocumentTimelineSnapshot>[
+      _event('purchase.approved', _manager, '2026-10-09T11:00:00'),
+      _event('purchase.created', _clerk, '2026-10-09T10:00:00'),
+    ];
+    expect(historyCreatedBy(history), _clerk);
+    expect(historyApprovedBy(history), _manager);
+    // An approval that was withdrawn is no longer an approval.
+    expect(
+      historyApprovedBy(<DocumentTimelineSnapshot>[
+        _event('purchase.approval_withdrawn', _clerk, '2026-10-09T12:00:00'),
+        ...history,
+      ]),
+      '',
+    );
+  });
+
+  testWidgets('the one-page order names both people above its history',
+      (WidgetTester tester) async {
+    Future<void> pump(List<DocumentTimelineSnapshot> history) =>
+        tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(body: DocumentPeopleLine(history: history)),
+          ),
+        );
+    await pump(<DocumentTimelineSnapshot>[
+      _event('purchase.approved', _manager, '2026-10-09T11:00:00'),
+      _event('purchase.created', _clerk, '2026-10-09T10:00:00'),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.text('Created by'), findsOneWidget);
+    expect(find.text('Store Clerk'), findsOneWidget);
+    expect(find.text('Approved by'), findsOneWidget);
+    expect(find.text('Purchase Manager'), findsOneWidget);
+    // An order nobody has saved yet says nothing.
+    await pump(const <DocumentTimelineSnapshot>[]);
+    await tester.pumpAndSettle();
+    expect(find.text('Created by'), findsNothing);
+  });
+
   test('a goods receipt hands its invoice number and e-way bill to the view',
       () {
     final GoodsReceiptRecord receipt =

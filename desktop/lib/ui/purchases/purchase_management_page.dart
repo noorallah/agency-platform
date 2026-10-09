@@ -2996,8 +2996,15 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        EnterpriseDocumentHeader(
-                          header: _documentHeaderSnapshot(),
+                        FutureBuilder<List<PurchaseOrderHistoryRecord>>(
+                          future: _historyFuture,
+                          builder: (context, snapshot) =>
+                              EnterpriseDocumentHeader(
+                            header: _documentHeaderSnapshot(),
+                            history: _historyEntries(
+                              snapshot.data ?? const [],
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 16),
                         EnterpriseApprovalPanel(
@@ -3844,26 +3851,41 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
-            final List<DocumentTimelineSnapshot> entries = rows
-                .map(
-                  (row) => DocumentTimelineSnapshot(
-                    occurredAt: row.createdAt,
-                    action: row.action,
-                    fromState: row.fromStatus,
-                    toState: row.toStatus,
-                    actor: row.createdBy,
-                    remarks: row.remarks,
-                    details: _decodeHistoryDetails(row.detailsJson),
-                  ),
-                )
-                .toList();
-            return EnterpriseTimeline(
-              entries: entries,
-              emptyMessage:
-                  'The backend history timeline will appear here after lifecycle changes.',
+            final List<DocumentTimelineSnapshot> entries =
+                _historyEntries(rows);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Who created the order and who approved it (D-UI-88): the
+                // one-page order has no header card to say so.
+                DocumentPeopleLine(history: entries),
+                EnterpriseTimeline(
+                  entries: entries,
+                  emptyMessage:
+                      'The backend history timeline will appear here after lifecycle changes.',
+                ),
+              ],
             );
           },
         );
+
+  List<DocumentTimelineSnapshot> _historyEntries(
+    List<PurchaseOrderHistoryRecord> rows,
+  ) =>
+      rows
+          .map(
+            (row) => DocumentTimelineSnapshot(
+              occurredAt: row.createdAt,
+              action: row.action,
+              fromState: row.fromStatus,
+              toState: row.toStatus,
+              actor: row.createdBy,
+              remarks: row.remarks,
+              details: _decodeHistoryDetails(row.detailsJson),
+            ),
+          )
+          .toList();
 
   Widget _buildAuditTab() => const WorkspaceEmptyState(
         title: 'Audit timeline available through audit API',

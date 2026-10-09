@@ -14,27 +14,40 @@ String namedOrBlank(String Function(String id)? lookup, String id) {
 /// that created it. Empty when the history does not say.
 String historyCreatedBy(List<DocumentTimelineSnapshot> history) {
   for (final DocumentTimelineSnapshot entry in history) {
-    if (entry.action.trim().toUpperCase() == 'CREATED') return entry.actor;
+    if (_historyAction(entry) == 'CREATED') return entry.actor;
   }
   return '';
 }
 
+/// An event's action as one upper-case word: a purchase order's own history
+/// writes `purchase.approved` where the shared history writes `APPROVED`.
+String _historyAction(DocumentTimelineSnapshot entry) =>
+    entry.action.trim().split('.').last.toUpperCase();
+
 /// Who approved a document, read from its [history]: the actor of the latest
 /// event that approved it -- or completed or posted it, which is what
 /// approval is called on a document with no separate approve step (a goods
-/// receipt). Empty while nobody has.
+/// receipt). Empty while nobody has, and empty again once an approval is
+/// withdrawn.
 String historyApprovedBy(List<DocumentTimelineSnapshot> history) {
   DocumentTimelineSnapshot? latest;
   for (final DocumentTimelineSnapshot entry in history) {
-    if (!_approvingActions.contains(entry.action.trim().toUpperCase())) {
+    final String action = _historyAction(entry);
+    if (!_approvingActions.contains(action) &&
+        action != _approvalWithdrawn) {
       continue;
     }
     if (latest == null || entry.occurredAt.compareTo(latest.occurredAt) > 0) {
       latest = entry;
     }
   }
-  return latest?.actor ?? '';
+  if (latest == null || _historyAction(latest) == _approvalWithdrawn) {
+    return '';
+  }
+  return latest.actor;
 }
+
+const String _approvalWithdrawn = 'APPROVAL_WITHDRAWN';
 
 const Set<String> _approvingActions = <String>{
   'APPROVED',
