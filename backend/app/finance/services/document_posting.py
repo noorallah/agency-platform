@@ -3922,6 +3922,7 @@ class DocumentPostingService:
         tds_amount: Decimal = ZERO,
         tcs_amount: Decimal = ZERO,
         capital_amounts: list[tuple[UUID, Decimal]] | None = None,
+        service_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
@@ -3971,6 +3972,12 @@ class DocumentPostingService:
                 account instead of being left to the accrual or the price
                 variance, since such a line put nothing into stock. Their
                 tax is claimed with the rest of the bill's.
+            service_amount: What the bill's service lines are worth before
+                tax, in rupees (D-BUY-74). A service is received without
+                entering stock, so nothing was accrued for it: it is debited
+                to purchases (`PURCHASE_EXPENSE`) rather than being left to
+                fall into the price variance. Its tax is claimed with the
+                rest of the bill's.
 
         Returns:
             The posted journal entry.
@@ -4023,7 +4030,13 @@ class DocumentPostingService:
             for account_id, amount in capital_amounts or []
             if quantize_ledger(amount) > ZERO
         ]
-        variance = ledger_goods - accrued - sum((value for _, value in capital), ZERO)
+        ledger_services = quantize_ledger(service_amount)
+        variance = (
+            ledger_goods
+            - accrued
+            - sum((value for _, value in capital), ZERO)
+            - ledger_services
+        )
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[
@@ -4045,6 +4058,18 @@ class DocumentPostingService:
                     ledger_account_id=account_id,
                     debit_amount=value,
                     description=f"Capital goods on {invoice_number}",
+                )
+            )
+        if ledger_services > ZERO:
+            # A service bought (D-BUY-74): an expense of the period, never
+            # stock and never an accrual to clear.
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=self._require_mapping(
+                        firm_id, (ControlAccountPurpose.PURCHASE_EXPENSE,)
+                    )[ControlAccountPurpose.PURCHASE_EXPENSE],
+                    debit_amount=ledger_services,
+                    description=f"Services on {invoice_number}",
                 )
             )
         if ledger_tcs > ZERO:

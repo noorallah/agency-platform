@@ -547,7 +547,15 @@ class LandedCostService(TransactionalDocumentService):
 
 
 def stock_quantity(line: GoodsReceiptLine) -> Decimal:
-    """Return what a receipt line put into stock, in the stock unit."""
+    """Return what a receipt line put into stock, in the stock unit.
+
+    Nothing for a line with no stock movement behind it -- a service
+    (D-BUY-74) or capital goods (PG-13): it was received, but there is no
+    stock for a cost to land on, and counting it sent its share to cost of
+    goods sold for goods that were never sold.
+    """
+    if line.inventory_transaction_id is None:
+        return ZERO
     factor = Decimal(str(line.conversion_factor or 1))
     received = Decimal(str(line.accepted_quantity or 0)) + Decimal(
         str(line.free_quantity or 0)

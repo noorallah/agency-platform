@@ -482,7 +482,8 @@ Sales Manager by default) may approve with a reason, which is recorded.
 **Why:** a salesman's discount should be limited, a manager's less so.
 
 **Fields:** one row per role -- *Role* and *Max discount (%)*. A role with no
-row has no limit.
+row has no limit. The role must be one the firm has; a code no role carries
+is refused, since a limit on it would bind nobody.
 
 **What happens:** at approval, a discount **typed by hand** that is larger than
 the approver's limit is refused: *"Line 3 carries a discount of 12.00%, above
@@ -581,6 +582,7 @@ already on order. **A level typed on a product always wins.**
 `PURCHASE_MANAGE_SETTINGS`.
 
 **Fields:** *Role* and *Max order amount*. A role with no row has no limit.
+The role must be one the firm has; a code no role carries is refused.
 
 **What happens:** an order whose total (with tax) is above the approver's limit
 is refused: *"This order's total of ... is above your approval limit of

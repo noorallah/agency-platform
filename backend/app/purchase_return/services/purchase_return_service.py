@@ -70,6 +70,7 @@ from app.goods_receipt.rules import (
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.products.services.stockless import is_stockless
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.purchase_invoice.schemas import PurchaseInvoiceStatus
@@ -2779,6 +2780,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                     "asset under Fixed Assets.",
                     details={"field": "lines"},
                 )
+            self._refuse_service_line(index, source_line)
             requested_quantity = self._q(Decimal(str(spec["current_return_quantity"])))
             source_quantity = self._source_quantity(spec, source_line)
             source_uom_id = self._source_uom_id(source_line)
@@ -3240,6 +3242,40 @@ class PurchaseReturnService(TransactionalDocumentService):
                 "nothing can be returned against it: only goods on an approved "
                 "supplier bill can go back against the bill."
             )
+
+    def _refuse_service_line(self, index: int, source_line: SourceLine) -> None:
+        """Refuse to send back a service that never entered stock (D-BUY-74).
+
+        A service is received without a stock movement, so a return has
+        nothing to take off the shelf and no stock value to credit. A line
+        whose receipt did stock it -- one completed before services stopped
+        being held -- can still go back, which is how that stock leaves.
+
+        Raises:
+            ValidationError: Naming the line and the debit note to raise.
+
+        """
+        product = self._session.get(Product, source_line.product_id)
+        if not is_stockless(product):
+            return
+        receipt_line_id = (
+            source_line.id
+            if isinstance(source_line, GoodsReceiptLine)
+            else getattr(source_line, "source_document_line_id", None)
+        )
+        if receipt_line_id is not None and self._session.scalar(
+            select(GoodsReceiptLine.id).where(
+                GoodsReceiptLine.id == receipt_line_id,
+                GoodsReceiptLine.inventory_transaction_id.is_not(None),
+            )
+        ):
+            return
+        raise ValidationError(
+            f"Line {index} is a service: it was never held as stock, so "
+            "there is nothing to send back as a purchase return. Claim its "
+            "value with a debit note against the supplier's bill.",
+            details={"field": "lines"},
+        )
 
     def _billed_invoice_line(
         self, *, firm_id: UUID, invoice_id: UUID, line_id: UUID

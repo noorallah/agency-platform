@@ -67,12 +67,21 @@ class PurchaseApprovalLimitService:
         Rows are updated in place by role code and the ones no longer named
         are soft-deleted first, so the partial unique index never sees two
         live rows for one role. Audited with both lists.
+
+        A role is matched whatever its case and kept under its own code; one
+        the firm has no role for is refused, because it was saved, bound
+        nobody and said nothing (D-CFG-27, as D-STK-67).
+
+        Raises:
+            ValidationError: For a role listed twice or one nobody can hold.
+
         """
+        reader = FirmMetadataReader(self._session)
         wanted: dict[str, Decimal] = {}
         for code, amount in items:
-            key = code.strip()
-            if not key:
+            if not code.strip():
                 raise ValidationError("Every approval limit needs a role.")
+            key = reader.own_role_code(firm_id, code, setting="limit")
             if key in wanted:
                 raise ValidationError(f"Role {key} is listed twice.")
             wanted[key] = amount.quantize(_CENT, rounding=ROUND_HALF_UP)

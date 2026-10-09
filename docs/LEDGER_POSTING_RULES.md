@@ -692,6 +692,14 @@ group), `DEPRECIATION_EXPENSE` (*6950*) and `ASSET_DISPOSAL_GAIN_LOSS`
   line either, so the bill posts the same journal. A line billing a receipt
   that already took it **into stock** is refused: the goods are in stock, and
   taking them out is a stock issue, not the bill's business.
+- **A service bought is an expense, never stock** (D-BUY-74, 2026-10-09). A
+  receipt line whose product is a `SERVICE` moves no stock and accrues
+  nothing, so *Goods Received Not Invoiced* never carries it; the bill
+  debits its value before tax to **Purchases** (`PURCHASE_EXPENSE`) beside
+  the input tax, and credits payables. The price variance is what is left
+  of the goods value after the accrual, the capital goods *and* the
+  services, so a service no longer falls into it. A return of one is
+  refused (there is no stock leg to value); a debit note claims its value.
 - **Its GST is claimed in full** (current law, no five-year split) through
   the same input-tax legs as any line, and GSTR-3B counts it in 4(A)(5); the
   GST purchase register shows it apart as `capital_goods_tax`. Blocked or
