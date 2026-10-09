@@ -86,6 +86,60 @@ class EnterpriseDocumentStatusBadge extends StatelessWidget {
   }
 }
 
+/// Who created a document and who approved it, read from its [history], for
+/// a screen that has no [EnterpriseDocumentHeader] -- the one-page purchase
+/// order. Shows nothing until the history names somebody.
+class DocumentPeopleLine extends StatefulWidget {
+  const DocumentPeopleLine({super.key, required this.history});
+
+  final List<DocumentTimelineSnapshot> history;
+
+  @override
+  State<DocumentPeopleLine> createState() => _DocumentPeopleLineState();
+}
+
+class _DocumentPeopleLineState extends State<DocumentPeopleLine> {
+  @override
+  void initState() {
+    super.initState();
+    if (!FirmPeople.isLoaded) {
+      FirmPeople.ensure().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String created =
+        FirmPeople.nameFor(historyCreatedBy(widget.history));
+    final String approved =
+        FirmPeople.nameFor(historyApprovedBy(widget.history));
+    if (created.isEmpty && approved.isEmpty) return const SizedBox.shrink();
+    final TextTheme text = Theme.of(context).textTheme;
+    Widget field(String label, String value) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: text.labelMedium),
+            const SizedBox(height: AppSpacing.xs),
+            Text(value.isEmpty ? '-' : value, style: text.bodyLarge),
+          ],
+        );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Wrap(
+        spacing: AppSpacing.xl,
+        runSpacing: AppSpacing.md,
+        children: [
+          field('Created by', created),
+          field('Approved by', approved),
+        ],
+      ),
+    );
+  }
+}
+
 class EnterpriseDocumentHeader extends StatefulWidget {
   const EnterpriseDocumentHeader({
     super.key,
