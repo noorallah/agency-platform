@@ -74,6 +74,7 @@ from app.inventory.services import pipeline
 from app.inventory.services.movement_numbering import MovementNumbering
 from app.inventory.services.stock_evidence import StockEvidenceService
 from app.products.models import Product
+from app.products.services.stockless import assert_held_as_stock
 from app.uom.models import ConversionRule
 from app.uom.services.uom_service import (
     assert_quantity_fits_unit,
@@ -777,6 +778,7 @@ class InventoryService:
                 product_id=data.product_id,
             )
         )
+        assert_held_as_stock(product)
         locator = self._storage_locator(storage_node.id if storage_node else None)
         if (
             self._find_inventory_row(
@@ -857,9 +859,9 @@ class InventoryService:
         expected_version: int | None = None,
     ) -> InventoryRecord:
         """Change a projection's thresholds and status."""
-        row = self.get_inventory_record(
-            inventory_id, firm_scope=firm_scope, include_deleted=True
-        )
+        # A row that was removed is gone: its levels were still written, on a
+        # row no list shows (D-STK-70).
+        row = self.get_inventory_record(inventory_id, firm_scope=firm_scope)
         assert_version(row.version, expected_version)
         # The row is where the goods are and what they are. Rewriting either
         # here moved ten of one product into another, or into another
@@ -1765,13 +1767,15 @@ class InventoryService:
                 else "A stock adjustment"
             ),
         )
-        self._validate_references(
+        product = self._validate_references(
             firm_id=firm_scope,
             branch_id=data.branch_id,
             warehouse_id=data.warehouse_id,
             storage_node_id=data.storage_node_id,
             product_id=data.product_id,
-        )
+        )[3]
+        if isinstance(data, InventoryAdjustmentCreate) and data.quantity > 0:
+            assert_held_as_stock(product)
         if data.batch_id is not None:
             self._require_batch_of(
                 data.batch_id, firm_id=firm_scope, product_id=data.product_id
@@ -2347,6 +2351,14 @@ class InventoryService:
             data.transaction_date,
             what="A stock adjustment",
         )
+        if data.quantity > 0:
+            assert_held_as_stock(
+                self._session.scalar(
+                    select(Product).where(
+                        Product.id == data.product_id, Product.firm_id == firm_scope
+                    )
+                )
+            )
         # Filled once here, so the movement and its journal carry the same
         # number rather than each drawing one.
         data = data.model_copy(
@@ -5427,6 +5439,7 @@ class InventoryService:
                 raise ValidationError(
                     "Opening stock line references an unknown product."
                 )
+            assert_held_as_stock(product)
             storage_node = None
             if line.storage_node_id is not None:
                 storage_node = self._session.scalar(

@@ -6,7 +6,7 @@ import traceback
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.constants.core import HEADER_CORRELATION_ID, HEADER_REQUEST_ID
@@ -133,6 +133,21 @@ async def database_error_handler(_: Request, exception: Exception) -> JSONRespon
             status_code=status.HTTP_409_CONFLICT,
             code=ErrorCode.RESOURCE_CONFLICT,
             message="The request conflicts with existing data. Please retry.",
+        )
+
+    if isinstance(exception, DataError):
+        # The database refused a value -- a figure past what its column
+        # holds, most often. That is the request's fault, and "temporarily
+        # unavailable" sent the caller to retry what can never work
+        # (D-STK-69).
+        logger.warning("Database refused a value", exc_info=exception)
+        return _error_response(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code=ErrorCode.VALIDATION_ERROR,
+            message=(
+                "A value is too large, or of the wrong kind, to be stored. "
+                "Check the figures and try again."
+            ),
         )
 
     logger.exception("Database operation failed", exc_info=exception)
