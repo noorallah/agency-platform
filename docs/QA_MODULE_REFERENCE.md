@@ -219,7 +219,7 @@ Run in this order as the **platform administrator**, then switch to the firm.
 | GST Documents | Settings > Tax > GST Documents | Dispatch before invoice **Warn**; e-invoicing blank; filing **Sandbox**; claim input credit on all bills | FRM-16; SELL-08; GST-07..13 |
 | Batch Rules | Settings > Stock > Batch Rules | Near expiry 30 days; left behind **Warn**; skip earlier batch **Record**; below price floor allowed | FRM-17; SELL-20..23 |
 | Rule Simulator | Settings > Tax > Rule Simulator | -- | FRM-18 |
-| Feature Management | Settings > Business profile > Feature Management (platform administrator) | IMEI and other unbuilt features cannot be switched on | FRM-19 |
+| Feature Management | Settings > Business profile > Feature Management (platform administrator) | Only the five firm features are listed (Attachments, Vehicle tracking, Drug licence, Commission, Batch PTR / PTS); tracking is no longer a profile feature | FRM-19 |
 | Control Accounts | Settings > Set up > Account structure > Control Accounts | Mapped when the books open | FRM-20 |
 | Financial Years: month-close check, ageing columns | Settings > Firm > Financial Years | **Warn**; 30, 60, 90 days | FIN-17 |
 | Messaging | Settings > Firm > Messaging | **Off** | APR-10 |

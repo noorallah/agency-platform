@@ -33,10 +33,21 @@ purchase, *Paid now*, attachments, serials at receipt, PTR and PTS, the GST
 purchase register and Payables by Month) and the selling build (walk-in cash
 sale, service invoices, other charges, transporters, attachments, hold and
 recall with counter shifts, the collection sheet and payment promises, customer
-rebates, the GST sales register). **These were written here from the code and
-its own tests; none has been through a full test suite, a CI run or a hand
-test.** Where a label or a figure below is about one of them, read it as
-*(confirm)*.
+rebates, the GST sales register). These were written here from the code and
+its own tests. Since then buying and selling were driven twice against the
+running server (2026-10-05 and 10-06, the check files are in `docs/qa`), and
+the full test suites passed on 2026-10-08. **None has been tested by hand
+yet**, so where a label below is about one of them, read it as *(confirm)*.
+
+**Brought up to 2026-10-09, still release 1.3.0:** goods types (a product's
+tracking follows its goods type), pack barcodes read on every document,
+serial numbers that follow a transfer, the pricing work of 2026-10-06 (scheme
+budgets, a principal's price-cut claim, loyalty points put back, a customer's
+credit set against another bill) and the stock rules of the inventory rounds
+of 2026-10-08 and 10-09 (dates, batches, bins, kits, services, alerts). Also
+copying a product, copying from any screen, the firm's state chosen from a
+list and purchase bills numbered per branch, which were built on 2026-10-04
+and had not been written here.
 
 **How paths are written.** *Sell → Sales Invoices* is a screen in Sell's daily
 drop-down. *Sell → All Sell screens → Documents → Enquiries* is a screen
@@ -245,6 +256,17 @@ Every list screen has the same shape:
 **Keys:** Ctrl+N new, F2 edit the picked row, / search, Delete delete,
 Ctrl+K find anything.
 
+**Copying off a screen.** Anything shown can be copied:
+
+- **Text**: drag over the text of a document, a dialog or a refusal message
+  and press Ctrl+C.
+- **Rows**: click a row in a list (or tick several) and press Ctrl+C; the
+  rows are copied with a heading line, ready to paste into a spreadsheet.
+- **One cell**: right-click it and choose **Copy cell**.
+- **A number**: a small copy icon stands beside a saved document's number,
+  a customer's or supplier's GSTIN, and the IRN, acknowledgement and e-way
+  bill numbers.
+
 ## Documents
 
 A document (an order, an invoice, a receipt) opens on one full screen: the
@@ -319,7 +341,14 @@ firm's accountant.
 
 **Document numbers need no setup.** Each kind of document starts its own
 series on its first save (for example `SI/2026-2027/000001`), and the pattern
-can be changed under **Settings → Firm → Numbering Series**.
+can be changed under **Settings → Firm → Numbering Series**. A series that
+prints the branch code runs **its own numbers for each branch**; one that
+does not is a single run for the whole firm. For a firm created from
+2026-10-04, purchase bills, purchase returns and supplier debit notes print
+the firm and the branch as the order and the goods receipt do
+(`PI-QA01-HO-2026-2027-000001`); a firm created earlier keeps its series
+until it is changed on that screen, and a number already issued never
+changes.
 
 ---
 
@@ -343,7 +372,9 @@ The first screen after signing in, cut to what the person may see:
   bills overdue.
   Stock adds its own lines: below reorder level, out of stock, over the
   maximum level, batches near expiry, goods in transit between warehouses and
-  count sheets still open.
+  count sheets still open. Each count is of everything; the ten rows listed
+  under it are the **worst first** (the largest shortfall, the largest
+  excess, the nearest expiry).
 - **Tax calendar** (for whoever may open GST Payment): for each of the last
   three finished months the firm traded in, **GSTR-1** (due the 11th),
   **GSTR-3B** (due the 20th, with the cash it works out to) and the **TCS
@@ -747,6 +778,17 @@ person who may manage customer debit notes.
 
 **Refunds.** Money paid back to a customer, out of an advance or a credit.
 
+**Customer credits** (on the Receipts list). A sales return or a credit note
+against a bill that was already paid leaves the customer in credit. That
+credit can be **set against another bill** of the same customer (a sales
+invoice or an opening bill) instead of being refunded in cash. Where a credit
+is already in use, the dialog lists each credit with the bills it was set
+against and **Take back** beside each, which asks for a reason and frees the
+credit again. No journal is posted: the bills and the customer's balance
+move, the books do not. A credit that was refunded cannot be set against a
+bill as well (reverse the refund first), and a bill with credit set against
+it cannot be cancelled until the credit is taken off.
+
 **Customer Statements.** Two views:
 
 - **Ageing**: every customer's outstanding split by how old it is (0–30,
@@ -876,7 +918,20 @@ are one row called General.
 
 **Loyalty.** Points or cashback: customers earn on what they buy and spend
 the balance against a later bill. Points can expire. The scheme (earn rate,
-value of a point, expiry) is set per firm.
+value of a point, expiry) is set per firm. Points spent on a bill in error
+can be **put back**, and the customer's history shows the points that
+**lapsed** beside those earned and spent.
+
+**What the offer reports show.** The promotion claims report shows *Claimed
+at approval* and *Free units claimed* beside *Given* and *Free units given*.
+*Given* is net of what was later released or returned, so the two columns
+differ exactly where a bill was cancelled or goods came back. The discount
+given by offer report also shows *Free units given*.
+
+**A bill discount typed as an amount stays an amount.** When a saved sales
+invoice's bill discount was typed in rupees, the editor leaves the percent
+box blank and shows *Typed as an amount: X* beside it; saving again changes
+nothing. Typing a percentage replaces it and typing 0 removes it.
 
 ---
 
@@ -1191,7 +1246,17 @@ write-offs of its products, and damaged goods on completed sales returns.
 *Preview* shows it, *Raise* books it as a claim receivable, *Print* gives the
 claim, and it is settled by the principal's credit note or by its payment into
 a cash or bank account; its status (raised, part settled, settled) follows.
-Cancelling a claim frees its sources to be claimed again.
+Cancelling a claim frees its sources to be claimed again. A claim also
+carries the **free goods** given on bills of the principal's products, at
+cost.
+
+**Price cut claim** (a second button on the same screen). When a principal
+lowers its rates, the firm is owed the difference on the stock it still
+holds. Name the principal, the day the new rates take effect and the claim
+date; the screen proposes every product with stock and a recorded price drop,
+by batch, with the stock on hand, the old and new rate and the amount. A rate
+can be corrected, a row taken off and a product added by hand before *Raise
+claim*. The claim shows *Rate difference* as its own amount.
 
 **Landed Costs** (*Buy → All Buy screens → Money → Landed Costs*). Freight, duty and handling
 that belong to goods already received. Name the completed receipts and the
@@ -1312,7 +1377,12 @@ And two documents:
   may post. A plan switched off draws no sheet until it is switched on again.
   **No stock entry can be dated after today**: stock moves the moment an
   entry is saved, so a write-off, adjustment, transfer, count or opening
-  stock dated tomorrow is refused. An **adjustment limit** is set on a role
+  stock dated tomorrow is refused. **A stock entry keeps to the open
+  periods**: once a firm has opened its books, a transfer, a quarantine hold
+  or release, a transfer document, a count and a repack dated in a closed
+  period, or where no period exists, are refused (*No open accounting period
+  covers ...*), as a write-off and an adjustment already were. A firm that
+  has not opened books is not asked. An **adjustment limit** is set on a role
   the firm has; a role that does not exist is refused rather than kept.
   **A service is never held as stock**: opening stock, an adjustment
   upwards, a repack and a stock row made by hand refuse one by name (taking
@@ -1335,6 +1405,12 @@ And two documents:
   cancelled; a received one is final. A transfer between two branches with
   different GSTINs is refused: bill it as a sale to the other branch (9.3). The
   quick *Transfer* action above stays for a shift within a building.
+  **Serial numbers go with the goods**: a transfer of serial-numbered goods
+  picks the units while it is a draft, holds them in transit from dispatch,
+  and at the receipt each lands at the destination as available or damaged,
+  or is marked lost. The quick transfer moves the units it names in one step.
+  An opening-stock line of serial-numbered goods types its units too (typed
+  on screen; the file import does not take serial-numbered stock).
 - **Repacking** (*Stock → All Stock screens → Movements → Repacking*). Break a bulk product into smaller packs
   (or the reverse); the output carries the cost of what went in. A product
   kept in batches is taken from its batches earliest expiry first, and what
@@ -1718,6 +1794,14 @@ restore actions.
 
 *Products* is in the Masters drop-down.
 
+**Copy as new product.** Pick a product and choose *Copy as new product* on
+the bar above the list, or press the same button inside an open product. A
+new, unsaved form opens filled from the original: details, units, prices,
+tax, tracking settings, extra fields and images are carried over. The code,
+barcodes, stock, batches, serial numbers, opening stock, price history and
+prices by level are not, and the form says so. Nothing is saved until you
+give the copy its own code and save.
+
 **Products.** Code, name, category, HSN code and tax group, units (buying,
 stock and selling), prices, preferred supplier, reorder level, barcode, and,
 where the product switches them on, batch, expiry, serial number and warranty
@@ -1853,6 +1937,9 @@ time is required, and a person whose access is removed is signed out at once.
 ## 11.2 Firms (*Settings → Platform → Firms*)
 
 - **Firms**: create a firm, edit its details, and **Set up** (section 3).
+  The firm's **State** is chosen from the list of Indian states, not typed.
+  Typing the GST number first proposes the state from its first two digits,
+  and the form warns when the two disagree.
 - **Business Profiles**: the industries on offer and what each switches on
   (modules, the firm features, the goods types a new firm starts with).
   Which profile a firm has is set under *Settings → Business profile →
