@@ -438,7 +438,10 @@ a purchase order back to draft; several documents can be rejected together. A
 sign-off counts while the total is no more than it was when signed. The
 **Approvals** screens (*Sell → All Sell screens → Documents* and *Buy → All Buy
 screens → Documents*) list what is
-waiting. Platform administrators are not limited by the levels.
+waiting. Platform administrators are not limited by the levels. A level, a
+purchase **approval limit** and a **discount limit** are each set on a role
+the firm has: the role is matched whatever its case, and one that does not
+exist is refused rather than kept as a rule that binds nobody.
 
 **Rate includes GST.** The order and the quotation carry the same switch the
 counter bill has, starting from the firm's setting (*Settings → Selling →
@@ -1313,7 +1316,11 @@ And two documents:
   the firm has; a role that does not exist is refused rather than kept.
   **A service is never held as stock**: opening stock, an adjustment
   upwards, a repack and a stock row made by hand refuse one by name (taking
-  out what a firm already holds is still allowed). **Stock levels** follow
+  out what a firm already holds is still allowed). **A service bought** is
+  received and billed like anything else, but receiving it puts nothing in
+  the warehouse: the bill books it to *Purchases* as an expense, and it
+  cannot go back on a purchase return (claim it with a debit note).
+  **Stock levels** follow
   one rule wherever they are typed, on the stock row or on an opening-stock
   line: the maximum is not below the minimum and the reorder level is not
   above the maximum. An opening-stock **reference** needs two characters

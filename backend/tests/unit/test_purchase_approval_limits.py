@@ -220,7 +220,7 @@ def test_the_settings_endpoints_replace_and_list_the_limits(desk: _Desk) -> None
     assert desk.limits.limit_for(desk.firm_id, desk.buyer) is None
     with pytest.raises(ValidationError, match="listed twice"):
         desk.limits.replace_limits(
-            [("X", Decimal("1")), ("X", Decimal("2"))],
+            [("PURCHASE_MANAGER", Decimal("1")), ("purchase_manager", Decimal("2"))],
             firm_id=desk.firm_id,
             actor_id=desk.actor_id,
         )
@@ -244,3 +244,25 @@ def test_an_order_a_bill_raised_is_not_judged(desk: _Desk) -> None:
     )
     desk.session.commit()
     assert desk.status() == PurchaseOrderStatus.APPROVED.value
+
+
+def test_a_limit_on_a_role_nobody_holds_is_refused(desk: _Desk) -> None:
+    """D-CFG-27: a mistyped role was kept, bound nobody and said nothing."""
+    with pytest.raises(ValidationError, match="not a role of this firm"):
+        desk.limits.replace_limits(
+            [("PURCHASE_MANGER", Decimal("5"))],
+            firm_id=desk.firm_id,
+            actor_id=desk.actor_id,
+        )
+    desk.session.rollback()
+    assert [row.role_code for row in desk.limits.limits(desk.firm_id)] == [
+        "PURCHASE_EXECUTIVE",
+        "PURCHASE_MANAGER",
+    ]
+    rows = desk.limits.replace_limits(
+        [("purchase_manager", Decimal("5"))],
+        firm_id=desk.firm_id,
+        actor_id=desk.actor_id,
+    )
+    assert [row.role_code for row in rows] == ["PURCHASE_MANAGER"]
+    assert desk.limits.limit_for(desk.firm_id, desk.manager) == Decimal("5.00")

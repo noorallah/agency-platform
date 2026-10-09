@@ -176,7 +176,7 @@ def test_replacing_the_list_removes_what_it_leaves_out(desk: _Desk) -> None:
     assert desk.limits.limit_for(desk.firm.id, desk.salesman) is None
     with pytest.raises(ValidationError, match="listed twice"):
         desk.limits.replace_limits(
-            [("X", Decimal("1")), ("X", Decimal("2"))],
+            [("SALES_MANAGER", Decimal("1")), ("sales_manager", Decimal("2"))],
             firm_id=desk.firm.id,
             actor_id=desk.actor_id,
         )
@@ -249,3 +249,25 @@ def test_a_bill_inheriting_its_order_s_discount_is_not_judged_again(
         bill_discount_source=None,
     )
     assert desk.limits.enforce(desk.firm.id, desk.salesman, line) is None
+
+
+def test_a_limit_on_a_role_nobody_holds_is_refused(desk: _Desk) -> None:
+    """D-CFG-27: a mistyped role was kept, bound nobody and said nothing."""
+    with pytest.raises(ValidationError, match="not a role of this firm"):
+        desk.limits.replace_limits(
+            [("SALES_EXEC", Decimal("5"))],
+            firm_id=desk.firm.id,
+            actor_id=desk.actor_id,
+        )
+    desk.session.rollback()
+    assert [row.role_code for row in desk.limits.limits(desk.firm.id)] == [
+        "SALES_EXECUTIVE",
+        "SALES_MANAGER",
+    ]
+    rows = desk.limits.replace_limits(
+        [("sales_executive", Decimal("7"))],
+        firm_id=desk.firm.id,
+        actor_id=desk.actor_id,
+    )
+    assert [row.role_code for row in rows] == ["SALES_EXECUTIVE"]
+    assert desk.limits.limit_for(desk.firm.id, desk.salesman) == Decimal("7.00")

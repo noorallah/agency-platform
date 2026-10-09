@@ -73,6 +73,7 @@ from app.goods_receipt.schemas import GoodsReceiptStatus
 from app.goods_receipt.services.goods_receipt_service import GoodsReceiptService
 from app.inventory.models import StockLedgerEntry
 from app.products.models import Product
+from app.products.services.stockless import stockless_products
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderStatus
 from app.purchase.services import PurchaseService
@@ -1057,6 +1058,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             tds_amount=row.tds_amount,
             tcs_amount=row.tcs_amount,
             capital_amounts=capital_amounts,
+            service_amount=self._service_amount(row),
         )
         # Warned, not refused: the bill is owed whatever its terms say, and
         # paying it in time is what the warning is for (backlog 68 row 2).
@@ -1145,6 +1147,54 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     "without entering stock.",
                     details={"field": "is_capital_goods"},
                 )
+
+    def _service_amount(self, row: PurchaseInvoice) -> Decimal:
+        """Return what the bill's service lines are worth before tax, in rupees.
+
+        A service is received without entering stock (D-BUY-74), so its
+        receipt accrued nothing and the bill has no accrual of its to clear:
+        the value is debited to purchases. A line whose receipt did put it in
+        stock -- one completed before services stopped being held -- accrued
+        like goods and is left to clear that accrual, so it is not counted.
+        """
+        lines = list(
+            self._session.scalars(
+                select(PurchaseInvoiceLine).where(
+                    PurchaseInvoiceLine.purchase_invoice_id == row.id,
+                    PurchaseInvoiceLine.is_deleted.is_(False),
+                    PurchaseInvoiceLine.is_capital_goods.is_(False),
+                )
+            ).all()
+        )
+        services = stockless_products(
+            self._session, (line.product_id for line in lines)
+        )
+        lines = [line for line in lines if line.product_id in services]
+        if not lines:
+            return ZERO
+        stocked = set(
+            self._session.scalars(
+                select(GoodsReceiptLine.id).where(
+                    GoodsReceiptLine.id.in_(
+                        [line.source_document_line_id for line in lines]
+                    ),
+                    GoodsReceiptLine.inventory_transaction_id.is_not(None),
+                )
+            ).all()
+        )
+        rate = (
+            row.exchange_rate
+            if is_foreign(row.currency_code) and row.exchange_rate is not None
+            else Decimal("1")
+        )
+        return sum(
+            (
+                (line.net_amount - line.tax_amount) * rate
+                for line in lines
+                if line.source_document_line_id not in stocked
+            ),
+            ZERO,
+        )
 
     def _stage_assets(
         self,

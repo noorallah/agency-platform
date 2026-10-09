@@ -234,8 +234,8 @@ class ApprovalChainService:
         """Replace one document type's rules; commit.
 
         Raises:
-            ValidationError: If a level is used without the one below it, or a
-                rule is stated twice.
+            ValidationError: If a level is used without the one below it, a
+                rule is stated twice, or a rule names a role nobody can hold.
 
         """
         kind_of(document_type)
@@ -245,9 +245,17 @@ class ApprovalChainService:
             raise ValidationError(
                 f"Level {min(missing)} needs a level {min(missing) - 1} below it."
             )
+        # A role is matched whatever its case and kept under its own code;
+        # one the firm has no role for was saved, and its level could then be
+        # signed by nobody (D-CFG-27, as D-STK-67).
+        reader = FirmMetadataReader(self._session)
+        roles = [
+            reader.own_role_code(firm_id, rule.role_code, setting="rule")
+            for rule in data.rules
+        ]
         seen: set[tuple[int, Decimal, str]] = set()
-        for rule in data.rules:
-            key = (rule.level, rule.min_amount, rule.role_code.strip().upper())
+        for rule, role in zip(data.rules, roles, strict=True):
+            key = (rule.level, rule.min_amount, role.upper())
             if key in seen:
                 raise ValidationError("A rule is stated twice.")
             seen.add(key)
@@ -262,11 +270,11 @@ class ApprovalChainService:
                 document_type=document_type,
                 level=rule.level,
                 min_amount=rule.min_amount,
-                role_code=rule.role_code.strip(),
+                role_code=role,
                 created_by=actor_id,
                 updated_by=actor_id,
             )
-            for rule in data.rules
+            for rule, role in zip(data.rules, roles, strict=True)
         ]
         self._session.add_all(rows)
         record_audit(

@@ -69,7 +69,12 @@ firm's money.
 per firm, judged on the order's grand total including tax --
 `PurchaseApprovalLimitService` in `app/purchase/services/approval_limit.py`,
 the buying sibling of the discount limit. A person's limit is the largest among
-their roles that have one; nobody is limited until a limit is set, and a
+their roles that have one; a limit names **a role the firm has** -- matched
+whatever its case, kept under the role's own code, and one that is neither a
+platform-wide role nor the firm's own is refused by name
+(`FirmMetadataReader.own_role_code`, D-CFG-27, the one check the discount
+limit, the approval rules and the stock adjustment limit also make);
+nobody is limited until a limit is set, and a
 platform administrator never is. Above it `approve` is refused naming the
 amount it needs and the order stays SUBMITTED; the approval that clears it puts
 `approval_limit: {order_amount, approver_limit}` on the APPROVED event. Bulk
@@ -1148,6 +1153,32 @@ not say in one place:
     receipt has already taken **into stock** is still refused as capital
     goods at the bill, with a message saying to untick it, or to cancel the
     receipt and mark the line on the order or the receipt.
+- **A service is received and billed, and never held as stock** (D-BUY-74,
+  2026-10-09). A line whose product type is `SERVICE` rides the same chain as
+  goods -- order, receipt, bill -- so the order's status and what is left to
+  bill are derived exactly as for goods, and only the stock half is left out,
+  as the sales chain leaves it out (`app/products/services/stockless.py`,
+  backlog 87 #3).
+  - *The receipt* completes with **no stock movement, no batch, no
+    inspection hold and no accrual** for that line (`_post_inventory` asks
+    `stockless_products` once per receipt). The line's
+    `inventory_transaction_id` stays empty, so cancelling the receipt has
+    nothing to take back for it; a receipt of services alone posts no
+    journal. The bill that raises its own receipt goes through the same
+    code.
+  - *The bill* debits the line's value before tax to **Purchases**
+    (`PURCHASE_EXPENSE`) -- `Dr Purchases, Dr input tax / Cr payables` -- as
+    Tally and Zoho book a service bought: an expense of the period, not
+    stock. Without that leg the value fell into purchase price variance,
+    since no accrual stood to be cleared. Cancelling the bill mirrors it.
+    A service line whose receipt *did* stock it (one completed before this
+    rule) accrued like goods and still clears that accrual.
+  - *A purchase return* of a service that never entered stock is refused by
+    name, as capital goods are: there is nothing to send back, and its value
+    is claimed with a debit note against the bill. A landed cost or a Bill
+    of Entry lands nothing on a line with no stock movement behind it
+    (`stock_quantity` in `app/landed_costs/services/__init__.py`), a
+    service or capital goods alike.
   - A purchase return naming a capital-goods line, off the receipt or off
     the bill, is **refused**: nothing entered stock, so a return has no
     movement to take out. The message says to claim the value with a debit

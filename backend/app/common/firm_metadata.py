@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
+from app.core.exceptions import ValidationError
 from app.core.utils.dates import business_date, business_day_start, business_today
 from app.firms.models import Firm
 from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserRole
@@ -225,6 +226,28 @@ class FirmMetadataReader:
             return frozenset(self._session.scalars(roles))
         with platform_reader() as reader:
             return frozenset(reader.scalars(roles))
+
+    def own_role_code(self, firm_id: UUID, typed: str, *, setting: str) -> str:
+        """Return the role a typed code names, under the role's own spelling.
+
+        The one check every setting keyed by a role code makes before it is
+        saved (D-STK-67, D-CFG-27): the role is matched whatever its case and
+        kept as the role spells it, and a code no role of the firm carries is
+        refused by name. ``setting`` is the word the refusal uses for what
+        would have bound nobody -- "limit", "rule".
+
+        Raises:
+            ValidationError: If the firm has no such role.
+
+        """
+        wanted = typed.strip()
+        for code in self.known_role_codes(firm_id):
+            if code.upper() == wanted.upper():
+                return code
+        raise ValidationError(
+            f"{wanted} is not a role of this firm, so a {setting} on it would "
+            "bind nobody. Choose a role from Users and roles."
+        )
 
     def active_members(self, firm_id: UUID) -> list["FirmMember"]:
         """List a firm's active members, in name order.

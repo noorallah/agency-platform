@@ -151,19 +151,10 @@ class StockAdjustmentApprovalService:
             ValidationError: For a role listed twice or one nobody can hold.
 
         """
-        known = {
-            code.upper(): code
-            for code in FirmMetadataReader(self._session).known_role_codes(firm_id)
-        }
+        reader = FirmMetadataReader(self._session)
         wanted: dict[str, Decimal] = {}
         for item in items:
-            key = known.get(item.role_code.strip().upper(), "")
-            if not key:
-                raise ValidationError(
-                    f"{item.role_code.strip()} is not a role of this firm, so a "
-                    "limit on it would bind nobody. Choose a role from "
-                    "Users and roles."
-                )
+            key = reader.own_role_code(firm_id, item.role_code, setting="limit")
             if key in wanted:
                 raise ValidationError(f"Role {key} is listed twice.")
             wanted[key] = item.max_value.quantize(_CENT, rounding=ROUND_HALF_UP)

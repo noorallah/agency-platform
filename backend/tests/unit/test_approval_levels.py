@@ -45,6 +45,11 @@ def firm() -> _Firm:
         built.product_bill("10", "100"), firm_id=built.firm.id, actor_id=built.actor_id
     )
     built.bill_id = bill.id  # type: ignore[attr-defined]
+    # A rule names a role the firm has (D-CFG-27), so the roles come first.
+    built.session.add_all(
+        Role(code=code, name=code.title()) for code in ("BUYER", "FINANCE", "CFO")
+    )
+    built.session.flush()
     ApprovalChainService(built.session).replace_rules(
         built.firm.id,
         "PURCHASE_INVOICE",
@@ -174,3 +179,27 @@ def test_a_bill_below_every_rule_approves_as_before(firm: _Firm) -> None:
         actor_id=firm.actor_id,
     )
     assert _approve(firm, firm.actor_id).status == "APPROVED"
+
+
+def test_a_rule_on_a_role_nobody_holds_is_refused(firm: _Firm) -> None:
+    """D-CFG-27: a mistyped role was kept, and nobody could sign its level."""
+    service = ApprovalChainService(firm.session)
+
+    def write(role_code: str) -> list[str]:
+        rows = service.replace_rules(
+            firm.firm.id,
+            "PURCHASE_INVOICE",
+            ApprovalRulesWrite.model_validate(
+                {"rules": [{"level": 1, "min_amount": "500", "role_code": role_code}]}
+            ),
+            actor_id=firm.actor_id,
+        )
+        return [row.role_code for row in rows]
+
+    with pytest.raises(ValidationError, match="not a role of this firm"):
+        write("BUYR")
+    firm.session.rollback()
+    assert sorted(
+        rule.role_code for rule in service.rules(firm.firm.id, "PURCHASE_INVOICE")
+    ) == ["BUYER", "FINANCE"]
+    assert write("buyer") == ["BUYER"]

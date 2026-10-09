@@ -85,6 +85,7 @@ from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.schemas import QuarantineAction, StockQuarantineCreate
 from app.inventory.services import InventoryService, LineConversion
 from app.products.models import Product, ProductCategory
+from app.products.services.stockless import stockless_products
 from app.purchase.models import PurchaseOrder, PurchaseOrderHistory, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderStatus
 from app.purchase.services.line_quantities import order_line_quantities
@@ -2109,7 +2110,15 @@ class GoodsReceiptService(TransactionalDocumentService):
         actor_id: UUID,
         capital_line_ids: frozenset[UUID] = frozenset(),
     ) -> None:
-        """Post inventory, skipping capital-goods lines (PG-13)."""
+        """Post inventory, skipping capital-goods (PG-13) and service lines.
+
+        A service is received -- the order's quantities move, so it can be
+        billed -- but there is nothing to put on a shelf: no movement, no
+        batch, no inspection hold, and nothing accrued, since goods received
+        not invoiced is the other side of stock arriving. Its bill debits it
+        to purchases instead (D-BUY-74), as selling leaves the stock half of
+        a service line out (backlog 87 #3).
+        """
         received_cost = ZERO
         # An order in another currency priced its lines as the supplier bills
         # (PG-12); the stock is valued in rupees at the order's rate, which
@@ -2122,12 +2131,23 @@ class GoodsReceiptService(TransactionalDocumentService):
                 document="purchase order",
             )
             rupees_per_unit = purchase_order.exchange_rate or Decimal("1")
-        for line in self._session.scalars(
+        lines = self._session.scalars(
             select(GoodsReceiptLine).where(
                 GoodsReceiptLine.goods_receipt_id == receipt.id,
                 GoodsReceiptLine.is_deleted.is_(False),
             )
-        ).all():
+        ).all()
+        services = stockless_products(
+            self._session, (line.product_id for line in lines)
+        )
+        for line in lines:
+            if line.product_id in services and not (
+                line.id in capital_line_ids or line.is_capital_goods
+            ):
+                # A service (D-BUY-74): received, never held. With no
+                # movement the cancellation has nothing to take back either.
+                line.updated_by = actor_id
+                continue
             if line.id in capital_line_ids or line.is_capital_goods:
                 # A fixed asset, not stock: no movement, nothing accrued.
                 # The mark is kept so the bill, a return and anybody reading
