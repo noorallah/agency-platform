@@ -6519,3 +6519,140 @@ or no), where it adds nothing.
 Related and already open: a client cache for static lists (backlog 80), which
 decides how fast such a list opens.
 
+## 93. Planning a purchase from stock, levels and sales, and an order sheet for the supplier -- designed, not to be built yet
+
+Owner, 2026-10-09, testing the demo firm: at the month's end the system
+should check stock and say what to order -- "target to sell 100 a month, only
+2 available, it should give the option to order 98 as xls or the required
+form, so we can easily order on the vendor's site" -- and the minimum stock
+should be "configured globally or overridden on the product". Then: "check how
+this is built in other tools; we will not implement, but design and keep in
+the backlog". **Design only. Nothing here is scheduled.**
+
+### What exists today
+
+- **Levels per product per warehouse** on the stock row: minimum, reorder,
+  maximum, safety stock (`inventory_records`).
+- **Below reorder level** (`app/purchase/services/reorder.py`, report
+  `purchase-below-reorder`, and *Purchase Orders > ... > Below reorder level*):
+  one row per warehouse and product at or below its level, with available
+  stock, what is already on open orders (drafts included), the supplier (the
+  product's preferred one, else the last billed) and a **suggested quantity**
+  -- maximum less available less on order, else the shortfall to the reorder
+  level. Ticked rows raise **draft orders, one per supplier and warehouse**,
+  or a requisition.
+- **Reorder planning** per firm (`ReorderPlanningSettings`): *typed levels*,
+  or *from sales* -- average daily net sales over 90 days, reorder at lead (7)
+  plus safety (7) days' worth, order up to 30 days more. A typed level wins.
+- A supplier's own code, pack and lead time per product (`supplier_products`),
+  and an order quantity rounded to the supplier's pack
+  (`app/vendors/services/order_quantities.py`).
+
+### What the owner's case still lacks
+
+| # | Gap | Today |
+| --- | --- | --- |
+| 1 | An **order sheet as a file** -- the lines to order as Excel or CSV, with the supplier's own product codes, to key or upload on the supplier's site | The order prints as a PDF; the order *list* exports; no file of one order's lines, and the Below reorder report has no download |
+| 2 | A **firm-wide fixed minimum**, overridden lower down | The only firm-wide rule is in days of sales; a product with no sales and no typed level has no minimum at all |
+| 3 | A level set once for a **group of products** | Per product per warehouse only |
+| 4 | **"We need 100 of this a month"** said in those words, and ordered up to | Typed as a maximum level, or derived from past sales; targets exist only per salesperson |
+| 5 | Planning **on demand for a period and a supplier** ("what do I order from this supplier for the next 30 days") | The list shows only what is already at or below its level |
+
+### How the other tools do it (read 2026-10-09)
+
+| Tool | Where the level is set | What decides the quantity | From list to order | Order sheet out |
+| --- | --- | --- | --- | --- |
+| **TallyPrime** | Stock item, **stock group or stock category**; not per godown | Reorder level and minimum order quantity; *advanced*: compare the typed figure with consumption over a chosen period and take the **higher or the lower** | *Reorder Status* report: closing stock, purchase orders pending, **sales orders due**, nett available, shortfall, minimum order quantity, *order to be placed* (the shortfall, or the minimum order quantity if larger) | Any report exports to Excel; the help page does not describe raising the order from the report |
+| **Marg** | Per item, and **one minimum for all items** from a utility | *Re-order Management* offers bases: **sale** ("7*1": sold in the last 7 days, times 1, less closing stock), **minimum-maximum** (maximum less current stock), **zero and negative** stock | Supplier *Auto*, *Manual* or *Selected*; *Generate Purchase Order*, optionally split into parts | Order shared by WhatsApp and email; pharma firms also send it to the supplier electronically |
+| **BUSY** | Item master: minimum, reorder, maximum | The levels; *Item critical level* report shows shortage and excess | Warnings at entry, which can optionally **block** it | Report export |
+| **Zoho Inventory** | Per item, or per item **per warehouse**; no organisation default | Reorder level, maximum stock level, minimum and maximum order quantity, a **unit multiple**, and a frequency in days | *Replenishments*: create orders singly or **in bulk** where the vendor is the same; the preferred vendor is on the item | Not described for the replenishment list |
+| **ERPNext** | Item, with a **per-warehouse** table of level and quantity | **Projected** quantity (stock + ordered - reserved) against the level; a report recommends a level from lead time, safety stock and average daily outgoing | **Auto material request** when the level is reached | Any list exports |
+| **Odoo** | A reordering rule per product per location | Minimum and maximum on **forecast** stock at today + vendor lead time + horizon days; order up to the maximum | Automatic or from the *Replenishment* list, per vendor | Any list exports |
+
+Sources: Tally, [Reorder stock items](https://help.tallysolutions.com/reorder-stock-items-reorder-status-and-reorder-quantity/);
+Marg, [Re-order on sale bases](https://care.margcompusoft.com/margerp/re-order-management/101565/1/adler32)
+and [Minimum stock for all items](https://care.margcompusoft.com/margerp/daily-working/38746/utils/inftrees);
+BUSY, [Master configuration](https://busy.in/faqs/configurations/master-configuration/9/);
+Zoho, [Replenishments](https://www.zoho.com/us/inventory/help/items/replenishments.html);
+ERPNext, [Auto creation of material request](https://docs.erpnext.com/docs/user/manual/en/auto-creation-of-material-request);
+Odoo, [Reordering rules](https://www.odoo.com/documentation/18.0/applications/inventory_and_mrp/inventory/warehouses_storage/replenishment/reordering_rules.html).
+Read from each vendor's help pages, not from the products themselves.
+
+### Design
+
+**A. Where a level comes from: most specific wins.** One resolver, four
+places, read in this order:
+
+1. the product in a warehouse (exists);
+2. the **product** (new: one figure for every warehouse that has none);
+3. the product's **category**, as Tally's stock group (new);
+4. the **firm** (new): a fixed minimum and a fixed order-up-to quantity, as
+   Marg's "minimum for all items", beside today's days-of-sales rule.
+
+The report already says which basis each row used; it gains *where the level
+came from*. Nothing is copied down: a level changed on the category changes
+every product under it that has none of its own.
+
+**B. A monthly requirement, in those words.** On the product (and on the
+category): *expected sales a month*. It is a planning figure, not a sales
+target -- no commission reads it. Where set, the order-up-to quantity for a
+plan of N days is requirement x N / 30. The owner's case: requirement 100,
+stock 2, nothing on order, a 30-day plan -> **98**.
+
+**C. Plan an order (new screen, Buy).** Marg's Re-order Management, on our
+resolver. The buyer chooses:
+
+- **which products** -- a supplier, a principal or brand, a category, a
+  warehouse;
+- **the basis** -- *levels* (as today), *sales* ("sold in the last X days,
+  enough for Y days", Marg's `X*Y`), *monthly requirement*, or *zero and
+  negative stock only*;
+- **the higher or the lower** where a product has both a typed figure and a
+  sales figure (Tally's advanced reorder).
+
+Each row shows stock, on order, **committed to open sales orders** (Tally's
+nett available; today's *available* already leaves reserved stock out), sold
+in the period, the level and where it came from, and **the quantity to order,
+which the buyer may type over**. The quantity respects the supplier's minimum
+order quantity and pack multiple (Zoho's unit multiple; `rounded_quantity`
+exists). Rows are not limited to what is already short: a month-end plan
+orders what will run out, not only what has.
+
+**D. From the plan: three ways out.**
+
+1. **Draft orders, one per supplier** (exists).
+2. **The order sheet** -- Excel or CSV of the lines: the supplier's own code
+   and name for the product where the catalogue has them, ours beside, pack,
+   quantity, unit, rate. The same download on a saved purchase order.
+3. **A layout per supplier.** A supplier's site wants its own columns in its
+   own order. The firm saves, per supplier, which of our columns go where and
+   under what heading -- the import mapping of `app/imports` run the other
+   way -- and the sheet is written in that layout from then on.
+
+**E. Later, not in the first build.** Raising drafts on a schedule (Zoho's
+frequency, ERPNext's auto request); a warning on the sales line when a sale
+takes a product below its minimum (Marg, BUSY); lead time and horizon on
+forecast stock (Odoo); sending the sheet by email or WhatsApp from the screen.
+
+### Order of work, when it is taken up
+
+| Step | What | Size |
+| --- | --- | --- |
+| 1 | The order sheet as Excel and CSV, on a purchase order and on Below reorder level (gap 1) | S |
+| 2 | Levels on the product, the category and the firm, and the one resolver (gaps 2, 3) | M |
+| 3 | Monthly requirement (gap 4) | S |
+| 4 | Plan an order: the screen, the four bases, higher or lower (gap 5) | L |
+| 5 | A saved sheet layout per supplier | M |
+
+Step 1 stands alone and answers the owner's immediate need; 2 to 4 share the
+resolver and should be designed together even if built apart.
+
+### Open questions for the review
+
+- Is the monthly requirement the same in every month, or does a seasonal firm
+  need it by month?
+- Does a supplier's site take an upload, or is the sheet only something to
+  read from while typing? It decides whether step 5 matters.
+- Should the firm-wide fixed minimum apply to a product that has never sold,
+  or only once it has stock?
+
