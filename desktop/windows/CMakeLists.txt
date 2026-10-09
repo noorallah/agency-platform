@@ -79,6 +79,11 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../config/branding.json"
   DESTINATION "${CMAKE_INSTALL_PREFIX}/config"
   COMPONENT Runtime)
 
+# The product and company artwork the branding file names, beside it.
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../config/brand"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/config"
+  COMPONENT Runtime)
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 
