@@ -1,4 +1,4 @@
-# Agency Platform for a distribution business
+# Jugnix Trade for a distribution business
 
 **One system for a distributor, whatever it sells: buying, stock, selling, collections, accounts and GST.**
 
@@ -20,7 +20,7 @@ than one kind under one roof:
 | Goods with a serial number | Electronics, appliances | A serial number on every unit, warranty, the unit traced from receipt to sale |
 | Goods with none of these | General trade items | Quantity and price only |
 
-In Agency Platform each line is a **goods type**. A goods type says how its
+In Jugnix Trade each line is a **goods type**. A goods type says how its
 products are tracked: by batch and expiry, by batch alone, by serial number
 and warranty, or not at all. Medicine, Food, Cosmetics, Paint and Electronics
 come ready-made as examples, and you add your own for any other line. You
@@ -29,7 +29,7 @@ with it; nobody ticks switches product by product, and one firm can carry
 several lines.
 
 Most businesses end up with one tool for billing, a spreadsheet for expiry,
-another for schemes and a notebook for collections. Agency Platform keeps all
+another for schemes and a notebook for collections. Jugnix Trade keeps all
 of it in one place, and every bill updates the stock, the customer's account
 and the books by itself.
 
