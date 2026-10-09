@@ -432,7 +432,10 @@ class _DeliveryNoteManagementPageState
         title: row.deliveryNoteNumber,
         subtitle: 'Against ${row.salesOrderReference}',
         icon: Icons.local_shipping_outlined,
-        header: row.toHeader(),
+        header: row.toHeader(
+          branchName: _labels.branch,
+          warehouseName: _labels.warehouse,
+        ),
         lines: [
           for (final _DeliveryNoteLine line in row.lines)
             DocumentLineSnapshot(
@@ -1573,14 +1576,20 @@ class _DeliveryNoteRecord {
     );
   }
 
-  DocumentHeaderSnapshot toHeader() => DocumentHeaderSnapshot(
+  /// The header a document view shows. [branchName] and [warehouseName]
+  /// turn an id into what a person reads; without them the id is all this
+  /// record holds, and an id is never worth showing, so the field is blank.
+  DocumentHeaderSnapshot toHeader({
+    String Function(String id)? branchName,
+    String Function(String id)? warehouseName,
+  }) => DocumentHeaderSnapshot(
         documentTypeCode: 'DELIVERY_NOTE',
         documentTypeName: 'Delivery Note',
         documentNumber: deliveryNoteNumber,
         documentDate: deliveryDate,
         reference: salesOrderReference,
-        branch: branchId,
-        warehouse: warehouseId,
+        branch: branchName?.call(branchId) ?? '',
+        warehouse: warehouseName?.call(warehouseId) ?? '',
         status: status,
         // The delivery, once recorded, read beside the note's own remarks.
         remarks: [

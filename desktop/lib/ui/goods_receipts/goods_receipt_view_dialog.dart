@@ -46,7 +46,10 @@ class GoodsReceiptViewDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final DocumentHeaderSnapshot header = receipt.toHeader();
+    final DocumentHeaderSnapshot header = receipt.toHeader(
+      branchName: labels.branch,
+      warehouseName: labels.warehouse,
+    );
     final DocumentTotalsSnapshot totals = receipt.toTotals();
     return WorkspaceDialog(
       title: receipt.grnNumber,
