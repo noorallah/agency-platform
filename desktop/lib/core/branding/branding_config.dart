@@ -201,7 +201,9 @@ class BrandingConfig {
           throw const FormatException(
               'Branding configuration must be a JSON object.');
         }
-        return BrandingConfig.fromJson(decoded);
+        // A logo named without a folder is looked for beside this file, so
+        // the package carries its own artwork wherever it is installed.
+        return BrandingConfig.fromJson(decoded, base: file.parent);
       } on FileSystemException catch (error) {
         debugPrint(
             'Unable to read branding configuration ${file.path}: $error');
@@ -224,7 +226,13 @@ class BrandingConfig {
     ];
   }
 
-  factory BrandingConfig.fromJson(Map<String, dynamic> json) {
+  /// Read the branding file. A relative path to a picture is resolved
+  /// against [base], the folder the file sits in; an absolute one, and any
+  /// path when no folder is given, is kept as written.
+  factory BrandingConfig.fromJson(
+    Map<String, dynamic> json, {
+    Directory? base,
+  }) {
     String value(String key) {
       final dynamic raw = json[key];
       if (raw is! String || raw.trim().isEmpty) {
@@ -245,13 +253,19 @@ class BrandingConfig {
       return raw.trim();
     }
 
+    String picture(String key) {
+      final String path = optionalPath(key);
+      if (path.isEmpty || base == null || File(path).isAbsolute) return path;
+      return '${base.path}${Platform.pathSeparator}$path';
+    }
+
     return BrandingConfig(
       appName: value('app_name'),
       windowName: value('window_name'),
       productName: value('product_name'),
       companyName: value('company_name'),
-      logoPath: optionalPath('logo_path'),
-      splashPath: optionalPath('splash_path'),
+      logoPath: picture('logo_path'),
+      splashPath: picture('splash_path'),
       version: value('version'),
       supportEmail: optionalPath('support_email'),
       supportWebsite: optionalPath('support_website'),
@@ -259,8 +273,8 @@ class BrandingConfig {
       supportWhatsapp: optionalPath('support_whatsapp'),
       supportHours: optionalPath('support_hours'),
       tagline: optionalPath('tagline'),
-      companyLogoPath: optionalPath('company_logo_path'),
-      productLogoPath: optionalPath('product_logo_path'),
+      companyLogoPath: picture('company_logo_path'),
+      productLogoPath: picture('product_logo_path'),
       strengths: _strengths(json['strengths']),
       copyright: value('copyright'),
       loginBackgroundColor: _color(value('login_background_color')),

@@ -200,6 +200,53 @@ Built in the order U2, U3+U4, U6, U5+U7, U1, one PR each (owner, 2026-10-04:
 S2 showcase sign-in, keep "Agency Platform", support details blank, first-run
 step 1 only; U8 Help > About stays parked).
 
+### 8.0 The product is named Jugnix Trade (2026-10-09)
+
+The owner chose on 2026-10-09 to carry our own names and logos now, before
+the trademark is filed, on the footing that they sit in one file and can be
+changed again there. So the package's branding file,
+`desktop/config/branding.json`, now reads:
+
+| Field | Value |
+| --- | --- |
+| `app_name`, `product_name`, `window_name` | Jugnix Trade |
+| `company_name` | Jugnix |
+| `tagline` | Light up your business. |
+| `product_logo_path` | `brand/jugnix-trade-icon.png` (P1, the parcel lit by the firefly) |
+| `company_logo_path` | `brand/jugnix-icon.png` (the swarm) |
+| `splash_path` | `brand/jugnix-trade-splash.png` |
+| `login_accent_color` | `#14203A`, the brand's night blue |
+| `copyright` | © 2026 Jugnix |
+
+- The three pictures are in `desktop/config/brand/`, and the Windows build
+  installs that folder beside `branding.json`. **A picture named without a
+  folder is looked for beside the branding file** (`BrandingConfig.fromJson`,
+  `base:`), not in whatever folder the app was started from; an absolute path
+  is kept as written.
+- The executable's own properties (`desktop/windows/runner/Runner.rc`) and its
+  icon (`resources/app_icon.ico`) say Jugnix Trade and Jugnix.
+- Where it shows: the sign-in showcase panel and the foot of the sign-in card
+  (*Jugnix Trade by Jugnix*), the sign-in status line (*Powered by Jugnix
+  Trade*), the status line of every screen, and the window before sign-in.
+  The agency's own name and logo are untouched: a platform administrator sets
+  them under *Settings > Platform > Agency > Branding*.
+
+**Not renamed, on purpose:**
+
+- **The installer** (`packaging/AgencyPlatform.iss`): `AppName` is also the
+  install folder and the Start menu group, and the data folder under
+  `ProgramData` and the Windows service carry the old name. Renaming them
+  moves an installed copy's data. The installer's display strings, icon and
+  wizard pictures are to be done with an installer build that is tested.
+- **The service and folder names the desktop quotes** (*Agency Platform
+  Server*, `ProgramData\Agency Platform\logs`): they are the real names on
+  the machine.
+- **The documents**: the guides still say Agency Platform throughout.
+
+The artwork is the test set of 2026-10-04 (`dist\windows\Branding assets`),
+drawn with a system font; a designer's vector set replaces the three files
+when it exists, with no change to code.
+
 ### 8.1 Foundation (U2 and the server's record)
 
 - **The agency's record** is `agency_branding` in the platform store

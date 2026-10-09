@@ -119,6 +119,40 @@ void main() {
     expect(config.supportWebsite, '');
   });
 
+  test('a picture named without a folder is looked for beside the file', () {
+    final Directory base = Directory('config');
+    final BrandingConfig config = BrandingConfig.fromJson(
+      _oldFile()
+        ..['product_logo_path'] = 'brand/p.png'
+        ..['company_logo_path'] = File('elsewhere.png').absolute.path,
+      base: base,
+    );
+
+    expect(config.productLogoPath,
+        '${base.path}${Platform.pathSeparator}brand/p.png');
+    expect(config.logoPath, '${base.path}${Platform.pathSeparator}logo.png');
+    // An absolute path is kept as written, and so is every path when the
+    // caller names no folder.
+    expect(config.companyLogoPath, File('elsewhere.png').absolute.path);
+    expect(BrandingConfig.fromJson(_oldFile()).logoPath, 'logo.png');
+  });
+
+  test('the shipped branding names the product, the maker and their artwork',
+      () {
+    final File file = File('config/branding.json');
+    final BrandingConfig config = BrandingConfig.fromJson(
+      jsonDecode(file.readAsStringSync()) as Map<String, dynamic>,
+      base: file.parent,
+    );
+
+    expect(config.productName, 'Jugnix Trade');
+    expect(config.companyName, 'Jugnix');
+    // The files the package names are in the package.
+    expect(config.productLogoFile, isNotNull);
+    expect(config.companyLogoFile, isNotNull);
+    expect(config.splashFile, isNotNull);
+  });
+
   group('the branding calls', () {
     late List<String> seen;
     late ApiClient api;
