@@ -465,8 +465,8 @@ class GoodsReceiptRecord {
         documentNumber: grnNumber,
         documentDate: receiptDate,
         reference: purchaseOrderNumber,
-        branch: branchName?.call(branchId) ?? '',
-        warehouse: warehouseName?.call(warehouseId) ?? '',
+        branch: namedOrBlank(branchName, branchId),
+        warehouse: namedOrBlank(warehouseName, warehouseId),
         // The firm is the one in the title bar; its id says nothing.
         firm: '',
         businessProfile: '',

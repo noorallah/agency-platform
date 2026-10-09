@@ -39,8 +39,9 @@ Future<void> openArea(WidgetTester tester, String area, String path) async {
   await tester.tap(folded.last);
   await pumpFor(tester, const Duration(milliseconds: 700));
   final Finder item = find.byKey(ValueKey<String>('menu-item-$path'));
-  if (item.evaluate().isEmpty) {
-    await tester.tap(find.byKey(const ValueKey<String>('menu-show-all')));
+  final Finder showAll = find.byKey(const ValueKey<String>('menu-show-all'));
+  if (item.evaluate().isEmpty && showAll.evaluate().isNotEmpty) {
+    await tester.tap(showAll);
     await pumpFor(tester, const Duration(milliseconds: 600));
   }
   await pumpUntil(tester, item, waitingFor: 'menu item $path');

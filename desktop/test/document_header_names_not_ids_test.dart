@@ -7,6 +7,7 @@
 import 'dart:io';
 
 import 'package:agency_desktop/models/branch_warehouse.dart';
+import 'package:agency_desktop/models/document_framework.dart';
 import 'package:agency_desktop/ui/document_framework/document_line_labels.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -57,5 +58,34 @@ void main() {
     expect(labels.branch('b-1'), 'HO - Head Office');
     expect(labels.warehouse('w-1'), 'MAIN - Main Warehouse');
     expect(labels.branch(''), '');
+  });
+
+  // The first fix (#1390) asked the page's lookup for the name, and the four
+  // pages built that lookup without branches or warehouses, so it handed the
+  // id straight back and the view still printed it.
+  test('each page loads branches and warehouses into its lookup', () {
+    for (final String path in <String>[
+      'lib/ui/goods_receipts/goods_receipt_management_page.dart',
+      'lib/ui/purchase_invoices/purchase_invoice_management_page.dart',
+      'lib/ui/purchase_returns/purchase_return_management_page.dart',
+      'lib/ui/delivery_notes/delivery_note_management_page.dart',
+    ]) {
+      final String source = File(path).readAsStringSync();
+      expect(source, contains('DocumentLineLabels.load('), reason: path);
+      expect(
+        RegExp(r'_labels = DocumentLineLabels\(').hasMatch(source),
+        isFalse,
+        reason: '$path builds a lookup of its own, which is how the '
+            'branches were left out',
+      );
+    }
+  });
+
+  test('a name the lookup cannot give is blank, never the id', () {
+    const DocumentLineLabels empty = DocumentLineLabels();
+    expect(namedOrBlank(empty.branch, 'b-1'), '');
+    expect(namedOrBlank(null, 'b-1'), '');
+    expect(namedOrBlank((String id) => 'HO - Head Office', 'b-1'),
+        'HO - Head Office');
   });
 }
