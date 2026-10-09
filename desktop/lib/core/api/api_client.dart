@@ -11950,10 +11950,6 @@ class ApiClient {
       final HttpClientRequest httpRequest =
           await _httpClient.openUrl(method, uri);
       httpRequest.followRedirects = false;
-      if (body != null) {
-        httpRequest.headers.contentType = ContentType.json;
-        httpRequest.write(jsonEncode(body));
-      }
       final String? token = accessToken();
       if (token?.isNotEmpty == true) {
         httpRequest.headers.set(
@@ -11964,6 +11960,16 @@ class ApiClient {
       final String? firmId = activeFirmId?.call();
       if (firmId?.isNotEmpty == true) {
         httpRequest.headers.set('X-Firm-ID', firmId!);
+      }
+      // The body goes last. Writing it sends the headers, and a header set
+      // after that throws: every POST download (the pick list, the loading
+      // sheet, a print run) reached the server with no sign-in and no body,
+      // and never finished (D-UI-90).
+      if (body != null) {
+        final List<int> encoded = utf8.encode(jsonEncode(body));
+        httpRequest.headers.contentType = ContentType.json;
+        httpRequest.contentLength = encoded.length;
+        httpRequest.add(encoded);
       }
       final HttpClientResponse response =
           await httpRequest.close().timeout(const Duration(seconds: 30));
