@@ -1,7 +1,7 @@
 # QA test data: what to type, case by case
 
 For **release 1.3.0**, the first end-to-end test pass (it includes 1.2.0). Menu paths
-are the 1.3.0 menu (`Sell > Quotations`, `Sell > All Sell screens > Documents >
+are the 1.3.0 menu (`Sell > Quotations`, `Sell > Documents >
 Proforma`, `Settings > Set up > Pricing > Price Lists`); updated 2026-10-04.
 
 The sample data for the whole QA suite and the functional walkthrough, so
@@ -400,7 +400,7 @@ That is expected; nothing else in QA02 relies on HO being the default.
 | Promotion `CLEARANCE` | Name *Clearance*; Applies at `30`; Active; From `2020-01-01`; stacking on. Gives: Percent off each line, `1`. Applies when: *Quantity on the line* *is at least* `40` | TC-INCENT-004 |
 | Promotion `WELCOME` | Settings > Set up > Pricing > Promotions → New: Code `WELCOME`; Name *Welcome*; Applies at `40`; Status Active; From `2020-01-01`. Tick **Only with a coupon** (the switch reads "Applies only when the customer presents one of this offer's coupons"). Gives: Percent off each line, Percent `2.5`. No conditions | TC-SELL-006, 007, 010, TC-INCENT-003, TC-CONC-005 |
 | Coupons (Settings > Set up > Pricing > Promotions → **Coupons** → New) | Offer *WELCOME*; Code `WELCOME10`; Total claims allowed blank. Then Offer *WELCOME*; Code `WELCOME10B`; Total claims allowed blank | as WELCOME |
-| TCS (Accounts > All Accounts screens > Tax filing > TCS → **Settings**) | Collect under section 206C(1H) **on**; Preceding year turnover `150000000`; Threshold `0`; Rate `0.1`; Rate without a PAN `1` | TC-SELL-013, 014, TC-COMP-007 |
+| TCS (Accounts > Tax filing > TCS → **Settings**) | Collect under section 206C(1H) **on**; Preceding year turnover `150000000`; Threshold `0`; Rate `0.1`; Rate without a PAN `1` | TC-SELL-013, 014, TC-COMP-007 |
 | Loyalty (Settings > Set up > Pricing > Loyalty → **Scheme settings**) | Scheme is running **on**; points per 100 `2`; worth `1` each; Minimum to redeem `50`; Points expire **on**, after `24` months | TC-INCENT-005 |
 
 **Masters for TC-SELL-036 onward** (the nine selling features of backlog 87,
@@ -436,7 +436,7 @@ reads them, so build them only when the run reaches those cases.
 | Customers | `QA-C1` *Revise Check qa*; `QA-C2` *Classic Stores qa*; `QA-C3` *Vijaya Stores qa*; `QA-C4` *Anand Agencies qa*; `QA-SN` *Not Yet Routed qa*. Nothing else on any of them | 10, commission |
 | Rounds (Settings > Set up > Territories & routes > **Route Builder**) | `QA-R-N1`: 1 Revise Check qa, 2 Classic Stores qa. `QA-R-N2`: 1 Vijaya Stores qa. `QA-R-S1`: 1 Anand Agencies qa. `QA-SN` on no route. **Save round and order** after each | TC-TERR-001, 004 |
 | Salespeople (open the route → **Salespeople**) | N1: Asha Sales, primary. N2: Bala Sales, primary. S1: Asha Sales, primary | TC-TERR-001, 005, commission |
-| Beat plans (Sell > All Sell screens > Field sales > **Beat Plans** → New), weekly | Repeats Weekly, one per working day: `QA-BP-R1-MON` *Mon round R1*, Route North Sales Beat, On Monday; `QA-BP-R1-WED` Wednesday; `QA-BP-R1-FRI` Friday; `QA-BP-R2-TUE` *Tue round R2*, Route North Collections, Tuesday; `QA-BP-R2-THU` Thursday; `QA-BP-R3-TUE` *Tue round R3*, Route South Sales Beat, Tuesday; `QA-BP-R3-THU` Thursday | TC-TERR-002, 003 |
+| Beat plans (Sell > Field sales > **Beat Plans** → New), weekly | Repeats Weekly, one per working day: `QA-BP-R1-MON` *Mon round R1*, Route North Sales Beat, On Monday; `QA-BP-R1-WED` Wednesday; `QA-BP-R1-FRI` Friday; `QA-BP-R2-TUE` *Tue round R2*, Route North Collections, Tuesday; `QA-BP-R2-THU` Thursday; `QA-BP-R3-TUE` *Tue round R3*, Route South Sales Beat, Tuesday; `QA-BP-R3-THU` Thursday | TC-TERR-002, 003 |
 | Beat plan `QA-BP-COLL` | *Collections, alternate Tuesdays*; Route North Collections; Repeats Fortnightly; On Tuesday; starts on `2026-04-07` | TC-TERR-003 |
 | Beat plan `QA-BP-MTH` | *Second Tuesday review*; Route South Sales Beat; Repeats Monthly; On Tuesday; Week of the month `2` | TC-TERR-003 |
 | Vendor `QA-VS` | *Stock Supplier qa*; Phone `+919800000300` | stock-in |
@@ -575,10 +575,10 @@ goods receipt accepting everything into MAIN; Complete.
 | Preparation | Create |
 | --- | --- |
 | `territory-firm` (QA04) | C5 and its stock-in |
-| `commission-firm` (QA04) | **Rules** (Sell > All Sell screens > Incentives > Commission → **Add rule**), all Paid on *Money collected*, Rate shape *Percentage of the value*, In force from `2026-04-01`, Status Active: (1) Applies to *Everyone (default)*, On *Everything sold*, rate `4`. (2) Applies to *Asha Sales*, On product `QA-P`, rate `15`. (3) Applies to *Bala Sales*, On *Everything sold*, **Slabs**: From `0` To `50000` Rate `2`; From `50000` To blank Rate `4`; How the slabs read *Each band at its own rate*; Earns nothing below `1000`; Extra when the target is met `2`. **Sales**, each: new order (Salesman blank; the route supplies it), Discount % `0`, Approve; delivery note for all, Approve, Dispatch; invoice from the note, Approve; Sell > Receipts → Record Receipt for the invoice's full total, Bank, applied to it: `QA-C4` 20 `QA-P` at 100 (2,360.00, Asha); `QA-C1` 30 `QA-Q` at 100 (3,540.00, Asha); `QA-C3` 40 `QA-Q` at 100 (4,720.00, Bala). **Targets** (Sell > All Sell screens > Incentives > Targets → New): Salesperson Asha Sales, From `2026-09-01` To `2026-09-30`, Target amount `1000`; Salesperson Bala Sales, same period, `100000`. Runs Monthly, Counts Invoiced |
-| `compliance-firm` (QA05) | Three sales of `QA-P` at `100`, Discount % `0`, each order approved, noted, dispatched and billed as above. **Invoice A**: `QA-B2B`, quantity `10` (1,180.00), then a receipt of `1180.00` Bank applied to it. **Invoice B**: `QA-B2B`, quantity `5` (590.00), no receipt. **Invoice C**: `QA-B2C`, quantity `3` (354.00), no receipt. Then Accounts > All Accounts screens > Tax filing > E-Invoice → **Register an invoice** → Invoice A → Register; again for Invoice B. Not C |
+| `commission-firm` (QA04) | **Rules** (Sell > Incentives > Commission → **Add rule**), all Paid on *Money collected*, Rate shape *Percentage of the value*, In force from `2026-04-01`, Status Active: (1) Applies to *Everyone (default)*, On *Everything sold*, rate `4`. (2) Applies to *Asha Sales*, On product `QA-P`, rate `15`. (3) Applies to *Bala Sales*, On *Everything sold*, **Slabs**: From `0` To `50000` Rate `2`; From `50000` To blank Rate `4`; How the slabs read *Each band at its own rate*; Earns nothing below `1000`; Extra when the target is met `2`. **Sales**, each: new order (Salesman blank; the route supplies it), Discount % `0`, Approve; delivery note for all, Approve, Dispatch; invoice from the note, Approve; Sell > Receipts → Record Receipt for the invoice's full total, Bank, applied to it: `QA-C4` 20 `QA-P` at 100 (2,360.00, Asha); `QA-C1` 30 `QA-Q` at 100 (3,540.00, Asha); `QA-C3` 40 `QA-Q` at 100 (4,720.00, Bala). **Targets** (Sell > Incentives > Targets → New): Salesperson Asha Sales, From `2026-09-01` To `2026-09-30`, Target amount `1000`; Salesperson Bala Sales, same period, `100000`. Runs Monthly, Counts Invoiced |
+| `compliance-firm` (QA05) | Three sales of `QA-P` at `100`, Discount % `0`, each order approved, noted, dispatched and billed as above. **Invoice A**: `QA-B2B`, quantity `10` (1,180.00), then a receipt of `1180.00` Bank applied to it. **Invoice B**: `QA-B2B`, quantity `5` (590.00), no receipt. **Invoice C**: `QA-B2C`, quantity `3` (354.00), no receipt. Then Accounts > Tax filing > E-Invoice → **Register an invoice** → Invoice A → Register; again for Invoice B. Not C |
 | `pharma-firm` (QA06) | D5's receipt, then two sales orders for `QA-RX`, both Approved: `QA-AMX` quantity `5` at `100`; `QA-SHT` quantity `10` at `100` |
-| `electronics-firm` (QA07) | D5's receipt, then Stock > All Stock screens > Tracking > **Serial Numbers** → New, five times: product `QA-MIX`, warehouse MAIN, branch HO, serial `QA-MIX-0001` to `QA-MIX-0005`, warranty start today (2026-09-25), warranty end today plus one year (2027-09-25) |
+| `electronics-firm` (QA07) | D5's receipt, then Stock > Tracking > **Serial Numbers** → New, five times: product `QA-MIX`, warehouse MAIN, branch HO, serial `QA-MIX-0001` to `QA-MIX-0005`, warranty start today (2026-09-25), warranty end today plus one year (2027-09-25) |
 
 ---
 
@@ -952,7 +952,7 @@ where the cases say 5 and 409.50; the table says so row by row.
 | TC-SELL-014 | Apply to an invoice: the invoice for 7, Amount `97.58`; then `5`. Reverse the 241.60 receipt, reason *Cheque returned unpaid* |
 | TC-SELL-015 | Against the **invoice for 7**; Line 1; Taken back into MAIN; Quantity `9` (refused: *Only 7.0 went out on this line.*), then `2` (193.28 credited, as the case says) |
 | TC-SELL-016 | The **invoice for 7**; Line 1; Reason Rate difference; Credit, before tax `50` (reads `59.00 (tax 9.00)`); then **`600`** instead of 400, because this line was charged 573.30: refused, naming 573.30 charged and what is already credited |
-| TC-SELL-017 | First build **S-PF**: New Order `QA-C01`, MAIN, `QA-DET` `4` at `84`, Create draft, Approve. Sell > All Sell screens > Documents > Proforma → New → S-PF → Raise → Issue. Then Cancel S-PF, reason *Customer postponed* |
+| TC-SELL-017 | First build **S-PF**: New Order `QA-C01`, MAIN, `QA-DET` `4` at `84`, Create draft, Approve. Sell > Documents > Proforma → New → S-PF → Raise → Issue. Then Cancel S-PF, reason *Customer postponed* |
 
 **TC-SELL-036 onward (added 2026-10-05; written from the code, not yet run
 by hand).** Run them after step 10 above, once the credit policy is back to
@@ -1038,7 +1038,7 @@ shared.
 | TC-INCENT-003 | QA03 | Nothing (reads S-ORD's claim) |
 | TC-INCENT-004 | QA03 | New Order `QA-C01`, MAIN, `QA-DET` `60` at `84` |
 | TC-INCENT-005 | QA03 | Needs the HTTP adjustment (D4). Use points `100` on the **invoice for 7**; then `5000`. The balance reads 200 plus what the two invoices earned (about 23, at 2 per 100 of 483.21 and 676.49), and the refusal names what is left; the outstanding falls by exactly 100.00 rather than to 383.21, because this invoice is not the one the case was written against |
-| TC-INCENT-006 | QA04 | Collected from `2026-04-01` to `2026-09-30`; Sell > All Sell screens > Incentives > Targets → Achievement for September 2026 |
+| TC-INCENT-006 | QA04 | Collected from `2026-04-01` to `2026-09-30`; Sell > Incentives > Targets → Achievement for September 2026 |
 | TC-INCENT-007 | QA04 | Accrue period September 2026 (2026-09-01 to 2026-09-30); Pay on today from `1000 Cash`; Cancel Asha's |
 | TC-INCENT-008 | QA04 | Sign in as `asha@qa04.test` |
 

@@ -1624,7 +1624,7 @@ yet paid plus the broken ones nobody has taken a newer promise on; a bill that
 has since stopped owing drops off it while its promise still reads broken.
 
 Reading takes `RECEIPT_VIEW` and writing `RECEIPT_CREATE`. The desktop screens
-(#1164) are Sell > All Sell screens > Money > *Collection Sheet* and *Payment
+(#1164) are Sell > Money > *Collection Sheet* and *Payment
 Promises*, with a **Collector** on the customer. Not built: the promise on the
 customer statement and on
 `GET /api/v1/receipts/outstanding`, reminders raised from a broken promise,

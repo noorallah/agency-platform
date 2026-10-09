@@ -283,10 +283,13 @@ class AppMenuBar extends StatelessWidget {
   }
 }
 
-/// One area's drop-down (4.3), as the light menu draws it (backlog 72): the
-/// area's daily list, "Returns & notes" opening its short list beside it,
-/// and "All ... screens" one click away -- every group side by side, nothing
-/// to scroll or expand. An area with no daily list shows every group at once.
+/// One area's drop-down (4.3): every screen of the area, group by group,
+/// side by side, with nothing to expand (owner, 2026-10-09, after the
+/// configuration lists moved to Settings and the full list became short).
+/// In each group the screens of the area's daily list come first, in a
+/// heavier weight, above a thin line, so the eye still lands on them. The
+/// foot links to the area's own sections of Settings. Each item keeps its
+/// favourite star.
 class _AreaPanel extends StatefulWidget {
   const _AreaPanel({
     required this.area,
@@ -310,79 +313,32 @@ class _AreaPanel extends StatefulWidget {
 }
 
 class _AreaPanelState extends State<_AreaPanel> {
-  bool _all = false;
-  bool _returns = false;
-
   @override
   Widget build(BuildContext context) {
     final MenuAreaSpec area = widget.area;
-    final bool light = area.daily.isNotEmpty && !_all;
-    final List<Widget> columns;
-    if (light) {
-      columns = [
-        for (int i = 0; i < area.daily.length; i++) ...[
-          _column(
-            context,
-            area.daily[i].label,
-            [
-              for (final String path in area.daily[i].paths)
-                if (path == MenuLayout.returnsAndNotes)
-                  _returnsToggle(context)
-                else if (area.item(path) case final MenuItemSpec item)
-                  _item(context, item),
-            ],
-          ),
-          // The short list opens beside the column that names it.
-          if (_returns &&
-              area.daily[i].paths.contains(MenuLayout.returnsAndNotes))
-            _column(
-              context,
-              'Returns & notes',
-              [
-                for (final String path in area.shortList)
-                  if (area.item(path) case final MenuItemSpec item)
-                    _item(context, item),
-              ],
-              key: const ValueKey('menu-returns-and-notes'),
-            ),
-        ],
-      ];
-    } else {
-      final bool labelled =
-          area.groups.length > 1 || area.groups.first.label != area.label;
-      columns = [
-        for (final MenuGroupSpec group in area.groups)
-          _column(
-            context,
-            labelled ? group.label : null,
-            [for (final MenuItemSpec item in group.items) _item(context, item)],
-          ),
-      ];
-    }
+    final Set<String> often = area.dailyPaths;
+    final bool labelled =
+        area.groups.length > 1 || area.groups.first.label != area.label;
+    final List<Widget> columns = [
+      for (final MenuGroupSpec group in area.groups)
+        _column(
+          context,
+          labelled ? group.label : null,
+          _groupItems(context, group, often),
+        ),
+    ];
     final List<Widget> foot = [
-      if (light)
-        _link(
-          context,
-          key: const ValueKey('menu-show-all'),
-          label: 'All ${area.label} screens (${area.items.length})',
-          trailing: Icons.chevron_right,
-          onPressed: () => setState(() => _all = true),
-        ),
-      if (_all && area.daily.isNotEmpty)
-        _link(
-          context,
-          key: const ValueKey('menu-show-daily'),
-          label: 'Back to daily list',
-          leading: Icons.chevron_left,
-          onPressed: () => setState(() => _all = false),
-        ),
       if (widget.setUp.isNotEmpty) ...[
-        const SizedBox(width: 8),
-        _caption(context, 'SET UP IN SETTINGS'),
+        _caption(context, 'SETTINGS'),
         for (final String section in widget.setUp)
           MenuItemButton(
             key: ValueKey('menu-setup-$section'),
-            style: _itemStyle(context, minWidth: 0),
+            style: _itemStyle(context, minWidth: 0).copyWith(
+              foregroundColor: WidgetStatePropertyAll(
+                  Theme.of(context).colorScheme.primary),
+              iconColor: WidgetStatePropertyAll(
+                  Theme.of(context).colorScheme.primary),
+            ),
             trailingIcon: const Icon(Icons.chevron_right, size: 16),
             onPressed: () => widget.onOpenSetUp(section),
             child: Text(section),
@@ -396,12 +352,6 @@ class _AreaPanelState extends State<_AreaPanel> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (_all && area.daily.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: _caption(
-                    context, 'ALL ${area.label.toUpperCase()} SCREENS'),
-              ),
             Row(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -429,43 +379,32 @@ class _AreaPanelState extends State<_AreaPanel> {
     );
   }
 
-  /// "Returns & notes ▸": opens the short list beside it and keeps the panel
-  /// open, as the wireframe's step 4 does.
-  Widget _returnsToggle(BuildContext context) => MenuItemButton(
-        key: const ValueKey('menu-returns-toggle'),
-        closeOnActivate: false,
-        style: _itemStyle(context),
-        trailingIcon: Icon(
-          _returns ? Icons.chevron_left : Icons.chevron_right,
-          size: 18,
+  /// A group's screens: the daily ones first, then a thin line, then the
+  /// rest, each in the catalogue's own order. A group with no daily screen,
+  /// or with nothing else, has no line.
+  List<Widget> _groupItems(
+    BuildContext context,
+    MenuGroupSpec group,
+    Set<String> often,
+  ) {
+    final List<MenuItemSpec> daily = [
+      for (final MenuItemSpec item in group.items)
+        if (often.contains(item.path)) item,
+    ];
+    final List<MenuItemSpec> rest = [
+      for (final MenuItemSpec item in group.items)
+        if (!often.contains(item.path)) item,
+    ];
+    return [
+      for (final MenuItemSpec item in daily) _item(context, item, daily: true),
+      if (daily.isNotEmpty && rest.isNotEmpty)
+        const Padding(
+          key: ValueKey('menu-daily-line'),
+          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          child: Divider(height: 1),
         ),
-        onPressed: () => setState(() => _returns = !_returns),
-        child: const Text('Returns & notes'),
-      );
-
-  /// A control of the panel itself, which changes what it shows rather than
-  /// opening anything, so the panel stays open.
-  Widget _link(
-    BuildContext context, {
-    required Key key,
-    required String label,
-    required VoidCallback onPressed,
-    IconData? leading,
-    IconData? trailing,
-  }) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return MenuItemButton(
-      key: key,
-      closeOnActivate: false,
-      style: _itemStyle(context, minWidth: 0).copyWith(
-        foregroundColor: WidgetStatePropertyAll(scheme.primary),
-        iconColor: WidgetStatePropertyAll(scheme.primary),
-      ),
-      leadingIcon: leading == null ? null : Icon(leading, size: 16),
-      trailingIcon: trailing == null ? null : Icon(trailing, size: 16),
-      onPressed: onPressed,
-      child: Text(label),
-    );
+      for (final MenuItemSpec item in rest) _item(context, item),
+    ];
   }
 
   Widget _caption(BuildContext context, String text) {
@@ -522,10 +461,17 @@ class _AreaPanelState extends State<_AreaPanel> {
     );
   }
 
-  Widget _item(BuildContext context, MenuItemSpec item) {
+  Widget _item(BuildContext context, MenuItemSpec item, {bool daily = false}) {
     final Widget button = MenuItemButton(
       key: ValueKey('menu-item-${item.path}'),
-      style: _itemStyle(context),
+      style: daily
+          ? _itemStyle(context).copyWith(
+              textStyle: WidgetStatePropertyAll(
+                AppMenuBar.menuTextStyle(context)
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            )
+          : _itemStyle(context),
       onPressed: () => widget.onOpen(item),
       child: Text(item.label),
     );

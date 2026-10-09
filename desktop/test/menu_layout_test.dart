@@ -171,11 +171,29 @@ void main() {
         'Item lists',
         'Locations',
       });
+      // An area links to its set-up lists and, since the full menu (owner,
+      // 2026-10-09), to its own settings: Selling, Buying, Stock, Tax. Never
+      // to a platform section, and never to one Settings does not have.
+      final Set<String> linkable = {
+        for (final MenuGroupSpec group in MenuLayout.settings.groups)
+          if (group.part != MenuPart.platform) group.label,
+      };
       for (final MenuAreaSpec area in MenuLayout.areas) {
         for (final String section in area.setUp) {
-          expect(setUp, contains(section), reason: area.label);
+          expect(linkable, contains(section), reason: area.label);
         }
       }
+      final Map<String, List<String>> links = {
+        for (final MenuAreaSpec area in MenuLayout.areas)
+          if (area.setUp.isNotEmpty) area.id: area.setUp,
+      };
+      expect(links, {
+        'sell': ['Selling', 'Pricing', 'Territories & routes'],
+        'buy': ['Buying'],
+        'stock': ['Stock'],
+        'accounts': ['Account structure', 'Tax'],
+        'masters': ['Party lists', 'Item lists', 'Locations'],
+      });
       expect(
         MenuLayout.settings.groups
             .where((group) => group.part == MenuPart.platform)

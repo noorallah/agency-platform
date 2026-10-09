@@ -2,7 +2,7 @@
 
 For **release 1.3.0** (the first end-to-end test pass; it includes 1.2.0). Menu
 paths are the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down, a screen
-that is not daily work is under `Sell > All Sell screens > <group>`, and
+is written with its group, `Sell > <group>`, and
 `Settings > ...` is the gear at the right of the menu bar. Updated 2026-10-04.
 
 Run it after installing or upgrading and before anything else, or whenever
@@ -189,11 +189,11 @@ Tax on every row is half CGST 9%, half SGST 9%.
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-D1 | Open the quotation from SAN-C1, **Send**, then **Convert to order**; approve the order | An approved sales order for WHOLE01C01, TOOTH150 × 10, total 633.07. **Stock > All Stock screens > Stock > Inventory**: TOOTH150 in WHL_DC shows 10 more reserved, 10 fewer available |
+| SAN-D1 | Open the quotation from SAN-C1, **Send**, then **Convert to order**; approve the order | An approved sales order for WHOLE01C01, TOOTH150 × 10, total 633.07. **Stock > Stock > Inventory**: TOOTH150 in WHL_DC shows 10 more reserved, 10 fewer available |
 | SAN-D2 | **Sell > Delivery Notes**: raise the note from the order (reason *Sale*), then **Dispatch and invoice** | The note is dispatched and an approved invoice exists for 633.07. TOOTH150 on hand in WHL_DC is 10 lower than before D1 |
 | SAN-D3 | Open the invoice, **Print** | The PDF shows the firm and customer GSTINs, place of supply Karnataka (29), HSN 330610, CGST 9% and SGST 9% (96.57 together), total 633.07 in figures and words |
 | SAN-D4 | **Sell > Receipts > Record Receipt** on the invoice: 633.07, Bank | The invoice shows paid, nothing outstanding. **Sell > Customer Statements**, WHOLE01C01: the invoice and the receipt, closing where it opened |
-| SAN-D5 | **Sell > Returns & notes > Sales Returns**: return 2 of the 10 from that invoice; complete it | A credit of 126.61 (2 × 58 less 7.5%, plus 18%); TOOTH150 on hand back up by 2; the customer's balance shows the credit |
+| SAN-D5 | **Sell > Sales Returns**: return 2 of the 10 from that invoice; complete it | A credit of 126.61 (2 × 58 less 7.5%, plus 18%); TOOTH150 on hand back up by 2; the customer's balance shows the credit |
 | SAN-D6 | **Sell > Sales Orders**: a new order for WHOLE01C02, SHAMP180 × 5; **Hold** it, then try to raise a delivery note | Held orders cannot be delivered; the message says it is on hold. Release the hold and the note is allowed |
 
 ### E. Buying -- order to payment
@@ -210,7 +210,7 @@ Tax on every row is half CGST 9%, half SGST 9%.
 
 | Id | Do | Expect |
 | --- | --- | --- |
-| SAN-F1 | **Stock > All Stock screens > Stock > Inventory**, DETER1K | One row per warehouse; WHL_DC's on-hand and available make sense after D and E |
+| SAN-F1 | **Stock > Stock > Inventory**, DETER1K | One row per warehouse; WHL_DC's on-hand and available make sense after D and E |
 | SAN-F2 | **Stock > Stock Ledger**, DETER1K, this month | The receipt (+20) and the return (-2) from E, each with its document number, and a running balance |
 | SAN-F3 | **Stock > Stock Summary** | Every product with quantity and value; no negative quantity |
 | SAN-F4 | **Stock > Physical Count**: count TOOTH150 in WHL_DC at its book quantity, post it | No difference posted; the count is recorded |
@@ -231,7 +231,7 @@ Tax on every row is half CGST 9%, half SGST 9%.
 | SAN-H1 | **Accounts > GST Returns**, GSTR-1 for this month | The invoice from D2 under **B2B** with GSTIN `29WHOLE01C012Z5`, taxable 536.50, CGST + SGST 96.57; the return from D5 under credit notes (CDNR) |
 | SAN-H2 | GSTR-3B for this month | 3.1(a) includes the sale less the return; 4(A)(5) includes the purchase from E3 |
 | SAN-H3 | **Settings > Tax > GST Documents**: set *E-invoicing applies from* to today, E-invoice filing **Sandbox**; Save. Raise and approve a new invoice to WHOLE01C03 (SHAMP180 × 5) and **Print** it | Print is refused: *no IRN yet*; **Print reference copy** prints it under "NO IRN YET - NOT A VALID TAX INVOICE" |
-| SAN-H4 | **Accounts > All Accounts screens > Tax filing > E-Invoice > To register**: the invoice from H3 is listed; **Register** it, then print it again | It leaves the list; the print carries the IRN, acknowledgement and QR in a box marked SANDBOX |
+| SAN-H4 | **Accounts > Tax filing > E-Invoice > To register**: the invoice from H3 is listed; **Register** it, then print it again | It leaves the list; the print carries the IRN, acknowledgement and QR in a box marked SANDBOX |
 | SAN-H5 | Back in **GST Documents**, clear *E-invoicing applies from*; Save | Printing a new invoice works without an IRN again. **Leave WHOLE01 like this** so the other cases print |
 
 ### I. Reports
@@ -240,15 +240,15 @@ Tax on every row is half CGST 9%, half SGST 9%.
 | --- | --- | --- |
 | SAN-I1 | **Reports > Operational**: *Sales invoice register*, *Purchase invoice register* and *Stock valuation*, for this month | Each opens with rows; the sales register includes the invoices from D and H, the purchase register the bill from E3 |
 | SAN-I2 | **Reports**: *Overdue sales invoices* | WHOLE01C01's invoice from D2 is not in it (paid); unpaid invoices past their due date are, with the days overdue |
-| SAN-I3 | **Sell > All Sell screens > Insight > Sales Analysis**, this month by product | TOOTH150 and SHAMP180 with the quantities sold above |
+| SAN-I3 | **Sell > Insight > Sales Analysis**, this month by product | TOOTH150 and SHAMP180 with the quantities sold above |
 
 ### J. Field sales and incentives
 
 | Id | Do | Expect |
 | --- | --- | --- |
 | SAN-J1 | **Settings > Set up > Territories & routes > Territories** | Chennai Region with North Zone and South Zone under it |
-| SAN-J2 | **Sell > All Sell screens > Field sales > Beat Plans**, *South Sales Beat* | Its customers in visit order and the weekday it runs |
-| SAN-J3 | **Sell > All Sell screens > Incentives > Commission** and **Targets** | Both open with the seeded rules and targets; nothing errors |
+| SAN-J2 | **Sell > Field sales > Beat Plans**, *South Sales Beat* | Its customers in visit order and the weekday it runs |
+| SAN-J3 | **Sell > Incentives > Commission** and **Targets** | Both open with the seeded rules and targets; nothing errors |
 
 ### K. Settings and the platform
 

@@ -330,18 +330,18 @@ old row to map from. Each stands alone and names what it needs.
 | Screen or flow to walk | Cases |
 | --- | --- |
 | Reports → Financial: **GST purchase register**, **HSN summary of purchases** | TC-BUY-029 to 032 |
-| Buy → All Buy screens → Money → **Payables by Month** | TC-BUY-033 to 035 |
+| Buy → Money → **Payables by Month** | TC-BUY-033 to 035 |
 | **Paid now** in the bill's Approve dialog | TC-BUY-036 to 039 |
 | **Attachments** on a purchase bill and a goods receipt | TC-BUY-040 to 042 |
 | TDS 194C and 194J: the supplier's section, Settings → Tax → **TDS on purchases (194Q, 194C, 194J)**, the Approve dialog | TC-BUY-043 to 049 |
 | TCS on a purchase bill, and **TCS paid to suppliers** | TC-BUY-050 to 053 |
 | **Send** a purchase order by WhatsApp | TC-BUY-054, 055 |
-| Buy → All Buy screens → Documents → **Requests for quotation** | TC-BUY-056 to 059 |
+| Buy → Documents → **Requests for quotation** | TC-BUY-056 to 059 |
 | **Rate contracts** | TC-BUY-060 to 062 |
 | The **Serials** cell on a receipt and a return line | TC-BUY-063 to 065 |
 | **Supplier schemes**, and the Free box on the order | TC-BUY-066 to 069 |
 | A supplier's **Currency**; **Currency** and **Exchange rate** on the purchase order; the bill and payment in the currency; **Bills of entry**; *Revalue foreign payables* | TC-BUY-070 to 076, 086, 087 |
-| **Capital goods** on the order line, the receipt line and the bill line; Accounts → All Accounts screens → **Fixed assets** | TC-BUY-077 to 081, 088, 090 |
+| **Capital goods** on the order line, the receipt line and the bill line; Accounts → **Fixed assets** | TC-BUY-077 to 081, 088, 090 |
 | **PTR** and **PTS** on a batch, **Trade class** on a customer | TC-BUY-082 to 085 |
 | A foreign-currency bill in the **GST purchase register** and the HSN summary | TC-BUY-089 |
 
@@ -462,9 +462,9 @@ row to map from. They share a few masters the section's opening table lists.
 | **Other charges** on the sales bill | TC-SELL-050 to 054 |
 | Settings → Set up → Territories & routes → **Transporters**; **Carrier (master)** and **Freight** on the delivery note | TC-SELL-055 to 059 |
 | **Attachments** on the five sales documents | TC-SELL-060 to 063 |
-| **Hold (F8)**, **Recall**, the shift strip; Sell → All Sell screens → Documents → **Counter Shifts** | TC-SELL-064 to 072 |
-| Sell → All Sell screens → Money → **Collection Sheet**, **Payment Promises**; **Collector** on the customer | TC-SELL-073 to 079 |
-| Sell → All Sell screens → Documents → **Customer Rebates** | TC-SELL-080 to 086 |
+| **Hold (F8)**, **Recall**, the shift strip; Sell → Documents → **Counter Shifts** | TC-SELL-064 to 072 |
+| Sell → Money → **Collection Sheet**, **Payment Promises**; **Collector** on the customer | TC-SELL-073 to 079 |
+| Sell → Documents → **Customer Rebates** | TC-SELL-080 to 086 |
 | A cashier's bill approved by a manager, and whose shift takes it | TC-SELL-068, 087 |
 
 The counter cases need Settings → Selling → Sales Stages with *Sales order*

@@ -47,25 +47,25 @@ stock and the ledger completely untouched.
 ### Where each step is in 1.3.0
 
 A path such as *Buy > Purchase Orders* means: open **Buy** in the menu bar, then
-the item. **All Buy screens** is the link at the foot of the drop-down; the
-daily list is what the drop-down shows first. **Ctrl+K** finds any screen.
+the item. The drop-down shows every Buy screen in its group columns, the daily
+ones first in heavier type. **Ctrl+K** finds any screen.
 
 | Step | Where |
 | --- | --- |
-| Requisition (what to buy), convert to orders | Buy > All Buy screens > Documents > **Requisitions**; Reports > Operational > Below reorder level |
+| Requisition (what to buy), convert to orders | Buy > Documents > **Requisitions**; Reports > Operational > Below reorder level |
 | 1-2. Purchase order, submit, approve, amend | Buy > **Purchase Orders** |
-| Approvals waiting for a level's sign-off | Buy > All Buy screens > Documents > **Approvals** |
-| Quality inspection of received goods | Buy > All Buy screens > Documents > **Quality Inspection** |
+| Approvals waiting for a level's sign-off | Buy > Documents > **Approvals** |
+| Quality inspection of received goods | Buy > Documents > **Quality Inspection** |
 | 3-4. Goods receipt, complete | Buy > **Goods Receipts** |
 | 5-6. Purchase invoice, approve | Buy > **Purchase Invoices** |
-| 7. Payment, supplier credits | Buy > **Payments**; Buy > All Buy screens > Money > Payment Runs, Post-dated Cheques |
+| 7. Payment, supplier credits | Buy > **Payments**; Buy > Money > Payment Runs, Post-dated Cheques |
 | What the firm owes a supplier | Buy > **Supplier Statements** |
-| Purchase return, supplier debit note | Buy > **Returns & notes** > Purchase Returns, Debit Notes |
-| Landed costs, supplier rebates, principal claims, supplier gifts | Buy > All Buy screens > Money > Landed Costs, Supplier Rebates, Principal Claims, Supplier Gifts |
-| Rate trend, purchase analysis, dashboard | Buy > All Buy screens > Insight |
-| GSTR-2B matching, rule 37 | Accounts > All Accounts screens > Tax filing > GSTR-2B Reconciliation, Rule 37 (180 days) |
+| Purchase return, supplier debit note | Buy > Purchase Returns, Debit Notes |
+| Landed costs, supplier rebates, principal claims, supplier gifts | Buy > Money > Landed Costs, Supplier Rebates, Principal Claims, Supplier Gifts |
+| Rate trend, purchase analysis, dashboard | Buy > Insight |
+| GSTR-2B matching, rule 37 | Accounts > Tax filing > GSTR-2B Reconciliation, Rule 37 (180 days) |
 | The ledger entries each step posts | Accounts > **Journal Entries** |
-| Stock after each step | Stock > All Stock screens > Stock > **Inventory**; Stock > **Stock Ledger** |
+| Stock after each step | Stock > Stock > **Inventory**; Stock > **Stock Ledger** |
 
 ---
 
@@ -86,7 +86,7 @@ worked.
 | Approval Limits (`role_purchase_approval_limits`) | Settings > Buying > Approval Limits; `GET/PUT /api/v1/purchases/approval-limits` (decision A30) | One `max_order_amount` per role code, compared with the order's grand total, tax included. A role with no row has no limit of its own; a person's limit is the largest of their roles' limits; somebody with none, or a platform administrator, is not limited | Step 2. An order above the approver's limit is refused at approval, naming the amount needed, and stays submitted for somebody allowed more. The approval that clears it records both figures |
 | GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `itc_claim_basis` `ALL` (default) or `MATCHED_ONLY`; `gstr2b_tolerance` 1.00 (rupees); `rule37_mode` OFF, REPORT (default) or POST; `supplier_irn_check` OFF or WARN (default); `eway_bill_limit` 50,000 | See "GST on the purchase" below. `supplier_irn_check` warns on a bill from a supplier marked *Supplier e-invoices* that carries no IRN (§78 row 5); `eway_bill_limit` is the receipt value above which a receipt with no e-way bill is warned about (§78 row 6). The same row carries the selling-side fields, described in `SALES_TO_RECEIPT_FLOW.md` |
 | Trade licences (`trade_licence_settings`) | Settings > Set up > Party lists > **Licence Check**; `GET/PUT /api/v1/trade-licences/settings` | `purchase_enforcement` OFF or `WARN` (default). Never BLOCK | A purchase order or goods receipt for a licensed product, with the firm holding no valid licence, warns. It never refuses: the goods are already on the dock |
-| Party adjustments (`party_adjustment_settings`) | Accounts > All Accounts screens > Books > Party Adjustments; `GET/PUT /api/v1/party-adjustments/settings` | A rounding limit (10.00 unless set) and an approval threshold (1,000.00 unless set); see `app/party_adjustments` | Step 7: how much a payment may round off, and when a write-back needs a second person holding `PARTY_ADJUSTMENT_APPROVE` |
+| Party adjustments (`party_adjustment_settings`) | Accounts > Books > Party Adjustments; `GET/PUT /api/v1/party-adjustments/settings` | A rounding limit (10.00 unless set) and an approval threshold (1,000.00 unless set); see `app/party_adjustments` | Step 7: how much a payment may round off, and when a write-back needs a second person holding `PARTY_ADJUSTMENT_APPROVE` |
 | Approval Levels | Settings > Firm > Approval Levels (purchase levels need `PURCHASE_MANAGE_SETTINGS`) | None: one approval is enough. A rule is a document type (purchase order, purchase bill), a level 1 to 3, a from-amount and a role | Steps 2 and 6: a document at or above a rule's amount needs each level signed in order, by different people, the last signature approving. Approving early is refused naming the level and role; a total that rises after a signature needs that level again; *Reject* needs a reason |
 | Purchase Budgets | Settings > Buying > Purchase Budgets | None | Step 2: a monthly amount by branch and category; *Used* is the value before tax of approved orders dated in the month. Going over warns or needs approval, as chosen under *Past a purchase budget* in Purchase Settings |
 | Numbering Series | Settings > Firm > Numbering Series; `/api/v1/document-framework/numbering-rules` | Per document type; see `app/document_framework` for the fields | The number on every document above |
@@ -163,7 +163,7 @@ Dr  1200 Inventory                      1000.00
 1000 reaches the balance sheet — tax is not part of what the stock is worth.
 
 **Free goods from a supplier's scheme add units, not value** (PG-11, §86 #25).
-A scheme set on the product (`/api/v1/supplier-schemes`, Buy > All Buy screens
+A scheme set on the product (`/api/v1/supplier-schemes`, Buy
 > Documents > *Supplier schemes*) fills the order line's free quantity where it
 was left blank, and the receipt inherits it. An order of 10 at 100 under
 "10+2" receives 12 units and still posts the entry above, 1000.00: the
@@ -299,7 +299,7 @@ untick it, or cancel the receipt and mark the line first. Afterwards the asset
 is depreciated by run (Dr 6950 Depreciation / Cr 1590 Accumulated
 Depreciation) and leaves at book value on disposal, with the difference to
 4960; cancelling the bill takes the asset off the register unless it has been
-depreciated or disposed. Accounts > All Accounts screens > *Fixed assets*;
+depreciated or disposed. Accounts > *Fixed assets*;
 `docs/LEDGER_POSTING_RULES.md` has the arithmetic.
 
 Note the accounting shape: `GRNI` is debited and credited by equal amounts
@@ -629,7 +629,7 @@ appears.
 
 ### Rule 37: a bill unpaid 180 days
 
-`GET /api/v1/gst-returns/rule37`, behind **Accounts > All Accounts screens > Tax filing > Rule 37 (180
+`GET /api/v1/gst-returns/rule37`, behind **Accounts > Tax filing > Rule 37 (180
 days)**, lists every bill dated (the supplier's date, else ours) more than 180
 days ago with credit
 claimed and money still owed -- what it owes read from the payments service, so
@@ -650,7 +650,7 @@ is not computed.
 Each is off, or has no effect, until a firm switches it on or sets a figure;
 nothing in the traced chain above changes for a firm that does not.
 
-- **Requisitions.** A requisition (Buy > All Buy screens > Documents >
+- **Requisitions.** A requisition (Buy > Documents >
   Requisitions, or *Raise requisition* on Reports > Operational > Below reorder
   level) is submitted and approved, and *Convert to orders* makes one **draft
   order per supplier**, priced from that supplier's terms. It moves nothing.
@@ -664,16 +664,16 @@ nothing in the traced chain above changes for a firm that does not.
   approve an order or a bill: levels by amount and role, limits by role.
 - **Quality inspection.** For a product or category marked *Inspect on
   receipt*, received goods wait in quarantine until released or rejected
-  (Buy > All Buy screens > Documents > Quality Inspection); the receipt's
+  (Buy > Documents > Quality Inspection); the receipt's
   ledger entry is unchanged. Goods rejected and kept *for a return* stay in
   quarantine; the purchase return off that receipt line takes them from
   quarantine first, and only what it returns beyond them from sellable stock
   (D-BUY-44).
-- **Payment runs** (Buy > All Buy screens > Money > Payment Runs). Pick the
+- **Payment runs** (Buy > Money > Payment Runs). Pick the
   bills due by a date, approve once (`PAYMENT_RUN_APPROVE`, which the cashier
   does not hold), and one payment per supplier is posted as step 7 posts it; a
   bank file is exported.
-- **Landed costs** (Buy > All Buy screens > Money > Landed Costs). Freight,
+- **Landed costs** (Buy > Money > Landed Costs). Freight,
   duty or handling is spread over completed receipts by value, quantity or
   weight: the share belonging to stock still on hand raises the stock's average
   cost, and the share belonging to goods already sold goes to cost of goods

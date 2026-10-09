@@ -24,9 +24,9 @@ TC-FIRM-017 is the case for it.
 
 **Brought up to release 1.3.0 on 2026-10-04.** Every menu path in a case is the
 1.3.0 menu (the light menu and the Settings page, built in `desktop/lib/phase2/menu_layout.dart`):
-`Sell > Quotations` is the **Sell** drop-down on the menu bar; a screen that is not
-daily work is `Sell > All Sell screens > Documents > Proforma`; the short list
-is `Sell > Returns & notes > Credit Notes`; and the gear at the right of the bar
+`Sell > Quotations` is the **Sell** drop-down on the menu bar; a screen in a group is
+`Sell > Documents > Proforma`, and a daily one may be written without its group
+(`Sell > Credit Notes`); and the gear at the right of the bar
 opens **Settings**, whose parts are Settings (Firm, Selling, Buying, Stock, Tax,
 Business profile, This PC and me), **Set up** (Pricing, Territories & routes,
 Account structure, Party lists, Item lists, Locations) and **Platform** (People,
@@ -510,7 +510,7 @@ that an edit changes what it names and nothing else.
 - **Also needs:** nothing beyond the fixture's Firm admin; the case makes its own customers.
 - **Steps**
   1. As the fixture's **Firm admin**: Masters > Customers → **New**: code `<SUFFIX>-OB1`, a name, **Opening balance** `1500`, **Payment terms (days)** `30` → Save. Open it again and read **Opening bills**. Accounts > Journal Entries.
-  2. Sell > Receipts → **Record Receipt** → `<SUFFIX>-OB1`: read the bills offered. Sell > All Sell screens > Money > **Collection Sheet**. Masters > **Statements** → the customer's ageing and statement.
+  2. Sell > Receipts → **Record Receipt** → `<SUFFIX>-OB1`: read the bills offered. Sell > Money > **Collection Sheet**. Masters > **Statements** → the customer's ageing and statement.
   3. Record Receipt: Amount `2000`, applied to the row → Save. Then Amount `600`, Cash, applied to the row → Save. Read the three lists and the customer again.
   4. Masters > Customers → `<SUFFIX>-OB1` → Opening bills → **Cancel** on the row, with a reason.
   5. In **Opening bills** press **Add opening bill**: any reference, 250 → Save.
@@ -684,7 +684,7 @@ warehouse rename its capability flags.
 
 - **Covers:** backlog MST-1 (A118), MST-2 (A119)
 - **Fixture:** `product-master`
-- **Steps:** as the fixture's **Firm admin**: Settings > Set up > Item lists > **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters > Products → `<SUFFIX>-PM` → pick the brand → Save. Sell > All Sell screens > Insight > **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price history** → add a revision with a price **dated next week** and another dated yesterday; import revisions from a file (one bad row). Quote the product today and with next week's date.
+- **Steps:** as the fixture's **Firm admin**: Settings > Set up > Item lists > **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters > Products → `<SUFFIX>-PM` → pick the brand → Save. Sell > Insight > **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price history** → add a revision with a price **dated next week** and another dated yesterday; import revisions from a file (one bad row). Quote the product today and with next week's date.
 - **Expect:** principals and brands are masters with their own screens; the product carries a brand (text brands that existed are carried over); sales analysis offers Brand and Principal as dimensions and filters. A price revision is the price **in force on the document's date**: today's quote takes yesterday's revision, a quote dated next week takes the later one; the unit-price resolver and a blank price on a purchase order read it. The import checks every row and writes nothing if one is bad.
 - **Leaves:** a principal, a brand, revisions.
 
@@ -717,7 +717,7 @@ warehouse rename its capability flags.
 - **Covers:** backlog ACC-11, A86
 - **Fixture:** `customer-master`
 - **Also needs:** a vendor with the **same PAN** as the customer, and another vendor with a different PAN; an approved sales invoice to the customer and a supplier bill from the vendor.
-- **Steps:** as the fixture's **Firm admin**: Masters > Customers → `QA-CM` → **Also a supplier** → pick the same-PAN vendor → Save; try the different-PAN vendor and a vendor already linked to another customer. Open **Combined statement**. On the vendor open **Also a customer**. Accounts > All Accounts screens > Books > **Party Adjustments** → set-off.
+- **Steps:** as the fixture's **Firm admin**: Masters > Customers → `QA-CM` → **Also a supplier** → pick the same-PAN vendor → Save; try the different-PAN vendor and a vendor already linked to another customer. Open **Combined statement**. On the vendor open **Also a customer**. Accounts > Books > **Party Adjustments** → set-off.
 - **Expect:** a link is accepted only for the firm's own live, unclaimed vendor with the same PAN; the others are refused by name. The combined statement merges the customer and supplier statements in date order with a running **net**; it needs CUSTOMER_VIEW plus VENDOR_VIEW. The supplier editor shows the link back. The set-off dialog preselects the linked party.
 - **Leaves:** a party link.
 
@@ -847,7 +847,7 @@ warehouse rename its capability flags.
 - **Covers:** backlog 89 point 6 (menus follow the goods); `docs/BUSINESS_PROFILE_FRAMEWORK.md`, *Menus follow the goods*
 - **Fixture:** `product-master`
 - **Also needs:** a firm of its own with **no** goods type in use, no category carrying a type, and no product with a tracking switch on; the shared goods types *Paint* (batch only), *Electronics* (serial and warranty) and *Medicine*; a second user on the firm whose role lacks `BATCH_VIEW`; a second firm in the same store holding one product with *Track batch* on and no goods type (the old kind, filed before goods types existed).
-- **Steps:** as the **Firm admin** of the first firm: (a) sign in and open the Inventory menu (Stock, and All Stock screens > Tracking). (b) Set up > Goods Types: **Use in this firm** on *Paint*; file a category *Enamels* under it. Without signing out, read the menu; then sign out and in again and read it. (c) Use *Electronics* the same way, sign out and in. (d) Stop using both types after clearing the categories' types; sign out and in. (e) As the user without `BATCH_VIEW`: with Paint in use again, sign in and read the menu. (f) As the **Firm admin** of the second firm: sign in and read the menu. (g) Switch from the first firm to the second and back through the firm switcher. (h) Read `GET /api/v1/business-framework/active-modules` with no `X-Firm-ID` header, then with each firm.
+- **Steps:** as the **Firm admin** of the first firm: (a) sign in and open the Inventory menu (Stock, and Tracking). (b) Set up > Goods Types: **Use in this firm** on *Paint*; file a category *Enamels* under it. Without signing out, read the menu; then sign out and in again and read it. (c) Use *Electronics* the same way, sign out and in. (d) Stop using both types after clearing the categories' types; sign out and in. (e) As the user without `BATCH_VIEW`: with Paint in use again, sign in and read the menu. (f) As the **Firm admin** of the second firm: sign in and read the menu. (g) Switch from the first firm to the second and back through the firm switcher. (h) Read `GET /api/v1/business-framework/active-modules` with no `X-Firm-ID` header, then with each firm.
 - **Expect:** (a) Batches, Lots, Serial Numbers and Expiry Monitor are all absent; the rest of Stock is there. (b) before signing in again the menu is unchanged (the answer is read at sign-in and at a firm switch); after it Batches and Lots show and Serial Numbers and Expiry Monitor do not. (c) Serial Numbers is added; Expiry Monitor is still absent, Paint and Electronics track no expiry. (d) all four are gone again. (e) the user without `BATCH_VIEW` does not see Batches or Lots although the firm's goods need them. (f) Batches and Lots show, because a live product has *Track batch* on although the firm uses no goods type; Serial Numbers does not. (g) the menu changes with the firm each time, with no further sign-in. (h) the INVENTORY row carries `goods_tracking` as a list (for the first firm `BATCH` while Paint is in use, `BATCH` and `SERIAL` once Electronics is too); every other row carries null; with no `X-Firm-ID` the call answers 200 with an empty list, because the modules are kept in each firm's store and there is no firm to answer for (it answered 503 before D-CFG-26). The client does not ask while no firm is selected, and shows every screen. Opening the menu makes no extra request beyond the `active-modules` call the shell already makes at start.
 - **Leaves:** two goods types used then dropped, one category.
 
@@ -1028,7 +1028,7 @@ opens any screen by name.
 - **Covers:** D-CFG-25
 - **Fixture:** `ready-firm`
 - **Also needs:** to be run **between midnight and 05:30 India time**, the hours in which the server's own (UTC) date is still yesterday's; at any other hour every step passes without showing anything. A supplier with a completed purchase return whose **Outcome** is *Refund*, dated today (TC-BUY-009 shows how); an approved, unpaid sales invoice to the fixture's customer; a goods receipt or an opening stock entry of a product dated today.
-- **Steps:** as the fixture's **Firm admin**: (1) Buy > Payments → **Supplier refunds** → the supplier → on the return, **Record refund** dated **today** → Save. (2) Masters > Customers → the fixture's customer → Opening bills → **Add opening bill** dated **today** → Save; then one dated tomorrow. (3) Sell > All Sell screens > Money > Collection Sheet → the bill → **Record promise**, *Promised on* **today** → Save promise. (4) Reports > Operational → **Stock valuation**, with no date and then as on today. (5) Record a customer receipt without typing a date, and open it. (6) Settings > Set up > Pricing > **Promotions** → New, an offer whose first day is **today**; raise an order line it applies to.
+- **Steps:** as the fixture's **Firm admin**: (1) Buy > Payments → **Supplier refunds** → the supplier → on the return, **Record refund** dated **today** → Save. (2) Masters > Customers → the fixture's customer → Opening bills → **Add opening bill** dated **today** → Save; then one dated tomorrow. (3) Sell > Money > Collection Sheet → the bill → **Record promise**, *Promised on* **today** → Save promise. (4) Reports > Operational → **Stock valuation**, with no date and then as on today. (5) Record a customer receipt without typing a date, and open it. (6) Settings > Set up > Pricing > **Promotions** → New, an offer whose first day is **today**; raise an order line it applies to.
 - **Expect:** (1) the refund is accepted; one dated tomorrow is refused, "A refund cannot be received on a future date." (2) the opening bill dated today is accepted and the one dated tomorrow refused, "An opening bill is one raised before the books here start, so its date cannot be after <today>." (3) the promise is accepted and reads **Due today**. (4) the valuation includes the stock that arrived today and its total equals account 1200 Inventory on the trial balance. (5) a document the server dates is dated today, the firm's day, not yesterday. (6) an offer that starts today is in force today, and one whose last day was yesterday is not; the same holds for a price list, a rate contract and a supplier scheme (this step, #1226, is unit-tested and was not driven on a running server). Nothing asks the tester to date a document on another day or to wait for the morning. The Counter Shifts list and the printed shift report use the same day (#1228).
 - **Leaves:** a refund, an opening bill, a promise, a receipt.
 
@@ -1055,9 +1055,9 @@ stock figure below is absolute, not "up by N from where you started".
 | `po-invoiced` | … and an **approved** supplier invoice for the receipt of 6 (708.00 with GST) |
 
 Purchase orders are Buy > **Purchase Orders**; Goods Receipts and Purchase Invoices
-are on the Buy menu and Purchase Returns under Buy > **Returns & notes**;
+are on the Buy menu and Purchase Returns under Buy > **Documents**;
 payments are Buy > **Payments**;
-stock is Stock > All Stock screens > Stock > **Inventory** and Stock > **Stock Ledger**. Every
+stock is Stock > Stock > **Inventory** and Stock > **Stock Ledger**. Every
 screen reads once when opened: **Refresh** after acting elsewhere.
 
 ### TC-BUY-001 — Raising a purchase order, and the approval that cannot be skipped
@@ -1090,7 +1090,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Fixture:** `po-approved`
 - **Steps**
   1. As the fixture's **Firm admin**, Buy > Goods Receipts → **New** → **Purchase Order** picker (approved orders only) → the fixture's order. Set Accepted to **4**, warehouse `MAIN` → **Save Receipt** → select the draft → **Complete**.
-  2. Buy > Purchase Orders → the order. Stock > All Stock screens > Stock > Inventory and Stock Ledger, filtered to `<SUFFIX>-B`.
+  2. Buy > Purchase Orders → the order. Stock > Stock > Inventory and Stock Ledger, filtered to `<SUFFIX>-B`.
   3. Buy > Goods Receipts → New against the same order → Accepted defaults to **6** → Save, Complete.
 - **Expect**
   - Step 1: the line arrives with Accepted 10 and "Ordered 10 · already received 0"; after save, "Goods receipt GRN-… created as a draft. Complete it to post the stock."; after Complete, status **COMPLETED**.
@@ -1122,7 +1122,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 
 - **Covers:** plan 7.9
 - **Fixture:** `po-received`
-- **Steps:** as the fixture's **Firm admin**, Buy > Returns & notes > Purchase Returns → **New** → **Goods Receipt** picker (completed receipts only) → the **receipt of 6**. On its line set **Returning** **2**, click the **Damaged** chip → **Save Return** → select the draft → **Approve** → **Complete**. Then Inventory, Stock Ledger, Journal Entries, and Reports > Operational → **Damaged goods returned**.
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Returns → **New** → **Goods Receipt** picker (completed receipts only) → the **receipt of 6**. On its line set **Returning** **2**, click the **Damaged** chip → **Save Return** → select the draft → **Approve** → **Complete**. Then Inventory, Stock Ledger, Journal Entries, and Reports > Operational → **Damaged goods returned**.
 - **Expect:** after save, "Purchase return PR-2026-2027-… created as a draft. Approving and completing it is what takes the stock off."; after Complete, **COMPLETED**. MAIN holds **8**. The Stock Ledger shows the return of 2 referencing the PR (the API reads `transaction_type: RETURN`). The journal shows the return's entry; the damaged-goods report lists the line. Open the return: product and unit read as code and name, not ids. The goods must still be on hand: a return for more than the location holds is refused at Complete ("This location holds … available, so … cannot be returned to the supplier from it.").
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §9.10. The return reads `grand_total` **236.00** (D-BUY-31) and, because the receipt has not been billed, posts **Dr 2300 Goods Received Not Invoiced 200.00 / Cr 1200 Inventory 200.00** with no tax and no payable (D-BUY-26). The return line reads `free_quantity` (0.0000 where nothing free goes back), and `current_return_quantity` is everything going back, free goods included; on the return reconciliation the received quantity of a line off a goods receipt is bought plus free, the returning quantity includes the free units, and `already_returned_quantity` counts what went back through the other document too. The Damaged chip is `purchase_return_lines.is_damaged` only — the movement's damaged bucket stays 0.
 - **Leaves:** 8 on hand; a completed return.
@@ -1152,7 +1152,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** backlog 69 row 7, A34
 - **Fixture:** `po-invoiced`
 - **Also needs:** As *po-invoiced*, with the bill for the receipt of 6 paid in full (TC-BUY-008).
-- **Steps:** as the fixture's **Firm admin**, Buy > Returns & notes > Purchase Returns → **New** off the **receipt of 6**, return **2**, **Outcome** *Refund* → Save → Approve → Complete. Buy > Payments → **Supplier refunds** → `<SUFFIX>-V` → on the return, **Record refund**: amount **100**, today, Bank → Save. Then **Record refund** again for more than is left. Then **Refunds** → **Reverse** with a reason. Then try **Cancel** on the return while a refund stands (record one again first).
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Returns → **New** off the **receipt of 6**, return **2**, **Outcome** *Refund* → Save → Approve → Complete. Buy > Payments → **Supplier refunds** → `<SUFFIX>-V` → on the return, **Record refund**: amount **100**, today, Bank → Save. Then **Record refund** again for more than is left. Then **Refunds** → **Reverse** with a reason. Then try **Cancel** on the return while a refund stands (record one again first).
 - **Expect:** the credit shows Outcome *Refund*, Refunded 100, Available reduced by 100; Journal Entries has Dr Bank / Cr Accounts Payable. Over-refund is refused naming what is left. After Reverse the credit is whole again and the mirror journal posts. Cancelling the return while a refund stands is refused: "…Reverse the refund first." A return dated today can be refunded today at any hour. A refund dated tomorrow is refused, "A refund cannot be received on a future date."; one dated before the return, "A refund is received on or after the return, <date>." The goods must still be on hand: a return for more than the location holds is refused at Complete ("This location holds … available, so … cannot be returned to the supplier from it.").
 - **Data:** the return line reads `free_quantity` (0.0000 where nothing free goes back), and `current_return_quantity` is everything going back, free goods included. On the return reconciliation (`GET /api/v1/purchase-returns/reports/reconciliation`) the received quantity of a line off a goods receipt is bought plus free, the returning quantity includes the free units, and `already_returned_quantity` counts what went back through the other document too (the bill for a receipt line, the receipt for a bill line).
 - **Leaves:** what the steps made.
@@ -1172,7 +1172,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** D-BUY-20
 - **Fixture:** `po-invoiced`
 - **Also needs:** As TC-BUY-008 (the bill paid in full).
-- **Steps:** Buy > Returns & notes > Purchase Returns → **New** off the **paid bill**, return 2 → Approve → Complete. Buy > Payments → **Supplier credits** → `<SUFFIX>-V`. Raise another bill and **Apply** the credit to it.
+- **Steps:** Buy > Purchase Returns → **New** off the **paid bill**, return 2 → Approve → Complete. Buy > Payments → **Supplier credits** → `<SUFFIX>-V`. Raise another bill and **Apply** the credit to it.
 - **Expect:** the paid bill does not reappear in Record Payment; the return appears as a supplier credit for its value; applying it lowers the new bill's outstanding by that much. Deleting `<SUFFIX>-V` is refused while the credit stands. Delete the supplier before applying the credit to see the refusal for the credit alone; afterwards it is refused for the open bill. The goods must still be on hand: a return for more than the location holds is refused at Complete ("This location holds … available, so … cannot be returned to the supplier from it.").
 - **Data:** the return line reads `free_quantity` (0.0000 where nothing free goes back), and `current_return_quantity` is everything going back, free goods included. On the return reconciliation (`GET /api/v1/purchase-returns/reports/reconciliation`) the received quantity of a line off a goods receipt is bought plus free, the returning quantity includes the free units, and `already_returned_quantity` counts what went back through the other document too (the bill for a receipt line, the receipt for a bill line).
 - **Leaves:** what the steps made.
@@ -1200,7 +1200,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** backlog 78 row 3, §42.5
 - **Fixture:** `buy-ready`
 - **Also needs:** two approved bills in a month from a supplier with a GSTIN; the sample `docs/qa/tools/gstr2b_sample.json`, edited: `rtnprd` to the month as MMYYYY, `ctin` to the supplier's GSTIN, the two bill numbers, dates and amounts to the two bills' (the sample's second bill carries CGST 5 more than the books on purpose), and one invoice not in the books.
-- **Steps:** Accounts > All Accounts screens > Tax filing > **GSTR-2B Reconciliation** → month → **Import 2B file**. Then **Match to bill…** on the *Not in books* row, then **Undo match**. Then Settings > Tax > GST Documents → **Claim input credit** *Only bills matched to GSTR-2B* → GSTR-3B for the month.
+- **Steps:** Accounts > Tax filing > **GSTR-2B Reconciliation** → month → **Import 2B file**. Then **Match to bill…** on the *Not in books* row, then **Undo match**. Then Settings > Tax > GST Documents → **Claim input credit** *Only bills matched to GSTR-2B* → GSTR-3B for the month.
 - **Expect:** rows read **Matched**, **Different** ("CGST … in 2B, … in the books"), **Not in books**; the "In books, not in 2B" section lists any bill 2B lacks. Importing the month again replaces it. Under *matched only*, 3B claims only matched bills and shows the rest as *Held back — not yet in GSTR-2B*.
 - **Leaves:** what the steps made.
 
@@ -1232,7 +1232,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 *Added 2026-10-02 (decision A4).*
 
 - **Preconditions:** an approved supplier bill of 1,180.00 (1,000 + 18% GST), **paid in full**, and a second approved bill of the same supplier for 500.00.
-- **Steps:** Buy > Returns & notes > **Debit Notes** → New against the paid bill: 100 on its line, reason *Price difference* → Save → **Approve**. Pay → New payment for the supplier: look at the supplier credits. Set the debit note's credit against the second bill. Then cancel the debit note. Then raise and approve it again, record a supplier **refund** of 50 against its credit, and try to cancel it.
+- **Steps:** Buy > **Debit Notes** → New against the paid bill: 100 on its line, reason *Price difference* → Save → **Approve**. Pay → New payment for the supplier: look at the supplier credits. Set the debit note's credit against the second bill. Then cancel the debit note. Then raise and approve it again, record a supplier **refund** of 50 against its credit, and try to cancel it.
 - **Expect:** approval succeeds (it used to refuse "still owes only 0"). The payment screen lists a credit of **118.00** marked as a debit note; set against the second bill, that bill owes **382.00**. Cancelling the debit note withdraws it -- the second bill owes 500.00 again and the credit is gone. With the refund standing, the cancel is refused ("Reverse that refund…"). A return dated today can be refunded today at any hour. A refund dated tomorrow is refused, "A refund cannot be received on a future date."; one dated before the return, "A refund is received on or after the return, <date>."
 
 ### TC-BUY-018 — Reorder orders from the preferred supplier
@@ -1262,7 +1262,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** backlog BUY-7 (A109), BUY-8 (A102)
 - **Fixture:** `po-approved`
 - **Also needs:** a second vendor and a second product with a preferred supplier; a role holding PURCHASE_REQUISITION_CREATE but not PURCHASE_APPROVE.
-- **Steps:** as the **Purchasing** user: Buy > All Buy screens > Documents > **Requisitions** → New with two lines (one naming a supplier, one with only a product that has a preferred supplier, then one with neither) → Save → Submit. Try Approve. As the **Firm admin**: Approve → **Convert to orders**. Separately Reports > Operational > Below reorder level → **Raise requisition**. Then open the approved purchase order → **Amend**: change a quantity → Save; open **Revisions**; print.
+- **Steps:** as the **Purchasing** user: Buy > Documents > **Requisitions** → New with two lines (one naming a supplier, one with only a product that has a preferred supplier, then one with neither) → Save → Submit. Try Approve. As the **Firm admin**: Approve → **Convert to orders**. Separately Reports > Operational > Below reorder level → **Raise requisition**. Then open the approved purchase order → **Amend**: change a quantity → Save; open **Revisions**; print.
 - **Expect:** a requisition is numbered in its own **PRQ** series; a requisition with a line that has neither a supplier nor a preferred supplier saves and can be approved, and **Convert to orders** refuses it by name; only an approver sees Approve. Converting raises **one draft purchase order per supplier** priced from the supplier's terms; the requisition becomes ORDERED and is history. Raise requisition from the reorder screen makes a requisition rather than orders. Amend on the approved order keeps it approved, bumps the **revision number**, and keeps the earlier version listed under Revisions; the print titles it as an amendment.
 - **Leaves:** a requisition, two draft orders, a revised order.
 
@@ -1273,7 +1273,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** backlog BUY-9, A100
 - **Fixture:** `po-approved`
 - **Also needs:** a user holding PURCHASE_INSPECT.
-- **Steps:** as the fixture's **Firm admin**: Masters > Products → `<SUFFIX>-B` → switch on **Inspect on receipt** → Save (or the same on its category). Buy > Goods Receipts → receive 10 and complete. Open Stock > All Stock screens > Stock > **Inventory**. Then Buy > All Buy screens > Documents > **Quality Inspection**: pass 6 and reject 4 written off on one receipt; on a second receipt pass 6 and reject 4 left for a return, then return those 4: sellable stays at what passed and quarantine empties. Passed and rejected must add up to everything the line holds. Cancel a second receipt that is still on hold.
+- **Steps:** as the fixture's **Firm admin**: Masters > Products → `<SUFFIX>-B` → switch on **Inspect on receipt** → Save (or the same on its category). Buy > Goods Receipts → receive 10 and complete. Open Stock > Stock > **Inventory**. Then Buy > Documents > **Quality Inspection**: pass 6 and reject 4 written off on one receipt; on a second receipt pass 6 and reject 4 left for a return, then return those 4: sellable stays at what passed and quarantine empties. Passed and rejected must add up to everything the line holds. Cancel a second receipt that is still on hold.
 - **Expect:** completing the receipt puts the goods in **quarantine** — owned and valued as received but not sellable or issuable. The Quality Inspection screen lists the held lines; passing releases that quantity to stock; rejecting either writes it off at once or leaves it in quarantine for a purchase return (condition Quarantine). Cancelling a receipt whose lines are still held releases the holds with it. Without PURCHASE_INSPECT the decision is refused.
 - **Leaves:** a receipt, inspections, a write-off.
 
@@ -1295,7 +1295,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** backlog BUY-11, A110
 - **Fixture:** `po-invoiced`
 - **Also needs:** a second approved supplier bill for another vendor with a bank account saved; a cashier user (CASHIER cannot approve a run); a bank account on `<SUFFIX>-V` too, or untick its bill: a run that pays a supplier with no bank account has no bank file.
-- **Steps:** as the fixture's **Firm admin**: Buy > All Buy screens > Money > **Payment Runs** → New → *Propose* bills falling due by today plus 30 days. Untick one bill; lower another amount; try an amount above what the bill owes. Save the draft. As the **cashier** try Approve. As the administrator: Approve. Download the **bank file**. Cancel a second draft run.
+- **Steps:** as the fixture's **Firm admin**: Buy > Money > **Payment Runs** → New → *Propose* bills falling due by today plus 30 days. Untick one bill; lower another amount; try an amount above what the bill owes. Save the draft. As the **cashier** try Approve. As the administrator: Approve. Download the **bank file**. Cancel a second draft run.
 - **Expect:** the proposal lists every supplier bill still owing that falls due by the date. A draft holds the chosen bills and amounts, never more than a bill still owes. Approving needs PAYMENT_RUN_APPROVE (the cashier is refused), records **one payment per supplier** by bank transfer allocated to that supplier's bills, all in one commit: a run that cannot pay every supplier pays none. The bank file is a generic NEFT CSV with one row per supplier from its primary bank account (no bank-specific layout yet). A cancelled draft pays nothing.
 - **Leaves:** payments and a run.
 
@@ -1317,7 +1317,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** backlog BUY-13, A124
 - **Fixture:** `po-invoiced`
 - **Also needs:** an approved bill of `<SUFFIX>-V` for 600 before tax (708.00) **dated inside a period that has already ended**, for example last month. The fixture's own bill is dated today, so raise one of the case's own dated earlier.
-- **Steps:** as the fixture's **Firm admin**: Buy > All Buy screens > Money > **Supplier Rebates** → New for `<SUFFIX>-V`: a period **that has already ended** and covers the earlier-dated bill of 708.00 (600 before tax) and two slabs (for example from 0 at 1%, from 500 at 2%). Save. Open it and read the volume, the slab reached and the amount. **Accrue**. Accrue again. **Reverse accrual**. Accrue once more, then Accounts > All Accounts screens > Books > **Party Adjustments** → New of kind *Supplier rebate* naming the agreement. Cancel a second agreement.
+- **Steps:** as the fixture's **Firm admin**: Buy > Money > **Supplier Rebates** → New for `<SUFFIX>-V`: a period **that has already ended** and covers the earlier-dated bill of 708.00 (600 before tax) and two slabs (for example from 0 at 1%, from 500 at 2%). Save. Open it and read the volume, the slab reached and the amount. **Accrue**. Accrue again. **Reverse accrual**. Accrue once more, then Accounts > Books > **Party Adjustments** → New of kind *Supplier rebate* naming the agreement. Cancel a second agreement.
 - **Expect:** the volume is derived on every read: the supplier's approved bills dated in the period at taxable value, less its completed purchase returns in the period; the **highest slab reached** sets the rate on the **whole** volume (600 at 2% = 12.00). Accrual snapshots the volume, rate and amount with the journal that booked them (Dr *Supplier Rebate Receivable*), and a second accrual of the same period is refused; nothing re-reads the bills afterwards. Reversing the accrual takes the journal off. The rebate is settled by an approved **party adjustment of kind Supplier rebate** that names the agreement (not a debit note, which has to name one bill); what has been settled is the sum of those. The control account exists for new and existing firms.
 - **Leaves:** an agreement, journals.
 
@@ -1328,7 +1328,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** backlog BUY-16, A129
 - **Fixture:** `po-received`
 - **Also needs:** a freight bill from a transporter (a second vendor) of 1,000; part of the goods already sold so that on hand is less than received (deliver 4 of the 10).
-- **Steps:** as the fixture's **Firm admin**: Buy > All Buy screens > Money > **Landed Costs** → New: pick the two completed receipts, add a charge (freight, the transporter as billing party, its bill number, 1,000), apportion **by value**. Preview and post. Open the voucher and read each product's split. Then try **by quantity**, **by weight**, and cancel a voucher. Check Accounts > Balance Sheet and the stock valuation.
+- **Steps:** as the fixture's **Firm admin**: Buy > Money > **Landed Costs** → New: pick the two completed receipts, add a charge (freight, the transporter as billing party, its bill number, 1,000), apportion **by value**. Preview and post. Open the voucher and read each product's split. Then try **by quantity**, **by weight**, and cancel a voucher. Check Accounts > Balance Sheet and the stock valuation.
 - **Expect:** the charge's own bill is booked to *Expenses Included in Valuation*; the voucher spreads the total over the receipts' lines by taxable value (or quantity, or weight; the rounding residual goes to the largest line) and splits each share by the product's quantity still on hand: that part **revalues the stock** through a zero-quantity *Landed cost* movement (new average cost), and the rest goes to **cost of goods sold**. Journal: Dr Inventory, Dr Cost of Goods Sold, Cr Expenses Included in Valuation. Cancelling reverses the journal and takes the on-hand value back off at today's quantity. Reading needs PURCHASE_VIEW, posting PURCHASE_APPROVE.
 - **Leaves:** a landed cost voucher and journals.
 
@@ -1338,7 +1338,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 
 - **Covers:** backlog BUY-17, A52
 - **Fixture:** `buy-ready`
-- **Also needs:** an opening supplier bill for `<SUFFIX>-V` (Accounts > All Accounts screens > Books > Opening Balances) of 500, and a supplier credit of 200 (a purchase return refunded as credit, as in TC-BUY-011).
+- **Also needs:** an opening supplier bill for `<SUFFIX>-V` (Accounts > Books > Opening Balances) of 500, and a supplier credit of 200 (a purchase return refunded as credit, as in TC-BUY-011).
 - **Steps:** as the fixture's **Firm admin**: apply the supplier credit — the apply dialog lists bills and opening bills (marked "(opening)") — to the opening bill for 200. Open Buy > **Payments** → Record Payment for the supplier. Open the opening bill list. Try to delete the supplier. Then cancel the opening bill.
 - **Expect:** the credit is accepted against the opening bill (it used to refuse it). Record Payment shows the opening bill owing **300**; the opening bill list shows the credit counted; the supplier cannot be deleted while it holds an application. Cancelling the opening bill withdraws the credit set against it and the 200 is available again.
 - **Leaves:** a credit application.
@@ -1350,7 +1350,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** backlog BUY-1 (A111), BUY-2 (A112)
 - **Fixture:** `po-approved`
 - **Also needs:** a customer; a user holding SUPPLIER_GIFT_MANAGE; the firm's TDS 194R rules are described in the compliance notes.
-- **Steps:** as the fixture's **Firm admin**: Masters > Products → `<SUFFIX>-B` → switch **Free issue only** on; try to put it on a quotation or an invoice line with a price. Receive 5 units on a goods receipt with a **Scheme** name on the line. Stock > All Stock screens > Stock > Inventory → Write off 2 with reason *Free to customer* and the customer, and 1 with reason *Sample*. Reports > Operational → **Free goods**. Then Buy > All Buy screens > Money > **Supplier Gifts** → record a gift from the supplier (a fridge, value 20,000, to the firm, then one taken for personal use). Open the **194R summary**. Cancel one.
+- **Steps:** as the fixture's **Firm admin**: Masters > Products → `<SUFFIX>-B` → switch **Free issue only** on; try to put it on a quotation or an invoice line with a price. Receive 5 units on a goods receipt with a **Scheme** name on the line. Stock > Stock > Inventory → Write off 2 with reason *Free to customer* and the customer, and 1 with reason *Sample*. Reports > Operational → **Free goods**. Then Buy > Money > **Supplier Gifts** → record a gift from the supplier (a fridge, value 20,000, to the firm, then one taken for personal use). Open the **194R summary**. Cancel one.
 - **Expect:** a free-issue-only product is refused on a priced sales line by name. The receipt line keeps the scheme; the write-offs post to *Promotional Expense* (not Inventory Adjustment) and carry the customer; the Free goods report shows what came in free, what went out free and what is left. A supplier gift posts Dr the asset or expense account named (or *Drawings* when the owner kept it) and Cr *Supplier Incentives Received*, with no input tax; the gift register links to the receipt line marked "gift, not stock"; the 194R summary totals gifts per supplier; cancelling reverses the journal. Managing gifts needs SUPPLIER_GIFT_MANAGE.
 - **Leaves:** write-offs, a register row, journals.
 
@@ -1360,9 +1360,8 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 Cases TC-BUY-029 onward were written from the code and its automated tests on
 2026-10-05 and have not yet been run by hand. Each stands alone: it names what
 it needs and reads nothing another case left. The new screens are under
-Buy > All Buy screens > Documents (**Requests for quotation**, **Rate
-contracts**, **Supplier schemes**, **Bills of entry**), Buy > All Buy screens >
-Money > **Payables by Month**, Accounts > All Accounts screens > **Fixed
+Buy > Documents (**Requests for quotation**, **Rate
+contracts**, **Supplier schemes**, **Bills of entry**), Buy > Money > **Payables by Month**, Accounts > **Fixed
 assets**, and Settings > Tax > **TDS on purchases (194Q, 194C, 194J)**. The
 journals below name the accounts a firm starts with: 1000 Cash, 1010 Bank,
 1200 Inventory, 1310 Input IGST, 1320 Input CGST, 1330 Input SGST, 1430 TCS
@@ -1423,7 +1422,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 
 - **Covers:** backlog 86 #17 (PG-1, debit notes and returns netted in)
 - **Fixture:** `po-invoiced`
-- **Steps:** as the fixture's **Firm admin**, Buy > Returns & notes > **Debit Notes** → New against the fixture's bill: 100 on its line → Save → **Approve**. Buy > Returns & notes > Purchase Returns → New off the **receipt of 6**: Returning **2** → Save → Approve → Complete. Reports > Financial → **GST purchase register**, then **HSN summary of purchases**.
+- **Steps:** as the fixture's **Firm admin**, Buy > **Debit Notes** → New against the fixture's bill: 100 on its line → Save → **Approve**. Buy > Purchase Returns → New off the **receipt of 6**: Returning **2** → Save → Approve → Complete. Reports > Financial → **GST purchase register**, then **HSN summary of purchases**.
 - **Expect:** besides the bill's row, a row of Type **Debit note** with the bill's number under **Against bill**, Taxable **-100.00**, CGST **-9.00**, SGST **-9.00**; and a row of Type **Purchase return**, Taxable **-200.00**, CGST **-18.00**, SGST **-18.00**. Each is dated the day it was raised, not the bill's day. The HSN summary's row for the product is lower by the same amounts. A return of goods that were never billed is not listed. The goods must still be on hand: a return for more than the location holds is refused at Complete ("This location holds … available, so … cannot be returned to the supplier from it.").
 - **Leaves:** a debit note, a return.
 
@@ -1435,7 +1434,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 
 - **Covers:** backlog 85, backlog 86 #20 (PG-2)
 - **Fixture:** `po-invoiced`
-- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Money > **Payables by Month**. Read the row for `<SUFFIX>-V`, the Total row and the line under the grid. Switch **By invoice date** to **By due date**. Narrow to the supplier with the **All suppliers** box.
+- **Steps:** as the fixture's **Firm admin**, Buy > Money > **Payables by Month**. Read the row for `<SUFFIX>-V`, the Total row and the line under the grid. Switch **By invoice date** to **By due date**. Narrow to the supplier with the **All suppliers** box.
 - **Expect:** the page opens on **Owed**, as of today. The supplier's row shows **708.00** in this month's column and **708.00** under **Outstanding** (more if the supplier has other open bills). The columns are Supplier, **Older**, one per month, **Later**, **Credits**, **Outstanding**. The Total row sums every supplier, and the line under it reads "Agrees with the books: control account 2100 holds …" with the same figure. If it reads "Does not agree with the books: control account 2100 holds …", that is a failure to report with both figures. By due date the 708.00 moves to the month the bill falls due.
 - **Leaves:** nothing.
 
@@ -1445,7 +1444,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 
 - **Covers:** backlog 85 (PG-2)
 - **Fixture:** `po-invoiced`
-- **Steps:** as the fixture's **Firm admin**, Buy > Payments → **Record Payment**: `<SUFFIX>-V`, amount **200.00**, Bank, against the bill → Record payment. Buy > All Buy screens > Money > **Payables by Month**. Switch **Owed** to **Paid**. Back on Owed, pick a branch in **All branches**. **(HTTP)** `GET /api/v1/purchase-invoices/reports/payables?as_of=<today>&view=paid&branch_id=<a branch id>`.
+- **Steps:** as the fixture's **Firm admin**, Buy > Payments → **Record Payment**: `<SUFFIX>-V`, amount **200.00**, Bank, against the bill → Record payment. Buy > Money > **Payables by Month**. Switch **Owed** to **Paid**. Back on Owed, pick a branch in **All branches**. **(HTTP)** `GET /api/v1/purchase-invoices/reports/payables?as_of=<today>&view=paid&branch_id=<a branch id>`.
 - **Expect:** Owed shows **508.00** for the supplier and still agrees with 2100. Paid shows **200.00** in this month's column, with the column headed **Paid**. With a branch chosen the line under the grid reads "Narrowed to a branch: advances and refunds name no branch, so there is no books check." The HTTP call is refused: "A payment names no branch, so the Paid view cannot be narrowed to one. Clear the branch filter."
 - **Leaves:** a payment of 200.00.
 
@@ -1455,7 +1454,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 
 - **Covers:** backlog 85 (PG-2), D-BUY-32
 - **Fixture:** `po-received`
-- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → bill the **receipt of 6** and approve (708.00); Buy > Payments → pay it in full. Buy > Returns & notes > Purchase Returns → New off the **receipt of 6 after its bill has been approved and paid**: Returning **1** → Save → Approve → Complete. Buy > All Buy screens > Money > **Payables by Month**.
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → bill the **receipt of 6** and approve (708.00); Buy > Payments → pay it in full. Buy > Purchase Returns → New off the **receipt of 6 after its bill has been approved and paid**: Returning **1** → Save → Approve → Complete. Buy > Money > **Payables by Month**.
 - **Expect:** the paid bill owes nothing in this month, and the return's value shows as a minus figure under **Credits** (-118.00 for the 1 returned), so the supplier's total is the credit alone. A return off a receipt no bill names posts Dr 2300 / Cr 1200 and is no credit. The total still agrees with control account 2100: the page counts every document that posts to it, not bills alone. The goods must still be on hand: a return for more than the location holds is refused at Complete ("This location holds … available, so … cannot be returned to the supplier from it.").
 - **Data:** the return line reads `free_quantity` (0.0000 where nothing free goes back), and `current_return_quantity` is everything going back, free goods included. On the return reconciliation (`GET /api/v1/purchase-returns/reports/reconciliation`) the received quantity of a line off a goods receipt is bought plus free, the returning quantity includes the free units, and `already_returned_quantity` counts what went back through the other document too (the bill for a receipt line, the receipt for a bill line).
 - **Leaves:** a return, a paid bill.
@@ -1691,7 +1690,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #1 (PG-8)
 - **Fixture:** `buy-ready`
 - **Also needs:** a second active supplier.
-- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Documents > **Requests for quotation** → New (**New request for quotation**): **Add a supplier** twice (`<SUFFIX>-V` and the second), **Add line**: `<SUFFIX>-B`, **Quantity** `10` → **Save**. Select it → **Send**. **Enter quotes**: for `<SUFFIX>-V` **Rate** `100`, **Discount %** `5`, **Lead time (days)** `7` → **Save quote**; for the second supplier Rate `96`, Discount % blank, Lead time `3` → Save quote. **Compare**.
+- **Steps:** as the fixture's **Firm admin**, Buy > Documents > **Requests for quotation** → New (**New request for quotation**): **Add a supplier** twice (`<SUFFIX>-V` and the second), **Add line**: `<SUFFIX>-B`, **Quantity** `10` → **Save**. Select it → **Send**. **Enter quotes**: for `<SUFFIX>-V` **Rate** `100`, **Discount %** `5`, **Lead time (days)** `7` → **Save quote**; for the second supplier Rate `96`, Discount % blank, Lead time `3` → Save quote. **Compare**.
 - **Expect:** the RFQ takes a number from its own `RFQ` series and reads **Draft**, then **Sent**. The comparison (**Compare quotes for RFQ-…**) shows both suppliers on the line by rate after discount and **before tax**: `<SUFFIX>-V` **95.00** marked **Lowest**, the second supplier 96.00. Before any quote is entered Compare reads "No supplier has quoted yet. Enter quotes first."
 - **Leaves:** a sent RFQ with two quotes.
 
@@ -1712,7 +1711,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 
 - **Covers:** backlog 86 #1 (PG-8)
 - **Fixture:** `buy-ready`
-- **Also needs:** an **approved** purchase requisition with one line naming `<SUFFIX>-V` (Buy > All Buy screens > Documents > Requisitions → New, Submit, Approve), and a second requisition still in draft.
+- **Also needs:** an **approved** purchase requisition with one line naming `<SUFFIX>-V` (Buy > Documents > Requisitions → New, Submit, Approve), and a second requisition still in draft.
 - **Steps:** as the fixture's **Firm admin**, on the approved requisition press **Create RFQ**. Press it again. Look for it on the draft requisition. In Requests for quotation → New with a line but **no** supplier → Save → **Send**. Select a draft RFQ → **Cancel** → leave the reason empty, then give one.
 - **Expect:** the first press starts a **draft** RFQ with the requisition's lines and, as suppliers, those its lines name plus each product's preferred supplier. The second is refused: "RFQ … was already started from requisition …." Create RFQ cannot be pressed on a draft requisition (the server says "An RFQ is started only from an approved requisition."). Sending with no supplier: "Invite at least one supplier before sending." Cancelling needs a reason (the dialog **Cancel RFQ-…** says "The reason stays on the request."); afterwards the RFQ reads **Cancelled**. When orders are raised from an RFQ that came from a requisition, the requisition becomes ORDERED.
 - **Leaves:** a draft RFQ, a cancelled RFQ.
@@ -1724,7 +1723,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #1 (PG-8)
 - **Fixture:** `buy-ready`
 - **Also needs:** a user hired with the *Read Only* job template and one hired with *Purchasing*; a sent RFQ with a quote chosen.
-- **Steps:** as the **Read Only** user open Buy > All Buy screens > Documents > Requests for quotation. As the **Purchasing** user open the RFQ and **Raise orders**. As a user hired with *Warehouse* look for the screen.
+- **Steps:** as the **Read Only** user open Buy > Documents > Requests for quotation. As the **Purchasing** user open the RFQ and **Raise orders**. As a user hired with *Warehouse* look for the screen.
 - **Expect:** Read Only (RFQ_VIEW) sees the list and the comparison but none of New, Send, Enter quotes, Save selections or Raise orders. Purchasing (RFQ_MANAGE and PURCHASE_CREATE) raises the orders. The Warehouse job holds neither RFQ code and is not offered the screen.
 - **Leaves:** a closed RFQ, draft orders.
 
@@ -1737,7 +1736,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #2 (PG-9)
 - **Fixture:** `buy-ready`
 - **Also needs:** the product `<SUFFIX>-B` not already on an active rate contract with `<SUFFIX>-V` (close or cancel one left by an earlier run).
-- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Documents > **Rate contracts** → New (**New rate contract**): **Supplier** `<SUFFIX>-V`, **Valid from** today, **Valid to** a month on, **Add line**: `<SUFFIX>-B`, **Rate** `90`, **Quantity** `20` → Save. Select it → **Approve**. Buy > Purchase Orders → New for `<SUFFIX>-V`: add `<SUFFIX>-B`, quantity `15`, the price **left blank** → Save. Then a second order line with the price typed `95`.
+- **Steps:** as the fixture's **Firm admin**, Buy > Documents > **Rate contracts** → New (**New rate contract**): **Supplier** `<SUFFIX>-V`, **Valid from** today, **Valid to** a month on, **Add line**: `<SUFFIX>-B`, **Rate** `90`, **Quantity** `20` → Save. Select it → **Approve**. Buy > Purchase Orders → New for `<SUFFIX>-V`: add `<SUFFIX>-B`, quantity `15`, the price **left blank** → Save. Then a second order line with the price typed `95`.
 - **Expect:** the contract takes a number from its own **`RTC`** series (RTC-2026-2027-000001; a customer receipt keeps `RC`), reads **Draft**, then **Active**. The order line is priced **90.00** and carries a mark whose tooltip reads "Rate contract: this rate comes from a supplier contract."; the contract's rate ranks above the supplier's price list and catalogue, and above the product's purchase price of 100. A price typed on the line (95) is kept as typed. Approving a contract needs PURCHASE_APPROVE: a *Purchasing* user can type one but cannot approve it.
 - **Leaves:** an active contract, a draft order.
 
@@ -1772,7 +1771,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #11 (PG-10)
 - **Fixture:** `electronics-firm`
 - **Also needs:** a supplier, and an **approved** purchase order for **3** of the serial-tracked product.
-- **Steps:** as the firm's administrator, Buy > Goods Receipts → New against the order, Accepted `3`. Click the line's **Serials** cell. In **Serial numbers · …** open **Fill a range**: **Prefix** `QA-SN`, **Start** `1`, **Count** `2`, **Width** `4` → **Add range** → OK. Save the receipt → **Complete**. Reopen the Serials cell, type a third number on a line of its own → OK → save → **Complete**. Open the completed receipt, click "3 serial numbers" on the line, and click one unit. Stock > All Stock screens > Tracking > **Serial Numbers**.
+- **Steps:** as the firm's administrator, Buy > Goods Receipts → New against the order, Accepted `3`. Click the line's **Serials** cell. In **Serial numbers · …** open **Fill a range**: **Prefix** `QA-SN`, **Start** `1`, **Count** `2`, **Width** `4` → **Add range** → OK. Save the receipt → **Complete**. Reopen the Serials cell, type a third number on a line of its own → OK → save → **Complete**. Open the completed receipt, click "3 serial numbers" on the line, and click one unit. Stock > Tracking > **Serial Numbers**.
 - **Expect:** the cell reads **2 of 3**, and the dialog "2 of 3 entered". The range fills `QA-SN0001` and `QA-SN0002`. A draft may be short, but completing it is refused: "Line 1 (…) receives 3 serial-tracked units but 2 serial numbers are entered: enter 1 more on the goods receipt." With three it completes; three units exist, available, in the receipt's warehouse. The completed receipt shows each unit's trail (**Trail of …**) with this goods receipt first. Units are counted against accepted **plus free** goods.
 - **Leaves:** three serial numbers in stock.
 
@@ -1794,7 +1793,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #11 (PG-10)
 - **Fixture:** `electronics-firm`
 - **Also needs:** a supplier and two completed receipts of the serial-tracked product from it, of 2 units each, with their serials entered; a customer.
-- **Steps:** as the firm's administrator: (1) **Cancel** the first receipt. Look for its serials under Serial Numbers and receive them again on a new receipt. (2) From the second receipt sell and dispatch **one** unit to the customer, then try to **Cancel** that receipt. (3) Buy > Returns & notes > Purchase Returns → New off the second receipt: Returning `1`, click the line's **Serials** cell and name the unit still in stock → Save → Approve → Complete. (4) Cancel the completed return.
+- **Steps:** as the firm's administrator: (1) **Cancel** the first receipt. Look for its serials under Serial Numbers and receive them again on a new receipt. (2) From the second receipt sell and dispatch **one** unit to the customer, then try to **Cancel** that receipt. (3) Buy > Purchase Returns → New off the second receipt: Returning `1`, click the line's **Serials** cell and name the unit still in stock → Save → Approve → Complete. (4) Cancel the completed return.
 - **Expect:** (1) the cancelled receipt's units are removed and their numbers are free to be received again. (2) refused: "GRN-… cannot be cancelled: serial … has left stock since it was received (…)." (3) the return must name one unit per unit going back, each in stock and received from this supplier; after Complete the unit reads **Returned**. A serial of another product is refused: "…: serial … is not a unit of this product in this firm." (4) cancelling the completed return puts the unit back **Available**.
 - **Leaves:** serial units, a cancelled return.
 
@@ -1807,7 +1806,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #25 (PG-11)
 - **Fixture:** `buy-ready`
 - **Also needs:** no other active scheme on `<SUFFIX>-B` for `<SUFFIX>-V` (switch off one left by an earlier run).
-- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Documents > **Supplier schemes** → New (**New supplier scheme**): **Supplier** `<SUFFIX>-V`, product `<SUFFIX>-B`, **Buy quantity** `10`, **Free quantity** `2`, **Free product** blank ("Blank: the same product is given free."), Valid from today → Save. Buy > Purchase Orders → New for `<SUFFIX>-V`: `<SUFFIX>-B`, quantity `25`, price `100`, the **Free** box left blank → Save. Submit, Approve, receive in full and Complete. Stock > All Stock screens > Stock > Inventory.
+- **Steps:** as the fixture's **Firm admin**, Buy > Documents > **Supplier schemes** → New (**New supplier scheme**): **Supplier** `<SUFFIX>-V`, product `<SUFFIX>-B`, **Buy quantity** `10`, **Free quantity** `2`, **Free product** blank ("Blank: the same product is given free."), Valid from today → Save. Buy > Purchase Orders → New for `<SUFFIX>-V`: `<SUFFIX>-B`, quantity `25`, price `100`, the **Free** box left blank → Save. Submit, Approve, receive in full and Complete. Stock > Stock > Inventory.
 - **Expect:** the scheme lists as **10+2**, *In force*. The order line's Free reads **4** (two free for each full ten: 25 buys two tens) and the side panel says "Line 1: Scheme 10+2 applied" under **Supplier schemes**. The line is still charged 25 x 100 = 2,500.00 before tax. The receipt offers 25 accepted and 4 free; after Complete **29** are on hand. The receipt's journal is Dr 1200 Inventory 2,500.00 / Cr 2300 Goods Received Not Invoiced 2,500.00: free goods add units, not value, so each of the 29 costs 86.21. The free units can go back: a purchase return of all 29 off the receipt line is accepted and prices the 25 bought; 30 is refused with "…line 1 can still send back 25 bought and 4 free." (TC-BUY-093 has the whole of it).
 - **Leaves:** a scheme, 29 on hand.
 
@@ -1853,7 +1852,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #4, #5 (PG-12 part A; the full chain since D-BUY-39)
 - **Fixture:** `buy-ready`
 - **Also needs:** a supplier abroad with **Currency** `USD` on its form; a product on the **GST 0%** tax profile with nothing on hand. The buying stages stay **on**.
-- **Steps:** as the fixture's **Firm admin**, Masters > Vendors → the supplier: confirm **Currency** reads USD (try `US` → Save first). Buy > Purchase Orders → New: that supplier; read **Currency**. Add the product, quantity `10`, rate `100`. Save with **Exchange rate (₹ per USD)** blank; then type `83` → save → Submit → **Approve**. Buy > Goods Receipts → New against the order, Accepted `10` → **Complete**; read Stock > All Stock screens > Stock > Inventory and Accounts > Journal Entries. Buy > Purchase Invoices → New for the receipt: read **Currency** and the note beside it; type **Exchange rate (₹ per USD)** `83` → save → **Approve**. Open the bill and Journal Entries.
+- **Steps:** as the fixture's **Firm admin**, Masters > Vendors → the supplier: confirm **Currency** reads USD (try `US` → Save first). Buy > Purchase Orders → New: that supplier; read **Currency**. Add the product, quantity `10`, rate `100`. Save with **Exchange rate (₹ per USD)** blank; then type `83` → save → Submit → **Approve**. Buy > Goods Receipts → New against the order, Accepted `10` → **Complete**; read Stock > Stock > Inventory and Accounts > Journal Entries. Buy > Purchase Invoices → New for the receipt: read **Currency** and the note beside it; type **Exchange rate (₹ per USD)** `83` → save → **Approve**. Open the bill and Journal Entries.
 - **Expect:** a two-letter currency is refused on the supplier: "The currency is a three-letter code, such as USD." The order starts in **USD**, the supplier's currency, and shows **Exchange rate (₹ per USD)**. With no rate it is not saved: "Enter the exchange rate: the rupees one USD is worth, above 0." At 83 the total is labelled **Total USD**, 1,000.00, and the note under it gives the rupee equivalent at 83 (83,000). Completing the receipt brings ten units in valued **83,000.00** (8,300 each), at the order's rate: Dr 1200 Inventory 83,000.00 / Cr 2300 Goods Received Not Invoiced 83,000.00. The bill is in **USD** and shows "TCS, TDS and Paid now are rupee matters; pay this bill from Payments in USD." in place of the TCS boxes; it reads **1,000.00 USD** with its rupee equivalent **83,000.00**. The Approve dialog says "This bill is in USD, so TDS and Paid now are not offered. Pay it from Payments, in that currency, at the rate of the day." The bill's journal: Dr 2300 Goods Received Not Invoiced 83,000.00 / Cr 2100 Trade Payables 83,000.00 -- no price variance, because the bill is at the order's rate. **(HTTP)** the server's own words for the two refusals: a currency `US` is "A currency is its three-letter ISO code, such as USD or EUR."; an order with no rate is "A purchase order in USD needs its exchange rate: the rupees one USD was worth on the purchase order's date." The order starts in USD on screen; the server saves an order that names no currency in rupees.
 - **Leaves:** an approved USD order, a completed receipt and an approved USD bill owing 1,000.00 USD.
 
@@ -1897,7 +1896,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #4 (PG-12 part B)
 - **Fixture:** `buy-ready`
 - **Also needs:** one approved bill of 10 at 100 USD at 83 from a USD supplier, as in TC-BUY-070, with all ten units still on hand (83,000.00, 8,300 each).
-- **Steps:** as the fixture's **Firm admin**, Buy > All Buy screens > Documents > **Bills of entry** → New (**New Bill of Entry**): **Bill of Entry number** `1234567`, the BoE date today, **Port code** `INMAA1`, **Supplier** the USD supplier; tick the bill under **Supplier bills the goods came on**; **Add item**: the product, **Quantity** `10`, **Assessable value** `85000`, **BCD %** `10`, **SWS %** blank, **IGST %** `18`, every amount box blank → **Save**. Read the worked figures. Select it → **Post**. Stock > All Stock screens > Stock > Inventory; Journal Entries; Accounts > All Accounts screens > Tax filing > GST Returns → GSTR-3B for the month.
+- **Steps:** as the fixture's **Firm admin**, Buy > Documents > **Bills of entry** → New (**New Bill of Entry**): **Bill of Entry number** `1234567`, the BoE date today, **Port code** `INMAA1`, **Supplier** the USD supplier; tick the bill under **Supplier bills the goods came on**; **Add item**: the product, **Quantity** `10`, **Assessable value** `85000`, **BCD %** `10`, **SWS %** blank, **IGST %** `18`, every amount box blank → **Save**. Read the worked figures. Select it → **Post**. Stock > Stock > Inventory; Journal Entries; Accounts > Tax filing > GST Returns → GSTR-3B for the month.
 - **Expect:** the draft works out **BCD 8,500.00**, **SWS 850.00** (10% of the BCD when no rate is typed), IGST base 94,350.00 and **IGST 16,983.00**. After Post the document reads **Posted** and shows Customs duty 9,350.00, IGST 16,983.00, **To stock 9,350.00**, To COGS 0.00, To expense 0.00. The ten units are now worth 92,350.00: the average rises from 8,300.00 to **9,235.00**. Journal: Dr 1200 Inventory 9,350.00, Dr 1310 Input IGST 16,983.00 / Cr 2800 Customs Duty Payable 26,333.00. GSTR-3B shows 16,983.00 under 4(A)(1) *Import of goods*. Customs duty has no credit; only the IGST does.
 - **Leaves:** a posted Bill of Entry; stock revalued.
 
@@ -1932,7 +1931,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #7 (PG-13; the full chain since D-BUY-40)
 - **Fixture:** `buy-ready`
 - **Also needs:** a product for the asset (a desk) on GST 18% with nothing on hand. The buying stages stay **on**.
-- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Fixed assets > **Asset classes**: confirm the five a firm starts with. Buy > Purchase Orders → New for `<SUFFIX>-V`: the desk, quantity `1`, rate `36500`; on the line tick **Capital goods** → save → Submit → **Approve**. Buy > Goods Receipts → New against the order: read the line's **Capital goods** tick; Accepted `1` → **Complete**. Read Stock > All Stock screens > Stock > Inventory and Accounts > Journal Entries. Buy > Purchase Invoices → New for the receipt: read the line's tick and try to clear it; save without choosing a class; then **Asset class (required)** *FURNITURE · Furniture and Fittings* → save → **Approve**. Accounts > All Accounts screens > Fixed assets > **Asset register**; Inventory; Journal Entries; Reports > Financial → GST purchase register.
+- **Steps:** as the fixture's **Firm admin**, Accounts > Fixed assets > **Asset classes**: confirm the five a firm starts with. Buy > Purchase Orders → New for `<SUFFIX>-V`: the desk, quantity `1`, rate `36500`; on the line tick **Capital goods** → save → Submit → **Approve**. Buy > Goods Receipts → New against the order: read the line's **Capital goods** tick; Accepted `1` → **Complete**. Read Stock > Stock > Inventory and Accounts > Journal Entries. Buy > Purchase Invoices → New for the receipt: read the line's tick and try to clear it; save without choosing a class; then **Asset class (required)** *FURNITURE · Furniture and Fittings* → save → **Approve**. Accounts > Fixed assets > **Asset register**; Inventory; Journal Entries; Reports > Financial → GST purchase register.
 - **Expect:** the classes are PLANT, FURNITURE, COMPUTERS, VEHICLES and OFFICE_EQUIPMENT, all *Straight line* with Residual % 5. Under the order line's tick: "A fixed asset, not stock: received without entering stock, and the bill raises the asset." The receipt line starts ticked, as ordered ("Received without entering stock; the bill raises the fixed asset."). Completing the receipt adds **nothing** to stock and posts nothing to Inventory or Goods Received Not Invoiced; the order is received all the same. On the bill the line is ticked **Capital goods (raises a fixed asset when approved)**, cannot be unticked, and says "Received as capital goods." Without a class: "Line 1 is capital goods: choose its asset class." After approval the register has one asset `FA-…`, class FURNITURE, Cost **36,500.00**, Net book value 36,500.00, *In use*, "Raised by bill PI-…". Stock is still nothing. One journal: Dr 1500 Fixed Assets 36,500.00, Dr 1320 Input CGST 3,285.00, Dr 1330 Input SGST 3,285.00 / Cr 2100 Trade Payables 43,070.00 -- no Inventory and no Goods Received Not Invoiced. The GST is claimed in full; the register row shows it again under **Capital goods tax 6,570.00**.
 - **Leaves:** a received order, a fixed asset, an approved bill.
 
@@ -1954,7 +1953,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #7 (PG-13)
 - **Fixture:** `buy-ready`
 - **Also needs:** no depreciation run covering October 2026 or later (cancel the latest first if one does); an asset class of its own typed under **Asset classes** → New (**New asset class**): Code `QA-WDV`, **Method** *Written down value*, **Rate %** `40`, **Residual %** `5`; two assets typed under **Asset register** → New (**New fixed asset**), both acquired and put to use on **2026-10-01** at **Cost** `36500`: one in class FURNITURE (straight line, life 10 years, residual 5%), one in `QA-WDV`.
-- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Fixed assets > **Depreciation runs** → **Run depreciation**: **From** `2026-10-01`, **To** `2026-10-31` → Run depreciation. Open the run and find the two assets. Open each asset's **Schedule**. Journal Entries. Then run the same period again, and a period ending before `2026-10-31`.
+- **Steps:** as the fixture's **Firm admin**, Accounts > Fixed assets > **Depreciation runs** → **Run depreciation**: **From** `2026-10-01`, **To** `2026-10-31` → Run depreciation. Open the run and find the two assets. Open each asset's **Schedule**. Journal Entries. Then run the same period again, and a period ending before `2026-10-31`.
 - **Expect:** typing an asset by hand posts nothing. The run lists each asset charged with its days: both **31**. The furniture asset: (36,500 - 1,825) / 10 years = 3,467.50 a year, x 31/365 = **294.50**. The written-down asset: 40% of 36,500 = 14,600.00 a year, x 31/365 = **1,240.00**. One journal for the whole run, reference `DEP-…`, dated 2026-10-31: Dr 6950 Depreciation / Cr 1590 Accumulated Depreciation, 1,534.50 for these two (more where other assets were due). Each asset's Net book value falls by its charge and its schedule shows the charge, then the years projected. The same period again: "Depreciation run … already charged 2026-10-01 to 2026-10-31. Cancel it, or run a period after it." An earlier period: "Runs go forward: … charged up to 2026-10-31. Cancel it to run an earlier period."
 - **Leaves:** a posted run, two assets.
 
@@ -1976,7 +1975,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #7 (PG-13)
 - **Fixture:** `buy-ready`
 - **Also needs:** a financial year April 2026 to March 2027; an asset class of its own, Code `QA-IT`, straight line, with **Income-tax rate %** `25` (a rate no other class uses); two assets typed by hand in it at Cost `40000` each, one acquired and put to use `2026-06-01`, one `2026-12-01`; a latest depreciation run that charged them and no disposal since; a user hired with the *Read Only* job template.
-- **Steps:** as the fixture's **Firm admin**, Depreciation runs → select the latest run → **Cancel** with a reason (**Cancel run …**). Accounts > All Accounts screens > Fixed assets > **Income-tax block schedule**, **Financial year** 2026-27; find the 25% block. Try to **Delete** the class `QA-IT`. As the **Read Only** user open the Asset register and look for New, Dispose and Run depreciation. **(HTTP)** as a user holding FIXED_ASSET_MANAGE but not JOURNAL_POST: `POST /api/v1/fixed-assets/depreciation-runs`.
+- **Steps:** as the fixture's **Firm admin**, Depreciation runs → select the latest run → **Cancel** with a reason (**Cancel run …**). Accounts > Fixed assets > **Income-tax block schedule**, **Financial year** 2026-27; find the 25% block. Try to **Delete** the class `QA-IT`. As the **Read Only** user open the Asset register and look for New, Dispose and Run depreciation. **(HTTP)** as a user holding FIXED_ASSET_MANAGE but not JOURNAL_POST: `POST /api/v1/fixed-assets/depreciation-runs`.
 - **Expect:** the cancelled run reads **Cancelled** with its reason, its journal is reversed (`DEP-…-REV`) and the period can be run again. The 25% block for 2026-27 shows Opening WDV 0.00, **Additions (full) 40,000.00** (used 180 days or more in the year), **Additions (half) 40,000.00** (used less than 180 days), Depreciation **15,000.00** (10,000.00 at 25% plus 5,000.00 at half the rate) and Closing WDV **65,000.00**. The schedule posts nothing. Deleting the class is refused: "Asset class QA-IT has assets on the register. Move them to another class, or mark this one inactive." Read Only (FIXED_ASSET_VIEW) reads the four screens and is offered nothing that changes them. The HTTP call is refused with 403: "This posts a journal, which needs JOURNAL_POST as well."
 - **Leaves:** a cancelled run, two assets.
 
@@ -2035,7 +2034,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #4, #5 (PG-12 part A), the bill typed with no order
 - **Fixture:** `buy-ready`
 - **Also needs:** **Buying stages** with **Purchase order** off (see the note at the head of these cases); a supplier abroad with **Currency** `USD` on its form; a product on the **GST 0%** tax profile with nothing on hand.
-- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → New: that supplier; add the product, quantity `10`, rate `100`. Read **Currency** and the note beside it. Save with **Exchange rate (₹ per USD)** blank; then type `83` → **Save & approve**. Open the bill, Stock > All Stock screens > Stock > Inventory, and Accounts > Journal Entries. Switch the buying stages back on.
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → New: that supplier; add the product, quantity `10`, rate `100`. Read **Currency** and the note beside it. Save with **Exchange rate (₹ per USD)** blank; then type `83` → **Save & approve**. Open the bill, Stock > Stock > Inventory, and Accounts > Journal Entries. Switch the buying stages back on.
 - **Expect:** the bill starts in **USD** and shows "TCS, TDS and Paid now are rupee matters; pay this bill from Payments in USD." in place of the TCS boxes. With no rate it is not saved: "Enter the exchange rate: the rupees one USD was worth on the supplier's invoice date." (the server's own words for the same refusal: "A bill in USD needs its exchange rate: the rupees one USD was worth on the bill's date."). At 83 the bill reads **1,000.00 USD** with its rupee equivalent **83,000.00**. The order and the receipt the bill raises are at the bill's rate, so ten units arrive valued 83,000.00 (8,300 each). Journals: Dr 1200 Inventory 83,000.00 / Cr 2300 Goods Received Not Invoiced 83,000.00, then Dr 2300 83,000.00 / Cr 2100 Trade Payables 83,000.00 -- no price variance.
 - **Leaves:** an approved USD bill owing 1,000.00 USD; the buying stages as they were.
 
@@ -2057,7 +2056,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #7 (PG-13), the bill typed with no order
 - **Fixture:** `buy-ready`
 - **Also needs:** **Buying stages** with **Purchase order** off (see the note at the head of these cases); a product for the asset (a desk) on GST 18% with nothing on hand.
-- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → New for `<SUFFIX>-V`, **Entered on** `2026-10-01`: the desk, quantity `1`, rate `36500`. On the line tick **Capital goods (raises a fixed asset when approved)**; save without choosing a class; then **Asset class (required)** *FURNITURE · Furniture and Fittings* → **Save & approve**. Accounts > All Accounts screens > Fixed assets > **Asset register**; Stock > All Stock screens > Stock > Inventory; Journal Entries. Switch the buying stages back on.
+- **Steps:** as the fixture's **Firm admin**, Buy > Purchase Invoices → New for `<SUFFIX>-V`, **Entered on** `2026-10-01`: the desk, quantity `1`, rate `36500`. On the line tick **Capital goods (raises a fixed asset when approved)**; save without choosing a class; then **Asset class (required)** *FURNITURE · Furniture and Fittings* → **Save & approve**. Accounts > Fixed assets > **Asset register**; Stock > Stock > Inventory; Journal Entries. Switch the buying stages back on.
 - **Expect:** without a class: "Line 1 is capital goods: choose its asset class." After approval the register has one asset `FA-…`, class FURNITURE, Cost **36,500.00**, Net book value 36,500.00, *In use*, "Raised by bill PI-…". **Nothing** is added to stock. One journal: Dr 1500 Fixed Assets 36,500.00, Dr 1320 Input CGST 3,285.00, Dr 1330 Input SGST 3,285.00 / Cr 2100 Trade Payables 43,070.00 -- no Inventory and no Goods Received Not Invoiced.
 - **Leaves:** a fixed asset, an approved bill; the buying stages as they were.
 
@@ -2090,7 +2089,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #4 (PG-12; D-BUY-41)
 - **Fixture:** `buy-ready`
 - **Also needs:** one approved, unpaid bill of 10 at 100 **USD at 83** for a GST 0% product, built as in TC-BUY-070 (owed 1,000.00 USD, 83,000.00).
-- **Steps:** as the fixture's **Firm admin**, Buy > Returns & notes > Debit Notes → New against the bill; claim `100` on its line → Save → **Approve**. Accounts > Journal Entries. Buy > Record Payment for the supplier in **USD**; read what the bill offers. Then **Cancel** the debit note with a reason and read the bill again.
+- **Steps:** as the fixture's **Firm admin**, Buy > Debit Notes → New against the bill; claim `100` on its line → Save → **Approve**. Accounts > Journal Entries. Buy > Record Payment for the supplier in **USD**; read what the bill offers. Then **Cancel** the debit note with a reason and read the bill again.
 - **Expect:** the note reads 100.00, in the bill's currency. Its journal is in rupees at the bill's own rate: **Dr 2100 Accounts Payable 8,300.00**, with the goods leg credited 8,300.00 -- not 100.00. The bill owes **900.00 USD** and **74,700.00**; Record Payment offers 900.00 USD and refuses more. Payables by Month and the supplier's statement read 74,700.00, and the payables report's books check reads no difference. Cancelling the note reverses the journal and the bill owes 1,000.00 USD and 83,000.00 again.
 - **Leaves:** an approved USD bill owing in full and a cancelled debit note.
 
@@ -2101,13 +2100,13 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** backlog 86 #4, #7 (PG-12, PG-13; D-BUY-41)
 - **Fixture:** `buy-ready`
 - **Also needs:** one approved, unpaid bill of 10 at 100 **USD at 83** for a GST 0% stocked product (as TC-BUY-091); the capital-goods receipt and its approved bill of TC-BUY-090's first order.
-- **Steps:** as the fixture's **Firm admin**: (1) Buy > Returns & notes > Purchase Returns → New against the USD bill, `2` of its line → Save → Approve → **Complete**; open the return; Accounts > Journal Entries; Inventory. (2) Buy > Record Payment in USD for `800` at `83`. (3) New purchase return against the capital-goods bill, `1` of its line → Save.
+- **Steps:** as the fixture's **Firm admin**: (1) Buy > Purchase Returns → New against the USD bill, `2` of its line → Save → Approve → **Complete**; open the return; Accounts > Journal Entries; Inventory. (2) Buy > Record Payment in USD for `800` at `83`. (3) New purchase return against the capital-goods bill, `1` of its line → Save.
 - **Expect:** (1) the return reads Currency **USD** at **83**, taken from its bill whatever was typed, and 200.00. Its journal is **Dr 2100 Accounts Payable 16,600.00 / Cr Inventory 16,600.00**, with nothing in price variance; eight units are on hand. The bill owes **800.00 USD** and **66,400.00**. (2) the payment clears the bill with no exchange gain or loss, and Accounts Payable for the supplier reads 0.00. (3) refused: "Line 1 is capital goods: it was received as a fixed asset and never entered stock, so it cannot go back as a purchase return. Claim its value with a debit note against the supplier's bill and dispose of the asset under Fixed Assets." Nothing is saved and stock is unchanged.
 - **Leaves:** a paid USD bill with a completed return against it; the capital-goods bill untouched.
 
 ---
 
-**Returns to the supplier after the fixes of 2026-10-05 and 06.** Cases TC-BUY-093 to TC-BUY-098 were added on 2026-10-06. Their expectations were driven over HTTP against a running server; the screens have not been walked. Each stands alone. A purchase return is raised off a **goods receipt** line or off a **supplier bill** line (Buy > Returns & notes > Purchase Returns → New, then the **Goods Receipt** or the bill picker), and the rules below hold whichever it names. The return editor has one quantity box, **Returning**, and no Free box: where a step must say how many of the units are free it is marked **(HTTP)**.
+**Returns to the supplier after the fixes of 2026-10-05 and 06.** Cases TC-BUY-093 to TC-BUY-098 were added on 2026-10-06. Their expectations were driven over HTTP against a running server; the screens have not been walked. Each stands alone. A purchase return is raised off a **goods receipt** line or off a **supplier bill** line (Buy > Purchase Returns → New, then the **Goods Receipt** or the bill picker), and the rules below hold whichever it names. The return editor has one quantity box, **Returning**, and no Free box: where a step must say how many of the units are free it is marked **(HTTP)**.
 
 ### TC-BUY-093 — Free goods go back off the goods receipt that brought them in
 
@@ -2116,7 +2115,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** D-BUY-56 (BUYQ-16), D-BUY-63 (BUYQ-23)
 - **Fixture:** `buy-ready`
 - **Also needs:** two approved orders for `<SUFFIX>-B` from `<SUFFIX>-V`, each **10** at 100 with **Free** `2`, each received in full (10 accepted, 2 free) and completed: 24 on hand. Neither is billed.
-- **Steps:** as the fixture's **Firm admin**: (1) Buy > Returns & notes > Purchase Returns → **New** off the **first receipt**: Returning **13** → Save Return. (2) Returning **12** → Save Return → Approve → Complete. Open the return; Inventory; Accounts > Journal Entries; Reports > Operational → **Purchase return reconciliation**. (3) **(HTTP)** `POST /api/v1/purchase-returns` off the **second receipt's** line with `current_return_quantity` 2 and `free_quantity` 2; approve and complete it. (4) Buy > Purchase Invoices → bill the second receipt (10 at 100) and **Approve**. Purchase Returns → New off that **bill**: Returning **11** → Save Return.
+- **Steps:** as the fixture's **Firm admin**: (1) Buy > Purchase Returns → **New** off the **first receipt**: Returning **13** → Save Return. (2) Returning **12** → Save Return → Approve → Complete. Open the return; Inventory; Accounts > Journal Entries; Reports > Operational → **Purchase return reconciliation**. (3) **(HTTP)** `POST /api/v1/purchase-returns` off the **second receipt's** line with `current_return_quantity` 2 and `free_quantity` 2; approve and complete it. (4) Buy > Purchase Invoices → bill the second receipt (10 at 100) and **Approve**. Purchase Returns → New off that **bill**: Returning **11** → Save Return.
 - **Expect:** (1) refused: "Return quantity exceeds the available source quantity: line 1 can still send back 10 bought and 2 free." (2) accepted: the gross is **1,000.00**, on the 10 bought only; the 2 free are credited nothing; total **1,180.00**. After Complete **12** are on hand and the journal is Dr 2300 Goods Received Not Invoiced 1,000.00 / Cr 1200 Inventory 1,000.00. The reconciliation counts the free goods: the row reads received **12**, returning **12**, pending 0. (3) a return of only the free units totals **0.00**: the supplier is credited nothing, stock falls by 2 (10 on hand), and the journal is Cr 1200 Inventory / Dr 5400 at the moving average. A receipt line that brought only free goods (a gift line) goes back the same way. (4) refused: off a bill line only what was billed can go back, "…line 1 can still send back 10; free goods go back off the goods receipt that brought them in."
 - **Leaves:** two completed returns, an approved bill, 10 on hand.
 
@@ -2149,7 +2148,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Covers:** D-BUY-59 (BUYQ-19), D-BUY-64 (BUYQ-24)
 - **Fixture:** `pharma-firm`
 - **Also needs:** a supplier, and two approved orders for the batch-tracked product `<SUFFIX>-AMX`: one received as **10** into a new batch `QA-X`, one as **5** into a new batch `QA-Y`, both completed.
-- **Steps:** as the firm's administrator: (1) Purchase Returns → New off the **receipt of 10**: Returning **2**, the **Batch** box left as it opens → Save Return. Open the draft and read the batch. Approve → Complete; Stock > All Stock screens > Tracking > **Batches**. (2) **(HTTP)** `POST /api/v1/purchase-returns` for 2 off the receipt-of-10 line with `batch_number` `QA-Y`. (3) **(HTTP)** the same with `batch_number` `NO-SUCH-BATCH`. (4) **(HTTP)** `PUT` a draft return off the receipt of 10 naming `QA-Y`.
+- **Steps:** as the firm's administrator: (1) Purchase Returns → New off the **receipt of 10**: Returning **2**, the **Batch** box left as it opens → Save Return. Open the draft and read the batch. Approve → Complete; Stock > Tracking > **Batches**. (2) **(HTTP)** `POST /api/v1/purchase-returns` for 2 off the receipt-of-10 line with `batch_number` `QA-Y`. (3) **(HTTP)** the same with `batch_number` `NO-SUCH-BATCH`. (4) **(HTTP)** `PUT` a draft return off the receipt of 10 naming `QA-Y`.
 - **Expect:** (1) a line that names no batch takes its receipt line's batch: the draft reads `QA-X`, and after Complete the batch holds **8**. (2) refused at Save, not at Complete, and nothing is written: "Line 1: the goods receipt brought these goods in as batch QA-X, so batch QA-Y cannot go back against it. Return batch QA-X on this line, or raise the return off the receipt that brought QA-Y." `QA-Y` still holds 5. (3) refused in the same words, naming `NO-SUCH-BATCH`. (4) refused the same way and the draft still reads `QA-X`. The same holds off the **bill** line of that receipt. On a line whose receipt named no batch, a batch nobody received answers "Batch … was never received for this product, so no stock can be taken out of it.", and a product that may only be issued from a batch, with none named, answers "… may only be issued from a batch, so the batch number is required to return it." -- both at Save.
 - **Leaves:** a completed return; batch `QA-X` at 8.
 
@@ -2159,7 +2158,7 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 
 - **Covers:** D-BUY-62 (BUYQ-21)
 - **Fixture:** `po-received`
-- **Steps:** **(HTTP)** as the fixture's **Firm admin** (the screens offer no import of purchase returns): note how many returns Buy > Returns & notes > Purchase Returns lists. (1) `POST /api/v1/purchase-returns/import` with two records: the first returns **2** off the receipt of 6, the second **50** off the receipt of 4. (2) The same file with the second record returning **0**. (3) The file corrected: **2** off the receipt of 6 and **1** off the receipt of 4.
+- **Steps:** **(HTTP)** as the fixture's **Firm admin** (the screens offer no import of purchase returns): note how many returns Buy > Purchase Returns lists. (1) `POST /api/v1/purchase-returns/import` with two records: the first returns **2** off the receipt of 6, the second **50** off the receipt of 4. (2) The same file with the second record returning **0**. (3) The file corrected: **2** off the receipt of 6 and **1** off the receipt of 4.
 - **Expect:** (1) **422**, "Record 2 of 2: Return quantity exceeds the available source quantity: line 1 can still send back 4 bought and 0 free. Nothing was imported." The list has the same count as before: the good first record was not left behind as a draft, and no return number was spent. (2) refused the same way, naming record 2. (3) **201**: both are written as **drafts**; each then approves and completes like a return typed on screen.
 - **Leaves:** two draft returns.
 
@@ -2215,7 +2214,7 @@ the fixture builds (a minute or two).
 - **Covers:** plan 8.1, 8.2
 - **Fixture:** `po-received` — `<SUFFIX>-B` received 4 then 6 into MAIN: 10 on hand.
 - **Steps**
-  1. As the fixture's **Firm admin**, Stock > All Stock screens > Stock > **Inventory**, filter Product `<SUFFIX>-B` → Apply. Then **Stock Summary**.
+  1. As the fixture's **Firm admin**, Stock > Stock > **Inventory**, filter Product `<SUFFIX>-B` → Apply. Then **Stock Summary**.
   2. Stock > **Stock Ledger**, filter Product `<SUFFIX>-B` → Apply; open one row's detail (eye icon). Then Transaction type `GOODS_RECEIPT` → Apply.
 - **Expect**
   - Step 1: one row, MAIN, Current **10**, Available 10, Reserved 0; the summary's figure for the product agrees.
@@ -2228,7 +2227,7 @@ the fixture builds (a minute or two).
 - **Covers:** plan 8.3
 - **Fixture:** `stock-ready` — 50 of `<SUFFIX>-P` in MAIN; an empty warehouse `<SUFFIX>-W2` under HO.
 - **Steps**
-  1. As the fixture's **Firm admin**, Stock > All Stock screens > Stock > Inventory → select the `<SUFFIX>-P` / MAIN row → **Transfer**: quantity **3**, **Move it to** `<SUFFIX>-W2 - Overflow <suffix>`, reference `<SUFFIX>-TRF` → **Transfer**.
+  1. As the fixture's **Firm admin**, Stock > Stock > Inventory → select the `<SUFFIX>-P` / MAIN row → **Transfer**: quantity **3**, **Move it to** `<SUFFIX>-W2 - Overflow <suffix>`, reference `<SUFFIX>-TRF` → **Transfer**.
   2. Refresh; Stock Ledger for the product; Accounts > Journal Entries.
   3. Transfer again with quantity **999**.
 - **Expect**
@@ -2291,7 +2290,7 @@ the fixture builds (a minute or two).
 
 - **Covers:** plan 8.6a
 - **Fixture:** `pharma-firm` — its platform admin can open both TEST01 and the fixture's firm.
-- **Steps:** sign in as the fixture's **Platform admin**; switch into **TEST01** → Stock > All Stock screens > Stock > Inventory → filter by any product → Apply. Switch into the fixture's firm → the same tab.
+- **Steps:** sign in as the fixture's **Platform admin**; switch into **TEST01** → Stock > Stock > Inventory → filter by any product → Apply. Switch into the fixture's firm → the same tab.
 - **Expect:** the tab renders; the remembered TEST01 filter is dropped (the panel reads "Filters" with none active) and choosing the firm's own warehouse works. *(A remembered id from another firm used to take the section down with "This section failed to render".)*
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.8 — not a table row: the filter is `workspace_state.inventory_management` in `%APPDATA%\.agency_platform\desktop_preferences.json` on the machine. The only server row the case writes is the firm switch's `user_preferences.updated` on the platform trail.
 - **Leaves:** unchanged.
@@ -2300,7 +2299,7 @@ the fixture builds (a minute or two).
 
 - **Covers:** plan 8.8
 - **Fixture:** `electronics-firm` — `<SUFFIX>-MIX`, 5 on hand, serials `<SUFFIX>-MIX-0001` to `-0005`.
-- **Steps:** as the fixture's **Firm admin**, Stock > All Stock screens > Tracking > **Serial Numbers**; search `<SUFFIX>-MIX-`; open one row's detail; filter Status AVAILABLE.
+- **Steps:** as the fixture's **Firm admin**, Stock > Tracking > **Serial Numbers**; search `<SUFFIX>-MIX-`; open one row's detail; filter Status AVAILABLE.
 - **Expect:** five rows, status AVAILABLE, warehouse MAIN; Warranty Start and End are empty until somebody enters them on the serial (a goods receipt carries no warranty dates; the fixture's seeded serials carry a year). The detail is titled "Serial: <SUFFIX>-MIX-0001" with warranty start and end and the warehouse. The Status filter keeps all five.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.9, in schema `fx_<suffix>_e` — five `serial_numbers` rows with `warranty_start`/`warranty_end`, `inventory_id` and `batch_id` null, audit action `CREATE`; the screen writes nothing. No movement ever names a serial, so a serial's status never moves on its own (D-STK-4).
 - **Leaves:** unchanged.
@@ -2322,7 +2321,7 @@ the fixture builds (a minute or two).
 - **Covers:** backlog STK-3 (A61), STK-7 (A104)
 - **Fixture:** `stock-ready`
 - **Also needs:** a user holding INVENTORY_MANAGE_REASONS (the administrator).
-- **Steps:** as the fixture's **Firm admin**: Stock > All Stock screens > Stock > Inventory → select the product → **Write off** 2 with reason *Internal use*; again with *Staff* and *Display*; and once with *Damage*. Accounts > Ledgers: read the expense accounts. Settings > Stock > **Adjustment Reasons**: add a reason *Festival gift* with its own expense account; deactivate another. Write off 1 with the new reason. Post an adjustment with a reason code.
+- **Steps:** as the fixture's **Firm admin**: Stock > Stock > Inventory → select the product → **Write off** 2 with reason *Internal use*; again with *Staff* and *Display*; and once with *Damage*. Accounts > Ledgers: read the expense accounts. Settings > Stock > **Adjustment Reasons**: add a reason *Festival gift* with its own expense account; deactivate another. Write off 1 with the new reason. Post an adjustment with a reason code.
 - **Expect:** the three new reasons post to their own expense accounts — *Stock Used in Business*, *Staff Welfare*, *Samples and Display* — and damage, expiry and loss stay on *Inventory Adjustment*. The reasons list is the firm's own (seeded on first read); the write-off and adjustment dialogs offer exactly the firm's active reasons and post to the reason's account. Without INVENTORY_MANAGE_REASONS the screen is read-only. A reason's account must be an expense or income account: Inventory, Cash, a party or Sales is refused by name (D-STK-31). Any seeded reason, Damage included, can be switched off, after which a write-off naming it is refused.
 - **Leaves:** write-off journals, a reason.
 
@@ -2333,7 +2332,7 @@ the fixture builds (a minute or two).
 - **Covers:** backlog STK-4, A114
 - **Fixture:** `stock-ready`
 - **Also needs:** a second product (the repacked pack) with a purchase price.
-- **Steps:** as the fixture's **Firm admin**: Stock > All Stock screens > Movements > **Repacking** → New: consume 10 of the bulk product, produce 40 of the small pack, wastage 1 percent. Post. Read the ledger and journals. Post another with no wastage. **Cancel** one.
+- **Steps:** as the fixture's **Firm admin**: Stock > Movements > **Repacking** → New: consume 10 of the bulk product, produce 40 of the small pack, wastage 1 percent. Post. Read the ledger and journals. Post another with no wastage. **Cancel** one.
 - **Expect:** every consume line leaves stock at the product's moving average; the value consumed less the wastage share is spread over the produce lines in proportion to what each is worth at its purchase price (by quantity where none has a price) and the pack arrives **at that cost**; wastage is written off to inventory adjustment. With no wastage the books do not move. Cancelling reverses every movement and the wastage journal.
 - **Leaves:** repack documents.
 
@@ -2376,7 +2375,7 @@ the fixture builds (a minute or two).
 - **Covers:** backlog STK-9, A64
 - **Fixture:** `stock-ready`
 - **Also needs:** a photo or PDF file; the ATTACHMENTS feature enabled for the firm's profile.
-- **Steps:** as the fixture's **Firm admin**: Stock > All Stock screens > Stock > Inventory → **Adjust** (and then **Write off** and **Transfer**), pick a file in the dialog and save. Open the movement in Stock > All Stock screens > Stock > **Transactions** → **Evidence**. On a posted count sheet add another file. Delete one file.
+- **Steps:** as the fixture's **Firm admin**: Stock > Stock > Inventory → **Adjust** (and then **Write off** and **Transfer**), pick a file in the dialog and save. Open the movement in Stock > Stock > **Transactions** → **Evidence**. On a posted count sheet add another file. Delete one file.
 - **Expect:** files named in the dialog are saved in the same transaction as the movement; a transfer's files sit on its outbound leg and are readable from either leg. The Evidence viewer lists name, type and caption for a movement or a count sheet; a posted sheet still takes files. Delete is soft and audited. Without the ATTACHMENTS feature the picker is not offered.
 - **Leaves:** attachment references.
 
@@ -2387,7 +2386,7 @@ the fixture builds (a minute or two).
 - **Covers:** backlog STK-8, A108
 - **Fixture:** `stock-ready`
 - **Also needs:** a user with INVENTORY_ADJUST but a low limit (a Warehouse job), and the administrator with INVENTORY_MANAGE_SETTINGS.
-- **Steps:** as the **Firm admin**: Settings > Stock > **Adjustment Limits** → Warehouse role limit **500** → Save. As the **Warehouse** user: write off stock worth 2,000 at cost. Press **Submit for approval**. As the administrator: Stock > All Stock screens > Movements > **Adjustment Approvals** → Approve; submit and **Reject** another with a reason; bulk-approve two.
+- **Steps:** as the **Firm admin**: Settings > Stock > **Adjustment Limits** → Warehouse role limit **500** → Save. As the **Warehouse** user: write off stock worth 2,000 at cost. Press **Submit for approval**. As the administrator: Stock > Movements > **Adjustment Approvals** → Approve; submit and **Reject** another with a reason; bulk-approve two.
 - **Expect:** an adjustment or write-off worth more than the role's limit (quantity at the product's average cost) is refused when posted directly, naming the limit, and offers *Submit for approval*. A person whose own limit covers it approves the request and it posts unchanged through the same service; a rejection keeps its reason. A firm with no limits behaves as before.
 - **Also (in packs, over HTTP):** the limit judges the pieces a pack moves. With a box of 12 at 60 a piece and a limit of 500, a write-off or an adjustment of **3 boxes** (`entered_uom_id` the box) is refused naming 2,160; a request for it says 2,160 and 36 pieces, the requester cannot approve it, and the administrator's approval takes 36 pieces off (D-STK-57; `docs/qa/checks/inventory/p_limit_in_packs.py`, round 9). The two forms on screen type pieces.
 - **Leaves:** requests, a posted adjustment.
@@ -2700,8 +2699,8 @@ from nothing — a minute or two — and then carry one sale to a stage:
 
 Sign in as the fixture's **Firm admin** unless a case says otherwise.
 Quotations, Sales Orders, Delivery Notes and Sales Invoices are on the Sell
-menu; Sales Returns and Credit Notes are under Sell > **Returns & notes**;
-Proforma is under Sell > All Sell screens > Documents.
+menu; Sales Returns and Credit Notes are under Sell > **Documents**;
+Proforma is under Sell > Documents.
 A resolved rate is not printed on a saved document: reopen the editor
 (**Revise** on a quotation, **Edit** on a draft order) and read the helper
 under the blank Discount % box — "Last priced at N% by the price list" (or a
@@ -2775,7 +2774,7 @@ promotion, or the customer's standing rate).
 
 - **Covers:** plan 9.9
 - **Fixture:** `selling-ordered`
-- **Steps:** Stock > All Stock screens > Stock > Inventory, filtered to `<SUFFIX>-DET`. Then Reports > Operational → **Promotion claims**.
+- **Steps:** Stock > Stock > Inventory, filtered to `<SUFFIX>-DET`. Then Reports > Operational → **Promotion claims**.
 - **Expect:** MAIN: Current **100**, Reserved **12**, Available **88**. The claims report lists `WELCOME`, coupon `WELCOME10`, Vijaya, the order, **CLAIMED** (it was PENDING while a draft; only a claim at approval counts against a limit).
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.5 — a `RESERVE` of 12 referenced to the order number, the claim PENDING → CLAIMED under a lock, and two audit rows (`inventory.transaction.created`, `sales_order.approved`); no journal.
 - **Leaves:** unchanged.
@@ -2870,7 +2869,7 @@ promotion, or the customer's standing rate).
 
 - **Covers:** plan 9.22
 - **Fixture:** `selling-invoiced`
-- **Steps:** Sell > Returns & notes > Sales Returns → **New Return** → Returned against the invoice (entries read "SI-… · date · Vijaya Stores <suffix>") → Line 1 → Taken back into MAIN → Quantity returned **9** → Create draft. Then **2** → Create draft → **Approve** → **Complete**.
+- **Steps:** Sell > Sales Returns → **New Return** → Returned against the invoice (entries read "SI-… · date · Vijaya Stores <suffix>") → Line 1 → Taken back into MAIN → Quantity returned **9** → Create draft. Then **2** → Create draft → **Approve** → **Complete**.
 - **Expect:** 9 is refused: "Only 5.0 went out on this line." (server: "Return quantity exceeds what was dispatched on the source document (5 sent, 0 already returned)."; where the line names a unit, "(5 PIECE sent, 0 PIECE already returned)"). With 2: "SR-… created as a draft…", "SR-… approved. Nothing has moved yet…", "SR-… completed: 2 back on the shelf and 193.28 credited to the customer." Ledger `SALES_RETURN` +2; Outstanding down **193.28** (2 × 84 less 2.5% plus 18%). A return against a delivery note nobody was billed for moves stock and cost only: no `SR-…` credit journal, no receivable row, `unbilled_quantity` on the line, and the note's left-to-bill reduced. On a part-billed note the unbilled part is taken first (4 delivered, 3 billed, 2 back: 1 credited). TC-SELL-094 walks both.
 - **Reports:** Reports > Operational → **Sales return register** values a return at what was credited: it shows the credited amount (`credited_amount`) and the unbilled quantity (`unbilled_quantity`) beside the document total, and by customer, by product and the summary add up the credited figure. The summary's **total return value** counts only completed returns and equals the register's credited total; a draft or approved return adds its stated total to **pending return value** and nothing to the total, and completing it moves what it credited across (nothing, for a return never billed). The summary counts no header charge or rounding of a return that credited nothing. A return raised against a delivery note of a billed supply names that bill under *Against invoice* in the GST sales register and in GSTR-1 CDNR.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.16 — the refused 9 writes nothing; Complete writes a `SALES_RETURN` +2 movement, journals `SR-…` (Dr 4100 163.80 / Dr 2220 14.74 / Dr 2230 14.74 / Cr 1100 193.28) and `SR-…-COST` (Dr 1200 / Cr 5200 120.00), a receivable row `CREDIT_NOTE`, seven audit rows.
@@ -2882,7 +2881,7 @@ promotion, or the customer's standing rate).
 - **Covers:** plan 9.23, 9.24
 - **Fixture:** `selling-invoiced`
 - **Steps**
-  1. Sell > Returns & notes > Credit Notes → **Raise credit note**: the invoice, Line 1, Reason Rate difference, **Credit, before tax** **50** → Raise → row's **Approve**.
+  1. Sell > Credit Notes → **Raise credit note**: the invoice, Line 1, Reason Rate difference, **Credit, before tax** **50** → Raise → row's **Approve**.
   2. Raise again on the same line with **400**.
 - **Expect**
   - Step 1: the row reads `59.00 (tax 9.00)` — 18%, the rate that line was charged. "CN-… — approved. The credit and the tax are on the ledger." Outstanding down **59**.
@@ -2896,7 +2895,7 @@ promotion, or the customer's standing rate).
 - **Covers:** plan 9.25, 9.26
 - **Fixture:** `selling-ordered`
 - **Steps**
-  1. Sell > All Sell screens > Documents > Proforma → **New**. Press **Raise proforma** with no order chosen. Then choose the fixture's order ("SO-… — Vijaya Stores <suffix> — total") → Raise → **Issue** → **Print**. Journal Entries; Masters > Customers → C01.
+  1. Sell > Documents > Proforma → **New**. Press **Raise proforma** with no order chosen. Then choose the fixture's order ("SO-… — Vijaya Stores <suffix> — total") → Raise → **Issue** → **Print**. Journal Entries; Masters > Customers → C01.
   2. Sell > Sales Orders → the order → **Cancel**. Proforma → Refresh → reopen the proforma.
 - **Expect**
   - Step 1: the order box opens empty, and Raise without an order says "Choose the sales order this proforma states." and raises nothing. With the order chosen: "PF-… raised. Issue it when the customer needs it." then "PF-… issued."; the print is titled PROFORMA INVOICE, names the order under *Against order* and says "This is not a tax invoice." (a draft's copy says DRAFT); **Send** emails it where the firm has email set up; a `PF` series number (never `PI`, which purchase invoices use); **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
@@ -2933,7 +2932,7 @@ promotion, or the customer's standing rate).
 - **Covers:** backlog 77 row 5, A40
 - **Fixture:** `compliance-firm`
 - **Also needs:** an approved invoice to a **registered** customer for 10 at 100 + 18% GST (1,180.00), nothing received on it.
-- **Steps:** as a **Sales manager** (hire one if the fixture has none): Sell > Returns & notes > **Debit Notes** → **New** → pick the invoice → reason *Price increase* → 100 on its line → watch the tax → **Save**. Try **Approve**. As the **Firm admin**: approve it. Then Sell > Receipts → New for the customer. Then GST Returns → GSTR-1 and GSTR-3B for the month. Then try to cancel the **invoice**. Then record a receipt of 1,250.00 against the invoice and try to cancel the **debit note**.
+- **Steps:** as a **Sales manager** (hire one if the fixture has none): Sell > **Debit Notes** → **New** → pick the invoice → reason *Price increase* → 100 on its line → watch the tax → **Save**. Try **Approve**. As the **Firm admin**: approve it. Then Sell > Receipts → New for the customer. Then GST Returns → GSTR-1 and GSTR-3B for the month. Then try to cancel the **invoice**. Then record a receipt of 1,250.00 against the invoice and try to cancel the **debit note**.
 - **Expect:** the preview shows tax **18.00**, total **118.00** (the invoice line's rate). The sales manager can raise but is not offered **Approve**. After approval the customer's balance is **118.00** higher, and Record Receipt lists the invoice at **1,298.00** owing, one row not two. GSTR-1 CDNR shows the note as type **D** against the invoice, taxable 100, CGST 9 + SGST 9; GSTR-3B 3.1(a) is 100 higher. Cancelling the invoice is refused naming the debit note. With 1,250.00 received, cancelling the debit note is refused ("Money received on invoice SI-… has already met 70.00 of this debit note. Reverse that receipt first, then cancel the note."); after reversing the receipt it cancels and the balance drops back. A customer debit note prints (A4, its own **Print**).
 - **Leaves:** what the steps made.
 
@@ -3006,7 +3005,7 @@ promotion, or the customer's standing rate).
 - **Covers:** backlog SEL-10, A133
 - **Fixture:** `selling-firm`
 - **Also needs:** the product `<SUFFIX>-DET`; a role holding SALES_VIEW, SALES_QUOTATION_CREATE and SALES_UPDATE (the firm administrator does).
-- **Steps:** as the fixture's **Firm admin**: Sell > All Sell screens > Documents > **Enquiries** → New. Type a **prospect** (name, company, phone in the form +91…, email, city) instead of picking a customer; source, salesman, expected value, expected close date, next follow-up date; one line for `<SUFFIX>-DET` × 10 and a second line with a description only. Save. (a) Try **Convert to quotation**. (b) Give the second line a product and convert again. (c) Open the new quotation and convert it to a sales order. (d) Raise a second enquiry for a prospect, add a follow-up note with a new next date, then mark it **Lost** with a reason from the list. (e) Open the **Follow-ups due** view; then Reports > Operational → **Enquiries lost**.
+- **Steps:** as the fixture's **Firm admin**: Sell > Documents > **Enquiries** → New. Type a **prospect** (name, company, phone in the form +91…, email, city) instead of picking a customer; source, salesman, expected value, expected close date, next follow-up date; one line for `<SUFFIX>-DET` × 10 and a second line with a description only. Save. (a) Try **Convert to quotation**. (b) Give the second line a product and convert again. (c) Open the new quotation and convert it to a sales order. (d) Raise a second enquiry for a prospect, add a follow-up note with a new next date, then mark it **Lost** with a reason from the list. (e) Open the **Follow-ups due** view; then Reports > Operational → **Enquiries lost**.
 - **Expect:** the enquiry is numbered **ENQ-…** and opens as new. (a) conversion is refused while a line has no product. (b) a customer is created from the prospect (code from the customer series, the firm's currency) and a draft quotation with the lines; the enquiry shows the quotation and the customer. (c) once the order is made the enquiry reads **WON**. (d) the follow-up is kept with its date and the enquiry's next follow-up moves; Lost needs a reason chosen from a fixed list. (e) the due view lists enquiries whose next follow-up is today or earlier and not closed; the lost report counts the lost enquiries and totals their expected value by reason. The due view is paged like the enquiry list (**(HTTP)** `GET /api/v1/enquiries/follow-ups-due` with `page_size` above 100 is 422). There is no Home gadget and no reminder yet.
 - **Leaves:** a customer, a quotation, an order, two enquiries.
 
@@ -3097,7 +3096,7 @@ promotion, or the customer's standing rate).
 | Counter billing | Settings > Selling > **Sales Stages**: *Sales order* and *Delivery note* both **off**. Sell > Sales Invoices → **New Invoice** then opens the counter bill. Switch both back **on** after the counter cases |
 | Figures | 10 of `<SUFFIX>-CTR` at 100 is 1,000.00 before tax, 90.00 CGST + 90.00 SGST, 1,180.00 in all. Where a case says *the bill of 1,180.00* it means that bill to the customer the case names |
 
-Counter Shifts and Customer Rebates are under Sell > All Sell screens > Documents; Collection Sheet and Payment Promises under Sell > All Sell screens > Money; Transporters under Settings > Set up > Territories & routes; Party Adjustments under Accounts > All Accounts screens > Books. The journal of any step is read under Accounts > **Journal Entries**.
+Counter Shifts and Customer Rebates are under Sell > Documents; Collection Sheet and Payment Promises under Sell > Money; Transporters under Settings > Set up > Territories & routes; Party Adjustments under Accounts > Books. The journal of any step is read under Accounts > **Journal Entries**.
 
 **GST sales register and HSN summary of sales (SG-1)**
 
@@ -3115,8 +3114,8 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 1 (SG-1)
 - **Fixture:** `selling-firm`
 - **Also needs:** the masters above, stages **on**; an approved bill of 1,180.00 to `<SUFFIX>-C03` as in TC-SELL-036, nothing received on it.
-- **Steps:** as the fixture's **Firm admin**: (a) Sell > Returns & notes > Credit Notes → **Raise credit note**: the bill, Line 1, Reason Rate difference, Credit, before tax **100** → Raise; run the register before approving it. (b) **Approve** it and run the register again. (c) Sell > Returns & notes > Debit Notes → New → the bill → **50** on its line → Save → Approve. (d) Sell > Returns & notes > Sales Returns → New Return against the bill, Quantity returned **2**, taken back into MAIN → Create draft → Approve → Complete. Run Reports > Financial → **GST sales register** for the month.
-- **Expect:** (a) a draft credit note is not in the register. (b) a row Type **Credit note**, *Against invoice* the bill's number, Taxable **-100.00**, CGST **-9.00**, SGST **-9.00**, Total **-118.00**, on the note's own date. (c) a row Type **Debit note**, Taxable **50.00**, CGST **4.50**, SGST **4.50**, Total **59.00**. (d) a row Type **Sales return**, Taxable **-200.00**, CGST **-18.00**, SGST **-18.00**, Total **-236.00**; an approved return that is not yet completed is not listed. The four rows' Taxable adds to **750.00**, the same net figure the HSN table (Table 12) of GSTR-1 states for the month under Accounts > All Accounts screens > Tax filing > GST Returns. (GSTR-1 answers only for a firm with a GST number: put one on the fixture firm, or use `compliance-firm`.)
+- **Steps:** as the fixture's **Firm admin**: (a) Sell > Credit Notes → **Raise credit note**: the bill, Line 1, Reason Rate difference, Credit, before tax **100** → Raise; run the register before approving it. (b) **Approve** it and run the register again. (c) Sell > Debit Notes → New → the bill → **50** on its line → Save → Approve. (d) Sell > Sales Returns → New Return against the bill, Quantity returned **2**, taken back into MAIN → Create draft → Approve → Complete. Run Reports > Financial → **GST sales register** for the month.
+- **Expect:** (a) a draft credit note is not in the register. (b) a row Type **Credit note**, *Against invoice* the bill's number, Taxable **-100.00**, CGST **-9.00**, SGST **-9.00**, Total **-118.00**, on the note's own date. (c) a row Type **Debit note**, Taxable **50.00**, CGST **4.50**, SGST **4.50**, Total **59.00**. (d) a row Type **Sales return**, Taxable **-200.00**, CGST **-18.00**, SGST **-18.00**, Total **-236.00**; an approved return that is not yet completed is not listed. The four rows' Taxable adds to **750.00**, the same net figure the HSN table (Table 12) of GSTR-1 states for the month under Accounts > Tax filing > GST Returns. (GSTR-1 answers only for a firm with a GST number: put one on the fixture firm, or use `compliance-firm`.)
 - **Leaves:** a credit note, a debit note and a completed return on one bill.
 
 ### TC-SELL-038 — The HSN summary of sales adds up to the register
@@ -3204,7 +3203,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 3 (SG-3)
 - **Fixture:** `selling-firm`
 - **Also needs:** the masters above; counter billing.
-- **Steps:** as the fixture's **Firm admin**: New Invoice → `<SUFFIX>-C03` → add `<SUFFIX>-SVC` quantity **1** → Save, then **Approve** the draft from the list. Stock > All Stock screens > Stock > Inventory and Stock > Stock Ledger for `<SUFFIX>-SVC`. Sell > Delivery Notes. Accounts > Journal Entries. Then a second bill of quantity **5000**.
+- **Steps:** as the fixture's **Firm admin**: New Invoice → `<SUFFIX>-C03` → add `<SUFFIX>-SVC` quantity **1** → Save, then **Approve** the draft from the list. Stock > Stock > Inventory and Stock > Stock Ledger for `<SUFFIX>-SVC`. Sell > Delivery Notes. Accounts > Journal Entries. Then a second bill of quantity **5000**.
 - **Expect:** the bill totals **590.00** (500.00 + 45.00 CGST + 45.00 SGST) and approves although the product has no stock. Its own delivery note reads **DISPATCHED**. The stock ledger has **no** row for the service and Inventory shows nothing reserved for it (or no row at all). Journals: only the bill's, Dr 1100 Trade Receivables 590.00 / Cr 4000 Sales 500.00 / Cr Output CGST 45.00 / Cr Output SGST 45.00; there is **no** Cost of Goods Sold entry for the note. 5000 units approve the same way.
 - **Leaves:** two approved bills owed by `<SUFFIX>-C03`.
 
@@ -3233,7 +3232,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 3 (SG-3)
 - **Fixture:** `selling-firm`
 - **Also needs:** the approved bill of 1 `<SUFFIX>-SVC` (590.00) to `<SUFFIX>-C03` from the steps of TC-SELL-046, built for this case.
-- **Steps:** as the fixture's **Firm admin**: Sell > Returns & notes > Sales Returns → New Return against the bill, Quantity returned **1** → Create draft → Approve → **Complete**. Stock Ledger for the service. Masters > Customers → `<SUFFIX>-C03`.
+- **Steps:** as the fixture's **Firm admin**: Sell > Sales Returns → New Return against the bill, Quantity returned **1** → Create draft → Approve → **Complete**. Stock Ledger for the service. Masters > Customers → `<SUFFIX>-C03`.
 - **Expect:** the return completes and the customer's Outstanding falls by **590.00**. The stock ledger has **no** `SALES_RETURN` row for the service and no stock is added.
 - **Leaves:** a completed return.
 
@@ -3273,7 +3272,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 4 (SG-4)
 - **Fixture:** `selling-firm`
 - **Also needs:** the approved bill of TC-SELL-050 (10 `<SUFFIX>-CTR` and *Packing* 100 at 18%, SAC `998540`: 1,298.00), built for this case.
-- **Steps:** as the fixture's **Firm admin**: select the bill → **Print**. Reports > Financial → GST sales register, then HSN summary of sales, for today. Accounts > All Accounts screens > Tax filing > GST Returns → GSTR-1 for the month.
+- **Steps:** as the fixture's **Firm admin**: select the bill → **Print**. Reports > Financial → GST sales register, then HSN summary of sales, for today. Accounts > Tax filing > GST Returns → GSTR-1 for the month.
 - **Expect:** the print lists **Packing** by name between the taxable value and the tax rows, and its HSN summary has a row for 998540. The register's row for the bill reads Taxable **1,100.00**, CGST 99.00, SGST 99.00, Total 1,298.00. The HSN summary has a row **998540**, Rate % 18, Quantity **0**, Taxable 100.00, beside the goods' row. GSTR-1 states the same 1,100.00. (GSTR-1 answers only for a firm with a GST number: put one on the fixture firm, or use `compliance-firm`.)
 - **Leaves:** unchanged.
 
@@ -3282,7 +3281,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 4 (SG-4), known limits
 - **Fixture:** `selling-firm`
 - **Also needs:** the approved bill of TC-SELL-050, built for this case, nothing received on it; the Sales order and Delivery note stages **on** for the second half.
-- **Steps:** as the fixture's **Firm admin**: Sell > Returns & notes > Credit Notes → **Raise credit note** on the bill: look at what can be credited; credit Line 1 by **1000** before tax → Raise → Approve. Then Sell > Sales Orders → New Order and look for charges.
+- **Steps:** as the fixture's **Firm admin**: Sell > Credit Notes → **Raise credit note** on the bill: look at what can be credited; credit Line 1 by **1000** before tax → Raise → Approve. Then Sell > Sales Orders → New Order and look for charges.
 - **Expect:** a credit note offers the bill's **lines** only; the charge cannot be credited. After crediting the whole line (1,180.00) the customer still owes **118.00**, the charge and its tax. A sales order has no *Other charges*: charges are typed on the bill and are not carried from the order.
 - **Leaves:** a credit note.
 
@@ -3361,7 +3360,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 6 (SG-6)
 - **Fixture:** `selling-firm`
 - **Also needs:** the masters above, stages **on**; one sale taken from a quotation to an order, a delivery note, an invoice and a sales return; a PDF.
-- **Steps:** as the fixture's **Firm admin**: on each of Sell > Quotations, Sales Orders, Delivery Notes, Sales Invoices and Sell > Returns & notes > Sales Returns, select the document → **Attachments** → Add file. Then open Attachments on the invoice.
+- **Steps:** as the fixture's **Firm admin**: on each of Sell > Quotations, Sales Orders, Delivery Notes, Sales Invoices and Sell > Sales Returns, select the document → **Attachments** → Add file. Then open Attachments on the invoice.
 - **Expect:** every one of the five lists has **Attachments** and a **Files** column. A file added to the order shows on the order only: the invoice of the same sale lists just its own.
 - **Leaves:** one file on each document.
 
@@ -3410,7 +3409,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 7 (SG-7)
 - **Fixture:** `selling-firm`
 - **Also needs:** counter billing; a **Counter Sales** user and a **Sales Manager** user in the firm; neither has a shift open.
-- **Steps:** as the **Counter Sales** user: New Invoice. The strip above the scan field reads **No shift open** → **Open shift** → Opening float `500` → Open shift. **(HTTP)** `POST /api/v1/counter-shifts/open` with `{"opening_float": "100"}` again as the same user. Sign in as the **Sales Manager**: New Invoice → Open shift, float `200`. Sell > All Sell screens > Documents > **Counter Shifts**.
+- **Steps:** as the **Counter Sales** user: New Invoice. The strip above the scan field reads **No shift open** → **Open shift** → Opening float `500` → Open shift. **(HTTP)** `POST /api/v1/counter-shifts/open` with `{"opening_float": "100"}` again as the same user. Sign in as the **Sales Manager**: New Invoice → Open shift, float `200`. Sell > Documents > **Counter Shifts**.
 - **Expect:** the strip reads "Shift SHIFT-…" (the firm's next number), when it was opened, **0 bills** and **cash expected 500.00**, with **Close shift**. The second request is refused (409): "You already have SHIFT-… open. Close it before opening another." The Sales Manager opens a shift of their own with the next number. Counter Shifts lists both: Cashier, Opened, Float, Expected, Status **Open**. Opening a shift posts nothing. A Counter Sales user may open a shift: it takes the right to raise sales invoices, not the right to approve them.
 - **Leaves:** two open shifts (close them: TC-SELL-069 shows how).
 
@@ -3446,7 +3445,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 7 (SG-7)
 - **Fixture:** `selling-firm`
 - **Also needs:** counter billing; a **Sales Manager** and a **Field Sales** user in the firm; an open shift of the **Sales Manager's**.
-- **Steps:** **(HTTP)** as the **Field Sales** user (who holds `SALES_INVOICE_CREATE` and not `SALES_APPROVE`): `POST /api/v1/counter-shifts/{id}/close` with `{"counted_cash": "200"}` on the Sales Manager's shift. Then the same as the **Firm admin**. On screen, as Field Sales: Sell > All Sell screens > Documents > Counter Shifts.
+- **Steps:** **(HTTP)** as the **Field Sales** user (who holds `SALES_INVOICE_CREATE` and not `SALES_APPROVE`): `POST /api/v1/counter-shifts/{id}/close` with `{"counted_cash": "200"}` on the Sales Manager's shift. Then the same as the **Firm admin**. On screen, as Field Sales: Sell > Documents > Counter Shifts.
 - **Expect:** Field Sales is refused (403): "Only the cashier who opened this shift, or somebody who may approve sales, can close it." The Firm admin, who may approve sales, closes it: "Shift closed." Field Sales can see the Counter Shifts list and print a shift report.
 - **Leaves:** a closed shift.
 
@@ -3468,7 +3467,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 8 (SG-8)
 - **Fixture:** `selling-firm`
 - **Also needs:** the masters above; an approved bill of 1,180.00 to `<SUFFIX>-C03` with nothing received; a second member of the firm (a **Counter Sales** user).
-- **Steps:** as the fixture's **Firm admin**: Masters > Customers → `<SUFFIX>-C03` → Edit → set **Collector** (its helper reads "Who chases the dues of this customer; the collection sheet groups by them") to the Counter Sales user → Save. Sell > All Sell screens > Money > **Collection Sheet**. Filter **Collector** to that user; tick **Overdue only**; untick it. **Print sheet**.
+- **Steps:** as the fixture's **Firm admin**: Masters > Customers → `<SUFFIX>-C03` → Edit → set **Collector** (its helper reads "Who chases the dues of this customer; the collection sheet groups by them") to the Counter Sales user → Save. Sell > Money > **Collection Sheet**. Filter **Collector** to that user; tick **Overdue only**; untick it. **Print sheet**.
 - **Expect:** the sheet lists every bill still owing: Collector, Customer, Phone, Bill, Bill date, Due, Days overdue, Outstanding **1,180.00**, and the promise columns blank. The bill is under the chosen collector; a customer with no collector is under its account manager, or nobody. *Overdue only* hides a bill not yet due. Print sheet saves a PDF: "The collection sheet was saved."
 - **Leaves:** a collector on the customer.
 
@@ -3477,7 +3476,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 8 (SG-8)
 - **Fixture:** `selling-firm`
 - **Also needs:** an approved bill of 1,180.00 to `<SUFFIX>-C03` with nothing received.
-- **Steps:** as the fixture's **Firm admin**: Collection Sheet → select the bill → **Record promise**. *Promised on* three days from today, Amount `1180` (offered), Note `will pay by NEFT` → **Save promise**. Sell > All Sell screens > Money > **Payment Promises**. Accounts > Journal Entries. Masters > Customers → the customer.
+- **Steps:** as the fixture's **Firm admin**: Collection Sheet → select the bill → **Record promise**. *Promised on* three days from today, Amount `1180` (offered), Note `will pay by NEFT` → **Save promise**. Sell > Money > **Payment Promises**. Accounts > Journal Entries. Masters > Customers → the customer.
 - **Expect:** "Promise recorded." The sheet's row now shows Promised on, Promised amount 1,180.00 and Promise status **Pending**. Payment Promises lists it: Customer, Bill, Promised on, Amount 1,180.00, Received 0.00, Status Pending, Recorded on today, Recorded by. **No journal** is written and the customer's Outstanding is still 1,180.00.
 - **Leaves:** a pending promise.
 
@@ -3522,7 +3521,7 @@ Counter Shifts and Customer Rebates are under Sell > All Sell screens > Document
 - **Covers:** backlog 87 row 8 (SG-8)
 - **Fixture:** `selling-firm`
 - **Also needs:** an unpaid approved bill; a **Counter Sales**, a **Read Only** and a **Field Sales** user in the firm.
-- **Steps:** as each user in turn: Sell > All Sell screens > Money → Collection Sheet and Payment Promises. **(HTTP)** as Read Only, `POST /api/v1/collections/promises`.
+- **Steps:** as each user in turn: Sell > Money → Collection Sheet and Payment Promises. **(HTTP)** as Read Only, `POST /api/v1/collections/promises`.
 - **Expect:** Counter Sales (who holds `RECEIPT_VIEW` and `RECEIPT_CREATE`) reads both and is offered **Record promise** and **Withdraw**. Read Only (`RECEIPT_VIEW` alone) reads both and is offered neither; the request is refused with 403. Field Sales, who holds neither code, is not offered the two screens.
 - **Leaves:** unchanged.
 
@@ -3537,7 +3536,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Covers:** backlog 87 row 9 (SG-9)
 - **Fixture:** `selling-firm`
 - **Also needs:** the masters above; a customer `<SUFFIX>-C05` *Rebate Buyer* with no other bills; one approved bill to it of 10 `<SUFFIX>-CTR` at 100 (1,000.00 before tax) dated in last month.
-- **Steps:** as the fixture's **Firm admin**: Sell > All Sell screens > Documents > **Customer Rebates** → New: **Customer** `<SUFFIX>-C05`, Code `TR-1`, Name `Turnover rebate`, period the first to the last day of last month, **Add slab** From turnover of `1000` Rebate % `1`, Add slab `5000` and `2` → save. Read the row. Approve a second bill to the customer, 40 `<SUFFIX>-CTR` at 100 dated in last month, and Refresh. Open **Statement**.
+- **Steps:** as the fixture's **Firm admin**: Sell > Documents > **Customer Rebates** → New: **Customer** `<SUFFIX>-C05`, Code `TR-1`, Name `Turnover rebate`, period the first to the last day of last month, **Add slab** From turnover of `1000` Rebate % `1`, Add slab `5000` and `2` → save. Read the row. Approve a second bill to the customer, 40 `<SUFFIX>-CTR` at 100 dated in last month, and Refresh. Open **Statement**.
 - **Expect:** "Rebate TR-1 saved." Status ACTIVE, Turnover **1,000.00**, Rate % **1**, Earned **10.00**, Next slab / To next 5,000 and **4,000.00**. After the second bill: Turnover **5,000.00**, Rate % **2**, Earned **100.00**, no next slab. The statement shows the turnover by kind of document (invoiced, returned, credit notes, debit notes) and "Nothing has been settled yet." A bill dated outside the period, a draft, and another customer's bill do not count. Nothing is posted by the agreement.
 - **Leaves:** an agreement and two bills (5,900.00 owed).
 
@@ -3555,7 +3554,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Covers:** backlog 87 row 9 (SG-9)
 - **Fixture:** `selling-firm`
 - **Also needs:** the accrued agreement `TR-1` of TC-SELL-081, built for this case (100.00 to settle; the customer owes 5,900.00 on two bills).
-- **Steps:** as the fixture's **Firm admin**: Customer Rebates → `TR-1` → **Settle against bills**: Amount to settle `60`, Reason `September turnover rebate`, type 60 against the first open bill → save. Accounts > All Accounts screens > Books > **Party Adjustments** → the new draft → **Approve**. Journal Entries; Masters > Customers; Customer Rebates → Statement. Then settle `50` more.
+- **Steps:** as the fixture's **Firm admin**: Customer Rebates → `TR-1` → **Settle against bills**: Amount to settle `60`, Reason `September turnover rebate`, type 60 against the first open bill → save. Accounts > Books > **Party Adjustments** → the new draft → **Approve**. Journal Entries; Masters > Customers; Customer Rebates → Statement. Then settle `50` more.
 - **Expect:** **Settle against bills** is on the toolbar because the Firm admin may manage party adjustments (`PARTY_ADJUSTMENT_MANAGE`); it is shown on that right alone, and is live only for an accrued agreement with something left to settle. The dialog says "… 100.00 left to settle. This drafts a party adjustment that credits the customer's account; it is approved in Party Adjustments." A draft posts nothing. Approving posts **Dr 2900 Customer Rebates Payable 60.00 / Cr 1100 Trade Receivables 60.00**, no tax; the customer's Outstanding falls by 60.00 and the first bill owes 60.00 less in Record Receipt. The agreement reads Settled 60.00, To settle **40.00**, and its statement lists the adjustment. 50 more is refused: "No more than 40.00 is left to settle." on the screen (the server says "The rebate has 40.00 still to settle, so … cannot be set against the customer's account."). A rebate is settled only this way: no credit note is raised and nothing reaches GSTR-1.
 - **Leaves:** an approved party adjustment of 60.00.
 
@@ -3591,7 +3590,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Covers:** backlog 87 row 9 (SG-9), known limits
 - **Fixture:** `selling-firm`
 - **Also needs:** an accrued agreement with something left to settle whose customer still owes money; an ACTIVE agreement, period over, whose customer sold less than the first slab; a **Sales Manager**, an **Accounts** and a **Read Only** user.
-- **Steps:** as **Read Only**: Customer Rebates. As the **Sales Manager**: create an agreement, select the accrued one and look for **Settle against bills**. **(HTTP)** as the Sales Manager, create a `CUSTOMER_REBATE` party adjustment naming the accrued agreement. As **Accounts**: look for Customer Rebates in the menu, then Accounts > All Accounts screens > Books > Party Adjustments. As the **Firm admin**: select the accrued agreement and look for **Settle against bills**; **Accrue** the agreement that reached no slab; Reports > Financial → **Customer rebate statement**.
+- **Steps:** as **Read Only**: Customer Rebates. As the **Sales Manager**: create an agreement, select the accrued one and look for **Settle against bills**. **(HTTP)** as the Sales Manager, create a `CUSTOMER_REBATE` party adjustment naming the accrued agreement. As **Accounts**: look for Customer Rebates in the menu, then Accounts > Books > Party Adjustments. As the **Firm admin**: select the accrued agreement and look for **Settle against bills**; **Accrue** the agreement that reached no slab; Reports > Financial → **Customer rebate statement**.
 - **Expect:** Read Only sees the list and the Statement and no New. The Sales Manager (who holds `SALES_APPROVE`) may agree, edit, accrue, reverse and cancel, and is **not offered Settle against bills**: the button is shown on `PARTY_ADJUSTMENT_MANAGE` alone, which is not in that role -- whoever promises a rebate does not move the customer's account. The HTTP request is refused all the same: "You do not have permission to perform this action." The Firm admin is offered the button; of the jobs a firm starts with, Firm Administrator and Firm Manager can settle from the screen. The Accounts job holds the code but cannot open Customer Rebates (it holds no right to view sales), so it settles nothing from that screen; it sees the drafted adjustments under Party Adjustments. Nothing earned is not accrued: "Sales of … reached no slab, so there is nothing to accrue. Cancel the agreement instead." The report lists each agreement with Turnover, Rate %, Earned, Accrued, Settled and Balance. Known limits: a rebate carries no GST and raises no credit note (the *Agreed before the sale* tick is kept for the firm's CA); it accrues once, after the period ends, and is settled only by party adjustment.
 - **Leaves:** one more agreement.
 
@@ -3686,7 +3685,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Covers:** D-SELL-80, D-SELL-84 (SELLQ-30, SELLQ-34); the returns-before-billing flavours of round 3
 - **Fixture:** `selling-firm`
 - **Also needs:** the masters above; the Sales order and Delivery note stages **on**; a GST number on the firm for the GSTR-1 step. For `<SUFFIX>-C03`, all of `<SUFFIX>-CTR` at 100, Discount % `0`: (A) an order of 10, delivered and **billed** (1,180.00, approved); (B) an order of 4, delivered, with **3** billed (354.00, approved); (C) an order of 5, delivered and **never billed**.
-- **Steps:** as the fixture's **Firm admin**: Sell > Returns & notes > Sales Returns → New Return: (1) against bill A, quantity **2** → Create draft → Approve → Complete. (2) against **delivery note** B, quantity **2** → Create draft → Approve → Complete. (3) against delivery note C, quantity **5** → Create draft; read Reports > Operational → **Sales return register** and the returns summary; then Approve → Complete and read them again. Then Reports > Financial → **GST sales register**; Masters > Customers; Sell > Sales Invoices → New Invoice → *Bill this delivery note*; GST Returns → GSTR-1.
+- **Steps:** as the fixture's **Firm admin**: Sell > Sales Returns → New Return: (1) against bill A, quantity **2** → Create draft → Approve → Complete. (2) against **delivery note** B, quantity **2** → Create draft → Approve → Complete. (3) against delivery note C, quantity **5** → Create draft; read Reports > Operational → **Sales return register** and the returns summary; then Approve → Complete and read them again. Then Reports > Financial → **GST sales register**; Masters > Customers; Sell > Sales Invoices → New Invoice → *Bill this delivery note*; GST Returns → GSTR-1.
 - **Expect:** (1) credited **236.00**: Dr 4100 Sales Returns 200.00 / Dr 2220 Output CGST 18.00 / Dr 2230 Output SGST 18.00 / Cr 1100 Trade Receivables 236.00, and the cost entry. (2) the unbilled unit is taken first: unbilled quantity **1**, credited **118.00** for the one billed unit, cost entered for both; the return names bill B under *Against invoice*. (3) cost entry only: unbilled quantity **5**, credited **0.00**, no `SR-…` credit journal, and the customer's Outstanding does not move. While return C is a draft it adds its stated total, 590.00, to **pending return value** and nothing to **total return value**; completed, it leaves pending and adds nothing. With all three completed, total return value is **354.00**, equal to the register's credited total. The GST sales register has rows of -200.00 and -100.00 taxable and **no** row for C; GSTR-1 CDNR lists the same two, each against its bill. Delivery note C has nothing left to bill, and note B's left-to-bill is down by the unbilled unit returned. Header charges or rounding on a return that credited nothing add 0 to the summary.
 - **Leaves:** three completed returns.
 
@@ -3776,7 +3775,7 @@ commission uses `commission-firm`:
 
 - **Covers:** plan 10.12, 10.13
 - **Fixture:** `commission-firm`
-- **Steps:** as the fixture's **Firm admin**, Sell > All Sell screens > Incentives > **Commission** → **Collected** view, from `2026-04-01` to the end of this month → **Show**. Then Sell > All Sell screens > Incentives > **Targets** → **Achievement** for this month.
+- **Steps:** as the fixture's **Firm admin**, Sell > Incentives > **Commission** → **Collected** view, from `2026-04-01` to the end of this month → **Show**. Then Sell > Incentives > **Targets** → **Achievement** for this month.
 - **Expect**
   - **Asha**: collected **5,900.00**, commission **495.60** — 15% of 2,360 on `-P` plus 4% of 3,540 on everything else: **8.4%**, neither of the two rates that govern her. Target **Met**.
   - **Bala**: collected **4,720.00**, commission **94.40** — exactly **2.00%**, the bottom band; above the 1,000 floor; target **Missed**, so no bonus.
@@ -3848,7 +3847,7 @@ commission uses `commission-firm`:
 - **Covers:** backlog SEL-11, A128
 - **Fixture:** `selling-invoiced`
 - **Also needs:** a principal (Settings > Set up > Item lists > Principals) and a brand under it on `<SUFFIX>-DET`; a promotion the principal funds (principal and **share %** on the promotion editor) that was claimed on an approved bill; an expiry write-off of a DET batch; a sales return of DET completed with damaged goods. A vendor to be the principal's supplier account.
-- **Steps:** as the fixture's **Firm admin**: Buy > All Buy screens > Money > **Principal Claims** → New → pick the principal and the period → Preview. Raise the claim. Raise it again for the same period. Then record the principal's **credit note** (Accounts > All Accounts screens > Books > Party Adjustments, kind *Principal claim*) against it, and a payment into the bank for the rest. Reverse one receipt. Cancel the claim in a second run and raise it again. Print.
+- **Steps:** as the fixture's **Firm admin**: Buy > Money > **Principal Claims** → New → pick the principal and the period → Preview. Raise the claim. Raise it again for the same period. Then record the principal's **credit note** (Accounts > Books > Party Adjustments, kind *Principal claim*) against it, and a payment into the bank for the rest. Reverse one receipt. Cancel the claim in a second run and raise it again. Print.
 - **Expect:** the preview gathers each source **once**: scheme redemptions (at the principal's share of the benefit), expiry write-offs of its products (at book value) and damaged or scrapped lines of completed sales returns (at the taxable rate credited). Raising posts Dr *Claims Receivable from Principals* and Cr promotional expense (schemes) or inventory adjustment (stock). A second claim over the same sources is refused or empty (one live claim per source). Settlement by credit note and by bank payment moves the status RAISED → PART_SETTLED → SETTLED; reversing a receipt moves it back. Cancelling frees the sources to be claimed again. Reading needs PURCHASE_VIEW, writing PURCHASE_APPROVE. Free quantity on a bill line is not claimed yet.
 - **Leaves:** a claim and its postings.
 
@@ -3890,7 +3889,7 @@ admin**.
 
 - **Covers:** plan 11.3
 - **Fixture:** `territory-firm`
-- **Steps:** Sell > All Sell screens > Field sales > **Call Lists**. Move to **Monday 2026-09-21** (› Next day or the date button), Salesperson Everyone. Then **Back to today**.
+- **Steps:** Sell > Field sales > **Call Lists**. Move to **Monday 2026-09-21** (› Next day or the date button), Salesperson Everyone. Then **Back to today**.
 - **Expect:** the date button reads "Monday 2026-09-21"; the status bar "1 of 9 plan(s) run on Monday 2026-09-21". `-BP-R1-MON` is badged **Runs on Monday** and calls Revise Check then Classic Stores (the route's round, in order). Every other plan is **Not on Monday** with its reason — e.g. `-BP-R1-FRI` "Runs on Fridays; this is a Monday."
 - **Data (HTTP):** `GET /api/v1/sales-territories/call-lists?date=2026-09-21` → nine `entries`, one with `occurs: true`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §17.6 and §17.7 — a call list is computed from `sales_beat_plans`, the route profile's window and working days and `territory_customer_assignments`, and **writes nothing**.
 - **Leaves:** unchanged.
@@ -3990,7 +3989,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 
 - **Covers:** plan 12.4
 - **Fixture:** `compliance-firm`
-- **Steps:** Accounts > All Accounts screens > Tax filing > **E-Invoice**.
+- **Steps:** Accounts > Tax filing > **E-Invoice**.
 - **Expect:** a banner, "References marked sandbox are a rehearsal: nothing was filed with the tax authority..."; columns Invoice, Customer, Reference, E-way bill; **two** rows (A and B), each Reference an `SBX…` value (hover for `SBX… (sandbox — nothing filed)`), E-way bill —. If anything reads LIVE, stop.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.8 — two `einvoice_registrations` rows, `mode` SANDBOX, `status` REGISTERED, `irn` and `acknowledgement_number` beginning `SBX`, `attempts` 1, the payload in `request_payload`, one `einvoice.registered` audit row each; no `eway_bills` row yet.
 - **Leaves:** unchanged.
@@ -4023,7 +4022,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 
 - **Covers:** plan 12.7, 12.8
 - **Fixture:** `selling-paid`
-- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS**; open **Settings** (close without saving). Accounts > Journal Entries → search `TCS-RC`.
+- **Steps:** as the fixture's **Firm admin**, Accounts > Tax filing > **TCS**; open **Settings** (close without saving). Accounts > Journal Entries → search `TCS-RC`.
 - **Expect**
   - The register is **empty**: both receipts are dated after 1 April 2025, when the Finance Act 2025 omitted section 206C(1H), so neither was charged. *(Checked on 2026-10-05: `tcs_collections` holds no row for the two receipts and the ledger has no 2500 TCS Payable line.)*
   - Settings still read as the firm keyed them: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0. Switching it on does not bring the tax back.
@@ -4049,7 +4048,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (decision A42).*
 
 - **Preconditions:** a GST-registered firm with two approved B2B invoices to registered buyers, not yet registered.
-- **Steps:** Settings > Tax > **GST Documents** → *E-invoice filing* → **Offline** → Save. Accounts > All Accounts screens > Tax filing > E-Invoice → **Export for portal** → tick both → save the JSON file. Open it. Then **Import portal result** with a JSON file shaped like the portal's answer (for each invoice: `DocDtls.No` the invoice number, `Irn`, `AckNo`, `AckDt`, `SignedQRCode`; give the second invoice no `Irn` and an `ErrorDetails` text). Then try **Register** on a third approved invoice.
+- **Steps:** Settings > Tax > **GST Documents** → *E-invoice filing* → **Offline** → Save. Accounts > Tax filing > E-Invoice → **Export for portal** → tick both → save the JSON file. Open it. Then **Import portal result** with a JSON file shaped like the portal's answer (for each invoice: `DocDtls.No` the invoice number, `Irn`, `AckNo`, `AckDt`, `SignedQRCode`; give the second invoice no `Irn` and an `ErrorDetails` text). Then try **Register** on a third approved invoice.
 - **Expect:** the export holds one object per invoice in the portal's schema (`Version`, `TranDtls`, `DocDtls`, `SellerDtls`, `BuyerDtls`, `ItemList`, `ValDtls`), and both invoices show **PENDING**, mode **LIVE**, route **OFFLINE**. After the import the first is **REGISTERED** with that IRN and acknowledgement, the second **FAILED** with the error text, and the message counts 1 registered, 1 refused. Register on the third comes back refused with directions to export it instead.
 
 ### TC-COMP-010 — E-way bills without an IRN, on a challan, and by hand
@@ -4057,7 +4056,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 rows 9-10).*
 
 - **Preconditions:** a firm with no *e-invoicing applies* date; Settings > Tax > GST Documents → *E-way bill needed above* **1,000**. An approved invoice worth more than 1,000 without an e-way bill; an approved **Job work** delivery note that no invoice bills; a second approved invoice.
-- **Steps:** Accounts > All Accounts screens > Tax filing > E-Invoice → **E-way bills due**. Raise the first invoice's e-way bill (distance 120, road, a vehicle). Raise the job-work note's. On the second invoice choose **Record e-way bill...**: number `3510 1234 5678`. Then set an *e-invoicing applies* date in the past and try to raise an e-way bill on a new, unregistered B2B invoice. Dispatch a delivery note worth more than 1,000.
+- **Steps:** Accounts > Tax filing > E-Invoice → **E-way bills due**. Raise the first invoice's e-way bill (distance 120, road, a vehicle). Raise the job-work note's. On the second invoice choose **Record e-way bill...**: number `3510 1234 5678`. Then set an *e-invoicing applies* date in the past and try to raise an e-way bill on a new, unregistered B2B invoice. Dispatch a delivery note worth more than 1,000.
 - **Expect:** the due list shows the invoices and the note with the limit 1,000. The first invoice's bill is raised without an IRN; the note's bill carries supply type **Job work**; the recorded one shows `351012345678`, marked as entered by hand. Each leaves the due list. With e-invoicing on, the unregistered invoice is refused: "Register the invoice before raising its e-way bill". Dispatching the note prompts to raise its e-way bill.
 
 ### TC-COMP-011 — Registering a credit note and a debit note
@@ -4065,7 +4064,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 row 4).*
 
 - **Preconditions:** a GST-registered firm on the **Sandbox** route; an approved, registered B2B invoice of 1,000 + 18% GST; an approved credit note of 200 + 36 against it, and an approved debit note to the customer of 100 + 18.
-- **Steps:** Sell > Returns & notes > Credit Notes → the note → **E-invoice** → **Register**. The same on the debit note. Accounts > All Accounts screens > Tax filing > E-Invoice: look at the list. Switch the firm to **Offline**, raise another credit note, and **Export for portal** with an invoice and that note ticked; open the file.
+- **Steps:** Sell > Credit Notes → the note → **E-invoice** → **Register**. The same on the debit note. Accounts > Tax filing > E-Invoice: look at the list. Switch the firm to **Offline**, raise another credit note, and **Export for portal** with an invoice and that note ticked; open the file.
 - **Expect:** each note registers with an `SBX` IRN and shows mode **SANDBOX**; the list shows them as *Credit note* and *Debit note* with their own numbers. The exported file holds the invoice (`Typ` INV) and the note (`Typ` CRN) whose `RefDtls` names the invoice it corrects, CGST and SGST each 18.00 on the 200.
 ---
 
@@ -4082,7 +4081,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 78 row 4).*
 
 - **Preconditions:** an approved supplier bill of 400 + 18% local GST (CGST 36, SGST 36) dated more than 180 days ago, nothing paid; Settings > Tax > GST Documents, *180-day unpaid bills* on **Report and post**.
-- **Steps:** Accounts > All Accounts screens > Tax filing > Rule 37 (180 days), as of today. **Post reversals and reclaims.** Open the trial balance and GSTR-3B for this month. Pay the bill in full. Back to Rule 37, post again; GSTR-3B for that month.
+- **Steps:** Accounts > Tax filing > Rule 37 (180 days), as of today. **Post reversals and reclaims.** Open the trial balance and GSTR-3B for this month. Pay the bill in full. Back to Rule 37, post again; GSTR-3B for that month.
 - **Expect:** the bill is listed to REVERSE CGST 36 and SGST 36. After posting the list is empty, input tax is down 72 and *Input Tax Not Claimable* up 72, and 3B shows 72 in 4(B)(2), "of which rule 37" 72. After payment the bill is listed to RECLAIM 72; once posted the books are back, and that month's 3B shows the 72 in 4(A)(5) and in 4(D)(1). With the setting on **Report only**, the list shows but posting is refused with the reason.
 
 ### TC-COMP-014 — The supplier's IRN on a bill
@@ -4106,7 +4105,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 row 6, decision A43).*
 
 - **Preconditions:** a GST-registered firm on the **Sandbox** route with *E-invoicing applies from* set to a day in the past (Settings > Tax > GST Documents). An approved invoice dated on or after that day to a buyer **with** a GSTIN, not registered; an approved invoice to a buyer **without** a GSTIN; an approved credit note against the first invoice, not registered. Messaging switched on with an email channel that can send.
-- **Steps:** (a) Sell > Sales Invoices → the B2B invoice → **Print**. Read the dialog, choose **Cancel**; Print again and choose **Print reference copy**. (b) **Send** it by email. (c) Print the consumer's invoice. (d) Print the credit note. (e) Accounts > All Accounts screens > Tax filing > E-Invoice → register the B2B invoice, then Print and Send it again.
+- **Steps:** (a) Sell > Sales Invoices → the B2B invoice → **Print**. Read the dialog, choose **Cancel**; Print again and choose **Print reference copy**. (b) **Send** it by email. (c) Print the consumer's invoice. (d) Print the credit note. (e) Accounts > Tax filing > E-Invoice → register the B2B invoice, then Print and Send it again.
 - **Expect:** (a) a *No IRN yet* dialog: "<number> has no IRN yet. The firm e-invoices from <date> and the buyer is registered for GST, so it is not a valid tax invoice until it is registered on the portal (CGST rule 48(4)). Register it under E-invoice first, or print a reference copy marked not valid." Cancel prints nothing; the reference copy prints with **NO IRN YET - NOT A VALID TAX INVOICE** across its top. (b) the email is refused with the same sentence. (c) the consumer's bill prints as before, with no dialog. (d) the credit note is refused the same way, naming its own number. (e) once registered the invoice prints with its IRN box and no banner, and the email is accepted. A WhatsApp or SMS send is never held.
 
 ### TC-COMP-017 — The automatic invoice email waits for the IRN
@@ -4114,7 +4113,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 row 6, decision A43).*
 
 - **Preconditions:** TC-COMP-016's firm; Settings > Firm > Messaging → *Events*: *Invoice approved* on, by email; a B2B customer with an email address.
-- **Steps:** Approve a new invoice to that customer. After the next messaging pass, Settings > Firm > Messaging → **Message log**. Then Accounts > All Accounts screens > Tax filing > E-Invoice → register the invoice; wait at least five minutes and look at the log again.
+- **Steps:** Approve a new invoice to that customer. After the next messaging pass, Settings > Firm > Messaging → **Message log**. Then Accounts > Tax filing > E-Invoice → register the invoice; wait at least five minutes and look at the log again.
 - **Expect:** the row stays **Queued** with the Reason "Waiting for <number>'s IRN: it goes out on the first pass after the invoice is registered on the portal." Nothing is sent and Tries does not climb. After registration the row is sent on the next pass (looked at again every 5 minutes) with the registered invoice attached -- one email, not two. Other queued messages keep going out while it waits.
 
 ### TC-COMP-018 — The 30-day limit and the To register list
@@ -4122,7 +4121,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (backlog 77 row 7, decision A44).*
 
 - **Preconditions:** TC-COMP-016's firm, *30-day reporting limit applies from* set to a day in the past (not before the e-invoicing date). Three approved B2B invoices, not registered: one dated 35 days ago, one dated 27 days ago, one dated today.
-- **Steps:** Accounts > All Accounts screens > Tax filing > E-Invoice → **To register**. Choose **Register** on the 27-day-old invoice. Try to register the 35-day-old one from **Register an invoice** (and, on the Offline route, by **Export for portal**). Clear the *30-day reporting limit* date, Save, and open **To register** again.
+- **Steps:** Accounts > Tax filing > E-Invoice → **To register**. Choose **Register** on the 27-day-old invoice. Try to register the 35-day-old one from **Register an invoice** (and, on the Offline route, by **Export for portal**). Clear the *30-day reporting limit* date, Save, and open **To register** again.
 - **Expect:** the list shows every approved B2B document without an IRN, oldest first, with Document, Number, Date, Customer, Amount, **Last day** (date + 30), **Days left** and Status: the 35-day-old one **Late**, with no Register button and the note "A late document cannot be registered: cancel it and raise it again under today's date."; the 27-day-old one "3 days left" (due soon, within 5 days); today's **Open**. Register on the 27-day-old one registers it and it leaves the list. Registering or exporting the late one is refused: "<number> is dated <date>; the last day to register it was <date>. The IRP refuses a document more than 30 days old ... Cancel it and raise it again under today's date." With the date cleared the list still shows the pending documents, says "The 30-day limit does not apply to this firm (Settings > Tax > GST Documents).", and has no Last day or Days left columns.
 
 ### TC-COMP-019 — A sales return's credit note on the IRP
@@ -4130,7 +4129,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 *Added 2026-10-02 (D-TAX-2, decision A45).*
 
 - **Preconditions:** TC-COMP-016's firm on the **Sandbox** route. A B2B customer with two approved invoices for the same product; a sales return of goods from **both** invoices, completed; a second completed return of goods that were only delivered, never invoiced.
-- **Steps:** Sell > Returns & notes > Sales Returns → the first return → **Print credit note**. Accounts > All Accounts screens > Tax filing > E-Invoice → **To register**: find it and **Register**. Print its credit note again. Switch to **Offline**, raise and complete another return of billed goods, **Export for portal** with it ticked, and open the file. Look for the second return in **To register**.
+- **Steps:** Sell > Sales Returns → the first return → **Print credit note**. Accounts > Tax filing > E-Invoice → **To register**: find it and **Register**. Print its credit note again. Switch to **Offline**, raise and complete another return of billed goods, **Export for portal** with it ticked, and open the file. Look for the second return in **To register**.
 - **Expect:** before registration the credit note print is refused with the no-IRN sentence and offers a reference copy. The return is listed as **Sales return**; it registers with an `SBX` IRN, and its credit note then prints with the E-INVOICE box. The exported entry is a `CRN` whose `RefDtls` names **each** invoice it returns goods from. The return of goods never invoiced is not listed and is never registered ("... returns goods no invoice billed, so it credits no tax invoice and is not registered.").
 
 ### TC-COMP-020 — The 30 November limits and 16-character document numbers
@@ -4151,7 +4150,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Covers:** backlog GST-5, A82
 - **Fixture:** `compliance-firm`
 - **Also needs:** an invoice to a buyer whose GSTIN has a wrong check character; a product with no HSN; an approved invoice to a registered buyer for a firm that e-invoices but with no IRN; a credit note dated late; a credit note on a cancelled invoice; a supplier bill with a bad GSTIN.
-- **Steps:** as the fixture's **Firm admin**: Accounts > All Accounts screens > Tax filing > **GST checks** → choose the month → Run. Read each finding. Click a row. Fix one problem and run again. As a role without SALES_VIEW open the screen.
+- **Steps:** as the fixture's **Firm admin**: Accounts > Tax filing > **GST checks** → choose the month → Run. Read each finding. Click a row. Fix one problem and run again. As a role without SALES_VIEW open the screen.
 - **Expect:** findings are named by code and each row names its document (type, number, date, party): GSTIN_INVALID (the firm's own, a buyer's on invoices and notes, a supplier's on bills as a **warning**), HSN_MISSING and HSN_SHORT (six digits once the firm e-invoices, four below), PLACE_OF_SUPPLY_MISSING, IRN_MISSING, CREDIT_NOTE_LATE (after 30 November following the supply's year) and CREDIT_NOTE_ON_CANCELLED_INVOICE. The checks read the same invoices GSTR-1 declares. *Open document* is disabled (the desktop cannot open a sales invoice by id yet). After fixing, the finding is gone on the next run. Needs SALES_VIEW.
 - **Leaves:** unchanged.
 
@@ -4172,7 +4171,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 
 - **Covers:** backlog GST-7, A83
 - **Fixture:** `compliance-firm`
-- **Steps:** as the fixture's **Firm admin**: Settings > Tax > **GST Documents** → **Return filing**: frequency *Quarterly*, from a quarter's start, payment method *fixed sum* (then *self-assessed*). Accounts > All Accounts screens > Tax filing > **PMT-06 deposits** → take the suggested amount → record the deposit; reverse it. Open **GST Returns**: the quarterly GSTR-1 and the **IFF** view for month 1 or 2; Mark filed the IFF. Home → Tax calendar. Then GST Payment for a quarter and for month 1.
+- **Steps:** as the fixture's **Firm admin**: Settings > Tax > **GST Documents** → **Return filing**: frequency *Quarterly*, from a quarter's start, payment method *fixed sum* (then *self-assessed*). Accounts > Tax filing > **PMT-06 deposits** → take the suggested amount → record the deposit; reverse it. Open **GST Returns**: the quarterly GSTR-1 and the **IFF** view for month 1 or 2; Mark filed the IFF. Home → Tax calendar. Then GST Payment for a quarter and for month 1.
 - **Expect:** the filing plan says which months are quarterly, the period each month files under and every due date (3B on the 22nd or 24th by the GSTIN's state). The calendar shows IFF (optional) and PMT-06 for months 1-2 and the quarter's GSTR-1 and 3B. A deposit is Dr *GST Electronic Cash Ledger* / Cr bank, reversible while the quarter is unsettled. The quarterly GSTR-1 leaves out what a filed IFF already furnished. GST payment spans the quarter, refuses months 1-2, and pays from the cash-ledger deposits before the bank. A cancellation's "after the return was due" reads the quarterly date too.
 - **Leaves:** deposits, filings.
 
@@ -4183,7 +4182,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Covers:** backlog GST-4, A84
 - **Fixture:** `compliance-firm`
 - **Also needs:** taxable and exempt sales and eligible input credit in the month and later months of the year.
-- **Steps:** as the fixture's **Firm admin**: Settings > Tax > **GST Documents** → *Rule 42 mode* on. Accounts > All Accounts screens > Tax filing > **Rule 42** → the month → work out; post. Open GSTR-3B. Run the annual true-up and post it; reverse a posting.
+- **Steps:** as the fixture's **Firm admin**: Settings > Tax > **GST Documents** → *Rule 42 mode* on. Accounts > Tax filing > **Rule 42** → the month → work out; post. Open GSTR-3B. Run the annual true-up and post it; reverse a posting.
 - **Expect:** per period the reversal is D1 = C2 × E / F from GSTR-3B's own figures (every eligible credit taken as common), posting Dr *Input Tax Not Claimable* / Cr input tax; the year's true-up is summed month by month against what was posted and a true-up reclaim posts the mirror. GSTR-3B carries *itc reversed rule 42* (4(B)(1)) and *itc reclaimed rule 42* (4(A)(5)) in net ITC. Reversing a posting undoes it. Rule 43 (capital goods) and credit used only for taxable or only for exempt supplies are not done.
 - **Leaves:** reversal journals.
 
@@ -4224,7 +4223,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 
 - **Covers:** plan 13.1
 - **Fixture:** `ready-firm`
-- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Books > **Chart of Accounts** → **New**: group chip **REV** first, code `9999`, name `Manual test account`, type EXPENSE → Save. Then group **EXP · Direct Expenses** → Save. Select it → **Edit**.
+- **Steps:** as the fixture's **Firm admin**, Accounts > Books > **Chart of Accounts** → **New**: group chip **REV** first, code `9999`, name `Manual test account`, type EXPENSE → Save. Then group **EXP · Direct Expenses** → Save. Select it → **Edit**.
 - **Expect:** with REV: "A ledger account must share its group's account type." With EXP: the row appears (Code, Account, Type, Status). No Delete on the toolbar. On Edit, group, type and code are fixed; only Name, Description, the two "Requires a …" boxes and **Active** change.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.3, in schema `fx_<suffix>_r` — one `ledger_accounts` row (9999, EXPENSE, group EXP, `is_profit_loss` true) and audit `finance.ledger_account.created`; the refused REV save writes nothing. An Edit writes `finance.ledger_account.updated` recording only name and active flag (D-FIN-13). The fresh chart is §12.1.
 - **Leaves:** account 9999 in the fixture's store.
@@ -4353,7 +4352,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Covers:** backlog ACC-2, A80
 - **Fixture:** `selling-invoiced`
 - **Also needs:** a bank account; the invoice of 483.21 for Vijaya; a supplier bill for the issued side.
-- **Steps:** as the fixture's **Firm admin**: Sell > All Sell screens > Money > **Post-dated Cheques** → New: Vijaya, 483.21, cheque number, cheque date a week ahead → Save (held). Try **Deposit** today. Filter *due today*. On the cheque date **Deposit**; then **Clear**. Take a second cheque, deposit it and **Bounce** it with charges 100. Cancel a third while held. Then Buy > All Buy screens > Money > **Post-dated Cheques** → issue one to a supplier and run through hold and deposit.
+- **Steps:** as the fixture's **Firm admin**: Sell > Money > **Post-dated Cheques** → New: Vijaya, 483.21, cheque number, cheque date a week ahead → Save (held). Try **Deposit** today. Filter *due today*. On the cheque date **Deposit**; then **Clear**. Take a second cheque, deposit it and **Bounce** it with charges 100. Cancel a third while held. Then Buy > Money > **Post-dated Cheques** → issue one to a supplier and run through hold and deposit.
 - **Expect:** holding posts nothing; deposit records the receipt (payment on the issued side) through the settlement service, mode Cheque, and is **not allowed before the cheque's date**; clearing posts nothing. A bounce reverses the settlement on the day returned and posts the return charges (Dr bank charges / Cr bank, and Dr receivable / Cr cheque-return charges on the customer's account); a cheque can be cancelled while held. The received side needs the receipt grants and the issued side the payment grants.
 - **Leaves:** cheques, receipts, a bounce journal.
 
@@ -4374,7 +4373,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Covers:** backlog ACC-4 (A81), ACC-12 (A66)
 - **Fixture:** `selling-invoiced`
 - **Also needs:** a bank ledger account; a payment to a supplier by cheque; a cashier user (PAYMENT_CREATE) and an accountant (ACCOUNT_VIEW only); a sheet of paper or the PDF preview.
-- **Steps:** as the fixture's **Firm admin**: Accounts > All Accounts screens > Tax filing > **Bank Details** → the bank account → name, number, IFSC, branch, UPI ID; mark **print on documents**; try marking a second account. Print an invoice and a quotation. As the accountant open the screen. Then Buy > **Payments** → the cheque payment → **Cheque layout** → adjust the offsets → **Test print**; **Print cheque** with a payee override. Try a cash payment, a bank-transfer payment and a reversed one.
+- **Steps:** as the fixture's **Firm admin**: Accounts > Tax filing > **Bank Details** → the bank account → name, number, IFSC, branch, UPI ID; mark **print on documents**; try marking a second account. Print an invoice and a quotation. As the accountant open the screen. Then Buy > **Payments** → the cheque payment → **Cheque layout** → adjust the offsets → **Test print**; **Print cheque** with a payee override. Try a cash payment, a bank-transfer payment and a reversed one.
 - **Expect:** one set of details per bank ledger account (asset accounts only) and at most one marked to print: its details fill an empty bank block, and an empty UPI ID, on every print that has one (text typed on a template still wins). The full number is shown to ACCOUNT_MANAGE or PAYMENT_CREATE; everybody else reads the last four; the audit entry masks it. The cheque leaf is a CTS-2010 layout — date boxes, payee, amount in words on two lines, `**12,34,567.00/-`, A/c Payee crossing — moved by the bank account's offsets and dated on the cheque's own date; cash, non-cheque and reversed payments are refused.
 - **Leaves:** bank details, a cheque layout.
 
@@ -4396,7 +4395,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Covers:** backlog ACC-7 (A79), ACC-8 (A78)
 - **Fixture:** `po-invoiced`
 - **Also needs:** payments with TDS deducted (194C or similar) and expense postings with TDS; a supplier whose approved bills this year exceed 50 lakh (or lower the threshold in the settings); the supplier's PAN.
-- **Steps:** as the fixture's **Firm admin**: Masters > Vendors → the supplier → *Usual TDS section* 194C. Buy > Payments → Record Payment and look at the section. Accounts > All Accounts screens > Tax filing > **TDS Challans** → *Open deductions* → New: select one section's deductions, enter BSR code, challan serial, date, interest and fees → Save. Create a second challan with the same CIN. Cancel the first. Open the TDS return and *Challans due*. Then Settings > Tax > **TDS on Purchases (194Q)** → switch on, threshold 50 lakh, 0.1%, 5% without PAN → Save. Open Record Payment for the over-threshold supplier. Reports > Financial → 194Q register.
+- **Steps:** as the fixture's **Firm admin**: Masters > Vendors → the supplier → *Usual TDS section* 194C. Buy > Payments → Record Payment and look at the section. Accounts > Tax filing > **TDS Challans** → *Open deductions* → New: select one section's deductions, enter BSR code, challan serial, date, interest and fees → Save. Create a second challan with the same CIN. Cancel the first. Open the TDS return and *Challans due*. Then Settings > Tax > **TDS on Purchases (194Q)** → switch on, threshold 50 lakh, 0.1%, 5% without PAN → Save. Open Record Payment for the over-threshold supplier. Reports > Financial → 194Q register.
 - **Expect:** the payment prefills the supplier's usual section. The challan carries one section; its tax is the sum of the deductions chosen; one live challan per CIN; it posts Dr TDS payable, Dr TDS interest and fees, Cr bank. Cancelling posts a mirror journal and frees the deductions. The TDS return fills each deductee row's challan serial, BSR code and date, and *Challans due* shows deposited and still to deposit. The 194Q figure is the rate on the **excess** over the threshold of the supplier's approved bills without GST in the April-March year, less 194Q already deducted on posted payments; the payment prefills section and amount and never overwrites a figure you typed.
 - **Leaves:** challans, settings.
 
@@ -4406,7 +4405,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 
 - **Covers:** backlog ACC-9, A87
 - **Fixture:** `selling-paid`
-- **Steps:** as the fixture's **Firm admin**: Accounts > All Accounts screens > Statements > **Cash Flow** → choose the period range; compare with Profit & Loss and Balance Sheet for the same periods. As a role without PROFIT_LOSS_VIEW open it.
+- **Steps:** as the fixture's **Firm admin**: Accounts > Statements > **Cash Flow** → choose the period range; compare with Profit & Loss and Balance Sheet for the same periods. As a role without PROFIT_LOSS_VIEW open it.
 - **Expect:** sections are built from the account groups — current assets and liabilities are operating, other assets investing, other liabilities and equity financing; cash is the cash and bank accounts. The statement shows opening and closing cash and says whether it **reconciles** (the movement equals the change in cash). Needs PROFIT_LOSS_VIEW.
 - **Leaves:** unchanged.
 
@@ -4428,7 +4427,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Covers:** backlog MSG-5, A135
 - **Fixture:** `selling-paid`
 - **Also needs:** TallyPrime to import into (the build notes say a CA should import a sample before release).
-- **Steps:** as the fixture's **Firm admin**: Accounts > All Accounts screens > Books > **Export to Tally** → the mappings: give two accounts their Tally names and groups → Save. Choose the dates → **Export**. Open the XML; import it into a Tally company.
+- **Steps:** as the fixture's **Firm admin**: Accounts > Books > **Export to Tally** → the mappings: give two accounts their Tally names and groups → Save. Choose the dates → **Export**. Open the XML; import it into a Tally company.
 - **Expect:** every posted journal of the period is one voucher typed by its source (Sales, Purchase, Credit Note, Debit Note, Contra, Receipt or Payment for settlements, otherwise Journal). Lines on the receivable or payable control accounts name the party of the document, so the masters carry a ledger per customer and supplier under Sundry Debtors/Creditors with its GSTIN; other accounts go out under their mapped name and group (or their own name in the group their purpose suggests). GST travels as the tax ledgers. Tally accepts the file and its trial balance agrees with the platform's.
 - **Leaves:** ledger mappings.
 
@@ -4439,7 +4438,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Covers:** backlog PLT-1, A131
 - **Fixture:** `selling-firm`
 - **Also needs:** three users: a **Sales** user, a **Sales manager** and the **Firm admin**.
-- **Steps:** as the **Firm admin**: Settings > Firm > **Approval Levels** → New rule: document type *Sales order*, level 1 from 0 role Sales Manager; level 2 from 10,000 role Firm Administrator. Save. As the **Sales** user raise an order of 20,000 and a small one of 500. As the **Sales manager**: Sell > All Sell screens > Documents > **Approvals** → pending → **Sign off** the big order; try **Approve** on the order itself. As the administrator open Approvals and **Sign off** level 2. Raise another and **Reject** with a reason; reject two at once (bulk). Also try an order of 500 and a purchase order. Home bell.
+- **Steps:** as the **Firm admin**: Settings > Firm > **Approval Levels** → New rule: document type *Sales order*, level 1 from 0 role Sales Manager; level 2 from 10,000 role Firm Administrator. Save. As the **Sales** user raise an order of 20,000 and a small one of 500. As the **Sales manager**: Sell > Documents > **Approvals** → pending → **Sign off** the big order; try **Approve** on the order itself. As the administrator open Approvals and **Sign off** level 2. Raise another and **Reject** with a reason; reject two at once (bulk). Also try an order of 500 and a purchase order. Home bell.
 - **Expect:** with no rule for the total nothing changes. Otherwise levels are signed in order, one level per person, and Approve goes through only when the approver can sign the last open level; anyone else is refused naming the level and roles. *Sign off* records the next level and the **last** sign-off approves the document through its own service (if the module refuses, the signature stays). A sign-off counts while the total is no more than it was signed at. *Reject* needs a reason, clears the sign-offs and returns a submitted purchase order to draft; bulk reject is per row. An order the chain raised itself is not gated. Platform administrators are not limited. The bell shows *Documents awaiting the next sign-off*. Applies to sales orders, sales invoices, purchase orders and purchase invoices.
 - **Leaves:** rules, sign-offs, approved or rejected orders.
 
@@ -4461,7 +4460,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Covers:** backlog RPT-1 (A121), RPT-2 (A122)
 - **Fixture:** `selling-paid`
 - **Also needs:** orders and invoices in the same period of the previous year (back-dated), a user with PRODUCT_VIEW_COST_PRICE and one without.
-- **Steps:** as the fixture's **Firm admin**: Sell > All Sell screens > Insight > **Sales Analysis** → basis *Ordered* then *Invoiced*; switch on **Compare with last year**; read cost, margin and margin %; **Save layout**, reopen it. Sign in as the user without cost-price rights. Buy > All Buy screens > Insight > **Purchase Analysis** → basis *Received*/*Ordered*, compare, average rate. Open **Rate Trend**.
+- **Steps:** as the fixture's **Firm admin**: Sell > Insight > **Sales Analysis** → basis *Ordered* then *Invoiced*; switch on **Compare with last year**; read cost, margin and margin %; **Save layout**, reopen it. Sign in as the user without cost-price rights. Buy > Insight > **Purchase Analysis** → basis *Received*/*Ordered*, compare, average rate. Open **Rate Trend**.
 - **Expect:** the ordered basis counts approved orders instead of invoices; the previous-year column is the same period shifted one year; cost, margin and margin percent appear only with PRODUCT_VIEW_COST_PRICE. Layouts are saved per user and report. The purchase analysis has the same controls plus average rate on every figure (sales too); the rate trend shows the rate by month.
 - **Leaves:** a saved layout.
 
@@ -4482,7 +4481,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 
 - **Covers:** backlog PLT-9
 - **Fixture:** `selling-firm`
-- **Steps:** as the fixture's **Firm admin**: Settings > Set up > Pricing > **Price Lists** → open the grid, read the count column for a list with 3 breaks of one product; New list with scope **One territory**. Sell > Returns & notes > **Sales Returns** → New and open the picker of returnable lines for a line with no description.
+- **Steps:** as the fixture's **Firm admin**: Settings > Set up > Pricing > **Price Lists** → open the grid, read the count column for a list with 3 breaks of one product; New list with scope **One territory**. Sell > **Sales Returns** → New and open the picker of returnable lines for a line with no description.
 - **Expect:** the price list grid counts **distinct products** ("1 (3 rates)"); the *One territory* scope has a territory picker; a returnable line with no description is labelled by product code and name, and "Line N" only when nothing is known.
 - **Leaves:** a price list.
 
@@ -4553,7 +4552,7 @@ redo yours."*
 
 - **Covers:** plan 14.6
 - **Fixture:** `commission-firm`
-- **Steps:** on A and B: Sell > All Sell screens > Incentives > Commission → **Payouts** → **Accrue period**, this month on both; **Accrue** on A, then on B.
+- **Steps:** on A and B: Sell > Incentives > Commission → **Payouts** → **Accrue period**, this month on both; **Accrue** on A, then on B.
 - **Expect:** A: "2 payout(s) accrued." B: "A commission payout already covers part of that period for this salesman (…)." — a **409** by name, never a 500. The database holds the rule (`UQ_commission_payouts_period_active`); the service supplies the sentence.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.12 — A's run inserts two DRAFT rows and two `commission.payout.accrued`; B's is refused by `_assert_period_is_free` and writes nothing. `UQ_commission_payouts_period_active` is what holds when both reads pass at once.
 - **Leaves:** two draft payouts.
@@ -4570,8 +4569,8 @@ each case below checks the screen **and** the route behind it.
 
 - **Covers:** plan 15.1, 15.3, 15.4, 15.5
 - **Fixture:** `sales-executive`
-- **Steps:** sign in as the fixture's **Seller**. Click the gear and look for a **Platform** part; open **Sell > All Sell screens** and **Accounts > All Accounts screens** and look for Commission, Credit Notes and TCS.
-- **Expect:** **no Platform part** on the Settings page. The territory screens (Settings > Set up > Territories & routes, on `TERRITORY_VIEW`) are offered, and none of **Commission** (Sell > All Sell screens > Incentives), **Credit Notes** (Sell > Returns & notes) or **TCS** (Accounts > All Accounts screens > Tax filing) — nor Price Lists, Promotions, Targets, Proforma, E-Invoice or GST Returns, each hidden on its own view code. That is expected, not a fault.
+- **Steps:** sign in as the fixture's **Seller**. Click the gear and look for a **Platform** part; open Sell and Accounts and look for Commission, Credit Notes and TCS.
+- **Expect:** **no Platform part** on the Settings page. The territory screens (Settings > Set up > Territories & routes, on `TERRITORY_VIEW`) are offered, and none of **Commission** (Sell > Incentives), **Credit Notes** (Sell > Documents) or **TCS** (Accounts > Tax filing) — nor Price Lists, Promotions, Targets, Proforma, E-Invoice or GST Returns, each hidden on its own view code. That is expected, not a fault.
 - **Leaves:** a seller.
 
 ### TC-PERM-002 — The credit policy opens read-only
@@ -5248,7 +5247,7 @@ only matters for accounts you already had open.
 - **Covers:** plan 21.1, 21.1a
 - **Fixture:** `invoiced` — a sale of this run's own in TEST01: one invoice for 5 **APPROVED**, one **CANCELLED**.
 - **Steps**
-  1. Sign in as the fixture's **Firm admin** → Sell > Returns & notes > **Credit Notes** → **Raise credit note**.
+  1. Sign in as the fixture's **Firm admin** → Sell > **Credit Notes** → **Raise credit note**.
   2. Open the **Invoice** picker and look for the fixture's two invoice numbers and its delivery note number.
   3. Pick the approved invoice; open **Line**.
   4. Enter an amount below what the line was charged (it was charged 590.00: 5 × 100 plus 18% GST) → **Raise**.
@@ -5265,7 +5264,7 @@ only matters for accounts you already had open.
 
 - **Covers:** plan 21.2
 - **Fixture:** `firm-admin`
-- **Steps:** as the fixture's **Firm admin**, Sell > All Sell screens > Documents > **Proforma**.
+- **Steps:** as the fixture's **Firm admin**, Sell > Documents > **Proforma**.
 - **Expect:** offered, and a real screen — a grid or a proper empty state, never a "coming soon" placeholder. A proforma states what an approved order **will** be charged and **posts nothing**; its number comes from its own `PF` series, not the tax invoice's.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the grant is `FIRM_ADMIN`'s `role_permissions`; the screen reads only (§11.18).
 - **Leaves:** a firm admin user.
@@ -5274,7 +5273,7 @@ only matters for accounts you already had open.
 
 - **Covers:** plan 21.3
 - **Fixture:** `firm-admin`
-- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Tax filing > **E-Invoice**.
+- **Steps:** as the fixture's **Firm admin**, Accounts > Tax filing > **E-Invoice**.
 - **Expect:** offered and opens. Wherever a mode is shown it reads **`SANDBOX`**; if it reads LIVE anywhere, stop — that is not cosmetic. `mode` is NOT NULL with no server default on both e-invoice tables, and the sandbox marks every reference it mints `SBX…`. *(TEST01 has registered nothing, so the grid may be empty and show no mode at all; that passes.)*
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the grant; what the screen reads is §13.8.
 - **Leaves:** a firm admin user.
@@ -5315,7 +5314,7 @@ only matters for accounts you already had open.
 
 - **Covers:** plan 21.5
 - **Fixture:** `firm-admin`
-- **Steps:** as the fixture's **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS** → **Settings**; save without changing anything.
+- **Steps:** as the fixture's **Firm admin**, Accounts > Tax filing > **TCS** → **Settings**; save without changing anything.
 - **Expect:** offered, opens and saves. **Collect under section 206C(1H)** is off — it defaults false so shipping the feature charged nobody. Leave it off: on, every receipt in TEST01 collects TCS, and other cases record receipts there.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the grant; the settings row is §13.11.
 - **Leaves:** a firm admin user.
@@ -5350,7 +5349,7 @@ inherits its module's. The module now takes any of `ACCOUNT_VIEW`, `RECEIPT_VIEW
 load-bearing. In the 1.3.0 menu Receipts is on **Sell** and Payments on **Buy**;
 the other ten screens are on **Accounts** and in Settings > Set up > Account structure.
 
-The module's twelve screens: Chart of Accounts (Accounts > All Accounts screens),
+The module's twelve screens: Chart of Accounts (Accounts),
 Control Accounts, Cost Centres, Profit Centres (Settings > Set up > Account
 structure), Journal Entries, Ledgers, Trial Balance, Profit & Loss, Balance
 Sheet (Accounts), Receipts (Sell), Payments (Buy), Refunds (Sell > All Sell
@@ -5739,7 +5738,7 @@ own roles and templates without anybody writing code.
 
   | Menu | Screens inside |
   | --- | --- |
-  | **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns & notes (Sales Returns), **Receipts** (with **Record Receipt** offered), Customer Statements |
+  | **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, **Receipts** (with **Record Receipt** offered), Customer Statements |
   | **Accounts** | GST Returns |
   | **Masters** | Customers |
 
@@ -6084,22 +6083,20 @@ being signed in and nothing else.
 - **Data:** `platform.user_preferences.dashboard_layout.favourites` lists the screens in order. Several stars in a row are saved by **one** update about a second after the last.
 - **Leaves:** a two-firm user with favourites.
 
-### TC-ME-012 — The light menu: daily work first, everything one click away
+### TC-ME-012 — The light menu: every screen at once, daily work first
 
 - **Covers:** backlog 72 (light menu, 1.2.0)
 - **Fixture:** `firm-admin`
 - **Steps**
   1. Sign in as the fixture's **Firm admin**. Open **Sell**.
-  2. Click **Returns & notes**.
-  3. Click **All Sell screens** at the foot.
-  4. Open **Buy**, **Stock**, **Accounts** and **Masters** the same way.
-  5. Look along the menu bar for **Admin**.
+  2. Look in the Documents column for Sales Returns, Credit Notes and Debit Notes, and at the foot of the drop-down.
+  3. Open **Buy**, **Stock**, **Accounts** and **Masters** the same way.
+  4. Look along the menu bar for **Admin**.
 - **Expect**
-  - Step 1: a short list — Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns & notes, Receipts, Customer Statements — and **All Sell screens (N)** at the foot. Price Lists, Promotions and Territories are **not** here.
-  - Step 2: a short list beside it: Sales Returns, Credit Notes, Customer Debit Notes.
-  - Step 3: every Sell screen this user may open, under its group (Documents, Money, Incentives, Insight, Field sales); any of them opens in a tab.
-  - Step 4: each area works the same way; Masters shows Customers, Vendors, Products, Branches and Warehouses, and its lists (Customer Groups, Product Categories, Units, Places …) are under Settings > Set up.
-  - Step 5: **no Admin** on the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform**, for those who may open them.
+  - Step 1: every Sell screen this user may open, at once, under its group (Documents, Money, Incentives, Insight, Field sales); any of them opens in a tab. In each group the daily screens come first, in heavier type, above a thin line (Documents: Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Credit Notes, Debit Notes; Money: Receipts, Customer Statements). There is no "All Sell screens" link and no "Returns & notes" item. Price Lists, Promotions and Territories are **not** here.
+  - Step 2: Sales Returns, Credit Notes and Debit Notes are ordinary items in the Documents column. The foot carries the caption **SETTINGS** and links to Selling, Pricing and Territories & routes, for those who are offered those sections.
+  - Step 3: each area works the same way, with its own columns (Buy: Documents, Money, Insight; Stock: Stock, Movements, Tracking, Data; Accounts: Books, Fixed assets, Statements, Tax filing; Masters: Parties, Items, Organisation, Compliance). The foot links are Buy: Buying; Stock: Stock; Accounts: Account structure, Tax; Masters: Party lists, Item lists, Locations. The lists (Customer Groups, Product Categories, Units, Places …) are under Settings > Set up.
+  - Step 4: **no Admin** on the bar: Users, Roles, Firms, Audit Logs and Backups are under **Settings > Platform**, for those who may open them.
 - **Data:** none — the menu is built in the app from the permissions read at sign-in; opening it sends no request.
 - **Leaves:** a firm admin user.
 
@@ -6508,7 +6505,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   2. **(HTTP)** As that user: `GET /api/v1/firms`, `POST /api/v1/firms` (any body), `GET /api/v1/firms/{TEST01's id}/readiness`, `POST /api/v1/firms/{TEST01's id}/open-books`.
 - **Expect**
   - Step 1: **no Firms** and **no Business Profiles** card under Platform, so no setup panel. `FIRM_VIEW` and `PLATFORM_VIEW` are platform codes no firm role can hold.
-  - Step 2: **403** for all four. No permission code can grant them. What they would show, a firm administrator reads as their own Accounts > All Accounts screens > Books > Chart of Accounts and Financial Years.
+  - Step 2: **403** for all four. No permission code can grant them. What they would show, a firm administrator reads as their own Accounts > Books > Chart of Accounts and Financial Years.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.8 — every refusal writes nothing.
 - **Leaves:** a firm admin user.
 

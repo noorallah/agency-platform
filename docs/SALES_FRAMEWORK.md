@@ -1390,9 +1390,9 @@ cases are TC-SELL-036 to TC-SELL-087 in `docs/qa/08_SELLING.md`.
 | SG-4 | Charges with their own GST | `sales_invoice_charges` | the bill's **Other charges** | `20261005_0319` |
 | SG-5 | Transporter master, freight terms | `app/delivery_note/services/transporters.py` | Settings > Set up > Territories & routes > Transporters; the note's **Carrier (master)** and **Freight** | `20261005_0320` |
 | SG-6 | Files on the five sales documents | `app/document_files` | **Attachments** and a **Files** column on each list | `20261005_0321` |
-| SG-7 | Hold and recall; shift closing | `app/counter_shifts`, hold and recall on `app/sales_invoice` | the counter bill's **Hold (F8)**, **Recall** and shift strip; Sell > All Sell screens > Documents > Counter Shifts | `20261005_0324` |
-| SG-8 | Collection follow-up | `app/collections` | Sell > All Sell screens > Money > Collection Sheet, Payment Promises; **Collector** on the customer | `20261005_0322` |
-| SG-9 | Turnover rebate to a customer | `app/customer_rebates` | Sell > All Sell screens > Documents > Customer Rebates | `20261005_0325` |
+| SG-7 | Hold and recall; shift closing | `app/counter_shifts`, hold and recall on `app/sales_invoice` | the counter bill's **Hold (F8)**, **Recall** and shift strip; Sell > Documents > Counter Shifts | `20261005_0324` |
+| SG-8 | Collection follow-up | `app/collections` | Sell > Money > Collection Sheet, Payment Promises; **Collector** on the customer | `20261005_0322` |
+| SG-9 | Turnover rebate to a customer | `app/customer_rebates` | Sell > Documents > Customer Rebates | `20261005_0325` |
 
 ### SG-1. The GST sales register and the HSN summary of sales
 

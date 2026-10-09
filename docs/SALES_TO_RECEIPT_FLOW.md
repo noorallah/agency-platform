@@ -53,24 +53,24 @@ asked for) comes before the quotation and moves nothing either.
 ### Where each step is in 1.3.0
 
 A path such as *Sell > Quotations* means: open **Sell** in the menu bar, then
-the item. **All Sell screens** is the link at the foot of the drop-down; the
-daily list is what the drop-down shows first. **Ctrl+K** finds any screen.
+the item. The drop-down shows every Sell screen in its group columns, the daily
+ones first in heavier type. **Ctrl+K** finds any screen.
 
 | Step | Where |
 | --- | --- |
-| Enquiry (prospect, follow-ups, *Convert to quotation*) | Sell > All Sell screens > Documents > **Enquiries** |
+| Enquiry (prospect, follow-ups, *Convert to quotation*) | Sell > Documents > **Enquiries** |
 | 1-2. Quotation, convert to order | Sell > **Quotations** |
 | 3. Sales order, approve, hold, release | Sell > **Sales Orders** |
-| Approvals waiting for a level's sign-off | Sell > All Sell screens > Documents > **Approvals** |
+| Approvals waiting for a level's sign-off | Sell > Documents > **Approvals** |
 | 4-5. Delivery note, dispatch, dispatch and invoice | Sell > **Delivery Notes** |
 | 6-7. Sales invoice, approve, print | Sell > **Sales Invoices** |
-| 7a. E-invoice | Accounts > All Accounts screens > Tax filing > **E-Invoice** |
-| 8. Receipt, refund, post-dated cheque | Sell > **Receipts**; Sell > All Sell screens > Money > Refunds, Post-dated Cheques |
+| 7a. E-invoice | Accounts > Tax filing > **E-Invoice** |
+| 8. Receipt, refund, post-dated cheque | Sell > **Receipts**; Sell > Money > Refunds, Post-dated Cheques |
 | What a customer owes | Sell > **Customer Statements** |
-| Sales return, credit note, customer debit note | Sell > **Returns & notes** > Sales Returns, Credit Notes, Customer Debit Notes |
-| Proforma invoice | Sell > All Sell screens > Documents > Proforma |
+| Sales return, credit note, customer debit note | Sell > Sales Returns, Credit Notes, Customer Debit Notes |
+| Proforma invoice | Sell > Documents > Proforma |
 | The ledger entries each step posts | Accounts > **Journal Entries** |
-| Stock after each step | Stock > All Stock screens > Stock > **Inventory**; Stock > **Stock Ledger** |
+| Stock after each step | Stock > Stock > **Inventory**; Stock > **Stock Ledger** |
 
 ---
 
@@ -103,7 +103,7 @@ nobody switches on.
 | Trade licences (`trade_licence_settings`) | Settings > Set up > Party lists > **Licence Check**; `GET/PUT /api/v1/trade-licences/settings` | `sale_enforcement` OFF / `WARN` (default) / BLOCK for orders, delivery notes and invoices | A sale of a licensed product to a buyer with no valid licence warns or is refused. The buying side never blocks |
 | GST Documents (`gst_compliance_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/tax-framework/gst-compliance-settings` | `dispatch_without_invoice` OFF / `WARN` (default) / BLOCK; `route_sale_needs_invoice` off; `einvoice_applicable_from` and `thirty_day_rule_from`: null = does not apply; `eway_bill_limit` 50,000 | Step 5, the dispatch-before-invoice check. The two dates say from when the firm must e-invoice -- from then a B2B invoice, credit or debit note is not printed or emailed without its IRN (A43) -- and from when a document more than 30 days old is refused at registration (A44); the platform never guesses them. The limit is the value above which a consignment is listed as needing an e-way bill. `GST_DOCUMENT_COMPLIANCE.md` is the reference |
 | E-invoice route (`einvoice_settings`) | Settings > Tax > GST Documents; `GET/PUT /api/v1/einvoice/settings` | `provider` `SANDBOX` (default, nothing filed) / OFFLINE | Step 7a: whether registering goes to the sandbox, or into the portal's bulk-upload file (`POST /api/v1/einvoice/offline/export`, then `/offline/import` of the portal's result). A route not built cannot be chosen (A42) |
-| Approval Levels | Settings > Firm > Approval Levels (sales levels need `SALES_MANAGE_SETTINGS`) | None: one approval is enough. A rule is a document type (sales order, sales invoice), a level 1 to 3, a from-amount and a role | Steps 3 and 7: a document at or above a rule's amount needs each level signed in order, by different people; the last signature approves. Approving early is refused naming the level and role; a total that rises after a signature needs that level again; *Reject* needs a reason. Waiting documents are under Sell > All Sell screens > Documents > Approvals, on Home and under the bell |
+| Approval Levels | Settings > Firm > Approval Levels (sales levels need `SALES_MANAGE_SETTINGS`) | None: one approval is enough. A rule is a document type (sales order, sales invoice), a level 1 to 3, a from-amount and a role | Steps 3 and 7: a document at or above a rule's amount needs each level signed in order, by different people; the last signature approves. Approving early is refused naming the level and role; a total that rises after a signature needs that level again; *Reject* needs a reason. Waiting documents are under Sell > Documents > Approvals, on Home and under the bell |
 | Numbering Series | Settings > Firm > Numbering Series; `/api/v1/document-framework/numbering-rules` | Per document type; see `app/document_framework` for the fields | The number on every document above |
 | Messaging (`messaging_settings`) | Settings > Firm > Messaging; `GET/PUT /api/v1/messaging/settings` | `is_enabled` off: a firm with no row queues, skips and records nothing. `due_soon_days` 3; `overdue_every_days` 7; `overdue_stop_after_days` 90 (A12). Each channel has the firm's own account | Messages about the bill and its reminders. `MESSAGING_FRAMEWORK.md` |
 | Print templates (`document_print_templates`) | The **Print** button (or **...** > Print settings) on Sales Invoices, Delivery Notes and Purchase Orders; changing needs `SETTINGS_UPDATE` | See "Sending the bill" below | What the printed bill carries around its fixed statutory spine |
@@ -747,10 +747,10 @@ TC-SELL-036 onward in `docs/qa/08_SELLING.md`.
 | Step | Where |
 | --- | --- |
 | Walk-in sale, other charges, hold and recall, the shift strip | Sell > **Sales Invoices** > New Invoice, with the order and delivery note stages off |
-| A cashier's shifts | Sell > All Sell screens > Documents > **Counter Shifts** |
-| The collection sheet, promises | Sell > All Sell screens > Money > **Collection Sheet**, **Payment Promises** |
-| Rebate agreements | Sell > All Sell screens > Documents > **Customer Rebates** |
-| Settling a rebate | Accounts > All Accounts screens > Books > **Party Adjustments** |
+| A cashier's shifts | Sell > Documents > **Counter Shifts** |
+| The collection sheet, promises | Sell > Money > **Collection Sheet**, **Payment Promises** |
+| Rebate agreements | Sell > Documents > **Customer Rebates** |
+| Settling a rebate | Accounts > Books > **Party Adjustments** |
 | Carriers | Settings > Set up > Territories & routes > **Transporters** |
 | GST sales register, HSN summary of sales | Reports > Financial |
 

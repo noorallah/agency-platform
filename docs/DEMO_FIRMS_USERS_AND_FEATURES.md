@@ -153,11 +153,11 @@ not have the data yet.
 | Credit limit: warning, or a block | Sell > Sales Orders | MEDI01 (block), others (warning) |
 | Offers, price lists, customer discounts | Settings > Set up > Pricing; a sales order | WHOLE01 |
 | Sales bill with GST by line, print, receipt, customer statement | Sell | WHOLE01 |
-| Sales Analysis by goods type, product, customer, month | Sell > All Sell screens > Insight > Sales Analysis | DEMO01 (goods type), WHOLE01 (history) |
+| Sales Analysis by goods type, product, customer, month | Sell > Insight > Sales Analysis | DEMO01 (goods type), WHOLE01 (history) |
 | Customer outstanding and ageing | Sell > Customer Statements | WHOLE01 |
 | Profit & Loss, Trial Balance, Balance Sheet | Accounts | WHOLE01 |
 | GSTR-1 and GSTR-3B from the bills | Accounts, the GST returns screens (Ctrl+K, type `GSTR`) | WHOLE01 |
-| Serial numbers and warranty | Stock > All Stock screens > Tracking > Serial Numbers | ELEC01 |
+| Serial numbers and warranty | Stock > Tracking > Serial Numbers | ELEC01 |
 | A sales executive's shorter menu, and no approval | Sign in as a sales user | any |
 | Audit trail: who did what and when | Settings > Platform > System > Audit Logs | any |
 | Switching between firms | The firm name at the top, as `master.ops` | all |

@@ -4,8 +4,8 @@ Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
 end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
-bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
-daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+bar, `Sell > Documents > Proforma` is a screen in the
+Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
 right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
@@ -560,7 +560,7 @@ own roles and templates without anybody writing code.
 
   | Menu | Screens inside |
   | --- | --- |
-  | **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, Returns & notes (Sales Returns), **Receipts** (with **Record Receipt** offered), Customer Statements |
+  | **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, **Receipts** (with **Record Receipt** offered), Customer Statements |
   | **Accounts** | GST Returns |
   | **Masters** | Customers |
 

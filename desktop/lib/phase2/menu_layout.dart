@@ -157,6 +157,15 @@ class MenuAreaSpec {
 
   Iterable<MenuItemSpec> get items => groups.expand((group) => group.items);
 
+  /// The screens of the daily list, the short list of returns and notes
+  /// among them: what a drop-down shows first in each group.
+  Set<String> get dailyPaths => {
+        for (final MenuDailyGroup group in daily)
+          for (final String path in group.paths)
+            if (path != MenuLayout.returnsAndNotes) path,
+        ...shortList,
+      };
+
   /// The item at [path] in this area, or null.
   MenuItemSpec? item(String path) {
     for (final MenuItemSpec item in items) {
@@ -333,6 +342,7 @@ abstract final class MenuLayout {
       'sales/credit-notes',
       'sales/customer-debit-notes',
     ], setUp: [
+      'Selling',
       'Pricing',
       'Territories & routes',
     ]),
@@ -392,6 +402,8 @@ abstract final class MenuLayout {
     ], shortList: [
       'purchaseReturns',
       'purchases/debit-notes',
+    ], setUp: [
+      'Buying',
     ]),
     MenuAreaSpec('stock', 'Stock', [
       MenuGroupSpec('Stock', [
@@ -430,6 +442,8 @@ abstract final class MenuLayout {
         'inventory/batches',
         'inventory/expiry-monitor',
       ]),
+    ], setUp: [
+      'Stock',
     ]),
     MenuAreaSpec('accounts', 'Accounts', [
       MenuGroupSpec('Books', [
@@ -491,6 +505,7 @@ abstract final class MenuLayout {
       MenuDailyGroup('Tax', ['sales/gst-returns']),
     ], setUp: [
       'Account structure',
+      'Tax',
     ]),
     MenuAreaSpec('masters', 'Masters', [
       MenuGroupSpec('Parties', [

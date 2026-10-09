@@ -4,8 +4,8 @@ Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
 end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
-bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
-daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+bar, `Sell > Documents > Proforma` is a screen in the
+Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
 right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
@@ -102,7 +102,7 @@ that an edit changes what it names and nothing else.
 - **Also needs:** nothing beyond the prepared Firm admin; the case makes its own customers.
 - **Steps**
   1. As the prepared **Firm admin**: Masters > Customers → **New**: code `QA-OB1`, a name, **Opening balance** `1500`, **Payment terms (days)** `30` → Save. Open it again and read **Opening bills**. Accounts > Journal Entries.
-  2. Sell > Receipts → **Record Receipt** → `QA-OB1`: read the bills offered. Sell > All Sell screens > Money > **Collection Sheet**. Masters > **Statements** → the customer's ageing and statement.
+  2. Sell > Receipts → **Record Receipt** → `QA-OB1`: read the bills offered. Sell > Money > **Collection Sheet**. Masters > **Statements** → the customer's ageing and statement.
   3. Record Receipt: Amount `2000`, applied to the row → Save. Then Amount `600`, Cash, applied to the row → Save. Read the three lists and the customer again.
   4. Masters > Customers → `QA-OB1` → Opening bills → **Cancel** on the row, with a reason.
   5. In **Opening bills** press **Add opening bill**: any reference, 250 → Save.
@@ -233,7 +233,7 @@ warehouse rename its capability flags.
 *Added 2026-10-03 from the code and the build notes; **not yet driven through a preparation** -- drive it and correct the expectation before relying on it.*
 
 - **Preconditions:** A firm administrator of QA01, and a product `QA-PM` *Slot Check*: category *Shelf*, tax profile group GST_18_LOCAL, base, inventory and sales unit PIECE, purchase unit BOX, and a *Case* barcode.
-- **Steps:** as the prepared **Firm admin**: Settings > Set up > Item lists > **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters > Products → `QA-PM` → pick the brand → Save. Sell > All Sell screens > Insight > **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price history** → add a revision with a price **dated next week** and another dated yesterday; import revisions from a file (one bad row). Quote the product today and with next week's date.
+- **Steps:** as the prepared **Firm admin**: Settings > Set up > Item lists > **Principals** → New *Acme Foods*; **Brands** → New *Acme Gold* under it. Masters > Products → `QA-PM` → pick the brand → Save. Sell > Insight > **Sales Analysis** → group by Brand, then by Principal; filter by one. Back on the product open **Price history** → add a revision with a price **dated next week** and another dated yesterday; import revisions from a file (one bad row). Quote the product today and with next week's date.
 - **Expect:** principals and brands are masters with their own screens; the product carries a brand (text brands that existed are carried over); sales analysis offers Brand and Principal as dimensions and filters. A price revision is the price **in force on the document's date**: today's quote takes yesterday's revision, a quote dated next week takes the later one; the unit-price resolver and a blank price on a purchase order read it. The import checks every row and writes nothing if one is bad.
 ### TC-MAST-012 — A duplicate warning, and merging two customers
 
@@ -257,7 +257,7 @@ warehouse rename its capability flags.
 
 - **Preconditions:** A firm administrator and a salesperson of QA01, and a customer `QA-CM` *Master Check* fully described: one billing address, one contact, credit limit 50,000, payment terms 30 days, standing discount 7.5%, segment `QA-RET`, phone +919800000100.
 - **Also needs:** a vendor with the **same PAN** as the customer, and another vendor with a different PAN; an approved sales invoice to the customer and a supplier bill from the vendor.
-- **Steps:** as the prepared **Firm admin**: Masters > Customers → `QA-CM` → **Also a supplier** → pick the same-PAN vendor → Save; try the different-PAN vendor and a vendor already linked to another customer. Open **Combined statement**. On the vendor open **Also a customer**. Accounts > All Accounts screens > Books > **Party Adjustments** → set-off.
+- **Steps:** as the prepared **Firm admin**: Masters > Customers → `QA-CM` → **Also a supplier** → pick the same-PAN vendor → Save; try the different-PAN vendor and a vendor already linked to another customer. Open **Combined statement**. On the vendor open **Also a customer**. Accounts > Books > **Party Adjustments** → set-off.
 - **Expect:** a link is accepted only for the firm's own live, unclaimed vendor with the same PAN; the others are refused by name. The combined statement merges the customer and supplier statements in date order with a running **net**; it needs CUSTOMER_VIEW plus VENDOR_VIEW. The supplier editor shows the link back. The set-off dialog preselects the linked party.
 ### TC-MAST-015 — Codes issued from a series
 
@@ -351,7 +351,7 @@ warehouse rename its capability flags.
 
 - **Preconditions:** A firm administrator of QA01, and a product `QA-PM` *Slot Check*: category *Shelf*, tax profile group GST_18_LOCAL, base, inventory and sales unit PIECE, purchase unit BOX, and a *Case* barcode.
 - **Also needs:** a firm of its own with **no** goods type in use, no category carrying a type, and no product with a tracking switch on; the shared goods types *Paint* (batch only), *Electronics* (serial and warranty) and *Medicine*; a second user on the firm whose role lacks `BATCH_VIEW`; a second firm in the same store holding one product with *Track batch* on and no goods type (the old kind, filed before goods types existed).
-- **Steps:** as the **Firm admin** of the first firm: (a) sign in and open the Inventory menu (Stock, and All Stock screens > Tracking). (b) Set up > Goods Types: **Use in this firm** on *Paint*; file a category *Enamels* under it. Without signing out, read the menu; then sign out and in again and read it. (c) Use *Electronics* the same way, sign out and in. (d) Stop using both types after clearing the categories' types; sign out and in. (e) As the user without `BATCH_VIEW`: with Paint in use again, sign in and read the menu. (f) As the **Firm admin** of the second firm: sign in and read the menu. (g) Switch from the first firm to the second and back through the firm switcher. (h) Read `GET /api/v1/business-framework/active-modules` with no `X-Firm-ID` header, then with each firm.
+- **Steps:** as the **Firm admin** of the first firm: (a) sign in and open the Inventory menu (Stock, and Tracking). (b) Set up > Goods Types: **Use in this firm** on *Paint*; file a category *Enamels* under it. Without signing out, read the menu; then sign out and in again and read it. (c) Use *Electronics* the same way, sign out and in. (d) Stop using both types after clearing the categories' types; sign out and in. (e) As the user without `BATCH_VIEW`: with Paint in use again, sign in and read the menu. (f) As the **Firm admin** of the second firm: sign in and read the menu. (g) Switch from the first firm to the second and back through the firm switcher. (h) Read `GET /api/v1/business-framework/active-modules` with no `X-Firm-ID` header, then with each firm.
 - **Expect:** (a) Batches, Lots, Serial Numbers and Expiry Monitor are all absent; the rest of Stock is there. (b) before signing in again the menu is unchanged (the answer is read at sign-in and at a firm switch); after it Batches and Lots show and Serial Numbers and Expiry Monitor do not. (c) Serial Numbers is added; Expiry Monitor is still absent, Paint and Electronics track no expiry. (d) all four are gone again. (e) the user without `BATCH_VIEW` does not see Batches or Lots although the firm's goods need them. (f) Batches and Lots show, because a live product has *Track batch* on although the firm uses no goods type; Serial Numbers does not. (g) the menu changes with the firm each time, with no further sign-in. (h) the INVENTORY row carries `goods_tracking` as a list (for the first firm `BATCH` while Paint is in use, `BATCH` and `SERIAL` once Electronics is too); every other row carries null; with no `X-Firm-ID` the call answers 200 with an empty list, because the modules are kept in each firm's store and there is no firm to answer for (it answered 503 before D-CFG-26). The client does not ask while no firm is selected, and shows every screen. Opening the menu makes no extra request beyond the `active-modules` call the shell already makes at start.
 ### TC-MAST-027 — A product import with no switch columns takes its category's goods type
 

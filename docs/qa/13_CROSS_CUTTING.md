@@ -4,8 +4,8 @@ Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
 end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
-bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
-daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+bar, `Sell > Documents > Proforma` is a screen in the
+Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
 right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
@@ -23,8 +23,8 @@ each case below checks the screen **and** the route behind it.
 ### TC-PERM-001 — What a salesperson is not offered
 
 - **Preconditions:** A QA01 user hired with the *Field Sales* job template (role SALES_EXECUTIVE only).
-- **Steps:** sign in as the prepared **Seller**. Click the gear and look for a **Platform** part; open **Sell > All Sell screens** and **Accounts > All Accounts screens** and look for Commission, Credit Notes and TCS.
-- **Expect:** **no Platform part** on the Settings page. The territory screens (Settings > Set up > Territories & routes, on `TERRITORY_VIEW`) are offered, and none of **Commission** (Sell > All Sell screens > Incentives), **Credit Notes** (Sell > Returns & notes) or **TCS** (Accounts > All Accounts screens > Tax filing) — nor Price Lists, Promotions, Targets, Proforma, E-Invoice or GST Returns, each hidden on its own view code. That is expected, not a fault.
+- **Steps:** sign in as the prepared **Seller**. Click the gear and look for a **Platform** part; open Sell and Accounts and look for Commission, Credit Notes and TCS.
+- **Expect:** **no Platform part** on the Settings page. The territory screens (Settings > Set up > Territories & routes, on `TERRITORY_VIEW`) are offered, and none of **Commission** (Sell > Incentives), **Credit Notes** (Sell > Documents) or **TCS** (Accounts > Tax filing) — nor Price Lists, Promotions, Targets, Proforma, E-Invoice or GST Returns, each hidden on its own view code. That is expected, not a fault.
 ### TC-PERM-002 — The credit policy opens read-only
 
 - **Preconditions:** A QA01 user hired with the *Field Sales* job template (role SALES_EXECUTIVE only).
@@ -87,7 +87,7 @@ redo yours."*
 ### TC-CONC-006 — Two accruals of one payout period
 
 - **Preconditions:** As *territory-firm*, plus commission rules, targets and three collected sales, as in the preparation table.
-- **Steps:** on A and B: Sell > All Sell screens > Incentives > Commission → **Payouts** → **Accrue period**, this month on both; **Accrue** on A, then on B.
+- **Steps:** on A and B: Sell > Incentives > Commission → **Payouts** → **Accrue period**, this month on both; **Accrue** on A, then on B.
 - **Expect:** A: "2 payout(s) accrued." B: "A commission payout already covers part of that period for this salesman (…)." — a **409** by name, never a 500. The database holds the rule (`UQ_commission_payouts_period_active`); the service supplies the sentence.
 ---
 
@@ -107,7 +107,7 @@ only matters for accounts you already had open.
 
 - **Preconditions:** A firm administrator of QA01, and one sale taken to an approved invoice: order, dispatched delivery note, approved invoice. (a sale of yours in QA01: one invoice for 5 **APPROVED**, one **CANCELLED**.)
 - **Steps**
-  1. Sign in as the prepared **Firm admin** → Sell > Returns & notes > **Credit Notes** → **Raise credit note**.
+  1. Sign in as the prepared **Firm admin** → Sell > **Credit Notes** → **Raise credit note**.
   2. Open the **Invoice** picker and look for the prepared two invoice numbers and its delivery note number.
   3. Pick the approved invoice; open **Line**.
   4. Enter an amount below what the line was charged (it was charged 590.00: 5 × 100 plus 18% GST) → **Raise**.
@@ -119,12 +119,12 @@ only matters for accounts you already had open.
 ### TC-GRANT-002 — Proforma opens
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
-- **Steps:** as the prepared **Firm admin**, Sell > All Sell screens > Documents > **Proforma**.
+- **Steps:** as the prepared **Firm admin**, Sell > Documents > **Proforma**.
 - **Expect:** offered, and a real screen — a grid or a proper empty state, never a "coming soon" placeholder. A proforma states what an approved order **will** be charged and **posts nothing**; its number comes from its own `PF` series, not the tax invoice's.
 ### TC-GRANT-003 — E-Invoice opens, and never says LIVE
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
-- **Steps:** as the prepared **Firm admin**, Accounts > All Accounts screens > Tax filing > **E-Invoice**.
+- **Steps:** as the prepared **Firm admin**, Accounts > Tax filing > **E-Invoice**.
 - **Expect:** offered and opens. Wherever a mode is shown it reads **`SANDBOX`**; if it reads LIVE anywhere, stop — that is not cosmetic. `mode` is NOT NULL with no server default on both e-invoice tables, and the sandbox marks every reference it mints `SBX…`. *(QA01 has registered nothing, so the grid may be empty and show no mode at all; that passes.)*
 ### TC-GRANT-004 — Loyalty: the banner states the scheme, and a firm can change it
 
@@ -151,7 +151,7 @@ only matters for accounts you already had open.
 ### TC-GRANT-006 — TCS settings open, and TCS is off
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
-- **Steps:** as the prepared **Firm admin**, Accounts > All Accounts screens > Tax filing > **TCS** → **Settings**; save without changing anything.
+- **Steps:** as the prepared **Firm admin**, Accounts > Tax filing > **TCS** → **Settings**; save without changing anything.
 - **Expect:** offered, opens and saves. **Collect under section 206C(1H)** is off — it defaults false so shipping the feature charged nobody. Leave it off: on, every receipt in QA01 collects TCS, and other cases record receipts there.
 ### TC-GRANT-007 — The fix was a grant, not a wider gate
 
