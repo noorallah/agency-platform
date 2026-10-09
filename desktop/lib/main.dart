@@ -12,6 +12,7 @@ import 'core/diagnostics/report_queue.dart';
 import 'core/logging/app_log.dart';
 import 'core/preferences/desktop_preferences_service.dart';
 import 'core/preferences/desktop_window_controller.dart';
+import 'phase2/app_title_bar.dart';
 import 'core/platform/app_storage.dart';
 
 const String _buildNumber =
@@ -111,7 +112,11 @@ Future<void> _run({required bool phase2}) async {
         phase2 ? loaded.withWindowName(loaded.appName) : loaded;
     AppLog.info('Branding loaded: ${branding.appName}.');
     try {
-      await DesktopWindowController(preferences).initialize(branding);
+      // Phase 2 draws its own title bar on Windows (D-UI-6): the agency and
+      // the selected firm sit there, and the menu bar starts with Home.
+      AppTitleBar.enabled = await DesktopWindowController(preferences)
+          .initialize(branding, ownTitleBar: phase2);
+      AppTitleBar.showText(branding.windowName);
       AppLog.info('Window initialized.');
     } catch (error, stack) {
       AppLog.recordError('Window initialization failed', error, stack);

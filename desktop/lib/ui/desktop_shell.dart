@@ -135,6 +135,7 @@ import 'settings/numbering_series_page.dart';
 import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import '../phase2/agency_header.dart';
+import '../phase2/app_title_bar.dart';
 import '../phase2/app_menu_bar.dart';
 import '../phase2/notification_bell.dart';
 import '../phase2/command_box.dart';
@@ -530,6 +531,14 @@ class _DesktopShellState extends State<DesktopShell> {
       widget.session.currentFirm?.name,
     );
     _windowFirm = widget.session.currentFirm?.name;
+    if (AppTitleBar.enabled) {
+      // After the frame: the strip sits above this widget and rebuilds on it.
+      final AgencyIdentity agency = _agency;
+      final String? firm = _windowFirm;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) AppTitleBar.showAgency(agency, firm);
+      });
+    }
     if (title == _windowTitle) return;
     final bool first = _windowTitle == null;
     _windowTitle = title;
@@ -1220,14 +1229,19 @@ class _DesktopShellState extends State<DesktopShell> {
             currentPath: current,
             onOpen: _openFromMenu,
             favourites: _favourites,
-            leading: AgencyHeader(
-              agency: _agency,
-              firmName: widget.session.currentFirm?.name,
-              onHome: () => _openFromMenu(
-                MenuLayout.itemFor(MenuLayout.homeRoute) ??
-                    const MenuItemSpec.phase2(MenuLayout.homeRoute, 'Home'),
-              ),
-            ),
+            // With its own title bar the agency is drawn there, once, and
+            // this strip starts with Home (D-UI-6).
+            leading: AppTitleBar.enabled
+                ? null
+                : AgencyHeader(
+                    agency: _agency,
+                    firmName: widget.session.currentFirm?.name,
+                    onHome: () => _openFromMenu(
+                      MenuLayout.itemFor(MenuLayout.homeRoute) ??
+                          const MenuItemSpec.phase2(
+                              MenuLayout.homeRoute, 'Home'),
+                    ),
+                  ),
             onOpenSetUp: (section) {
               _setUpSection = section;
               _openFromMenu(MenuLayout.setUpPage);
