@@ -6460,3 +6460,26 @@ be overruled.
 | 7 | Units named on a repack and on a kit: a serial-tracked product consumed, produced or made part of a kit, with the units picked and made as a transfer picks them | M | Not built; refused in words since round 3 (D-STK-52), which is what Tally and Busy do by not tracking units there. ERPNext asks for the serial numbers on the repack entry |
 | 8 | A batch on a repack's produced line (an existing batch or a new one with its dates), and the batch a broken kit's parts go back into | S | Should have, with the screen: D-STK-53. The consumed side picks its batches itself since round 3. **Built 2026-10-08 (inventory round 4): the request and the Repacking screen take the batch; a broken kit's part goes back to the batch its last assembly drew it from.** |
 | 9 | A rule for stock in bins on a line that names no bin (draw from the bins in a set order, or say where the goods are) | S | Low: D-STK-54. Only firms that run bins meet it; the note naming the bin ships. **Built 2026-10-08 (inventory round 4): the warehouse's own row first, then the bins by the product's issue rule; a refusal says what stands in each bin. Serial units and hand-picked batches still name the bin** |
+
+## 91. Collections by a collection boy, and two things met on the demo firm -- for review
+
+Met on 2026-10-09 while the owner tested the demo firm (DEMO01) by hand.
+Owner: "not for the demo; in future we can build", and "add them to the
+backlog now, we can review later". **Nothing here is decided or scheduled.**
+
+**What exists today.** A collector is set on the customer (*Collector*; blank
+means the account manager). The **Collection Sheet** lists what each collector
+is still owed, by customer and due date, and prints for the round. Money is
+entered on **Sell > Receipts**, one receipt per payment, applied to bills with
+the rest held on account. A promise to pay is taken from the sheet.
+
+| # | Gap | Size | Notes for the review |
+| --- | --- | --- | --- |
+| 1 | **A day's collections entered in one go.** A grid for one collector and one day: a row per customer with amount, mode and instrument, each row saved as its own receipt through the receipt service, with the day's total by mode beside it to check against the cash and cheques handed over | M | Marg and Busy have a "collection entry" of this shape. All or nothing is wrong here: a row the server refuses (a wrong cheque date) must not hold back the rest, as bulk approval works |
+| 2 | **Who collected, on the receipt.** A receipt records who typed it, not who brought the money in. With a *collected by* on the receipt (defaulting to the customer's collector): a *collections by collector* report for a day or a period, and a handover line (collected, handed over, short) | S for the field and report, M with the handover | Without it the Collection Sheet shows only what is still owed per collector, never what each brought in. Commission on collections reads the receipt's bills today, not a collector |
+| 3 | **Opening trial balance from a file.** It is typed on its screen and saved all at once; the nine other onboarding uploads have a template, a check and an apply. A firm with a long chart of accounts retypes it | S | On the import framework (`app/common/file_import.py`), joining `IMPORT_KINDS` so a Tally export can be mapped. Raised by the assistant, not the owner |
+
+**Also from the same day, built:** printing several sales invoices or delivery
+challans as one document (#1394); a document view naming its branch,
+warehouse and the people who created and approved it (D-UI-87, D-UI-88).
+
