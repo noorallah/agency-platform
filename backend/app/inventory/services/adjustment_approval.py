@@ -15,7 +15,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,15 @@ class StockAdjustmentLimitItem(BaseModel):
 
     role_code: str = Field(min_length=1, max_length=100)
     max_value: Decimal = Field(ge=0, max_digits=18, decimal_places=2)
+
+    @field_validator("role_code")
+    @classmethod
+    def _role_named(cls, value: str) -> str:
+        """Refuse a role of only spaces: it was kept as a limit on nobody."""
+        value = value.strip()
+        if not value:
+            raise ValueError("Name the role the limit is for.")
+        return value
 
 
 class StockAdjustmentLimitsWrite(BaseModel):
@@ -132,10 +141,29 @@ class StockAdjustmentApprovalService:
         firm_id: UUID,
         actor_id: UUID,
     ) -> list[RoleStockAdjustmentLimit]:
-        """Replace the whole list; a role left out has no limit afterwards."""
+        """Replace the whole list; a role left out has no limit afterwards.
+
+        A role is matched whatever its case and kept under its own code. One
+        the firm has no role for is refused: it was saved, bound nobody, and
+        the firm believed its storekeepers were limited (D-STK-67).
+
+        Raises:
+            ValidationError: For a role listed twice or one nobody can hold.
+
+        """
+        known = {
+            code.upper(): code
+            for code in FirmMetadataReader(self._session).known_role_codes(firm_id)
+        }
         wanted: dict[str, Decimal] = {}
         for item in items:
-            key = item.role_code.strip()
+            key = known.get(item.role_code.strip().upper(), "")
+            if not key:
+                raise ValidationError(
+                    f"{item.role_code.strip()} is not a role of this firm, so a "
+                    "limit on it would bind nobody. Choose a role from "
+                    "Users and roles."
+                )
             if key in wanted:
                 raise ValidationError(f"Role {key} is listed twice.")
             wanted[key] = item.max_value.quantize(_CENT, rounding=ROUND_HALF_UP)

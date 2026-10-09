@@ -285,6 +285,32 @@ def prefixed_reference(prefix: str, number: str) -> str:
     return f"{prefix}-{number}"
 
 
+def assert_stock_date_not_ahead(
+    session: Session, firm_id: UUID, on: date, *, what: str
+) -> None:
+    """Refuse a stock movement dated after the firm's own today.
+
+    Stock moves when the movement is saved, whatever date it carries. One
+    dated tomorrow took the goods off the shelf today and dated its journal
+    tomorrow, so until then the trial balance and the stock valuation's books
+    figure disagreed by its value (D-STK-66). The day is the firm's, not the
+    server's.
+
+    Raises:
+        ValidationError: Naming the date and the firm's today.
+
+    """
+    from app.common.firm_metadata import firm_today
+
+    today = firm_today(session, firm_id)
+    if on > today:
+        raise ValidationError(
+            f"{what} cannot be dated {on.isoformat()}: that is after today "
+            f"({today.isoformat()}), and stock moves the moment it is saved. "
+            "Date it today or earlier."
+        )
+
+
 def assert_stock_date_in_open_period(
     session: Session, firm_id: UUID, on: date, *, what: str
 ) -> None:
@@ -303,10 +329,11 @@ def assert_stock_date_in_open_period(
         what: The movement, as the refusal names it ("A transfer").
 
     Raises:
-        ValidationError: If the firm has periods and no open one covers the
-            date.
+        ValidationError: If the date is after the firm's today, or the firm
+            has periods and no open one covers the date.
 
     """
+    assert_stock_date_not_ahead(session, firm_id, on, what=what)
     periods = select(AccountingPeriod.id).where(
         AccountingPeriod.firm_id == firm_id,
         AccountingPeriod.is_deleted.is_(False),

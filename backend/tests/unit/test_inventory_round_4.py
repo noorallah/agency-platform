@@ -403,13 +403,21 @@ def _stock_writes(firm: _Firm, on: date) -> dict[str, Callable[[], object]]:
     }
 
 
-@pytest.mark.parametrize("on", [date(2030, 1, 1), date(1999, 1, 1)])
-def test_a_stock_move_outside_an_open_period_is_refused(on: date) -> None:
+@pytest.mark.parametrize(
+    ("on", "says"),
+    [
+        # Ahead of today is refused as that, before any period is asked
+        # about (D-STK-66); behind the books, as outside an open period.
+        (date(2030, 1, 1), "after today"),
+        (date(1999, 1, 1), "No open accounting period"),
+    ],
+)
+def test_a_stock_move_outside_an_open_period_is_refused(on: date, says: str) -> None:
     """Every write that posts no journal is refused, and nothing moves."""
     firm = _firm_with_books("R4DAT")
 
     for name, write in _stock_writes(firm, on).items():
-        with pytest.raises(ValidationError, match="No open accounting period"):
+        with pytest.raises(ValidationError, match=says):
             write()
         firm.session.rollback()
         assert name
@@ -435,19 +443,27 @@ def test_a_stock_move_inside_an_open_period_goes_through() -> None:
 
 
 def test_a_firm_with_no_books_keeps_any_date() -> None:
-    """A firm that keeps stock and no accounts has no period to be inside."""
+    """A firm with stock and no accounts has no period to be inside.
+
+    Any date up to today, that is: one ahead of it is refused with or
+    without books (D-STK-66).
+    """
     firm = _firm_with_books("R4NOB")
 
     assert_stock_date_in_open_period(
-        firm.session, uuid4(), date(2030, 1, 1), what="A transfer"
+        firm.session, uuid4(), date(1999, 1, 1), what="A transfer"
     )
+    with pytest.raises(ValidationError, match="after today"):
+        assert_stock_date_in_open_period(
+            firm.session, uuid4(), date(2030, 1, 1), what="A transfer"
+        )
     for period in firm.session.scalars(
         select(AccountingPeriod).where(AccountingPeriod.firm_id == firm.firm.id)
     ):
         period.is_deleted = True
     firm.session.commit()
 
-    _stock_writes(firm, date(2030, 1, 1))["quarantine"]()
+    _stock_writes(firm, date(1999, 1, 1))["quarantine"]()
 
     held = firm.session.scalar(
         select(InventoryRecord.quarantine_quantity).where(

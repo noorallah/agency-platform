@@ -15,7 +15,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -87,6 +87,15 @@ class CountPlanWrite(BaseModel):
     frequency_days: int = Field(ge=1, le=366)
     blind: bool = False
     is_active: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        """Refuse a name of only spaces: the list would show a blank row."""
+        value = value.strip()
+        if not value:
+            raise ValueError("Give the count plan a name.")
+        return value
 
 
 class CountPlanResponse(BaseModel):
@@ -200,8 +209,11 @@ class CountPlanService:
     ) -> PhysicalCount:
         """Open the sheet a plan covers, blind if the plan says so; commit.
 
+        A plan switched off draws nothing: it is never due, and it went on
+        handing out sheets to anybody who asked (D-STK-64).
+
         Raises:
-            ValidationError: If the plan covers no stock.
+            ValidationError: If the plan is switched off or covers no stock.
 
         """
         from app.inventory.services.physical_count_service import (
@@ -209,6 +221,11 @@ class CountPlanService:
         )
 
         plan = self._get(plan_id, firm_id)
+        if not plan.is_active:
+            raise ValidationError(
+                f"{plan.name} is switched off, so it draws no sheet. Switch the "
+                "plan on again, or open a count sheet for the warehouse."
+            )
         rows = list(
             self._session.scalars(
                 select(InventoryRecord).where(

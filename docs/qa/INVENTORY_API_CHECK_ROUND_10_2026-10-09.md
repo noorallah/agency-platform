@@ -55,10 +55,10 @@ time).
 
 | Probe | Check | What holds |
 | --- | --- | --- |
-| One decision, once | `p_request_lifecycle.py` (33 checks) | A rejection needs a reason (none, or only spaces: 422). An approved request cannot be approved or rejected again, a rejected one cannot be approved; nothing moves twice. An unknown request is 404, an unknown status filter 422, a kind with the other kind's body 422 |
+| One decision, once | `p_request_lifecycle.py` (34 checks) | A rejection needs a reason (none, or only spaces: 422). An approved request cannot be approved or rejected again, a rejected one cannot be approved; nothing moves twice. An unknown request is 404, an unknown status filter 422, a kind with the other kind's body 422 |
 | A refused approval | the same | Approving a request for more than is held is a 422; nothing moves and the request is still waiting |
 | Many at once | the same | Bulk approve of a waiting, a decided and an unknown request: the first is done, the other two refused by row, and only the first one's pieces leave |
-| A request's file | `p_evidence_edges.py` (22 checks) | A file sent with a request is on the movement its approval posts |
+| A request's file | `p_evidence_edges.py` (21 checks) | A file sent with a request is on the movement its approval posts |
 | A refused post | the same | A write-off refused for quantity writes no movement, so no file |
 | Where there is nothing | the same | An unknown movement, count or file is 404; an empty list, a missing path and an unknown field are 422; eleven files in one request are 422 |
 | A cancelled count | the same | Keeps the files it had |

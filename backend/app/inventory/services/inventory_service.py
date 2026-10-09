@@ -33,6 +33,7 @@ from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import (
     DocumentPostingService,
     assert_stock_date_in_open_period,
+    assert_stock_date_not_ahead,
 )
 from app.inventory.models import (
     InventoryRecord,
@@ -1156,6 +1157,9 @@ class InventoryService:
         self._validate_branch_warehouse_scope(
             firm_id=firm_id, branch_id=data.branch_id, warehouse_id=data.warehouse_id
         )
+        assert_stock_date_not_ahead(
+            self._session, firm_id, data.posting_date, what="Opening stock"
+        )
         self._assert_unique_opening_reference(firm_id, data.reference_number)
         batch = OpeningStockBatch(
             firm_id=firm_id,
@@ -1210,6 +1214,9 @@ class InventoryService:
             raise ValidationError("Only draft opening stock batches can be edited.")
         self._validate_branch_warehouse_scope(
             firm_id=firm_scope, branch_id=data.branch_id, warehouse_id=data.warehouse_id
+        )
+        assert_stock_date_not_ahead(
+            self._session, firm_scope, data.posting_date, what="Opening stock"
         )
         self._assert_unique_opening_reference(
             firm_scope, data.reference_number, excluding_id=batch.id
@@ -1748,6 +1755,16 @@ class InventoryService:
             ValidationError: Naming the record that is not the firm's.
 
         """
+        assert_stock_date_not_ahead(
+            self._session,
+            firm_scope,
+            data.transaction_date,
+            what=(
+                "A write-off"
+                if isinstance(data, StockWriteOffCreate)
+                else "A stock adjustment"
+            ),
+        )
         self._validate_references(
             firm_id=firm_scope,
             branch_id=data.branch_id,
@@ -1803,6 +1820,9 @@ class InventoryService:
             ValidationError: If the location does not hold that much.
 
         """
+        assert_stock_date_not_ahead(
+            self._session, firm_scope, data.transaction_date, what="A write-off"
+        )
         if enforce_limit:
             from app.inventory.services.adjustment_approval import (
                 StockAdjustmentApprovalService,
@@ -2321,6 +2341,12 @@ class InventoryService:
         none of the others behind. Committing per adjustment left a sheet
         still DRAFT beside stock and journals it had already moved (D-STK-3).
         """
+        assert_stock_date_not_ahead(
+            self._session,
+            firm_scope,
+            data.transaction_date,
+            what="A stock adjustment",
+        )
         # Filled once here, so the movement and its journal carry the same
         # number rather than each drawing one.
         data = data.model_copy(

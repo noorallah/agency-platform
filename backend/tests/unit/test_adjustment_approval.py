@@ -48,6 +48,11 @@ def firm() -> _Firm:
         built.product_bill("10", "100"), firm_id=built.firm.id, actor_id=built.actor_id
     )
     bills.approve_invoice(bill.id, firm_scope=built.firm.id, actor_id=built.actor_id)
+    # A limit names a role the firm has (D-STK-67), so the roles come first.
+    built.session.add_all(
+        Role(code=code, name=code.title()) for code in ("STOREKEEPER", "STORE_HEAD")
+    )
+    built.session.flush()
     StockAdjustmentApprovalService(built.session).replace_limits(
         [
             StockAdjustmentLimitItem(role_code="STOREKEEPER", max_value=D("250")),
@@ -238,3 +243,58 @@ def test_a_request_that_could_never_be_posted_is_refused(firm: _Firm) -> None:
             )
         firm.session.rollback()
     assert approvals.list_requests(firm.firm.id) == []
+
+
+def test_a_limit_names_its_role() -> None:
+    """D-STK-63: a role of only spaces was kept as a limit on nobody."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError, match="Name the role"):
+        StockAdjustmentLimitItem(role_code="   ", max_value=Decimal("10"))
+    kept = StockAdjustmentLimitItem(role_code=" STOREKEEPER ", max_value=Decimal("10"))
+    assert kept.role_code == "STOREKEEPER"
+
+
+def test_a_limit_on_a_role_nobody_holds_is_refused(firm: _Firm) -> None:
+    """D-STK-67: a mistyped role was kept, bound nobody and said nothing."""
+    approvals = StockAdjustmentApprovalService(firm.session)
+    with pytest.raises(ValidationError, match="not a role of this firm"):
+        approvals.replace_limits(
+            [StockAdjustmentLimitItem(role_code="STOREKEPER", max_value=D("5"))],
+            firm_id=firm.firm.id,
+            actor_id=firm.actor_id,
+        )
+    firm.session.rollback()
+    assert [row.role_code for row in approvals.limits(firm.firm.id)] == [
+        "STOREKEEPER",
+        "STORE_HEAD",
+    ]
+    rows = approvals.replace_limits(
+        [StockAdjustmentLimitItem(role_code="storekeeper", max_value=D("5"))],
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    assert [row.role_code for row in rows] == ["STOREKEEPER"]
+    keeper = _person(firm, "STOREKEEPER")
+    assert approvals.limit_for(firm.firm.id, keeper) == D("5")
+
+
+def test_no_stock_write_is_dated_after_today(firm: _Firm) -> None:
+    """D-STK-66: tomorrow's write-off moved the goods today."""
+    from datetime import timedelta
+
+    from app.common.firm_metadata import firm_today
+    from app.inventory.services import InventoryService
+
+    tomorrow = firm_today(firm.session, firm.firm.id) + timedelta(days=1)
+    body = _write_off(firm, "1").model_copy(update={"transaction_date": tomorrow})
+    inventory = InventoryService(firm.session)
+    with pytest.raises(ValidationError, match="after today"):
+        inventory.write_off_stock(body, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    firm.session.rollback()
+    with pytest.raises(ValidationError, match="after today"):
+        StockAdjustmentApprovalService(firm.session).submit(
+            StockAdjustmentRequestWrite(kind="WRITE_OFF", write_off=body),
+            firm_id=firm.firm.id,
+            actor_id=firm.actor_id,
+        )

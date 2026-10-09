@@ -142,3 +142,14 @@ def test_a_reason_of_the_firms_own_costs_its_account(firm: _Firm) -> None:
     firm.session.rollback()
     with pytest.raises(ValidationError, match="not an active"):
         _write_off(firm, "THEFT")
+
+
+def test_a_reason_needs_a_name_and_a_code_that_is_text() -> None:
+    """D-STK-63, D-STK-65: a blank name was kept; a numeric code answered 500."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError, match="Give the reason a name"):
+        AdjustmentReasonWrite(code="BLANK", name="   ")
+    with pytest.raises(pydantic.ValidationError):
+        AdjustmentReasonWrite.model_validate({"code": 12345, "name": "Numbered"})
+    assert AdjustmentReasonWrite(code=" own ", name=" Own ").code == "OWN"
