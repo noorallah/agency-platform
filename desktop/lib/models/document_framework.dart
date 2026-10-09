@@ -1,5 +1,15 @@
 import 'entities.dart';
 
+/// What a document header shows for a record it knows only by [id]: the name
+/// [lookup] gives, or nothing. A lookup that does not know the id hands it
+/// back, and an id is never shown to a person (D-UI-87): a blank field says
+/// "not known" honestly, a UUID says nothing.
+String namedOrBlank(String Function(String id)? lookup, String id) {
+  if (lookup == null || id.isEmpty) return '';
+  final String name = lookup(id);
+  return name == id ? '' : name;
+}
+
 class DocumentHeaderSnapshot {
   const DocumentHeaderSnapshot({
     required this.documentTypeCode,

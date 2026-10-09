@@ -158,15 +158,17 @@ class FlowLog {
   }
 }
 
-/// Open a screen from the menu bar: the area's drop-down, then the item, using
-/// "All ... screens" when the item is not on the daily list.
+/// Open a screen from the menu bar: the area's drop-down, then the item. The
+/// drop-down shows every screen of its area (since 2026-10-09); a build that
+/// still has the "All ... screens" link is given a click on it.
 Future<void> openMenu(WidgetTester tester, String area, String path) async {
   await closeOpenEditor(tester);
   await tester.tap(find.byKey(ValueKey<String>('menu-area-$area')));
   await pumpFor(tester, const Duration(milliseconds: 600));
   final Finder item = find.byKey(ValueKey<String>('menu-item-$path'));
-  if (item.evaluate().isEmpty) {
-    await tester.tap(find.byKey(const ValueKey<String>('menu-show-all')));
+  final Finder showAll = find.byKey(const ValueKey<String>('menu-show-all'));
+  if (item.evaluate().isEmpty && showAll.evaluate().isNotEmpty) {
+    await tester.tap(showAll);
     await pumpFor(tester, const Duration(milliseconds: 600));
   }
   await pumpUntil(tester, item, waitingFor: 'menu item $path');

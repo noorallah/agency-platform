@@ -3,9 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../models/tax_framework.dart';
 import '../../models/line_tax_rule.dart';
-import '../../models/uom_packaging.dart';
 import '../../models/transporter.dart';
 import '../document_framework/document_line_labels.dart';
 import '../../core/business/business_features.dart';
@@ -174,32 +172,13 @@ class _DeliveryNoteManagementPageState
   DocumentLineLabels _labels = const DocumentLineLabels();
 
   Future<void> _loadLabels() async {
-    List<Product> products = const <Product>[];
-    List<UomRecord> units = const <UomRecord>[];
-    List<TaxProfileRecord> profiles = const <TaxProfileRecord>[];
-    try {
-      products = (await widget.api.products(page: 1, pageSize: 100)).items;
-    } on ApiException {
-      // A name falls back to its id.
-    }
-    try {
-      units = await widget.api.uoms(includeInactive: true);
-    } on ApiException {
-      // As above.
-    }
-    try {
-      profiles = (await widget.api.taxProfiles(page: 1, pageSize: 100)).items;
-    } on ApiException {
-      // As above.
-    }
+    // Products, units and tax profiles for the lines, and branches and
+    // warehouses for the header: without the last two the view printed the
+    // branch's id (D-UI-87). Each list that cannot be read is left empty.
+    final DocumentLineLabels labels =
+        await DocumentLineLabels.load(widget.api);
     if (!mounted) return;
-    setState(() {
-      _labels = DocumentLineLabels(
-        products: products,
-        units: units,
-        taxProfiles: profiles,
-      );
-    });
+    setState(() => _labels = labels);
   }
 
   @override
@@ -1588,8 +1567,8 @@ class _DeliveryNoteRecord {
         documentNumber: deliveryNoteNumber,
         documentDate: deliveryDate,
         reference: salesOrderReference,
-        branch: branchName?.call(branchId) ?? '',
-        warehouse: warehouseName?.call(warehouseId) ?? '',
+        branch: namedOrBlank(branchName, branchId),
+        warehouse: namedOrBlank(warehouseName, warehouseId),
         status: status,
         // The delivery, once recorded, read beside the note's own remarks.
         remarks: [
