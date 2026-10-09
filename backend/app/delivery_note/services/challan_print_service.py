@@ -17,7 +17,7 @@ reads "10 + 1 free", because the storekeeper at the other end counts eleven.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from decimal import Decimal
 from uuid import UUID
@@ -46,6 +46,7 @@ from app.sales_invoice.services.invoice_pdf import (
     InvoicePdfRenderer,
     PartyBlock,
     TemplateSettings,
+    render_together,
 )
 from app.tax.services.gst_compliance import CHALLAN_REASONS
 from app.uom.models import Uom
@@ -187,7 +188,46 @@ class DeliveryChallanPrintService:
         )
         if note is None:
             raise ResourceNotFoundError("Delivery note not found.")
+        template, document = self._prepared(note, firm_scope=firm_scope)
+        pdf = InvoicePdfRenderer(template).render(document)
+        safe = note.delivery_note_number.replace("/", "-").replace(" ", "-")
+        return pdf, f"{safe}.pdf"
 
+    def render_many(
+        self, note_ids: Sequence[UUID], *, firm_scope: UUID
+    ) -> tuple[bytes, str]:
+        """Return several challans as one PDF, in the order asked for.
+
+        Each prints exactly as it would alone, with the firm's copies.
+
+        Raises:
+            ResourceNotFoundError: When any of them is not the firm's.
+            BusinessRuleError: When the firm prints on a thermal roll.
+
+        """
+        wanted = list(dict.fromkeys(note_ids))
+        found = {
+            row.id: row
+            for row in self._session.scalars(
+                select(DeliveryNote).where(
+                    DeliveryNote.id.in_(wanted),
+                    DeliveryNote.firm_id == firm_scope,
+                    DeliveryNote.is_deleted.is_(False),
+                )
+            )
+        }
+        if len(found) != len(wanted):
+            raise ResourceNotFoundError("Delivery note not found.")
+        items = [self._prepared(found[one], firm_scope=firm_scope) for one in wanted]
+        return (
+            render_together(items, title="Delivery challans"),
+            "delivery-challans.pdf",
+        )
+
+    def _prepared(
+        self, note: DeliveryNote, *, firm_scope: UUID
+    ) -> tuple[TemplateSettings, InvoiceDocument]:
+        """Return the template and the document one challan prints with."""
         template = self._template(firm_scope)
         document = self._document(note, firm_scope=firm_scope)
         if any(line.batch for line in document.lines):
@@ -200,9 +240,7 @@ class DeliveryChallanPrintService:
                 # And the MRP each batch carries, where any does (79 row 7).
                 show_mrp_column=any(line.mrp is not None for line in document.lines),
             )
-        pdf = InvoicePdfRenderer(template).render(document)
-        safe = note.delivery_note_number.replace("/", "-").replace(" ", "-")
-        return pdf, f"{safe}.pdf"
+        return template, document
 
     # ------------------------------------------------------------------
     def _template(self, firm_scope: UUID) -> TemplateSettings:

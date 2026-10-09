@@ -346,8 +346,15 @@ class _SalesInvoiceManagementPageState
     );
   }
 
-  /// The two bulk actions, each behind the permission the single one takes.
+  /// The bulk actions, each behind the permission the single one takes.
   List<ToolbarCommand> _bulkCommands() => [
+        // Printing is viewing, as for one bill, so it needs no further code.
+        ToolbarCommand(
+          id: 'bulk-print',
+          label: 'Print selected',
+          icon: Icons.print_outlined,
+          onPressed: _loading ? null : () => unawaited(_printSelected()),
+        ),
         ToolbarCommand(
           id: 'bulk-approve',
           label: 'Approve selected',
@@ -598,6 +605,41 @@ class _SalesInvoiceManagementPageState
       );
       if (pdf == null || !mounted) return;
       await printDocument(context, bytes: pdf, documentName: number);
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  /// Print every ticked bill as one PDF, in the order the list shows them,
+  /// each with the firm's copies. More than one run takes is refused here,
+  /// by the number, before the server is asked.
+  Future<void> _printSelected() async {
+    final List<String> ids = [
+      for (final Map<String, dynamic> row in _tickedRows) '${row['id']}',
+    ];
+    if (ids.isEmpty) return;
+    if (ids.length > maxPrintRun) {
+      NotificationService.show(
+        context,
+        'One print run takes up to $maxPrintRun bills; ${ids.length} are '
+        'selected. Print them in smaller lots.',
+        kind: AppNotificationKind.error,
+      );
+      return;
+    }
+    try {
+      final List<int> pdf = await widget.api.salesInvoicesPdf(ids);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: '${ids.length} sales invoices',
+      );
     } on ApiException catch (exception) {
       if (!mounted) return;
       NotificationService.show(

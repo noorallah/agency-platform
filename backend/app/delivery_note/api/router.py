@@ -66,6 +66,7 @@ from app.document_framework.schemas.bulk_actions import (
 )
 from app.document_framework.services.bulk_actions import run_each
 from app.sales_invoice.schemas import SalesInvoiceResponse
+from app.sales_invoice.services.invoice_pdf import MAX_PRINT_RUN
 from app.sales_invoice.services.sales_invoice_service import SalesInvoiceService
 from app.tax.schemas.gst_compliance import DispatchCheckResponse
 from app.tax.services.gst_compliance import GstComplianceService
@@ -381,6 +382,33 @@ def delivery_loading_sheet(
     return _pdf(
         DispatchSheetService(db).loading_sheet_pdf(scope.firm_id, data.note_ids),
         "loading-sheet.pdf",
+    )
+
+
+class ChallanPrintRunRequest(BaseModel):
+    """The delivery notes one print run covers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    note_ids: list[UUID] = Field(min_length=1, max_length=MAX_PRINT_RUN)
+
+
+@router.post("/bulk-print", response_class=StreamingResponse)
+def print_delivery_challans(
+    data: ChallanPrintRunRequest,
+    scope: DeliveryNoteViewScope,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Print the chosen notes' challans as one PDF, in the order given.
+
+    Each challan prints as it would alone, with the firm's copies, so a
+    morning's dispatches are one trip to the printer. Viewing is the
+    permission, as for one challan.
+    """
+    return _pdf(
+        *DeliveryChallanPrintService(db).render_many(
+            data.note_ids, firm_scope=scope.firm_id
+        )
     )
 
 

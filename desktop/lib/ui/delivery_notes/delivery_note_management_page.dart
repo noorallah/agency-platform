@@ -502,8 +502,15 @@ class _DeliveryNoteManagementPageState
     );
   }
 
-  /// The two bulk actions, each behind the permission the single one takes.
+  /// The bulk actions, each behind the permission the single one takes.
   List<ToolbarCommand> _bulkCommands() => [
+        // Printing is viewing, as for one challan, so it needs no further code.
+        ToolbarCommand(
+          id: 'bulk-print',
+          label: 'Print selected',
+          icon: Icons.print_outlined,
+          onPressed: _loading ? null : () => unawaited(_printSelected()),
+        ),
         ToolbarCommand(
           id: 'bulk-approve',
           label: 'Approve selected',
@@ -551,6 +558,40 @@ class _DeliveryNoteManagementPageState
       send: (rows) => widget.api.bulkCancelDeliveryNotes(rows, reason),
     );
     await _afterBulk();
+  }
+
+  /// Print every ticked note's challan as one PDF, in the order the list
+  /// shows them, each with the firm's copies.
+  Future<void> _printSelected() async {
+    final List<String> ids = [
+      for (final _DeliveryNoteRecord row in _tickedRows) row.id,
+    ];
+    if (ids.isEmpty) return;
+    if (ids.length > maxPrintRun) {
+      NotificationService.show(
+        context,
+        'One print run takes up to $maxPrintRun challans; ${ids.length} are '
+        'selected. Print them in smaller lots.',
+        kind: AppNotificationKind.error,
+      );
+      return;
+    }
+    try {
+      final List<int> pdf = await widget.api.deliveryChallansPdf(ids);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: '${ids.length} delivery challans',
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
   }
 
   /// The two sheets a dispatcher works from, over every ticked note (SEL-13).

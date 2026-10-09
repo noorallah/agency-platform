@@ -3698,6 +3698,17 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Expect:** (a) A holds 4 of the earlier batch and B 4 of the later. Cancelling B frees the later batch and leaves A's 4 alone (Stock Ledger: `UNRESERVE` 4 on the later batch against B's order); A approves and ships 4 of the earlier batch. (b) C holds **1** on the earlier batch and **3** on the later, exactly as picked; the other document takes only the rest, and C approves and ships 1 + 3. (c) cancelling Y frees the later batch and nothing else; X dispatches from the earlier batch. An order whose stock is reserved on the batch its customer's minimum shelf life allows dispatches from that batch even while another order holds the earlier one. Cancelling an order while a dispatched note stands against it is refused, as before.
 
 
+### TC-SELL-096 — Print several bills, or several challans, at once
+
+*Added 2026-10-09 with the feature. **Server side driven 2026-10-09** over HTTP on the demo firm (three bills and three challans: one PDF each, nine pages, the same pages as the three printed singly; a view-only user; an id that is not the firm's; an empty list; 101 ids). **The screen's button is covered by a widget test, not yet clicked in the running app.***
+
+- **Covers:** printing a selection (owner, 2026-10-09)
+- **Preconditions:** a firm with at least three approved sales invoices and three delivery notes, printing on A4 with the default three copies.
+- **Steps:** (a) Sell > **Sales Invoices**: tick three bills → **Print selected**. (b) Sell > **Delivery Notes**: tick three notes → **Print selected**. (c) Repeat (a) signed in as a user who holds only `SALES_VIEW`. (d) In Print settings set the paper to **Thermal roll (80 mm)**, save, and repeat (a); set it back to A4. (e) Tick one row only.
+- **Expect:** (a) and (b) the print dialog opens **once**, on one document of **nine pages**: each bill (or challan) in the order of the list, as ORIGINAL, DUPLICATE and TRIPLICATE, exactly as it prints alone. (c) the same: printing needs no more than viewing. (d) refused, saying several documents print together on A4 or A5 and to print them one at a time on a roll; nothing prints. (e) no *Print selected*; the ordinary **Print** is offered.
+- **Leaves:** unchanged; a print writes nothing.
+
+
 
 ## Pricing, promotions and incentives
 

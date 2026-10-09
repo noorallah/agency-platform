@@ -44,6 +44,7 @@ from app.sales_invoice.services.invoice_pdf import (
     InvoicePdfRenderer,
     PartyBlock,
     TemplateSettings,
+    render_together,
 )
 from app.sales_invoice.services.upi_qr import UpiPayment, upi_payment
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -301,12 +302,6 @@ class SalesInvoicePrintService:
                 and no reference copy was asked for.
 
         """
-        from app.einvoice.services.issue_gate import (
-            REFERENCE_COPY_BANNER,
-            missing_irn,
-            refuse_without_irn,
-        )
-
         invoice = self._session.scalar(
             select(SalesInvoice).where(
                 SalesInvoice.id == invoice_id,
@@ -316,6 +311,64 @@ class SalesInvoicePrintService:
         )
         if invoice is None:
             raise ResourceNotFoundError("Sales invoice not found.")
+        template, document = self._prepared(
+            invoice, firm_scope=firm_scope, reference_copy=reference_copy
+        )
+        pdf = InvoicePdfRenderer(template).render(document)
+        safe = invoice.invoice_number.replace("/", "-").replace(" ", "-")
+        return pdf, f"{safe}.pdf"
+
+    def render_many(
+        self, invoice_ids: Sequence[UUID], *, firm_scope: UUID
+    ) -> tuple[bytes, str]:
+        """Return several invoices as one PDF, in the order asked for.
+
+        Each prints exactly as it would alone, with the firm's copies. A bill
+        still waiting for its IRN is printed as the reference copy -- under
+        the banner saying it is not a valid tax invoice -- rather than
+        stopping the run: a single print stops to ask, and a run of forty has
+        nobody to ask forty times.
+
+        Raises:
+            ResourceNotFoundError: When any of them is not the firm's.
+            BusinessRuleError: When the firm prints on a thermal roll.
+
+        """
+        wanted = list(dict.fromkeys(invoice_ids))
+        found = {
+            row.id: row
+            for row in self._session.scalars(
+                select(SalesInvoice).where(
+                    SalesInvoice.id.in_(wanted),
+                    SalesInvoice.firm_id == firm_scope,
+                    SalesInvoice.is_deleted.is_(False),
+                )
+            )
+        }
+        if len(found) != len(wanted):
+            raise ResourceNotFoundError("Sales invoice not found.")
+        items = [
+            self._prepared(found[one], firm_scope=firm_scope, reference_copy=True)
+            for one in wanted
+        ]
+        return render_together(items, title="Sales invoices"), "sales-invoices.pdf"
+
+    def _prepared(
+        self, invoice: SalesInvoice, *, firm_scope: UUID, reference_copy: bool
+    ) -> tuple[TemplateSettings, InvoiceDocument]:
+        """Return the template and the document one invoice prints with.
+
+        Raises:
+            BusinessRuleError: When the invoice needs an IRN it does not have
+                and no reference copy was asked for.
+
+        """
+        from app.einvoice.services.issue_gate import (
+            REFERENCE_COPY_BANNER,
+            missing_irn,
+            refuse_without_irn,
+        )
+
         no_irn = missing_irn(
             self._session,
             firm_scope=firm_scope,
@@ -346,9 +399,7 @@ class SalesInvoicePrintService:
                 show_expiry_column=True,
                 show_mrp_column=any(line.mrp is not None for line in document.lines),
             )
-        pdf = InvoicePdfRenderer(template).render(document)
-        safe = invoice.invoice_number.replace("/", "-").replace(" ", "-")
-        return pdf, f"{safe}.pdf"
+        return template, document
 
     # ------------------------------------------------------------------
     def _upi(
