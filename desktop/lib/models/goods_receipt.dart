@@ -453,15 +453,22 @@ class GoodsReceiptRecord {
         leftToBillAmount: stringValue(json['left_to_bill_amount']),
       );
 
-  DocumentHeaderSnapshot toHeader() => DocumentHeaderSnapshot(
+  /// The header a document view shows. [branchName] and [warehouseName]
+  /// turn an id into what a person reads; without them the id is all this
+  /// record holds, and an id is never worth showing, so the field is blank.
+  DocumentHeaderSnapshot toHeader({
+    String Function(String id)? branchName,
+    String Function(String id)? warehouseName,
+  }) => DocumentHeaderSnapshot(
         documentTypeCode: 'GOODS_RECEIPT_NOTE',
         documentTypeName: 'Goods Receipt Note',
         documentNumber: grnNumber,
         documentDate: receiptDate,
         reference: purchaseOrderNumber,
-        branch: branchId,
-        warehouse: warehouseId,
-        firm: firmId,
+        branch: branchName?.call(branchId) ?? '',
+        warehouse: warehouseName?.call(warehouseId) ?? '',
+        // The firm is the one in the title bar; its id says nothing.
+        firm: '',
         businessProfile: '',
         currency: '',
         exchangeRate: '',

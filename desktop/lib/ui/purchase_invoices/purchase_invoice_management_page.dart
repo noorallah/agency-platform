@@ -825,7 +825,7 @@ class _PurchaseInvoiceManagementPageState
         subtitle:
             'Supplier invoice ${record.supplierInvoiceNumber}$selfInvoice',
         icon: Icons.request_quote_outlined,
-        header: record.toHeader(),
+        header: record.toHeader(branchName: _labels.branch),
         lines: [
           for (final _PurchaseInvoiceLine line in record.lines)
             DocumentLineSnapshot(
@@ -1052,15 +1052,21 @@ class _PurchaseInvoiceRecord {
     );
   }
 
-  DocumentHeaderSnapshot toHeader() => DocumentHeaderSnapshot(
+  /// The header a document view shows. [branchName] and [warehouseName]
+  /// turn an id into what a person reads; without them the id is all this
+  /// record holds, and an id is never worth showing, so the field is blank.
+  DocumentHeaderSnapshot toHeader({
+    String Function(String id)? branchName,
+  }) => DocumentHeaderSnapshot(
         documentTypeCode: 'PURCHASE_INVOICE',
         documentTypeName: 'Purchase Invoice',
         documentNumber: invoiceNumber,
         documentDate: invoiceDate,
         reference: supplierInvoiceNumber,
-        branch: branchId,
+        branch: branchName?.call(branchId) ?? '',
         firm: '',
-        businessProfile: businessProfileId,
+        // Only the profile's id is held here, and an id is not shown.
+        businessProfile: '',
         currency: currencyCode,
         exchangeRate: exchangeRate,
         status: status,
