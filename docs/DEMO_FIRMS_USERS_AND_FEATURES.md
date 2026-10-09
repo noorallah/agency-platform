@@ -33,10 +33,29 @@ to be tried later.
 
 ### DEMO01 (password `DemoTrio@2026pw`)
 
+One person for each job a customer will ask about, added on 2026-10-09. Every
+one was signed in once after it was made. What each sees and may do is set by
+its role; sign in as two of them in front of the customer to show the menu
+change.
+
 | Sign in as | Name | Role | Use it to show |
 | --- | --- | --- | --- |
-| `admin@demo01.test` | Demo Administrator | Firm administrator | Everything in the firm |
-| `sales@demo01.test` | Demo Sales Executive | Sales executive | The shorter menu, and that an executive cannot approve |
+| `admin@demo01.test` | Demo Administrator | Firm administrator | Everything in the firm (the account the demonstration runs on) |
+| `owner@demo01.test` | Ramesh Iyer (Owner) | Firm administrator | The owner's own sign-in: Home, reports, approvals |
+| `manager@demo01.test` | Sunita Rao (Manager) | Firm manager | Running the firm day to day without the administrator's settings |
+| `accounts@demo01.test` | Anita Shah (Accounts) | Accountant | Receipts and payments, the books, GST |
+| `salesmanager@demo01.test` | Vikram Nair (Sales Manager) | Sales manager | Approving orders; prices and offers |
+| `sales1@demo01.test` | Asha Menon (Sales) | Sales executive | Quotations and orders; cannot approve |
+| `sales@demo01.test` | Demo Sales Executive | Sales executive | A second sales person |
+| `purchase@demo01.test` | Farid Khan (Purchase) | Purchase executive | Purchase orders, goods receipts, supplier bills |
+| `store@demo01.test` | Suresh Babu (Store) | Inventory manager | Stock, transfers, counts, expiry |
+| `counter@demo01.test` | Meena Devi (Counter) | Cashier | The counter bill and cash |
+| `billing@demo01.test` | Kiran Raj (Billing) | Billing executive | Sales bills |
+| `viewer@demo01.test` | Auditor (View only) | Viewer | Looking without changing anything |
+
+The "use it to show" column is what the job is for. Check the menu each one
+actually gets on the day: the roles have not been walked through one by one in
+this firm.
 
 ### The four trading firms (password `DemoAdmin@12345` for all)
 
@@ -56,8 +75,8 @@ to be tried later.
 It must change its password at first sign-in, so do not use it in front of a
 customer; use `master.ops@agency.local`.
 
-Other roles exist and have no sample user yet: manager, accountant, sales
-manager, purchase, stock, cashier, billing and viewer. A user for any of them
+The four trading firms have an administrator and two sales people each; the
+other jobs have a sample user in DEMO01 only. A user for any role
 is made in a minute under *Settings > Platform > People > Users*.
 
 ---
