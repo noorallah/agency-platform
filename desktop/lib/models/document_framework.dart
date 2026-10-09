@@ -10,6 +10,38 @@ String namedOrBlank(String Function(String id)? lookup, String id) {
   return name == id ? '' : name;
 }
 
+/// Who raised a document, read from its [history]: the actor of the event
+/// that created it. Empty when the history does not say.
+String historyCreatedBy(List<DocumentTimelineSnapshot> history) {
+  for (final DocumentTimelineSnapshot entry in history) {
+    if (entry.action.trim().toUpperCase() == 'CREATED') return entry.actor;
+  }
+  return '';
+}
+
+/// Who approved a document, read from its [history]: the actor of the latest
+/// event that approved it -- or completed or posted it, which is what
+/// approval is called on a document with no separate approve step (a goods
+/// receipt). Empty while nobody has.
+String historyApprovedBy(List<DocumentTimelineSnapshot> history) {
+  DocumentTimelineSnapshot? latest;
+  for (final DocumentTimelineSnapshot entry in history) {
+    if (!_approvingActions.contains(entry.action.trim().toUpperCase())) {
+      continue;
+    }
+    if (latest == null || entry.occurredAt.compareTo(latest.occurredAt) > 0) {
+      latest = entry;
+    }
+  }
+  return latest?.actor ?? '';
+}
+
+const Set<String> _approvingActions = <String>{
+  'APPROVED',
+  'COMPLETED',
+  'POSTED',
+};
+
 class DocumentHeaderSnapshot {
   const DocumentHeaderSnapshot({
     required this.documentTypeCode,
@@ -24,12 +56,12 @@ class DocumentHeaderSnapshot {
     this.branch = '',
     this.warehouse = '',
     this.firm = '',
-    this.businessProfile = '',
     this.currency = '',
     this.exchangeRate = '',
     this.remarks = '',
     this.createdBy = '',
     this.approvedBy = '',
+    this.more = const <String, String>{},
   });
 
   final String documentTypeCode;
@@ -48,13 +80,17 @@ class DocumentHeaderSnapshot {
   final String branch;
   final String warehouse;
   final String firm;
-  final String businessProfile;
   final String currency;
   final String exchangeRate;
   final String status;
   final String remarks;
   final String createdBy;
   final String approvedBy;
+
+  /// What only this kind of document records, by the label it is shown
+  /// under -- a goods receipt's e-way bill, say. One with nothing in it is
+  /// not shown.
+  final Map<String, String> more;
 
   factory DocumentHeaderSnapshot.fromJson(Json json) => DocumentHeaderSnapshot(
         documentTypeCode: stringValue(json['document_type_code']),
@@ -70,7 +106,6 @@ class DocumentHeaderSnapshot {
         branch: stringValue(json['branch']),
         warehouse: stringValue(json['warehouse']),
         firm: stringValue(json['firm']),
-        businessProfile: stringValue(json['business_profile']),
         currency: stringValue(json['currency']),
         exchangeRate: stringValue(json['exchange_rate']),
         status: stringValue(json['status']),
@@ -191,7 +226,11 @@ class DocumentTimelineSnapshot {
         action: stringValue(json['action']),
         fromState: stringValue(json['from_state']),
         toState: stringValue(json['to_state']),
-        actor: stringValue(json['actor']),
+        // The server sends the person as `actor_id`. Only `actor` was read,
+        // so no timeline row and no header could say who (D-UI-88).
+        actor: stringValue(json['actor']).isNotEmpty
+            ? stringValue(json['actor'])
+            : stringValue(json['actor_id']),
         remarks: stringValue(json['remarks']),
         details: json['details'] is Map
             ? Map<String, dynamic>.from(json['details'] as Map)

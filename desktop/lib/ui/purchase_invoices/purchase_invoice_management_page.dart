@@ -1044,8 +1044,6 @@ class _PurchaseInvoiceRecord {
         reference: supplierInvoiceNumber,
         branch: namedOrBlank(branchName, branchId),
         firm: '',
-        // Only the profile's id is held here, and an id is not shown.
-        businessProfile: '',
         currency: currencyCode,
         exchangeRate: exchangeRate,
         status: status,

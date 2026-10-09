@@ -23,7 +23,6 @@ void main() {
                     branch: 'Head Office',
                     warehouse: 'Main Warehouse',
                     firm: 'Agency Pvt Ltd',
-                    businessProfile: 'Generic',
                     currency: 'INR',
                     exchangeRate: '1.0000',
                     status: 'Draft',

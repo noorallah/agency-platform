@@ -4336,7 +4336,6 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
         branch: _branchLabel(_draft.branchId),
         warehouse: _warehouseLabel(_draft.warehouseId),
         firm: '',
-        businessProfile: '',
         currency: _draft.currencyCode.ifEmpty(''),
         exchangeRate: _draft.exchangeRate.ifEmpty(''),
         status: _draft.status,

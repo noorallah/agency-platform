@@ -469,13 +469,20 @@ class GoodsReceiptRecord {
         warehouse: namedOrBlank(warehouseName, warehouseId),
         // The firm is the one in the title bar; its id says nothing.
         firm: '',
-        businessProfile: '',
         currency: '',
         exchangeRate: '',
         status: status,
         remarks: remarks,
         createdBy: '',
         approvedBy: '',
+        // Typed on the receipt and, until D-UI-88, shown nowhere on its view.
+        more: <String, String>{
+          "Supplier's invoice number": invoiceReference,
+          'Transport': transportDetails,
+          'Vehicle number': vehicleNumber,
+          'E-way bill no.': ewayBillNumber,
+          'E-way bill date': ewayBillDate,
+        },
       );
 
   DocumentTotalsSnapshot toTotals() => DocumentTotalsSnapshot(
