@@ -6656,3 +6656,40 @@ resolver and should be designed together even if built apart.
 - Should the firm-wide fixed minimum apply to a product that has never sold,
   or only once it has stock?
 
+## 94. Email, WhatsApp and SMS: what is still missing -- listed, not to be built yet
+
+Owner, 2026-10-09: write up what messaging does, how it is switched on, which
+events send by themselves and on demand (dues included), the job behind it,
+and "add everything missing to the backlog; don't implement". The write-up is
+`docs/MESSAGING_OVERVIEW.md`; what exists is section 51 (built 2026-10-02 and
+03) and `docs/MESSAGING_FRAMEWORK.md`. **Nothing here is decided or scheduled.**
+
+**What exists, in a line.** A switch per firm; the firm's own SMTP mailbox,
+Meta WhatsApp Cloud API and MSG91 accounts, tested before they may be switched
+on; six events (invoice, order, dispatch, receipt, due soon, overdue) with a
+fallback order of channels; send, remind and resend by hand; WhatsApp from the
+person's own phone with no account; an outbox the server works every 60
+seconds, with retries and a daily reminder scan.
+
+| # | Missing | Size | Notes for the review |
+| --- | --- | --- | --- |
+| 1 | **Proved against real providers.** The three adapters were written from the providers' documentation and run only against fakes | S each, but needs the accounts | A mailbox costs nothing and is the first to prove. WhatsApp and SMS need a firm's Meta and DLT registrations, which take days. Until done, the feature must not be sold as working |
+| 2 | **A send window.** `_scan_reminders` in `outbox_worker.py` runs once per **UTC** day, so reminders are staged and sent at about 05:30 India time | S | The firm's own day (`firm_today`) and a "send between" pair of hours on `messaging_settings`; a message staged outside the window waits. TRAI bars promotional SMS from 9 pm to 9 am; a reminder at dawn is legal and unwelcome |
+| 3 | **Delivery status.** WhatsApp and MSG91 report delivery only by webhook; a row stays *sent* | M | Needs an address the provider can reach, which an installed LAN server does not have. Decide with hosting |
+| 4 | **Remind everybody who owes**, in one action: every customer with an overdue balance, or a ticked selection on the Collection Sheet or the ageing report | M | Per row, as bulk approval: one refused customer (no email, *no reminders*) must not stop the rest. The screen must show the count and the list before sending |
+| 5 | **A statement on a schedule**: monthly, to every customer with a balance | S after 4 | An event `STATEMENT_MONTHLY` on the same scan |
+| 6 | **Reminders by collector or route**, and one raised from a broken payment promise (also open in the collections work, section 91) | S | |
+| 7 | **Suppliers.** No party preferences on a supplier, and no supplier event: purchase order approved, payment made (remittance advice), purchase return, debit note | M | The purchase order is emailed by hand today (MSG-4) |
+| 8 | **WhatsApp with the bill attached**, and a link in an SMS | M | A document-header template on WhatsApp; a link needs the bill to be reachable from outside, which again is a hosting question |
+| 9 | **A payment link** in the message (section 51 B4) | L | Needs a payment gateway and its contract |
+| 10 | **More customer events**: credit note or sales return approved; cheque bounced; order cancelled; delivery proved; quotation sent and about to lapse; credit limit nearly reached; loyalty points earned and about to expire; a new offer or coupon | S each | Each is an entry in `app/messaging/events.py` and a call where the document changes state. A promotional one (offers) is a different DLT category and a different consent from a transactional one |
+| 11 | **Messages to the firm's own people**: the owner's daily summary (sales, collections, what is overdue); the salesman when his order is approved or dispatched; an approver when something waits | M | The in-app bell exists (PLT-1); this is the same notice sent outside the app |
+| 12 | **A second provider per channel** (another SMS gateway, a WhatsApp partner) | M each | The adapter interface was built for it; no screen change |
+| 13 | **An alert when a channel breaks.** It shows *Needs attention* on the Messaging page and nowhere else | S | The bell, and an email to the administrator where email still works |
+| 14 | **A count of what was sent**, by channel, event and month, with what failed | S | To check against the provider's bill; the log holds the rows already |
+| 15 | **Limits**: no more than n messages to one customer in a day; a pause for a customer in dispute | S | |
+| 16 | **Wording per language**, and the firm's own wording for WhatsApp and SMS beyond naming the provider's template | M | |
+
+**Suggested order when taken up:** 1 (email first), 2, 4, 13, then 7 and 10 as
+firms ask. 3, 8 and 9 wait on how the product is hosted.
+
