@@ -73,7 +73,7 @@ class DocumentViewDialog extends StatelessWidget {
             children: [
               if (steps != null)
                 Align(alignment: Alignment.centerRight, child: steps),
-              EnterpriseDocumentHeader(header: header),
+              EnterpriseDocumentHeader(header: header, history: history),
               const SizedBox(height: 12),
               EnterpriseDocumentLines(lines: lines),
               const SizedBox(height: 12),

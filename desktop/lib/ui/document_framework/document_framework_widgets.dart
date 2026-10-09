@@ -86,15 +86,46 @@ class EnterpriseDocumentStatusBadge extends StatelessWidget {
   }
 }
 
-class EnterpriseDocumentHeader extends StatelessWidget {
+class EnterpriseDocumentHeader extends StatefulWidget {
   const EnterpriseDocumentHeader({
     super.key,
     required this.header,
+    this.history = const <DocumentTimelineSnapshot>[],
     this.leadingActions = const [],
   });
 
   final DocumentHeaderSnapshot header;
+
+  /// The document's history. Where the header itself does not say who
+  /// created or approved the document, the history does (D-UI-88).
+  final List<DocumentTimelineSnapshot> history;
   final List<Widget> leadingActions;
+
+  @override
+  State<EnterpriseDocumentHeader> createState() =>
+      _EnterpriseDocumentHeaderState();
+}
+
+/// Reads the firm's people once (shared with the timeline) so the person who
+/// created or approved the document is a name.
+class _EnterpriseDocumentHeaderState extends State<EnterpriseDocumentHeader> {
+  @override
+  void initState() {
+    super.initState();
+    if (!FirmPeople.isLoaded) {
+      FirmPeople.ensure().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  DocumentHeaderSnapshot get header => widget.header;
+
+  List<Widget> get leadingActions => widget.leadingActions;
+
+  /// The header's own word for the person, or the history's.
+  String _person(String stated, String fromHistory) =>
+      FirmPeople.nameFor(stated.isNotEmpty ? stated : fromHistory);
 
   @override
   Widget build(BuildContext context) => Card(
@@ -163,11 +194,23 @@ class EnterpriseDocumentHeader extends StatelessWidget {
                   _headerField('Branch', header.branch),
                   _headerField('Warehouse', header.warehouse),
                   _headerField('Firm', header.firm),
-                  _headerField('Business profile', header.businessProfile),
                   _headerField('Currency', header.currency),
                   _headerField('Exchange rate', header.exchangeRate),
-                  _headerField('Created by', header.createdBy),
-                  _headerField('Approved by', header.approvedBy),
+                  for (final MapEntry<String, String> entry
+                      in header.more.entries)
+                    if (entry.value.trim().isNotEmpty)
+                      _headerField(entry.key, entry.value),
+                  _headerField(
+                    'Created by',
+                    _person(header.createdBy, historyCreatedBy(widget.history)),
+                  ),
+                  _headerField(
+                    'Approved by',
+                    _person(
+                      header.approvedBy,
+                      historyApprovedBy(widget.history),
+                    ),
+                  ),
                 ],
               ),
               if (header.remarks.trim().isNotEmpty) ...[

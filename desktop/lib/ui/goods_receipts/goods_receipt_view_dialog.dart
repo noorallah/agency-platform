@@ -68,7 +68,7 @@ class GoodsReceiptViewDialog extends StatelessWidget {
                   steps: steps,
                 ),
               ),
-            EnterpriseDocumentHeader(header: header),
+            EnterpriseDocumentHeader(header: header, history: history),
             const SizedBox(height: 12),
             EnterpriseDocumentLines(
               lines: [
