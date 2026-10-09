@@ -129,6 +129,11 @@ def test_a_sheet_beyond_the_posters_limit_waits() -> None:
     for batch in shop.batches.values():
         batch.expiry_date = date(2030, 1, 1)
     shop.session.commit()
+    # A limit names a role the firm has (D-STK-67), so the role comes first.
+    from app.identity.models import Role
+
+    shop.session.add(Role(code="STOREKEEPER", name="Storekeeper"))
+    shop.session.flush()
     StockAdjustmentApprovalService(shop.session).replace_limits(
         [StockAdjustmentLimitItem(role_code="STOREKEEPER", max_value=D("250"))],
         firm_id=shop.firm_id,
@@ -172,3 +177,47 @@ def test_a_sheet_beyond_the_posters_limit_waits() -> None:
     shop.session.rollback()
     posted = counts.post(sheet.id, firm_id=shop.firm_id, actor_id=shop.actor_id)
     assert posted.status == "POSTED"
+
+
+def test_a_plan_switched_off_draws_no_sheet() -> None:
+    """D-STK-64: a plan switched off went on handing out sheets."""
+    shop = _Shop()
+    _cost(shop, "100")
+    shop.dispatch(shop.note(None))
+    plans = CountPlanService(shop.session)
+    plan = _plan(shop, None)
+    plans.update(
+        plan.id,  # type: ignore[attr-defined]
+        CountPlanWrite(
+            name="Class None",
+            branch_id=shop.order.branch_id,
+            warehouse_id=shop.warehouse_id,
+            frequency_days=7,
+            is_active=False,
+        ),
+        firm_id=shop.firm_id,
+        actor_id=shop.actor_id,
+    )
+    with pytest.raises(ValidationError, match="switched off"):
+        plans.draw_sheet(
+            plan.id,  # type: ignore[attr-defined]
+            count_date=date(2026, 9, 30),
+            firm_id=shop.firm_id,
+            actor_id=shop.actor_id,
+        )
+
+
+def test_a_plan_needs_a_name() -> None:
+    """D-STK-63: a name of only spaces was kept as a blank row."""
+    from uuid import uuid4
+
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError, match="Give the count plan a name"):
+        CountPlanWrite(
+            name="   ", branch_id=uuid4(), warehouse_id=uuid4(), frequency_days=7
+        )
+    kept = CountPlanWrite(
+        name="  Fast movers ", branch_id=uuid4(), warehouse_id=uuid4(), frequency_days=7
+    )
+    assert kept.name == "Fast movers"

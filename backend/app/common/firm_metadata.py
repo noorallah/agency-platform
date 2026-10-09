@@ -209,6 +209,23 @@ class FirmMetadataReader:
             codes.add("platform_admin")
         return frozenset(codes)
 
+    def known_role_codes(self, firm_id: UUID) -> frozenset[str]:
+        """Return the code of every live role a person in the firm can hold.
+
+        The platform-wide roles and the firm's own. A setting keyed by a role
+        code asks this before it is saved: one typed wrongly was kept, bound
+        nobody, and said nothing (D-STK-67). ``roles`` is a platform table.
+        """
+        roles = select(Role.code).where(
+            or_(Role.firm_id == firm_id, Role.firm_id.is_(None)),
+            Role.is_deleted.is_(False),
+        )
+        bind = self._session.get_bind()
+        if bind.dialect.name != "postgresql":
+            return frozenset(self._session.scalars(roles))
+        with platform_reader() as reader:
+            return frozenset(reader.scalars(roles))
+
     def active_members(self, firm_id: UUID) -> list["FirmMember"]:
         """List a firm's active members, in name order.
 

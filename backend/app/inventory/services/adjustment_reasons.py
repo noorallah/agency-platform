@@ -66,9 +66,18 @@ class AdjustmentReasonWrite(BaseModel):
 
     @field_validator("code", mode="before")
     @classmethod
-    def upper_code(cls, value: str) -> str:
-        """Match codes regardless of case."""
-        return value.strip().upper()
+    def upper_code(cls, value: object) -> object:
+        """Match codes regardless of case; leave a non-string to be refused."""
+        return value.strip().upper() if isinstance(value, str) else value
+
+    @field_validator("name")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        """Refuse a name of only spaces: the picker would offer a blank row."""
+        value = value.strip()
+        if not value:
+            raise ValueError("Give the reason a name.")
+        return value
 
 
 class AdjustmentReasonResponse(BaseModel):

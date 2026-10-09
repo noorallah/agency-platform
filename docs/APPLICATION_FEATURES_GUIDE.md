@@ -1306,7 +1306,11 @@ And two documents:
   Variance agree. **Count plans** choose what to count and how often -- a
   warehouse, a bin or an ABC class (fast sellers more often) -- draw the sheet,
   can hide the system quantity on a **blind sheet**, and limit what a counter
-  may post.
+  may post. A plan switched off draws no sheet until it is switched on again.
+  **No stock entry can be dated after today**: stock moves the moment an
+  entry is saved, so a write-off, adjustment, transfer, count or opening
+  stock dated tomorrow is refused. An **adjustment limit** is set on a role
+  the firm has; a role that does not exist is refused rather than kept.
 - **Stock Transfers** (*Stock → Stock Transfers*). A move between branches or
   warehouses as a document: *Dispatch* takes the goods off the source at their
   cost and holds them **in transit** (still the firm's, so the books do not

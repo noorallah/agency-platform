@@ -310,6 +310,36 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Expect:** (1) The movement the approval posted lists the photo. (2) Refused (more than the location holds); no movement and no file is kept. (3) **422** each; the movement still lists one file. (4) Saved: ten files. (5) Refused: "A stock movement keeps at most 10 files and this one holds 10, so 1 more cannot be added. Remove one first." (6) Both saved: ten files again. (7) The cancelled sheet still lists its file.
 - **Leaves:** one write-off holding ten files, one cancelled count sheet.
 
+### TC-STOCK-036 — No stock write is dated after today
+
+*Added 2026-10-09 with inventory round 11 (D-STK-66). Driven over HTTP by `docs/qa/checks/inventory/p_dated_ahead.py`.*
+
+- **Covers:** D-STK-66
+- **Also needs:** a plain product **P** with 20 in MAIN at a cost of 10; a second warehouse **W2**; books opened with the current period open.
+- **Steps:** as the storekeeper, each dated **tomorrow**. (1) *Stock → Inventory → Write off*: 1 of P, reason Damage. (2) *Adjust*: 1 of P. (3) The write-off of (1) again, **Submit for approval**. (4) *Transfer*: 1 of P from MAIN to W2. (5) *Stock → Physical Count → New* for MAIN. (6) *Stock → Opening Stock → New* for W2, 1 of P at 10. (7) As the prepared **Firm admin**, a count plan over MAIN: *Draw sheet* dated tomorrow. (8) Save the opening stock of (6) dated today, reopen the draft and change its date to tomorrow. (9) Steps (1) to (5) again dated **today**.
+- **Expect:** (1) to (7) each refused, the dialog staying open: "A write-off cannot be dated 2026-10-10: that is after today (2026-10-09), and stock moves the moment it is saved. Date it today or earlier." (with the movement's own name and the real dates). P is still 20. (8) Refused the same way; the draft is still dated today. (9) Each saved. The trial balance's Inventory equals the stock valuation's books figure before and after.
+- **Leaves:** one write-off, one adjustment, one transfer of 1, one count sheet (cancel it), one waiting request (reject it).
+
+### TC-STOCK-037 — Count plans: a name, a switch, and a plan removed with its sheet open
+
+*Added 2026-10-09 with inventory round 11 (D-STK-63, D-STK-64). Driven over HTTP by `docs/qa/checks/inventory/p_count_plan_edges.py`.*
+
+- **Covers:** D-STK-63, D-STK-64, STK-6
+- **Also needs:** a plain product **P** with 10 in MAIN at a cost of 10; an empty warehouse **E**.
+- **Steps:** as the prepared **Firm admin**, *Stock → Physical Count → Count plans*. (1) **(HTTP)** `POST /api/v1/inventory/count-plans` with a name of three spaces; with `frequency_days` 0, -1 and 367; with class `D`. (2) A plan over **E**, every 7 days; *Draw sheet*. (3) A plan over MAIN; *Draw sheet* twice; count **9** of P on both sheets and post both. (4) A second plan over MAIN; *Draw sheet*; cancel the sheet. (5) Switch that plan off; *Draw sheet*. (6) A third plan over MAIN; *Draw sheet*; delete the plan; count **8** on its sheet and post it.
+- **Expect:** (1) **422** each. (2) Saved and due; the sheet is refused, "... covers no stock to count.", and no sheet is left. (3) Both post and P is **9**, not 8: a sheet is measured against the stock at the moment of posting. The plan shows *last counted* today, *next due* in 7 days, not due. (4) The plan is still due and never counted: a cancelled sheet is not a count. (5) Not due; refused, "... is switched off, so it draws no sheet. Switch the plan on again, or open a count sheet for the warehouse." (6) The plan is gone from the list; its sheet still opens, takes the count and posts; P is **8**.
+- **Leaves:** three posted count sheets, one cancelled, P at 8.
+
+### TC-STOCK-038 — Adjustment reasons and limits as settings
+
+*Added 2026-10-09 with inventory round 11 (D-STK-63, D-STK-65, D-STK-67). Driven over HTTP by `docs/qa/checks/inventory/p_reason_limit_settings.py`.*
+
+- **Covers:** D-STK-63, D-STK-65, D-STK-67, STK-7, STK-8
+- **Also needs:** a plain product **P** with 50 in MAIN at a cost of 10; a product **Z** with 50 in MAIN at a cost of 0; the storekeeper (Inventory manager) and the Firm admin.
+- **Steps:** (1) As the prepared **Firm admin**, *Settings → Stock → Adjustment Reasons*: add a reason named with three spaces; add **RX** "Probe reason". (2) As the storekeeper, submit a write-off of 2 of P for approval with reason RX. (3) Delete RX; approve the request. (4) Add RX again; approve the request. (5) Submit another of 3 with RX; switch RX off; approve it; switch RX on; approve it. (6) **(HTTP)** `POST /api/v1/inventory/adjustment-reasons` with `code` sent as the number 12345. (7) **(HTTP)** `PUT /api/v1/inventory/adjustment-limits` with a role of three spaces; with a role `NO_SUCH_ROLE`; with one role twice; with a negative amount; as the storekeeper. (8) The same route with `inventory_manager` in lower case and 5. (9) *Settings → Stock → Adjustment Limits*: Inventory manager **0**. As the storekeeper write off 1 of P, then 1 of Z. As the Firm admin write off 1 of P. (10) Replace the list with a limit on the Firm manager only; as the storekeeper write off 1 of P.
+- **Expect:** (1) The blank name is refused, "Give the reason a name."; RX is saved. (3) The reason leaves the list; the approval is refused, "'RX' is not an active stock adjustment reason of this firm. ...", nothing moves and the request still waits. (4) The code is free again; the request is approved and P is 48. (5) Refused while the reason is off; approved once it is on: P is 45. (6) **422**, not 500. (7) **422** each ("NO_SUCH_ROLE is not a role of this firm, so a limit on it would bind nobody. ..."), **403** for the storekeeper, and the saved list is unchanged. (8) Saved as `INVENTORY_MANAGER`, and the storekeeper's write-off of 1 of P (worth 10) is refused as above their limit of 5. (9) P refused, offering approval; Z (worth nothing) saved; the Firm admin's saved. (10) The storekeeper posts again: a role left out of the list has no limit.
+- **Leaves:** the limits as they were found; P a few pieces lower.
+
 ## Screen checks
 
 One standard check for every screen in this area. Run it once per screen as the firm administrator, then confirm the access line with a role that lacks the code. Where a detailed case above already covers an action, the check only asks that the screen behaves consistently with it.
