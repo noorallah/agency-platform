@@ -2908,7 +2908,9 @@ def _seed_vendors(
                         VendorTaxInput(
                             gstin=_gstin(context_index * 100 + index + 1, state_name),
                             pan=_pan(context_index * 100 + index + 1),
-                            tan=f"TAN{context_index:02d}{index + 1:06d}",
+                            # Four letters, five digits and a letter: the
+                            # shape `check_tan_if_set` asks for.
+                            tan=f"SMPL{context_index:02d}{index + 1:03d}V",
                             fssai=(
                                 f"FSSAI{context_index:02d}{index + 1:08d}"
                                 if context.profile.code == "FOOD"

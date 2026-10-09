@@ -390,7 +390,7 @@ the warehouse holds.
 **Section 15 (Buying).** A goods receipt line brings in no more free goods
 than its order line still has to give; an order line that promised none takes
 none (D-BUY-67). A refused import of receipts, orders or bills writes nothing
-(D-BUY-73). Open: a goods receipt of a service still stocks it (D-BUY-74).
+(D-BUY-73). A service on a goods receipt is received and billed and never held as stock; its bill debits purchases (D-BUY-74, #1384).
 
 **Section 16 (Selling).** A bill discount typed as an amount stays an amount
 on a re-save (`sales_invoices.bill_discount_typed_as`, migration
