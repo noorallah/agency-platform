@@ -2631,6 +2631,7 @@ class GridColumn {
     this.tooltip,
     this.numeric = false,
     this.priority,
+    this.extraWidth = 0,
   });
   final String key;
   final String label;
@@ -2648,6 +2649,10 @@ class GridColumn {
   /// when even the 1s do not. Null takes [effectivePriority]'s reading of
   /// the heading.
   final int? priority;
+
+  /// Room a screen's own cell needs beyond its text -- a label's padding and
+  /// marker -- added to the width phase 2 measures from the text.
+  final double extraWidth;
 
   /// Columns a narrow window can spare first: tax numbers, audit dates,
   /// contact details and notes -- the wireframe's p3 (GST, HSN, MRP).
@@ -2782,7 +2787,8 @@ class EnterpriseDataGrid<T> extends StatefulWidget {
   final void Function(WorkspaceContextAction action, T item)? onContextAction;
   final bool showRowNumbers;
   final String rowNumberLabel;
-  final Widget Function(int columnIndex, String value, T item)? cellBuilder;
+  /// A screen's own widget for a cell; null leaves that cell to the grid.
+  final Widget? Function(int columnIndex, String value, T item)? cellBuilder;
 
   /// Phase 2: a cell that needs attention -- the wireframe's low stock --
   /// drawn in the error colour and bold. Applies to the grid's own cells,
@@ -3056,7 +3062,8 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
         final double value = measure(shown, cell);
         if (value > width) width = value;
       }
-      widths.add(width.clamp(0, _maxCellWidth).toDouble());
+      widths.add(
+          (width + column.extraWidth).clamp(0, _maxCellWidth).toDouble());
     }
     _widths = widths;
     _widthsFor = key;

@@ -164,4 +164,47 @@ void main() {
       greaterThan(420),
     );
   });
+
+  testWidgets('phase 2: each expiry date says how near it is', (tester) async {
+    await _open(tester, BatchSerialSection.expiryMonitor, phase2: true);
+
+    expect(find.byType(ExpiryDateCell), findsNWidgets(2));
+    expect(find.text('2026-12-31'), findsNWidgets(2));
+  });
+
+  testWidgets('the batches list keeps its plain expiry date', (tester) async {
+    await _open(tester, BatchSerialSection.batches, phase2: true);
+
+    expect(find.byType(ExpiryDateCell), findsNothing);
+  });
+
+  testWidgets('an expiry label is red, amber or green by the days left',
+      (tester) async {
+    final DateTime today = DateTime(2026, 10, 9);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Column(children: [
+          ExpiryDateCell(date: '2026-10-01', today: today),
+          ExpiryDateCell(date: '2026-10-09', today: today),
+          ExpiryDateCell(date: '2026-10-10', today: today),
+          ExpiryDateCell(date: '2026-11-08', today: today),
+          ExpiryDateCell(date: '2026-11-09', today: today),
+          ExpiryDateCell(date: '2027-10-09', today: today),
+          ExpiryDateCell(date: 'not a date', today: today),
+        ]),
+      ),
+    ));
+
+    expect(find.text('Expired 8 days ago'), findsOneWidget);
+    expect(find.text('Expires today'), findsOneWidget);
+    expect(find.text('1 day left'), findsOneWidget);
+    expect(find.text('30 days left'), findsOneWidget);
+    expect(find.text('31 days left'), findsOneWidget);
+    expect(find.text('12 months left'), findsOneWidget);
+    expect(find.byKey(const ValueKey('expiry-expired')), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('expiry-soon')), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('expiry-good')), findsNWidgets(2));
+    // Something that is not a date is shown as it came, with no label.
+    expect(find.text('not a date'), findsOneWidget);
+  });
 }
