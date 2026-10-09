@@ -768,24 +768,24 @@ are the counters above a grid.
 
 ## RV. Product price revisions (new rates from a date)
 
-**Where and who.** Masters > Products > a product's editor, section Price revisions ('New rates from...'). Needs PRODUCT_VIEW to read; changing needs the product update code (FA, FM).
+**Where and who.** Masters > Products > a product's editor, section Price changes ('Add a new price'). Needs PRODUCT_VIEW to read; changing needs the product update code (FA, FM).
 
 | Id | Kind | User (role) | Before (data needed) | Steps on screen | Expected on screen | Book case | Automated in | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SC-RV-001 | Positive | FA | Product Detergent with a first rate set | Open Masters > Products, open Detergent. Look at Price revisions. | A dated list of rates, newest first, with Selling, MRP, Purchase and Remarks columns. | MAST-011, 05-S03 | not yet |  |
-| SC-RV-002 | Positive | FA | Detergent | Press New rates from... Fill Effective from (a future date), Selling 90, MRP 100, Purchase 70, Remarks. Save. | A row is added with the date; the current rate does not change until that date. | MAST-011, 05-S03 | not yet |  |
+| SC-RV-002 | Positive | FA | Detergent | Press Add a new price. Fill New price starts on (a future date), Selling 90, MRP 100, Purchase 70, Remarks. Save. | A row is added with the date; the current rate does not change until that date. | MAST-011, 05-S03 | not yet |  |
 | SC-RV-003 | Positive | FA | Revision dated today | Save a revision effective today. | The product's current selling rate becomes the new one; new documents use it. | MAST-011, 05-S03 | not yet |  |
 | SC-RV-004 | Positive | FA | Two revisions | Open an order dated between them and one after. | Each document is priced from the revision in force on its own date. | MAST-011, 05-S03 | not yet |  |
 | SC-RV-005 | Positive | FA | A future revision | Press Delete row, confirm 'Delete these rates?'. | The row is gone; rates fall back to the one before. | MAST-011, 05-S03 | not yet |  |
 | SC-RV-006 | Positive | FA | Old documents | Open a bill raised before the revision. | It keeps its own price; history is not rewritten. | SELL-010 | not yet |  |
-| SC-RV-007 | Negative | FA | Revision dialog | Save with Effective from empty. | Checks N1 to N3 hold. Date named. | MAST-011, 05-S03 | not yet |  |
+| SC-RV-007 | Negative | FA | Revision dialog | Save with New price starts on empty. | Checks N1 to N3 hold. Date named. | MAST-011, 05-S03 | not yet |  |
 | SC-RV-008 | Negative | FA | A revision already on that date | Save a second revision with the same date. | Refused (409) in words; the first stays. | MAST-011, 05-S03 | not yet |  |
 | SC-RV-009 | Negative | FA | Revision dialog | Selling negative, or MRP below selling where the firm forbids it. | Checks N1 to N3 hold. Message names the rule; wording on first run. | MAST-011, 05-S03 | not yet |  |
 | SC-RV-010 | Negative | FA | Revision dialog | Effective date far in the past inside a closed period. | Refused or accepted with a warning; to be established. | MAST-011, 05-S03 | not yet |  |
 | SC-RV-011 | Negative | FA | Typed dialog | Close it. | Discard question. | MAST-011, 05-S03 | not yet |  |
-| SC-RV-012 | Role | SM | Sales Manager | Open the product editor. | Rates readable; New rates from... absent (no product update code). | 01-ROLES R05 | not yet |  |
+| SC-RV-012 | Role | SM | Sales Manager | Open the product editor. | Rates readable; Add a new price absent (no product update code). | 01-ROLES R05 | not yet |  |
 | SC-RV-013 | Role | PU | Purchasing | Open the product. | Purchase rate visible only with PRODUCT_VIEW_COST_PRICE; to be matched to the matrix. | 01-ROLES R07 | not yet |  |
-| SC-RV-014 | Role | RO | Read Only | Open the product. | Rates readable; no New rates from... | 01-ROLES R11 | not yet |  |
+| SC-RV-014 | Role | RO | Read Only | Open the product. | Rates readable; no Add a new price | 01-ROLES R11 | not yet |  |
 | SC-RV-015 | Multi-user | FA, FS | FA adds a revision dated today | FS opens a new quotation. | The quotation uses the new selling rate. | MAST-011, 05-S03 | not yet |  |
 | SC-RV-016 | Multi-user | FA and FM | Same product open twice | Both add revisions on the same date. | The second is refused (same date twice is a 409). | MAST-011, 05-S03 | not yet |  |
 
@@ -1028,7 +1028,7 @@ have no screen **of their own**, which matters for where a click test starts:
   under Sales bills (SC-SB).
 - **Customer credits.** The **Customer credits** chip on Receipts (SC-CC).
 - **Supplier credits and supplier refunds.** The chips on Payments (SC-SCR).
-- **Product price revisions.** The **New rates from...** section of the product
+- **Product price revisions.** The **Price changes** section of the product
   editor under Masters > Products (SC-RV).
 - **Coupons.** Buttons **New coupon**, **Generate codes**, **Export codes** on the
   Promotions screen (SC-CP).

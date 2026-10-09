@@ -276,7 +276,7 @@ extension _Phase2ProductForm on _ProductWorkspaceDialogState {
           DocumentSidePair('MRP today',
               money(double.tryParse(product.mrpInForceNow) ?? 0)),
         const DocumentSideNote(
-          'new rates have started under Price history; documents take these, '
+          'a new price has started under Price changes; documents take these, '
           'not the card prices above',
         ),
       ],

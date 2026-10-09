@@ -11,7 +11,7 @@ import '../../models/entities.dart' show Json;
 import '../../models/price_revision.dart';
 import '../workspace/desktop_framework.dart';
 
-/// What the "Price history" section calls (MST-2): read a product's dated
+/// What the "Price changes" section calls (MST-2): read a product's dated
 /// rates, record new ones, remove one typed in error.
 class PriceRevisionActions {
   const PriceRevisionActions({
@@ -122,16 +122,32 @@ class _PriceRevisionsSectionState extends State<PriceRevisionsSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Said in words: the owner found the history and not the way in
+        // (2026-10-09). The button was "New rates from..." under a heading
+        // that read as a record of the past.
+        Padding(
+          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+          child: Text(
+            widget.canManage
+                ? 'When a price changes, add the new price here with the '
+                    'date it starts. Documents dated from that day take it; '
+                    'earlier ones keep the old price.'
+                : 'Each price this product has had, and any new price '
+                    'already entered for a later date.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
         if (widget.canManage)
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              OutlinedButton.icon(
+              FilledButton.icon(
                 key: const ValueKey('price-revision-add'),
                 onPressed: _add,
                 icon: const Icon(Icons.add),
-                label: const Text('New rates from…'),
+                label: const Text('Add a new price'),
               ),
               OutlinedButton.icon(
                 key: const ValueKey('price-revision-delete'),
@@ -157,8 +173,8 @@ class _PriceRevisionsSectionState extends State<PriceRevisionsSection> {
         else if (rows.isEmpty)
           const StandardEmptyState(
             type: EmptyStateType.noRecords,
-            message: 'No dated rates yet. New rates from a date apply to '
-                'documents on or after it.',
+            message: 'No price changes yet. The prices under Pricing '
+                'apply until a new price is added here.',
           )
         else
           SingleChildScrollView(
@@ -296,7 +312,7 @@ class _NewRatesDialogState extends State<NewRatesDialog> with SaveInDialog {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('New rates from…'),
+        title: const Text('New price from a date'),
         content: SizedBox(
           width: 420,
           child: SingleChildScrollView(
@@ -319,7 +335,7 @@ class _NewRatesDialogState extends State<NewRatesDialog> with SaveInDialog {
                   onTap: _pickDate,
                   child: InputDecorator(
                     decoration: const InputDecoration(
-                      labelText: 'Effective from',
+                      labelText: 'New price starts on',
                       helperText: 'Today or later. Documents dated on or '
                           'after this day use these rates',
                       helperMaxLines: 2,

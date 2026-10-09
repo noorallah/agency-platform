@@ -2013,7 +2013,7 @@ class ProductWorkspaceDialog extends StatefulWidget {
   final Future<void> Function(String productId, List<Json> rates)?
       onSaveLevelRates;
 
-  /// Dated price revisions (MST-2), phase 2's "Price history" section; null
+  /// Dated price revisions (MST-2), phase 2's "Price changes" section; null
   /// hides it. Managing them is PRODUCT_UPDATE.
   final PriceRevisionActions? priceRevisions;
   final bool canManagePriceRevisions;
@@ -2595,7 +2595,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         'general' => 'General',
         'packaging' => 'UOM & Size',
         'pricing' => 'Pricing',
-        'price_history' => 'Price history',
+        'price_history' => 'Price changes',
         'tax' => 'Tax',
         'business_attributes' => 'Attributes',
         'components' => 'Components',
@@ -2904,6 +2904,20 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                   ),
                 ],
               ),
+              // Where a price that is going to change is entered: the owner
+              // looked for it here (2026-10-09).
+              if (Phase2Scope.of(context) &&
+                  widget.product != null &&
+                  widget.priceRevisions != null)
+                Padding(
+                  key: const ValueKey('pricing-points-to-price-changes'),
+                  padding: const EdgeInsets.only(top: 8, bottom: 8),
+                  child: Text(
+                    'These are the prices now. For a price that changes from '
+                    'a date, use Price changes, the next section.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
             ],
           ),
           if (_showLevelRates && Phase2Scope.of(context)) _levelRatesBlock(),

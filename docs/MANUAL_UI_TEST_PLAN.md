@@ -254,7 +254,7 @@ TC-FIELD-001 and TC-FIELD-003 in a firm of the run's own — and by defect
 driven): TC-MAST-011 to 016 in `docs/INDEPENDENT_TEST_CASES.md` and
 `docs/qa/05_MASTERS.md` have no old row to map from. Screens to walk in
 Masters: **Principals** and **Brands** (Masters → Configuration → Items), the
-brand picker and **Price history** on a product, **Merge into...** on the
+brand picker and **Price changes** on a product, **Merge into...** on the
 Customers and Vendors lists and the duplicate warning on a new party,
 **Bank accounts** and **Files** on a customer, **Also a supplier** /
 **Also a customer** with the combined statement, codes left blank to be

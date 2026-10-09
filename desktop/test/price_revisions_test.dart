@@ -1,5 +1,5 @@
 // Price revisions with an effective date (MST-2): the product record's
-// "Price history" section, the "New rates from..." dialog whose 409 keeps it
+// "Price changes" section, the "Add a new price" dialog whose 409 keeps it
 // open, and the import of dated rates from a file.
 
 import 'dart:io';
@@ -257,7 +257,7 @@ void main() {
       (tester) async {
     await _pumpEditor(tester, _Recorder());
     await tester.ensureVisible(find.text('2026-10-01'));
-    expect(find.text('Price history'), findsWidgets);
+    expect(find.text('Price changes'), findsWidgets);
     expect(find.text('2026-10-01'), findsOneWidget);
     expect(find.text('2026-01-01'), findsOneWidget);
     expect(find.text('110'), findsOneWidget);
