@@ -1,29 +1,32 @@
-# Agency Platform for a multi-line distributor
+# Agency Platform for a distribution business
 
-**One system for paints, medicines and food: buying, stock, selling, collections, accounts and GST.**
+**One system for a distributor, whatever it sells: buying, stock, selling, collections, accounts and GST.**
 
-This is a short overview for a distribution business that carries more than one
-line of goods. It says what the application does for each line, what it does for
-the business as a whole, and what is not in it today.
+This is a short overview for a distribution or wholesale business, with one
+line of goods or several. It says what the application does for each kind of
+product, what it does for the business as a whole, and what is not in it today.
 
 ---
 
 ## 1. The problem it solves
 
-A distributor of paints, medicines and food runs three trades under one roof,
-and each has its own rules:
+Different products need different handling, and many distributors carry more
+than one kind under one roof:
 
-| Line | What makes it different |
-| --- | --- |
-| Medicines | Batch and expiry on every strip, drug licence of the buyer, MRP, price to retailer and price to stockist, expired goods back to the company |
-| Food | Batch and expiry, shelf life from the manufacturing date, FSSAI licence, near-expiry stock to clear first |
-| Paints | Many pack sizes of one product (1 L, 4 L, 10 L, 20 L), batch for shade matching, dealer price levels, company schemes |
+| Kind of goods | Examples | What makes it different |
+| --- | --- | --- |
+| Goods that expire | Medicines, food, cosmetics | Batch and expiry on every pack, shelf life from the manufacturing date, a licence of the buyer where the trade needs one, near-expiry stock to clear first, expired goods back to the supplier |
+| Goods kept by batch and pack | Paints, chemicals, hardware | Many pack sizes of one product, a batch number with no expiry, dealer price levels, company schemes |
+| Goods with a serial number | Electronics, appliances | A serial number on every unit, warranty, the unit traced from receipt to sale |
+| Goods with none of these | General trade items | Quantity and price only |
 
 In Agency Platform each line is a **goods type**. A goods type says how its
-products are tracked: medicines and food by batch and expiry, paints by batch
-alone, electronics by serial number and warranty. You choose the category when
-you add a product and the rules of its line come with it; nobody ticks
-switches product by product, and one firm can carry all three lines.
+products are tracked: by batch and expiry, by batch alone, by serial number
+and warranty, or not at all. Medicine, Food, Cosmetics, Paint and Electronics
+come ready-made as examples, and you add your own for any other line. You
+choose the category when you add a product and the rules of its line come
+with it; nobody ticks switches product by product, and one firm can carry
+several lines.
 
 Most businesses end up with one tool for billing, a spreadsheet for expiry,
 another for schemes and a notebook for collections. Agency Platform keeps all
@@ -32,46 +35,54 @@ and the books by itself.
 
 ---
 
-## 2. What each line gets
+## 2. What each kind of goods gets
 
-### Medicines
+### Goods that expire (for example medicines and food)
 
 - **Batch and expiry on every receipt and every bill.** Stock is held by batch;
   a delivery takes the earliest expiry first, or the batches you choose.
+- **Manufacturing date and shelf life.** The expiry is worked out from the
+  product's shelf life when only the manufacturing date is printed.
 - **Expiry Monitor.** One screen of what has expired and what expires soon,
   with its value, and *Return to supplier now* for what is due back.
 - **No sale of goods too close to expiry.** Each product can say how many days
   before expiry it stops being sold.
-- **MRP, PTR and PTS per batch.** No bill can charge more than the MRP.
-- **Drug licence check.** A licence can be recorded for the firm, each customer
-  and each supplier. A sale to a shop with no valid licence can be allowed,
-  warned or blocked, as you decide; an override asks for a reason and keeps it.
-
-### Food
-
-- **Batch, manufacturing date and expiry**, with the expiry worked out from the
-  product's shelf life when only the manufacturing date is printed.
-- **FSSAI licence check**, the same way as the drug licence.
-- **Expiry Monitor and earliest-expiry-first delivery**, as for medicines.
+- **MRP, and price to retailer and to stockist, per batch.** No bill can
+  charge more than the MRP.
+- **Licence check.** A licence (a drug licence or an FSSAI licence, for
+  example) can be recorded for the firm, each customer and each supplier. A
+  sale to a shop with no valid licence can be allowed, warned or blocked, as
+  you decide; an override asks for a reason and keeps it.
 - **Damaged and expired goods** written off with a reason, or sent back to the
   supplier with a return.
 
-### Paints
+### Goods kept by batch and pack (for example paints)
 
-- **Pack sizes and units.** Buy by the carton, sell by the tin; the conversion
-  is set once per product.
-- **Batch without expiry.** The Paint goods type tracks a batch for shade
-  matching and never asks for an expiry date, in the same firm where a
-  medicine cannot be received without one.
-- **Pack barcodes.** Scanning a carton's barcode on a bill adds the tins the
+- **Pack sizes and units.** Buy by the carton, sell by the piece; the
+  conversion is set once per product.
+- **Batch without expiry.** A goods type can track a batch and never ask for
+  an expiry date, in the same firm where another product cannot be received
+  without one.
+- **Pack barcodes.** Scanning a carton's barcode on a bill adds the pieces the
   carton holds.
 - **Dealer price levels** (for example Retail, Dealer, Contractor), price lists
   by customer or area, and quantity breaks.
 - **Company schemes.** Buy X get Y free, a percentage or amount off, a combo
   price, offers by date and by area, and the company's share of an offer
   claimed back from the principal.
-- **Your own extra fields** on a product (shade code, finish, base) without any
-  change to the software.
+
+### Goods with a serial number (for example electronics)
+
+- **A serial number for every unit**, typed, pasted or scanned at the receipt.
+- **Warranty** dates recorded on the unit.
+- **The unit is traced** from receipt to sale, and goes with the goods when
+  they move between warehouses.
+
+### Any product
+
+- **Your own extra fields** on a product (shade code, model, strength, pack
+  type) without any change to the software, shown only on the goods type they
+  belong to.
 
 ---
 
@@ -128,7 +139,7 @@ product, category, customer, salesman, area or month; outstanding and overdue;
 stock and expiry; purchase and supplier; promotions; commission; GST.
 
 Because every product carries its goods type, **each line can be read on its
-own**: paint sales this month, medicine stock value, food near expiry. Sales
+own**: the sales of one line this month, the stock value of another, what is near expiry in a third. Sales
 and purchase analysis can be split by goods type, and so can the stock
 reports and the product list.
 
@@ -145,10 +156,10 @@ reports and the product list.
 ## 4. One firm or separate firms
 
 The application can hold several firms in one installation, and a person can
-switch between them. For a business with three lines there are two ways to set
-it up:
+switch between them. For a business with several lines of goods there are two
+ways to set it up:
 
-| | One firm, three goods types | A separate firm per line |
+| | One firm, several goods types | A separate firm per line |
 | --- | --- | --- |
 | Suits | One GST number, one set of books | Separate legal entities or GST numbers |
 | Customers and suppliers | One list | A list per firm |
@@ -191,7 +202,7 @@ So that nothing is promised that is not there:
 - Automatic WhatsApp or SMS of bills and reminders. Sharing by hand is there;
   automatic messages need the firm's own messaging account.
 - A phone app for salesmen to take orders in the field.
-- A link to a paint tinting machine or a shade-formula library.
+- A link to machines such as a weighing scale or a paint tinting machine.
 - Online payment links.
 - Van sales, export sales and job work.
 
@@ -200,7 +211,7 @@ So that nothing is promised that is not there:
 ## 8. What happens next
 
 1. **A demonstration** on sample data shaped like your business: a purchase, a
-   sale and a collection in each of the three lines, and the reports that
+   sale and a collection in each of your lines of goods, and the reports that
    follow.
 2. **Your questions and your list** of what you do today that you did not see.
 3. **A trial on your own data**: your products and customers loaded from
