@@ -14,7 +14,7 @@ in `docs\`.
 | When | Document | Use |
 | --- | --- | --- |
 | Before the meeting | `CUSTOMER_REQUIREMENTS_QUESTIONS.pdf`, section 1 | Ask by phone or at the start |
-| In the meeting | `Jugnix_Trade_Features_and_Demo.pptx` | Present it: 10 slides on the product, then the demonstration, then "not included" and next steps |
+| In the meeting | `Jugnix_Trade_Features_and_Demo.pptx` | Present it: 14 slides on the product (slides 2 to 5 are the installation, creating a firm, people and roles, and what a firm does every day), then the demonstration, then "not included" and next steps |
 | In the meeting | The live demonstration on DEMO01 | The 30-minute story |
 | After the demonstration | `CUSTOMER_REQUIREMENTS_QUESTIONS.pdf`, sections 2 to 11 | Fill in with the customer |
 | Leave with them | `CUSTOMER_FEATURE_BROCHURE.pdf` | Their copy: features, the counts, what is not included |
@@ -86,7 +86,7 @@ headline says "more than 150".
 | --- | --- |
 | `docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` | New sections 16 to 19: every kind of thing that changes a price, the price a line starts at, every field on every create screen, and one order worked start to finish. Sections 3, 4 and 15 corrected (ten benefits, not five; best-offer mode exists). |
 | `docs/CUSTOMER_FEATURE_BROCHURE.md` | New "Prices and offers" block under Selling; new section 7 "Everything in it, counted"; "more than fifty reports" corrected to "more than a hundred". |
-| The deck | 23 slides, was 21. New slide 6 "Prices and offers follow rules you set once"; new slide 10 "What you get, counted from the application"; slide 9 reports figure corrected to 102. |
+| The deck | 27 slides, was 23. Four new slides after the title: 2 "From installation to the first bill", 3 "A firm is created once and set up on one panel", 4 "A job decides what each person sees", 5 "What the firm does every day". Every later slide moved down four: "Prices and offers" is now slide 10 and "What you get, counted" slide 14. |
 | `docs/CUSTOMER_REQUIREMENTS_QUESTIONS.md` | New. |
 | `docs/CUSTOMER_DEMO_SCRIPT.md` | A pointer to the question list at the close. |
 
