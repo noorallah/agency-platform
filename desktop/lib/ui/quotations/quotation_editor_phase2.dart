@@ -604,10 +604,14 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
         double.tryParse(preview?.quotation.grandTotal ?? '') ?? subtotal;
     return DocumentTotalsBar(
       total: preview == null ? null : total,
-      note: _branchId == null || _warehouseId == null
-          ? 'Choose the branch and warehouse, and the offer is priced with '
-              'its tax.'
-          : 'Totals follow as the lines are priced.',
+      // D-UI-91: tax follows the customer's state, so nothing is priced
+      // until one is chosen -- say so, or the blank tax reads as a fault.
+      note: _customerId == null
+          ? 'Choose a customer, and the offer is priced with its tax.'
+          : _branchId == null || _warehouseId == null
+              ? 'Choose the branch and warehouse, and the offer is priced '
+                  'with its tax.'
+              : 'Totals follow as the lines are priced.',
       figures: [
         ('Taxable', subtotal),
         if (preview != null && preview.interstate)
