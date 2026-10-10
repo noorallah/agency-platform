@@ -5,7 +5,10 @@ holds. Written 2026-10-10. This page is for the person giving the meeting,
 not for the customer.
 
 The PDFs and the deck are in `dist\customer` (not in git). Their sources are
-in `docs\`.
+in `docs\`. Each PDF is built from its source by `packaging/md_to_pdf.py`
+(source, then target); build it again after changing the source. The tool
+needs the `pymupdf` package, which the backend's environment does not have,
+so run it with the system Python.
 
 ---
 
