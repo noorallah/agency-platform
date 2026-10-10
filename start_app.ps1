@@ -21,12 +21,19 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File start_app.ps1 -OldUi
   The desktop app with the older shell instead of the phase 2 one.
+
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File start_app.ps1 -ui 2
+  Two windows of the desktop app on one backend, to sign in as two people.
+  The first is built and started; the others are the same build opened again,
+  so they all show the same shell.
 #>
 param(
   [int]$Port = 8000,
   [switch]$BackendOnly,
   [switch]$DesktopOnly,
-  [switch]$OldUi
+  [switch]$OldUi,
+  [ValidateRange(1, 6)][int]$ui = 1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,8 +75,9 @@ if (-not $DesktopOnly) {
 }
 
 if (-not $BackendOnly) {
-  if (Get-Process agency_desktop -ErrorAction SilentlyContinue) {
-    Write-Host 'The desktop app is already running.'
+  $running = @(Get-Process agency_desktop -ErrorAction SilentlyContinue)
+  if ($running.Count) {
+    Write-Host "The desktop app is already running ($($running.Count) window(s))."
   } else {
     if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
       throw 'flutter is not on PATH, so the desktop app cannot be started from source.'
@@ -80,6 +88,33 @@ if (-not $BackendOnly) {
     # In a window of its own: closing that window closes the app.
     Start-Process cmd.exe -ArgumentList '/k', "title Agency desktop && $command" `
       -WorkingDirectory $desktop
+  }
+
+  if ($ui -gt 1) {
+    # A second `flutter run` would rebuild over the files the first window is
+    # using, so the other windows are the built program opened again.
+    if (-not $running.Count) {
+      Write-Host 'Waiting for the first window before opening the others ...'
+      foreach ($attempt in 1..150) {
+        Start-Sleep -Seconds 2
+        $running = @(Get-Process agency_desktop -ErrorAction SilentlyContinue)
+        if ($running.Count) { break }
+      }
+      if (-not $running.Count) {
+        throw 'The desktop app did not open within five minutes. Look at the Agency desktop window for the build error.'
+      }
+      Start-Sleep -Seconds 5
+    }
+    $program = $running[0].Path
+    $missing = $ui - $running.Count
+    if ($missing -le 0) {
+      Write-Host "$($running.Count) window(s) are already open; none added."
+    } else {
+      foreach ($window in 1..$missing) {
+        Start-Process $program -WorkingDirectory (Split-Path $program)
+      }
+      Write-Host "Opened $missing more window(s); $ui in all."
+    }
   }
 }
 

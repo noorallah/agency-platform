@@ -17,7 +17,8 @@ param(
   [int]$Port = 8000,
   [switch]$BackendOnly,
   [switch]$DesktopOnly,
-  [switch]$OldUi
+  [switch]$OldUi,
+  [ValidateRange(1, 6)][int]$ui = 1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,4 +34,5 @@ $start = @{ Port = $Port }
 if ($BackendOnly) { $start.BackendOnly = $true }
 if ($DesktopOnly) { $start.DesktopOnly = $true }
 if ($OldUi) { $start.OldUi = $true }
+if ($ui -gt 1) { $start.ui = $ui }
 & (Join-Path $PSScriptRoot 'start_app.ps1') @start
