@@ -440,7 +440,8 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
     final QuotationPreviewLine? companion = _companion(index);
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final double taxable =
-        double.tryParse(priced?.netAmount ?? '') ?? line.netOfDiscount;
+        documentLineTaxable(priced?.netAmount, priced?.taxAmount) ??
+            line.netOfDiscount;
     final double tax = double.tryParse(priced?.taxAmount ?? '') ?? 0;
     final double rate = taxable > 0 ? tax / taxable * 100 : 0;
     return DocumentLineRow(
@@ -606,6 +607,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
       total: preview == null ? null : total,
       // D-UI-91: tax follows the customer's state, so nothing is priced
       // until one is chosen -- say so, or the blank tax reads as a fault.
+      warn: _customerId == null,
       note: _customerId == null
           ? 'Choose a customer, and the offer is priced with its tax.'
           : _branchId == null || _warehouseId == null
@@ -634,7 +636,8 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
     final QuotationPreviewRecord? preview = _preview;
     final Customer? customer = _customer;
     final double taxable =
-        double.tryParse(priced?.netAmount ?? '') ?? line.netOfDiscount;
+        documentLineTaxable(priced?.netAmount, priced?.taxAmount) ??
+            line.netOfDiscount;
     final double tax = double.tryParse(priced?.taxAmount ?? '') ?? 0;
     return DocumentSidePanel(children: [
       DocumentSideHeading('Line ${index + 1} · ${product?.name ?? ''}'),
