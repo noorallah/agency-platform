@@ -17,6 +17,7 @@ in `docs\`.
 | In the meeting | `Jugnix_Trade_Features_and_Demo.pptx` | Present it: 14 slides on the product (slides 2 to 5 are the installation, creating a firm, people and roles, and what a firm does every day), then the demonstration, then "not included" and next steps |
 | In the meeting | The live demonstration on DEMO01 | The 30-minute story |
 | After the demonstration | `CUSTOMER_REQUIREMENTS_QUESTIONS.pdf`, sections 2 to 11 | Fill in with the customer |
+| To record the answers | `CUSTOMER_REQUIREMENTS_QUESTIONS.xlsx` | The same questions with a cell for each answer. Save a copy under the customer's name, type the answers in the yellow cells, and review it afterwards line by line with the Outcome and Reviewed columns |
 | Leave with them | `CUSTOMER_FEATURE_BROCHURE.pdf` | Their copy: features, the counts, what is not included |
 | Only if they ask about schemes and pricing | `PROMOTIONS_AND_DISCOUNTS_GUIDE.pdf`, sections 16 to 19 | The types, every field, and one worked order |
 
@@ -49,6 +50,10 @@ into a setting.
   payment, and consignment stock. Do not say yes to these in the meeting.
 - **Section 11 is a blank table** for "what do you do today that you did not
   see?", to bring back.
+- **The Excel answer sheet** holds the same questions and is built from the
+  question list by `backend/scripts/make_customer_questions_xlsx.py`. Run it
+  again after changing a question; it writes a blank sheet over the one in
+  `dist\customer`, so keep filled-in copies under another name.
 
 The "check" marks on interest on late payment, consignment stock and remote
 access are a caution: nobody confirmed on 2026-10-10 whether the application
