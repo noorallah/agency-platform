@@ -6783,3 +6783,98 @@ gains the rule beside "Preferences are three separate stores".
 allowed at all (each sign-in is its own session today, so it works), and what
 the second window shows the first time -- the sign-in screen, since it has no
 entry of its own yet.
+
+## 97. Copying products, customers and suppliers from one firm to another -- discussed, not to be built yet
+
+Owner, 2026-10-10: "a platform has two firms, he is selling the same product
+through two firms -- is there any way we can copy vendors, customers and
+products to each other", then "today export and import works, we can put this
+in backlog".
+
+**What happens today.** Each firm keeps its own masters in its own store, and
+nothing copies them across. The way round is a file: export from firm A, import
+into firm B. Read from the code on 2026-10-10, not driven on two firms -- it
+carries **only the basics**, because the export is far thinner than the import:
+
+| Master | The export writes | The import reads |
+| --- | --- | --- |
+| Products | Code, Name, Type, Brand, HSN, SellingPrice, Status | about 24 columns: also Category, SubCategory, Unit, UnitSet, TaxGroup, Barcode, PurchasePrice, MinimumPrice, MRP, the batch, expiry and serial switches |
+| Customers | Code, Name, Type, GST, PAN, Email, Phone, Status | about 33 columns: also addresses, city and state, contact people, credit terms |
+| Suppliers | Code, Name, GSTIN, PAN, Email, Phone, Status | about 33 columns: also addresses, contact people, bank account, IFSC, UPI |
+
+So a product copied this way arrives with no category, no unit and **no tax
+group**, and a customer or supplier with no address or contact; each has to be
+completed by hand in firm B. The product export also reads one page of 5,000
+rows and stops (`export_products_csv`), where the customer and supplier exports
+loop over every page. Whether every export heading is one the import accepts
+("GST" on a customer) was not checked; the mapping screen (`app/imports`) can
+relabel one that is not.
+
+**Planned, in three steps.**
+
+1. **An export in the import's own layout** -- the template the import already
+   generates, filled with the firm's records, every column. Export from A,
+   import into B, nothing lost and nothing retyped. It also serves as a backup
+   of the masters and as bulk edit (export, change, import). Each import module
+   already owns its `COLUMNS`; the export is the same list read the other way.
+   **Size: S to M.**
+2. **"Copy from another firm"** on the three masters: pick the source firm,
+   tick what to copy, read the check report, apply all or nothing. It reads the
+   source with `firm_store_session` and writes through the same `stage_*`
+   methods the file import uses, so the rules and the audit entries are the
+   import's own. **Size: M.** Step 1 may prove enough; decide after using it.
+3. **"Also save in" on the create and edit forms** -- owner, 2026-10-10:
+   "while creating or editing ask to sync with other firms, this can be enabled
+   at platform admin level". Judged a good idea in this shape, because steps 1
+   and 2 copy once and the two firms drift apart from the next edit:
+   - **The platform administrator links the firms** and says which of the three
+     masters the link covers. No link, no tick box; a firm on its own sees
+     nothing new.
+   - **The form asks, it never syncs silently**: a tick box per linked firm,
+     "Also save in FIRM B", on the product, customer and supplier forms.
+   - **Offered only to a person who could have typed it there** -- a member of
+     the other firm holding create (or update) on that master. The link says
+     the firms belong together; it does not give anybody rights in a firm they
+     do not work in.
+   - **An edit sends only the fields this edit changed**, and never the ones
+     that are each firm's own (prices, credit limit, discounts, ledger
+     accounts). Sending the whole record would overwrite what firm B changed
+     for itself.
+   - **Matched on code.** Missing in B: created. Present: updated. A category,
+     unit or tax group B does not have is refused by name.
+   - **Two stores are not one transaction** -- they may be two databases on two
+     servers. The firm being worked in saves first; each other firm then saves
+     on its own and the form reports it by name ("Saved. FIRM B refused: tax
+     group GST5 not found"), as bulk actions report per row. Never "saved
+     everywhere" on a partial result.
+   - **Deleting and deactivating are not carried**; each firm retires its own
+     records. Each firm's audit trail records its own write, naming the firm it
+     came from.
+
+   **Size: M, after step 2**, whose reading and writing it reuses. New: the
+   link table (platform), the platform screen for it, the tick box on three
+   forms.
+
+**Rules either way.**
+
+- **Copies are independent.** After the copy each firm owns its records, as
+  between two companies in Tally or two organisations in Zoho; a change in A
+  reaches B only when the person saving ticks it (step 3), never by itself.
+  One shared master list is ruled out: it breaks the
+  isolation between firms and cannot work for a firm in its own database or on
+  another server.
+- **Matched on code, re-runnable.** A second run adds what is new; a blank
+  cell leaves a field alone, which the import already does.
+- **Carried:** names, codes, addresses, GSTIN, PAN, contacts, HSN, tax group,
+  units and packs, category, custom fields.
+- **Never carried:** stock, opening balances, what is owed, loyalty points,
+  routes, salesperson, ledger accounts.
+- **What a product names must exist in the target** -- category, unit, tax
+  group. Refuse by name, as the import does now, or bring them along (step 2).
+- **Who may do it (step 2):** a member of both firms, holding view in the
+  source and create in the target.
+
+**To settle when built.** Whether price lists, credit limits and customer
+discounts are carried (a tick box each, off by default); and whether the two
+firms are separate legal entities at all -- one entity with one GSTIN is better
+served by branches inside one firm than by two firms and a copy.
