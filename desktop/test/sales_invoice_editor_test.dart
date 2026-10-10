@@ -150,7 +150,8 @@ class _InvoiceApi extends ApiClient {
           'source_document_line_id': line['source_document_line_id'],
           'discount_percent': '0',
           'discount_source': 'none',
-          'net_amount': net.toStringAsFixed(4),
+          // With its tax, as the server sends it (D-UI-95).
+          'net_amount': (net * 1.18).toStringAsFixed(4),
           'tax_amount': (net * .18).toStringAsFixed(4),
         });
       }
@@ -632,6 +633,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.previews.last['lines'][0]['current_invoice_quantity'], '3');
     expect(find.text('354.00'), findsWidgets);
+    // D-UI-95: taxable before tax, so the rate reads 18%, not 15.3%.
+    expect(find.text('300.00'), findsWidgets);
+    expect(find.text('18%'), findsWidgets);
+    expect(find.text('15.3%'), findsNothing);
     expect(
         find.textContaining('Three hundred fifty four only'), findsOneWidget);
 

@@ -521,6 +521,18 @@ class DocumentTerms extends StatelessWidget {
       );
 }
 
+/// What a priced line was taxed on, or null while it has no price.
+///
+/// The server's `net_amount` on a quotation, order or invoice line is what
+/// the line comes to **with** its tax, so the taxable value is that less
+/// `tax_amount`. Read as the taxable value itself it showed 582.40 for ten
+/// at 52.00 with 12% GST, a rate of 10.7% and an amount of 644.80 (D-UI-95).
+double? documentLineTaxable(Object? netAmount, Object? taxAmount) {
+  final double? net = double.tryParse('${netAmount ?? ''}');
+  if (net == null) return null;
+  return net - (double.tryParse('${taxAmount ?? ''}') ?? 0);
+}
+
 /// The totals at the foot: the amount in words at the left (or [note] until
 /// there is one), the figures at the right, the total largest.
 class DocumentTotalsBar extends StatelessWidget {
@@ -529,6 +541,7 @@ class DocumentTotalsBar extends StatelessWidget {
     required this.figures,
     this.total,
     this.note = '',
+    this.warn = false,
   });
 
   /// Each figure's label and value, in order; the last is the total.
@@ -537,6 +550,40 @@ class DocumentTotalsBar extends StatelessWidget {
   /// The total in words is written from this; [note] shows while it is null.
   final double? total;
   final String note;
+
+  /// Whether [note] is something the person must do before anything is
+  /// priced -- choose a customer -- and so is drawn as a warning label, where
+  /// grey words at the foot were not noticed (D-UI-94).
+  final bool warn;
+
+  Widget _warning(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color colour = context.semanticColors.warning;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        key: const ValueKey('document-totals-warning'),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: colour.withValues(alpha: .14),
+          border: Border.all(color: colour),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.warning_amber_rounded, size: 18, color: colour),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              note,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: colour, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -550,12 +597,14 @@ class DocumentTotalsBar extends StatelessWidget {
       ),
       child: Row(children: [
         Expanded(
-          child: Text(
-            total == null ? note : indianAmountInWords(total!),
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(color: scheme.onSurfaceVariant),
-          ),
+          child: total == null && warn
+              ? _warning(context)
+              : Text(
+                  total == null ? note : indianAmountInWords(total!),
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
         ),
         // Scaled down rather than pushed off a narrow window.
         Flexible(

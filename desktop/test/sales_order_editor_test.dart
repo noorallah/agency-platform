@@ -226,7 +226,8 @@ class _OrderApi extends ApiClient {
           'product_id': line['product_id'],
           'discount_percent': '0',
           'discount_source': 'none',
-          'net_amount': net.toStringAsFixed(4),
+          // With its tax, as the server sends it (D-UI-95).
+          'net_amount': (net * 1.18).toStringAsFixed(4),
           'tax_amount': (net * .18).toStringAsFixed(4),
         });
       }
@@ -1197,6 +1198,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.previews.last['lines'][0]['quantity'], '5');
     expect(find.text('590.00'), findsWidgets);
+    // D-UI-95: taxable before tax, so the rate reads 18%, not 15.3%.
+    expect(find.text('500.00'), findsWidgets);
+    expect(find.text('18%'), findsWidgets);
+    expect(find.text('15.3%'), findsNothing);
     expect(find.text('98.00'), findsOneWidget);
     expect(find.textContaining('Five hundred ninety only'), findsOneWidget);
     // Backlog 55 G6: the last bill and its discount are said, and the rate

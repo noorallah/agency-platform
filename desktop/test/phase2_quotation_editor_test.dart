@@ -36,7 +36,10 @@ QuotationPreviewRecord _priced(Json draft) {
           'unit_price': line['unit_price'] ?? '26',
           'discount_percent': '0',
           'discount_source': 'none',
-          'net_amount': net.toStringAsFixed(4),
+          // With its tax, as the server sends it (D-UI-95): this fake used
+          // to send the pre-tax figure, which is how the screen came to
+          // show the line's total under "Taxable" and no test saw it.
+          'net_amount': (net * 1.18).toStringAsFixed(4),
           'tax_amount': (net * .18).toStringAsFixed(4),
         },
       ],
@@ -164,6 +167,11 @@ void main() {
     expect(find.text('QT-2026-2027-000012 (new)'), findsOneWidget);
     // 50 x 26 = 1,300 taxable; 18% = 234; the side panel says where from.
     expect(find.text('1,534.00'), findsWidgets);
+    // D-UI-95: the line's taxable value is before its tax, so the rate
+    // reads 18% -- not the 15.3% that 234 is of 1,534.
+    expect(find.text('1,300.00'), findsWidgets);
+    expect(find.text('18%'), findsWidgets);
+    expect(find.text('15.3%'), findsNothing);
     expect(find.byKey(const ValueKey('document-side-panel')), findsOneWidget);
     expect(find.text('82.50'), findsOneWidget);
     expect(find.textContaining('One thousand five hundred thirty four'),
@@ -284,6 +292,12 @@ void main() {
     final List<Json> asked =
         await pumpEditor(tester, choose: false, onResult: (_) {});
     expect(find.text(hint), findsOneWidget);
+    // D-UI-94: drawn as a warning label, not grey words at the foot.
+    const ValueKey<String> label = ValueKey('document-totals-warning');
+    expect(
+      find.descendant(of: find.byKey(label), matching: find.text(hint)),
+      findsOneWidget,
+    );
 
     await fillFirstLine(tester, document: 'quotation', product: 'Tata Salt');
     await tester.pump(const Duration(milliseconds: 400));
@@ -300,6 +314,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(asked, isNotEmpty);
     expect(find.text(hint), findsNothing);
+    expect(find.byKey(label), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

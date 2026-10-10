@@ -120,7 +120,8 @@ class _Api extends ApiClient {
           'source_document_line_id': line['source_document_line_id'],
           'discount_percent': '0',
           'discount_source': 'none',
-          'net_amount': net.toStringAsFixed(4),
+          // With its tax, as the server sends it (D-UI-95).
+          'net_amount': (net * 1.18).toStringAsFixed(4),
           'tax_amount': (net * .18).toStringAsFixed(4),
         });
       }

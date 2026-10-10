@@ -811,7 +811,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     final DocumentPreviewLine? companion = _companion(index);
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final double taxable =
-        double.tryParse(stringValue(priced?['net_amount'])) ??
+        documentLineTaxable(priced?['net_amount'], priced?['tax_amount']) ??
             line.netOfDiscount;
     final double tax = double.tryParse(stringValue(priced?['tax_amount'])) ?? 0;
     final double rate = taxable > 0 ? tax / taxable * 100 : 0;
@@ -993,6 +993,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
       total: order == null ? null : total,
       // D-UI-91: tax follows the customer's state, so nothing is priced
       // until one is chosen -- say so, or the blank tax reads as a fault.
+      warn: _customerId == null,
       note: _customerId == null
           ? 'Choose a customer, and the order is priced with its tax.'
           : _branchId == null || _warehouseId == null
@@ -1020,7 +1021,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     final DocumentPreviewLine? companion = _companion(index);
     final Customer? customer = _customer;
     final double taxable =
-        double.tryParse(stringValue(priced?['net_amount'])) ??
+        documentLineTaxable(priced?['net_amount'], priced?['tax_amount']) ??
             line.netOfDiscount;
     final double tax = double.tryParse(stringValue(priced?['tax_amount'])) ?? 0;
     final String source = stringValue(priced?['discount_source']);
