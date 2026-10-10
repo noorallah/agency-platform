@@ -7361,3 +7361,58 @@ receipt's layer is the better rule and we already hold the link.)
 thirteen areas, agreed with the owner and the CA; (b) layers and FIFO for
 one product type end to end; (c) by batch; (d) returns on both sides;
 (e) reports. An inventory round and a finance round follow.
+
+**How cost would be worked out and kept (owner's question, 2026-10-10: "how
+we will implement cost changes, free items, discounts, with batch products,
+without batch products, for each purchase invoice or not").** Proposed; to
+be agreed in the design note.
+
+*Step 1 -- every purchase line gives one cost per unit*, the same for every
+product: what was paid for the line, over every unit it brought in.
+
+| On the purchase | Effect on the cost per unit |
+| --- | --- |
+| A new rate | The new rate is used |
+| A line discount | Off the amount paid |
+| A whole-bill discount | The line's share comes off |
+| Freight and other charges | The line's share is added |
+| Free units of the same product | Added to the units, so the cost per unit falls |
+| Another product given free | Its own line, at no cost |
+| GST | Not part of the cost |
+
+100 at 42 with 5% off and 10 free is 3,990 over 110 units, 36.27 each. The
+receipt already works the figure out this way today.
+
+*Step 2 -- where it is kept depends on the product's costing method.*
+
+| Product | Method | Kept | A new record for each purchase? |
+| --- | --- | --- | --- |
+| No batch, simple | Average | One average per product | No; it blends in. Today's behaviour |
+| No batch, exact cost wanted | FIFO | A cost layer per purchase line, seen by no stock screen | Yes |
+| Asked for a batch | By batch | On the batch | Only for a new batch; more of the same batch blends within it |
+
+*Step 3 -- what a sale costs.* Average: the current average. FIFO: the
+oldest layer first. By batch: the batch that ships.
+
+Two purchases, 100 at 40.00 and 110 at 36.27, then 150 sold: 5,707 at the
+average of 38.05; 5,814 by FIFO (100 at 40.00 and 50 at 36.27); by batch,
+whatever the batches shipped cost.
+
+*Returns.* A return to the supplier takes the cost of the purchase it is
+raised against; a sales return comes back at the cost it left with.
+
+*So: per purchase invoice or not.* The cost is always **worked out** per
+purchase line. It is **kept** apart per purchase only under FIFO, and per
+batch for a product asked for one; under Average it is blended. The method is
+chosen per product, defaulting from the goods type.
+
+*For the design note to settle.*
+
+- The goods receipt sets the cost. When the purchase bill arrives at another
+  rate, the difference either corrects the layer or batch still in stock, or
+  goes to purchase price variance: one rule, stated.
+- A supplier's target or turnover discount paid later by credit note
+  (Supplier Rebates) stays income and does not go back into the cost of
+  goods already sold. The CA confirms.
+- Landed cost added after a receipt: onto the layer or batch it belongs to,
+  for what is still in stock.
