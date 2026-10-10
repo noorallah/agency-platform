@@ -442,7 +442,10 @@ class _SalesInvoiceManagementPageState
           lineNumber: (item['line_number'] as num?)?.toInt() ?? 0,
           product: _labels.product('${item['product_id'] ?? ''}'),
           description: (item['description'] as String?) ?? '',
-          uom: _labels.unit('${item['invoice_uom_id'] ?? ''}'),
+          uom: _labels.unitOf(
+            '${item['invoice_uom_id'] ?? ''}',
+            '${item['product_id'] ?? ''}',
+          ),
           packaging: '${item['packaging_type_id'] ?? ''}',
           // What was typed, in the unit shown beside it, where the line was
           // typed in another unit than the one it bills (D-PRC-37).

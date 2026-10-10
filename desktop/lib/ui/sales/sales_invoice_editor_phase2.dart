@@ -1009,7 +1009,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         ),
         Text(product?.hsnSac ?? '', style: text),
         _cellBox(context, line.quantity),
-        Text(product?.unit ?? '', style: text),
+        Text(product?.displayUnit ?? '', style: text),
         _cellBox(
           context,
           line.price,

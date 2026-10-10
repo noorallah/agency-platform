@@ -423,7 +423,10 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           lineNumber: (item['line_number'] as num?)?.toInt() ?? 0,
           product: _labels.product('${item['product_id'] ?? ''}'),
           description: (item['description'] as String?) ?? '',
-          uom: _labels.unit('${item['sales_uom_id'] ?? ''}'),
+          uom: _labels.unitOf(
+            '${item['sales_uom_id'] ?? ''}',
+            '${item['product_id'] ?? ''}',
+          ),
           packaging: '${item['packaging_type_id'] ?? ''}',
           quantity: '${item['quantity'] ?? '0'}',
           freeQuantity: '${item['free_quantity'] ?? '0'}',
