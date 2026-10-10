@@ -42,6 +42,7 @@ from sqlalchemy import select
 from app.delivery_note.models import DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
+from app.products.models import Product
 from app.purchase.schemas import PurchaseOrderCreate
 from app.purchase.services import PurchaseService
 from app.purchase_invoice.models import PurchaseInvoiceLine
@@ -114,6 +115,101 @@ def _quotation() -> BaseModel:
             "valid_until": date(2026, 9, 3).isoformat(),
             "bill_discount_percent": "5",
             "freight_amount": "40",
+            "lines": [_line(setup, line_number="1", quantity="5")],
+        }
+    )
+    return QuotationService(setup.session).preview_quotation(
+        payload, firm_id=setup.firm.id, actor_id=uuid4()
+    )
+
+
+def _second_product(setup: _Firm) -> Product:
+    """Add a second product, 40.00 with GST at 5%, to a shop's list."""
+    # Its own tax group, made before the 18% one would share its name.
+    low = _tax_group(
+        setup.session,
+        firm_id=setup.firm.id,
+        percent="5",
+        starts=date(2026, 4, 1),
+        ends=None,
+    )
+    low.group_code = "GST_LOW"
+    second = Product(
+        firm_id=setup.firm.id,
+        code="SKU-002",
+        name="Product SKU-002",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+        selling_price=Decimal("40"),
+        tax_profile_group_code="GST_LOW",
+    )
+    setup.session.add(second)
+    setup.session.commit()
+    return second
+
+
+def _quotation_two_lines() -> BaseModel:
+    """Price a quotation of two products at two rates of tax.
+
+    Five at 100.00 less 10% at 18%, and seven at 40.00 at 5%, under a 5%
+    bill discount and a 40.00 delivery charge: the discount and the charge
+    are split across the two lines, and each share is taxed at its line's
+    own rate.
+    """
+    setup = _Firm(_request_session())
+    second = _second_product(setup)
+    setup.product.selling_price = Decimal("100")
+    setup.product.tax_profile_group_code = "GST_STANDARD"
+    setup.session.commit()
+    _tax_group(
+        setup.session,
+        firm_id=setup.firm.id,
+        percent="18",
+        starts=date(2026, 4, 1),
+        ends=None,
+    )
+    payload = QuotationCreate.model_validate(
+        {
+            "customer_id": str(setup.customer.id),
+            "branch_id": str(setup.branch.id),
+            "warehouse_id": str(setup.warehouse.id),
+            "quotation_date": DAY.isoformat(),
+            "valid_until": date(2026, 9, 3).isoformat(),
+            "bill_discount_percent": "5",
+            "freight_amount": "40",
+            "lines": [
+                _line(setup, line_number="1", quantity="5"),
+                {
+                    "line_number": 2,
+                    "product_id": str(second.id),
+                    "quantity": "7",
+                    "unit_price": "40",
+                },
+            ],
+        }
+    )
+    return QuotationService(setup.session).preview_quotation(
+        payload, firm_id=setup.firm.id, actor_id=uuid4()
+    )
+
+
+def _quotation_interstate() -> BaseModel:
+    """Price a quotation for a buyer registered in another state.
+
+    The firm is registered in Tamil Nadu (33) and the buyer in Karnataka
+    (29), so the supply crosses a state border and the answer says so.
+    """
+    setup = _shop()
+    setup.firm.gst_number = "33AAAAA0000A1Z5"
+    setup.customer.gst_number = "29BBBBB1111B1Z5"
+    setup.session.commit()
+    payload = QuotationCreate.model_validate(
+        {
+            "customer_id": str(setup.customer.id),
+            "branch_id": str(setup.branch.id),
+            "warehouse_id": str(setup.warehouse.id),
+            "quotation_date": DAY.isoformat(),
+            "valid_until": date(2026, 9, 3).isoformat(),
             "lines": [_line(setup, line_number="1", quantity="5")],
         }
     )
@@ -399,6 +495,8 @@ def _purchase_return() -> BaseModel:
 
 CASES: dict[str, Callable[[], BaseModel]] = {
     "quotation_preview": _quotation,
+    "quotation_two_lines_preview": _quotation_two_lines,
+    "quotation_interstate_preview": _quotation_interstate,
     "sales_order_preview": _sales_order,
     "purchase_order_preview": _purchase_order,
     "sales_invoice_preview": _sales_invoice,
