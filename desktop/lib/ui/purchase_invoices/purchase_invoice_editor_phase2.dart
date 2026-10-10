@@ -890,8 +890,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13);
     final double taxable = priced == null
         ? typed
-        : _number(stringValue(priced['gross_amount'])) -
-            _number(stringValue(priced['discount_amount']));
+        // With the bill discount's share and the line's charges (D-UI-96):
+        // the amount less its tax is what the line was taxed on.
+        : documentLineTaxable(priced['net_amount'], priced['tax_amount']) ?? 0;
     final double tax =
         priced == null ? 0 : _number(stringValue(priced['tax_amount']));
     final double rate = taxable > 0 ? tax / taxable * 100 : 0;
@@ -1361,8 +1362,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final double left = line.outstanding - billing;
     final double taxable = priced == null
         ? _typedTaxable(line)
-        : _number(stringValue(priced['gross_amount'])) -
-            _number(stringValue(priced['discount_amount']));
+        // With the bill discount's share and the line's charges (D-UI-96):
+        // the amount less its tax is what the line was taxed on.
+        : documentLineTaxable(priced['net_amount'], priced['tax_amount']) ?? 0;
     final double tax =
         priced == null ? 0 : _number(stringValue(priced['tax_amount']));
     final bool typedRate = line.unitPrice.trim().isNotEmpty;
@@ -1513,8 +1515,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         ...documentTaxLines(
           taxable: priced == null
               ? _typedDirectTaxable(line)
-              : _number(stringValue(priced['gross_amount'])) -
-                  _number(stringValue(priced['discount_amount'])),
+              : documentLineTaxable(
+                      priced['net_amount'], priced['tax_amount']) ??
+                  0,
           tax: priced == null ? 0 : _number(stringValue(priced['tax_amount'])),
           interstate: _preview?.interstate,
           taxRule: LineTaxRule.fromJson(priced),

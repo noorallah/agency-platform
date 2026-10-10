@@ -489,9 +489,9 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
         text?.copyWith(color: theme.colorScheme.onSurfaceVariant);
     final double taxable = priced == null
         ? _typedTaxable(draft)
-        : _number(stringValue(priced['gross_amount'])) -
-            _number(stringValue(priced['discount_amount'])) -
-            _number(stringValue(priced['bill_discount_amount']));
+        // With the line's charges too (D-UI-96): the amount less its tax
+        // is what the line was taxed on.
+        : documentLineTaxable(priced['net_amount'], priced['tax_amount']) ?? 0;
     final double tax =
         priced == null ? 0 : _number(stringValue(priced['tax_amount']));
     final double rate = taxable > 0 ? tax / taxable * 100 : 0;
@@ -624,9 +624,9 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
     final DocumentPreviewLine? companion = _companion(index);
     final double taxable = priced == null
         ? _typedTaxable(draft)
-        : _number(stringValue(priced['gross_amount'])) -
-            _number(stringValue(priced['discount_amount'])) -
-            _number(stringValue(priced['bill_discount_amount']));
+        // With the line's charges too (D-UI-96): the amount less its tax
+        // is what the line was taxed on.
+        : documentLineTaxable(priced['net_amount'], priced['tax_amount']) ?? 0;
     final double tax =
         priced == null ? 0 : _number(stringValue(priced['tax_amount']));
     return DocumentSidePanel(children: [

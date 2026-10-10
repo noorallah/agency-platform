@@ -1110,7 +1110,9 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final double taxable = priced == null
         ? _typedTaxable(line)
-        : _number(priced.grossAmount) - _number(priced.discountAmount);
+        // Less the order discount's share too (D-UI-96): the amount less
+        // its tax is what the line was taxed on.
+        : documentLineTaxable(priced.netAmount, priced.taxAmount) ?? 0;
     final double tax = priced == null ? 0 : _number(priced.taxAmount);
     final double rate = taxable > 0 ? tax / taxable * 100 : 0;
     return DocumentLineRow(
@@ -1543,7 +1545,9 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     final Vendor? vendor = _vendor;
     final double taxable = priced == null
         ? _typedTaxable(line)
-        : _number(priced.grossAmount) - _number(priced.discountAmount);
+        // Less the order discount's share too (D-UI-96): the amount less
+        // its tax is what the line was taxed on.
+        : documentLineTaxable(priced.netAmount, priced.taxAmount) ?? 0;
     final double tax = priced == null ? 0 : _number(priced.taxAmount);
     final bool blankRate = line.unitPrice.trim().isEmpty;
     final bool blankDiscount = line.discountPercent.trim().isEmpty;

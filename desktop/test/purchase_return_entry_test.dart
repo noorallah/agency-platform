@@ -124,6 +124,9 @@ class _ReturnApi extends ApiClient {
             'gross_amount': gross.toStringAsFixed(2),
             'discount_amount': '0',
             'tax_amount': tax.toStringAsFixed(2),
+            // With its tax, as the server sends it; the screen reads the
+            // line's taxable value from this (D-UI-96).
+            'net_amount': (gross + tax).toStringAsFixed(2),
           },
         ],
       },

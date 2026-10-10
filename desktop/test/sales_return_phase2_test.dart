@@ -62,6 +62,9 @@ Future<SalesReturnPreviewRecord> _price(
       'discount_amount': '0',
       'bill_discount_amount': '0',
       'tax_amount': (gross * .18).toStringAsFixed(2),
+      // With its tax, as the server sends it; the screen reads the line's
+      // taxable value from this (D-UI-96).
+      'net_amount': (gross * 1.18).toStringAsFixed(2),
     });
   }
   return SalesReturnPreviewRecord.fromJson({
