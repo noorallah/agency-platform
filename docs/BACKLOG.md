@@ -7521,3 +7521,62 @@ Each row says four things:
 **Size: M.** A page and a Home card on the desktop, counts added to the
 readiness answer on the server, tests for both, and the go-live guide and
 the user guides updated to point at the page.
+
+## 105. Every amount in the new UI shown to two decimals -- logged, to be fixed later
+
+Owner, 2026-10-10: "in price in India we show only two digit after decimal,
+can we configure this", then "sweep the new ui and fix all places to two
+decimals, keep this in backlog, we will fix later".
+
+**What exists today.**
+
+- **No setting**, and for a rupee firm none is wanted: money is always two
+  decimals. Nothing in the server or the desktop names a number of decimal
+  places for amounts.
+- **The server keeps four decimals** on every amount, on purpose: tax, a
+  discount and a line's share of a delivery charge round correctly to the
+  paisa only if the working figure is finer than a paisa. That does not
+  change.
+- **The document editors show two.** They format through `indianAmount(...,
+  full: true)` in `desktop/lib/phase2/indian_format.dart` (Indian grouping,
+  two decimals: `1,12,050.00`) and `documentMoney` in
+  `desktop/lib/phase2/document_page.dart`.
+- **Other places print the server's figure as it comes**, four decimals.
+  Known from reading the code: the order picker on the proforma screen
+  (`proformaOrderLabel`: "SO-2026-2027-000020 -- Vijaya Super Stores --
+  1159.7040") and the lines of a purchase order's version history. Not
+  looked at on the running app.
+
+**What is to be done.**
+
+1. **Sweep every screen of the new UI** for an amount written into text
+   without the shared formatter, and send it through the formatter. A first
+   search for an amount field interpolated into a string
+   (`grand_total`, `tax_total`, `subtotal`, `net_amount`, `outstanding`,
+   `balance`, `amount`) finds about 127 places in 40 files under
+   `desktop/lib`; the heaviest are the sales invoice and sales order list
+   pages, the loyalty page, the customer statement and the settlement
+   screens. That count is where to look, not a count of faults: many of
+   those already format the figure, and the search misses a grid column
+   that prints a field directly.
+2. **Unit rates to two decimals as well**, unless a customer quotes finer
+   than a paisa (a rate per piece worked from a case price can be). To ask
+   before building; if one does, rates keep up to four with trailing zeros
+   trimmed and amounts stay at two.
+3. **Quantities are not touched**: up to four decimals with trailing zeros
+   trimmed (`documentQuantity`), since 0.5 kg and 2.250 L are real.
+4. **Printed documents and exports** are the server's (`*_print_service`,
+   CSV exports) and were not looked at; check them in the same pass, since
+   a bill printed to four decimals is worse than a list showing them.
+5. **A guard**, so the next screen does not bring it back: a test that
+   fails when a phase 2 screen writes an amount field into text without the
+   formatter, on the pattern of `module_visibility_test.dart`, which greps
+   the shell.
+
+**A decimal-places setting** is a separate question, wanted only if a firm
+bills in a currency of three decimals (Kuwaiti dinar, Bahraini dinar, Omani
+rial). Foreign-currency purchase bills exist (PG-12); no firm has asked.
+Not part of this item.
+
+**Size: M.** Mostly mechanical once the places are listed; the sweep and
+the guard are the work.
