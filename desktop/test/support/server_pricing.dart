@@ -21,6 +21,29 @@ Json serverPricing(String name) => jsonDecode(
       File('test/fixtures/server_pricing/$name.json').readAsStringSync(),
     ) as Json;
 
+/// [answer] with each named field, wherever it occurs, given the id a test's
+/// own records carry.
+///
+/// The kept answers name their product, customer and source lines by stable
+/// tokens (`id-7`). A screen matches a priced line to its row by those ids,
+/// so a test whose stand-in firm calls its product `prod-1` hands the answer
+/// over with `{'product_id': 'prod-1'}`. Only ids are touched: every figure
+/// stays the server's.
+Json withIds(Json answer, Map<String, Object?> fields) {
+  Object? walk(Object? value, [String key = '']) {
+    if (value is Map) {
+      return <String, dynamic>{
+        for (final MapEntry<dynamic, dynamic> entry in value.entries)
+          '${entry.key}': walk(entry.value, '${entry.key}'),
+      };
+    }
+    if (value is List) return [for (final Object? item in value) walk(item, key)];
+    return value != null && fields.containsKey(key) ? fields[key] : value;
+  }
+
+  return walk(answer)! as Json;
+}
+
 double _figure(Object? value) => double.parse('$value');
 
 /// The lines of [document] somebody typed (not an offer's own free line).
@@ -88,7 +111,10 @@ void expectLinesReconcile(
         reason: 'line ${index + 1} shows its amount, tax included');
   }
   expect(
-    find.text(indianAmount(_figure(document['grand_total']), full: true)),
+    find.textContaining(
+      indianAmount(_figure(document['grand_total']), full: true),
+      findRichText: true,
+    ),
     findsWidgets,
     reason: "the foot shows the document's total",
   );

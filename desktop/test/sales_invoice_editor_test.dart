@@ -20,6 +20,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/server_pricing.dart';
+
 Json _billable({
   String remaining = '4',
   String alreadyInvoiced = '0',
@@ -73,6 +75,10 @@ class _InvoiceApi extends ApiClient {
 
   /// Every draft phase 2 asked to be priced.
   final List<Json> previews = <Json>[];
+
+  /// The server's own answer to hand back for every pricing, when a test
+  /// checks the screen against it (`support/server_pricing.dart`).
+  Json? serverPriced;
 
   Json? created;
 
@@ -137,6 +143,7 @@ class _InvoiceApi extends ApiClient {
     }
     if (method == 'POST' && path == '/api/v1/sales-invoices/preview') {
       previews.add(body!);
+      if (serverPriced != null) return <String, dynamic>{'data': serverPriced};
       double subtotal = 0;
       final List<Json> priced = <Json>[];
       for (final dynamic raw in body['lines'] as List<dynamic>) {
@@ -690,6 +697,31 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
   }
+
+  // D-UI-97: the bill's rows against the server's own pricing of a bill with
+  // a line discount, a bill discount and a delivery charge.
+  testWidgets('phase 2 direct bill shows each line as the server priced it',
+      (tester) async {
+    final Json priced = withIds(
+      serverPricing('sales_invoice_preview'),
+      {'product_id': 'prod-1'},
+    );
+    final _InvoiceApi api = _InvoiceApi()
+      ..salesOrderStage = false
+      ..deliveryNoteStage = false
+      ..serverPriced = priced;
+    await pumpPhase2(tester, api);
+    await fillDirectBill(tester);
+
+    expect(api.previews, isNotEmpty);
+    expectLinesReconcile(tester,
+        document: priced['invoice'] as Json, rowKey: 'sales-invoice-direct-');
+    // 500.00 less 10%, less 5% of the rest, plus 40.00 delivery: 467.50
+    // taxable, 84.15 tax at 18%, 551.65 in all.
+    expect(find.text('467.50'), findsWidgets);
+    expect(find.text('551.65'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
 
   // D-SELL-40: a bill that names products takes the customer's coupon, priced
   // by the preview and sent on create; blank says nothing at all.

@@ -13,6 +13,7 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/return_document.dart';
+import 'support/server_pricing.dart';
 
 /// A dispatched note of two lines: 5 toothpaste at 50, 3 soap at 30.
 ReturnableDocument _note() => ReturnableDocument.fromDeliveryNote({
@@ -113,8 +114,9 @@ ReturnableDocument _noteWithFree() => ReturnableDocument.fromDeliveryNote({
 Future<void> _openEditor(
   WidgetTester tester,
   ReturnableDocument note,
-  List<Json?> saved,
-) async {
+  List<Json?> saved, {
+  Future<SalesReturnPreviewRecord> Function(Json draft)? preview,
+}) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -138,7 +140,8 @@ Future<void> _openEditor(
                         }),
                       ],
                       today: DateTime(2026, 8, 20),
-                      preview: (draft) => _price(draft, <Json>[]),
+                      preview:
+                          preview ?? (draft) => _price(draft, <Json>[]),
                     ),
                   ),
                 ),
@@ -156,6 +159,41 @@ Future<void> _openEditor(
 }
 
 void main() {
+  // D-UI-97: the return's row against the server's own pricing of two coming
+  // back off a bill with a line discount and a bill discount.
+  testWidgets('each return line is shown as the server priced it',
+      (tester) async {
+    final Json priced = withIds(
+      serverPricing('sales_return_preview'),
+      {'source_document_line_id': 'dn-line-1', 'product_id': 'prod-1'},
+    );
+    int asked = 0;
+    await _openEditor(
+      tester,
+      _note(),
+      <Json?>[],
+      preview: (draft) async {
+        asked += 1;
+        return SalesReturnPreviewRecord.fromJson(priced);
+      },
+    );
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('sales-return-returning-dn-1-0')),
+        '2');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(asked, greaterThan(0));
+    expectLinesReconcile(tester,
+        document: priced['sales_return'] as Json,
+        rowKey: 'sales-return-line-');
+    // Two at 100.00 less 10%, less the bill discount's share of 9.00:
+    // 171.00 taxable, 30.78 tax at 18%, 201.78 in all.
+    expect(find.text('171.00'), findsWidgets);
+    expect(find.text('201.78'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the free box is on a line that shipped free goods and only '
       'there (D-PRC-8)', (tester) async {
     await _openEditor(tester, _noteWithFree(), <Json?>[]);

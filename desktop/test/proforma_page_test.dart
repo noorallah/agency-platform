@@ -17,6 +17,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/server_pricing.dart';
+
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
@@ -42,6 +44,11 @@ class _ProformaApi extends ApiClient {
   final List<String> requested = <String>[];
   Json? raised;
 
+  /// A sales order as the server answers it, offered in place of the
+  /// hand-written one when a test checks the screen against it
+  /// (`support/server_pricing.dart`).
+  Json? serverOrder;
+
   @override
   Future<Json> request(
     String method,
@@ -55,7 +62,7 @@ class _ProformaApi extends ApiClient {
     requested.add('$method $path');
     if (path == '/api/v1/sales-orders') {
       return <String, dynamic>{
-        'data': [_approvedOrder()],
+        'data': [serverOrder ?? _approvedOrder()],
         'pagination': <String, dynamic>{'total_records': 1},
       };
     }
@@ -279,6 +286,47 @@ void main() {
 
     expect(find.textContaining('view proforma permission'), findsOneWidget);
     expect(find.textContaining('PI-2026'), findsNothing);
+  });
+
+  // D-UI-97: the lines a proforma states, against the server's own pricing
+  // of an order with a line discount, a bill discount and a delivery charge.
+  testWidgets('phase 2 shows each order line as the server priced it',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final Json order = withIds(
+      serverPricing('sales_order_preview')['order'] as Json,
+      {'product_id': 'p-1', 'status': 'APPROVED'},
+    );
+    final _ProformaApi api = _ProformaApi()..serverOrder = order;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: ProformaPage(
+            api: api,
+            preferences: DesktopPreferencesService(
+              directory: Directory.systemTemp.createTempSync('proforma'),
+            ),
+            permissions: _permissions(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('New').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('proforma-order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('${order['order_number']}').last);
+    await tester.pumpAndSettle();
+
+    expectLinesReconcile(tester, document: order, rowKey: 'proforma-line-');
+    // 500.00 less 10%, less 5% of the rest, plus 40.00 delivery: 467.50
+    // taxable, 84.15 tax at 18%, 551.65 in all.
+    expect(find.text('467.50'), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('phase 2 raises on one screen showing the order it states',
