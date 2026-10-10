@@ -34,7 +34,7 @@ in `docs\`.
 
 ## 3. The question list
 
-`docs/CUSTOMER_REQUIREMENTS_QUESTIONS.md` -- about 70 questions in ten
+`docs/CUSTOMER_REQUIREMENTS_QUESTIONS.md` -- 83 questions in ten
 sections: the business, the goods, buying, selling, prices and offers, credit
 and collections, stock, accounts and GST, people, and installation and data.
 Each question says what it decides in the set-up, so an answer turns straight
@@ -48,7 +48,8 @@ into a setting.
 - **Questions marked "check"** are where the answer may be something the
   application does not do: van sales, export, job work, a phone app for
   salesmen, portal upload, a machine link, remote access, interest on late
-  payment, and consignment stock. Do not say yes to these in the meeting.
+  payment, consignment stock, and bringing old transactions across. Do not
+  say yes to these in the meeting.
 - **Section 11 is a blank table** for "what do you do today that you did not
   see?", to bring back.
 - **The Excel answer sheet** holds the same questions and is built from the
@@ -66,7 +67,9 @@ covers them. Confirm before the meeting if the customer is likely to ask.
 
 Bring this back from the visit. It decides how their data is loaded: each of
 their tables is matched to one of the file loads the application already has,
-and what does not fit is listed as a gap before anything is promised.
+and what does not fit is listed as a gap before anything is promised. The
+same items are questions 10.8 to 10.13 of the question list, so the Excel
+answer sheet has a cell for each.
 
 | Collect | Why |
 | --- | --- |
