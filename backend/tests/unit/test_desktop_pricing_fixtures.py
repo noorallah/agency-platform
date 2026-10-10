@@ -39,6 +39,9 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.delivery_note.models import DeliveryNoteLine
+from app.delivery_note.schemas import DeliveryNoteCreate
+from app.delivery_note.services.delivery_note_service import DeliveryNoteService
 from app.purchase.schemas import PurchaseOrderCreate
 from app.purchase.services import PurchaseService
 from app.purchase_invoice.models import PurchaseInvoiceLine
@@ -50,6 +53,7 @@ from app.quotation.services.quotation_service import QuotationService
 from app.sales_invoice.models import SalesInvoiceLine
 from app.sales_invoice.schemas import SalesInvoiceCreate
 from app.sales_invoice.services import SalesInvoiceService
+from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate
 from app.sales_order.services.sales_order_service import SalesOrderService
 from app.sales_return.schemas import SalesReturnCreate
@@ -192,6 +196,79 @@ def _sales_invoice() -> BaseModel:
     )
 
 
+def _sales_invoice_from_note() -> BaseModel:
+    """Price a bill of three of the five a delivery note sent.
+
+    The order carries the discounts and the delivery charge; the bill of
+    part of it takes its share of each.
+    """
+    setup = _shop()
+    actor = uuid4()
+    orders = SalesOrderService(setup.session)
+    order = orders.create_order(
+        SalesOrderCreate.model_validate(
+            {
+                "customer_id": str(setup.customer.id),
+                "branch_id": str(setup.branch.id),
+                "warehouse_id": str(setup.warehouse.id),
+                "order_date": DAY.isoformat(),
+                "bill_discount_percent": "5",
+                "freight_amount": "40",
+                "lines": [_line(setup, line_number="1", quantity="5")],
+            }
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    orders.approve_order(order.id, firm_scope=setup.firm.id, actor_id=actor)
+    setup.session.expire_all()
+    ordered = setup.session.scalars(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    ).one()
+    notes = DeliveryNoteService(setup.session)
+    note = notes.create_note(
+        DeliveryNoteCreate.model_validate(
+            {
+                "sales_order_id": str(order.id),
+                "delivery_date": DAY.isoformat(),
+                "lines": [
+                    {
+                        "sales_order_line_id": str(ordered.id),
+                        "line_number": 1,
+                        "current_delivery_quantity": "5",
+                    }
+                ],
+            }
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    notes.approve_note(note.id, firm_scope=setup.firm.id, actor_id=actor)
+    notes.dispatch_note(note.id, firm_scope=setup.firm.id, actor_id=actor)
+    setup.session.expire_all()
+    sent = setup.session.scalars(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    ).one()
+    payload = SalesInvoiceCreate.model_validate(
+        {
+            "customer_id": str(setup.customer.id),
+            "invoice_date": DAY.isoformat(),
+            "lines": [
+                {
+                    "source_document_type": "DELIVERY_NOTE",
+                    "source_document_id": str(note.id),
+                    "source_document_line_id": str(sent.id),
+                    "line_number": 1,
+                    "current_invoice_quantity": "3",
+                }
+            ],
+        }
+    )
+    return SalesInvoiceService(setup.session).preview_invoice(
+        payload, firm_id=setup.firm.id, actor_id=actor
+    )
+
+
 def _sales_return() -> BaseModel:
     """Price the return of two of the five that bill sold."""
     setup = _shop()
@@ -218,6 +295,10 @@ def _sales_return() -> BaseModel:
                     "source_document_line_id": str(billed.id),
                     "line_number": 1,
                     "current_return_quantity": "2",
+                    # Taken back at 80.00, under the 100.00 billed, so the
+                    # charge still credits no more than the bill charged.
+                    "unit_price": "80",
+                    "charges_amount": "15",
                 }
             ],
         }
@@ -305,6 +386,7 @@ def _purchase_return() -> BaseModel:
                     "source_document_line_id": str(billed.id),
                     "line_number": 1,
                     "current_return_quantity": "4",
+                    "charges_amount": "20",
                     "warehouse_id": str(firm.warehouse.id),
                 }
             ],
@@ -320,6 +402,7 @@ CASES: dict[str, Callable[[], BaseModel]] = {
     "sales_order_preview": _sales_order,
     "purchase_order_preview": _purchase_order,
     "sales_invoice_preview": _sales_invoice,
+    "sales_invoice_from_note_preview": _sales_invoice_from_note,
     "sales_return_preview": _sales_return,
     "purchase_invoice_preview": _purchase_invoice,
     "purchase_return_preview": _purchase_return,

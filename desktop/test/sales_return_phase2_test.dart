@@ -160,7 +160,8 @@ Future<void> _openEditor(
 
 void main() {
   // D-UI-97: the return's row against the server's own pricing of two coming
-  // back off a bill with a line discount and a bill discount.
+  // back off a bill with a line discount and a bill discount, with a charge
+  // on the return line.
   testWidgets('each return line is shown as the server priced it',
       (tester) async {
     final Json priced = withIds(
@@ -187,10 +188,11 @@ void main() {
     expectLinesReconcile(tester,
         document: priced['sales_return'] as Json,
         rowKey: 'sales-return-line-');
-    // Two at 100.00 less 10%, less the bill discount's share of 9.00:
-    // 171.00 taxable, 30.78 tax at 18%, 201.78 in all.
-    expect(find.text('171.00'), findsWidgets);
-    expect(find.text('201.78'), findsWidgets);
+    // Two taken back at 80.00 less 10%, less the bill discount's share of
+    // 9.00, plus a charge of 15.00: 150.00 taxable, 27.00 tax at 18%,
+    // 177.00 in all. Left out, the charge made the row read 135.00 and 20%.
+    expect(find.text('150.00'), findsWidgets);
+    expect(find.text('177.00'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 

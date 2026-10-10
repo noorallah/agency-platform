@@ -20,6 +20,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/server_pricing.dart';
+
 void main() {
   test('module catalog exposes enterprise purchase workspace tabs', () {
     expect(
@@ -389,6 +391,88 @@ void main() {
 
     expect(find.text('u-kg'), findsNothing, reason: 'no raw unit id on the view');
     expect(find.text('KG'), findsWidgets);
+  });
+
+  // D-UI-97: the order's row against the server's own pricing of ten at
+  // 60.00 under a discount of 100.00 on the whole order.
+  testWidgets('phase 2 shows each order line as the server priced it',
+      (tester) async {
+    _setDesktopSurface(tester);
+    final Json priced = withIds(
+      serverPricing('purchase_order_preview'),
+      {'product_id': _product.id},
+    );
+    final _PricingPurchaseApi api = _PricingPurchaseApi()
+      ..serverPriced = priced;
+    final PermissionService permissions = PermissionService()
+      ..applyAccessToken(_accessToken({
+        'permissions': ['PURCHASE_VIEW', 'PURCHASE_APPROVE'],
+      }));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () =>
+                Navigator.of(context).push<PurchaseEditorOutcome>(
+              MaterialPageRoute<PurchaseEditorOutcome>(
+                builder: (_) => Scaffold(
+                  body: Phase2Scope(
+                    child: PurchaseOrderEditorDialog(
+                      api: api,
+                      permissions: permissions,
+                      mode: PurchaseDialogMode.create,
+                      order: null,
+                      vendors: const [_vendor],
+                      branches: const [_branch],
+                      warehouses: const [_warehouse],
+                      products: const [_product],
+                      buyers: const [],
+                      taxProfiles: const [],
+                      storageNodes: const [],
+                      canSubmit: true,
+                      canApprove: true,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('purchase-order-vendor')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Northwind').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byWidgetPredicate((Widget w) =>
+        w.key is ValueKey<String> &&
+        (w.key! as ValueKey<String>)
+            .value
+            .startsWith('purchase-order-line-product-')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining(_product.name).last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byWidgetPredicate((Widget w) =>
+          w.key is ValueKey<String> &&
+          (w.key! as ValueKey<String>).value.startsWith('purchase-order-qty-')),
+      '10',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(api.previews, isNotEmpty);
+    expectLinesReconcile(tester,
+        document: priced['order'] as Json, rowKey: 'purchase-order-line-');
+    // 600.00 less the order's 100.00: 500.00 taxable, 90.00 tax at 18%,
+    // 590.00 in all. Worked as gross less the line's own discount, the row
+    // read 600.00 and 15%.
+    expect(find.text('500.00'), findsWidgets);
+    expect(find.text('590.00'), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('phase 2 draws the order on one screen priced as it is typed',
@@ -773,11 +857,17 @@ class _PricingPurchaseApi extends _PurchaseApi {
   final List<Json> previews = <Json>[];
   PurchaseOrder? created;
 
+  /// The server's own answer to hand back for every pricing, when a test
+  /// checks the screen against it (`support/server_pricing.dart`).
+  Json? serverPriced;
+
   @override
   Future<PurchaseOrderPreviewRecord> previewPurchaseOrder(
     PurchaseOrder order,
   ) async {
     previews.add(order.toCreateJson());
+    final Json? server = serverPriced;
+    if (server != null) return PurchaseOrderPreviewRecord.fromJson(server);
     final PurchaseOrderLine line = order.lines.first;
     // The server fills a blank rate from the supplier's list or the product.
     final String rate = line.unitPrice.isEmpty ? '100' : line.unitPrice;
