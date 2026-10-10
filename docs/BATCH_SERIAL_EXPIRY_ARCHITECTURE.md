@@ -824,6 +824,35 @@ the product's price, never above anything typed. See
 
 ---
 
+## How batch stock is stored, in plain terms
+
+A batch is **not** a separate product. The product is one row in `products`;
+each batch of it is a row in `batches` (number, expiry, manufacturing date,
+MRP, selling rate, PTR, PTS). Stock on hand is in `inventories`: **one row
+per location for a product that tracks no batch, one row per batch in that
+location for one that does** -- the batch column is simply empty for the
+first kind. `products` holds no stock figure; every total is added up from
+those rows. Each movement (`inventory_transactions`, `stock_ledger_entries`)
+names its batch. Cost is in `product_valuations`, one moving average per
+product and not per batch (backlog 101).
+
+| Product | Warehouse | Batch | On hand |
+| --- | --- | --- | --- |
+| Paracetamol 500 (tracks batch) | Main | B001 | 60 |
+| Paracetamol 500 | Main | B002 | 100 |
+| Paracetamol 500 | Branch | B002 | 40 |
+| Sugar 1 kg (no batch) | Main | | 500 |
+| Sugar 1 kg | Branch | | 120 |
+
+Paracetamol is 200 in all, 140 of it batch B002, 160 of it in Main: three
+sums over the same rows. A receipt of more Sugar into Main raises its one row;
+a receipt of a new batch adds a row to `batches` and a stock row; more of an
+existing batch raises that batch's row. Free units arrive in the batch of the
+receipt line that carries them.
+
+Price lists, offers, tax and reports work on the product, so a new batch
+needs nothing set up again -- which is what an item per batch would cost.
+
 ## Import / Export
 
 Existing platform import/export framework applies:
@@ -893,7 +922,7 @@ Status transitions are recorded via the existing `record_audit` service.
 
 1. **Import/Export endpoints** for batch and serial are not yet implemented — only the data model and framework hooks exist. Tracked for Phase 17+.
 2. **Recall Workflow** is not implemented — `status = recalled` can be set manually via API but no automated notification/workflow exists.
-3. **FEFO / FIFO allocation** is not implemented — batch data is ready but the allocation engine belongs to Purchase/Sales phases.
+3. **FEFO allocation is built** (see *FEFO, and choosing a batch on a sale* above); this line said otherwise until 2026-10-10. FIFO as a costing method is not: cost is one moving average per product (backlog 101).
 4. **QC Hold integration** — `blocked_qty` and `quarantine` status are data-model ready but no QC module enforces them yet.
 5. **Lot hierarchy depth** — `parent_lot_id` supports one level of parent; deep multi-level lot trees may require recursive CTE queries (not yet implemented).
 6. **Serial movement history** — current model records current status/owner but does not yet maintain a full movement log table. Extension point: `serial_movements` table in Phase 18.

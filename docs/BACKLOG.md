@@ -6959,3 +6959,460 @@ this was written: it says what to look at, not what is wrong.
 
 **Order.** Security first, then loops and speed, then coding standards: the
 first two can cost a customer, the third costs only us.
+
+## 99. Free goods of ordinary products: marked on the stock movement, and one register of free in against free out -- decided, not built, after the demo
+
+Owner, 2026-10-10, while testing offers on DEMO01: "free goods also mark in
+inventory ... check other product how they handle and see we can take
+decision".
+
+**What we do today.**
+
+- The free quantity is kept on the **documents**: purchase order, goods
+  receipt and purchase bill lines (with the supplier scheme's name), and
+  quotation, sales order, delivery note and sales invoice lines.
+- Stock is **one pool** per product, warehouse and batch. A receipt of 10
+  bought + 2 free adds 12; a dispatch of 10 + 1 free takes 11. The stock
+  movement holds one quantity and does not say how much of it was free.
+- The **Free goods** report covers only products marked *free issue only*
+  (gift and sample items) and stock written off as "given free" or "sample".
+  Free units of an ordinary product are in no stock report.
+- What an offer gave free is in Promotion performance, Discount given by offer
+  and Promotion claims, as a quantity with no value.
+- So nothing answers, per product: how many came in free from which supplier,
+  how many went out free to which customer, and what that was worth.
+
+**What other products do.**
+
+| Product | Where free goods are recorded | Separate free stock? |
+| --- | --- | --- |
+| TallyPrime | Two quantities on the line, *Actual* and *Billed*: actual moves stock, billed moves the accounts. Stock Query shows both for purchases and sales. | No, one stock |
+| ERPNext | The offer adds a line at rate 0 with *Is Free Item* ticked, on sales and purchase documents. | No, one stock |
+| LOGIC ERP (distribution) | A free scheme on the purchase adds the free quantity; the sale bill can pick up the scheme per batch as it was received. | No; the scheme is held per batch |
+| Marg, BUSY | A free quantity column on purchase and sale lines (BUSY lists it as a feature; Marg from our own knowledge, not confirmed from its help pages). | No, one stock, as far as we know |
+
+Nobody keeps free units as a separate stock: the units are the same goods on
+the same shelf, and a second bucket would have to be chosen at every sale,
+transfer, return and count. What the others have and we lack is the free
+quantity **visible beside the stock movement** (Tally's actual against billed).
+
+**Decision (by the standard above).**
+
+1. Stock stays one pool. No "free" warehouse, bin or stock status.
+2. Each stock movement raised by a receipt, a dispatch or a return also holds
+   **how much of its quantity was free**, copied from the document line. The
+   stock ledger and the product's movement list show it as a column.
+3. One report, **Free quantity register**, for every product: received free
+   by supplier and scheme, given free by customer and offer, both with their
+   value at cost, and the difference. The present Free goods report (free
+   issue only products) joins it as a section rather than staying a second
+   report.
+4. The promotion reports show the cost of free units beside the quantity.
+
+**Batch-tracked products (owner, 2026-10-10).** Free units already arrive in
+the batch of the receipt line that carries them and leave from the batches
+dispatch draws, so both the register and the free quantity on the stock
+movement are **per batch** for such a product: received free and given free
+name the batch. If cost comes to be held per batch (section 101), free units
+lower the cost of the batch they arrived in, not of the whole product.
+
+**Valuation (owner, 2026-10-10): free units received lower the average
+cost**, which is what happens today and what Tally does by default -- 10
+bought at 100 with 2 free is 12 units costing 1,000, 83.33 each, and the
+scheme's benefit shows as margin when the goods are sold. Valuing them at the
+bought rate with the gain booked as scheme income shows profit before anything
+is sold and needs a ledger entry on every receipt; it is built only if a
+customer's CA asks for it. The owner confirms the default with the CA once.
+
+**Order of work. Not before the customer demo.**
+
+1. **The register first, read from the document lines already stored** --
+   goods receipt lines for free in, delivery note lines for free out. No
+   migration, and it answers the customer's question on its own. With it,
+   decision 4 (cost beside quantity in the promotion reports).
+2. **The column on the stock movement second** (decision 2): a migration for
+   every store, filled by the four document modules that move stock, a
+   backfill from existing lines, and the desktop columns.
+
+**Size: S** for step 1, **M** for step 2.
+
+## 100. A discount names where it came from on both sides, and purchases get discount reports -- decided, not built, after the demo
+
+Owner, 2026-10-10, while testing offers on DEMO01: for "buy n of a product,
+get a discount", how and where is it recorded, how does the purchase order
+hold the reference, how do the sales documents, and is there a report.
+
+**What we do today.**
+
+- **Sales line** (quotation, order, bill): discount %, discount amount, the
+  line's share of the bill discount, and `discount_source` -- the *kind* of
+  source: typed, promotion, price list, standing rate, group rate. The header
+  holds the bill discount and whether it was typed or from an offer.
+- **Offer claim** (`promotion_redemptions`, written at approval): one row per
+  offer per document -- offer, coupon, customer, document, date, amount given,
+  free units.
+- **Not recorded on the sales side:** which offer discounted which line (the
+  line says "promotion", the claim names the document), and which price list
+  gave a line its rate.
+- **Purchase line:** discount %, discount amount, share of the bill discount.
+  For the *price* it holds `rate_source` and `rate_contract_line_id`; for
+  *free goods* `scheme_id` and `scheme_name`. **Nothing says where the
+  discount came from.**
+- **A supplier's quantity discount** is set up as a supplier price list with
+  quantity breaks, a rate contract's discount, or the supplier's standing
+  discount. A supplier scheme (`supplier_schemes`) gives free goods only.
+- **Paid afterwards** -- a target or turnover discount settled by credit
+  note -- is already built on both sides (Supplier Rebates, Customer Rebates)
+  and is not part of this.
+- **Reports.** Sales: Discount given by customer / salesman / product / offer,
+  Promotion performance, Promotion claims, Coupon performance. **Purchases:
+  none for discounts.**
+
+**What to build, in this order.**
+
+1. **The sales line names its source.** Beside `discount_source`: the offers
+   that discounted the line (id and code as it read then, since several may
+   combine) and the price list (id and code). Filled where the line is
+   priced; inherited down the chain with the discount. The order's side
+   panel and the document view show "TEA-5" or "CITY-MEDICALS" instead of
+   "from a promotion" / "from the price list".
+2. **The purchase line names its source.** `discount_source` with the same
+   meaning as on sales: typed, rate contract, price list, standing. A typed
+   figure equal to the one the ranking gives is the ranking's, as it already
+   is for the price.
+3. **Discount received reports for purchases**, mirroring the sales three:
+   by supplier, by product and by buyer -- gross, typed, arranged (contract,
+   list, standing), bill discount, total, % of gross. Grouped in SQL, each
+   with its entry in `report_catalog.dart`.
+4. **Offer by product** on sales: what each offer gave on each product in the
+   dates. Needs step 1.
+5. **A supplier scheme can give a discount.** `supplier_schemes` gains a
+   benefit of % or amount off for a quantity, with its name and dates, ranked
+   in `resolve_line_discount` between the rate contract and the price list;
+   the order line keeps `scheme_id` and `scheme_name` as it does for free
+   goods, and the receipt and the bill inherit it.
+
+Lines saved before steps 1 and 2 keep a blank source; nothing is guessed
+back onto them.
+
+**Size: M** for steps 1 to 4 as one piece of work (two migrations for every
+store, the pricing resolver's result carried to the line, three reports and
+one more, the desktop labels). **M** for step 5 on its own.
+
+With every step: the reference docs, section 20 of
+`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md`, and the QA cases.
+
+## 101. Cost held per batch, beside the product's average -- logged, how to build it not decided
+
+Owner, 2026-10-10, while testing offers on DEMO01: "for medicine we have
+batch wise cost, is it supported" -- then "log batch wise cost as backlog
+item, we will decide later how to implement".
+
+**What we do today.**
+
+- A batch holds its own **MRP**, **selling rate**, **PTR** and **PTS**
+  (feature `BATCH_PTR_PTS`), its expiry and manufacturing date, all taken
+  from the goods receipt line. A sale can be priced from the batch it ships
+  and is refused above that batch's MRP.
+- **Cost is not per batch.** `product_valuations` is one moving weighted
+  average per firm and product: a receipt moves the average toward the price
+  paid, an issue consumes at the average. Two batches bought at 20 and at 18
+  give one cost, whichever leaves.
+- So the product's total profit is right and a batch's own profit is not
+  shown; stock value by batch is quantity at the product's average.
+
+**Why a customer may ask.** A pharmacy or food distributor moving from Marg
+or a similar tool is used to seeing the purchase rate on each batch, margin
+by batch, and near-expiry stock valued at what that batch cost.
+
+**Ways it could be done -- none chosen.**
+
+1. **Record only.** Keep the purchase rate on the batch as a fact (net of
+   discount, free goods spread over the units, as the receipt already works
+   it out) and show it on the batch, the batch stock report and a
+   margin-by-batch report. The books stay on the product's average. Small;
+   no change to valuation or the ledger.
+2. **Value by batch.** A batch-tracked product's issues consume at the cost
+   of the batch they take, so cost of goods sold and stock value follow the
+   batch. Changes valuation, every reversal that reads the movement's value,
+   transfers, returns and the reports on stock value. Large.
+3. **FIFO as a firm-wide method.** A different question -- which layer an
+   untracked product consumes -- that `product_valuations` was shaped to
+   allow. Large, and not needed for batch cost.
+
+**To decide before building:** which of 1 and 2 the first pharmacy customer
+actually needs, and what their CA values stock at. Option 1 answers "what
+did this batch cost" and can be built first without closing off option 2.
+
+**Size:** S for option 1, L for option 2. Not sized further until decided.
+
+## 102. Smaller gaps found while the owner tested offers on 2026-10-10 -- listed, not built
+
+The larger ones from the same day are sections 99 (free goods on the stock
+movement), 100 (a discount names its source; purchase discount reports) and
+101 (cost per batch). These are what is left.
+
+**To build.**
+
+1. **"Funded by principal" with no principal to choose.** A firm with no row
+   in Principals sees only its own option and nothing says why. Show a line
+   under the box -- "No principal yet. Add one under Principals." -- with the
+   link. **S.**
+2. **Passing a supplier's scheme on to customers.** A supplier scheme (buy
+   10, get 2) and a sales offer are two separate records today; the firm
+   types the offer again if it passes the scheme on. LOGIC ERP carries the
+   purchase scheme to the sale bill per batch. To build: on a supplier
+   scheme, **Create the matching offer** -- a sales offer for the same
+   product, quantities and dates, funded by that supplier's principal at a
+   share the firm states, left as a DRAFT to review. Nothing is passed on by
+   itself. **M.** Decide after the first customer says how they pass schemes
+   on.
+3. **The principal's share on the document.** The bill and the order show the
+   discount and not that a principal funds part of it; the share appears only
+   when a claim is raised. To build: on the order's side panel and the
+   document view (not on the customer's print), "Funded by <principal>, 50%"
+   beside the offer. Rides with section 100 step 1, which puts the offer's
+   name on the line. **S.**
+
+**To test -- never driven on a screen or on real documents.**
+
+4. The five offers set up on DEMO01 (free goods, a free product, a line
+   percentage, buy 2 get the third at half, a coupon on the bill) on real
+   orders through delivery and bill; they were checked through Try offers
+   only.
+5. A coupon's limit refused by name at approval, and the use given back by
+   cancelling.
+6. Funded by principal through to a Principal Claim: preview, raise, print
+   the statement, record a payment, settle by credit note
+   (`SC-OF-008` in `docs/qa/SCREEN_TEST_CASES_BUY_SELL_PRICE.md` was skipped
+   on 2026-10-07).
+7. Whether a customer's standing discount still applies to a line whose
+   offer gives a free product and no discount.
+
+Each of 4 to 7 that fails is a defect in `docs/DEFECTS.md`, not a line here.
+
+## 103. Every product keeps the batch structure; asking for a batch is the switch -- FIRST ITEM after the demo: discuss, check every area, then build
+
+Owner, 2026-10-10: "batch wise enable for all product gives us lot flexible
+... making that field mandatory enable should be ok but every product keep
+this structure gives us lot benefits, other attributes which are not common
+can be dynamic fields that can store separately ... we will make this in
+backlog high priority as it changes structure and after this demo we will
+update".
+
+**The idea.** Today stock has two shapes: one row per location for a product
+that tracks no batch, one row per batch for one that does, held apart by two
+partial unique indexes on `inventories` and by a nullable `batch_id` on every
+movement. Instead, **every stock row and every movement names a batch**. What
+differs per product is only whether a person is **asked** for one:
+
+- **Batch asked** (medicines, food): as today -- typed on the receipt, with
+  expiry, MRP and rates, picked earliest expiry first.
+- **Batch not asked** (sugar, hardware): the product has a batch the system
+  keeps for it by itself. Nobody types it, picks it or sees it on a screen or
+  a print.
+
+**What it gives.**
+
+- One structure for stock, cost, expiry, price, free goods and returns, where
+  each of those now has a tracked path and an untracked path.
+- Sections 99 (free goods per batch) and 101 (cost per batch) become the same
+  work for every product instead of for tracked products only.
+- A product can start being asked for batches later without its stock
+  changing shape: its past stock is already in a batch.
+- Fields only some goods need (shade, grade, pack size, licence number) are
+  **custom fields** through `AttributeService`, stored in their own typed
+  columns, never new columns on the batch. Custom fields on a **batch** are
+  new: today they attach to masters such as products, customers and suppliers.
+
+**To agree before building -- the design is not settled.**
+
+1. **What the system's own batch is.** *One standing batch per product*
+   (stock behaves exactly as today, one row per location) or *one automatic
+   batch per receipt* (each receipt keeps its own cost and date, which is
+   FIFO layers, at the price of many more rows and of choosing which leaves).
+   Proposed: one standing batch per product now; a batch per receipt is a
+   later switch on the product, and is how section 101 option 2 would reach
+   goods nobody types a batch for.
+   **When the system's batch is made** (owner's question, 2026-10-10: "for
+   sugar when batch id will be created and when it will create new, any rate
+   change or free"):
+   - *Standing batch:* made once, the first time stock of the product
+     arrives (a receipt, opening stock or a return), one for the product
+     across all warehouses. Never a second: a new rate moves the average and
+     free units add units at no value, as today.
+   - *Batch per receipt:* a new one for every completed receipt line and
+     every opening stock line, whatever the rate. A line's free units go in
+     its batch and lower that batch's cost. A sales return goes back to the
+     batch it left.
+   - *A third way, a new batch only when the cost changes:* a receipt whose
+     cost per unit after discount and free goods equals the open batch's
+     joins it; a different cost opens a new one. Exact cost with far fewer
+     rows than a batch per receipt, at the price of a comparison that has to
+     be exact to the rounding.
+   **Or the batch stays empty where none was collected** (owner, 2026-10-10:
+   "if batch details not collected batch id will be null and have other
+   required details"). That is the structure of today: one table, the batch
+   optional. It needs no migration and changes nothing for the demo, but it
+   keeps the two paths this section set out to remove -- an empty batch is
+   its own case in the unique keys, in picking, in cost per batch (101) and
+   in free goods per batch (99). **This is the first thing to settle**: an
+   empty batch, or a batch the system keeps. The rest of this section is
+   written for the second.
+   Owner, later the same day: "keep system batch in 103, we decide after
+   demo" -- the batch the system keeps stays the proposal.
+2. **"Mandatory" means the switch, not the column.** The column is always
+   filled; `track_batch` on the product decides whether a person must supply
+   it. `require_batch_on_receipt` and the goods types keep their meaning.
+3. **Existing data.** Every store's untracked stock rows, movements, stock
+   ledger entries, opening stock lines and document lines that carry a batch
+   get the product's standing batch, in one migration per store, idempotent
+   and checked by totals before and after. Then the nullable column and the
+   two partial indexes go: the untracked path is removed, not left beside
+   the new one.
+4. **Nothing changes for the user of an untracked product.** No batch box,
+   no batch column, no batch row on a challan or a bill, no batch in an
+   import template. The Batches menu lists only batches a person named.
+5. **Serial numbers** stay as they are, above the batch.
+6. **"Rewrite the domains"** -- taken to mean reshaping the stock modules
+   (inventory, batch and serial, and the stock side of receipts, dispatch,
+   returns, transfers, counts and opening stock) onto the one structure, not
+   the buying, selling or finance modules. To confirm with the owner.
+
+**Order with the neighbouring sections.** The Free quantity register (99
+step 1) and the discount sources and purchase reports (100) do not depend on
+this and can go first. The free quantity on the stock movement (99 step 2)
+and cost per batch (101) are built **on** this structure, so they wait for
+it.
+
+**Size: L.** Every module that moves or reads stock, a data migration for
+every store, the reports on stock, the seeders, and a full inventory round
+afterwards. Design note and owner's agreement first; then build.
+
+**How other products cost stock (checked 2026-10-10), and what it changes
+here.** Owner: "we can check how other products does for this kind or which
+one is best solution in order to make system perfect ... if we need to
+return any stock to vendor that also needs to be done across purchase
+invoice, keep this first item to discuss and implement by checking all
+areas".
+
+| Product | Costing | Batches |
+| --- | --- | --- |
+| TallyPrime | A costing method **per stock item**: average (the default), FIFO, FIFO perpetual, LIFO, last purchase, standard, monthly average | Optional, for goods that have one; expiry and manufacturing date |
+| ERPNext | A valuation method per item, company or globally: moving average or FIFO. FIFO keeps a **queue of [quantity, rate] layers** per item and warehouse; an issue consumes the oldest. A serial-wise valuation switch for serial items | Optional per item |
+| SAP Business One | Per item: moving average, FIFO (each purchase price stored) or standard, and a fourth method **for serial and batch managed items only**, where goods leave at the actual cost of that serial or batch | Optional per item |
+| Odoo | Per product category: standard, average or FIFO, held as valuation layers | Optional per product |
+
+**Nobody makes a hidden batch to hold a cost.** All four keep two things
+apart: the **batch** is what is printed on the goods and exists only where
+the goods have one; the **cost layer** is what a receipt cost, kept by the
+valuation and seen by no warehouse screen. A product without batches gets
+exact cost through FIFO layers, not through batches.
+
+**What that suggests for this section** (to settle after the demo; the
+system's batch stays on the table as the owner asked):
+
+- **Costing method per product**, defaulting from the goods type: *Average*
+  (today), *FIFO* (a layer per receipt line -- quantity left, cost per unit
+  after discount and free goods, the receipt it came from), *By batch* (only
+  where the product is asked for a batch; section 101 option 2).
+- **Layers live beside `product_valuations`, not in `batches` or
+  `inventories`.** Stock rows, picking, counts and transfers do not multiply
+  or change; this is what "a batch per receipt" and "a new batch when the
+  cost changes" above were reaching for, without their cost in rows.
+- **The batch may then stay empty** for a product nobody types one for, and
+  the two-shape stock table is a smaller matter than it looked.
+
+**A return to the supplier goes back against its purchase.** Today a
+purchase return line is already raised off the goods receipt line or the
+bill line that billed it: quantity is capped by what that receipt brought
+in, the price and tax are the bill's, free goods are credited nothing, and
+where the receipt named a batch only that batch may go back. **What does not
+follow the purchase is the cost**: the goods leave stock at the product's
+average and the difference from what the supplier credits goes to purchase
+price variance. With layers or cost by batch, a return consumes the layer of
+the receipt it names, so sending back what was bought leaves no variance.
+(In ERPNext and Odoo a return is valued as an ordinary issue -- average, or
+the oldest layer -- which their own users report as wrong; naming the
+receipt's layer is the better rule and we already hold the link.)
+
+**Every area to check before building, each for average, FIFO and by batch:**
+
+1. Goods receipt, and its cancellation; opening stock.
+2. Free goods in and out (section 99); landed cost added after receipt.
+3. Dispatch and its reversal; cost of goods sold and margin.
+4. Sales return -- back into the layer or batch it left, at the cost it left.
+5. Purchase return -- against the receipt's layer, as above.
+6. Transfers between warehouses and branches; goods in transit.
+7. Counts, adjustments, write-offs, expiry and breakage; the principal's
+   claim at cost.
+8. Kits, repacking and unit conversion.
+9. Negative stock where a product allows it: which layer a sale takes when
+   none is left.
+10. Every ledger posting that reads a movement's value
+    (`docs/LEDGER_POSTING_RULES.md`): a leg facing stock is valued from the
+    movement.
+11. Reports: stock value, ageing, margin by product, customer and batch.
+12. Changing a product's method later, and the data migration for every
+    store.
+13. The seeders and PERF01: layers at 110,000 invoices.
+
+**Order of work:** (a) a design note covering the table above and the
+thirteen areas, agreed with the owner and the CA; (b) layers and FIFO for
+one product type end to end; (c) by batch; (d) returns on both sides;
+(e) reports. An inventory round and a finance round follow.
+
+**How cost would be worked out and kept (owner's question, 2026-10-10: "how
+we will implement cost changes, free items, discounts, with batch products,
+without batch products, for each purchase invoice or not").** Proposed; to
+be agreed in the design note.
+
+*Step 1 -- every purchase line gives one cost per unit*, the same for every
+product: what was paid for the line, over every unit it brought in.
+
+| On the purchase | Effect on the cost per unit |
+| --- | --- |
+| A new rate | The new rate is used |
+| A line discount | Off the amount paid |
+| A whole-bill discount | The line's share comes off |
+| Freight and other charges | The line's share is added |
+| Free units of the same product | Added to the units, so the cost per unit falls |
+| Another product given free | Its own line, at no cost |
+| GST | Not part of the cost |
+
+100 at 42 with 5% off and 10 free is 3,990 over 110 units, 36.27 each. The
+receipt already works the figure out this way today.
+
+*Step 2 -- where it is kept depends on the product's costing method.*
+
+| Product | Method | Kept | A new record for each purchase? |
+| --- | --- | --- | --- |
+| No batch, simple | Average | One average per product | No; it blends in. Today's behaviour |
+| No batch, exact cost wanted | FIFO | A cost layer per purchase line, seen by no stock screen | Yes |
+| Asked for a batch | By batch | On the batch | Only for a new batch; more of the same batch blends within it |
+
+*Step 3 -- what a sale costs.* Average: the current average. FIFO: the
+oldest layer first. By batch: the batch that ships.
+
+Two purchases, 100 at 40.00 and 110 at 36.27, then 150 sold: 5,707 at the
+average of 38.05; 5,814 by FIFO (100 at 40.00 and 50 at 36.27); by batch,
+whatever the batches shipped cost.
+
+*Returns.* A return to the supplier takes the cost of the purchase it is
+raised against; a sales return comes back at the cost it left with.
+
+*So: per purchase invoice or not.* The cost is always **worked out** per
+purchase line. It is **kept** apart per purchase only under FIFO, and per
+batch for a product asked for one; under Average it is blended. The method is
+chosen per product, defaulting from the goods type.
+
+*For the design note to settle.*
+
+- The goods receipt sets the cost. When the purchase bill arrives at another
+  rate, the difference either corrects the layer or batch still in stock, or
+  goes to purchase price variance: one rule, stated.
+- A supplier's target or turnover discount paid later by credit note
+  (Supplier Rebates) stays income and does not go back into the cost of
+  goods already sold. The CA confirms.
+- Landed cost added after a receipt: onto the layer or batch it belongs to,
+  for what is still in stock.

@@ -728,3 +728,111 @@ against it.
 | Add coupon `WELCOME10` | nothing -- BIGORDER ended the stack before WELCOME (40). |
 | Firm in Best offer mode | only the single most valuable of the matching offers applies. |
 | The delivery note and the bill | inherit all of the above, pro-rated by the quantity shipped and billed; nothing is priced again. |
+
+## 20. Who pays for an offer, where to see it, and claiming it back
+
+### Who bears the cost
+
+| **Funded by principal** on the offer | Who pays |
+| --- | --- |
+| Empty | The firm, all of it. A discount lowers what is billed; free goods leave stock at no charge. |
+| A principal with a share % | The customer still gets the whole offer. That share is owed to the firm by the principal; the rest is the firm's cost. At 50% on a discount of 100, 50 is claimable and 50 is the firm's. |
+| A principal at 100% | The whole offer is claimable. It costs the firm nothing once the principal settles. |
+
+Until the principal pays or gives credit, the firm carries the full amount.
+
+The list offers only the firm's own **Principals** (the master that brands are
+filed under). A firm with no principal sees no name to choose: add one first,
+with the supplier it is bought through, then set it on the offer with its
+share %.
+
+### Where to see what offers and discounts cost
+
+All under **Reports**.
+
+| Question | Report | Shows |
+| --- | --- | --- |
+| What has each offer cost in all? | **Promotion performance** | Per offer: customers, Benefit (money given), Free units, limit and budget left |
+| The same, for a date range | **Discount given by offer** | Claims, customers, Given, Free units given, costliest first |
+| Which document took which offer? | **Promotion claims** | One row per claim: offer, coupon, customer, amount given, free units |
+| What did each coupon cost? | **Coupon performance** | Per code: times claimed, customers, benefit, free units, uses left |
+| All discount, not only offers | **Discount given by customer / salesman / product** | Gross, then Typed, Arranged (price list or standing rate), Offers, Bill discount, Total and % of gross |
+| Promotional items as stock | **Free goods** | Only products marked **free issue only**: received per supplier and scheme, written off as given free or as a sample (at cost), and still on hand. Free units an offer gave of an ordinary product are **not** here -- they are in the promotion reports above. |
+
+An offer's use is counted when the order is **approved**, so a draft shows
+nothing in the promotion reports. The three *Discount given by ...* reports read
+**bills**, so an order not yet billed is not in them. The promotion reports
+show free goods as a quantity, not as money.
+
+### Claiming a principal's share back
+
+**Principal Claims** (type "principal claim" in the command box).
+
+1. **+ New** -- "New claim on a principal". Choose the principal and the
+   period. The screen shows what the period holds before anything is saved:
+   the principal's share of the offers passed on, with expired and broken
+   stock of that principal where there is any. With nothing to claim it says
+   so and raises no claim.
+2. **Save.** The claim takes a number, shows its Total and Outstanding in the
+   grid, and posts to the ledger: the principal now owes the firm that amount.
+3. **Print statement** -- the paper sent to the principal, with the lines
+   behind the total.
+4. Record how it is settled, in part or in full:
+   - **Record payment** -- the principal pays money.
+   - **Settle by credit note** -- the principal gives credit, set against the
+     open purchase bills of the supplier that principal is bought through.
+5. **Reverse payment** takes a recorded payment off again; **Cancel** cancels
+   the claim with a reason.
+
+Rules worth knowing:
+
+- A source is claimed **once**. A second claim over the same period holds only
+  what the first did not.
+- Goods or discounts that come back after a claim (a sales return) come off
+  the **next** claim on that principal; a claim is never raised for less than
+  nothing.
+- **Free goods are claimed at what they cost when they shipped**, from the
+  delivery notes of the period. Free quantity an offer gave is claimed where
+  the principal funds that offer, at its share. Free quantity **typed by
+  hand** is claimed in full where the product is that principal's. An offer
+  the firm funds itself is claimed from nobody.
+- **Price cut claim** on the same screen is a different claim: the principal
+  lowered its price and owes the difference on stock still in hand.
+
+### A discount the supplier gives on a purchase
+
+This is neither a loss nor a claim: it lowers what the firm pays.
+
+| Case | Who bears it | What to do |
+| --- | --- | --- |
+| The firm gives a customer a discount of its own | The firm | Nothing to claim |
+| The firm gives a customer a discount on the principal's scheme | The principal, for its share | *Funded by principal* on the offer, then a Principal Claim |
+| The supplier gives a discount on the purchase bill | Nobody; the purchase cost is lower | Nothing to claim -- it is already off the bill |
+| The supplier pays a target or turnover discount later, by credit note | The supplier | **Supplier Rebates** |
+
+**Recording it.** A regular arrangement goes in a supplier price list (with
+quantity breaks), a rate contract or the supplier's standing discount; leave
+the discount blank on the purchase order and it fills in. A one-time discount
+is typed on the order line or as a whole-order discount.
+
+**It does not change the selling price.** A supplier price list and a
+customer price list are separate. Buying cheaper leaves the selling price
+where the firm set it, so the discount becomes margin unless the firm passes
+it on with its own sales offer or price list. Tea that costs 100 and sells at
+120 earns 20; bought at 95 it earns 25 at the same price, or 20 at 115.
+
+**Old stock and new stock.** Cost is one moving average per product: 100
+units bought at 100 and 100 more at 95 are 200 units at 97.50, and every sale
+takes its cost at that average whichever pack leaves. The selling price is
+per product, not per purchase lot. So nothing has to be chosen at billing --
+but a firm that drops its price by the whole 5% while the older stock is
+still on the shelf has a thinner margin than it expects. An offer with dates
+passes a benefit on and ends by itself. A line priced below cost or below the
+product's minimum price warns, and blocks only where the firm asks.
+
+**Free goods move stock like charged goods.** On a sale, the free quantity is
+reserved at approval and leaves at dispatch (10 + 1 free takes 11); a free
+product of another kind is its own line, quantity 0, free n, worth nothing
+and taxed nothing. On a purchase the same shapes bring stock in: accepted
+plus free on the receipt, billed at zero. A supplier's free goods are not
+passed to customers automatically, nor the reverse.
