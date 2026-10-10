@@ -260,6 +260,22 @@ void main() {
     return asked;
   }
 
+  testWidgets('a blank second line does not stop the first being priced',
+      (tester) async {
+    // D-UI-93: adding a row used to blank the pricing of every row.
+    final List<Json> asked = await pumpEditor(tester, onResult: (_) {});
+    final int before = asked.length;
+    await tester.tap(find.textContaining('+ add a'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    // Asked again, for the finished line alone.
+    expect(asked.length, greaterThan(before));
+    expect(asked.last['lines'], hasLength(1));
+    // One at 26 with 18% tax: the first line still shows 30.68.
+    expect(find.text('30.68'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('lines typed before a customer is chosen say why no tax shows',
       (tester) async {
     // D-UI-91: the owner added two lines, saw no tax and no reason.

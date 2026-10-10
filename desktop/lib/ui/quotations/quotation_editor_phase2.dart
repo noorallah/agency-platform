@@ -389,7 +389,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
     final QuotationPreviewRecord? preview = _preview;
     if (preview == null) return null;
     for (final QuotationLine line in preview.quotation.lines) {
-      if (line.lineNumber == index + 1 &&
+      if (line.lineNumber == _pricedAs[index] &&
           line.productId == _lines[index].productId) {
         return line;
       }
@@ -401,7 +401,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
     final QuotationPreviewRecord? preview = _preview;
     if (preview == null) return null;
     for (final QuotationPreviewLine line in preview.lines) {
-      if (line.lineNumber == index + 1 &&
+      if (line.lineNumber == _pricedAs[index] &&
           line.productId == _lines[index].productId) {
         return line;
       }

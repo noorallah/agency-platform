@@ -1212,6 +1212,17 @@ void main() {
     expect(find.byKey(const ValueKey('sales-order-use-last-price')),
         findsNothing);
 
+    // D-UI-93: a blank second line does not stop the first being priced.
+    final int before = api.previews.length;
+    await tester.tap(find.textContaining('+ add a'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.length, greaterThan(before));
+    expect(api.previews.last['lines'], hasLength(1));
+    await tester.tap(find.byTooltip('Remove this line').last);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.byKey(const ValueKey('sales-order-save')));
     await tester.pumpAndSettle();
     expect(api.created?['lines'][0]['quantity'], '5');

@@ -594,7 +594,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     if (order == null) return null;
     for (final dynamic raw in order['lines'] as List? ?? const []) {
       if (raw is! Map) continue;
-      if ((raw['line_number'] as num?)?.toInt() == index + 1 &&
+      if ((raw['line_number'] as num?)?.toInt() == _pricedAs[index] &&
           stringValue(raw['product_id']) == (_lines[index].productId ?? '')) {
         return Map<String, dynamic>.from(raw);
       }
@@ -605,7 +605,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
   DocumentPreviewLine? _companion(int index) {
     for (final DocumentPreviewLine line
         in _preview?.lines ?? const <DocumentPreviewLine>[]) {
-      if (line.lineNumber == index + 1 &&
+      if (line.lineNumber == _pricedAs[index] &&
           line.productId == _lines[index].productId) {
         return line;
       }

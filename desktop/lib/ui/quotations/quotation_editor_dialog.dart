@@ -198,6 +198,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   /// Phase 2: the offer as the server priced it last, and the line the side
   /// panel follows.
   QuotationPreviewRecord? _preview;
+
+  /// The line number each row was priced under in [_preview]: rows still
+  /// being typed are left out of a pricing, so the numbers can differ.
+  Map<int, int> _pricedAs = const <int, int>{};
   int _current = 0;
   Timer? _previewTimer;
   int _previewSerial = 0;
@@ -216,13 +220,19 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     if (preview == null) return;
     _previewTimer?.cancel();
     _previewTimer = Timer(const Duration(milliseconds: 350), () async {
-      final Json? draft = _draftPayload();
+      final List<int> rows = _finishedRows();
+      final Json? draft = rows.isEmpty ? null : _buildPayload(only: rows);
       if (draft == null || !mounted) return;
       final int serial = ++_previewSerial;
       try {
         final QuotationPreviewRecord priced = await preview(draft);
         if (!mounted || serial != _previewSerial) return;
-        setState(() => _preview = priced);
+        setState(() {
+          _preview = priced;
+          _pricedAs = <int, int>{
+            for (int at = 0; at < rows.length; at += 1) rows[at]: at + 1,
+          };
+        });
       } on ApiException {
         // A half-typed offer the server refuses (a price of nothing, say):
         // keep the last figures until it can be priced again.
@@ -230,26 +240,33 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     });
   }
 
-  /// The payload as it stands, without asking the form to show its errors:
-  /// null while it could not be priced at all.
-  Json? _draftPayload() {
+  /// The rows that can be priced as they stand, without asking the form to
+  /// show its errors: a row still being typed is left out, so it no longer
+  /// stops the finished ones being priced (D-UI-93). Empty while nothing can
+  /// be priced at all.
+  List<int> _finishedRows() {
     if (_customerId == null || _branchId == null || _warehouseId == null) {
-      return null;
+      return const <int>[];
     }
-    for (final _LineDraft line in _lines) {
-      if (line.productId == null) return null;
-      if ((double.tryParse(line.quantity.text.trim()) ?? 0) <= 0) return null;
-      if (!_rateIncludesTax &&
-          (double.tryParse(line.unitPrice.text.trim()) ?? 0) <= 0) {
-        return null;
-      }
-      final String discount = line.discount.text.trim();
-      if (discount.isNotEmpty) {
-        final double? rate = double.tryParse(discount);
-        if (rate == null || rate < 0 || rate > 100) return null;
-      }
+    return <int>[
+      for (int index = 0; index < _lines.length; index += 1)
+        if (_finished(_lines[index])) index,
+    ];
+  }
+
+  bool _finished(_LineDraft line) {
+    if (line.productId == null) return false;
+    if ((double.tryParse(line.quantity.text.trim()) ?? 0) <= 0) return false;
+    if (!_rateIncludesTax &&
+        (double.tryParse(line.unitPrice.text.trim()) ?? 0) <= 0) {
+      return false;
     }
-    return _buildPayload();
+    final String discount = line.discount.text.trim();
+    if (discount.isNotEmpty) {
+      final double? rate = double.tryParse(discount);
+      if (rate == null || rate < 0 || rate > 100) return false;
+    }
+    return true;
   }
 
   @override
@@ -754,10 +771,18 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     );
   }
 
-  Json? _buildPayload() {
+  /// The offer as it would be saved. [only] names the rows to send, numbered
+  /// from 1 in that order, for pricing an offer one of whose lines is still
+  /// being typed; a save sends every row and passes nothing.
+  Json? _buildPayload({List<int>? only}) {
     if (_customerId == null) return null;
     if (_branchId == null || _warehouseId == null) return null;
-    if (_lines.any((_LineDraft line) => line.productId == null)) return null;
+    if (only == null &&
+        _lines.any((_LineDraft line) => line.productId == null)) {
+      return null;
+    }
+    final List<int> rows = only ??
+        <int>[for (int index = 0; index < _lines.length; index += 1) index];
     return <String, dynamic>{
       'customer_id': _customerId,
       'branch_id': _branchId,
@@ -788,27 +813,28 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       if (_freight.text.trim().isNotEmpty)
         'freight_amount': _freight.text.trim(),
       'lines': [
-        for (int index = 0; index < _lines.length; index += 1)
-          <String, dynamic>{
-            'line_number': index + 1,
-            'product_id': _lines[index].productId,
-            'quantity': _lines[index].quantity.text.trim(),
-            // With GST included, blank is the product's own price -- before
-            // tax, as the server resolves it -- not a typed shelf price.
-            if (!(_rateIncludesTax &&
-                _lines[index].unitPrice.text.trim().isEmpty))
-              'unit_price': _lines[index].unitPrice.text.trim(),
-            // Omitted rather than sent blank when nobody typed: absent is
-            // what tells the server to apply the customer's standing rate,
-            // and an empty string is a schema error.
-            if (_lines[index].discount.text.trim().isNotEmpty)
-              'discount_percent': _lines[index].discount.text.trim(),
-            if (_lines[index].free.text.trim().isNotEmpty)
-              'free_quantity': _lines[index].free.text.trim(),
-          },
+        for (int at = 0; at < rows.length; at += 1)
+          _linePayload(_lines[rows[at]], at + 1),
       ],
     };
   }
+
+  Json _linePayload(_LineDraft line, int number) => <String, dynamic>{
+        'line_number': number,
+        'product_id': line.productId,
+        'quantity': line.quantity.text.trim(),
+        // With GST included, blank is the product's own price -- before
+        // tax, as the server resolves it -- not a typed shelf price.
+        if (!(_rateIncludesTax && line.unitPrice.text.trim().isEmpty))
+          'unit_price': line.unitPrice.text.trim(),
+        // Omitted rather than sent blank when nobody typed: absent is
+        // what tells the server to apply the customer's standing rate,
+        // and an empty string is a schema error.
+        if (line.discount.text.trim().isNotEmpty)
+          'discount_percent': line.discount.text.trim(),
+        if (line.free.text.trim().isNotEmpty)
+          'free_quantity': line.free.text.trim(),
+      };
 
   /// One line's row of controls.
   ///
