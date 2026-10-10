@@ -182,6 +182,7 @@ void main() {
     Quotation? existing,
     bool rateIncludesTax = false,
     Size size = const Size(1600, 900),
+    bool choose = true,
     required void Function(Json?) onResult,
   }) async {
     tester.view.physicalSize = size;
@@ -253,11 +254,38 @@ void main() {
     ));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    if (existing == null) await chooseCustomerAndProduct(tester);
+    if (existing == null && choose) await chooseCustomerAndProduct(tester);
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     return asked;
   }
+
+  testWidgets('lines typed before a customer is chosen say why no tax shows',
+      (tester) async {
+    // D-UI-91: the owner added two lines, saw no tax and no reason.
+    const String hint =
+        'Choose a customer, and the offer is priced with its tax.';
+    final List<Json> asked =
+        await pumpEditor(tester, choose: false, onResult: (_) {});
+    expect(find.text(hint), findsOneWidget);
+
+    await fillFirstLine(tester, document: 'quotation', product: 'Tata Salt');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    // A finished line, and still nothing to price it for.
+    expect(asked, isEmpty);
+    expect(find.text(hint), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('quotation-customer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Sri Murugan').last);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(asked, isNotEmpty);
+    expect(find.text(hint), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   Quotation saved({
     String coupon = 'SAVE10',
