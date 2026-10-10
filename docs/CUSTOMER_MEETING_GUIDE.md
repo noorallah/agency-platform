@@ -18,6 +18,7 @@ in `docs\`.
 | In the meeting | The live demonstration on DEMO01 | The 30-minute story |
 | After the demonstration | `CUSTOMER_REQUIREMENTS_QUESTIONS.pdf`, sections 2 to 11 | Fill in with the customer |
 | To record the answers | `CUSTOMER_REQUIREMENTS_QUESTIONS.xlsx` | The same questions with a cell for each answer. Save a copy under the customer's name, type the answers in the yellow cells, and review it afterwards line by line with the Outcome and Reviewed columns |
+| Before you leave | The collect list in section 4 of this page | What to bring back about their present software, so their data can be loaded |
 | Leave with them | `CUSTOMER_FEATURE_BROCHURE.pdf` | Their copy: features, the counts, what is not included |
 | Only if they ask about schemes and pricing | `PROMOTIONS_AND_DISCOUNTS_GUIDE.pdf`, sections 16 to 19 | The types, every field, and one worked order |
 
@@ -61,7 +62,38 @@ covers them. Confirm before the meeting if the customer is likely to ask.
 
 ---
 
-## 4. The numbers to quote
+## 4. What to collect about their present software
+
+Bring this back from the visit. It decides how their data is loaded: each of
+their tables is matched to one of the file loads the application already has,
+and what does not fit is listed as a gap before anything is promised.
+
+| Collect | Why |
+| --- | --- |
+| The software's name and version, and the kind of database behind it (SQL Server, MySQL, Access, Tally and so on) | Decides how the data can be taken out |
+| The list of tables with their column names and types. A schema export or screenshots are enough | Each column is matched to a field here, or listed as having no home |
+| 20 to 50 sample rows from each main table: products, customers, suppliers, stock, unpaid bills | Sample rows show what the column names do not: blanks, mixed codes, how dates and amounts are written |
+| How they code units, tax rates and HSN, price lists, batches and expiry | These codes have to be translated, not copied |
+| The number of rows in each table | Sizes the work and the time a load takes |
+| The date they want to start on, and whether they want old transactions or only opening balances | Decides how much has to be brought across |
+
+Two limits to keep in mind while asking:
+
+- **Data is loaded from files (Excel or CSV), not read from their database.**
+  Their tables have to be exported to files, by them or by whoever supports
+  their present software.
+- **What is loaded is masters and opening figures:** products, customers,
+  suppliers, unpaid bills on both sides, opening stock and the opening trial
+  balance. Old invoices, orders and payments are not loaded. Do not promise
+  history in the meeting; the usual answer is opening balances, with the old
+  software kept for looking things up.
+
+Take sample rows only with the customer's agreement, and do not carry away a
+full copy of their database.
+
+---
+
+## 5. The numbers to quote
 
 Counted from the application on 2026-10-10. Do not round them up.
 
@@ -85,7 +117,7 @@ headline says "more than 150".
 
 ---
 
-## 5. What was changed on 2026-10-10
+## 6. What was changed on 2026-10-10
 
 | Document | Change |
 | --- | --- |
@@ -94,8 +126,9 @@ headline says "more than 150".
 | The deck | 27 slides, was 23. Four new slides after the title: 2 "From installation to the first bill", 3 "A firm is created once and set up on one panel", 4 "A job decides what each person sees", 5 "What the firm does every day". Every later slide moved down four: "Prices and offers" is now slide 10 and "What you get, counted" slide 14. |
 | `docs/CUSTOMER_REQUIREMENTS_QUESTIONS.md` | New. |
 | `docs/CUSTOMER_DEMO_SCRIPT.md` | A pointer to the question list at the close. |
+| This page | New section 4: what to collect about the customer's present software. |
 
-## 6. Open points before a meeting
+## 7. Open points before a meeting
 
 - **Section 19 of the promotions guide is worked by hand**, not run on a
   server. Drive that order on a fresh `selling-firm` fixture before quoting
