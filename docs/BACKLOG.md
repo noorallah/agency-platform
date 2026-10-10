@@ -7028,3 +7028,69 @@ customer's CA asks for it. The owner confirms the default with the CA once.
    backfill from existing lines, and the desktop columns.
 
 **Size: S** for step 1, **M** for step 2.
+
+## 100. A discount names where it came from on both sides, and purchases get discount reports -- decided, not built, after the demo
+
+Owner, 2026-10-10, while testing offers on DEMO01: for "buy n of a product,
+get a discount", how and where is it recorded, how does the purchase order
+hold the reference, how do the sales documents, and is there a report.
+
+**What we do today.**
+
+- **Sales line** (quotation, order, bill): discount %, discount amount, the
+  line's share of the bill discount, and `discount_source` -- the *kind* of
+  source: typed, promotion, price list, standing rate, group rate. The header
+  holds the bill discount and whether it was typed or from an offer.
+- **Offer claim** (`promotion_redemptions`, written at approval): one row per
+  offer per document -- offer, coupon, customer, document, date, amount given,
+  free units.
+- **Not recorded on the sales side:** which offer discounted which line (the
+  line says "promotion", the claim names the document), and which price list
+  gave a line its rate.
+- **Purchase line:** discount %, discount amount, share of the bill discount.
+  For the *price* it holds `rate_source` and `rate_contract_line_id`; for
+  *free goods* `scheme_id` and `scheme_name`. **Nothing says where the
+  discount came from.**
+- **A supplier's quantity discount** is set up as a supplier price list with
+  quantity breaks, a rate contract's discount, or the supplier's standing
+  discount. A supplier scheme (`supplier_schemes`) gives free goods only.
+- **Paid afterwards** -- a target or turnover discount settled by credit
+  note -- is already built on both sides (Supplier Rebates, Customer Rebates)
+  and is not part of this.
+- **Reports.** Sales: Discount given by customer / salesman / product / offer,
+  Promotion performance, Promotion claims, Coupon performance. **Purchases:
+  none for discounts.**
+
+**What to build, in this order.**
+
+1. **The sales line names its source.** Beside `discount_source`: the offers
+   that discounted the line (id and code as it read then, since several may
+   combine) and the price list (id and code). Filled where the line is
+   priced; inherited down the chain with the discount. The order's side
+   panel and the document view show "TEA-5" or "CITY-MEDICALS" instead of
+   "from a promotion" / "from the price list".
+2. **The purchase line names its source.** `discount_source` with the same
+   meaning as on sales: typed, rate contract, price list, standing. A typed
+   figure equal to the one the ranking gives is the ranking's, as it already
+   is for the price.
+3. **Discount received reports for purchases**, mirroring the sales three:
+   by supplier, by product and by buyer -- gross, typed, arranged (contract,
+   list, standing), bill discount, total, % of gross. Grouped in SQL, each
+   with its entry in `report_catalog.dart`.
+4. **Offer by product** on sales: what each offer gave on each product in the
+   dates. Needs step 1.
+5. **A supplier scheme can give a discount.** `supplier_schemes` gains a
+   benefit of % or amount off for a quantity, with its name and dates, ranked
+   in `resolve_line_discount` between the rate contract and the price list;
+   the order line keeps `scheme_id` and `scheme_name` as it does for free
+   goods, and the receipt and the bill inherit it.
+
+Lines saved before steps 1 and 2 keep a blank source; nothing is guessed
+back onto them.
+
+**Size: M** for steps 1 to 4 as one piece of work (two migrations for every
+store, the pricing resolver's result carried to the line, three reports and
+one more, the desktop labels). **M** for step 5 on its own.
+
+With every step: the reference docs, section 20 of
+`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md`, and the QA cases.
