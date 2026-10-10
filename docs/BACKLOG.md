@@ -7416,3 +7416,108 @@ chosen per product, defaulting from the goods type.
   goods already sold. The CA confirms.
 - Landed cost added after a receipt: onto the layer or batch it belongs to,
   for what is still in stock.
+
+## 104. A "Getting started" checklist: what to set up, in what order -- design note, not to be built yet
+
+Owner, 2026-10-10: "we have lot settings, example uom is one of them, but
+the order ... what to create first then what ... in settings is not in order,
+customer may have difficulty, so how we will make it easy", then "add it to
+the backlog with a design note".
+
+**What exists today.**
+
+- **Settings is grouped by topic, not by order.** `MenuLayout.settings`
+  (`desktop/lib/phase2/menu_layout.dart`) holds about 17 sections and about
+  75 items: This PC and me, Firm, Selling, Buying, Stock, Tax, Business
+  profile; then Pricing, Territories and routes, Account structure, Party
+  lists, Item lists, Locations; then People, Firms, Agency, System. Nothing
+  on the page says which a new firm must fill, which it may leave, or what
+  comes first. Units of Measure is the fourth card of Item lists, after
+  Brands.
+- **The first part of the order is already built, for another person.** The
+  Set up panel on the Firms grid (`firm_setup_dialog.dart`, read from
+  `GET /api/v1/firms/{id}/readiness`) answers seven steps -- business
+  profile, books, tax, geography, branches and warehouses, storage, people --
+  for the administrator who creates the firm. It stops before the lists a
+  firm needs to trade: units, categories, products, customers, suppliers,
+  opening figures.
+- **The order is written down only on paper**: `docs/GO_LIVE_GUIDE.md`.
+- **The server does not enforce the order.** A product needs only a code, a
+  name and a product type to be saved (`ProductWrite` in
+  `backend/app/products/schemas/product.py`); its category, unit and tax
+  group are all optional. So the difficulty is not a refusal. It is a
+  product saved with no unit or no tax group, found out later when a bill
+  carries no tax. Only the product schema was read for this note.
+
+**Proposed: one "Getting started" page, in order.** Opened from a card on
+Home while anything required is not done, and from the top of Settings at any
+time. It does not replace Settings, which stays grouped by topic for somebody
+who knows what they want.
+
+| # | Step | Should be done first | Required? |
+| --- | --- | --- | --- |
+| 1 | Firm basics (the seven steps of the Set up panel) | -- | Yes |
+| 2 | Units of measure | -- | Yes; a new store comes with a set |
+| 3 | Pack conversions (carton to piece) | Units | Only where goods are bought and sold in different packs |
+| 4 | Goods types and product categories | -- | Yes |
+| 5 | Brands and principals | -- | Optional |
+| 6 | Tax rates looked over | Firm basics | Yes |
+| 7 | Products, typed or loaded from a file | Units, categories, tax | Yes |
+| 8 | Customer groups, then customers | -- | Yes |
+| 9 | Supplier categories, then suppliers | -- | Yes |
+| 10 | Price lists and price levels | Products, customers | Optional |
+| 11 | Opening stock, unpaid bills, opening balances | Products, customers, suppliers | Yes |
+| 12 | People and roles | -- | Yes |
+| 13 | Sales stages, number series, approvals | -- | Optional |
+
+Each row says four things:
+
+- **Where it stands**: *Done*, *12 added* or *Not started*, worked out from
+  what the firm already holds, never ticked by hand.
+- **What should come first**: "Do step 2 first" while that step is empty. A
+  caution, not a lock, because the server does not refuse and a firm that
+  loads everything from files does the steps in one go.
+- **A button** that opens the screen, or the file load where there is one.
+- **Required or optional**, so a one-person firm sees it may skip half.
+
+**How it would be built.**
+
+1. **One read for the whole page.** The readiness service
+   (`app/firms/services/readiness.py`) already answers the first seven
+   steps from one implementation that the screen and the shell script both
+   use. The new steps join it as counts per list, so the page costs one
+   request, and the Home card reads the same answer.
+2. **The steps are data**, like the menu catalogue: a step names its label,
+   the route its button opens, the steps it leans on and whether it is
+   required. Adding a step is an entry, not a screen.
+3. **Who sees it.** The readiness endpoint is the platform administrator's
+   today. A firm's own administrator needs this page, so either the counts
+   move to a firm-scoped endpoint or readiness is opened to the firm
+   administrator for its own firm. To settle.
+4. **When it goes away.** The Home card hides once every required step is
+   done; the page stays reachable from Settings.
+
+**Two smaller things for the same difficulty.**
+
+- **Add in place.** Where a form picks from another list -- a unit or a
+  category on a product, a group on a customer -- the picker offers "+ New",
+  so the order matters less. Which pickers already do was not checked.
+- **Say what most firms leave alone.** One line on the advanced sections
+  (tax rules, custom field rules, business profile): "most firms never
+  change this".
+
+**To settle before building.**
+
+- The order above is a reading of what leans on what; each "should be done
+  first" is to be confirmed against the form it names.
+- Whether a product saved with no unit or no tax group should warn at save,
+  which is the real harm behind the question.
+- What counts as *Done* for a list with a ready-made set (units, tax):
+  looked at, or simply present.
+- Whether the question list for a customer meeting
+  (`docs/CUSTOMER_REQUIREMENTS_QUESTIONS.md`) should name the step each
+  answer feeds, so the answers sheet becomes the firm's set-up plan.
+
+**Size: M.** A page and a Home card on the desktop, counts added to the
+readiness answer on the server, tests for both, and the go-live guide and
+the user guides updated to point at the page.
