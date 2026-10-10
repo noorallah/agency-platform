@@ -7234,6 +7234,22 @@ differs per product is only whether a person is **asked** for one:
    Proposed: one standing batch per product now; a batch per receipt is a
    later switch on the product, and is how section 101 option 2 would reach
    goods nobody types a batch for.
+   **When the system's batch is made** (owner's question, 2026-10-10: "for
+   sugar when batch id will be created and when it will create new, any rate
+   change or free"):
+   - *Standing batch:* made once, the first time stock of the product
+     arrives (a receipt, opening stock or a return), one for the product
+     across all warehouses. Never a second: a new rate moves the average and
+     free units add units at no value, as today.
+   - *Batch per receipt:* a new one for every completed receipt line and
+     every opening stock line, whatever the rate. A line's free units go in
+     its batch and lower that batch's cost. A sales return goes back to the
+     batch it left.
+   - *A third way, a new batch only when the cost changes:* a receipt whose
+     cost per unit after discount and free goods equals the open batch's
+     joins it; a different cost opens a new one. Exact cost with far fewer
+     rows than a batch per receipt, at the price of a comparison that has to
+     be exact to the rounding.
    **Or the batch stays empty where none was collected** (owner, 2026-10-10:
    "if batch details not collected batch id will be null and have other
    required details"). That is the structure of today: one table, the batch
