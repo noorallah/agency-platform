@@ -6729,3 +6729,57 @@ scheduled.**
 **What it must not do.** Make any field compulsory for every firm
 (`20260815_0087` exists because four were), or change a product already
 stored: a type fills a new product and only a new one.
+
+## 96. Each window of the app keeps its own sign-in -- planned, not to be built yet
+
+Owner, 2026-10-10, after starting two windows with `start_app.bat -ui 2`:
+"make each window keep its own sign-in", then "add this to backlog, we can
+implement later".
+
+**What happens today.** Nothing stops the app being opened twice: the
+installed program has no single-window guard, so a second double-click on the
+shortcut opens a second window, and `start_app.ps1 -ui 2` does the same from
+source. But the remembered sign-in is **one entry per Windows account**
+(`agency_platform.refresh_token` in the vault, `refresh_token_store.dart`),
+not one per window. So:
+
+- Both windows open as the same remembered user.
+- They then share one refresh token chain. A refresh token is single use, so
+  when the window holding the older one renews (the access token lasts 15
+  minutes) the server reads it as a replayed token and revokes every session
+  of that user (`_handle_refresh_reuse`): both windows fall to the sign-in
+  screen. Read from the code on 2026-10-10, not timed on two windows.
+- Signing out of both and in again gives each its own chain, and they then
+  run apart. That is the way to use two windows until this is built.
+- The one entry is overwritten by whichever window signed in or renewed last
+  with "Remember me" ticked, and cleared by a sign-out or by a window with it
+  unticked, so which user opens next time cannot be predicted.
+- "Remember me" and the remembered user name are in the one local settings
+  file, so they are shared the same way.
+
+**Planned.**
+
+1. **A window takes a number when it starts** -- the first open is 1, the
+   next 2 -- by holding a lock file (`window-1.lock`, `window-2.lock`) under
+   `AppStorage.root` for as long as it is open. A closed window frees its
+   number. Automatic rather than passed by the start script, so an installed
+   copy opened twice by double-click gets it too.
+2. **Each number has its own vault entry.** Window 1 keeps today's key, so
+   nobody's remembered sign-in is lost on upgrade; window 2 and up get a key
+   with the number on it. Signing in, renewing and signing out touch only the
+   window's own entry.
+3. **"Remember me" and the remembered user name per window as well.** Theme,
+   server address and layout stay shared. The settings code was not read when
+   this was written; decide the shape then.
+4. **No script change**: `-ui 2` already opens window 1 first and window 2
+   five seconds later, so the numbers come out the same each time.
+
+**Size: S to M.** `refresh_token_store.dart` and `session_controller.dart`
+are shared by both shells, so both get it. Tests for the numbering and for
+two stores not touching each other; `desktop/docs/DESKTOP_FRAMEWORK.md`
+gains the rule beside "Preferences are three separate stores".
+
+**To settle when built.** Whether two windows as the **same** user is to be
+allowed at all (each sign-in is its own session today, so it works), and what
+the second window shows the first time -- the sign-in screen, since it has no
+entry of its own yet.
