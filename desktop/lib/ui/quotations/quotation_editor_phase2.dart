@@ -512,7 +512,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
           validator: _freeQuantity,
           onTyped: () {},
         ),
-        Text(product?.unit ?? '', style: text),
+        Text(product?.displayUnit ?? '', style: text),
         _numberBox(
           context,
           line.unitPrice,
@@ -695,7 +695,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
       const DocumentSideNote('Free: blank takes the offer; 0 refuses it.'),
       if ((double.tryParse(line.free.text.trim()) ?? 0) > 0)
         DocumentSidePair(
-            'Free goods', '${line.free.text.trim()} ${product?.unit ?? ''}'),
+            'Free goods', '${line.free.text.trim()} ${product?.displayUnit ?? ''}'),
       ...documentTaxLines(
         taxable: taxable,
         tax: tax,

@@ -471,6 +471,7 @@ class Product {
     this.requiredLicenceTypeId = '',
     this.preferredVendorId = '',
     required this.unit,
+    this.unitCode = '',
     required this.brand,
     this.brandId = '',
     required this.model,
@@ -566,6 +567,16 @@ class Product {
   /// last billed (A18). The server sends the id only, not the name.
   final String preferredVendorId;
   final String unit;
+
+  /// The code of the unit the product is sold in, as the server names it
+  /// (`unit_code`); empty for a product that names no unit.
+  final String unitCode;
+
+  /// The unit to show beside a quantity of this product: the words typed on
+  /// the product where there are any, else its selling unit's code. Most
+  /// products name their units by id and carry no words, which left the
+  /// Unit column of a quotation, an order and a bill blank (D-UI-98).
+  String get displayUnit => unit.trim().isNotEmpty ? unit : unitCode;
   final String brand;
 
   /// The brand master the product is filed under (MST-1); empty for a
@@ -686,6 +697,7 @@ class Product {
         requiredLicenceTypeId: stringValue(json['required_licence_type_id']),
         preferredVendorId: stringValue(json['preferred_vendor_id']),
         unit: stringValue(json['unit']),
+        unitCode: stringValue(json['unit_code']),
         brand: stringValue(json['brand']),
         brandId: stringValue(json['brand_id']),
         model: stringValue(json['model']),

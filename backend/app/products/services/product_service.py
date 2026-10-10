@@ -371,6 +371,36 @@ class ProductService:
             )
         return {product_id: codes for product_id, codes in found.items() if codes}
 
+    def unit_codes_for_many(self, rows: Iterable[Product]) -> dict[UUID, str]:
+        """Return the code of the unit each product is sold in, read at once.
+
+        A sales line names a unit only when it was typed in another one, so
+        a screen showing an ordinary line has only the product to ask, and
+        the product carried the unit's id alone: the Unit column of a
+        quotation, an order and a bill read blank (D-UI-98). The selling
+        unit, else the stock unit, else the base unit; a product with none
+        of the three is absent. One read of the units for a page.
+        """
+        chosen: dict[UUID, UUID] = {}
+        for row in rows:
+            unit_id = row.sales_uom_id or row.inventory_uom_id or row.base_uom_id
+            if unit_id is not None:
+                chosen[row.id] = unit_id
+        if not chosen:
+            return {}
+        codes = dict(
+            self._session.execute(
+                select(Uom.id, Uom.code).where(Uom.id.in_(set(chosen.values())))
+            )
+            .tuples()
+            .all()
+        )
+        return {
+            product_id: codes[unit_id]
+            for product_id, unit_id in chosen.items()
+            if unit_id in codes
+        }
+
     def create_product(
         self, data: ProductCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Product:

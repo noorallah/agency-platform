@@ -874,6 +874,7 @@ def _response(
     stock: dict[UUID, tuple[Decimal, bool]] | None = None,
     revised: dict[UUID, dict[str, Decimal]] | None = None,
     pack_codes: dict[UUID, list[str]] | None = None,
+    unit_codes: dict[UUID, str] | None = None,
 ) -> ProductResponse:
     """Build one product response with its attributes, stock and prices."""
     payload = ProductResponse.model_validate(row).model_dump(mode="python")
@@ -897,6 +898,11 @@ def _response(
         if pack_codes is None
         else pack_codes
     ).get(row.id, [])
+    payload["unit_code"] = (
+        ProductService(db).unit_codes_for_many([row])
+        if unit_codes is None
+        else unit_codes
+    ).get(row.id)
     if not can_view_cost:
         payload["purchase_price"] = None
         payload["purchase_price_in_force"] = None
@@ -911,6 +917,7 @@ def _responses(
     attributes = service.attribute_responses_for_many(rows)
     stock = service.stock_for_many(rows)
     pack_codes = service.pack_codes_for_many(rows)
+    unit_codes = service.unit_codes_for_many(rows)
     revised = (
         prices_in_force_today(db, rows[0].firm_id, [row.id for row in rows])
         if rows
@@ -925,6 +932,7 @@ def _responses(
             stock=stock,
             revised=revised,
             pack_codes=pack_codes,
+            unit_codes=unit_codes,
         )
         for row in rows
     ]

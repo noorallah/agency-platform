@@ -751,7 +751,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final Product? product = _product(stringValue(free['product_id']));
     final String unit = _unitCodes[stringValue(free['sales_uom_id'])] ??
-        product?.unit ??
+        product?.displayUnit ??
         '';
     final int number = (free['line_number'] as num?)?.toInt() ?? 0;
     return DocumentLineRow(
@@ -888,7 +888,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
           validator: _quantityOrBlank,
           hint: line.freeFromOffer ? line.offerFree : null,
         ),
-        Text(product?.unit ?? '', style: text),
+        Text(product?.displayUnit ?? '', style: text),
         _cellBox(
           context,
           line.unitPrice,
@@ -1091,11 +1091,11 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
       if (line.freeFromOffer)
         DocumentSidePair(
           'Free goods (from the offer)',
-          '${line.offerFree} ${product?.unit ?? ''}',
+          '${line.offerFree} ${product?.displayUnit ?? ''}',
         ),
       if ((double.tryParse(line.free.text.trim()) ?? 0) > 0)
         DocumentSidePair(
-            'Free goods', '${line.free.text.trim()} ${product?.unit ?? ''}'),
+            'Free goods', '${line.free.text.trim()} ${product?.displayUnit ?? ''}'),
       ...documentTaxLines(
         taxable: taxable,
         tax: tax,

@@ -638,7 +638,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   String _offerFreeWords(Json line) {
     final String named = stringValue(line['description']);
     final String unit = _unitCodes[stringValue(line['sales_uom_id'])] ??
-        _product(stringValue(line['product_id']))?.unit ??
+        _product(stringValue(line['product_id']))?.displayUnit ??
         '';
     final String quantity = documentQuantity(stringValue(line['free_quantity']));
     return '${named.isEmpty ? 'Free with the offer' : named}: $quantity'

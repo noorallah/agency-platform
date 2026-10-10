@@ -95,6 +95,30 @@ class DocumentLineLabels {
     return id;
   }
 
+  /// The unit a line is in: its own where it names one, else its product's.
+  ///
+  /// A sales line names a unit only when it was typed in a unit other than
+  /// the product's own, so an ordinary line carries none and the views
+  /// printed '-' under Unit for every sales order, delivery note and bill
+  /// (D-UI-98). The product's selling unit is the one it was sold in; its
+  /// stock unit, then its base unit, then the unit typed on the product as
+  /// words stand in where no selling unit is set.
+  String unitOf(String lineUnitId, String productId) {
+    if (lineUnitId.isNotEmpty) return unit(lineUnitId);
+    for (final Product product in products) {
+      if (product.id != productId) continue;
+      for (final String id in <String>[
+        product.salesUomId,
+        product.inventoryUomId,
+        product.baseUomId,
+      ]) {
+        if (id.isNotEmpty) return unit(id);
+      }
+      return product.displayUnit;
+    }
+    return '';
+  }
+
   /// The tax profile's code for a known profile; the id as given otherwise.
   String taxProfile(String id) {
     if (id.isEmpty) return '';

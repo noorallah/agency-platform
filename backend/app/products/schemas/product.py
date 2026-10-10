@@ -401,6 +401,11 @@ class ProductResponse(ProductSchema):
     #: product box finds the product by a carton's code as it does by the
     #: product's own (backlog 89, market gap 3).
     pack_codes: list[str] = Field(default_factory=list)
+    #: Read from the units by the router, not the ORM row: the code of the
+    #: unit the product is sold in (else its stock or base unit), so a
+    #: line's Unit column has a name to show and not an id (D-UI-98). Null
+    #: for a product that names no unit.
+    unit_code: str | None = None
 
 
 class ProductSummary(ProductSchema):

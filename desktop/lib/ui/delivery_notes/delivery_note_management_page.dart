@@ -420,7 +420,7 @@ class _DeliveryNoteManagementPageState
             DocumentLineSnapshot(
               lineNumber: line.lineNumber,
               product: _labels.product(line.productId),
-              uom: _labels.unit(line.salesUomId),
+              uom: _labels.unitOf(line.salesUomId, line.productId),
               quantity: line.currentDeliveryQuantity,
               unitPrice: line.unitPrice,
               amount: line.grossAmount,
