@@ -7234,6 +7234,15 @@ differs per product is only whether a person is **asked** for one:
    Proposed: one standing batch per product now; a batch per receipt is a
    later switch on the product, and is how section 101 option 2 would reach
    goods nobody types a batch for.
+   **Or the batch stays empty where none was collected** (owner, 2026-10-10:
+   "if batch details not collected batch id will be null and have other
+   required details"). That is the structure of today: one table, the batch
+   optional. It needs no migration and changes nothing for the demo, but it
+   keeps the two paths this section set out to remove -- an empty batch is
+   its own case in the unique keys, in picking, in cost per batch (101) and
+   in free goods per batch (99). **This is the first thing to settle**: an
+   empty batch, or a batch the system keeps. The rest of this section is
+   written for the second.
 2. **"Mandatory" means the switch, not the column.** The column is always
    filled; `track_batch` on the product decides whether a person must supply
    it. `require_batch_on_receipt` and the goods types keep their meaning.
