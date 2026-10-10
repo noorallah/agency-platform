@@ -7243,6 +7243,8 @@ differs per product is only whether a person is **asked** for one:
    in free goods per batch (99). **This is the first thing to settle**: an
    empty batch, or a batch the system keeps. The rest of this section is
    written for the second.
+   Owner, later the same day: "keep system batch in 103, we decide after
+   demo" -- the batch the system keeps stays the proposal.
 2. **"Mandatory" means the switch, not the column.** The column is always
    filled; `track_batch` on the product decides whether a person must supply
    it. `require_batch_on_receipt` and the goods types keep their meaning.
