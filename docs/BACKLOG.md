@@ -7009,6 +7009,13 @@ quantity **visible beside the stock movement** (Tally's actual against billed).
    report.
 4. The promotion reports show the cost of free units beside the quantity.
 
+**Batch-tracked products (owner, 2026-10-10).** Free units already arrive in
+the batch of the receipt line that carries them and leave from the batches
+dispatch draws, so both the register and the free quantity on the stock
+movement are **per batch** for such a product: received free and given free
+name the batch. If cost comes to be held per batch (section 101), free units
+lower the cost of the batch they arrived in, not of the whole product.
+
 **Valuation (owner, 2026-10-10): free units received lower the average
 cost**, which is what happens today and what Tally does by default -- 10
 bought at 100 with 2 free is 12 units costing 1,000, 83.33 each, and the
@@ -7094,3 +7101,47 @@ one more, the desktop labels). **M** for step 5 on its own.
 
 With every step: the reference docs, section 20 of
 `docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md`, and the QA cases.
+
+## 101. Cost held per batch, beside the product's average -- logged, how to build it not decided
+
+Owner, 2026-10-10, while testing offers on DEMO01: "for medicine we have
+batch wise cost, is it supported" -- then "log batch wise cost as backlog
+item, we will decide later how to implement".
+
+**What we do today.**
+
+- A batch holds its own **MRP**, **selling rate**, **PTR** and **PTS**
+  (feature `BATCH_PTR_PTS`), its expiry and manufacturing date, all taken
+  from the goods receipt line. A sale can be priced from the batch it ships
+  and is refused above that batch's MRP.
+- **Cost is not per batch.** `product_valuations` is one moving weighted
+  average per firm and product: a receipt moves the average toward the price
+  paid, an issue consumes at the average. Two batches bought at 20 and at 18
+  give one cost, whichever leaves.
+- So the product's total profit is right and a batch's own profit is not
+  shown; stock value by batch is quantity at the product's average.
+
+**Why a customer may ask.** A pharmacy or food distributor moving from Marg
+or a similar tool is used to seeing the purchase rate on each batch, margin
+by batch, and near-expiry stock valued at what that batch cost.
+
+**Ways it could be done -- none chosen.**
+
+1. **Record only.** Keep the purchase rate on the batch as a fact (net of
+   discount, free goods spread over the units, as the receipt already works
+   it out) and show it on the batch, the batch stock report and a
+   margin-by-batch report. The books stay on the product's average. Small;
+   no change to valuation or the ledger.
+2. **Value by batch.** A batch-tracked product's issues consume at the cost
+   of the batch they take, so cost of goods sold and stock value follow the
+   batch. Changes valuation, every reversal that reads the movement's value,
+   transfers, returns and the reports on stock value. Large.
+3. **FIFO as a firm-wide method.** A different question -- which layer an
+   untracked product consumes -- that `product_valuations` was shaped to
+   allow. Large, and not needed for batch cost.
+
+**To decide before building:** which of 1 and 2 the first pharmacy customer
+actually needs, and what their CA values stock at. Option 1 answers "what
+did this batch cost" and can be built first without closing off option 2.
+
+**Size:** S for option 1, L for option 2. Not sized further until decided.

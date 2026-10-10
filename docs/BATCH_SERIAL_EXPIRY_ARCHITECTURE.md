@@ -824,6 +824,35 @@ the product's price, never above anything typed. See
 
 ---
 
+## How batch stock is stored, in plain terms
+
+A batch is **not** a separate product. The product is one row in `products`;
+each batch of it is a row in `batches` (number, expiry, manufacturing date,
+MRP, selling rate, PTR, PTS). Stock on hand is in `inventories`: **one row
+per location for a product that tracks no batch, one row per batch in that
+location for one that does** -- the batch column is simply empty for the
+first kind. `products` holds no stock figure; every total is added up from
+those rows. Each movement (`inventory_transactions`, `stock_ledger_entries`)
+names its batch. Cost is in `product_valuations`, one moving average per
+product and not per batch (backlog 101).
+
+| Product | Warehouse | Batch | On hand |
+| --- | --- | --- | --- |
+| Paracetamol 500 (tracks batch) | Main | B001 | 60 |
+| Paracetamol 500 | Main | B002 | 100 |
+| Paracetamol 500 | Branch | B002 | 40 |
+| Sugar 1 kg (no batch) | Main | | 500 |
+| Sugar 1 kg | Branch | | 120 |
+
+Paracetamol is 200 in all, 140 of it batch B002, 160 of it in Main: three
+sums over the same rows. A receipt of more Sugar into Main raises its one row;
+a receipt of a new batch adds a row to `batches` and a stock row; more of an
+existing batch raises that batch's row. Free units arrive in the batch of the
+receipt line that carries them.
+
+Price lists, offers, tax and reports work on the product, so a new batch
+needs nothing set up again -- which is what an item per batch would cost.
+
 ## Import / Export
 
 Existing platform import/export framework applies:

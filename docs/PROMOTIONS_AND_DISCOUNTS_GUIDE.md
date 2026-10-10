@@ -795,3 +795,41 @@ Rules worth knowing:
   line is not (the note on TC-INCENT-012).
 - **Price cut claim** on the same screen is a different claim: the principal
   lowered its price and owes the difference on stock still in hand.
+
+### A discount the supplier gives on a purchase
+
+This is neither a loss nor a claim: it lowers what the firm pays.
+
+| Case | Who bears it | What to do |
+| --- | --- | --- |
+| The firm gives a customer a discount of its own | The firm | Nothing to claim |
+| The firm gives a customer a discount on the principal's scheme | The principal, for its share | *Funded by principal* on the offer, then a Principal Claim |
+| The supplier gives a discount on the purchase bill | Nobody; the purchase cost is lower | Nothing to claim -- it is already off the bill |
+| The supplier pays a target or turnover discount later, by credit note | The supplier | **Supplier Rebates** |
+
+**Recording it.** A regular arrangement goes in a supplier price list (with
+quantity breaks), a rate contract or the supplier's standing discount; leave
+the discount blank on the purchase order and it fills in. A one-time discount
+is typed on the order line or as a whole-order discount.
+
+**It does not change the selling price.** A supplier price list and a
+customer price list are separate. Buying cheaper leaves the selling price
+where the firm set it, so the discount becomes margin unless the firm passes
+it on with its own sales offer or price list. Tea that costs 100 and sells at
+120 earns 20; bought at 95 it earns 25 at the same price, or 20 at 115.
+
+**Old stock and new stock.** Cost is one moving average per product: 100
+units bought at 100 and 100 more at 95 are 200 units at 97.50, and every sale
+takes its cost at that average whichever pack leaves. The selling price is
+per product, not per purchase lot. So nothing has to be chosen at billing --
+but a firm that drops its price by the whole 5% while the older stock is
+still on the shelf has a thinner margin than it expects. An offer with dates
+passes a benefit on and ends by itself. A line priced below cost or below the
+product's minimum price warns, and blocks only where the firm asks.
+
+**Free goods move stock like charged goods.** On a sale, the free quantity is
+reserved at approval and leaves at dispatch (10 + 1 free takes 11); a free
+product of another kind is its own line, quantity 0, free n, worth nothing
+and taxed nothing. On a purchase the same shapes bring stock in: accepted
+plus free on the receipt, billed at zero. A supplier's free goods are not
+passed to customers automatically, nor the reverse.
