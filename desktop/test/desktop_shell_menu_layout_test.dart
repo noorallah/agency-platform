@@ -140,6 +140,41 @@ void main() {
     await _unmount(tester);
   });
 
+  testWidgets('Settings stays on the section a card was opened from',
+      (tester) async {
+    // D-UI-92: opening Brands from Item lists and coming back showed the
+    // first section again.
+    await _pumpShell(tester);
+
+    await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
+    await tester.pump(const Duration(milliseconds: 300));
+    // Firms is not the section Settings opens on, or this proves nothing.
+    expect(find.byKey(const ValueKey('setup-card-administration/firms')),
+        findsNothing);
+    await tester.tap(find.byKey(const ValueKey('setup-section-Firms')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester
+        .tap(find.byKey(const ValueKey('setup-card-administration/firms')));
+    await tester.pump(const Duration(milliseconds: 300));
+    // The Firms screen is on show, not Settings.
+    expect(find.byKey(const ValueKey('setup-section-Firms')), findsNothing);
+
+    // Back by the tab, then by the gear: Firms both times.
+    await tester.tap(find.byKey(const ValueKey('open-screen-setup')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('setup-card-administration/firms')),
+        findsOneWidget);
+    await tester
+        .tap(find.byKey(const ValueKey('open-screen-administration/firms')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('setup-card-administration/firms')),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
   testWidgets('My preferences opens from the user menu and from Settings',
       (tester) async {
     // A platform administrator with no firm open: My preferences is theirs

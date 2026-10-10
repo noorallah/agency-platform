@@ -1113,6 +1113,10 @@ class _DesktopShellState extends State<DesktopShell> {
                                 settings: MenuLayout.visible(
                                     MenuLayout.settings, _visibility),
                                 section: _setUpSection,
+                                // Kept here: the page is rebuilt each time
+                                // its tab is returned to (D-UI-92).
+                                onSection: (section) =>
+                                    _setUpSection = section,
                                 onOpen: _openFromMenu,
                               )
                         : widget.phase2 &&
@@ -1243,7 +1247,8 @@ class _DesktopShellState extends State<DesktopShell> {
                     ),
                   ),
             onOpenSetUp: (section) {
-              _setUpSection = section;
+              // The gear names no section: stay where the person was.
+              if (section != null) _setUpSection = section;
               _openFromMenu(MenuLayout.setUpPage);
             },
             trailing: [

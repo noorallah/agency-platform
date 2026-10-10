@@ -323,6 +323,17 @@ Future<void> _enter(WidgetTester tester, String key, String text) async {
 }
 
 void main() {
+  testWidgets('a bill of products says to choose a customer until one is',
+      (tester) async {
+    // D-UI-91: products typed before the customer showed no tax and no reason.
+    const String hint =
+        'Choose a customer, and the bill is priced with its tax.';
+    await _pump(tester, _CounterApi());
+    expect(find.text(hint), findsOneWidget);
+    await _chooseCustomer(tester);
+    expect(find.text(hint), findsNothing);
+  });
+
   testWidgets('the scan field is focused and a scan adds, then increments',
       (tester) async {
     final _CounterApi api = _CounterApi();

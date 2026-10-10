@@ -164,6 +164,24 @@ void main() {
     expect(find.textContaining('Choose a product on line 1.'), findsOneWidget);
   });
 
+  testWidgets('a new sales order says to choose a customer until one is',
+      (tester) async {
+    // D-UI-91: lines typed before the customer showed no tax and no reason.
+    const String hint =
+        'Choose a customer, and the order is priced with its tax.';
+    await _open(
+      tester,
+      SalesOrderEditorDialog(api: _Api(), today: DateTime(2026, 8, 14)),
+    );
+    expect(find.text(hint), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sales-order-customer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Anand Agencies').last);
+    await tester.pumpAndSettle();
+    expect(find.text(hint), findsNothing);
+    expect(find.text('Totals follow as the lines are priced.'), findsOneWidget);
+  });
+
   testWidgets('a new quotation has no customer and an empty first line',
       (tester) async {
     await _open(

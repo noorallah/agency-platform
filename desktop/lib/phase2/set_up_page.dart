@@ -17,6 +17,7 @@ class SetUpPage extends StatefulWidget {
     required this.settings,
     required this.onOpen,
     this.section,
+    this.onSection,
   });
 
   /// The sections this person is offered, or null for none.
@@ -25,6 +26,11 @@ class SetUpPage extends StatefulWidget {
   /// The section to show first; the first offered when null or not offered.
   final String? section;
   final ValueChanged<MenuItemSpec> onOpen;
+
+  /// Told the section a person chose, so whoever shows this page can hand it
+  /// back as [section]: the page is rebuilt each time its tab is returned
+  /// to, and without this it opened on the first section again (D-UI-92).
+  final ValueChanged<String>? onSection;
 
   @override
   State<SetUpPage> createState() => _SetUpPageState();
@@ -171,10 +177,13 @@ class _SetUpPageState extends State<SetUpPage> {
         selected: selected,
         selectedTileColor: Theme.of(context).colorScheme.secondaryContainer,
         title: Text(group.label),
-        onTap: () => setState(() {
-          _section = group.label;
-          _search.clear();
-        }),
+        onTap: () {
+          setState(() {
+            _section = group.label;
+            _search.clear();
+          });
+          widget.onSection?.call(group.label);
+        },
       );
 
   /// One section: its heading, where it came from, its cards.
