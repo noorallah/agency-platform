@@ -791,8 +791,11 @@ Rules worth knowing:
 - Goods or discounts that come back after a claim (a sales return) come off
   the **next** claim on that principal; a claim is never raised for less than
   nothing.
-- Only what an **offer** gave is claimed. Free quantity typed by hand on a
-  line is not (the note on TC-INCENT-012).
+- **Free goods are claimed at what they cost when they shipped**, from the
+  delivery notes of the period. Free quantity an offer gave is claimed where
+  the principal funds that offer, at its share. Free quantity **typed by
+  hand** is claimed in full where the product is that principal's. An offer
+  the firm funds itself is claimed from nobody.
 - **Price cut claim** on the same screen is a different claim: the principal
   lowered its price and owes the difference on stock still in hand.
 

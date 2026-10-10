@@ -7145,3 +7145,48 @@ actually needs, and what their CA values stock at. Option 1 answers "what
 did this batch cost" and can be built first without closing off option 2.
 
 **Size:** S for option 1, L for option 2. Not sized further until decided.
+
+## 102. Smaller gaps found while the owner tested offers on 2026-10-10 -- listed, not built
+
+The larger ones from the same day are sections 99 (free goods on the stock
+movement), 100 (a discount names its source; purchase discount reports) and
+101 (cost per batch). These are what is left.
+
+**To build.**
+
+1. **"Funded by principal" with no principal to choose.** A firm with no row
+   in Principals sees only its own option and nothing says why. Show a line
+   under the box -- "No principal yet. Add one under Principals." -- with the
+   link. **S.**
+2. **Passing a supplier's scheme on to customers.** A supplier scheme (buy
+   10, get 2) and a sales offer are two separate records today; the firm
+   types the offer again if it passes the scheme on. LOGIC ERP carries the
+   purchase scheme to the sale bill per batch. To build: on a supplier
+   scheme, **Create the matching offer** -- a sales offer for the same
+   product, quantities and dates, funded by that supplier's principal at a
+   share the firm states, left as a DRAFT to review. Nothing is passed on by
+   itself. **M.** Decide after the first customer says how they pass schemes
+   on.
+3. **The principal's share on the document.** The bill and the order show the
+   discount and not that a principal funds part of it; the share appears only
+   when a claim is raised. To build: on the order's side panel and the
+   document view (not on the customer's print), "Funded by <principal>, 50%"
+   beside the offer. Rides with section 100 step 1, which puts the offer's
+   name on the line. **S.**
+
+**To test -- never driven on a screen or on real documents.**
+
+4. The five offers set up on DEMO01 (free goods, a free product, a line
+   percentage, buy 2 get the third at half, a coupon on the bill) on real
+   orders through delivery and bill; they were checked through Try offers
+   only.
+5. A coupon's limit refused by name at approval, and the use given back by
+   cancelling.
+6. Funded by principal through to a Principal Claim: preview, raise, print
+   the statement, record a payment, settle by credit note
+   (`SC-OF-008` in `docs/qa/SCREEN_TEST_CASES_BUY_SELL_PRICE.md` was skipped
+   on 2026-10-07).
+7. Whether a customer's standing discount still applies to a line whose
+   offer gives a free product and no discount.
+
+Each of 4 to 7 that fails is a defect in `docs/DEFECTS.md`, not a line here.
