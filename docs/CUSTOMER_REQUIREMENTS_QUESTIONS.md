@@ -143,6 +143,12 @@ something the application does not do today.
 | 10.5 | Can you give us your products, customers, suppliers and opening stock in Excel? | The import files and their mapping |
 | 10.6 | From which date do you want to start? Mid-year or at the year's start? | Opening bills, opening stock and the opening trial balance |
 | 10.7 | Who takes the backup, and where is it kept? | The backup routine |
+| 10.8 | Which version of your present software is it, and what database is behind it (SQL Server, MySQL, Access, Tally data)? Who supports it? | How the data can be taken out to files, and who can do it |
+| 10.9 | Can we have the list of its tables with their column names? A schema export or screenshots are enough. | Which import each table goes to; which columns have no place here and need an extra field |
+| 10.10 | May we take 20 to 50 sample rows of products, customers, suppliers, stock and unpaid bills? | How blanks, codes, dates and amounts are really written; take them only with the customer's agreement |
+| 10.11 | How are units, tax rates and HSN, price lists, batches and expiry coded there? | The translation of each code before a file is loaded |
+| 10.12 | Roughly how many rows in each: products, customers, suppliers, unpaid bills, stock lines? | The size of the load and the time it takes |
+| 10.13 | Do you want old bills, orders and payments brought across, or only opening balances? | **Check**: products, customers, suppliers, unpaid bills, opening stock and the opening trial balance are loaded; old transactions are not |
 
 ## 11. What we did not show
 
