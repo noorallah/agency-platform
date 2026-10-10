@@ -6878,3 +6878,84 @@ relabel one that is not.
 discounts are carried (a tick box each, off by default); and whether the two
 firms are separate legal entities at all -- one entity with one GSTIN is better
 served by branches inside one firm than by two firms and a copy.
+
+## 98. Three reviews of the whole application: coding standards, loops and speed, security -- listed, not started
+
+Owner, 2026-10-10: "add back logs we need to review coding standards and any
+review on loops for performance impact and any security issues in
+applications".
+
+Three reviews, each over the backend and the desktop app. Each one ends in a
+short report and a list of defects in `docs/DEFECTS.md`; fixing what is found
+is separate work, sized once the list exists. Nothing below was checked when
+this was written: it says what to look at, not what is wrong.
+
+**1. Coding standards.**
+
+- **What is already held by tools.** Backend: `ruff`, `black` and `mypy`
+  (strict on `app`). Desktop: `flutter analyze`. These catch style, missing
+  types and missing docstrings; they do not judge design.
+- **What the review adds.** Whether each module keeps the five layers
+  (router, schema, service, repository, model) and the router stays thin;
+  copied code that should be one shared function; functions and files too long
+  to read; names that mislead; dead code, unused tables and columns; error
+  messages a user can act on; comments that no longer match the code.
+- **Desktop.** Screens built outside the shared framework, hard-coded colours,
+  endpoint paths outside `api_client.dart`, dialogs that do not save through
+  `SaveInDialog`. The tree is not formatter-clean and `dart format` must not
+  be run on it; whether to make it clean in one pass is a decision for this
+  review.
+- **Result.** One written coding standard in `docs/` -- today the rules are
+  spread over `CLAUDE.md`, `docs/API_AND_PERSISTENCE_CONVENTIONS.md` and the
+  desktop's style, form, grid and layout standards in `desktop/docs/` -- and a
+  guard test for each rule that can be checked by a machine.
+- **Size: M** for the review; `docs/MODULE_REVIEW_CHECKLIST.md` already gives
+  the order of modules.
+
+**2. Loops and speed.**
+
+- **A read inside a loop** -- one statement per row where one for the page
+  would do. `tests/unit/test_list_pages_are_batched.py` guards list pages;
+  the review covers what it does not: single-document builders, reports,
+  imports, bulk actions, posting to the ledger, the seeders.
+- **Adding up in Python what SQL should add up**, and loading whole rows to
+  read two columns.
+- **Loops inside loops** over lists that grow with the firm (lines by
+  products, invoices by receipts).
+- **Lists with no page limit**, and id lists past the 65,535 parameter limit
+  (`over_chunks`).
+- **Missing indexes** on the columns the slow statements filter and sort on.
+- **Desktop.** Calls to the server made once per row or repeated on every
+  rebuild, the same data fetched by several widgets, work done in `build`.
+- **How.** Read the code for the patterns above, then time it: PERF01
+  (110,000 invoices, `scripts/seed_volume_firm.py`) and
+  `scripts/time_routes.py` against a running backend. A loop is a defect only
+  if it costs time at volume; `docs/PERFORMANCE_AT_VOLUME.md` holds the last
+  measurements.
+- **Size: M.**
+
+**3. Security.**
+
+- **Who may do what.** Every route asks for a permission and, where the data
+  is a firm's, for membership of that firm; no route lets one firm read or
+  change another's rows by naming an id.
+- **Sign-in.** Passwords, lockout, token life and renewal, sign-out, the
+  bootstrap administrator, what a stolen refresh token can do.
+- **Input.** SQL built from text, uploaded files (size, type, formulas in a
+  spreadsheet), paths taken from a request, HTML in printed documents and
+  messages.
+- **Secrets and data.** Keys and passwords in `config/.env`, in logs, in error
+  messages and in the installer; messaging account keys per firm; what a
+  backup file holds and who can read it; data in transit on the office
+  network.
+- **Third-party packages** with known faults, backend and desktop.
+- **The installed copy.** What a person at the server PC, or on the same
+  network, can reach without signing in.
+- **How.** `SECURITY_ARCHITECTURE.md` says what was intended; the review
+  checks the code and the running app against it and brings that file up to
+  date. For a customer who asks for it, an outside tester is a separate,
+  paid step and the owner's decision.
+- **Size: M to L.** Do this one before the first customer installation.
+
+**Order.** Security first, then loops and speed, then coding standards: the
+first two can cost a customer, the third costs only us.
