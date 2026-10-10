@@ -464,8 +464,9 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     final double returning = line.returning;
     final double taxable = priced == null
         ? _typedTaxable(line)
-        : _number(stringValue(priced['gross_amount'])) -
-            _number(stringValue(priced['discount_amount']));
+        // With the bill discount's share and the line's charges (D-UI-96):
+        // the amount less its tax is what the line was taxed on.
+        : documentLineTaxable(priced['net_amount'], priced['tax_amount']) ?? 0;
     final double tax =
         priced == null ? 0 : _number(stringValue(priced['tax_amount']));
     final double rate = taxable > 0 ? tax / taxable * 100 : 0;
@@ -600,8 +601,9 @@ extension _Phase2PurchaseReturnEditor on _PurchaseReturnEditorDialogState {
     final double left = line.outstanding - returning;
     final double taxable = priced == null
         ? _typedTaxable(line)
-        : _number(stringValue(priced['gross_amount'])) -
-            _number(stringValue(priced['discount_amount']));
+        // With the bill discount's share and the line's charges (D-UI-96):
+        // the amount less its tax is what the line was taxed on.
+        : documentLineTaxable(priced['net_amount'], priced['tax_amount']) ?? 0;
     final double tax =
         priced == null ? 0 : _number(stringValue(priced['tax_amount']));
     String quantity(double value) =>

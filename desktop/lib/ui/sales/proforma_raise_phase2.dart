@@ -73,10 +73,13 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
         'Line ${line['line_number']}';
   }
 
+  /// What the line was taxed on: its amount less its tax, which takes in
+  /// its share of the delivery charge as well as the discounts (D-UI-96).
   double _taxable(Json line) =>
+      documentLineTaxable(line['net_amount'], line['tax_amount']) ??
       _number(line['gross_amount']) -
-      _number(line['discount_amount']) -
-      _number(line['bill_discount_amount']);
+          _number(line['discount_amount']) -
+          _number(line['bill_discount_amount']);
 
   void _raise() {
     if (_order.isEmpty) {
