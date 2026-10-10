@@ -6693,3 +6693,39 @@ seconds, with retries and a daily reminder scan.
 **Suggested order when taken up:** 1 (email first), 2, 4, 13, then 7 and 10 as
 firms ask. 3, 8 and 9 wait on how the product is hosted.
 
+## 95. A wider ready-made set of goods types, each with its own fields, chosen when a firm is set up -- for review, not to be built yet
+
+Owner, 2026-10-10: "while installation we can create some goods types based on
+market readily available tools and admin can edit that and add or remove
+fields or make required or not ... check, if not we can add to backlog."
+Checked against the code and `docs/GOODS_TYPES.md` and
+`docs/CUSTOM_FIELDS_FRAMEWORK.md` the same day. **Nothing here is decided or
+scheduled.**
+
+**What exists already (section 89, built 2026-10-08).**
+
+| The idea | Today |
+| --- | --- |
+| Ready-made goods types | Five in the shared catalogue: Medicine, Food, Cosmetics, Paint, Electronics (`SHARED_GOODS_TYPES`), seeded into every store |
+| The administrator adds a type | Yes: a firm's own type, with its five tracking switches, under `CUSTOM_FIELD_MANAGE` |
+| The administrator adds a field | Yes: the firm's own fields beside the shared ones |
+| The administrator removes a field | A shared field is switched off for the firm (values kept); the firm's own is retired |
+| Required or not, per goods type | Yes: a rule ties a field to a goods type and says whether it is compulsory there |
+| A firm starts with types | Only from its business profile, and only three profiles give one (pharmacy, food and restaurant, electronics); every other firm starts with none |
+
+**What is missing.**
+
+| # | Missing | Size | Notes for the review |
+| --- | --- | --- | --- |
+| 1 | **A wider catalogue.** Five types cover three trades. A distributor of hardware, FMCG, garments or footwear, mobile phones, auto parts, agri inputs, stationery or building material finds nothing ready | S for the rows, after the check | **Check first** what Tally, Marg, Busy, Zoho and ERPNext each ship as trade or industry templates, from their current pages, and take the list from that, not from memory. Each row is a code, a name and five switches |
+| 2 | **Fields that come with a type.** Only Medicine, Food and Electronics carry any shared field (the seven rules of `20260801_0011`: expiry, batch, manufacturer, IMEI and the like). Paint and Cosmetics carry none, and nothing carries a trade's own fields: salt and schedule for a medicine, shade and base for paint, size and colour for garments, model and compatible vehicle for a part | M | Each is a shared field and a shared rule on the type, shown and **not** compulsory, as the 2026-10-08 migration left the existing ones. The same market check gives the list |
+| 3 | **Change a ready-made type.** A firm reads a shared type and cannot edit it: one that wants Paint with an expiry date makes a second type of its own | M | **Owner, 2026-10-10: the ready-made types are templates; a firm clones one and edits the clone.** *Clone* on a shared type makes a firm's own type with the template's five switches and a firm's own copy of each rule the template carries; the firm then changes switches, adds or drops fields and says which are compulsory, all through what exists. The template itself stays read-only, so the shared catalogue can still be widened in a later release without touching anybody's clone. To settle when built: the clone needs its own code (a firm's code must stay clear of the shared ones); a field the firm wants to **reword** needs a firm's own copy of the field, since a shared field can only be switched off; and categories already on the template stay on it until moved, because a product's type changes only when it is filed again |
+| 4 | **Choose the types when the firm is set up.** Nothing in the installer's first run or the firm's *Set up* panel asks which lines of goods the firm sells | M | A step on the Set up panel (`firm_setup_dialog.dart`): tick the lines, and each ticked type is taken into use with a starting category of the same name. The profile's starting set becomes the ticked default. Not the installer itself: an installation holds several firms |
+| 5 | **Customers and suppliers the same way.** No shared field is seeded for a customer group or a supplier type (a chemist's drug licence number, a dealer's code with the company) | S after 2 | Same shape as 2, on the firm's own groups, so it can only be offered as a starting set at step 4 |
+
+**Suggested order when taken up:** the market check, then 1 and 2 together
+(one migration, rows only), then 4, then 3. 5 follows 4.
+
+**What it must not do.** Make any field compulsory for every firm
+(`20260815_0087` exists because four were), or change a product already
+stored: a type fills a new product and only a new one.
