@@ -728,3 +728,70 @@ against it.
 | Add coupon `WELCOME10` | nothing -- BIGORDER ended the stack before WELCOME (40). |
 | Firm in Best offer mode | only the single most valuable of the matching offers applies. |
 | The delivery note and the bill | inherit all of the above, pro-rated by the quantity shipped and billed; nothing is priced again. |
+
+## 20. Who pays for an offer, where to see it, and claiming it back
+
+### Who bears the cost
+
+| **Funded by principal** on the offer | Who pays |
+| --- | --- |
+| Empty | The firm, all of it. A discount lowers what is billed; free goods leave stock at no charge. |
+| A principal with a share % | The customer still gets the whole offer. That share is owed to the firm by the principal; the rest is the firm's cost. At 50% on a discount of 100, 50 is claimable and 50 is the firm's. |
+| A principal at 100% | The whole offer is claimable. It costs the firm nothing once the principal settles. |
+
+Until the principal pays or gives credit, the firm carries the full amount.
+
+The list offers only the firm's own **Principals** (the master that brands are
+filed under). A firm with no principal sees no name to choose: add one first,
+with the supplier it is bought through, then set it on the offer with its
+share %.
+
+### Where to see what offers and discounts cost
+
+All under **Reports**.
+
+| Question | Report | Shows |
+| --- | --- | --- |
+| What has each offer cost in all? | **Promotion performance** | Per offer: customers, Benefit (money given), Free units, limit and budget left |
+| The same, for a date range | **Discount given by offer** | Claims, customers, Given, Free units given, costliest first |
+| Which document took which offer? | **Promotion claims** | One row per claim: offer, coupon, customer, amount given, free units |
+| What did each coupon cost? | **Coupon performance** | Per code: times claimed, customers, benefit, free units, uses left |
+| All discount, not only offers | **Discount given by customer / salesman / product** | Gross, then Typed, Arranged (price list or standing rate), Offers, Bill discount, Total and % of gross |
+| Promotional items as stock | **Free goods** | Only products marked **free issue only**: received per supplier and scheme, written off as given free or as a sample (at cost), and still on hand. Free units an offer gave of an ordinary product are **not** here -- they are in the promotion reports above. |
+
+An offer's use is counted when the order is **approved**, so a draft shows
+nothing in the promotion reports. The three *Discount given by ...* reports read
+**bills**, so an order not yet billed is not in them. The promotion reports
+show free goods as a quantity, not as money.
+
+### Claiming a principal's share back
+
+**Principal Claims** (type "principal claim" in the command box).
+
+1. **+ New** -- "New claim on a principal". Choose the principal and the
+   period. The screen shows what the period holds before anything is saved:
+   the principal's share of the offers passed on, with expired and broken
+   stock of that principal where there is any. With nothing to claim it says
+   so and raises no claim.
+2. **Save.** The claim takes a number, shows its Total and Outstanding in the
+   grid, and posts to the ledger: the principal now owes the firm that amount.
+3. **Print statement** -- the paper sent to the principal, with the lines
+   behind the total.
+4. Record how it is settled, in part or in full:
+   - **Record payment** -- the principal pays money.
+   - **Settle by credit note** -- the principal gives credit, set against the
+     open purchase bills of the supplier that principal is bought through.
+5. **Reverse payment** takes a recorded payment off again; **Cancel** cancels
+   the claim with a reason.
+
+Rules worth knowing:
+
+- A source is claimed **once**. A second claim over the same period holds only
+  what the first did not.
+- Goods or discounts that come back after a claim (a sales return) come off
+  the **next** claim on that principal; a claim is never raised for less than
+  nothing.
+- Only what an **offer** gave is claimed. Free quantity typed by hand on a
+  line is not (the note on TC-INCENT-012).
+- **Price cut claim** on the same screen is a different claim: the principal
+  lowered its price and owes the difference on stock still in hand.

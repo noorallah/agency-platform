@@ -6959,3 +6959,72 @@ this was written: it says what to look at, not what is wrong.
 
 **Order.** Security first, then loops and speed, then coding standards: the
 first two can cost a customer, the third costs only us.
+
+## 99. Free goods of ordinary products: marked on the stock movement, and one register of free in against free out -- decided, not built, after the demo
+
+Owner, 2026-10-10, while testing offers on DEMO01: "free goods also mark in
+inventory ... check other product how they handle and see we can take
+decision".
+
+**What we do today.**
+
+- The free quantity is kept on the **documents**: purchase order, goods
+  receipt and purchase bill lines (with the supplier scheme's name), and
+  quotation, sales order, delivery note and sales invoice lines.
+- Stock is **one pool** per product, warehouse and batch. A receipt of 10
+  bought + 2 free adds 12; a dispatch of 10 + 1 free takes 11. The stock
+  movement holds one quantity and does not say how much of it was free.
+- The **Free goods** report covers only products marked *free issue only*
+  (gift and sample items) and stock written off as "given free" or "sample".
+  Free units of an ordinary product are in no stock report.
+- What an offer gave free is in Promotion performance, Discount given by offer
+  and Promotion claims, as a quantity with no value.
+- So nothing answers, per product: how many came in free from which supplier,
+  how many went out free to which customer, and what that was worth.
+
+**What other products do.**
+
+| Product | Where free goods are recorded | Separate free stock? |
+| --- | --- | --- |
+| TallyPrime | Two quantities on the line, *Actual* and *Billed*: actual moves stock, billed moves the accounts. Stock Query shows both for purchases and sales. | No, one stock |
+| ERPNext | The offer adds a line at rate 0 with *Is Free Item* ticked, on sales and purchase documents. | No, one stock |
+| LOGIC ERP (distribution) | A free scheme on the purchase adds the free quantity; the sale bill can pick up the scheme per batch as it was received. | No; the scheme is held per batch |
+| Marg, BUSY | A free quantity column on purchase and sale lines (BUSY lists it as a feature; Marg from our own knowledge, not confirmed from its help pages). | No, one stock, as far as we know |
+
+Nobody keeps free units as a separate stock: the units are the same goods on
+the same shelf, and a second bucket would have to be chosen at every sale,
+transfer, return and count. What the others have and we lack is the free
+quantity **visible beside the stock movement** (Tally's actual against billed).
+
+**Decision (by the standard above).**
+
+1. Stock stays one pool. No "free" warehouse, bin or stock status.
+2. Each stock movement raised by a receipt, a dispatch or a return also holds
+   **how much of its quantity was free**, copied from the document line. The
+   stock ledger and the product's movement list show it as a column.
+3. One report, **Free quantity register**, for every product: received free
+   by supplier and scheme, given free by customer and offer, both with their
+   value at cost, and the difference. The present Free goods report (free
+   issue only products) joins it as a section rather than staying a second
+   report.
+4. The promotion reports show the cost of free units beside the quantity.
+
+**Valuation (owner, 2026-10-10): free units received lower the average
+cost**, which is what happens today and what Tally does by default -- 10
+bought at 100 with 2 free is 12 units costing 1,000, 83.33 each, and the
+scheme's benefit shows as margin when the goods are sold. Valuing them at the
+bought rate with the gain booked as scheme income shows profit before anything
+is sold and needs a ledger entry on every receipt; it is built only if a
+customer's CA asks for it. The owner confirms the default with the CA once.
+
+**Order of work. Not before the customer demo.**
+
+1. **The register first, read from the document lines already stored** --
+   goods receipt lines for free in, delivery note lines for free out. No
+   migration, and it answers the customer's question on its own. With it,
+   decision 4 (cost beside quantity in the promotion reports).
+2. **The column on the stock movement second** (decision 2): a migration for
+   every store, filled by the four document modules that move stock, a
+   backfill from existing lines, and the desktop columns.
+
+**Size: S** for step 1, **M** for step 2.
