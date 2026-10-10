@@ -152,61 +152,105 @@ Future<void> _choose(WidgetTester tester, String key, String name) async {
   await tester.pumpAndSettle();
 }
 
+/// Choose a product and type a quantity on row [index] of a quotation.
+Future<void> _fillQuotationLine(
+  WidgetTester tester,
+  int index,
+  String product,
+  String quantity,
+) async {
+  await tester
+      .tap(find.byKey(ValueKey<String>('quotation-line-product-$index')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.textContaining(product).last);
+  await tester.pumpAndSettle();
+  await tester.enterText(
+    find
+        .descendant(
+          of: find.byKey(ValueKey<String>('quotation-line-$index')),
+          matching: find.byType(EditableText),
+        )
+        .at(1),
+    quantity,
+  );
+  await tester.pump();
+}
+
+/// Open a new quotation for the firm the server priced [priced] for, type
+/// every line of it and choose its customer; returns how often the screen
+/// asked for a price.
+Future<int> _typeQuotation(WidgetTester tester, Json priced) async {
+  final Json quotation = priced['quotation'] as Json;
+  final List<Json> lines = pricedLines(quotation);
+  int previews = 0;
+  await _open(
+    tester,
+    QuotationEditorDialog(
+      customers: [
+        Customer.fromJson({
+          'id': quotation['customer_id'],
+          'code': quotation['customer_code'],
+          'name': quotation['customer_name'],
+          'display_name': quotation['customer_name'],
+        }),
+      ],
+      products: [
+        for (final Json line in lines)
+          Product.fromJson({
+            'id': line['product_id'],
+            'code': '${line['description']}'.split(' ').last,
+            'name': line['description'],
+            'selling_price': line['unit_price'],
+          }),
+      ],
+      branches: [
+        BranchRecord.fromJson({
+          'id': quotation['branch_id'],
+          'code': 'HO',
+          'name': 'Head office',
+          'display_name': 'Head office',
+          'is_default': true,
+        }),
+      ],
+      warehouses: [
+        WarehouseRecord.fromJson({
+          'id': quotation['warehouse_id'],
+          'code': 'MAIN',
+          'name': 'Main',
+          'display_name': 'Main',
+          'branch_id': quotation['branch_id'],
+          'is_default': true,
+        }),
+      ],
+      today: DateTime(2026, 8, 4),
+      preview: (draft) async {
+        previews += 1;
+        return QuotationPreviewRecord.fromJson(priced);
+      },
+    ),
+  );
+  for (int index = 0; index < lines.length; index += 1) {
+    if (index > 0) {
+      await tester.tap(find.textContaining('+ add a'));
+      await tester.pumpAndSettle();
+    }
+    await _fillQuotationLine(
+      tester,
+      index,
+      '${lines[index]['description']}',
+      '${double.parse('${lines[index]['quantity']}').round()}',
+    );
+  }
+  await _choose(tester, 'quotation-customer', 'Customer CUS-001');
+  return previews;
+}
+
 void main() {
   testWidgets('a quotation shows each line as the server priced it',
       (tester) async {
     final Json priced = serverPricing('quotation_preview');
     final Json quotation = priced['quotation'] as Json;
-    final Json line = (quotation['lines'] as List<dynamic>).first as Json;
-    int previews = 0;
-    await _open(
-      tester,
-      QuotationEditorDialog(
-        customers: [
-          Customer.fromJson({
-            'id': quotation['customer_id'],
-            'code': quotation['customer_code'],
-            'name': quotation['customer_name'],
-            'display_name': quotation['customer_name'],
-          }),
-        ],
-        products: [
-          Product.fromJson({
-            'id': line['product_id'],
-            'code': 'SKU-001',
-            'name': line['description'],
-            'selling_price': '100',
-          }),
-        ],
-        branches: [
-          BranchRecord.fromJson({
-            'id': quotation['branch_id'],
-            'code': 'HO',
-            'name': 'Head office',
-            'display_name': 'Head office',
-            'is_default': true,
-          }),
-        ],
-        warehouses: [
-          WarehouseRecord.fromJson({
-            'id': quotation['warehouse_id'],
-            'code': 'MAIN',
-            'name': 'Main',
-            'display_name': 'Main',
-            'branch_id': quotation['branch_id'],
-            'is_default': true,
-          }),
-        ],
-        today: DateTime(2026, 8, 4),
-        preview: (draft) async {
-          previews += 1;
-          return QuotationPreviewRecord.fromJson(priced);
-        },
-      ),
-    );
-    await fillFirstLine(tester,
-        document: 'quotation', product: 'Product SKU-001', quantity: '5');
-    await _choose(tester, 'quotation-customer', 'Customer CUS-001');
+    final int previews = await _typeQuotation(tester, priced);
 
     expect(previews, greaterThan(0));
     expectLinesReconcile(tester,
@@ -217,6 +261,58 @@ void main() {
     expect(find.text('467.50'), findsWidgets);
     expect(find.text('18%'), findsWidgets);
     expect(find.text('551.65'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('two lines at two rates of tax each show what the server priced',
+      (tester) async {
+    // Five at 100.00 less 10% at 18%, and seven at 40.00 at 5%, under a 5%
+    // bill discount and a 40.00 delivery charge split across the two.
+    final Json priced = serverPricing('quotation_two_lines_preview');
+    final Json quotation = priced['quotation'] as Json;
+    final int previews = await _typeQuotation(tester, priced);
+
+    expect(previews, greaterThan(0));
+    expect(pricedLines(quotation), hasLength(2));
+    expectLinesReconcile(tester,
+        document: quotation, rowKey: 'quotation-line-');
+    // Each line at its own rate, and the two rows add up to the foot:
+    // 452.16 + 281.34 taxable is 733.50; 81.39 + 14.07 tax is 95.46.
+    expect(find.text('18%'), findsWidgets);
+    expect(find.text('5%'), findsWidgets);
+    expect(find.text('452.16'), findsWidgets);
+    expect(find.text('281.34'), findsWidgets);
+    expect(find.textContaining('733.50', findRichText: true), findsWidgets);
+    expect(find.textContaining('828.96', findRichText: true), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a buyer in another state is shown IGST, as the server says',
+      (tester) async {
+    final Json priced = serverPricing('quotation_interstate_preview');
+    final Json quotation = priced['quotation'] as Json;
+    expect(priced['interstate'], isTrue);
+    await _typeQuotation(tester, priced);
+
+    expectLinesReconcile(tester,
+        document: quotation, rowKey: 'quotation-line-');
+    // One head of tax, the whole 81.00, and no central and state halves.
+    expect(find.textContaining('IGST', findRichText: true), findsWidgets);
+    expect(find.textContaining('CGST', findRichText: true), findsNothing);
+    expect(find.textContaining('SGST', findRichText: true), findsNothing);
+    expect(find.textContaining('81.00', findRichText: true), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a buyer in the same state is shown CGST and SGST',
+      (tester) async {
+    final Json priced = serverPricing('quotation_preview');
+    expect(priced['interstate'], isFalse);
+    await _typeQuotation(tester, priced);
+
+    expect(find.textContaining('CGST', findRichText: true), findsWidgets);
+    expect(find.textContaining('SGST', findRichText: true), findsWidgets);
+    expect(find.textContaining('IGST', findRichText: true), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -262,6 +358,13 @@ void main() {
   test('every kept answer adds up', () {
     for (final (String name, String key) in <(String, String)>[
       ('quotation_preview', 'quotation'),
+      ('quotation_two_lines_preview', 'quotation'),
+      ('quotation_interstate_preview', 'quotation'),
+      ('sales_invoice_preview', 'invoice'),
+      ('sales_invoice_from_note_preview', 'invoice'),
+      ('sales_return_preview', 'sales_return'),
+      ('purchase_invoice_preview', 'invoice'),
+      ('purchase_return_preview', 'purchase_return'),
       ('sales_order_preview', 'order'),
       ('purchase_order_preview', 'order'),
     ]) {
