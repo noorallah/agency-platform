@@ -34,7 +34,7 @@ in `docs\`.
 
 ## 3. The question list
 
-`docs/CUSTOMER_REQUIREMENTS_QUESTIONS.md` -- 83 questions in ten
+`docs/CUSTOMER_REQUIREMENTS_QUESTIONS.md` -- 117 questions in ten
 sections: the business, the goods, buying, selling, prices and offers, credit
 and collections, stock, accounts and GST, people, and installation and data.
 Each question says what it decides in the set-up, so an answer turns straight
@@ -50,6 +50,12 @@ into a setting.
   salesmen, portal upload, a machine link, remote access, interest on late
   payment, consignment stock, and bringing old transactions across. Do not
   say yes to these in the meeting.
+- **Every question has a priority.** Critical (35): the answer can change
+  how the application is designed, or decides whether it fits and how the
+  firm is created; do not leave without these. High (57): may be something
+  to build or support, or a setting needed before the first bill. Low (25):
+  a setting that can wait. Every "check" question is at least High. When
+  time is short, filter the Excel sheet on Critical.
 - **Section 11 is a blank table** for "what do you do today that you did not
   see?", to bring back.
 - **The Excel answer sheet** holds the same questions and is built from the

@@ -36,13 +36,15 @@ QUESTION_TITLES = [
     "Section",
     "Ask",
     "What it decides",
+    "Priority",
     "Check first?",
     "Customer's answer",
     "Outcome",
     "Review notes / what we do next",
     "Reviewed?",
 ]
-QUESTION_WIDTHS = (7, 24, 46, 40, 9, 50, 16, 40, 11)
+QUESTION_WIDTHS = (7, 24, 46, 40, 10, 9, 50, 16, 40, 11)
+PRIORITY_COLOURS = {"Critical": "C00000", "High": "C55A11", "Low": "595959"}
 NOT_SHOWN_TITLES = [
     "What the customer does today",
     "Did we show it?",
@@ -53,8 +55,9 @@ NOT_SHOWN_TITLES = [
 ]
 NOT_SHOWN_WIDTHS = (46, 14, 46, 16, 40, 11)
 HEADER_ROW = 5
-FIRST_ANSWER_COLUMN = 6
-CHECK_COLUMN = 5
+FIRST_ANSWER_COLUMN = 7
+PRIORITY_COLUMN = 5
+CHECK_COLUMN = 6
 NOT_SHOWN_FIRST, NOT_SHOWN_LAST = 4, 23
 
 _THIN = Side(style="thin", color="BFBFBF")
@@ -64,11 +67,11 @@ SECTION_FILL = PatternFill("solid", fgColor="D9E1F2")
 INPUT_FILL = PatternFill("solid", fgColor="FFF9DB")
 WRAP = Alignment(wrap_text=True, vertical="top")
 
-Question = tuple[str, str, str, str, str]
+Question = tuple[str, str, str, str, str, str]
 
 
 def read_questions(source: Path) -> list[Question]:
-    """Return (number, section, ask, decides, check) for each question row."""
+    """Return (number, section, ask, decides, priority, check) per question."""
     questions: list[Question] = []
     section = ""
     for line in source.read_text(encoding="utf-8").splitlines():
@@ -77,11 +80,16 @@ def read_questions(source: Path) -> list[Question]:
             section = heading.group(1)
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) != 3 or not re.fullmatch(r"\d+\.\d+", cells[0]):
+        if not re.fullmatch(r"\d+\.\d+", cells[0]):
             continue
+        if len(cells) != 4 or cells[3] not in PRIORITY_COLOURS:
+            raise SystemExit(
+                f"Question {cells[0]} needs four cells ending in a priority "
+                f"({', '.join(PRIORITY_COLOURS)})."
+            )
         check = "Yes" if "**check**" in cells[2].lower() else ""
-        number, ask, decides = (re.sub(r"\*+", "", cell) for cell in cells)
-        questions.append((number, section, ask, decides, check))
+        number, ask, decides = (re.sub(r"\*+", "", cell) for cell in cells[:3])
+        questions.append((number, section, ask, decides, cells[3], check))
     return questions
 
 
@@ -118,7 +126,7 @@ def build_questions_sheet(sheet: Worksheet, questions: list[Question]) -> int:
 
     row = HEADER_ROW
     last_section = None
-    for number, section, ask, decides, check in questions:
+    for number, section, ask, decides, priority, check in questions:
         if section != last_section:
             row += 1
             title = sheet.cell(row=row, column=1, value=section)
@@ -127,14 +135,18 @@ def build_questions_sheet(sheet: Worksheet, questions: list[Question]) -> int:
                 sheet.cell(row=row, column=column).fill = SECTION_FILL
             last_section = section
         row += 1
-        values = [number, section, ask, decides, check, None, None, None, None]
+        values = [number, section, ask, decides, priority, check]
+        values += [None] * (len(QUESTION_TITLES) - len(values))
         for column, value in enumerate(values, 1):
             cell = sheet.cell(row=row, column=column, value=value)
             is_check = column == CHECK_COLUMN
+            colour = "C00000" if is_check else "000000"
+            if column == PRIORITY_COLUMN:
+                colour = PRIORITY_COLOURS[priority]
             cell.font = Font(
                 name=FONT,
-                bold=is_check and bool(value),
-                color="C00000" if is_check else "000000",
+                bold=(is_check and bool(value)) or value == "Critical",
+                color=colour,
             )
             cell.alignment = WRAP
             cell.border = BORDER
@@ -144,13 +156,13 @@ def build_questions_sheet(sheet: Worksheet, questions: list[Question]) -> int:
         sheet.row_dimensions[row].height = 48
     last = row
 
-    for letter, width in zip("ABCDEFGHI", QUESTION_WIDTHS, strict=True):
+    for letter, width in zip("ABCDEFGHIJ", QUESTION_WIDTHS, strict=True):
         sheet.column_dimensions[letter].width = width
     first = HEADER_ROW + 1
     sheet.freeze_panes = f"C{first}"
-    sheet.auto_filter.ref = f"A{HEADER_ROW}:I{last}"
-    add_list(sheet, OUTCOMES, f"G{first}:G{last}")
-    add_list(sheet, '"Yes,No"', f"I{first}:I{last}")
+    sheet.auto_filter.ref = f"A{HEADER_ROW}:J{last}"
+    add_list(sheet, OUTCOMES, f"H{first}:H{last}")
+    add_list(sheet, '"Yes,No"', f"J{first}:J{last}")
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
@@ -204,6 +216,14 @@ def build_how_to_sheet(sheet: Worksheet, last: int) -> None:
         ),
         ("Customer's answer", "Write the answer in the customer's own words."),
         (
+            "Priority",
+            "Critical = the answer can change how the application is designed, "
+            "or decides whether it fits and how the firm is created; do not "
+            "leave without it. High = may be something we have to build or "
+            "support, or a setting needed before the first bill. Low = a "
+            "setting that can wait. Filter this column when time is short.",
+        ),
+        (
             "Check first? = Yes",
             "The answer may be something the application does not do today. "
             'Do not say "yes" to it in the meeting.',
@@ -235,9 +255,15 @@ def build_how_to_sheet(sheet: Worksheet, last: int) -> None:
         (None, None),
         ("Progress", None),
         ("Questions", f"=COUNTA(Questions!C{first}:C{last})"),
-        ("Answered", f"=COUNTA(Questions!F{first}:F{last})"),
-        ("Reviewed", f'=COUNTIF(Questions!I{first}:I{last},"Yes")'),
-        ("Marked Check first", f'=COUNTIF(Questions!E{first}:E{last},"Yes")'),
+        ("Answered", f"=COUNTA(Questions!G{first}:G{last})"),
+        ("Critical questions", f'=COUNTIF(Questions!E{first}:E{last},"Critical")'),
+        (
+            "Critical answered",
+            f'=COUNTIFS(Questions!E{first}:E{last},"Critical",'
+            f'Questions!G{first}:G{last},"<>")',
+        ),
+        ("Reviewed", f'=COUNTIF(Questions!J{first}:J{last},"Yes")'),
+        ("Marked Check first", f'=COUNTIF(Questions!F{first}:F{last},"Yes")'),
         ("Not-shown lines written", f"=COUNTA({not_shown})"),
         (None, None),
         (
