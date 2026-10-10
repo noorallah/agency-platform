@@ -7190,3 +7190,74 @@ movement), 100 (a discount names its source; purchase discount reports) and
    offer gives a free product and no discount.
 
 Each of 4 to 7 that fails is a defect in `docs/DEFECTS.md`, not a line here.
+
+## 103. Every product keeps the batch structure; asking for a batch is the switch -- HIGH PRIORITY, after the demo, design to be agreed first
+
+Owner, 2026-10-10: "batch wise enable for all product gives us lot flexible
+... making that field mandatory enable should be ok but every product keep
+this structure gives us lot benefits, other attributes which are not common
+can be dynamic fields that can store separately ... we will make this in
+backlog high priority as it changes structure and after this demo we will
+update".
+
+**The idea.** Today stock has two shapes: one row per location for a product
+that tracks no batch, one row per batch for one that does, held apart by two
+partial unique indexes on `inventories` and by a nullable `batch_id` on every
+movement. Instead, **every stock row and every movement names a batch**. What
+differs per product is only whether a person is **asked** for one:
+
+- **Batch asked** (medicines, food): as today -- typed on the receipt, with
+  expiry, MRP and rates, picked earliest expiry first.
+- **Batch not asked** (sugar, hardware): the product has a batch the system
+  keeps for it by itself. Nobody types it, picks it or sees it on a screen or
+  a print.
+
+**What it gives.**
+
+- One structure for stock, cost, expiry, price, free goods and returns, where
+  each of those now has a tracked path and an untracked path.
+- Sections 99 (free goods per batch) and 101 (cost per batch) become the same
+  work for every product instead of for tracked products only.
+- A product can start being asked for batches later without its stock
+  changing shape: its past stock is already in a batch.
+- Fields only some goods need (shade, grade, pack size, licence number) are
+  **custom fields** through `AttributeService`, stored in their own typed
+  columns, never new columns on the batch. Custom fields on a **batch** are
+  new: today they attach to masters such as products, customers and suppliers.
+
+**To agree before building -- the design is not settled.**
+
+1. **What the system's own batch is.** *One standing batch per product*
+   (stock behaves exactly as today, one row per location) or *one automatic
+   batch per receipt* (each receipt keeps its own cost and date, which is
+   FIFO layers, at the price of many more rows and of choosing which leaves).
+   Proposed: one standing batch per product now; a batch per receipt is a
+   later switch on the product, and is how section 101 option 2 would reach
+   goods nobody types a batch for.
+2. **"Mandatory" means the switch, not the column.** The column is always
+   filled; `track_batch` on the product decides whether a person must supply
+   it. `require_batch_on_receipt` and the goods types keep their meaning.
+3. **Existing data.** Every store's untracked stock rows, movements, stock
+   ledger entries, opening stock lines and document lines that carry a batch
+   get the product's standing batch, in one migration per store, idempotent
+   and checked by totals before and after. Then the nullable column and the
+   two partial indexes go: the untracked path is removed, not left beside
+   the new one.
+4. **Nothing changes for the user of an untracked product.** No batch box,
+   no batch column, no batch row on a challan or a bill, no batch in an
+   import template. The Batches menu lists only batches a person named.
+5. **Serial numbers** stay as they are, above the batch.
+6. **"Rewrite the domains"** -- taken to mean reshaping the stock modules
+   (inventory, batch and serial, and the stock side of receipts, dispatch,
+   returns, transfers, counts and opening stock) onto the one structure, not
+   the buying, selling or finance modules. To confirm with the owner.
+
+**Order with the neighbouring sections.** The Free quantity register (99
+step 1) and the discount sources and purchase reports (100) do not depend on
+this and can go first. The free quantity on the stock movement (99 step 2)
+and cost per batch (101) are built **on** this structure, so they wait for
+it.
+
+**Size: L.** Every module that moves or reads stock, a data migration for
+every store, the reports on stock, the seeders, and a full inventory round
+afterwards. Design note and owner's agreement first; then build.
