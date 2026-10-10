@@ -10,6 +10,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/server_pricing.dart';
+
 /// A completed receipt of twenty units, taken in on batch MARCH-01.
 GoodsReceiptRecord _receipt({String free = '0'}) => GoodsReceiptRecord.fromJson({
       'id': 'grn-1',
@@ -103,10 +105,16 @@ class _ReturnApi extends ApiClient {
   /// Every draft phase 2 asked to be priced.
   final List<Json> previews = <Json>[];
 
+  /// The server's own answer to hand back for every pricing, when a test
+  /// checks the screen against it (`support/server_pricing.dart`).
+  Json? serverPriced;
+
   /// Prices each draft at the receipt's 25 and 18% within the state.
   @override
   Future<PurchaseReturnPreviewRecord> previewPurchaseReturn(Json data) async {
     previews.add(data);
+    final Json? server = serverPriced;
+    if (server != null) return PurchaseReturnPreviewRecord.fromJson(server);
     final Json line = (data['lines'] as List<dynamic>).first as Json;
     final double gross =
         double.parse('${line['current_return_quantity']}') * 25;
@@ -434,6 +442,56 @@ void main() {
       find.byKey(const ValueKey<String>('purchase-return-free-grn-1-0')),
       findsNothing,
     );
+  });
+
+  // D-UI-97: the return's rows against the server's own pricing of four
+  // going back off a bill of ten at 100.00 less 10%.
+  testWidgets('phase 2 shows each return line as the server priced it',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final Json priced = withIds(
+      serverPricing('purchase_return_preview'),
+      {'source_document_line_id': 'grn-line-1', 'product_id': 'prod-1'},
+    );
+    final _ReturnApi api = _ReturnApi(registered: ['MARCH-01'])
+      ..serverPriced = priced;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: PurchaseReturnEditorDialog(
+              api: api,
+              receipts: [_receipt()],
+              products: [
+                Product.fromJson({
+                  'id': 'prod-1',
+                  'code': 'SKU-1',
+                  'name': 'Amoxicillin 500mg',
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('purchase-return-receipt')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('GRN-2026-000001').last);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(api.previews, isNotEmpty);
+    expectLinesReconcile(tester,
+        document: priced['purchase_return'] as Json,
+        rowKey: 'purchase-return-line-');
+    // Four at 100.00 less 10%: 360.00 taxable, 64.80 tax, 424.80 in all.
+    expect(find.text('360.00'), findsWidgets);
+    expect(find.text('424.80'), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('phase 2 returns on one screen, priced as it is typed',

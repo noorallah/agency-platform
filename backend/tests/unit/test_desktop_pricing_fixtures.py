@@ -37,13 +37,24 @@ from uuid import uuid4
 
 import pytest
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.purchase.schemas import PurchaseOrderCreate
 from app.purchase.services import PurchaseService
+from app.purchase_invoice.models import PurchaseInvoiceLine
+from app.purchase_invoice.schemas import PurchaseInvoiceCreate
+from app.purchase_return.schemas import PurchaseReturnCreate
+from app.purchase_return.services import PurchaseReturnService
 from app.quotation.schemas import QuotationCreate
 from app.quotation.services.quotation_service import QuotationService
+from app.sales_invoice.models import SalesInvoiceLine
+from app.sales_invoice.schemas import SalesInvoiceCreate
+from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.schemas import SalesOrderCreate
 from app.sales_order.services.sales_order_service import SalesOrderService
+from app.sales_return.schemas import SalesReturnCreate
+from app.sales_return.services import SalesReturnService
+from tests.unit.test_purchase_chain_synthesis import _Firm as _BuyingFirm
 from tests.unit.test_purchase_management import _vendor
 from tests.unit.test_sales_chain_synthesis import _Firm, _request_session
 from tests.unit.test_sales_order_module import _tax_group
@@ -152,10 +163,166 @@ def _purchase_order() -> BaseModel:
     )
 
 
+def _counter_bill(setup: _Firm) -> SalesInvoiceCreate:
+    """Describe a bill of products: discounts, a delivery charge, a charge."""
+    return SalesInvoiceCreate.model_validate(
+        {
+            "customer_id": str(setup.customer.id),
+            "invoice_date": DAY.isoformat(),
+            "bill_discount_percent": "5",
+            "freight_amount": "40",
+            "lines": [
+                _line(
+                    setup,
+                    line_number="1",
+                    current_invoice_quantity="5",
+                    charges_amount="20",
+                )
+            ],
+        }
+    )
+
+
+def _sales_invoice() -> BaseModel:
+    """Price a bill of products at a firm that types only the bill."""
+    setup = _shop()
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    return SalesInvoiceService(setup.session).preview_invoice(
+        _counter_bill(setup), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+
+
+def _sales_return() -> BaseModel:
+    """Price the return of two of the five that bill sold."""
+    setup = _shop()
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    actor = uuid4()
+    bills = SalesInvoiceService(setup.session)
+    bill = bills.create_invoice(
+        _counter_bill(setup), firm_id=setup.firm.id, actor_id=actor
+    )
+    if bill.status != "APPROVED":
+        bills.approve_invoice(bill.id, firm_scope=setup.firm.id, actor_id=actor)
+    setup.session.expire_all()
+    billed = setup.session.scalars(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == bill.id)
+    ).one()
+    payload = SalesReturnCreate.model_validate(
+        {
+            "warehouse_id": str(setup.warehouse.id),
+            "return_date": DAY.isoformat(),
+            "lines": [
+                {
+                    "source_document_type": "SALES_INVOICE",
+                    "source_document_id": str(bill.id),
+                    "source_document_line_id": str(billed.id),
+                    "line_number": 1,
+                    "current_return_quantity": "2",
+                }
+            ],
+        }
+    )
+    return SalesReturnService(setup.session).preview_return(
+        payload, firm_id=setup.firm.id, actor_id=actor
+    )
+
+
+def _buyer() -> _BuyingFirm:
+    """Build a firm that types only the supplier's bill, with GST at 18%."""
+    firm = _BuyingFirm(_request_session())
+    firm.product.tax_profile_group_code = "GST_STANDARD"
+    firm.session.commit()
+    _tax_group(
+        firm.session,
+        firm_id=firm.firm.id,
+        percent="18",
+        starts=date(2026, 4, 1),
+        ends=None,
+    )
+    firm.stages(order=False, receipt=False)
+    return firm
+
+
+def _supplier_bill(firm: _BuyingFirm) -> PurchaseInvoiceCreate:
+    """Describe a bill for ten at 100.00 less 10%, with a charge of 50.00."""
+    return PurchaseInvoiceCreate.model_validate(
+        {
+            "vendor_id": str(firm.vendor.id),
+            "invoice_date": DAY.isoformat(),
+            "supplier_invoice_number": "S-1",
+            "supplier_invoice_date": DAY.isoformat(),
+            "lines": [
+                {
+                    "line_number": 1,
+                    "product_id": str(firm.product.id),
+                    "current_invoice_quantity": "10",
+                    "unit_price": "100",
+                    "discount_percent": "10",
+                    "charges_amount": "50",
+                }
+            ],
+        }
+    )
+
+
+def _purchase_invoice() -> BaseModel:
+    """Price a supplier's bill of products."""
+    firm = _buyer()
+    return firm.bills().preview_invoice(
+        _supplier_bill(firm), firm_id=firm.firm.id, actor_id=firm.actor_id
+    )
+
+
+def _purchase_return() -> BaseModel:
+    """Price the return of four of the ten that bill bought."""
+    firm = _buyer()
+    bills = firm.bills()
+    bill = bills.create_invoice(
+        _supplier_bill(firm), firm_id=firm.firm.id, actor_id=firm.actor_id
+    )
+    if bill.status != "APPROVED":
+        bills.approve_invoice(bill.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    firm.session.expire_all()
+    billed = firm.session.scalars(
+        select(PurchaseInvoiceLine).where(
+            PurchaseInvoiceLine.purchase_invoice_id == bill.id
+        )
+    ).one()
+    payload = PurchaseReturnCreate.model_validate(
+        {
+            "return_date": DAY.isoformat(),
+            "warehouse_id": str(firm.warehouse.id),
+            "source_documents": [
+                {
+                    "source_document_type": "PURCHASE_INVOICE",
+                    "source_document_id": str(bill.id),
+                }
+            ],
+            "lines": [
+                {
+                    "source_document_type": "PURCHASE_INVOICE",
+                    "source_document_id": str(bill.id),
+                    "source_document_line_id": str(billed.id),
+                    "line_number": 1,
+                    "current_return_quantity": "4",
+                    "warehouse_id": str(firm.warehouse.id),
+                }
+            ],
+        }
+    )
+    return PurchaseReturnService(firm.session).preview_return(
+        payload, firm_id=firm.firm.id, actor_id=firm.actor_id
+    )
+
+
 CASES: dict[str, Callable[[], BaseModel]] = {
     "quotation_preview": _quotation,
     "sales_order_preview": _sales_order,
     "purchase_order_preview": _purchase_order,
+    "sales_invoice_preview": _sales_invoice,
+    "sales_return_preview": _sales_return,
+    "purchase_invoice_preview": _purchase_invoice,
+    "purchase_return_preview": _purchase_return,
 }
 
 

@@ -20,6 +20,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/server_pricing.dart';
+
 /// A completed receipt of twenty units at 25 each, on batch MARCH-01.
 GoodsReceiptRecord _receipt() => GoodsReceiptRecord.fromJson({
       'id': 'grn-1',
@@ -76,12 +78,18 @@ class _InvoiceApi extends ApiClient {
   /// Every draft phase 2 asked to be priced.
   final List<Json> previews = <Json>[];
 
+  /// The server's own answer to hand back for every pricing, when a test
+  /// checks the screen against it (`support/server_pricing.dart`).
+  Json? serverPriced;
+
   /// Prices each draft at 18% within the state, the way the server would.
   @override
   Future<PurchaseInvoicePreviewRecord> previewPurchaseInvoice(
     Json data,
   ) async {
     previews.add(data);
+    final Json? server = serverPriced;
+    if (server != null) return PurchaseInvoicePreviewRecord.fromJson(server);
     final Json line = (data['lines'] as List<dynamic>).first as Json;
     final double price = double.parse('${line['unit_price'] ?? '25'}');
     final double gross =
@@ -335,6 +343,56 @@ void main() {
     // than the whole bill typed again.
     expect(find.text('New Purchase Invoice'), findsOneWidget);
     expect(find.text('Save Invoice'), findsOneWidget);
+  });
+
+  // D-UI-97: the bill's rows against the server's own pricing of a bill with
+  // a line discount and a charge on the line.
+  testWidgets('phase 2 shows each bill line as the server priced it',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final Json priced = withIds(
+      serverPricing('purchase_invoice_preview'),
+      {'source_document_line_id': 'grn-line-1', 'product_id': 'prod-1'},
+    );
+    final _InvoiceApi api = _InvoiceApi()..serverPriced = priced;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: PurchaseInvoiceEditorDialog(
+              api: api,
+              receipts: [_receipt()],
+              products: [
+                Product.fromJson({
+                  'id': 'prod-1',
+                  'code': 'SKU-1',
+                  'name': 'Amoxicillin 500mg',
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+        find.byKey(const ValueKey('purchase-invoice-receipt-supplier')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Medico Distributors').last);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(api.previews, isNotEmpty);
+    expectLinesReconcile(tester,
+        document: priced['invoice'] as Json, rowKey: 'purchase-invoice-line-');
+    // 1,000.00 less 10% plus the charge of 50.00: 950.00 taxable, 171.00
+    // tax at 18%, 1,121.00 in all.
+    expect(find.text('950.00'), findsWidgets);
+    expect(find.text('1,121.00'), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('phase 2 bills on one screen, priced to check against the paper',
