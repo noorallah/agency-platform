@@ -113,7 +113,8 @@ mention them if asked, do not click them.
 
 18. Hand over the brochure. Ask: "What do you do today that you did not see?"
     Write the answers down; do not answer "yes" to anything you have not
-    checked.
+    checked. `CUSTOMER_REQUIREMENTS_QUESTIONS.md` is the full list of what to
+    ask: section 1 before the demonstration, the rest after it.
 
 ---
 

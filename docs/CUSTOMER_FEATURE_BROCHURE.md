@@ -100,6 +100,43 @@ and the books by itself.
 - **Commission and targets** for salesmen, on sales or on collections.
 - **Loyalty points** and coupons where you want them.
 
+### Prices and offers
+
+The price of every line is decided by rules you set once, not by what the
+person at the counter remembers.
+
+- **Five ways a price is set**, the most specific first: a price typed on the
+  line, a fixed rate on a price list, the batch's rate to retailer or
+  stockist, the customer's price level, the product's selling price.
+- **Six sources of discount**, and a line takes the first that applies: an
+  amount typed, a percent typed, your offers, the price list, the customer's
+  own standing rate, the customer group's rate.
+- **Price lists** for everyone, one area or one customer, with quantity
+  breaks (2% from 1, 4% from 15, 7% from 18).
+- **Ten kinds of offer:** percent or amount off a line; percent or amount off
+  the whole bill; buy X get Y free; a different product free; buy X get Y at
+  a discount; a combo price for products bought together; free delivery;
+  bonus loyalty points.
+- **Eighteen things an offer can depend on:** the product, its category, its
+  kind (goods or service), the customer, their group, area, route, branch,
+  salesman, order or quotation, the quantity, the line value, the order
+  value, the date, the day of the week, the time of day, a first order, a
+  customer who has not bought for a while.
+- **Offers together.** Combine them in the order you choose (two 10% offers
+  make 19%), or give the customer only the best one. An offer can end the
+  stack, and a cap can limit what offers take off one line.
+- **Coupons**, one at a time or thousands of single-use codes for a campaign.
+- **Limits and budgets.** Total uses, uses per customer, and a budget in
+  money or in free units, counted when an order is approved.
+- **Company schemes claimed back.** An offer funded by a principal records
+  the principal's share, and the claim is raised from the bills.
+- **Try an offer before it goes live**, on a made-up order and a future date.
+- **Control.** A discount typed above a person's limit waits for someone
+  allowed more; a sale below cost or below the minimum price warns or is
+  refused, as you decide.
+- **The deal holds.** The delivery and the bill carry the price, discount and
+  free goods the order agreed; nothing is priced again later.
+
 ### Buying
 
 - Purchase order, goods receipt, supplier bill, return and payment.
@@ -134,7 +171,7 @@ and the books by itself.
 
 ### Reports
 
-More than fifty reports, each with filters and export to Excel: sales by
+More than a hundred reports, each with filters and export to Excel: sales by
 product, category, customer, salesman, area or month; outstanding and overdue;
 stock and expiry; purchase and supplier; promotions; commission; GST.
 
@@ -193,7 +230,38 @@ template rather than retyped.
 
 ---
 
-## 7. Not included today
+## 7. Everything in it, counted
+
+Counted from the application itself on 10 October 2026, not estimated.
+
+| | |
+| --- | ---: |
+| Screens | more than 150 |
+| Reports, each with filters and export to Excel | 102 |
+| Ready-made roles (12 for a firm's staff, the rest for running the installation) | 16 |
+| Separate rights a role can be given or refused | 235 |
+| Kinds of offer | 10 |
+| Things an offer can depend on | 18 |
+| Kinds of file loaded from Excel or from another program | 8 |
+| Ways to track a product (batch and expiry, batch alone, serial number, none) | 4 |
+
+What those screens cover, area by area:
+
+| Area | Screens | What is in it |
+| --- | ---: | --- |
+| **Selling** | 33 | Enquiries, quotations, sales orders, delivery notes, sales bills, sales returns, proforma, credit and debit notes, approvals, counter shifts; price lists, price levels, promotions and coupons; commission, targets and customer rebates; areas, routes, beat plans, call lists and coverage; sales analysis |
+| **Buying** | 20 | Requisitions, requests for quotation, rate contracts, purchase orders, goods receipts, quality inspection, supplier bills, purchase returns and debit notes; supplier schemes and rebates, principal claims, bills of entry, landed costs; purchase analysis and rate trend |
+| **Stock** | 18 | Stock on hand, stock ledger and movements, opening stock, physical count, adjustments with approval, transfers, repacking; batches, lots, serial numbers and the Expiry Monitor; stock search, import and export |
+| **Accounts** | 30 | Chart of accounts, journals, expenses, opening balances; receipts, payments, refunds, post-dated cheques, payment runs, the collection sheet and payment promises; bank reconciliation and export to Tally; fixed assets and depreciation; ledgers, Trial Balance, Profit & Loss, Cash Flow and Balance Sheet |
+| **GST and tax** | within Selling and Accounts | GST returns, GSTR-2B matching, input credit rules, GST payment, e-invoice details, TCS and TDS challans |
+| **Masters** | 25 | Customers and statements, suppliers and statements, products, categories, brands, principals, transporters, branches, warehouses and storage areas, places, financial years, trade licences and the licence check, loyalty |
+| **Set-up and administration** | 27 | Firms, users, roles and rights, numbering series, goods types, your own extra fields, tax rules with a simulator, units, pack sizes and conversions |
+| **Reports** | 2 | The 102 reports: 54 on day-to-day trade, 48 on money and tax |
+| **Home and control** | 3 | Home, the audit trail, diagnostics |
+
+---
+
+## 8. Not included today
 
 So that nothing is promised that is not there:
 
@@ -208,7 +276,7 @@ So that nothing is promised that is not there:
 
 ---
 
-## 8. What happens next
+## 9. What happens next
 
 1. **A demonstration** on sample data shaped like your business: a purchase, a
    sale and a collection in each of your lines of goods, and the reports that
