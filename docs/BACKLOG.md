@@ -7191,7 +7191,7 @@ movement), 100 (a discount names its source; purchase discount reports) and
 
 Each of 4 to 7 that fails is a defect in `docs/DEFECTS.md`, not a line here.
 
-## 103. Every product keeps the batch structure; asking for a batch is the switch -- HIGH PRIORITY, after the demo, design to be agreed first
+## 103. Every product keeps the batch structure; asking for a batch is the switch -- FIRST ITEM after the demo: discuss, check every area, then build
 
 Owner, 2026-10-10: "batch wise enable for all product gives us lot flexible
 ... making that field mandatory enable should be ok but every product keep
@@ -7288,3 +7288,76 @@ it.
 **Size: L.** Every module that moves or reads stock, a data migration for
 every store, the reports on stock, the seeders, and a full inventory round
 afterwards. Design note and owner's agreement first; then build.
+
+**How other products cost stock (checked 2026-10-10), and what it changes
+here.** Owner: "we can check how other products does for this kind or which
+one is best solution in order to make system perfect ... if we need to
+return any stock to vendor that also needs to be done across purchase
+invoice, keep this first item to discuss and implement by checking all
+areas".
+
+| Product | Costing | Batches |
+| --- | --- | --- |
+| TallyPrime | A costing method **per stock item**: average (the default), FIFO, FIFO perpetual, LIFO, last purchase, standard, monthly average | Optional, for goods that have one; expiry and manufacturing date |
+| ERPNext | A valuation method per item, company or globally: moving average or FIFO. FIFO keeps a **queue of [quantity, rate] layers** per item and warehouse; an issue consumes the oldest. A serial-wise valuation switch for serial items | Optional per item |
+| SAP Business One | Per item: moving average, FIFO (each purchase price stored) or standard, and a fourth method **for serial and batch managed items only**, where goods leave at the actual cost of that serial or batch | Optional per item |
+| Odoo | Per product category: standard, average or FIFO, held as valuation layers | Optional per product |
+
+**Nobody makes a hidden batch to hold a cost.** All four keep two things
+apart: the **batch** is what is printed on the goods and exists only where
+the goods have one; the **cost layer** is what a receipt cost, kept by the
+valuation and seen by no warehouse screen. A product without batches gets
+exact cost through FIFO layers, not through batches.
+
+**What that suggests for this section** (to settle after the demo; the
+system's batch stays on the table as the owner asked):
+
+- **Costing method per product**, defaulting from the goods type: *Average*
+  (today), *FIFO* (a layer per receipt line -- quantity left, cost per unit
+  after discount and free goods, the receipt it came from), *By batch* (only
+  where the product is asked for a batch; section 101 option 2).
+- **Layers live beside `product_valuations`, not in `batches` or
+  `inventories`.** Stock rows, picking, counts and transfers do not multiply
+  or change; this is what "a batch per receipt" and "a new batch when the
+  cost changes" above were reaching for, without their cost in rows.
+- **The batch may then stay empty** for a product nobody types one for, and
+  the two-shape stock table is a smaller matter than it looked.
+
+**A return to the supplier goes back against its purchase.** Today a
+purchase return line is already raised off the goods receipt line or the
+bill line that billed it: quantity is capped by what that receipt brought
+in, the price and tax are the bill's, free goods are credited nothing, and
+where the receipt named a batch only that batch may go back. **What does not
+follow the purchase is the cost**: the goods leave stock at the product's
+average and the difference from what the supplier credits goes to purchase
+price variance. With layers or cost by batch, a return consumes the layer of
+the receipt it names, so sending back what was bought leaves no variance.
+(In ERPNext and Odoo a return is valued as an ordinary issue -- average, or
+the oldest layer -- which their own users report as wrong; naming the
+receipt's layer is the better rule and we already hold the link.)
+
+**Every area to check before building, each for average, FIFO and by batch:**
+
+1. Goods receipt, and its cancellation; opening stock.
+2. Free goods in and out (section 99); landed cost added after receipt.
+3. Dispatch and its reversal; cost of goods sold and margin.
+4. Sales return -- back into the layer or batch it left, at the cost it left.
+5. Purchase return -- against the receipt's layer, as above.
+6. Transfers between warehouses and branches; goods in transit.
+7. Counts, adjustments, write-offs, expiry and breakage; the principal's
+   claim at cost.
+8. Kits, repacking and unit conversion.
+9. Negative stock where a product allows it: which layer a sale takes when
+   none is left.
+10. Every ledger posting that reads a movement's value
+    (`docs/LEDGER_POSTING_RULES.md`): a leg facing stock is valued from the
+    movement.
+11. Reports: stock value, ageing, margin by product, customer and batch.
+12. Changing a product's method later, and the data migration for every
+    store.
+13. The seeders and PERF01: layers at 110,000 invoices.
+
+**Order of work:** (a) a design note covering the table above and the
+thirteen areas, agreed with the owner and the CA; (b) layers and FIFO for
+one product type end to end; (c) by batch; (d) returns on both sides;
+(e) reports. An inventory round and a finance round follow.
