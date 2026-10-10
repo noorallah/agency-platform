@@ -56,6 +56,9 @@ something the application does not do today.
 | 3.6 | Do you import, or pay freight and other costs that should go into the cost of the goods? | Bills of entry; landed cost |
 | 3.7 | Do you deduct TDS from any supplier? | TDS sections |
 | 3.8 | Do goods often arrive short, damaged or wrong? | Damaged quantity at receipt; quality inspection; purchase returns |
+| 3.9 | When goods go back to a supplier, is it against the bill they came on? Must the credit, and the cost that leaves your stock, match that bill? | Purchase returns against the purchase; **check**: the credit follows the bill, the cost leaves at the product's average (backlog 103) |
+| 3.10 | Does a supplier give a discount for quantity on the bill itself, or a target discount afterwards by credit note? | Supplier price lists and rate contracts; supplier rebates; **check**: a dated supplier discount scheme is on the backlog (100) |
+| 3.11 | Do you need to see free goods received from each supplier against free goods given to customers, product by product? | **Check**: the free quantity is on every document line; one register of the two is on the backlog (99) |
 
 ## 4. Selling
 
@@ -83,6 +86,7 @@ something the application does not do today.
 | 5.8 | How much discount may a salesman give on his own? A manager? | Discount limit per role |
 | 5.9 | May anybody sell below cost, or below a minimum price? | The price floor: off, warn or block |
 | 5.10 | Do you give loyalty points, cashback or coupons? | Loyalty; coupons |
+| 5.11 | When a company gives you a scheme, do you pass the same free goods on to your customers, give a discount instead, or keep it as margin? | Whether a sales offer is made from a supplier's scheme; **check**: today the offer is set up separately (backlog 102) |
 
 ## 6. Credit and collections
 
@@ -104,6 +108,7 @@ something the application does not do today.
 | 7.3 | How often do you count stock, and who may correct a difference? | Count sheets; adjustment approval limits |
 | 7.4 | How do you value stock? | **Check**: stock is carried at moving average cost |
 | 7.5 | Do you hold goods that are not yours, or send yours on consignment? | **Check** before answering |
+| 7.6 | Do you look at cost and profit batch by batch, or purchase by purchase, or only per product? Does your CA value stock at average cost or first in, first out? | The costing method per product; **check**: one average per product today, cost by batch and by purchase are on the backlog (101, 103) |
 
 ## 8. Accounts and GST
 
