@@ -445,7 +445,8 @@ void main() {
   });
 
   // D-UI-97: the return's rows against the server's own pricing of four
-  // going back off a bill of ten at 100.00 less 10%.
+  // going back off a bill of ten at 100.00 less 10%, with a charge on the
+  // return line.
   testWidgets('phase 2 shows each return line as the server priced it',
       (tester) async {
     tester.view.physicalSize = const Size(1600, 900);
@@ -488,9 +489,11 @@ void main() {
     expectLinesReconcile(tester,
         document: priced['purchase_return'] as Json,
         rowKey: 'purchase-return-line-');
-    // Four at 100.00 less 10%: 360.00 taxable, 64.80 tax, 424.80 in all.
-    expect(find.text('360.00'), findsWidgets);
-    expect(find.text('424.80'), findsWidgets);
+    // Four at 100.00 less 10%, plus a charge of 20.00: 380.00 taxable,
+    // 68.40 tax at 18%, 448.40 in all. Left out, the charge made the row
+    // read 360.00 and 19%.
+    expect(find.text('380.00'), findsWidgets);
+    expect(find.text('448.40'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 

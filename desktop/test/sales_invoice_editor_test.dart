@@ -698,6 +698,29 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // D-UI-97: a bill raised off a delivery note, against the server's own
+  // pricing of three of the five the note sent -- each with its share of the
+  // order's line discount, bill discount and delivery charge.
+  testWidgets('phase 2 shows a note line as the server priced it',
+      (tester) async {
+    final Json priced = withIds(
+      serverPricing('sales_invoice_from_note_preview'),
+      {'source_document_line_id': 'dnl-1'},
+    );
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()])
+      ..serverPriced = priced;
+    await pumpPhase2(tester, api);
+
+    expect(api.previews, isNotEmpty);
+    expectLinesReconcile(tester,
+        document: priced['invoice'] as Json, rowKey: 'sales-invoice-line-');
+    // 300.00 less 10%, less the bill discount's 13.50, plus 24.00 of the
+    // delivery charge: 280.50 taxable, 50.49 tax at 18%, 330.99 in all.
+    expect(find.text('280.50'), findsWidgets);
+    expect(find.text('330.99'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   // D-UI-97: the bill's rows against the server's own pricing of a bill with
   // a line discount, a bill discount and a delivery charge.
   testWidgets('phase 2 direct bill shows each line as the server priced it',
