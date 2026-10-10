@@ -1592,9 +1592,13 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     final bool interstate = _preview?.interstate ?? false;
     return DocumentTotalsBar(
       total: invoice == null ? null : total,
+      // D-UI-91: products typed before the customer show no tax; name the
+      // one thing still missing.
       note: _direct
-          ? 'Choose the customer and a product, and the bill is priced with '
-              'its tax.'
+          ? (_customerId == null
+              ? 'Choose a customer, and the bill is priced with its tax.'
+              : 'Choose the customer and a product, and the bill is priced '
+                  'with its tax.')
           : 'Choose what to bill, and it is priced with its tax.',
       figures: [
         ('Taxable', subtotal),

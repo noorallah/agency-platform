@@ -991,10 +991,14 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     final bool interstate = _preview?.interstate ?? false;
     return DocumentTotalsBar(
       total: order == null ? null : total,
-      note: _branchId == null || _warehouseId == null
-          ? 'Choose the branch and warehouse, and the order is priced with '
-              'its tax.'
-          : 'Totals follow as the lines are priced.',
+      // D-UI-91: tax follows the customer's state, so nothing is priced
+      // until one is chosen -- say so, or the blank tax reads as a fault.
+      note: _customerId == null
+          ? 'Choose a customer, and the order is priced with its tax.'
+          : _branchId == null || _warehouseId == null
+              ? 'Choose the branch and warehouse, and the order is priced '
+                  'with its tax.'
+              : 'Totals follow as the lines are priced.',
       figures: [
         ('Taxable', subtotal),
         if (interstate)
