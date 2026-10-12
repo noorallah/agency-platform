@@ -1164,6 +1164,16 @@ the supplier is owed the bill less the TDS. Money paid ahead of any bill
 proposes the deduction on the payment instead, and it is deducted once.
 Challans and the TDS registers carry these bills.
 
+**Switching TDS or TCS off for one party.** The supplier form has **Deduct TDS
+from this supplier**, ticked unless you untick it. Unticked, no bill and no
+payment works out a deduction for that supplier and the 194Q register asks
+for none. The box on the Approve dialog still takes a figure: it is deducted
+on that one bill and the next bill deducts nothing again. The customer form
+has **Collect TCS from this customer**, ticked unless you untick it;
+unticked, a receipt from that customer is never charged TCS. TDS that a
+customer deducts from what it pays you, and TCS that a supplier adds to its
+bill, are typed on the receipt and on the bill as before.
+
 **TCS charged by a supplier.** A purchase bill has a **TCS rate** and a **TCS
 amount**: a rate alone is worked on the bill's total including GST, and a
 typed amount wins. It is outside GST. Approval books it to *TCS Receivable*

@@ -818,6 +818,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   late String _defaultTdsSection = widget.vendor?.defaultTdsSection ?? '';
   late bool? _tdsIndividualHuf = widget.vendor?.tdsIndividualHuf;
   late bool _tdsTechnical = widget.vendor?.tdsTechnicalServices ?? false;
+  late bool _tdsApplicable = widget.vendor?.tdsApplicable ?? true;
   late bool _msmeAgreement = widget.vendor?.msmeWrittenAgreement ?? false;
   late bool _issuesEInvoices = widget.vendor?.issuesEInvoices ?? false;
   late final TextEditingController _email =
@@ -1545,6 +1546,16 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                     value == 'YES' ? true : (value == 'NO' ? false : null)),
               ),
             ),
+          CheckboxListTile(
+            key: const ValueKey('vendor-tds-applicable'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Deduct TDS from this supplier'),
+            subtitle: const Text('Off: nothing is proposed on a bill or a payment. '
+                'An amount typed on one bill is still deducted on that bill.'),
+            value: _tdsApplicable,
+            onChanged: (value) =>
+                setState(() => _tdsApplicable = value ?? true),
+          ),
           if (_defaultTdsSection == '194J')
             CheckboxListTile(
               key: const ValueKey('vendor-tds-technical'),
@@ -2035,6 +2046,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             _defaultTdsSection.isEmpty ? null : _defaultTdsSection,
         'tds_individual_huf': _tdsIndividualHuf,
         'tds_technical_services': _tdsTechnical,
+        'tds_applicable': _tdsApplicable,
         'msme_written_agreement': _msmeAgreement,
         'issues_e_invoices': _issuesEInvoices,
         'email': _email.text.trim(),

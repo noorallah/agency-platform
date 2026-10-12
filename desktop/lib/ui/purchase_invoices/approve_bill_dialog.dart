@@ -88,10 +88,14 @@ class _ApproveBillDialogState extends State<ApproveBillDialog>
     final String section = '${p['section'] ?? ''}';
     if (section.isEmpty || section == 'null') return null;
     final ThemeData theme = Theme.of(context);
+    final bool switchedOff = p['switched_off'] == true;
     final String rate = '${p['rate_percent'] ?? ''}';
     final String basis = '${p['rate_basis'] ?? ''}';
     final bool applies = p['applies'] == true;
     final String lines = [
+      if (switchedOff)
+        'TDS is switched off for this supplier. An amount typed here is '
+            'deducted on this bill only.',
       'TDS $section at $rate%${basis.isEmpty ? '' : ' ($basis)'}',
       if (p['threshold_crossed'] != null)
         p['threshold_crossed'] == true

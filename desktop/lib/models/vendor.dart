@@ -326,6 +326,7 @@ class Vendor {
     this.defaultTdsSection = '',
     this.tdsIndividualHuf,
     this.tdsTechnicalServices = false,
+    this.tdsApplicable = true,
     this.msmeWrittenAgreement = false,
     this.issuesEInvoices = false,
     required this.licenseNumber,
@@ -419,6 +420,9 @@ class Vendor {
 
   /// 194J at the 2% rate for technical services rather than the 10% one.
   final bool tdsTechnicalServices;
+
+  /// The firm deducts TDS from this supplier; off, nothing is proposed.
+  final bool tdsApplicable;
   final bool msmeWrittenAgreement;
 
   /// Whether their bills carry an IRN (backlog 78 row 5); a bill from one
@@ -477,6 +481,7 @@ class Vendor {
             ? json['tds_individual_huf'] as bool
             : null,
         tdsTechnicalServices: boolValue(json['tds_technical_services']),
+        tdsApplicable: json['tds_applicable'] != false,
         msmeWrittenAgreement: boolValue(json['msme_written_agreement']),
         issuesEInvoices: boolValue(json['issues_e_invoices']),
         licenseNumber: stringValue(json['license_number']),

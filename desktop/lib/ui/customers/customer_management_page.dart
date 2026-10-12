@@ -1280,6 +1280,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   late String _gstType = widget.customer?.gstRegistrationType ?? '';
   late String _status = widget.customer?.status ?? 'ACTIVE';
   late bool _noReminders = widget.customer?.noReminders ?? false;
+  late bool _tcsApplicable = widget.customer?.tcsApplicable ?? true;
   late bool _whatsappOptIn = widget.customer?.whatsappOptIn ?? false;
   // Empty string is "no preference", sent as null.
   late String _preferredChannel = widget.customer?.preferredChannel ?? '';
@@ -1810,6 +1811,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'gst_number': _nullable('gst_number'),
         'pan_number': _nullable('pan_number'),
         'tan_number': _nullable('tan_number'),
+        'tcs_applicable': _tcsApplicable,
         'gst_registration_type': _gstType.isEmpty ? null : _gstType,
         'email': _nullable('email'),
         'phone': _nullable('phone'),
@@ -1995,6 +1997,21 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               'tan_number',
               'TAN',
               helper: 'Only if they deduct TDS from what they pay you',
+            ),
+            CheckboxListTile(
+              key: const ValueKey('customer-tcs-applicable'),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('Collect TCS from this customer'),
+              subtitle: const Text(
+                  'Off: a receipt from this customer is never charged TCS.'),
+              value: _tcsApplicable,
+              onChanged: _readOnly
+                  ? null
+                  : (value) => setState(() {
+                        _tcsApplicable = value ?? true;
+                        _dirty = true;
+                      }),
             ),
             _text('email', 'Email'),
             // Both are validated as E.164 server-side, and the refusal names

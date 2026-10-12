@@ -183,6 +183,12 @@ class Vendor(BaseEntity):
     tds_technical_services: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: Whether the firm deducts TDS from this supplier at all (backlog 113).
+    #: Off: no bill and no payment proposes a deduction and the 194Q register
+    #: asks for none; a deduction typed on one document still stands on it.
+    tds_applicable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     #: The currency the supplier bills in (PG-12), an ISO code; a new bill
     #: from it starts in this currency. NULL is rupees.
     currency_code: Mapped[str | None] = mapped_column(String(3))

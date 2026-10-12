@@ -7904,3 +7904,70 @@ not in the copy.
 
 **Cases:** TC-PLAT-006. **Tests:** `tests/unit/test_backup_second_copy.py`
 (15), `desktop/test/phase2_backups_page_test.dart` (three new).
+
+## 113. A TDS switch on each supplier and a TCS switch on each customer -- built 2026-10-13
+
+**Asked.** A TDS and TCS switch on each customer and supplier, with an
+override on the document: switch off means no deduction, and an override on
+one bill changes that bill only (customer task S8).
+
+**Found before building.** Most of it was there. A supplier's bill proposes
+TDS under 194C or 194J when it is approved, with a box to type another figure
+(PG-5); a payment proposes it for money paid ahead of a bill; 194Q has its own
+register; a receipt and a payment each take a typed **TDS deducted** with its
+section, and the bill is settled in full; a supplier's bill takes a typed TCS;
+a receipt is charged TCS under 206C(1H) by the firm's own settings. What no
+party had was a way to say "not this one": the only way to stop TDS for one
+supplier was to clear its section, which also stopped a deduction typed on a
+single bill from being filed anywhere.
+
+**Built.**
+
+- **Supplier: Deduct TDS from this supplier** (`vendors.tds_applicable`, on
+  for every supplier already stored). Off: a bill proposes and deducts
+  nothing, a payment proposes nothing, and the 194Q register asks for
+  nothing; what was bought from the supplier still shows. The supplier keeps
+  its section, so the proposal answers `switched_off: true` with the section
+  named and nothing proposed.
+- **The override on the document** is the box that was already on the Approve
+  dialog. With the switch off, a figure typed there is deducted on that bill,
+  filed under the supplier's section and posted to TDS Payable; the next bill
+  deducts nothing again. A figure typed on one payment stands the same way.
+- **Customer: Collect TCS from this customer** (`customers.tcs_applicable`,
+  on for every customer already stored). Off: a receipt from the customer is
+  never charged TCS, the preview says "Tax collected at source is switched
+  off for this customer", and the charged-against-due report asks nothing of
+  it.
+- **Screens.** A tick box on the supplier form and one on the customer form.
+  The Approve dialog and the payment dialog say when the supplier is switched
+  off and that a figure typed there is for that document only.
+- **Stores:** migration `20261013_0357` adds the two columns, default on.
+
+**Decided, by the usual standard.**
+
+- One switch per party, for the tax the firm itself works out: TDS on a
+  supplier, TCS on a customer. The other two were never worked out by the
+  server, so there is nothing to switch: TDS a customer deducts is typed on
+  the receipt, and TCS a supplier charges is typed on its bill. Each is
+  nothing unless somebody types it, which is the override on the document.
+- Both switches are on unless said, so no existing party changes.
+- An edit that does not mention the switch leaves it alone.
+- With the switch **on**, typing 0 on one bill is still kept beside the
+  proposal as before (PG-5), and the year's shortfall is proposed again on
+  the next bill or payment. 194C and 194J are owed on the year, not on the
+  bill, so a skipped deduction stays due. Only switching the supplier off
+  stops it.
+- Switching a party back on brings the whole year back into the sum: the next
+  bill or receipt is asked for what the year owes.
+
+**Not built.** No override on a receipt for TCS. Section 206C(1H) was omitted
+from 1 April 2025, so no receipt dated after 31 March 2025 is charged at all,
+and the charge is a running total of the year that a later receipt would
+square again. The switch is not on the supplier or customer import file; an
+imported party is switched on. Nothing rewrites a document already approved
+when a switch is changed.
+
+**Cases:** TC-FIN-027. **Tests:** `tests/unit/test_tds_tcs_party_switch.py`
+(10), `desktop/test/phase2_vendor_form_test.dart`,
+`desktop/test/phase2_customer_form_test.dart` and
+`desktop/test/tds_194c_194j_test.dart` (seven new between them).
