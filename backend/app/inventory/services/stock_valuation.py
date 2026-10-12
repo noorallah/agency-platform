@@ -18,6 +18,16 @@ warehouse's stock is valued at the firm's rate.
 the balance of the Inventory control account on the same day, and the
 difference. They agree when every movement posted at the cost it moved at; a
 difference is the first thing to look into before the year end.
+
+**The same stock at its MRP, beside its cost (backlog 109).** A distributor
+reads the two together: what the shelf cost and what it would fetch at the
+printed price. Each unit is priced at the MRP of its own batch, and at the
+product's where the batch has none or the stock is not kept by batch --
+the manufacturer prints a different MRP on each batch, so one figure per
+product would misstate a shelf holding two. The MRP is the one held today:
+no history of it is kept, so a past day is valued at today's printed price.
+A unit with no MRP anywhere adds nothing, and an item with none is left blank
+rather than shown as worth zero.
 """
 
 from dataclasses import dataclass
@@ -28,6 +38,7 @@ from uuid import UUID
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.models import BatchRecord
 from app.core.utils.money import quantize_ledger
 from app.finance.models import GLPosting, JournalEntry
 from app.finance.services.control_accounts import (
@@ -57,6 +68,12 @@ class StockValuationRow:
     #: The product's goods type, General where it has none (backlog 89);
     #: empty on the closing rows.
     goods_type: str = ""
+    #: The MRP of a unit, where every unit on hand carries the same one;
+    #: None where the batches on hand differ, or none is recorded.
+    mrp: Decimal | None = None
+    #: The quantity at its MRP, each unit at its own batch's (backlog 109).
+    #: None where no unit on hand has an MRP, and on the two books rows.
+    mrp_value: Decimal | None = None
 
 
 class StockValuationService:
@@ -104,16 +121,21 @@ class StockValuationService:
         ]
         if warehouse_id is not None:
             quantity_filters.append(InventoryTransaction.warehouse_id == warehouse_id)
-        quantities: dict[UUID, Decimal] = {
-            product_id: amount
-            for product_id, amount in self._session.execute(
-                select(InventoryTransaction.product_id, func.sum(owned))
-                .where(*quantity_filters)
-                .group_by(InventoryTransaction.product_id)
-            ).all()
-        }
+        # One row per product and per MRP its batches carry, so the stock is
+        # added up by the database and the batches never come here by id.
+        quantities: dict[UUID, Decimal] = {}
+        at_mrp: dict[UUID, list[tuple[Decimal | None, Decimal]]] = {}
+        for product_id, batch_mrp, amount in self._session.execute(
+            select(InventoryTransaction.product_id, BatchRecord.mrp, func.sum(owned))
+            .outerjoin(BatchRecord, BatchRecord.id == InventoryTransaction.batch_id)
+            .where(*quantity_filters)
+            .group_by(InventoryTransaction.product_id, BatchRecord.mrp)
+        ).all():
+            held = Decimal(str(amount or 0))
+            quantities[product_id] = quantities.get(product_id, ZERO) + held
+            at_mrp.setdefault(product_id, []).append((batch_mrp, held))
         rates = self._rates(firm_id, on)
-        # The six columns the report shows, for the firm's products: whole
+        # The seven columns the report reads, for the firm's products: whole
         # rows of five thousand products were most of what this report took.
         products = {
             product.id: product
@@ -125,6 +147,7 @@ class StockValuationService:
                     Product.category_id,
                     Product.goods_type_id,
                     Product.base_uom_id,
+                    Product.mrp,
                 ).where(Product.firm_id == firm_id)
             )
             if product.id in quantities
@@ -154,16 +177,18 @@ class StockValuationService:
 
         rows: list[StockValuationRow] = []
         total = ZERO
-        for product_id, raw_quantity in quantities.items():
+        mrp_total = ZERO
+        for product_id, quantity in quantities.items():
             product = products.get(product_id)
             if product is None:
                 continue
-            quantity = Decimal(str(raw_quantity or 0))
             if quantity == ZERO and not include_zero:
                 continue
             rate = rates.get(product_id, ZERO)
             value = quantize_ledger(quantity * rate)
             total += value
+            mrp, mrp_value = _at_mrp(at_mrp[product_id], product.mrp)
+            mrp_total += mrp_value or ZERO
             rows.append(
                 StockValuationRow(
                     row_type="ITEM",
@@ -175,10 +200,12 @@ class StockValuationService:
                     rate=rate,
                     value=value,
                     goods_type=goods_types.get(product.goods_type_id, GENERAL_GOODS),
+                    mrp=mrp,
+                    mrp_value=mrp_value,
                 )
             )
         rows.sort(key=lambda row: (row.category, row.product_code))
-        rows.append(_closing("TOTAL", "Grand total", total))
+        rows.append(_closing("TOTAL", "Grand total", total, mrp_value=mrp_total))
         if warehouse_id is None:
             books = self._books(firm_id, on)
             if books is not None:
@@ -290,7 +317,33 @@ def goods_type_names(session: Session, ids: set[UUID]) -> dict[UUID | None, str]
     }
 
 
-def _closing(kind: str, label: str, value: Decimal) -> StockValuationRow:
+def _at_mrp(
+    held: list[tuple[Decimal | None, Decimal]], product_mrp: Decimal | None
+) -> tuple[Decimal | None, Decimal | None]:
+    """Return an item's MRP and its stock's value at MRP.
+
+    ``held`` is the quantity owned under each batch MRP, None being the units
+    whose batch has none or which have no batch: those take the product's.
+    The MRP is stated only where every unit on hand carries the same one.
+    """
+    value: Decimal | None = None
+    seen: set[Decimal | None] = set()
+    for batch_mrp, quantity in held:
+        if quantity == ZERO:
+            continue
+        mrp = batch_mrp if batch_mrp is not None else product_mrp
+        seen.add(None if mrp is None else Decimal(str(mrp)))
+        if mrp is not None:
+            value = (value or ZERO) + quantity * Decimal(str(mrp))
+    if not seen:
+        seen.add(None if product_mrp is None else Decimal(str(product_mrp)))
+    single = next(iter(seen)) if len(seen) == 1 else None
+    return single, None if value is None else quantize_ledger(value)
+
+
+def _closing(
+    kind: str, label: str, value: Decimal, *, mrp_value: Decimal | None = None
+) -> StockValuationRow:
     return StockValuationRow(
         row_type=kind,
         product_code="",
@@ -300,6 +353,7 @@ def _closing(kind: str, label: str, value: Decimal) -> StockValuationRow:
         quantity=None,
         rate=None,
         value=quantize_ledger(value),
+        mrp_value=None if mrp_value is None else quantize_ledger(mrp_value),
     )
 
 

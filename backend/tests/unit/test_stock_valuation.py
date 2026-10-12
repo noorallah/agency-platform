@@ -160,6 +160,126 @@ def test_quarantined_goods_are_still_owned_and_still_valued() -> None:
     assert totals["DIFFERENCE"] == Decimal("0.00")
 
 
+# -- The same stock at its MRP (backlog 109) ----------------------------------
+
+
+def _priced() -> tuple[Session, Firm]:
+    """Three items: one at its product's MRP, one by batch, one with none."""
+    from app.batch_serial.models import BatchRecord
+    from app.products.models import Product
+
+    session = _factory()()
+    firm = _firm(session)
+    report = _run(
+        session,
+        firm.id,
+        _csv(
+            "ProductCode,Warehouse,Quantity,UnitCost,Batch,Expiry",
+            "RICE,MAIN,10,50,,",
+            "RICE,EAST,5,50,,",
+            "SYRUP,MAIN,4,25.50,B-MARCH,31/03/2027",
+            "SYRUP,MAIN,6,25.50,B-JUNE,2027-06-30",
+            "SYRUP,MAIN,2,25.50,B-PLAIN,2027-06-30",
+            "OIL,MAIN,3,100,,",
+        ),
+        apply=True,
+    )
+    assert report.imported, [issue.describe() for issue in report.issues]
+    products = {
+        product.code: product
+        for product in session.scalars(
+            select(Product).where(Product.firm_id == firm.id)
+        )
+    }
+    products["RICE"].mrp = Decimal("65.00")
+    products["SYRUP"].mrp = Decimal("40.00")
+    batches = {
+        batch.batch_number: batch
+        for batch in session.scalars(
+            select(BatchRecord).where(BatchRecord.firm_id == firm.id)
+        )
+    }
+    batches["B-MARCH"].mrp = Decimal("42.00")
+    batches["B-JUNE"].mrp = Decimal("45.50")
+    session.commit()
+    return session, firm
+
+
+def test_the_stock_is_stated_at_its_mrp_beside_its_cost() -> None:
+    """The hand count: three items, each quantity times its printed price."""
+    session, firm = _priced()
+
+    rows = StockValuationService(session).valuation(firm.id, on=_ON)
+
+    items = {row.product_code: row for row in rows if row.row_type == "ITEM"}
+    # 15 at the product's 65.
+    assert (items["RICE"].mrp, items["RICE"].mrp_value) == (
+        Decimal("65.00"),
+        Decimal("975.00"),
+    )
+    assert items["RICE"].value == Decimal("750.00")
+    # 4 at 42 and 6 at 45.50 by their batches, 2 at the product's 40 because
+    # their batch has none: 168 + 273 + 80. No one MRP describes the item.
+    assert items["SYRUP"].mrp is None
+    assert items["SYRUP"].mrp_value == Decimal("521.00")
+    assert items["SYRUP"].value == Decimal("306.00")
+    total = next(row for row in rows if row.row_type == "TOTAL")
+    assert total.value == Decimal("1356.00")
+    assert total.mrp_value == Decimal("1496.00")
+
+
+def test_an_item_with_no_mrp_is_left_blank_and_not_valued_at_zero() -> None:
+    session, firm = _priced()
+
+    rows = StockValuationService(session).valuation(firm.id, on=_ON)
+
+    oil = next(row for row in rows if row.product_code == "OIL")
+    assert (oil.mrp, oil.mrp_value) == (None, None)
+    # The books are kept at cost, so neither books row states an MRP.
+    assert [
+        row.mrp_value for row in rows if row.row_type in ("BOOKS", "DIFFERENCE")
+    ] == [
+        None,
+        None,
+    ]
+
+
+def test_one_warehouse_is_stated_at_mrp_for_what_it_holds() -> None:
+    session, firm = _priced()
+    east = session.scalar(
+        select(Warehouse).where(Warehouse.firm_id == firm.id, Warehouse.code == "EAST")
+    )
+    assert east is not None
+
+    rows = StockValuationService(session).valuation(
+        firm.id, on=_ON, warehouse_id=east.id
+    )
+
+    assert [(row.row_type, row.mrp_value) for row in rows] == [
+        ("ITEM", Decimal("325.00")),
+        ("TOTAL", Decimal("325.00")),
+    ]
+
+
+def test_the_route_carries_both_values() -> None:
+    from app.inventory.api.router import stock_valuation
+
+    session, firm = _priced()
+    scope = type("Scope", (), {"firm_id": firm.id})()
+    response = stock_valuation(
+        scope=scope,  # type: ignore[arg-type]
+        to_date=_ON,
+        from_date=None,
+        warehouse_id=None,
+        include_zero=False,
+        page=1,
+        page_size=100,
+        db=session,
+    )
+    total = response.data[-3]
+    assert (total.value, total.mrp_value) == (Decimal("1356.00"), Decimal("1496.00"))
+
+
 # -- The stock statement for the bank (backlog 70 row 6) ----------------------
 
 
