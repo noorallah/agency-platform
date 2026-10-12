@@ -14,6 +14,8 @@ The subcommands are the things an installed copy actually does::
     agency-server firm-count
     agency-server purge-retention --dry-run
     agency-server backup
+    agency-server backup-copy
+    agency-server backup-open --file <copy>.agbk --into <folder>
     agency-server check
     agency-server messaging-run-once
     agency-server loyalty-expire
@@ -29,6 +31,7 @@ in the first place.
 
 import argparse
 import sys
+from pathlib import Path
 
 from app.core.config.settings import Settings
 from app.core.paths import application_root, is_compiled_build
@@ -178,6 +181,62 @@ def _backup(args: argparse.Namespace) -> int:
         )
         return 1
     print(f"\nBackup written to {result.folder}")
+    if result.second_copy is not None:
+        print(result.second_copy)
+    return 0
+
+
+def _backup_copy(args: argparse.Namespace) -> int:
+    """Bring the second backup folder up to date, as the nightly task does."""
+    from app.core.tenancy.backup import BackupError
+    from app.core.tenancy.backup_copy import copy_backups_to_second_folder
+
+    settings = Settings()
+    if args.backup_directory is not None:
+        # The service is told its backup folder by its own definition, which
+        # a scheduled task does not read; the task names the folder instead.
+        settings = settings.model_copy(
+            update={"backup_directory": args.backup_directory}
+        )
+    try:
+        result = copy_backups_to_second_folder(settings, report=print)
+    except BackupError as error:
+        print(f"Second copy failed: {error}", file=sys.stderr)
+        return 1
+    if result is None:
+        print(
+            "No second backup folder is set (AGENCY_BACKUP_SECOND_DIRECTORY), "
+            "so no second copy is kept."
+        )
+        return 0
+    print(result.summary())
+    return 1 if result.failed else 0
+
+
+def _backup_open(args: argparse.Namespace) -> int:
+    """Turn one protected copy back into a folder of dumps."""
+    import getpass
+
+    from app.core.tenancy.backup import BackupError
+    from app.core.tenancy.backup_copy import open_copy
+
+    if args.password_file is not None:
+        try:
+            lines = args.password_file.read_text(encoding="utf-8").splitlines()
+        except OSError as error:
+            print(f"Could not read {args.password_file}: {error}", file=sys.stderr)
+            return 1
+        password = lines[0] if lines else ""
+    else:
+        password = getpass.getpass("Password of the backup copy: ")
+    try:
+        names = open_copy(args.file, args.into, password=password)
+    except BackupError as error:
+        print(f"Not opened: {error}", file=sys.stderr)
+        return 1
+    print(f"{len(names)} file(s) written to {args.into}:")
+    for name in names:
+        print(f"  {name}")
     return 0
 
 
@@ -456,6 +515,35 @@ def build_parser() -> argparse.ArgumentParser:
         "backup", help="Back up every store now, into <backup dir>/manual."
     )
     backup.set_defaults(handler=_backup)
+
+    backup_copy = subcommands.add_parser(
+        "backup-copy",
+        help=(
+            "Copy every finished backup the second folder lacks, "
+            "password-protected, and remove the copies past their days."
+        ),
+    )
+    backup_copy.add_argument(
+        "--backup-directory",
+        type=Path,
+        default=None,
+        help="The backup folder to copy from, when not the configured one.",
+    )
+    backup_copy.set_defaults(handler=_backup_copy)
+
+    backup_open = subcommands.add_parser(
+        "backup-open",
+        help="Unpack one password-protected backup copy into a folder of dumps.",
+    )
+    backup_open.add_argument("--file", type=Path, required=True)
+    backup_open.add_argument("--into", type=Path, required=True)
+    backup_open.add_argument(
+        "--password-file",
+        type=Path,
+        default=None,
+        help="A file whose first line is the password; asked for when absent.",
+    )
+    backup_open.set_defaults(handler=_backup_open)
 
     where = subcommands.add_parser(
         "where", help="Print the version, environment and install directory."

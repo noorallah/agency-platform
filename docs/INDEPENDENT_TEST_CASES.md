@@ -5988,6 +5988,30 @@ section 27. Cases name the firms that must be there, never how many.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** a firm admin user.
 
+### TC-PLAT-006 — Every backup also lands in a second folder, and opens only with the password
+
+- **Covers:** backlog 112 (customer task S7)
+- **Fixture:** `platform-admin`
+- **Also needs:** the server PC, and two lines in the server's `config\.env` followed by a restart: `AGENCY_BACKUP_SECOND_DIRECTORY` naming an empty folder on another drive (or one a cloud program keeps in step) and `AGENCY_BACKUP_SECOND_PASSWORD` of at least 8 characters. Use a test folder, never the firm's real one.
+- **Steps**
+  1. Sign in as the fixture's **Platform admin** and open **Settings > Platform > System > Backups**. Read the note at the top.
+  2. Press **Back up now** and wait for the result line.
+  3. On the server PC open the second folder.
+  4. In a command prompt in `C:\Program Files\Agency Platform\backend`, run `agency-server backup-open --file <the .agbk file> --into C:\restore\check` and type a **wrong** password; run it again with the right one.
+  5. Open the `.agbk` file in Notepad or 7-Zip.
+  6. Remove the password line from `config\.env`, restart the server and press **Back up now** again.
+  7. Put the password back and restart. Take backups on eleven different days (or leave the nightly task to it) and look at the second folder on the eleventh.
+- **Expect**
+  - Step 1: the note names the second folder, how many copies it holds and that the copies of the last 10 days are kept. With no second folder set, the note instead tells you to copy backups off the PC by hand.
+  - Step 2: the result line ends "Second copy: 1 copied to <the folder>."
+  - Step 3: one new file, `agency-backup-manual-<date-time>.agbk`, about the size of the backup folder it copies. No file ending `.part` is left.
+  - Step 4: the wrong password is refused ("The copy does not open: the password is wrong, or the file has been altered or is not whole.") and `C:\restore\check` is not created. The right one writes the same files the backup folder holds: one `.dump` per store, `manifest.json` and `.complete`.
+  - Step 5: nothing readable. Not a file name, not a table name; 7-Zip does not open it.
+  - Step 6: the backup **succeeds** and its result line says the second copy was not written, naming `AGENCY_BACKUP_SECOND_PASSWORD`. No new file appears in the second folder.
+  - Step 7: on the eleventh day the copies of the oldest day are gone and ten days remain. Any other file you put in the folder is still there.
+- **Data:** reads every store (`pg_dump`); writes one `system.backup_started` audit row per press, in the platform trail.
+- **Leaves:** backups in the server's manual folder and copies in the test second folder. Delete the test folder afterwards and take the two lines out of `config\.env` if the installation should keep no second copy.
+
 ---
 
 ## The user menu — who you are, and where you start

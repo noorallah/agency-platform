@@ -2056,8 +2056,9 @@ naming who. Another PC sees the new branding at its next sign-in screen.
   installation, for the platform administrator.
 - **Backups**: the backups the server has taken, and **Back up now** to take
   one. A backup runs on the server and takes a while, so the button returns at
-  once and the page checks until the run is done. Platform tier only
-  (`SYSTEM_BACKUP`).
+  once and the page checks until the run is done. Where the server has been
+  given a second backup folder, the page names it, says how many copies it
+  holds and which is the newest. Platform tier only (`SYSTEM_BACKUP`).
 - **Licensing**: a placeholder; licensing is not in use in 1.3.0.
 
 ## 11.5 Backup
@@ -2068,6 +2069,15 @@ also before every upgrade. After the nightly backup the server also prunes
 old sign-in and token records on its own (switched off by the platform-wide
 setting `AGENCY_RETENTION_AUTO_PURGE`). The *Installation guide* (section 6) explains how
 to restore one.
+
+**A second copy, protected by a password.** Once the server is told a second
+folder and a password (two lines in its settings file; the *Installation
+guide*, section 6, has them), every backup -- nightly, by hand and before an
+upgrade -- also lands in that folder as one file that opens only with the
+password. The folder is one a cloud program keeps in step, or one on another
+drive. The copies of the newest 10 days are kept and older ones removed;
+nothing else in the folder is touched. A night when the folder cannot be
+reached does not fail the backup, and the next run copies what was missed.
 
 ---
 

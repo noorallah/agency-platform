@@ -782,7 +782,32 @@ function Invoke-DailyBackup {
     Remove-Item -LiteralPath $old.FullName -Recurse -Force -ErrorAction SilentlyContinue
     Write-Log "  removed the old backup $($old.Name)"
   }
+  Invoke-SecondCopy
   Invoke-Retention
+}
+
+function Invoke-SecondCopy {
+  <#
+    Copy every finished backup the second folder lacks (backlog 112), each
+    as one password-protected file, and remove the copies past their days.
+    The server decides whether there is a second folder at all
+    (AGENCY_BACKUP_SECOND_DIRECTORY in config\.env) and says so when there is
+    none; a failure here is logged and never fails the backup just taken.
+    The backup folder is named because the service is told it by its own
+    definition, which this task does not read.
+  #>
+  if (-not (Test-Path -LiteralPath $AgencyServer)) {
+    Write-Log "  warning: $AgencyServer is missing, so no second copy was written"
+    return
+  }
+  try {
+    Write-Log 'Second copy: bringing the second backup folder up to date'
+    $code = Invoke-Native -File $AgencyServer -WorkingDirectory $Backend `
+      -Arguments @('backup-copy', '--backup-directory', (Join-Path $DataRoot 'backups'))
+    if ($code -ne 0) { Write-Log "  warning: the second copy exited with $code" }
+  } catch {
+    Write-Log "  warning: the second copy could not run: $($_.Exception.Message)"
+  }
 }
 
 function Invoke-Retention {

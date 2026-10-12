@@ -166,6 +166,13 @@ class _BackupsPageState extends State<BackupsPage> {
             'are kept';
     final String where =
         overview == null ? 'the backup folder' : overview.backupDirectory;
+    final String? second = overview?.secondDirectory;
+    // With a second folder the server makes the copy itself, so the advice
+    // to copy by hand gives way to where the copies are.
+    final String offThisPc = second == null
+        ? 'copy them off this PC (a USB drive or the cloud) regularly'
+        : 'a password-protected copy of each also goes to the second folder '
+            'below';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -173,15 +180,45 @@ class _BackupsPageState extends State<BackupsPage> {
         color: Theme.of(context).colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(AppSpacing.xs),
       ),
-      child: Text(
-        'This server backs itself up every night at 02:00 and keeps those '
-        'for 7 days. "Back up now" takes one immediately$kept. Backups are '
-        'in $where on the server PC -- copy them off this PC (a USB drive '
-        'or the cloud) regularly. Restoring is done by an administrator on '
-        'the server PC, following section 6 of the Install Guide.',
-        style: Theme.of(context).textTheme.bodySmall,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'This server backs itself up every night at 02:00 and keeps those '
+            'for 7 days. "Back up now" takes one immediately$kept. Backups are '
+            'in $where on the server PC -- $offThisPc. Restoring is done by an '
+            'administrator on the server PC, following section 6 of the '
+            'Install Guide.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (overview != null && second != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              _secondLine(overview, second),
+              key: const ValueKey('backup-second-folder'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: overview.secondProblem == null
+                        ? null
+                        : Theme.of(context).colorScheme.error,
+                  ),
+            ),
+          ],
+        ],
       ),
     );
+  }
+
+  /// What the second folder holds, or why it cannot be read.
+  String _secondLine(BackupOverview overview, String second) {
+    final String? problem = overview.secondProblem;
+    if (problem != null) return 'Second folder: $problem';
+    final int held = overview.secondCopies.length;
+    final String newest =
+        held == 0 ? '' : '; the newest is ${overview.secondCopies.first}';
+    return 'Second folder: $second holds $held '
+        '${held == 1 ? 'copy' : 'copies'}$newest. The copies of the last '
+        '${overview.secondKeepDays} days are kept, and each opens only with '
+        'the password in the server settings.';
   }
 
   Widget _runStatus(BuildContext context) {

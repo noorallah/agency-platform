@@ -188,6 +188,14 @@ class Settings(BaseSettings):
     #: The folder holding `pg_dump` and `pg_restore`. Unset, the server looks
     #: beside itself (`<install>/pgsql/bin`), then on PATH.
     backup_pg_bin: Path | None = None
+    #: A second place every finished backup is copied to, as one
+    #: password-protected file each: a cloud-synced folder or another drive
+    #: (`app/core/tenancy/backup_copy.py`). Unset, no second copy is kept.
+    backup_second_directory: Path | None = None
+    #: The password those copies open with. A copy is never written without.
+    backup_second_password: SecretStr | None = None
+    #: How many days of copies the second folder keeps.
+    backup_second_keep_days: int = Field(default=10, ge=1)
     #: Whether the nightly task prunes old login records, refresh tokens,
     #: password history and tax-rule logs after its backup (PLT-6). On by
     #: default; a platform that must keep them longer sets it false.

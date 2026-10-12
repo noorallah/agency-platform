@@ -259,6 +259,42 @@ to another drive or PC regularly, with a copy of
 `C:\Program Files\Agency Platform\backend\config\.env`, and keep both where
 only administrators can reach them.
 
+**Or let the server keep the second copy.** Name a second folder and a
+password in `C:\Program Files\Agency Platform\backend\config\.env`, then
+restart the server (`Restart-Service AgencyPlatformServer`):
+
+```
+AGENCY_BACKUP_SECOND_DIRECTORY=D:\AgencyBackups
+AGENCY_BACKUP_SECOND_PASSWORD=<at least 8 characters>
+```
+
+The folder is one a cloud program keeps in step (OneDrive, Google Drive) or
+one on another drive. From then on the nightly backup, **Back up now** and
+the backup before an upgrade each also land there as **one file**,
+`agency-backup-<kind>-<date-time>.agbk`, and the copies of the newest 10 days
+are kept (`AGENCY_BACKUP_SECOND_KEEP_DAYS` changes the 10). The Backups page
+names the folder and what it holds, and the nightly log says what was copied.
+
+- The file opens only with the password, and only with this program. **Write
+  the password down somewhere that is not this PC.** Without it the copies
+  cannot be opened by anybody, us included.
+- A copy holds the databases. It does not hold `config\.env`; keep a copy of
+  that file as well.
+- The nightly backup runs as the SYSTEM account, which cannot see a drive
+  letter mapped for one user. Name a local folder, or a full network path.
+- If the folder cannot be reached one night, the backup itself still
+  succeeds and the next run copies what was missed.
+
+To open a copy, on any PC with Agency Platform installed:
+
+```
+cd "C:\Program Files\Agency Platform\backend"
+.\agency-server.exe backup-open --file D:\AgencyBackups\agency-backup-daily-20261013-020000.agbk --into C:\restore\20261013
+```
+
+It asks for the password and writes the backup folder into `C:\restore\20261013`.
+Restore from that folder as below.
+
 **Restoring a backup** puts the database back exactly as it was when the
 backup was taken; anything entered since is lost. On the server PC, as an
 administrator:

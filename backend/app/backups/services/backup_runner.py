@@ -120,9 +120,10 @@ class BackupRunner:
             )
             return
         taken = sum(1 for store in result.stores if store.outcome == "ok")
+        second = "" if result.second_copy is None else f" {result.second_copy}"
         self._finish(
             "succeeded",
-            f"{taken} store(s) backed up to {result.folder}.",
+            f"{taken} store(s) backed up to {result.folder}.{second}",
             folder=str(result.folder),
             stores=result.stores,
         )
