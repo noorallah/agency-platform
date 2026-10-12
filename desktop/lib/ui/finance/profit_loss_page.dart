@@ -7,6 +7,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/report_workbook.dart';
 import 'period_line.dart';
 import 'profit_loss_range_view.dart';
 import 'statement_amount.dart';
@@ -166,7 +167,14 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                 unawaited(_loadReport());
               },
               onRefresh: _loading ? null : () => unawaited(_loadReport()),
-              trailing: [],
+              trailing: [
+                WorkbookDownloadButton(
+                  enabled: !_loading && !_report.isEmpty,
+                  fileName: () => workbookFileName(
+                      ['profit-and-loss', _period?.label ?? '']),
+                  sheet: _sheet,
+                ),
+              ],
             )
           else
           Padding(
@@ -222,6 +230,45 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       ),
     );
   }
+
+  /// The statement as a sheet (backlog 117), row for row as the table.
+  WorkbookSheet _sheet() => WorkbookSheet(
+        title: 'Profit and loss',
+        notes: ['Period: ${_period?.label ?? ''}'],
+        headers: const ['Code', 'Account', 'This period', 'Year to date'],
+        numeric: const {2, 3},
+        rows: [
+          [null, 'Income', null, null],
+          for (final ProfitLossLine line in _report.income)
+            [
+              line.accountCode,
+              line.accountName,
+              line.periodAmount,
+              line.yearToDateAmount,
+            ],
+          [null, 'Total income', _report.totalIncome, _report.yearToDateIncome],
+          [null, 'Expenses', null, null],
+          for (final ProfitLossLine line in _report.expenses)
+            [
+              line.accountCode,
+              line.accountName,
+              line.periodAmount,
+              line.yearToDateAmount,
+            ],
+          [
+            null,
+            'Total expenses',
+            _report.totalExpense,
+            _report.yearToDateExpense,
+          ],
+          [
+            null,
+            'Net profit or loss',
+            _report.netProfit,
+            _report.yearToDateNetProfit,
+          ],
+        ],
+      );
 
   Widget _body(BuildContext context) {
     if (_periods.isEmpty) {

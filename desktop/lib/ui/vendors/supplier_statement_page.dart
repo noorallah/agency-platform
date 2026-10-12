@@ -18,6 +18,7 @@ import '../../phase2/indian_format.dart';
 import '../workspace/balance_confirmation.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/party_place.dart';
+import '../workspace/report_workbook.dart';
 
 /// Pick a supplier, read their account over a period, send them a letter.
 class SupplierStatementPage extends StatefulWidget {
@@ -178,6 +179,16 @@ class _SupplierStatementPageState extends State<SupplierStatementPage> {
               if (id != null) unawaited(_loadStatement(id));
             },
           ),
+          WorkbookDownloadButton(
+            enabled: !_loading && _statement != null,
+            fileName: () => workbookFileName([
+              'supplier-statement',
+              stringValue(_statement?['vendor_name']),
+              _iso(_from),
+              _iso(_to),
+            ]),
+            sheet: _sheet,
+          ),
         ],
         commands: [
           ToolbarCommand(
@@ -212,6 +223,52 @@ class _SupplierStatementPageState extends State<SupplierStatementPage> {
         selected: false,
         message: 'Positive: the firm owes the supplier.',
       ),
+    );
+  }
+
+  /// The account as a sheet (backlog 117): the opening balance, every
+  /// line and the totals the counters show.
+  WorkbookSheet _sheet() {
+    final Json statement = _statement!;
+    return WorkbookSheet(
+      title: 'Supplier statement: ${stringValue(statement['vendor_name'])}',
+      notes: ['From ${_iso(_from)} to ${_iso(_to)}'],
+      headers: const [
+        'Date',
+        'Type',
+        'Reference',
+        'Debit',
+        'Credit',
+        'Balance',
+      ],
+      numeric: const {3, 4, 5},
+      rows: [
+        [
+          null,
+          'Opening balance',
+          null,
+          null,
+          null,
+          statement['opening_balance'],
+        ],
+        for (final dynamic line in _lines())
+          [
+            stringValue((line as Map)['transaction_date']),
+            statusInWords(stringValue(line['transaction_type'])),
+            stringValue(line['reference_number']),
+            line['debit'],
+            line['credit'],
+            line['balance'],
+          ],
+        [
+          null,
+          'Closing balance',
+          null,
+          statement['total_debit'],
+          statement['total_credit'],
+          statement['closing_balance'],
+        ],
+      ],
     );
   }
 

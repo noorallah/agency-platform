@@ -9,6 +9,7 @@ import '../../models/entities.dart';
 import '../../models/finance.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/report_workbook.dart';
 import 'period_line.dart';
 
 /// One account's ledger: what it opened at, every movement, what it closed at.
@@ -161,6 +162,17 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
               },
               onRefresh: _loading ? null : () => unawaited(_loadReport()),
               leading: [SizedBox(width: 260, child: _accountPicker(compact: true))],
+              trailing: [
+                WorkbookDownloadButton(
+                  enabled: !_loading && _account != null && _period != null,
+                  fileName: () => workbookFileName([
+                    'ledger',
+                    _account?.code ?? '',
+                    _period?.label ?? '',
+                  ]),
+                  sheet: _sheet,
+                ),
+              ],
             ),
             SummaryCards(children: [
               SummaryCount(
@@ -205,6 +217,46 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
       ),
     );
   }
+
+  /// The ledger as a sheet (backlog 117): the opening balance, every line
+  /// and the totals the page line shows.
+  WorkbookSheet _sheet() => WorkbookSheet(
+        title: 'Ledger: ${_account?.code ?? ''} ${_account?.name ?? ''}',
+        notes: [
+          _toPeriod == null
+              ? 'Period: ${_period?.label ?? ''}'
+              : 'Period: ${_period?.label ?? ''} to ${_toPeriod!.label}',
+        ],
+        headers: const [
+          'Date',
+          'Reference',
+          'Narration',
+          'Debit',
+          'Credit',
+          'Balance',
+        ],
+        numeric: const {3, 4, 5},
+        rows: [
+          [null, null, 'Opening balance', null, null, _report.openingBalance],
+          for (final GeneralLedgerLine line in _report.lines)
+            [
+              line.journalDate,
+              line.referenceNumber,
+              line.description,
+              line.debitAmount,
+              line.creditAmount,
+              line.runningBalance,
+            ],
+          [
+            null,
+            null,
+            'Closing balance',
+            _report.totalDebit,
+            _report.totalCredit,
+            _report.closingBalance,
+          ],
+        ],
+      );
 
   /// An amount as the page line shows it: Indian digits, two places.
   static String _lineAmount(String value) {

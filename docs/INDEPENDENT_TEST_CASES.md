@@ -4700,6 +4700,38 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Data:** `party_adjustment_settings.clearance_discount_percent`; `settlements.discount_amount`; one journal per receipt.
 - **Leaves:** three closed bills and three receipts; the clearance percentage blank. A sales role cannot do step 2 at all: it does not hold the record-receipt permission.
 
+### TC-FIN-029 — A statement or a report downloads as an Excel sheet with the figures on screen
+
+*Added 2026-10-13 (backlog 117). Covered by widget tests and by reading a written sheet back with a second program; **no screen was clicked and no sheet was opened in Excel**.*
+
+- **Covers:** backlog 117 (customer task S12)
+- **Fixture:** `ready-firm`
+- **Also needs:** Excel or another program that opens `.xlsx`; the firm has at least one approved sales bill, one receipt against it and one approved purchase bill in the current month, and more than a hundred sales bills in the current financial year (the demo firm has).
+- **Steps**
+  1. Open *Reports → Operational*, choose a register of sales bills, set From to the first day of the financial year and To to today. Note the number of rows at the foot and the total of the first bill. Press **Download** and save the file.
+  2. Open the file.
+  3. Add up an amount column in Excel with `=SUM(...)`.
+  4. Open *Reports → Financial*, choose the quarterly TDS return. Look at the buttons on the line.
+  5. Open the customer statement, open one customer's account for the current month and press **Download**. Open the file.
+  6. On the same screen choose **Ageing** and press **Download**. Open the file.
+  7. Open the supplier statement, choose a supplier and download.
+  8. Open *Trial Balance* for the current month and download. Compare the Total line.
+  9. Open *Profit & Loss*, show **Months or year**, turn **Month by month** on and download.
+  10. Open *Balance Sheet*, *Ledgers* (choose the cash account) and the cash flow statement and download each.
+  11. In any save dialog press Cancel.
+- **Expect**
+  - Step 1: a save dialog offers a name made of the report and its dates, ending `.xlsx`. A message says where the file was saved.
+  - Step 2: line 1 is the report's name, line 2 the period, then the same headings as the screen in bold. The sheet holds **every** row of the period, not only the hundred on the first page.
+  - Step 3: the sum works: amounts are numbers. A bill number or a code is text and keeps any leading zeros.
+  - Step 4: **Form 26Q file** (the return's own workbook) and **Download** (the rows on screen) are both there.
+  - Step 5: the first row is the opening balance, the last the closing balance, and each line's debit, credit and balance equal the screen's.
+  - Step 6: one column per ageing band, as on screen, and the outstanding total per customer.
+  - Step 8: the Total line of the sheet equals the Total line of the screen, column for column.
+  - Step 9: one column per month, then Total.
+  - Step 11: "Export cancelled. No file was saved." and no file is written.
+- **Leaves:** nothing in the firm; files where you saved them.
+
+
 ## Concurrency — two people, one record
 
 Run these with **two clients** on one server (or two windows of one client),

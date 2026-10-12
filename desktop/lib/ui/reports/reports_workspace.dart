@@ -16,6 +16,7 @@ import '../finance/journal_entry_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
 import '../workspace/party_place.dart';
+import '../workspace/report_workbook.dart';
 import 'report_catalog.dart';
 
 /// How a downloaded report file is written to disk. Tests inject one,
@@ -227,32 +228,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     try {
       final ReportPage result = await widget.api.reportRows(
         report.path,
-        query: report.needsSupplier
-            ? {
-                'vendor_id': _vendorId!,
-                'from_date': _from.text.trim(),
-                'to_date': _to.text.trim(),
-              }
-            : report.quarterly
-            ? {
-                'financial_year': _financialYear.text.trim(),
-                'quarter': 'Q$_quarter',
-                'page': '$page',
-                'page_size': '$_pageSize',
-              }
-            : report.onDateParam != null
-                ? {report.onDateParam!: _to.text.trim()}
-                : report.needsPeriod
-                ? {
-                    'from_date': _from.text.trim(),
-                    'to_date': _to.text.trim(),
-                    if (days != null) 'days': _days.text.trim(),
-                    'page': '$page',
-                    'page_size': '$_pageSize',
-                  }
-                : days != null
-                    ? {'days': _days.text.trim()}
-                    : null,
+        query: _query(report, page),
         rowsKey: report.rowsKey,
       );
       if (!mounted || load != _loads) return;
@@ -271,6 +247,123 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
       if (mounted && load == _loads) setState(() => _loading = false);
     }
   }
+
+  /// What a report is asked with: its supplier, its quarter, its day or its
+  /// dates, and the page where it is paged.
+  Map<String, String>? _query(ReportDefinition report, int page) {
+    final int? days = report.days;
+    if (report.needsSupplier) {
+      return {
+        'vendor_id': _vendorId!,
+        'from_date': _from.text.trim(),
+        'to_date': _to.text.trim(),
+      };
+    }
+    if (report.quarterly) {
+      return {
+        'financial_year': _financialYear.text.trim(),
+        'quarter': 'Q$_quarter',
+        'page': '$page',
+        'page_size': '$_pageSize',
+      };
+    }
+    if (report.onDateParam != null) {
+      return {report.onDateParam!: _to.text.trim()};
+    }
+    if (report.needsPeriod) {
+      return {
+        'from_date': _from.text.trim(),
+        'to_date': _to.text.trim(),
+        if (days != null) 'days': _days.text.trim(),
+        'page': '$page',
+        'page_size': '$_pageSize',
+      };
+    }
+    return days != null ? {'days': _days.text.trim()} : null;
+  }
+
+  /// The most pages a download reads: a hundred thousand rows, which is
+  /// about what one sheet is still pleasant to open with.
+  static const int _maxDownloadPages = 1000;
+
+  /// The report as a sheet (backlog 117): the columns on screen and every
+  /// row the report holds, not only the page on show -- a paged report is
+  /// read to its end first, asked exactly as the screen asked.
+  Future<WorkbookSheet> _sheet(ReportDefinition report) async {
+    List<Json> rows = _rows;
+    int total = _rows.length;
+    if (_paged(report) && _total > _rows.length) {
+      rows = [];
+      total = _total;
+      for (int page = 1; page <= _maxDownloadPages; page++) {
+        final ReportPage result = await widget.api.reportRows(
+          report.path,
+          query: _query(report, page),
+          rowsKey: report.rowsKey,
+        );
+        rows.addAll(result.rows);
+        total = result.total;
+        if (result.rows.isEmpty || rows.length >= result.total) break;
+      }
+    }
+    final List<ReportColumn> columns = columnsFor(report, rows);
+    Object? cell(Json row, ReportColumn column) {
+      final dynamic value = row[column.key];
+      if (value is bool || value is num) return value;
+      final String text =
+          cellValue(row, column.key, bandsKey: report.bandsKey);
+      if (text == '—') return null;
+      // A status in words, as the grid writes it; a code stays a code.
+      final bool status = column.label.trim().toLowerCase() == 'status' ||
+          column.key.toLowerCase() == 'status';
+      return status ? statusInWords(text) : text;
+    }
+
+    final String? supplier = report.needsSupplier
+        ? _vendors
+            .where((vendor) => vendor.id == _vendorId)
+            .map((vendor) => vendor.displayName)
+            .firstOrNull
+        : null;
+    return WorkbookSheet(
+      title: report.label,
+      notes: [
+        if (supplier != null) 'Supplier: $supplier',
+        if (report.quarterly)
+          'Financial year ${_financialYear.text.trim()}, quarter $_quarter'
+        else if (report.needsPeriod || report.needsSupplier)
+          report.asOnDate || report.onDateParam != null
+              ? 'As on ${_to.text.trim()}'
+              : 'From ${_from.text.trim()} to ${_to.text.trim()}',
+        if (report.days != null) 'Days: ${_days.text.trim()}',
+        if (rows.length < total)
+          'The first ${rows.length} of $total rows; narrow the dates for '
+              'the rest.',
+      ],
+      headers: [for (final ReportColumn column in columns) column.label],
+      numeric: {
+        for (int i = 0; i < columns.length; i++)
+          if (columns[i].numeric) i,
+      },
+      rows: [
+        for (final Json row in rows)
+          [for (final ReportColumn column in columns) cell(row, column)],
+      ],
+    );
+  }
+
+  /// The name a report's sheet is saved under: the report and what it was
+  /// asked for.
+  String _sheetName(ReportDefinition report) => workbookFileName([
+        report.id,
+        if (report.quarterly) ...[
+          _financialYear.text,
+          'Q$_quarter',
+        ] else if (report.needsPeriod || report.needsSupplier) ...[
+          if (!report.asOnDate && report.onDateParam == null) _from.text,
+          _to.text,
+        ],
+      ]);
 
   /// Open what a row stands for (55 M9): the journal behind a day book
   /// voucher or a cash book posting. An opening or closing row names no
@@ -679,9 +772,18 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
               onPressed: _loading || _downloading
                   ? null
                   : () => unawaited(_download(report)),
-              icon: const Icon(Icons.download_outlined, size: 16),
-              label: const Text('Download'),
+              icon: const Icon(Icons.description_outlined, size: 16),
+              // The return's own workbook, beside the sheet of what is on
+              // screen that every report offers.
+              label: const Text('Form 26Q file'),
             ),
+          // Every report as an Excel sheet (backlog 117).
+          WorkbookDownloadButton(
+            enabled: !_loading && _rows.isNotEmpty,
+            fileName: () => _sheetName(report),
+            sheet: () => _sheet(report),
+            saveFile: widget.saveFile,
+          ),
           Phase2Refresh(
             onPressed: _loading ? null : () => unawaited(_load()),
             child: const SizedBox.shrink(),

@@ -7,6 +7,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/report_workbook.dart';
 import 'statement_amount.dart';
 
 /// The cash flow statement over a run of months in one financial year (ACC-9).
@@ -176,6 +177,12 @@ class _CashFlowPageState extends State<CashFlowPage> {
                   onPressed: _loading ? null : () => unawaited(_load()),
                   icon: const Icon(Icons.refresh),
                 ),
+                WorkbookDownloadButton(
+                  enabled: !_loading && _report != null,
+                  fileName: () => workbookFileName(
+                      ['cash-flow', _from?.label ?? '', _to?.label ?? '']),
+                  sheet: _sheet,
+                ),
               ],
             ),
           ),
@@ -190,6 +197,36 @@ class _CashFlowPageState extends State<CashFlowPage> {
           Expanded(child: _body(context)),
         ],
       ),
+    );
+  }
+
+  /// The statement as a sheet (backlog 117), row for row as the table.
+  WorkbookSheet _sheet() {
+    final CashFlowReport report = _report!;
+    return WorkbookSheet(
+      title: 'Cash flow statement',
+      notes: ['From ${_from?.label ?? ''} to ${_to?.label ?? ''}'],
+      headers: const ['Particulars', 'Amount'],
+      numeric: const {1},
+      rows: [
+        ['Cash flows from operating activities', null],
+        ['Net profit', report.netProfit],
+        ['Adjustments for working capital', null],
+        for (final CashFlowLine line in report.operating)
+          [line.accountName, line.amount],
+        ['Net cash from operating activities', report.operatingTotal],
+        ['Cash flows from investing activities', null],
+        for (final CashFlowLine line in report.investing)
+          [line.accountName, line.amount],
+        ['Net cash from investing activities', report.investingTotal],
+        ['Cash flows from financing activities', null],
+        for (final CashFlowLine line in report.financing)
+          [line.accountName, line.amount],
+        ['Net cash from financing activities', report.financingTotal],
+        ['Net increase/(decrease) in cash', report.netChange],
+        ['Cash and bank at the start', report.openingCash],
+        ['Cash and bank at the end', report.closingCash],
+      ],
     );
   }
 

@@ -20,6 +20,7 @@ import '../workspace/balance_confirmation.dart';
 import '../workspace/desktop_framework.dart';
 import '../settings/send_message_dialog.dart';
 import '../workspace/remind_dialog.dart';
+import '../workspace/report_workbook.dart';
 import '../workspace/whatsapp_share.dart';
 
 /// Which of the two questions is on screen.
@@ -211,6 +212,159 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
     );
   }
 
+  /// Whether the view on show holds anything to put on a sheet.
+  bool get _mayDownload => switch (_view) {
+        _View.ageing => _ageing.isNotEmpty,
+        _View.statement => _statement != null,
+        _View.combined => _combined != null,
+      };
+
+  String _sheetName() => switch (_view) {
+        _View.ageing => workbookFileName(['customer-ageing', _to.text]),
+        _View.statement => workbookFileName([
+            'customer-statement',
+            stringValue(_statement?['customer_name']),
+            _from.text,
+            _to.text,
+          ]),
+        _View.combined => workbookFileName([
+            'combined-statement',
+            _selectedCustomerName,
+            _from.text,
+            _to.text,
+          ]),
+      };
+
+  /// The view on show as a sheet (backlog 117): the ageing with a column
+  /// per band, one customer's account, or the account net of what the firm
+  /// owes them as a supplier.
+  WorkbookSheet _sheet() {
+    final String period = 'From ${_from.text.trim()} to ${_to.text.trim()}';
+    switch (_view) {
+      case _View.ageing:
+        final List<dynamic> bands =
+            _ageing.first['buckets'] as List<dynamic>? ?? const [];
+        String band(Object? cell) {
+          final Map c = cell as Map;
+          final Object? upper = c['to_days'];
+          return upper == null
+              ? '${c['from_days']}+ days'
+              : '${c['from_days']}-$upper days';
+        }
+        Object? amount(Json row, int index) {
+          final List<dynamic> buckets =
+              row['buckets'] as List<dynamic>? ?? const [];
+          return index < buckets.length
+              ? (buckets[index] as Map)['amount']
+              : 0;
+        }
+        return WorkbookSheet(
+          title: 'Customer ageing',
+          headers: [
+            'Customer',
+            'Code',
+            for (final dynamic cell in bands) band(cell),
+            'Outstanding',
+            'Account',
+          ],
+          numeric: {for (int i = 0; i <= bands.length; i++) i + 2},
+          rows: [
+            for (final Json row in _ageing)
+              [
+                stringValue(row['customer_name']),
+                stringValue(row['customer_code']),
+                for (int i = 0; i < bands.length; i++) amount(row, i),
+                row['total_outstanding'],
+                _gap(row),
+              ],
+          ],
+        );
+      case _View.statement:
+        final Json statement = _statement!;
+        return WorkbookSheet(
+          title:
+              'Customer statement: ${stringValue(statement['customer_name'])}',
+          notes: [period],
+          headers: const [
+            'Date',
+            'Type',
+            'Reference',
+            'Debit',
+            'Credit',
+            'Balance',
+          ],
+          numeric: const {3, 4, 5},
+          rows: [
+            [
+              null,
+              'Opening balance',
+              null,
+              null,
+              null,
+              statement['opening_balance'],
+            ],
+            for (final dynamic line in _lines())
+              [
+                stringValue((line as Map)['transaction_date']),
+                statusInWords(stringValue(line['transaction_type'])),
+                stringValue(line['reference_number']),
+                line['debit'],
+                line['credit'],
+                line['balance'],
+              ],
+            [
+              null,
+              'Closing balance',
+              null,
+              null,
+              null,
+              statement['closing_balance'],
+            ],
+          ],
+        );
+      case _View.combined:
+        final Json combined = _combined!;
+        return WorkbookSheet(
+          title: 'Combined statement: $_selectedCustomerName',
+          notes: [period],
+          headers: const [
+            'Date',
+            'Account',
+            'Type',
+            'Reference',
+            'Debit',
+            'Credit',
+            'Net balance',
+          ],
+          numeric: const {4, 5, 6},
+          rows: [
+            for (final dynamic line
+                in combined['lines'] as List<dynamic>? ?? const [])
+              [
+                stringValue((line as Map)['transaction_date']),
+                stringValue(line['account']) == 'PAYABLE'
+                    ? 'Purchases'
+                    : 'Sales',
+                statusInWords(stringValue(line['transaction_type'])),
+                stringValue(line['reference_number']),
+                line['debit'],
+                line['credit'],
+                line['net_balance'],
+              ],
+            [
+              null,
+              null,
+              'Closing net',
+              null,
+              null,
+              null,
+              combined['net_closing'],
+            ],
+          ],
+        );
+    }
+  }
+
   /// The name of the customer on show, from the statement or the ageing row.
   String get _selectedCustomerName {
     final Json? statement = _statement;
@@ -313,6 +467,11 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
                     });
                     if (_view != _View.ageing) _refresh();
                   },
+                ),
+                WorkbookDownloadButton(
+                  enabled: !_loading && _mayDownload,
+                  fileName: _sheetName,
+                  sheet: _sheet,
                 ),
               ],
               commands: [

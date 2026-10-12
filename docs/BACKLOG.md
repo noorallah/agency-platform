@@ -8192,3 +8192,69 @@ runs the same check as the order and the bill).
 **For the customer.** Record the two drug licences and the FSSAI licence
 under *Masters > Trade Licences* as the firm's own, name the licence types as
 they should read on the bill, and choose Warn or Block under *Licence Check*.
+
+## 117. Excel download on every statement and report -- built 2026-10-13
+
+Customer task S12 (`docs/CUSTOMER_BUILD_TASKS.md`).
+
+**What was there.** One report, the quarterly TDS return, had a Download: the
+server's own Form 26Q workbook. The sales and purchase analysis screens saved
+a CSV. A purchase order list could be exported. Nothing else under Reports or
+under Accounts put its figures in a file: the customer statement, the
+supplier statement, a ledger, the trial balance, the profit and loss, the
+balance sheet and the cash flow statement were all read on screen or printed.
+
+**Decided.** The sheet is written by the desktop from the figures the screen
+is holding, not by a second set of server routes. A second route per report
+would be a second calculation of each one, and "the sheet opens with the same
+figures" is only certain when the sheet is made from the same answer. One
+writer lays every sheet out the same way (`report_workbook.dart`): the
+report's name, what it was asked for (the period, the party), a blank line,
+the headings in bold and the rows. A figure is written as a number, so Excel
+can add the column up; a code or a bill number stays text, so `0042` keeps
+its zeros. No new package: the desktop already carried `excel` for the
+purchase order export.
+
+A report that is read a page at a time is downloaded whole: the button reads
+the remaining pages first, asked exactly as the screen asked, up to a hundred
+thousand rows; past that the sheet says on its second line how many it holds
+of how many.
+
+**Built.** A **Download** button, new UI only, on:
+
+- every report under *Reports > Operational* and *Reports > Financial* (a
+  hundred of them on 2026-10-13; count `ReportDefinition(` in
+  `report_catalog.dart`), from the columns the grid shows. The TDS return
+  keeps the server's workbook as well, now labelled *Form 26Q file*;
+- the customer statement, in each of its three views: the ageing with a
+  column per band, one customer's account with its opening and closing
+  balance, and the combined statement of a customer who is also a supplier;
+- the supplier statement;
+- a ledger, with its opening and closing balance;
+- the trial balance, with its Total line;
+- the profit and loss, for one month and for a run of months (month by month
+  and against last year where the screen shows them);
+- the balance sheet and the cash flow statement;
+- the sales and purchase analysis grids, beside the CSV they already had.
+
+Nothing on the server changed, and no migration.
+
+**Tested.** `desktop/test/report_workbook_test.dart`: a figure is a number and
+text stays text; a paged report of 250 rows is read in three pages and the
+sheet holds all 250 with the first and last figure right; the trial balance's
+sheet carries the row and the Total line. A sheet written by the desktop was
+opened with `openpyxl`, a different reader, and its figures added up. The
+seventeen test files that open any of the touched screens pass, the
+1600x900 overflow sweep among them.
+
+**Not done.**
+
+- No screen was clicked in the running app, and no sheet was opened in Excel
+  itself.
+- Four report screens that are not under Reports have no Download yet:
+  *Payables* (what is owed and the payment forecast), the *Stock Ledger*,
+  the *Asset register* with its income-tax block schedule, and *Purchase rate
+  trend*. Each draws its own table, so each needs its own few lines on the
+  shared writer. The row stays open for them.
+- Ordinary lists (customers, bills, orders) are not reports and were left
+  alone.
