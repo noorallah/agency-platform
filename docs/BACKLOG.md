@@ -8114,3 +8114,81 @@ discounts apart from the Discount Allowed ledger.
 
 **Cases:** TC-FIN-028. **Tests:** `tests/unit/test_party_adjustments.py` (13
 new), `desktop/test/party_adjustment_page_test.dart`.
+
+## 116. The licence check, and the firm's licence numbers on the bill -- found built, tried 2026-10-13
+
+**Asked.** The licence check, and the firm's own licence numbers printed on
+the bill (customer task S11; try D2; question A20, "should the firm's selling
+licence numbers print on the bill? Decide with the sample bill"). Done when
+warn and block both work, an expired licence is caught, and the numbers print
+as on the sample bill.
+
+**Found.** All of it, built as section 54.
+
+- *Masters > Trade Licences* holds every licence: the firm's own (for the
+  whole firm or one branch), each customer's and each supplier's, with its
+  type, number and the days it is valid from and to. *Settings > Set up >
+  Party lists > Licence Types* is the list of kinds, which a firm adds to and
+  renames.
+- An item needs a licence when it names a type itself or when its category,
+  or a category above it, does. The item's own outranks the category's.
+- *Licence Check* in the same place is the firm's policy for selling: **Off**,
+  **Warn** (the default) or **Block**. It is judged when a sales order, a
+  delivery note or a sales bill is approved, on the document's own date, and
+  it asks two parties: the customer and the firm as seller. Buying only ever
+  warns.
+- Under Block, somebody holding `TRADE_LICENCE_OVERRIDE` may approve with a
+  reason, which the document's timeline keeps. The firm administrator holds
+  it; a Sales Manager does not.
+- The bill prints, under the firm's address, every licence of the firm (and
+  of the selling branch) that is valid on the bill's date, each as the type's
+  name and the number; and the customer's under **Billed to**. A licence that
+  has run out is left off.
+
+**The sample bill** (`bill-1.pdf` from the customer) prints, under the firm's
+address, `DGL No.1`, `DGL No.2` and `FSSAI`, each with its number, on a bill
+for goods that need neither. Ours prints the same thing in the same place:
+every valid licence of the firm, whatever the lines are. The words before
+each number are the licence type's name, so a firm that wants them to read
+`DGL No.1` and `DGL No.2` names two types so. That answers A20: yes, they
+print. Where exactly they sit on the half-page layout belongs to task S13.
+
+**Built.** Nothing.
+
+**Tried over HTTP, 2026-10-13,** on the fixture firm `T10139XDY-R` with a
+Sales Manager and a Cashier beside the firm administrator, two licence types
+made for the run, a category needing the first, and three items: one in the
+category, one in the category naming the second type itself, one outside it
+(30 checks):
+
+- A cashier is refused changing the policy (403). Block on the buying side is
+  refused (422).
+- **Warn.** An order for the item outside the category raises nothing. An
+  order for the item in it finds two things, the customer and the firm each
+  holding no licence of the type, would block nothing, and is approved.
+- **Block.** The same order is refused, "... holds no ...", and has not
+  moved. The Sales Manager giving a reason is refused (403). The firm
+  administrator giving a reason approves it.
+- **Expired.** With the firm's licence valid and the customer's ended
+  yesterday, only the customer is found wanting, and the order is refused
+  with the number and "expired on" the day. An order dated yesterday, the
+  licence's last day, is covered. Once the licence is renewed the refused
+  order is approved.
+- The item naming its own type is judged on that type, not its category's.
+- **The bill.** The customer's licence made to end yesterday after the
+  dispatch: the bill is refused in the same words, the Sales Manager cannot
+  override, and once renewed it is approved.
+- **The print.** The firm's drug licence number and its FSSAI number are
+  both under the firm's address (no line needs the FSSAI); a third licence of
+  the firm that ended yesterday is not printed; the customer's number is
+  under Billed to.
+
+**Not done.** The screens were not clicked: the licence register, the two
+set-up screens and the approval dialog that shows the findings and asks for
+the reason are covered by their widget tests only. The purchase side was not
+driven beyond its policy. The delivery note's own refusal was not tried (it
+runs the same check as the order and the bill).
+
+**For the customer.** Record the two drug licences and the FSSAI licence
+under *Masters > Trade Licences* as the firm's own, name the licence types as
+they should read on the bill, and choose Warn or Block under *Licence Check*.
