@@ -8,6 +8,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/sales_analysis.dart';
 import 'desktop_framework.dart';
 import 'reason_prompt.dart';
+import 'report_workbook.dart';
 
 /// One document behind a cell of the pivot: an invoice or a bill.
 class AnalysisDocument {
@@ -780,6 +781,21 @@ class _AnalysisPageState extends State<AnalysisPage> {
             tooltip: 'Export to CSV',
             onPressed: _analysis.isEmpty ? null : () => unawaited(_export()),
             icon: const Icon(Icons.download),
+          ),
+        // The same grid as an Excel sheet (backlog 117), figures as numbers.
+        if (_advanced != null)
+          WorkbookDownloadButton(
+            enabled: !_analysis.isEmpty,
+            fileName: () => workbookFileName([widget.config.title]),
+            sheet: () {
+              final List<String> headers = _gridHeaders();
+              return WorkbookSheet(
+                title: widget.config.title,
+                headers: headers,
+                numeric: {for (int i = 1; i < headers.length; i++) i},
+                rows: _gridRows(),
+              );
+            },
           ),
         if (_advanced != null)
           TextButton.icon(

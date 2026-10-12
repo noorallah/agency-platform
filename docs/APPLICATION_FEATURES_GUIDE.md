@@ -1932,6 +1932,15 @@ blocks as the firm sets. *Licence Types* and *Licence Check* are set up under
 Two screens, **Operational** and **Financial**, holding more than fifty
 reports. Each can be filtered, sorted and exported.
 
+**Download as Excel (2026-10-13).** Every report here has a **Download**
+button on its line. It saves an Excel sheet with the report's name, the
+period it was asked for, and the same columns and rows as the screen: all
+the rows of the period, not only the page on show. Amounts are numbers, so
+a column can be added up or pivoted. The same button is on the customer
+statement and ageing, the supplier statement, a ledger, the trial balance,
+the profit and loss, the balance sheet, the cash flow statement and the
+sales and purchase analysis.
+
 | Area | Reports |
 | --- | --- |
 | Quotations and orders | Enquiries lost, quotation register, quotation conversion, sales order register, orders not yet delivered, back orders, orders by customer, salesman or territory, targets achieved |

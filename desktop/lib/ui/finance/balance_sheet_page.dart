@@ -7,6 +7,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/report_workbook.dart';
 import 'period_line.dart';
 import 'statement_amount.dart';
 
@@ -129,7 +130,15 @@ class _BalanceSheetPageState extends State<BalanceSheetPage> {
                 unawaited(_loadReport());
               },
               onRefresh: _loading ? null : () => unawaited(_loadReport()),
-              trailing: [if (!_report.isEmpty) _balanceBadge(context)],
+              trailing: [
+                if (!_report.isEmpty) _balanceBadge(context),
+                WorkbookDownloadButton(
+                  enabled: !_loading && !_report.isEmpty,
+                  fileName: () => workbookFileName(
+                      ['balance-sheet', _period?.label ?? '']),
+                  sheet: _sheet,
+                ),
+              ],
             )
           else
           Padding(
@@ -283,6 +292,39 @@ class _BalanceSheetPageState extends State<BalanceSheetPage> {
       ),
     );
   }
+
+  /// The statement as a sheet (backlog 117), row for row as the table.
+  WorkbookSheet _sheet() => WorkbookSheet(
+        title: 'Balance sheet',
+        notes: ['As at the end of ${_period?.label ?? ''}'],
+        headers: const ['Code', 'Account', 'Amount'],
+        numeric: const {2},
+        rows: [
+          [null, 'Assets', null],
+          for (final BalanceSheetLine line in _report.assets)
+            [line.accountCode, line.accountName, line.amount],
+          [null, 'Total assets', _report.totalAssets],
+          [null, 'Liabilities', null],
+          for (final BalanceSheetLine line in _report.liabilities)
+            [line.accountCode, line.accountName, line.amount],
+          [null, 'Total liabilities', _report.totalLiabilities],
+          [null, 'Equity', null],
+          for (final BalanceSheetLine line in _report.equity)
+            [line.accountCode, line.accountName, line.amount],
+          [
+            null,
+            'Retained earnings brought forward',
+            _report.retainedEarningsBroughtForward,
+          ],
+          [null, 'Result for the year', _report.resultForTheYear],
+          [null, 'Total equity', _report.totalEquity],
+          [
+            null,
+            'Liabilities and equity',
+            _sum(_report.totalLiabilities, _report.totalEquity),
+          ],
+        ],
+      );
 
   /// Add two server figures for the closing check line.
   ///

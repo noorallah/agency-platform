@@ -7,6 +7,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/report_workbook.dart';
 import 'period_line.dart';
 
 /// The trial balance for one accounting period.
@@ -143,7 +144,15 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
                 unawaited(_loadReport());
               },
               onRefresh: _loading ? null : () => unawaited(_loadReport()),
-              trailing: [if (_report.lines.isNotEmpty) _balanceBadge(context)],
+              trailing: [
+                if (_report.lines.isNotEmpty) _balanceBadge(context),
+                WorkbookDownloadButton(
+                  enabled: !_loading && _report.lines.isNotEmpty,
+                  fileName: () => workbookFileName(
+                      ['trial-balance', _period?.label ?? '']),
+                  sheet: _sheet,
+                ),
+              ],
             )
           else
           Padding(
@@ -239,6 +248,54 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
               ? 'Balanced'
               : 'Out of balance by ${_difference()}',
         ),
+      );
+
+  /// The table as a sheet (backlog 117): the same columns, the same rows
+  /// and the Total line under them.
+  WorkbookSheet _sheet() => WorkbookSheet(
+        title: 'Trial balance',
+        notes: [
+          _toPeriod == null
+              ? 'Period: ${_period?.label ?? ''}'
+              : 'Period: ${_period?.label ?? ''} to ${_toPeriod!.label}',
+        ],
+        headers: const [
+          'Code',
+          'Account',
+          'Type',
+          'Opening Dr',
+          'Opening Cr',
+          'Debit',
+          'Credit',
+          'Closing Dr',
+          'Closing Cr',
+        ],
+        numeric: const {3, 4, 5, 6, 7, 8},
+        rows: [
+          for (final TrialBalanceLine line in _report.lines)
+            [
+              line.accountCode,
+              line.accountName,
+              line.accountType,
+              line.openingDebit,
+              line.openingCredit,
+              line.periodDebit,
+              line.periodCredit,
+              line.closingDebit,
+              line.closingCredit,
+            ],
+          [
+            null,
+            'Total',
+            null,
+            _report.totalOpeningDebit,
+            _report.totalOpeningCredit,
+            _report.totalPeriodDebit,
+            _report.totalPeriodCredit,
+            _report.totalDebit,
+            _report.totalCredit,
+          ],
+        ],
       );
 
   String _difference() {

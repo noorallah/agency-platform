@@ -6,6 +6,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/report_workbook.dart';
 import 'statement_amount.dart';
 
 /// Which run of months a preset names, from the firm's own periods.
@@ -232,6 +233,15 @@ class _ProfitLossRangeViewState extends State<ProfitLossRangeView> {
                       unawaited(_load());
                     },
                   ),
+                  WorkbookDownloadButton(
+                    enabled: !_loading && !(_report?.isEmpty ?? true),
+                    fileName: () => workbookFileName([
+                      'profit-and-loss',
+                      _from?.label ?? '',
+                      _to?.label ?? '',
+                    ]),
+                    sheet: _sheet,
+                  ),
                 ],
               ),
             ),
@@ -247,6 +257,64 @@ class _ProfitLossRangeViewState extends State<ProfitLossRangeView> {
           ],
         ),
       );
+
+  /// The statement as a sheet (backlog 117): the columns on screen -- a
+  /// month each where Month by month is on, last year where it is compared.
+  WorkbookSheet _sheet() {
+    final ProfitLossRangeReport report = _report!;
+    final bool monthly = _monthly && report.monthNames.length > 1;
+    final bool compare = _compare && report.hasComparison;
+    final int figures =
+        (monthly ? report.monthNames.length : 0) + 1 + (compare ? 1 : 0);
+    List<Object?> heading(String title) =>
+        [null, title, for (int i = 0; i < figures; i++) null];
+    List<Object?> row(
+      String code,
+      String name,
+      List<String> months,
+      String total,
+      String comparison,
+    ) =>
+        [
+          code.isEmpty ? null : code,
+          name,
+          if (monthly) ...months,
+          total,
+          if (compare) comparison,
+        ];
+    List<String> totals(List<ProfitLossRangeLine> lines) => [
+          for (int i = 0; i < report.monthNames.length; i++)
+            ProfitLossRangeReport.monthTotal(lines, i),
+        ];
+    return WorkbookSheet(
+      title: 'Profit and loss',
+      notes: ['From ${_from?.label ?? ''} to ${_to?.label ?? ''}'],
+      headers: [
+        'Code',
+        'Account',
+        if (monthly) ...report.monthNames,
+        'Total',
+        if (compare) 'Last year',
+      ],
+      numeric: {for (int i = 0; i < figures; i++) i + 2},
+      rows: [
+        heading('Income'),
+        for (final ProfitLossRangeLine line in report.income)
+          row(line.accountCode, line.accountName, line.months, line.amount,
+              line.comparisonAmount),
+        row('', 'Total income', totals(report.income), report.totalIncome,
+            report.comparisonIncome),
+        heading('Expenses'),
+        for (final ProfitLossRangeLine line in report.expenses)
+          row(line.accountCode, line.accountName, line.months, line.amount,
+              line.comparisonAmount),
+        row('', 'Total expenses', totals(report.expenses),
+            report.totalExpense, report.comparisonExpense),
+        row('', 'Net profit or loss', report.monthlyNetProfit,
+            report.netProfit, report.comparisonNetProfit),
+      ],
+    );
+  }
 
   Widget _body(BuildContext context) {
     final ProfitLossRangeReport? report = _report;
