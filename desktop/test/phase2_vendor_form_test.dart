@@ -235,4 +235,65 @@ void main() {
     expect(api.saved, isNotNull);
     expect(api.saved!.containsKey('code'), isFalse);
   });
+
+  group('the TDS switch (backlog 113)', () {
+    Future<_VendorApi> pump(WidgetTester tester, {List<Json>? rows}) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _VendorApi api = _VendorApi(rows: rows ?? const <Json>[]);
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: VendorManagementPage(
+            api: api,
+            permissions: _permissions(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    final Finder control = find.byKey(const ValueKey('vendor-tds-applicable'));
+
+    testWidgets('a new supplier sends true, and off sends false',
+        (tester) async {
+      final _VendorApi api = await pump(tester);
+      await tester.tap(find.text('New vendor'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Vendor Name'), 'Supplier Two');
+      await tester.tap(find.byKey(const ValueKey('vendor-save')));
+      await tester.pumpAndSettle();
+      expect(api.saved!['tds_applicable'], true);
+
+      api.saved = null;
+      await tester.tap(find.text('New vendor'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Vendor Name'), 'Supplier Three');
+      await tester.ensureVisible(control);
+      await tester.tap(control);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('vendor-save')));
+      await tester.pumpAndSettle();
+      expect(api.saved!['tds_applicable'], false);
+    });
+
+    testWidgets('a supplier whose record says off shows it off',
+        (tester) async {
+      await pump(tester, rows: <Json>[
+        _vendorJson()..['tds_applicable'] = false,
+      ]);
+      await tester.tap(find.text('V001').first);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Edit').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(control);
+      expect(tester.widget<CheckboxListTile>(control).value, false);
+    });
+  });
 }

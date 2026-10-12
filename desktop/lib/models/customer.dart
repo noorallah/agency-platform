@@ -171,6 +171,7 @@ class Customer {
     required this.contacts,
     this.attributes = const [],
     this.noReminders = false,
+    this.tcsApplicable = true,
     this.preferredChannel,
     this.whatsappOptIn = false,
     this.whatsappOptInAt = '',
@@ -252,6 +253,9 @@ class Customer {
   /// Messaging (backlog 51): true when this customer is never sent a payment
   /// reminder.
   final bool noReminders;
+
+  /// TCS is collected from this customer; off, a receipt is never charged it.
+  final bool tcsApplicable;
 
   /// EMAIL, WHATSAPP or SMS, or null for "whichever the event lists first".
   final String? preferredChannel;
@@ -344,6 +348,7 @@ class Customer {
         contacts:
             _objects(json['contacts']).map(CustomerContact.fromJson).toList(),
         noReminders: boolValue(json['no_reminders']),
+        tcsApplicable: json['tcs_applicable'] != false,
         preferredChannel: json['preferred_channel'] as String?,
         whatsappOptIn: boolValue(json['whatsapp_opt_in']),
         whatsappOptInAt: stringValue(json['whatsapp_opt_in_at']),

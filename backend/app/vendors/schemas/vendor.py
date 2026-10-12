@@ -199,6 +199,9 @@ class VendorWrite(VendorSchema):
     #: For 194J (PG-5): technical services (the lower rate) rather than
     #: professional fees.
     tds_technical_services: bool = False
+    #: Whether TDS is deducted from this supplier at all (backlog 113). Off:
+    #: nothing is proposed on a bill or a payment; one typed there stands.
+    tds_applicable: bool = True
     #: The currency the supplier bills in (PG-12), ISO code; blank is rupees.
     currency_code: str | None = Field(default=None, max_length=3)
     #: What the supplier normally takes off a line (BUY-3); a purchase line
@@ -516,6 +519,7 @@ class VendorResponse(VendorSchema):
     default_tds_section: str | None = None
     tds_individual_huf: bool | None = None
     tds_technical_services: bool = False
+    tds_applicable: bool = True
     currency_code: str | None = None
     standing_discount_percent: Decimal = Decimal("0")
     license_number: str | None

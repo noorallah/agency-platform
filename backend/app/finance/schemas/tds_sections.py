@@ -78,3 +78,5 @@ class TdsProposalRecord(BaseModel):
     #: What the document should deduct.
     proposed: Decimal
     applies: bool
+    #: The supplier's own TDS switch is off, so nothing is proposed.
+    switched_off: bool = False

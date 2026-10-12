@@ -272,6 +272,12 @@ class TcsService:
                 reason="This firm does not collect tax at source.",
                 **blank,
             )
+        if not customer.tcs_applicable:
+            return TcsPreview(
+                applicable=False,
+                reason="Tax collected at source is switched off for this customer.",
+                **blank,
+            )
         if not self._seller_in_scope(settings):
             return TcsPreview(
                 applicable=False,
@@ -691,7 +697,8 @@ class TcsService:
                 [row[:3] for row in theirs if row[3] <= last_day], collected
             )
             chargeable = ZERO
-            if applies:
+            # A buyer whose own switch is off owes nothing (backlog 113).
+            if applies and customer.tcs_applicable:
                 within, _ = _replay(
                     [row[:3] for row in theirs if row[3] <= cut_off], collected
                 )

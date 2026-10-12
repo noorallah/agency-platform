@@ -474,4 +474,18 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('a switched-off supplier is told so on the Approve dialog',
+      (tester) async {
+    await _openApprove(tester, [], _sizes.first, proposal: {
+      ..._proposal,
+      'proposed': '0.00',
+      'applies': false,
+      'switched_off': true,
+    });
+    expect(
+        find.textContaining('TDS is switched off for this supplier. An amount '
+            'typed here is deducted on this bill only.'),
+        findsOneWidget);
+  });
 }

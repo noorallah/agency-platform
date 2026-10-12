@@ -145,6 +145,10 @@ class TdsProposal:
     deducted: Decimal
     proposed: Decimal
     applies: bool
+    #: The supplier's own switch is off (backlog 113): nothing is due or
+    #: proposed, whatever the year's bills come to. The section is still
+    #: named, so a deduction typed on one bill can be filed under it.
+    switched_off: bool = False
 
 
 class TdsSectionService:
@@ -381,7 +385,12 @@ class TdsSectionService:
         elif single is not None and any(item > single for item in items):
             crossed = "SINGLE"
             taxed = sum((item for item in items if item > single), ZERO)
-        due = quantize_ledger(taxed * rate / HUNDRED) if settings.is_enabled else ZERO
+        switched_off = not vendor.tds_applicable
+        due = (
+            quantize_ledger(taxed * rate / HUNDRED)
+            if settings.is_enabled and not switched_off
+            else ZERO
+        )
         deducted = quantize_ledger(deducted)
         proposed = max(due - deducted, ZERO)
         return TdsProposal(
@@ -401,6 +410,7 @@ class TdsSectionService:
             deducted=deducted,
             proposed=proposed,
             applies=settings.is_enabled and due > ZERO,
+            switched_off=switched_off,
         )
 
     # ---- reads ------------------------------------------------------------

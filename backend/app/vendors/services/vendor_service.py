@@ -1553,6 +1553,7 @@ class VendorService:
             "default_tds_section": vendor.default_tds_section,
             "tds_individual_huf": vendor.tds_individual_huf,
             "tds_technical_services": vendor.tds_technical_services,
+            "tds_applicable": vendor.tds_applicable,
             # What a new bill from it starts in (PG-12).
             "currency_code": vendor.currency_code,
             "contact_count": sum(not item.is_deleted for item in vendor.contacts),

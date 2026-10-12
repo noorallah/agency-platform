@@ -148,6 +148,12 @@ class Customer(BaseEntity):
     #: Tax Deduction Account Number, held by one that deducts TDS (backlog
     #: 53.1). Recorded and format-checked; nothing posts from it yet.
     tan_number: Mapped[str | None] = mapped_column(String(10))
+    #: Whether tax is collected at source from this customer (backlog 113).
+    #: Off: a receipt from it is never charged TCS, whatever it has paid in
+    #: the year. On leaves the firm's own TCS settings to decide.
+    tcs_applicable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     #: REGULAR, COMPOSITION, UNREGISTERED, SEZ_WITH_PAYMENT,
     #: SEZ_WITHOUT_PAYMENT, DEEMED_EXPORT or OVERSEAS (backlog 75 row 2,
     #: `app/customers/gst_registration.py`). NULL is read off the GSTIN, so

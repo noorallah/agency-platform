@@ -454,7 +454,10 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       final String section = '${answer['section'] ?? ''}';
       final double proposed = _figure(answer['proposed']);
       setState(() {
-        _tdsHint = (section == '194C' || section == '194J') && proposed > 0
+        _tdsHint = answer['switched_off'] == true
+            ? 'TDS is switched off for this supplier. An amount typed here is '
+                'deducted on this payment only.'
+            : (section == '194C' || section == '194J') && proposed > 0
             ? '$section proposes ₹${proposed.toStringAsFixed(2)}'
             : null;
       });

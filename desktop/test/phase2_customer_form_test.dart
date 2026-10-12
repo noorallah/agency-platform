@@ -258,4 +258,76 @@ void main() {
       expect(find.text('Customer code is required.'), findsOneWidget);
     });
   });
+
+  group('the TCS switch (backlog 113)', () {
+    Future<List<Json>> pumpForm(
+      WidgetTester tester,
+      CustomerDialogMode mode,
+      Customer? customer,
+    ) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final List<Json> sent = <Json>[];
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: CustomerWorkspaceDialog(
+            mode: mode,
+            customer: customer,
+            onSave: (payload) async {
+              sent.add(payload);
+              return Customer.fromJson(_customerJson());
+            },
+            loadPlaces: (level, {parentId = ''}) async => const [],
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return sent;
+    }
+
+    final Finder control = find.byKey(const ValueKey('customer-tcs-applicable'));
+
+    testWidgets('a new customer sends true',
+        (tester) async {
+      final List<Json> sent =
+          await pumpForm(tester, CustomerDialogMode.create, null);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Customer name'),
+        'New Traders',
+      );
+      await tester.tap(find.byKey(const ValueKey('customer-save')));
+      await tester.pumpAndSettle();
+      expect(sent.single['tcs_applicable'], true);
+    });
+
+    testWidgets('switching it off sends false', (tester) async {
+      final List<Json> sent =
+          await pumpForm(tester, CustomerDialogMode.create, null);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Customer name'),
+        'New Traders',
+      );
+      await tester.ensureVisible(control);
+      await tester.tap(control);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('customer-save')));
+      await tester.pumpAndSettle();
+      expect(sent.single['tcs_applicable'], false);
+    });
+
+    testWidgets('a record that says off shows it off', (tester) async {
+      await pumpForm(
+        tester,
+        CustomerDialogMode.edit,
+        Customer.fromJson(<String, dynamic>{
+          ..._customerJson(),
+          'tcs_applicable': false,
+        }),
+      );
+      await tester.ensureVisible(control);
+      expect(tester.widget<CheckboxListTile>(control).value, false);
+    });
+  });
 }

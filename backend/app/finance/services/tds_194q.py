@@ -241,11 +241,10 @@ class Tds194QService:
                 else settings.rate_without_pan_percent
             )
             excess = max(bought - settings.threshold_amount, ZERO)
-            due = (
-                quantize_ledger(excess * rate / HUNDRED)
-                if settings.is_enabled
-                else ZERO
-            )
+            # A supplier whose own TDS switch is off is asked for nothing
+            # (backlog 113); what was bought from it is still shown.
+            liable = settings.is_enabled and vendor.tds_applicable
+            due = quantize_ledger(excess * rate / HUNDRED) if liable else ZERO
             rows.append(
                 Supplier194Q(
                     vendor_id=vendor.id,
@@ -261,7 +260,7 @@ class Tds194QService:
                     due=due,
                     deducted=taken,
                     to_deduct=max(due - taken, ZERO),
-                    applies=settings.is_enabled and excess > ZERO,
+                    applies=liable and excess > ZERO,
                 )
             )
         return rows

@@ -184,6 +184,8 @@ class CustomerWrite(CustomerSchema):
     gst_number: str | None = Field(default=None, max_length=32)
     pan_number: str | None = Field(default=None, max_length=32)
     tan_number: str | None = Field(default=None, max_length=10)
+    #: Whether TCS is collected from this customer at all (backlog 113).
+    tcs_applicable: bool = True
     #: How the buyer stands under GST; blank is read off the GSTIN.
     gst_registration_type: GstRegistrationType | None = None
     #: The account manager, a member of the firm; blank leaves documents to
@@ -339,6 +341,7 @@ class CustomerResponse(CustomerSchema):
     gst_number: str | None
     pan_number: str | None
     tan_number: str | None = None
+    tcs_applicable: bool = True
     gst_registration_type: str | None = None
     salesman_id: UUID | None = None
     collector_id: UUID | None = None

@@ -4587,6 +4587,32 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 
 ---
 
+### TC-FIN-027 — A supplier switched off for TDS is deducted nothing, and a figure typed on one bill changes that bill only
+
+*Added 2026-10-13 (backlog 113). Driven over HTTP on the day it was built; the screens were not clicked.*
+
+- **Covers:** backlog 113 (customer task S8)
+- **Fixture:** `ready-firm`
+- **Also needs:** *Settings → Tax → TDS on purchases* with 194C switched on (limits 30,000 a bill and 1,00,000 a year, 2%). A supplier with a company PAN (fourth letter C) and **Usual TDS section** 194C. A way to raise three bills of 40,000.00 before tax from it (an order and a receipt each, where the firm uses them).
+- **Steps**
+  1. Open the supplier. **Deduct TDS from this supplier** is ticked. Raise the first bill of 40,000.00 and press **Approve**; read the dialog and approve.
+  2. Open the supplier, untick **Deduct TDS from this supplier** and save. Open it again, change only its name and save.
+  3. Raise the second bill of 40,000.00 and press **Approve**; read the dialog and approve without typing anything.
+  4. Raise the third bill of 40,000.00, press **Approve**, type **500** in the TDS box and approve.
+  5. Raise a fourth bill of 40,000.00 and approve it without typing anything.
+  6. Open a customer. **Collect TCS from this customer** is ticked. Untick it, save, open it again.
+  7. For the same customer record a receipt against a bill for the bill's full amount, with **TDS deducted** 1% of it under 194Q.
+- **Expect**
+  - Step 1: the dialog proposes 800.00 under 194C. The bill deducts 800.00 and the supplier is owed the bill less 800.00.
+  - Step 2: after the second save the box is still unticked and the section is still 194C.
+  - Step 3: the dialog says "TDS is switched off for this supplier. An amount typed here is deducted on this bill only." Nothing is deducted and the supplier is owed the whole bill.
+  - Step 4: the bill deducts 500.00 under 194C and the supplier is owed the bill less 500.00.
+  - Step 5: nothing is deducted. The 500.00 was that bill's alone.
+  - Step 6: the box is unticked when the customer is opened again.
+  - Step 7: the bill closes in full; the bank receives the amount less the TDS and the customer owes nothing on it.
+- **Data:** `vendors.tds_applicable`, `customers.tcs_applicable`; the bills' `tds_amount`, `tds_proposed_amount` and `tds_section`; one journal per approved bill, with a *TDS Payable* line only on the first and the third.
+- **Leaves:** a supplier switched off, four approved bills, a customer switched off and one receipt. Tick both boxes again if the parties are to be used by another case.
+
 ## Concurrency — two people, one record
 
 Run these with **two clients** on one server (or two windows of one client),
