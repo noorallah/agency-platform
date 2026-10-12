@@ -713,6 +713,64 @@ void main() {
     expect(api.created!['slab_mode'], 'MARGINAL');
   });
 
+  testWidgets('a slab that pays an amount is sent as one, with no percentage',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Rate'), '0');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    await tester.tap(find.widgetWithText(TextButton, 'Add slab'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'To'), '100000');
+    await tester.ensureVisible(find.byKey(const ValueKey<String>('slab-pays-0')));
+    await tester.tap(find.byKey(const ValueKey<String>('slab-pays-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Amount').last);
+    await tester.pumpAndSettle();
+    // One box: the rate box became the sum, so the rung cannot hold both.
+    expect(find.widgetWithText(TextField, 'Sum'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, 'Sum'), '500');
+    await tester.tap(find.widgetWithText(TextButton, 'Add slab'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Rate').last, '3');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    final List<dynamic> slabs = api.created!['slabs'] as List<dynamic>;
+    expect(slabs.length, 2);
+    expect((slabs.first as Map)['fixed_amount'], '500');
+    expect((slabs.first as Map).containsKey('percentage'), isFalse);
+    expect((slabs.last as Map)['percentage'], '3');
+    expect((slabs.last as Map).containsKey('fixed_amount'), isFalse);
+  });
+
+  test('a slab read with a fixed amount is written back with only that', () {
+    final CommissionSlabRecord slab =
+        CommissionSlabRecord.fromJson(<String, dynamic>{
+      'sequence': 1,
+      'from_amount': '0.00',
+      'to_amount': '100000.00',
+      'percentage': '0.0000',
+      'fixed_amount': '500.00',
+    });
+
+    expect(slab.paysFixedAmount, isTrue);
+    expect(slab.toJson()['fixed_amount'], '500.00');
+    expect(slab.toJson().containsKey('percentage'), isFalse);
+    // A rung the server answered with a null amount is a percentage rung.
+    final CommissionSlabRecord rate =
+        CommissionSlabRecord.fromJson(<String, dynamic>{
+      'from_amount': '0.00',
+      'percentage': '2.0000',
+      'fixed_amount': null,
+    });
+    expect(rate.paysFixedAmount, isFalse);
+    expect(rate.toJson()['percentage'], '2.0000');
+  });
+
   testWidgets('a ladder with a gap is refused before sending', (tester) async {
     final _CommissionApi api = _CommissionApi();
     await _pump(tester, api);

@@ -1187,7 +1187,8 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
         _productId,
         _categoryId,
         for (final _SlabDraft slab in _slabs)
-          '${slab.from.text}-${slab.to.text}-${slab.percentage.text}',
+          '${slab.from.text}-${slab.to.text}-${slab.percentage.text}'
+              '-${slab.fixed}',
       ].join('|');
 
   late final String _opened = _held();
@@ -1263,7 +1264,11 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
       final double? from = double.tryParse(slab.from.text.trim());
       final double? rate = double.tryParse(slab.percentage.text.trim());
       if (from == null) return 'Slab ${index + 1} needs an amount to start at.';
-      if (rate == null || rate < 0 || rate > 100) {
+      if (slab.fixed) {
+        if (rate == null || rate < 0) {
+          return 'Slab ${index + 1} needs the amount it pays.';
+        }
+      } else if (rate == null || rate < 0 || rate > 100) {
         return 'Slab ${index + 1} needs a rate between 0 and 100 percent.';
       }
       floors.add(from);
@@ -1536,6 +1541,8 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
                 mode: _slabMode,
                 enabled: !_saving,
                 onModeChanged: (value) => setState(() => _slabMode = value),
+                onKindChanged: (index, fixed) =>
+                    setState(() => _slabs[index].fixed = fixed),
                 onAdd: () => setState(() => _slabs.add(_SlabDraft.empty(
                       startingAt: _slabs.isEmpty
                           ? '0'
@@ -1753,12 +1760,16 @@ class _SlabDraft {
     required this.from,
     required this.to,
     required this.percentage,
+    this.fixed = false,
   });
 
   factory _SlabDraft.from(CommissionSlabRecord slab) => _SlabDraft(
         from: TextEditingController(text: trimDecimal(slab.fromAmount)),
         to: TextEditingController(text: trimDecimal(slab.toAmount)),
-        percentage: TextEditingController(text: trimDecimal(slab.percentage)),
+        percentage: TextEditingController(
+            text: trimDecimal(
+                slab.paysFixedAmount ? slab.fixedAmount : slab.percentage)),
+        fixed: slab.paysFixedAmount,
       );
 
   /// A new rung continues where the one above it stopped, because that is the
@@ -1771,12 +1782,23 @@ class _SlabDraft {
 
   final TextEditingController from;
   final TextEditingController to;
+
+  /// What the rung pays: a percentage, or a sum when [fixed] is set. One box
+  /// for both, because a rung pays one way and two boxes would let somebody
+  /// fill in both.
   final TextEditingController percentage;
+
+  /// Whether the rung pays a fixed amount rather than a percentage.
+  bool fixed;
 
   Json toJson() => <String, dynamic>{
         'from_amount': from.text.trim(),
         if (to.text.trim().isNotEmpty) 'to_amount': to.text.trim(),
-        'percentage': percentage.text.trim(),
+        // One or the other: the server refuses a rung that names both.
+        if (fixed)
+          'fixed_amount': percentage.text.trim()
+        else
+          'percentage': percentage.text.trim(),
       };
 
   void dispose() {
@@ -1797,6 +1819,7 @@ class _LadderEditor extends StatelessWidget {
     required this.mode,
     required this.enabled,
     required this.onModeChanged,
+    required this.onKindChanged,
     required this.onAdd,
     required this.onRemove,
   });
@@ -1805,6 +1828,9 @@ class _LadderEditor extends StatelessWidget {
   final String mode;
   final bool enabled;
   final ValueChanged<String> onModeChanged;
+
+  /// A rung switched between paying a percentage and paying a fixed amount.
+  final void Function(int index, bool fixed) onKindChanged;
   final VoidCallback onAdd;
   final ValueChanged<int> onRemove;
 
@@ -1888,6 +1914,29 @@ class _LadderEditor extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   SizedBox(
+                    width: 116,
+                    child: DropdownButtonFormField<bool>(
+                      key: ValueKey<String>('slab-pays-$index'),
+                      isExpanded: true,
+                      initialValue: slabs[index].fixed,
+                      decoration: const InputDecoration(labelText: 'Pays'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: false,
+                          child: Text('Percent', overflow: TextOverflow.ellipsis),
+                        ),
+                        DropdownMenuItem(
+                          value: true,
+                          child: Text('Amount', overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                      onChanged: enabled
+                          ? (value) => onKindChanged(index, value ?? false)
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  SizedBox(
                     width: 96,
                     child: TextField(
                       controller: slabs[index].percentage,
@@ -1897,10 +1946,12 @@ class _LadderEditor extends StatelessWidget {
                       inputFormatters: [
                         FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                       ],
-                      decoration: const InputDecoration(
-                        labelText: 'Rate',
-                        suffixText: '%',
-                      ),
+                      decoration: slabs[index].fixed
+                          ? const InputDecoration(labelText: 'Sum')
+                          : const InputDecoration(
+                              labelText: 'Rate',
+                              suffixText: '%',
+                            ),
                     ),
                   ),
                   IconButton(

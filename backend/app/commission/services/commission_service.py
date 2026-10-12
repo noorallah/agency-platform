@@ -581,7 +581,8 @@ class CommissionService:
                     sequence=position,
                     from_amount=slab.from_amount,
                     to_amount=slab.to_amount,
-                    percentage=slab.percentage,
+                    percentage=slab.percentage or ZERO,
+                    fixed_amount=slab.fixed_amount,
                     created_by=actor_id,
                     updated_by=actor_id,
                 )
@@ -659,6 +660,15 @@ class CommissionService:
         ordinary use and they pay very differently, which is why the mode is
         the firm's to declare.
 
+        A rung with a `fixed_amount` pays that sum instead of a rate, and the
+        mode reads it the same way it reads a rate. WHOLE_AMOUNT pays the sum
+        of the highest rung reached and nothing else -- "5,000 for reaching
+        two lakh" replaces "2,000 for reaching one". MARGINAL adds the sum of
+        every rung the subtotal has entered, as it adds each band's
+        percentage. A subtotal of nothing has reached no rung: a fixed sum is
+        never owed to somebody who sold nothing, or who gave back more than
+        they sold.
+
         The cap is applied last, so it limits what was earned rather than what
         was sold: capping the subtotal first would push the amount down a rung
         and pay less than the ceiling the firm agreed.
@@ -693,7 +703,13 @@ class CommissionService:
         if not slabs:
             earned = amount * Decimal(str(rule.percentage)) / HUNDRED
         elif rule.slab_mode == CommissionSlabMode.WHOLE_AMOUNT.value:
-            earned = amount * self._rung_reached(slabs, amount) / HUNDRED
+            reached = self._rung_reached(slabs, amount)
+            if reached is None:
+                earned = ZERO
+            elif reached.fixed_amount is not None:
+                earned = Decimal(str(reached.fixed_amount)) if amount > ZERO else ZERO
+            else:
+                earned = amount * Decimal(str(reached.percentage)) / HUNDRED
         else:
             earned = ZERO
             for slab in slabs:
@@ -705,6 +721,9 @@ class CommissionService:
                     if slab.to_amount is None
                     else min(amount, Decimal(str(slab.to_amount)))
                 )
+                if slab.fixed_amount is not None:
+                    earned += Decimal(str(slab.fixed_amount))
+                    continue
                 earned += (ceiling - floor) * Decimal(str(slab.percentage)) / HUNDRED
         earned += self._bonus(rule, amount, target_met)
         if rule.max_commission_amount is not None:
@@ -729,19 +748,24 @@ class CommissionService:
         return amount * Decimal(str(rule.bonus_percentage)) / HUNDRED
 
     @staticmethod
-    def _rung_reached(slabs: Sequence[CommissionRuleSlab], amount: Decimal) -> Decimal:
-        """Return the rate of the highest rung an amount reaches.
+    def _rung_reached(
+        slabs: Sequence[CommissionRuleSlab], amount: Decimal
+    ) -> CommissionRuleSlab | None:
+        """Return the highest rung an amount reaches, or None below them all.
+
+        The rung rather than its rate, because a rung may pay a fixed amount
+        and the caller has to know which.
 
         The bands are half-open -- `from_amount` inclusive, `to_amount`
         exclusive -- so a subtotal landing exactly on a boundary belongs to the
         rung above it, which is the reading a firm means when it says "3% from
         100,000".
         """
-        rate = ZERO
+        reached: CommissionRuleSlab | None = None
         for slab in slabs:
             if amount >= Decimal(str(slab.from_amount)):
-                rate = Decimal(str(slab.percentage))
-        return rate
+                reached = slab
+        return reached
 
     def _snapshot(self, row: CommissionRule) -> dict[str, object]:
         """Describe a rule for the audit trail."""
@@ -778,6 +802,11 @@ class CommissionService:
                         str(slab.to_amount) if slab.to_amount is not None else None
                     ),
                     "percentage": str(slab.percentage),
+                    "fixed_amount": (
+                        str(slab.fixed_amount)
+                        if slab.fixed_amount is not None
+                        else None
+                    ),
                 }
                 for slab in self.slabs_of(row)
             ],
@@ -849,6 +878,7 @@ class CommissionService:
                     from_amount=slab.from_amount,
                     to_amount=slab.to_amount,
                     percentage=slab.percentage,
+                    fixed_amount=slab.fixed_amount,
                 )
                 for slab in self.slabs_of(row)
             ],

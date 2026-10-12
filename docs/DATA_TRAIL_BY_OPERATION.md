@@ -6642,7 +6642,8 @@ from its order. It writes three columns on the document and nothing else.
 `COMMISSION_MANAGE`. One commit each.
 
 - **Create** inserts one `commission_rules` row and one `commission_rule_slabs`
-  row per rung, numbered by `from_amount`. **Edit is partial**
+  row per rung, numbered by `from_amount`; a rung holds `percentage`, or
+  `fixed_amount` with a percentage of zero, never both. **Edit is partial**
   (`exclude_unset`): absent leaves a column alone, an explicit null clears
   `effective_to`, the cap, the floor, or moves the rule to the firm-wide scope;
   `slabs` omitted leaves the ladder, `[]` removes it. A ladder is **replaced**:

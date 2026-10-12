@@ -7746,3 +7746,48 @@ stock, the bank's stock statement) still value at cost only.
 
 **Cases:** TC-STOCK-042. **Tests:** `tests/unit/test_stock_valuation.py`.
 **Kept check:** `docs/qa/checks/inventory/p_value_at_mrp.py` (19 checks).
+
+## 110. A commission slab pays a fixed amount or a percentage -- built 2026-10-13
+
+**Customer task S5.** Wanted: a slab of a commission rule can pay a fixed
+amount instead of a percentage; a payout on such a slab matches the amount,
+and one slab cannot hold both.
+
+**What was there.** A commission rule (Sell > Incentives > Commission >
+Rates) could carry slabs, each a band of value with a percentage, read one of
+two ways: each band at its own rate, or everything at the rate of the band
+reached. A fixed sum for reaching a figure could not be said.
+
+**What was built.**
+
+- **Server.** `commission_rule_slabs.fixed_amount` (migration
+  `20261013_0356`, every store; empty on every existing slab, so no ladder
+  changes what it pays). A slab names a percentage **or** a fixed amount: one
+  sent with both, or with neither, is refused, and the table refuses it too
+  (`CK_commission_rule_slabs_one_payment`). One ladder may mix the two kinds.
+  The rule's answer and its audit entry carry the amount.
+- **How it pays.** Read *only the band reached*: the amount of the highest
+  slab reached is the commission, and the slabs below pay nothing. Read *each
+  band*: the amount of every slab the sale has entered is added, beside the
+  percentage of any percentage slab. The floor, the target bonus and the cap
+  work as before. Nothing sold earns no fixed amount.
+- **Screen.** Each slab has a **Pays** choice, Percent or Amount, and one
+  box that reads Rate or Sum, so both cannot be typed.
+
+**Decided, by the usual standard.**
+
+- A fixed amount is paid **per rule, per person, per period accrued**, like
+  the slabs themselves: accrue two half-months and the amount is judged on
+  each half's own sales.
+- Under *each band*, a slab is entered once the sale is **past** its starting
+  figure; under *band reached*, a sale exactly on the figure has reached it.
+  This is how percentages already read at a boundary.
+- A percentage of zero sent beside an amount is still "both" and is refused.
+- Slabs still do not apply to a per-unit rate.
+
+**Not built.** Customer and supplier rebate slabs are unchanged (percentage
+only). The rules list still says "3 slabs (whole amount)" and does not show
+which slabs pay an amount.
+
+**Cases:** TC-INCENT-013. **Tests:** `tests/unit/test_commission.py` (eight
+new), `desktop/test/commission_page_test.dart` (two new).
