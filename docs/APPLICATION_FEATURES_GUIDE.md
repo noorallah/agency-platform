@@ -1521,8 +1521,19 @@ Contra Vouchers and Export to Tally are under Accounts
 income and expenses. Opening the books gives a firm a standard chart for a
 distribution business, including an **Indirect Expenses** group with Rent,
 Salaries and Wages, Electricity, Telephone and Internet, Travel and
-Conveyance, Office and General Expenses, Repairs and Maintenance, and Bank
-Charges. Accounts can be added.
+Conveyance, Transport, Fuel, Office and General Expenses, Repairs and
+Maintenance, and Bank Charges. Accounts can be added.
+
+Five accounts a small firm looks for on its first day are ready-made:
+**Capital** (3200) for the money the owner puts in, **Drawings** (3100) for
+what the owner takes out, **Petty Cash** (1005), **Transport** (6450) and
+**Fuel** (6460). Petty Cash sits beside Cash, so it is offered wherever money
+is paid from (an expense, a contra voucher) and the cash book reads it; to
+fill it, move money from Cash or the bank with a contra voucher. A firm whose
+books were opened before these existed was given the ones it lacked: an
+account it already had under the same name was kept as the only one, and a
+number it had used for something else stayed with it (the new account took
+the next number).
 
 **Journal Entries.** Every entry, whoever or whatever made it. Filter by
 *Posted by* (sales invoices, receipts, deliveries ... or by hand) and by
