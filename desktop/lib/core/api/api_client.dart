@@ -10883,7 +10883,8 @@ class ApiClient {
   /// here made the wrong permission the real gate on recording a receipt: the
   /// refusal arrived at the party lookup, before the receipt the cashier was
   /// authorised for had been attempted. This route is gated on the settlement
-  /// permissions instead, and answers id, code and name.
+  /// permissions instead, and answers id, code and name, with the party's
+  /// area and city so two of one name can be told apart (S3).
   Future<List<PartyOption>> settlementParties({
     required SettlementDirection direction,
     String search = '',
@@ -10901,6 +10902,7 @@ class ApiClient {
           code: stringValue(row['code']),
           name: stringValue(row['name']),
           defaultTdsSection: stringValue(row['default_tds_section']),
+          place: stringValue(row['place']),
         ),
     ];
   }

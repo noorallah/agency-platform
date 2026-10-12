@@ -13,6 +13,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/customer.dart';
 import '../workspace/discard_prompt.dart';
+import '../workspace/party_place.dart';
 
 /// Ask for a customer, a signed number of points and a reason, then post it.
 ///
@@ -60,8 +61,8 @@ class _LoyaltyAdjustDialogState extends State<LoyaltyAdjustDialog> {
     }
   }
 
-  static String _label(Customer customer) =>
-      '${customer.code} - ${customer.name}';
+  static String _label(Customer customer) => withPlace(
+      '${customer.code} - ${customer.name}', customerPlace(customer));
 
   String? _validatePoints(String? value) {
     final num? parsed = num.tryParse(value?.trim() ?? '');

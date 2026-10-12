@@ -17,6 +17,7 @@ import '../../models/vendor.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/balance_confirmation.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 
 /// Pick a supplier, read their account over a period, send them a letter.
 class SupplierStatementPage extends StatefulWidget {
@@ -230,9 +231,11 @@ class _SupplierStatementPageState extends State<SupplierStatementPage> {
             DropdownMenuItem<String>(
               value: vendor.id,
               child: Text(
-                vendor.code.isEmpty
-                    ? vendor.displayName
-                    : '${vendor.code} · ${vendor.displayName}',
+                withPlace(
+                    vendor.code.isEmpty
+                        ? vendor.displayName
+                        : '${vendor.code} · ${vendor.displayName}',
+                    vendorPlace(vendor)),
                 overflow: TextOverflow.ellipsis,
               ),
             ),

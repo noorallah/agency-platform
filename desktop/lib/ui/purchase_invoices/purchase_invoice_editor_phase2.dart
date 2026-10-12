@@ -434,7 +434,8 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
               for (final Vendor item in widget.vendors)
                 DropdownMenuEntry<String>(
                   value: item.id,
-                  label: '${item.displayName} — ${item.code}',
+                  label: withPlace(
+                      '${item.displayName} — ${item.code}', vendorPlace(item)),
                 ),
             ],
             onSelected: (value) {

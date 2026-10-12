@@ -85,3 +85,26 @@ the ones that matter most: a customer or vendor save resends its stored places,
 and a retired place is refused as unknown, so retiring one an address stands on
 would leave that record impossible to save (D-CFG-12). The tax rule execution
 log is deliberately not counted -- it is history, and retention prunes it.
+
+## Area and city beside a name
+
+Two shops of one name are told apart on a screen by their area and city
+(backlog 108). **Screens only**: a print, an export and a message print the
+address whole or not at all.
+
+- **One helper on the desktop**, `desktop/lib/ui/workspace/party_place.dart`:
+  `customerPlace` and `vendorPlace` give "Area, City" (the default billing
+  address for a customer, the primary one for a supplier, the first where
+  none is marked) and `withPlace(label, place)` puts it after a picker's
+  line. A new picker of customers or suppliers calls it rather than building
+  a label of its own.
+- **A supplier's address answers `city` and `area`** beside `city_id` and
+  `locality_id`. The table holds no text, so the names are read from the
+  masters when the response is built -- `VendorService.address_places`, two
+  reads for a page. They are never written: `VendorAddressInput` does not
+  declare them, so a client that sends one back is refused, and the desktop's
+  `VendorAddress.toJson` leaves them out.
+- **The money pickers answer `place`.** `/receipts/parties`,
+  `/payments/parties` and `/refunds/parties` are deliberately not the masters
+  (a cashier holds no `CUSTOMER_VIEW`); `app/common/party_places.py` gives
+  them the two words and nothing else of the address.

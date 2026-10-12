@@ -25,6 +25,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import firm_day_after, firm_today
+from app.common.party_places import customer_places, vendor_places
 from app.common.report_names import customers_matching, vendors_matching
 from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.database.batch import children_by_parent
@@ -2122,6 +2123,17 @@ class SettlementService(TransactionalDocumentService):
             .limit(page_size)
         )
         return [(row[0], row[1], row[2]) for row in rows]
+
+    def party_places(self, party_ids: Sequence[UUID]) -> dict[UUID, str]:
+        """Say where each party is, as "Area, City", for the picker (S3).
+
+        Two shops of one name are the case: the person taking the money has
+        to pick the right one. The area and the city only -- never a street
+        line -- and a party with no address is left out.
+        """
+        if self.DIRECTION in (SettlementDirection.RECEIPT, SettlementDirection.REFUND):
+            return customer_places(self._session, party_ids)
+        return vendor_places(self._session, party_ids)
 
     def _money_account(self, *, firm_id: UUID, method: SettlementMethod) -> UUID:
         """Return the cash or bank account this method moves money through.

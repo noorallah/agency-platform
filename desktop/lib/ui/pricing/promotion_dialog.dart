@@ -13,6 +13,7 @@ import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/sales_territory.dart';
 import '../workspace/discard_prompt.dart';
+import '../workspace/party_place.dart';
 
 /// Agree one offer: what it gives, who it is for, and when it runs.
 ///
@@ -1018,9 +1019,12 @@ class _PromotionDialogState extends State<PromotionDialog> {
             for (final Customer item in page.items)
               _PickOption(
                 item.id,
-                _coded(
-                  item.code,
-                  item.displayName.isNotEmpty ? item.displayName : item.name,
+                withPlace(
+                  _coded(
+                    item.code,
+                    item.displayName.isNotEmpty ? item.displayName : item.name,
+                  ),
+                  customerPlace(item),
                 ),
               ),
           ];

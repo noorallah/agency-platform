@@ -16,6 +16,7 @@ import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 
 part 'quotation_editor_phase2.dart';
 

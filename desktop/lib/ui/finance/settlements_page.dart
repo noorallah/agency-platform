@@ -946,7 +946,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
           for (final PartyOption party in parties)
             SimpleDialogOption(
               onPressed: () => Navigator.pop(dialogContext, party),
-              child: Text('${party.code}  ${party.name}'),
+              child: Text(party.label),
             ),
         ],
       ),

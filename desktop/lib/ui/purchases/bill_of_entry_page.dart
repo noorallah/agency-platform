@@ -18,6 +18,7 @@ import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 import 'purchase_requisition_page.dart' show ProductSearchBox;
 
@@ -894,7 +895,8 @@ class _BillOfEntryDialogState extends State<BillOfEntryDialog>
                   DropdownMenuItem(
                     value: v.id,
                     child:
-                        Text(_vendorName(v), overflow: TextOverflow.ellipsis),
+                        Text(withPlace(_vendorName(v), vendorPlace(v)),
+                            overflow: TextOverflow.ellipsis),
                   ),
               ],
               onChanged: _editable && _record == null

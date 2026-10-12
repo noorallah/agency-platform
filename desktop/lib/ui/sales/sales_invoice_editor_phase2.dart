@@ -582,8 +582,10 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
               for (final Customer item in _customers)
                 DropdownMenuEntry<String>(
                   value: item.id,
-                  label: '${item.displayName} — ${item.code}'
+                  label: withPlace(
+                      '${item.displayName} — ${item.code}'
                       '${item.phone.isEmpty ? '' : '  ${item.phone}'}',
+                      customerPlace(item)),
                 ),
             ],
             onSelected: (value) {

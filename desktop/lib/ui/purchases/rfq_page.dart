@@ -17,6 +17,7 @@ import '../../models/product.dart';
 import '../../models/rfq.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 import 'purchase_requisition_page.dart' show ProductSearchBox;
 
@@ -765,7 +766,8 @@ class _RfqDialogState extends State<RfqDialog> with SaveInDialog<RfqDialog> {
                     DropdownMenuItem(
                       value: v.id,
                       child:
-                          Text(_vendorName(v), overflow: TextOverflow.ellipsis),
+                          Text(withPlace(_vendorName(v), vendorPlace(v)),
+                            overflow: TextOverflow.ellipsis),
                     ),
                 ],
                 onChanged: locked

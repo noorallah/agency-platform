@@ -16,6 +16,7 @@ import '../../models/product.dart';
 import '../../models/rate_contract.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 import 'purchase_requisition_page.dart' show ProductSearchBox;
 
@@ -267,7 +268,9 @@ class _RateContractPageState extends State<RateContractPage> {
           itemBuilder: (_) => [
             const PopupMenuItem<String>(value: '', child: Text('All')),
             for (final Vendor v in _vendors)
-              PopupMenuItem<String>(value: v.id, child: Text(_vendorName(v))),
+              PopupMenuItem<String>(
+                  value: v.id,
+                  child: Text(withPlace(_vendorName(v), vendorPlace(v)))),
           ],
           onSelected: (value) {
             setState(() {
@@ -690,7 +693,9 @@ class _RateContractDialogState extends State<RateContractDialog>
                               for (final Vendor v in _vendors)
                                 DropdownMenuItem(
                                   value: v.id,
-                                  child: Text(_vendorName(v),
+                                  child: Text(
+                                      withPlace(
+                                          _vendorName(v), vendorPlace(v)),
                                       overflow: TextOverflow.ellipsis),
                                 ),
                             ],

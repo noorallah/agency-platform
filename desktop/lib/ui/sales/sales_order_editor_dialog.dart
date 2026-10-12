@@ -21,6 +21,7 @@ import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import 'ship_to_field.dart';
 
 part 'sales_order_editor_phase2.dart';

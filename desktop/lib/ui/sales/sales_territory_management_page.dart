@@ -10,6 +10,7 @@ import '../../models/firm_member.dart';
 import '../../models/customer.dart';
 import '../../models/geography.dart';
 import '../../models/sales_territory.dart';
+import '../workspace/party_place.dart';
 import 'assignment_picker_dialog.dart';
 import 'bulk_territory_actions_dialog.dart';
 import 'call_order_dialog.dart';
@@ -292,7 +293,7 @@ class _SalesTerritoryManagementPageState
               label: customer.displayName.isEmpty
                   ? customer.name
                   : customer.displayName,
-              secondary: customer.code,
+              secondary: withPlace(customer.code, customerPlace(customer)),
             ),
         ],
       ),
@@ -327,9 +328,11 @@ class _SalesTerritoryManagementPageState
         nameFor: (id) {
           final Customer? customer = byId[id];
           if (customer == null) return id;
-          return customer.displayName.isEmpty
-              ? '${customer.code} — ${customer.name}'
-              : '${customer.code} — ${customer.displayName}';
+          return withPlace(
+              customer.displayName.isEmpty
+                  ? '${customer.code} — ${customer.name}'
+                  : '${customer.code} — ${customer.displayName}',
+              customerPlace(customer));
         },
         onSave: (List<TerritoryCustomerAssignmentRecord> order) =>
             widget.api.setTerritoryCustomers(territory.id, order),
@@ -529,7 +532,7 @@ class _SalesTerritoryManagementPageState
               label: customer.displayName.isEmpty
                   ? customer.name
                   : customer.displayName,
-              secondary: customer.code,
+              secondary: withPlace(customer.code, customerPlace(customer)),
             ),
         ],
       ),

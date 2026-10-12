@@ -16,6 +16,7 @@ import '../../models/entities.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 
 /// One line being typed: a product, how many, and at what rate.
 class _TryLine {
@@ -160,7 +161,8 @@ class _PromotionTryDialogState extends State<PromotionTryDialog> {
           await widget.api.customers(search: text.trim());
       return [
         for (final Customer item in page.items)
-          _Option(item.id, '${item.code} — ${item.name}',
+          _Option(item.id,
+              withPlace('${item.code} — ${item.name}', customerPlace(item)),
               extra: item.customerGroupId ?? ''),
       ];
     } on ApiException {

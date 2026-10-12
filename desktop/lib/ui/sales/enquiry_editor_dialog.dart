@@ -15,6 +15,7 @@ import '../../models/entities.dart';
 import '../../models/firm_member.dart';
 import '../../models/product.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 
 String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
 
@@ -314,7 +315,8 @@ class _EnquiryEditorDialogState extends State<EnquiryEditorDialog>
           for (final Customer c in _customers)
             DropdownMenuItem<String>(
               value: c.id,
-              child: Text(c.name, overflow: TextOverflow.ellipsis),
+              child: Text(withPlace(c.name, customerPlace(c)),
+                  overflow: TextOverflow.ellipsis),
             ),
         ],
         onChanged: saving ? null : (id) => setState(() => _customerId = id),

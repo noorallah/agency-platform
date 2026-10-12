@@ -276,12 +276,16 @@ def _parties(
     "parties" is read as an id and answered 422 -- which is how nine routes in
     eight routers spent months unreachable.
     """
+    rows = service.parties(
+        firm_id=firm_id, search=search, page=page, page_size=page_size
+    )
+    places = service.party_places([party_id for party_id, _, _ in rows])
     return ApiResponse(
         data=[
-            SettlementPartyRecord(id=party_id, code=code, name=name)
-            for party_id, code, name in service.parties(
-                firm_id=firm_id, search=search, page=page, page_size=page_size
+            SettlementPartyRecord(
+                id=party_id, code=code, name=name, place=places.get(party_id)
             )
+            for party_id, code, name in rows
         ]
     )
 

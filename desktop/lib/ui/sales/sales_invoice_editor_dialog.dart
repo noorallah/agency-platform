@@ -25,6 +25,7 @@ import '../document_framework/document_steps.dart';
 import '../workspace/batch_picker_panel.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import '../workspace/printed_document.dart';
 import 'counter_shift_widgets.dart';
 import 'ship_to_field.dart';

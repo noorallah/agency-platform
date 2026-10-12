@@ -581,16 +581,22 @@ class PartyOption {
     required this.code,
     required this.name,
     this.defaultTdsSection = '',
+    this.place = '',
   });
 
   final String id;
   final String code;
   final String name;
 
+  /// The party's area and city, "Abids, Hyderabad", or blank. Shown beside
+  /// the name so two shops of one name can be told apart (S3).
+  final String place;
+
   /// The supplier's usual TDS section, when the list carries it (ACC-7).
   final String defaultTdsSection;
 
-  String get label => '$code  $name';
+  String get label =>
+      place.isEmpty ? '$code  $name' : '$code  $name · $place';
 }
 
 /// How money can move, in the words the screens use (ACC-3). Cash is the

@@ -21,6 +21,7 @@ import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/opening_bill_import_dialog.dart';
 import '../workspace/party_merge.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import 'supplier_catalogue_section.dart';
@@ -563,6 +564,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             const GridColumn(key: 'gstin', label: 'GSTIN'),
             const GridColumn(key: 'gst_type', label: 'GST type'),
             const GridColumn(key: 'phone', label: 'Phone'),
+            const GridColumn(key: 'place', label: 'Area, city'),
             _column('Status', 'status'),
             _column('Created', 'created_at'),
           ],
@@ -573,6 +575,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             item.gstin,
             item.gstTypeShort,
             item.mobile.isNotEmpty ? item.mobile : item.phone,
+            vendorPlace(item),
             item.isDeleted ? 'DELETED' : item.status,
             item.createdAt.split('T').first,
           ],

@@ -62,6 +62,8 @@ class VendorAddress {
     required this.postalCodeId,
     required this.localityId,
     required this.isPrimary,
+    this.city = '',
+    this.area = '',
   });
 
   final String id;
@@ -76,6 +78,12 @@ class VendorAddress {
   final String localityId;
   final bool isPrimary;
 
+  /// The names behind [cityId] and [localityId], as the server read them
+  /// from the geography masters. For a picker to tell two suppliers of one
+  /// name apart; never sent back, the address is written by its ids.
+  final String city;
+  final String area;
+
   factory VendorAddress.fromJson(Json json) => VendorAddress(
         id: stringValue(json['id']),
         addressType: stringValue(json['address_type']),
@@ -88,6 +96,8 @@ class VendorAddress {
         postalCodeId: stringValue(json['postal_code_id']),
         localityId: stringValue(json['locality_id']),
         isPrimary: boolValue(json['is_primary']),
+        city: stringValue(json['city']),
+        area: stringValue(json['area']),
       );
 
   Json toJson() => {

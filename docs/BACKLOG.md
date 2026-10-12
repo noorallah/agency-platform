@@ -7651,3 +7651,52 @@ billed are still not counted in what is owed (`credit_control.py` says why).
 **Cases:** TC-CUST-004, TC-CUST-011. **Tests:**
 `desktop/test/sales_credit_notice_test.dart`,
 `tests/unit/test_customer_management.py`.
+
+## 108. Area and city beside a customer's or supplier's name -- built 2026-10-13
+
+**Customer task S3.** Wanted: the area and the city shown beside a customer's
+or a supplier's name in pickers and lists, on screens only and never on a
+print, so that two parties of one name can be told apart.
+
+**What was there.** A customer's address holds its area and city as text, and
+the customer list had a **City** column. A document's header showed "city,
+state" under the customer once one was chosen -- after the choice, not while
+choosing. A supplier's address holds ids into the geography masters and no
+text, and the server sent only the ids, so no screen could name a supplier's
+place without a second read. The receipt, payment and refund pickers read
+their own narrow list (id, code, name), not the masters.
+
+**What was built.**
+
+- **Server.** A supplier's address now answers `city` and `area` beside its
+  ids (`VendorService.address_places`, two reads for a whole page). They are
+  read-only: an address is still written by its ids and a name sent with it
+  is refused. `GET /receipts/parties`, `/payments/parties` and
+  `/refunds/parties` answer a fourth field, `place` ("Abids, Hyderabad"),
+  from `app/common/party_places.py`: the default billing address for a
+  customer, the primary address for a supplier, the oldest where none is
+  marked. No migration.
+- **Screens.** One helper, `desktop/lib/ui/workspace/party_place.dart`
+  (`customerPlace`, `vendorPlace`, `withPlace`), and every place a customer or
+  a supplier is picked says "name ... · Area, City": the sales order, sales
+  invoice and quotation; the purchase order, supplier's bill and debit note;
+  receipts, payments, refunds and post-dated cheques; set-offs; price lists,
+  offers and the offer trial; rate contracts, quotations from suppliers,
+  requisitions, landed costs, bills of entry, supplier schemes and rebates,
+  customer rebates; a product's usual supplier; supplier gifts and the
+  supplier statement; enquiries; routes (beside the code); the loyalty
+  adjustment; the stock hold for a customer; the payables report's supplier
+  filter; a customer's linked supplier. The customer list's column reads
+  **Area, city** and the supplier list gained the same column.
+- A party with no address reads as before; a place is never said twice
+  ("Guntur", not "Guntur, Guntur").
+
+**Not built, and why.** Nothing on a print, an export or a message: the
+helper is called from picker rows and list cells only. The old editors that
+have a new-UI twin were left alone. A document's header line under the chosen
+customer still reads "city, state". The lists of documents (orders, bills) do
+not show the party's place: the row names the document, and the server would
+have to send it on every document row.
+
+**Cases:** TC-CUST-012. **Tests:** `desktop/test/party_place_test.dart`,
+`tests/unit/test_party_places.py`, `tests/unit/test_vendor_address_places.py`.

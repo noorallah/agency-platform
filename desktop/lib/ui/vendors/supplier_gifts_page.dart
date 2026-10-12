@@ -16,6 +16,7 @@ import '../../models/finance.dart';
 import '../../models/supplier_gift.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 
 String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
@@ -592,9 +593,11 @@ class _RecordSupplierGiftDialogState extends State<RecordSupplierGiftDialog>
                               DropdownMenuItem<String>(
                                 value: v.id,
                                 child: Text(
-                                  v.displayName.isEmpty
-                                      ? v.name
-                                      : v.displayName,
+                                  withPlace(
+                                      v.displayName.isEmpty
+                                          ? v.name
+                                          : v.displayName,
+                                      vendorPlace(v)),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),

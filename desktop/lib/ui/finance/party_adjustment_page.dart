@@ -22,6 +22,7 @@ import '../../models/vendor.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 
 /// The words on the screen's notice, behind the page line's (i).
@@ -787,8 +788,12 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
     }
   }
 
-  String _vendorLabel(Vendor vendor) =>
-      vendor.displayName.isNotEmpty ? vendor.displayName : vendor.name;
+  String _vendorLabel(Vendor vendor) => withPlace(
+      vendor.displayName.isNotEmpty ? vendor.displayName : vendor.name,
+      vendorPlace(vendor));
+
+  String _customerLabel(Customer customer) =>
+      withPlace(customer.name, customerPlace(customer));
 
   /// A customer was chosen: when a set-off needs a supplier and none was
   /// chosen by hand, preselect the customer's linked one (ACC-11). It stays
@@ -823,7 +828,7 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
         if (customer.id == id) {
           setState(() {
             _customerId = customer.id;
-            _customerMenu.text = customer.name;
+            _customerMenu.text = _customerLabel(customer);
             _customerPreselected = true;
           });
           await _loadBills();
@@ -1152,7 +1157,7 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
               for (final Customer customer in _customers)
                 DropdownMenuEntry<String>(
                   value: customer.id,
-                  label: customer.name,
+                  label: _customerLabel(customer),
                 ),
             ],
             onSelected: (value) {
@@ -1184,9 +1189,7 @@ class _PartyAdjustmentDialogState extends State<PartyAdjustmentDialog> {
               for (final Vendor vendor in _vendors)
                 DropdownMenuEntry<String>(
                   value: vendor.id,
-                  label: vendor.displayName.isNotEmpty
-                      ? vendor.displayName
-                      : vendor.name,
+                  label: _vendorLabel(vendor),
                 ),
             ],
             onSelected: (value) {

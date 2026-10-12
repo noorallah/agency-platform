@@ -18,6 +18,7 @@ import '../../models/settlement.dart';
 import '../../models/supplier_rebate.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 
 String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
 
@@ -768,7 +769,8 @@ class _SupplierRebateDialogState extends State<SupplierRebateDialog>
                     for (final Vendor v in _vendors)
                       DropdownMenuItem<String>(
                         value: v.id,
-                        child: Text(_vendorLabel(v),
+                        child: Text(
+                            withPlace(_vendorLabel(v), vendorPlace(v)),
                             overflow: TextOverflow.ellipsis),
                       ),
                   ],

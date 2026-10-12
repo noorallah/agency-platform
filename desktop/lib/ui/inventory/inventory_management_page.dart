@@ -16,6 +16,7 @@ import '../../models/batch_serial.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import '../goods_receipts/serial_entry_dialog.dart' show parseSerialLines;
+import '../workspace/party_place.dart';
 import 'inventory_details_dialog.dart';
 import 'inventory_import_wizard.dart';
 import 'opening_stock_import_dialog.dart';
@@ -1723,7 +1724,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   .items)
             StockCustomerOption(
               id: customer.id,
-              label: '${customer.code} - ${customer.name}',
+              label: withPlace('${customer.code} - ${customer.name}',
+                  customerPlace(customer)),
             ),
         ],
         warehouses: [

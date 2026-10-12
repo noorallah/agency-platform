@@ -16,6 +16,7 @@ import '../../models/product.dart';
 import '../../models/supplier_scheme.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import 'purchase_requisition_page.dart' show ProductSearchBox;
 
 String _vendorName(Vendor v) => v.displayName.isEmpty ? v.name : v.displayName;
@@ -508,7 +509,8 @@ class _SupplierSchemeDialogState extends State<SupplierSchemeDialog>
                           for (final Vendor v in _vendors)
                             DropdownMenuItem(
                               value: v.id,
-                              child: Text(_vendorName(v),
+                              child: Text(
+                                  withPlace(_vendorName(v), vendorPlace(v)),
                                   overflow: TextOverflow.ellipsis),
                             ),
                         ],

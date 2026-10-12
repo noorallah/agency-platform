@@ -196,9 +196,11 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
             for (final Vendor vendor in _vendors)
               DropdownMenuEntry<String>(
                 value: vendor.id,
-                label: vendor.displayName.isNotEmpty
-                    ? vendor.displayName
-                    : vendor.name,
+                label: withPlace(
+                    vendor.displayName.isNotEmpty
+                        ? vendor.displayName
+                        : vendor.name,
+                    vendorPlace(vendor)),
               ),
           ],
           onSelected: (value) {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/api/api_client.dart';
 import '../core/design/design_tokens.dart';
 import '../models/entities.dart' show Json;
+import '../ui/workspace/party_place.dart';
 import 'indian_format.dart';
 
 /// Buy > Money > Payables by Month (PG-2, backlog 85): what each supplier is
@@ -56,7 +57,10 @@ class _PayablesReportPageState extends State<PayablesReportPage> {
       final branches = await widget.api.branches(pageSize: 100);
       if (!mounted) return;
       setState(() {
-        _vendors = [for (final v in vendors.items) MapEntry(v.id, v.name)];
+        _vendors = [
+          for (final v in vendors.items)
+            MapEntry(v.id, withPlace(v.name, vendorPlace(v))),
+        ];
         _branches = [for (final b in branches.items) MapEntry(b.id, b.name)];
       });
     } on Object {

@@ -18,6 +18,7 @@ import '../../models/purchase_requisition.dart';
 import '../../models/rfq.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 
 /// List requisitions and raise, send, approve, cancel and convert them.
@@ -741,7 +742,10 @@ class _RequisitionDialogState extends State<RequisitionDialog>
                 for (final Vendor v in _vendors)
                   DropdownMenuItem(
                     value: v.id,
-                    child: Text(v.displayName.isEmpty ? v.name : v.displayName,
+                    child: Text(
+                        withPlace(
+                            v.displayName.isEmpty ? v.name : v.displayName,
+                            vendorPlace(v)),
                         overflow: TextOverflow.ellipsis),
                   ),
               ],

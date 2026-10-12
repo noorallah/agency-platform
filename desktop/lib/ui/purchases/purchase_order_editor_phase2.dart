@@ -622,8 +622,10 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
             for (final Vendor item in widget.vendors)
               DropdownMenuEntry<String>(
                 value: item.id,
-                label: '${item.displayName.ifEmpty(item.name)} — ${item.code}'
+                label: withPlace(
+                    '${item.displayName.ifEmpty(item.name)} — ${item.code}'
                     '${item.phone.isEmpty ? '' : '  ${item.phone}'}',
+                    vendorPlace(item)),
               ),
           ],
           onSelected: (value) {
