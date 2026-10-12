@@ -166,6 +166,21 @@ met the bill -- the settlement's for an allocation made with it, the bill's
 for an advance applied since -- and `net_sales.collected_net` reads it, so
 the report, the clawback re-read and the target achievement move together.
 
+**A period is said by its last day or by a number of days, never both**
+(backlog 111, customer task S6). `CommissionPayoutAccrue` takes
+`period_end` or `period_days`; the days count the first, so 10 days from
+the 16th end on the 25th, and one day is the start day alone. Both, or
+neither, is a 422, as is a count outside 1 to 366 (`MAX_PERIOD_DAYS`; a
+longer period is still sayable by its last day). The service reads only
+`last_day`, the one place the two forms meet, so the has-ended check, the
+overlap guard, the default booking date and the stored `period_end` cannot
+disagree about which day that is. Nothing is stored about how the period
+was said: the row holds its two dates, as it always did. The Accrue form
+asks **Starts on** and **Number of days**, shows the day it ends before
+anything is sent, and offers the period after the newest payout still
+standing -- the next whole month after a whole month, the same number of
+days after anything else.
+
 ## A target is above zero, and a payout says what state it is in
 
 **A target must be above zero** (D-PRC-20, 2026-10-06). `POST /sales-targets`

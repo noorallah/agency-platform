@@ -830,7 +830,12 @@ fixed amount (choose **Percent** or **Amount** under *Pays*), for
 arrangements such as "2,000 for reaching one lakh, 5% above two lakh". *Collected* shows what has been earned so
 far. *Payouts* turn a period's earnings into a payout; approving it books
 the commission owed, and paying it books the payment. The person who
-approves a payout and the person who pays it can be kept apart.
+approves a payout and the person who pays it can be kept apart. A period
+is a **start date and a number of days**, so commission can be paid every
+week, every fortnight, every month or over any other run of days: *Accrue
+period* asks both, shows the day the period ends, and offers the period
+that follows the last one paid. A period can be accrued once its last day
+is over, and no day is paid twice.
 
 **Targets.** What each salesman is expected to sell in a period, and how it
 went. Targets over several months are judged together. Commission can pay a

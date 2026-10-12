@@ -213,10 +213,10 @@ class CommissionPayoutService:
         report = self._commission.report(
             firm_id=firm_id,
             from_date=data.period_start,
-            to_date=data.period_end,
+            to_date=data.last_day,
             salesman_id=data.salesman_id,
         )
-        accrued_on = data.accrued_on or data.period_end
+        accrued_on = data.accrued_on or data.last_day
         created: list[CommissionPayout] = []
         for row in report.rows:
             # The Unassigned bucket belongs to nobody, so there is nobody to
@@ -228,7 +228,7 @@ class CommissionPayoutService:
                 firm_id=firm_id,
                 salesman_id=row.salesman_id,
                 period_start=data.period_start,
-                period_end=data.period_end,
+                period_end=data.last_day,
             )
             measured = (
                 row.invoiced_amount if row.basis == "INVOICED" else row.collected_amount
@@ -243,7 +243,7 @@ class CommissionPayoutService:
                 firm_id=firm_id,
                 salesman_id=row.salesman_id,
                 period_start=data.period_start,
-                period_end=data.period_end,
+                period_end=data.last_day,
                 basis=row.basis,
                 measured_amount=measured,
                 earned_amount=row.commission_amount,
@@ -397,17 +397,17 @@ class CommissionPayoutService:
 
         """
         today = firm_today(self._session, firm_id)
-        if data.period_end < data.period_start:
+        if data.last_day < data.period_start:
             raise ValidationError("period_end cannot be before period_start.")
-        if data.period_end >= today:
-            first_free_day = data.period_end + timedelta(days=1)
+        if data.last_day >= today:
+            first_free_day = data.last_day + timedelta(days=1)
             raise ValidationError(
                 "That period has not ended. A payout accrued before its last "
                 "day is over would leave whatever is collected afterwards "
                 f"belonging to no payout; accrue it from {first_free_day:%Y-%m-%d}."
             )
         if data.accrued_on is not None:
-            if data.accrued_on < data.period_end:
+            if data.accrued_on < data.last_day:
                 raise ValidationError(
                     "The accrual cannot be booked before the period ends: "
                     "the cost belongs to the period it was earned in."

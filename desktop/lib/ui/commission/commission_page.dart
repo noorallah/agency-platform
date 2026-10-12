@@ -209,7 +209,13 @@ class _CommissionPageState extends State<CommissionPage> {
   Future<void> _accrue() async {
     final bool? ran = await showDialog<bool>(
       context: context,
-      builder: (context) => CommissionAccrualDialog(api: widget.api),
+      builder: (context) => CommissionAccrualDialog(
+        api: widget.api,
+        // Newest period first, as the list is read; a cancelled payout holds
+        // no period, so it is not the one to follow.
+        previous:
+            _payouts.where((row) => row.status != 'CANCELLED').firstOrNull,
+      ),
     );
     if (ran == true) await _loadPayouts();
   }

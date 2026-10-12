@@ -1,11 +1,15 @@
 """Commission payout request and response schemas."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+#: The longest period that can be said in days: a leap year. A longer one is
+#: still sayable by its last day, as it always was.
+MAX_PERIOD_DAYS = 366
 
 
 class PayoutSchema(BaseModel):
@@ -29,10 +33,19 @@ class CommissionPayoutAccrue(PayoutSchema):
     Omitting `salesman_id` accrues one payout per person who earned anything,
     which is the ordinary month-end action. Naming one accrues only theirs,
     which is what a correction after the fact needs.
+
+    **The period is said one of two ways, never both**: its last day
+    (`period_end`), or how many days it runs (`period_days`), counting the
+    first -- a firm that pays every fortnight says "from the 1st, 15 days"
+    and should not have to work out the 15th. Whichever was sent, `last_day`
+    is the day the period ends and the only one the service reads.
     """
 
     period_start: date
-    period_end: date
+    period_end: date | None = None
+    #: How many days the period runs, its first day included: 1 is the start
+    #: day alone. Sent instead of `period_end`.
+    period_days: int | None = Field(default=None, ge=1, le=MAX_PERIOD_DAYS)
     #: Null accrues for everybody who earned something in the period.
     salesman_id: UUID | None = None
     #: The date the accrual is booked on, and the date its journal will carry.
@@ -43,18 +56,36 @@ class CommissionPayoutAccrue(PayoutSchema):
 
     @model_validator(mode="after")
     def _period_runs_forwards(self) -> "CommissionPayoutAccrue":
-        """Refuse a period that ends before it starts.
+        """Require one way of ending the period, and refuse a backwards one.
 
         Returns:
             The validated payload.
 
         Raises:
-            ValueError: If the period runs backwards.
+            ValueError: If both or neither of `period_end` and `period_days`
+                were sent, or the period runs backwards.
 
         """
-        if self.period_end < self.period_start:
+        if (self.period_end is None) == (self.period_days is None):
+            raise ValueError(
+                "Give either period_end or period_days (the number of days "
+                "the period runs, counting its first), not both."
+            )
+        if self.period_end is not None and self.period_end < self.period_start:
             raise ValueError("period_end cannot be before period_start.")
         return self
+
+    @property
+    def last_day(self) -> date:
+        """Return the last day of the period, however it was said.
+
+        Returns:
+            `period_end`, or the start plus `period_days` less one.
+
+        """
+        if self.period_end is not None:
+            return self.period_end
+        return self.period_start + timedelta(days=(self.period_days or 1) - 1)
 
 
 class CommissionPayoutUpdate(PayoutSchema):
@@ -149,6 +180,7 @@ class CommissionPayoutResponse(PayoutSchema):
 
 
 __all__ = [
+    "MAX_PERIOD_DAYS",
     "CommissionPaymentMethodEnum",
     "CommissionPayoutAccrue",
     "CommissionPayoutPay",

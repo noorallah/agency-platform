@@ -7791,3 +7791,49 @@ which slabs pay an amount.
 
 **Cases:** TC-INCENT-013. **Tests:** `tests/unit/test_commission.py` (eight
 new), `desktop/test/commission_page_test.dart` (two new).
+
+## 111. A commission period is a start date plus a number of days -- built 2026-10-13
+
+**Customer task S6.** Wanted: commission paid for a run of days that is not a
+calendar month, said as the day it starts and how many days it runs.
+
+**What was there.** The server already took any two dates for a period: it
+refuses one that has not ended and one that shares a day with another payout
+for the same person, and nothing in it assumed a month. The screen asked
+From and To, offered last month every time, and left the arithmetic of "15
+days from the 16th" to the person typing.
+
+**What was built.**
+
+- **Server.** The accrual takes `period_days` in place of `period_end`: the
+  number of days the period runs, the first one counted, from 1 to 366. Both
+  together, or neither, is refused. Everything the accrual checks reads the
+  one worked-out last day. No table changed and there is no migration.
+- **Screen.** *Accrue period* asks **Starts on** and **Number of days** and
+  shows "Ends on ..." under them as either is typed. It offers the period
+  that follows the newest payout still standing: the next whole month after a
+  whole month, the same number of days after anything else, and last month
+  where there is no payout yet.
+
+**Decided, by the usual standard.**
+
+- The start day is counted: one day is that day alone, and 10 days from the
+  16th end on the 25th.
+- The number of days is not kept as a setting of the firm. The form follows
+  the last period instead, so a firm that pays every fortnight is offered a
+  fortnight without anybody configuring it, and a firm that changes its mind
+  types a different number once.
+- A cancelled payout is not followed: it holds no period.
+- A payout still stores its two dates and nothing about how they were said.
+- A period said in days is limited to 366; a longer one can still be said
+  over HTTP by its last day.
+- A slab's fixed amount, a cap and a floor are still judged on each period
+  accrued, whatever its length (backlog 110).
+
+**Not built.** A firm's go-live date, the other half of the same answer from
+the customer, is its own item. Sales targets keep their own periods. The
+payouts list still names a whole month "Apr 2026" and any other period by
+its two dates.
+
+**Cases:** TC-INCENT-014. **Tests:** `tests/unit/test_commission_payouts.py`
+(six new), `desktop/test/commission_page_test.dart` (five in place of two).

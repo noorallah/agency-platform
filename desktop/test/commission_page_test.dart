@@ -969,27 +969,7 @@ void main() {
     expect(api.sentVersion, 3);
   });
 
-  testWidgets('an accrual sends only the period', (tester) async {
-    final _CommissionApi api = _CommissionApi();
-    await _pump(tester, api);
-    await _showPayouts(tester);
-
-    await tester.tap(find.widgetWithText(FilledButton, 'Accrue period'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-        find.widgetWithText(TextField, 'From'), '2026-04-01');
-    await tester.enterText(find.widgetWithText(TextField, 'To'), '2026-04-30');
-    await tester.tap(find.widgetWithText(FilledButton, 'Accrue'));
-    await tester.pumpAndSettle();
-
-    // The amounts come from the report, not from anybody's typing.
-    expect(api.accrued, <String, dynamic>{
-      'period_start': '2026-04-01',
-      'period_end': '2026-04-30',
-    });
-  });
-
-  testWidgets('an accrual period that runs backwards is refused before sending',
+  testWidgets('an accrual sends the start date and the number of days',
       (tester) async {
     final _CommissionApi api = _CommissionApi();
     await _pump(tester, api);
@@ -998,13 +978,104 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Accrue period'));
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.widgetWithText(TextField, 'From'), '2026-04-30');
-    await tester.enterText(find.widgetWithText(TextField, 'To'), '2026-04-01');
+        find.widgetWithText(TextField, 'Starts on'), '2026-04-16');
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('accrual-days')), '10');
+    await tester.pump();
+
+    // The first day is counted: ten days from the 16th end on the 25th, and
+    // the screen says so before anything is sent.
+    expect(find.text('Ends on 2026-04-25.'), findsOneWidget);
+
     await tester.tap(find.widgetWithText(FilledButton, 'Accrue'));
     await tester.pumpAndSettle();
 
-    expect(api.accrued, isNull);
-    expect(find.textContaining('cannot end before it starts'), findsOneWidget);
+    // The amounts come from the report, not from anybody's typing.
+    expect(api.accrued, <String, dynamic>{
+      'period_start': '2026-04-16',
+      'period_days': 10,
+    });
+  });
+
+  testWidgets('a period longer than a month ends in the next one',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Accrue period'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Starts on'), '2026-04-01');
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('accrual-days')), '45');
+    await tester.pump();
+
+    expect(find.text('Ends on 2026-05-15.'), findsOneWidget);
+  });
+
+  testWidgets('an accrual without a usable number of days is refused before '
+      'sending', (tester) async {
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Accrue period'));
+    await tester.pumpAndSettle();
+    for (final String typed in <String>['0', '', '367', 'ten']) {
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('accrual-days')), typed);
+      await tester.tap(find.widgetWithText(FilledButton, 'Accrue'));
+      await tester.pumpAndSettle();
+
+      expect(api.accrued, isNull, reason: 'typed "$typed"');
+      expect(find.textContaining('whole number from 1 to 366'), findsOneWidget);
+      expect(find.textContaining('Ends on: enter'), findsOneWidget);
+    }
+  });
+
+  testWidgets('after a whole month the next whole month is offered',
+      (tester) async {
+    // April was accrued: May follows, all 31 days of it, not thirty.
+    final _CommissionApi api = _CommissionApi(payouts: <Json>[_draftPayout()]);
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Accrue period'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextField, '2026-05-01'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '31'), findsOneWidget);
+    expect(find.text('Ends on 2026-05-31.'), findsOneWidget);
+  });
+
+  testWidgets('after a fortnight the next fortnight is offered',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(payouts: <Json>[
+      // Newest first, as the server lists them. The cancelled one holds no
+      // period, so it is not the one to follow.
+      <String, dynamic>{
+        ..._draftPayout(),
+        'id': 'p-9',
+        'period_start': '2026-05-01',
+        'period_end': '2026-05-31',
+        'status': 'CANCELLED',
+      },
+      <String, dynamic>{
+        ..._draftPayout(),
+        'period_start': '2026-04-01',
+        'period_end': '2026-04-15',
+      },
+    ]);
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Accrue period'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextField, '2026-04-16'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '15'), findsOneWidget);
+    expect(find.text('Ends on 2026-04-30.'), findsOneWidget);
   });
 
   testWidgets('the payment form asks cash or bank and sends the method',

@@ -1,7 +1,8 @@
 // The two things a commission payout needs a form for: accruing a period,
 // and paying one.
 //
-// Both are deliberately small. The accrual takes a period and nothing else,
+// Both are deliberately small. The accrual takes a period -- the day it
+// starts and how many days it runs -- and nothing else,
 // because the amounts come from the report rather than from anybody's typing;
 // the payment takes a date and the account the money left, because that is
 // the only thing the ledger cannot work out for itself.
@@ -22,9 +23,26 @@ import 'commission_page.dart' show CommissionDateField, isoDate, parseIsoDate;
 /// a payout of zero is paperwork that has to be approved and paid like any
 /// other and says nothing the report does not.
 class CommissionAccrualDialog extends StatefulWidget {
-  const CommissionAccrualDialog({super.key, required this.api});
+  const CommissionAccrualDialog({
+    super.key,
+    required this.api,
+    this.previous,
+    this.today,
+  });
 
   final ApiClient api;
+
+  /// The newest payout still standing, if there is one. The form then offers
+  /// the period that follows it, the same length, so a firm paying every
+  /// fortnight is not offered a month each time.
+  final CommissionPayoutRecord? previous;
+
+  /// The day the default period is worked out from. Left null it is this
+  /// computer's day.
+  final DateTime? today;
+
+  /// The longest period the server takes as a number of days.
+  static const int maxDays = 366;
 
   @override
   State<CommissionAccrualDialog> createState() =>
@@ -32,43 +50,96 @@ class CommissionAccrualDialog extends StatefulWidget {
 }
 
 class _CommissionAccrualDialogState extends State<CommissionAccrualDialog> {
-  late final TextEditingController _from =
-      TextEditingController(text: isoDate(_firstOfLastMonth()));
-  late final TextEditingController _to =
-      TextEditingController(text: isoDate(_lastOfLastMonth()));
+  late final TextEditingController _from;
+  late final TextEditingController _days;
 
   bool _running = false;
   String? _error;
 
-  /// Last month, because that is the period a firm accrues at the start of
-  /// this one. Defaulting to the current month would offer a period that is
-  /// still collecting money.
-  static DateTime _firstOfLastMonth() {
-    final DateTime now = DateTime.now();
-    return DateTime(now.year, now.month - 1);
+  @override
+  void initState() {
+    super.initState();
+    final (DateTime start, int days) = _proposed();
+    _from = TextEditingController(text: isoDate(start));
+    _days = TextEditingController(text: '$days');
+    // The end is worked out as either is typed, so it is on screen before
+    // anything is sent.
+    _from.addListener(_reworked);
+    _days.addListener(_reworked);
   }
 
-  static DateTime _lastOfLastMonth() {
-    final DateTime now = DateTime.now();
-    return DateTime(now.year, now.month, 0);
+  void _reworked() {
+    if (mounted) setState(() {});
+  }
+
+  /// The period offered: the one after the last payout, or last month.
+  ///
+  /// After a whole calendar month the next whole month follows, whatever its
+  /// length -- thirty days after April would stop a day short of May's end.
+  /// After anything else the same number of days follows. With nothing to
+  /// follow it is last month, because that is the period a firm accrues at
+  /// the start of this one; the current month is still collecting money.
+  (DateTime, int) _proposed() {
+    final DateTime? lastStart = parseIsoDate(widget.previous?.periodStart ?? '');
+    final DateTime? lastEnd = parseIsoDate(widget.previous?.periodEnd ?? '');
+    if (lastStart != null && lastEnd != null && !lastEnd.isBefore(lastStart)) {
+      final DateTime start =
+          DateTime(lastEnd.year, lastEnd.month, lastEnd.day + 1);
+      final bool wholeMonth = lastStart.day == 1 &&
+          lastStart.year == lastEnd.year &&
+          lastStart.month == lastEnd.month &&
+          start.day == 1;
+      if (wholeMonth) {
+        return (start, DateUtils.getDaysInMonth(start.year, start.month));
+      }
+      return (start, _daysBetween(lastStart, lastEnd) + 1);
+    }
+    final DateTime now = widget.today ?? DateTime.now();
+    final DateTime start = DateTime(now.year, now.month - 1);
+    return (start, DateUtils.getDaysInMonth(start.year, start.month));
+  }
+
+  /// Whole days from one date to another, by the calendar rather than by
+  /// hours, so a clock change inside the period cannot lose one.
+  static int _daysBetween(DateTime from, DateTime to) =>
+      DateTime.utc(to.year, to.month, to.day)
+          .difference(DateTime.utc(from.year, from.month, from.day))
+          .inDays;
+
+  /// The number of days typed, or null where it is not one the server takes.
+  int? get _dayCount {
+    final int? days = int.tryParse(_days.text.trim());
+    if (days == null || days < 1 || days > CommissionAccrualDialog.maxDays) {
+      return null;
+    }
+    return days;
+  }
+
+  /// The last day of the period as typed, the first day counted.
+  DateTime? get _lastDay {
+    final DateTime? from = parseIsoDate(_from.text);
+    final int? days = _dayCount;
+    if (from == null || days == null) return null;
+    return DateTime(from.year, from.month, from.day + days - 1);
   }
 
   @override
   void dispose() {
     _from.dispose();
-    _to.dispose();
+    _days.dispose();
     super.dispose();
   }
 
   Future<void> _run() async {
     final DateTime? from = parseIsoDate(_from.text);
-    final DateTime? to = parseIsoDate(_to.text);
-    if (from == null || to == null) {
-      setState(() => _error = 'Enter both dates as YYYY-MM-DD.');
+    if (from == null) {
+      setState(() => _error = 'Enter the start date as YYYY-MM-DD.');
       return;
     }
-    if (to.isBefore(from)) {
-      setState(() => _error = 'The period cannot end before it starts.');
+    final int? days = _dayCount;
+    if (days == null) {
+      setState(() => _error = 'Enter the number of days as a whole number '
+          'from 1 to ${CommissionAccrualDialog.maxDays}.');
       return;
     }
     setState(() {
@@ -79,7 +150,7 @@ class _CommissionAccrualDialogState extends State<CommissionAccrualDialog> {
       final List<CommissionPayoutRecord> made =
           await widget.api.accrueCommissionPayouts(<String, dynamic>{
         'period_start': isoDate(from),
-        'period_end': isoDate(to),
+        'period_days': days,
       });
       if (!mounted) return;
       NotificationService.show(
@@ -104,6 +175,7 @@ class _CommissionAccrualDialogState extends State<CommissionAccrualDialog> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final DateTime? lastDay = _lastDay;
     return AlertDialog(
       title: const Text('Accrue a period'),
       content: SizedBox(
@@ -119,23 +191,38 @@ class _CommissionAccrualDialogState extends State<CommissionAccrualDialog> {
             ),
             const SizedBox(height: AppSpacing.md),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: CommissionDateField(
                     controller: _from,
-                    label: 'From',
+                    label: 'Starts on',
                     enabled: !_running,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.lg),
                 Expanded(
-                  child: CommissionDateField(
-                    controller: _to,
-                    label: 'To',
+                  child: TextField(
+                    key: const ValueKey<String>('accrual-days'),
+                    controller: _days,
                     enabled: !_running,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Number of days',
+                      helperText: 'The start day is counted',
+                      isDense: true,
+                    ),
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              lastDay == null
+                  ? 'Ends on: enter a start date and a number of days.'
+                  : 'Ends on ${isoDate(lastDay)}.',
+              key: const ValueKey<String>('accrual-ends-on'),
+              style: theme.textTheme.bodyMedium,
             ),
             if (_error != null) ...[
               const SizedBox(height: AppSpacing.lg),
