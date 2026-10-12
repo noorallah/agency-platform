@@ -7971,3 +7971,60 @@ when a switch is changed.
 (10), `desktop/test/phase2_vendor_form_test.dart`,
 `desktop/test/phase2_customer_form_test.dart` and
 `desktop/test/tds_194c_194j_test.dart` (seven new between them).
+
+## 114. A discount limit per role at billing -- found built, tried 2026-10-13
+
+**Asked.** A discount limit per role at billing: a user over his role's limit
+is refused by the server with the limit named (customer task S9; question 5.8
+of the requirements list; A16 decided "role first, per user later if asked").
+
+**Found.** All of it, built on 2026-10-02 as section 64 row 3 and hardened by
+D-PRC-1, D-PRC-2, D-PRC-23, D-PRC-24 and D-CFG-27. `role_discount_limits`
+holds one largest discount per role and firm, set on *Settings > Selling >
+Discount Limits* in the new UI. The server judges it when a sales order, a
+delivery note or a sales bill is approved, one at a time or from a ticked
+list, against the limit of the person approving: the largest among their
+roles that have one. Only what somebody typed counts -- a discount on the
+line, a discount on the whole bill, a price below the customer's -- and a
+price list, an offer or the customer's standing rate does not. Setting the
+limits needs `SALES_MANAGE_SETTINGS`, which `SALES_MANAGER` is not given: the
+role the limit binds cannot raise it.
+
+**Built.** Nothing. No code changed.
+
+**Tried over HTTP, 2026-10-13,** on the fixture firm `T10139XDY-R` with a
+second user holding `SALES_MANAGER` and that role limited to 5% (26 checks):
+
+- He may read the limits and is refused changing them (403). A limit on a
+  role nobody holds is refused by name (D-CFG-27, driven here for the first
+  time).
+- A bill with 8% typed on a line is refused, "Line 1 carries a discount of
+  8.00%, above your limit of 5.00%. It needs approval by someone allowed at
+  least 8.00%.", and is still a draft. Ticked in a list and approved from
+  there, the row is refused in the same words. The firm administrator
+  approves it. A bill at 5% he approves himself.
+- 10% on the whole bill is refused. 4% on the line with 3% on the whole bill
+  is refused together.
+- A price typed at 80.00 where the customer's is 100.00 is refused as 20% off.
+- A customer's standing 10% is not typed: the bill carries it and he approves
+  it.
+- The same limit refuses his order at 8% and his delivery note at 30%.
+- With the firm set to bill at the counter (no order, no note), a bill typed
+  alone at 8% is refused in the same words.
+- The limit raised to 10% lets the 10% bill through and still refuses the 20%
+  cut. With no limit set, nobody is refused.
+
+The firm's limits and its sales stages were put back as they were read.
+
+**Not built, and not asked.** A limit per user (A16). A credit note or a
+write-off given after the bill is not a discount on a document and is not
+judged by this limit; each has its own permission. Somebody none of whose
+roles has a limit is not limited, so a firm that wants every biller bound
+gives every billing role a row.
+
+**Not verified.** The Discount Limits page and the refusal as the bill screen
+shows it were not clicked in the running app this time.
+
+**Cases:** TC-SELL-097. **Tests (already there):**
+`tests/unit/test_role_discount_limits.py`,
+`tests/unit/test_discount_limit_judges_the_price.py`.

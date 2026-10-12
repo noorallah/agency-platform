@@ -3750,6 +3750,37 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Expect:** (a) and (b) the print dialog opens **once**, on one document of **nine pages**: each bill (or challan) in the order of the list, as ORIGINAL, DUPLICATE and TRIPLICATE, exactly as it prints alone. (c) the same: printing needs no more than viewing. (d) refused, saying several documents print together on A4 or A5 and to print them one at a time on a roll; nothing prints. (e) no *Print selected*; the ordinary **Print** is offered.
 - **Leaves:** unchanged; a print writes nothing.
 
+### TC-SELL-097 — A discount above a role's limit is refused at billing, with the limit named
+
+*Added 2026-10-13 (backlog 114). **Driven over HTTP** that day on a fixture firm (26 checks); the screens were not clicked.*
+
+- **Covers:** backlog 114 (customer task S9); backlog 64 row 3
+- **Fixture:** `ready-firm`
+- **Also needs:** a second user of the firm holding only **Sales Manager**; under *Settings → Selling → Discount Limits* one row, Sales Manager **5**; a product priced 100.00 with stock; a customer **A** with no discount of its own and a customer **B** whose standing discount is 10%. Where the firm types orders and delivery notes, each bill below continues a note for 2 of the product.
+- **Steps**
+  1. As the Sales Manager open *Settings → Selling → Discount Limits*.
+  2. As the Sales Manager raise a bill for A with **8** in the line's discount % and press **Approve**.
+  3. On the bills list tick that bill and approve it from the list.
+  4. As the firm administrator approve the same bill.
+  5. As the Sales Manager raise a bill for A with **5** on the line and approve it.
+  6. Raise a bill for A with nothing on the line and **10** as the discount on the whole bill; approve it.
+  7. Raise a bill for A with the price typed as **80.00** and no discount; approve it.
+  8. Raise a bill for B and type no discount; approve it.
+  9. As the firm administrator change the limit to **10** and save. As the Sales Manager approve the bills of steps 6 and 7 again.
+  10. As the firm administrator remove the row and save. As the Sales Manager approve the bill of step 7.
+- **Expect**
+  - Step 1: the limits are shown and cannot be changed.
+  - Step 2: refused, "Line 1 carries a discount of 8.00%, above your limit of 5.00%. It needs approval by someone allowed at least 8.00%." The bill is still a draft.
+  - Step 3: the row is refused in the same words; nothing is approved.
+  - Step 4: approved.
+  - Step 5: approved. A discount at the limit is within it.
+  - Step 6: refused, naming 10.00% and the limit of 5.00%.
+  - Step 7: refused, "Line 1 is priced at 80.00 where the customer's price is 100.00: 20.00% off in all, above your limit of 5.00%. ..."
+  - Step 8: approved, and the bill carries B's 10%. A discount nobody typed is not judged.
+  - Step 9: the bill of step 6 is approved; the bill of step 7 is refused, now naming a limit of 10.00%.
+  - Step 10: approved. A role with no row has no limit.
+- **Leaves:** five approved bills and no discount limit.
+
 
 
 ## Pricing, promotions and incentives
