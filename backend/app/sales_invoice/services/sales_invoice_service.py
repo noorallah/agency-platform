@@ -4143,13 +4143,6 @@ class SalesInvoiceService(TransactionalDocumentService):
                 source_uom_id = stock_unit_of(
                     self._session.get(Product, self._product_id(source_line))
                 )
-            assert_quantity_fits_unit(
-                self._session,
-                quantity=requested_quantity,
-                uom_id=invoice_uom_id or source_uom_id,
-                product_id=self._product_id(source_line),
-                firm_id=firm_id,
-            )
             conversion_factor = self._q(
                 Decimal(str(spec.get("conversion_factor", Decimal("1"))))
             )
@@ -4271,6 +4264,24 @@ class SalesInvoiceService(TransactionalDocumentService):
                     f"Line {index} bills a quantity of 0 and supplies nothing "
                     "free. Type a quantity, or leave the line off the bill."
                 )
+            # What leaves on the line -- charged and free together -- is what
+            # has to fit the unit, as the order and the note read it: a part
+            # share of "buy 10 get 1" charges 5.5 and gives 0.5, six whole
+            # pieces. Judged on the charged quantity alone, a note that had
+            # already dispatched those six could never be billed (D-SELL-91).
+            # A line typed in another unit than the one it bills is judged on
+            # what was typed: its free goods are counted in the source's unit.
+            assert_quantity_fits_unit(
+                self._session,
+                quantity=(
+                    requested_quantity
+                    if typed.entered is not None
+                    else self._q(requested_quantity + free_quantity)
+                ),
+                uom_id=invoice_uom_id or source_uom_id,
+                product_id=self._product_id(source_line),
+                firm_id=firm_id,
+            )
             priced.append(
                 _PricedInvoiceLine(
                     index=index,

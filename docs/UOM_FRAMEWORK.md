@@ -281,6 +281,16 @@ converted figures used to be put to the rule:
   `share_of_line` for a split: the rule is the line's to pass, and what moves
   is the allocation itself.
 
+**A fraction is judged on what leaves the shelf.** A unit that takes no
+fraction refuses 5.5 of itself, but a line that charges 5.5 and gives 0.5
+free moves six whole pieces, and that is what the rule is about: a customer
+taking half of "buy 10 get 1" is charged for five and a half and given a
+half. The sales order, the delivery note and the sales invoice all judge
+charged plus free together. The invoice judged the charged quantity alone
+until 2026-10-12, so a note that had dispatched the six could not be billed
+(D-SELL-91). A bill line typed in another unit than the one it bills is
+judged on what was typed.
+
 **What is not typed in pieces.** A goods receipt line and a delivery note
 line are counted in their order line's unit and one naming another is refused
 where it is saved, as above; loose pieces of an order by the box are received

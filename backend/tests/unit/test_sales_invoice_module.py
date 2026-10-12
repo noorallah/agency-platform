@@ -2278,6 +2278,55 @@ def test_billing_a_note_in_full_carries_the_whole_gift() -> None:
     assert response.lines[0].gross_amount == Decimal("300.0000")
 
 
+def _count_in_whole_pieces(setup: _Billing) -> None:
+    """Keep the setup's product in a unit that takes no fraction."""
+    piece = _uom_models.Uom(
+        code="PIECE",
+        name="Piece",
+        dimension="COUNT",
+        status="ACTIVE",
+        is_decimal_allowed=False,
+    )
+    setup.session.add(piece)
+    setup.session.flush()
+    setup.product.base_uom_id = piece.id
+    setup.product.inventory_uom_id = piece.id
+    setup.session.commit()
+
+
+def test_a_part_share_of_an_offer_dispatched_whole_is_billed() -> None:
+    """D-SELL-91: a note of 3.5 charged and 0.5 free could never be billed.
+
+    The order and the note judge what leaves -- charged and free together --
+    against the unit, so four whole pieces were dispatched; the bill judged
+    the charged 3.5 alone and refused it, with the goods already gone.
+    """
+    setup = _Billing(_session_factory()())
+    _count_in_whole_pieces(setup)
+    note = _dispatched_note(
+        setup, quantity=Decimal("3.5"), free_quantity=Decimal("0.5")
+    )
+
+    response = _bill_note(setup, note, Decimal("3.5"))
+
+    assert response.lines[0].current_invoice_quantity == Decimal("3.5000")
+    assert response.lines[0].free_quantity == Decimal("0.5000")
+    # Charged for three and a half; the half given is outside the gross.
+    assert response.lines[0].gross_amount == Decimal("350.0000")
+
+
+def test_a_fraction_that_leaves_no_whole_piece_is_still_refused_on_a_bill() -> None:
+    """The rule moved, it did not loosen: 3.5 with nothing free is not a piece."""
+    setup = _Billing(_session_factory()())
+    _count_in_whole_pieces(setup)
+    note = _dispatched_note(setup, quantity=Decimal("4"))
+
+    with pytest.raises(ValidationError) as refused:
+        _bill_note(setup, note, Decimal("3.5"))
+
+    assert "PIECE is counted in whole numbers, so 3.5 PIECE" in str(refused.value)
+
+
 def test_a_dispatched_note_is_offered_with_what_is_left_to_bill() -> None:
     """Offer only what a document still has left to bill.
 
