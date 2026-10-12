@@ -11,12 +11,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Credit limits are enforced on the server, at approval. The client's job is
-/// to make sure the user is not surprised by that — so it warns when the limit
-/// is close, and never stands in the way of the document itself.
+/// to make sure the user is not surprised by that — so it asks when the limit
+/// is close, and never refuses the document itself (backlog 107).
 ///
-/// These tests pin the two halves of that: the warning appears and the approve
-/// still runs, and a document the server is going to refuse gets no client
-/// warning, because the refusal already carries the same sentence.
+/// These tests pin the halves of that: the question appears and nothing is
+/// approved until it is answered, "Approve anyway" approves, Cancel does not,
+/// and a document the server is going to refuse gets no client question,
+/// because the refusal already carries the same sentence.
 
 String _accessToken(Map<String, dynamic> claims) {
   final String payload =
@@ -137,8 +138,15 @@ Future<void> _pumpAndApprove(WidgetTester tester, _CreditApi api) async {
   await tester.pumpAndSettle();
 }
 
+/// Answer the credit question, where one is on screen.
+Future<void> _answer(WidgetTester tester, String button) async {
+  await tester.tap(find.widgetWithText(
+      button == 'Cancel' ? TextButton : FilledButton, button));
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('a customer near their limit is warned, and the approve runs',
+  testWidgets('a customer near their limit is asked about, then approved',
       (tester) async {
     final _CreditApi api = _CreditApi(
       creditStatus: _status(status: 'WARNING', wouldBlock: false),
@@ -157,9 +165,42 @@ void main() {
     );
     expect(
       api.calls.any((call) => call.contains('/approve')),
-      isTrue,
-      reason: 'warning must not block the document',
+      isFalse,
+      reason: 'nothing is approved until the question is answered',
     );
+
+    await _answer(tester, 'Approve anyway');
+
+    expect(
+      api.calls.any((call) => call.contains('/approve')),
+      isTrue,
+      reason: 'the screen asks, it does not refuse',
+    );
+  });
+
+  testWidgets('Cancel on the credit question approves nothing',
+      (tester) async {
+    final _CreditApi api = _CreditApi(
+      creditStatus: _status(status: 'WARNING', wouldBlock: false),
+    );
+
+    await _pumpAndApprove(tester, api);
+    await _answer(tester, 'Cancel');
+
+    expect(api.calls.any((call) => call.contains('/approve')), isFalse);
+    expect(find.textContaining('88.6%'), findsNothing);
+  });
+
+  testWidgets('a customer under the warning mark is not asked anything',
+      (tester) async {
+    final _CreditApi api = _CreditApi(
+      creditStatus: _status(status: 'OK', wouldBlock: false, message: ''),
+    );
+
+    await _pumpAndApprove(tester, api);
+
+    expect(find.text('Approve anyway'), findsNothing);
+    expect(api.calls.any((call) => call.contains('/approve')), isTrue);
   });
 
   testWidgets('the credit check runs before the approve, not after',
@@ -169,6 +210,7 @@ void main() {
     );
 
     await _pumpAndApprove(tester, api);
+    await _answer(tester, 'Approve anyway');
 
     final int checked =
         api.calls.indexWhere((call) => call.contains('/credit-status'));
@@ -200,7 +242,12 @@ void main() {
     expect(
       find.textContaining('104.6%'),
       findsNothing,
-      reason: 'the refusal carries this sentence; warning first prints it twice',
+      reason: 'the refusal carries this sentence; asking first prints it twice',
+    );
+    expect(
+      api.calls.any((call) => call.contains('/approve')),
+      isTrue,
+      reason: 'the server makes the refusal, on the approve itself',
     );
   });
 
@@ -232,6 +279,8 @@ void main() {
       findsOneWidget,
       reason: 'approval posts the receivable, so it is a credit moment too',
     );
+    expect(api.calls.any((call) => call.contains('/approve')), isFalse);
+    await _answer(tester, 'Approve anyway');
     expect(api.calls.any((call) => call.contains('/approve')), isTrue);
   });
 

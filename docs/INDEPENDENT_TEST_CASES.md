@@ -445,9 +445,24 @@ that an edit changes what it names and nothing else.
 - **Steps**
   1. As the fixture's **Firm admin**, edit `<SUFFIX>-CM`: credit limit `1` → Save.
   2. Sell > Sales Orders → New: customer `<SUFFIX>-CM`, one line `<SUFFIX>-P` quantity 2 at 100 → Create draft → **Approve**.
-- **Expect:** a warning names the exposure — "Master Check <suffix> would be at …% of a 1.00 credit limit, leaving … available." — and the order **is approved**. TEST01 is in warn mode (no policy row), so nothing blocks.
+- **Expect:** a question headed **Credit limit** names the exposure — "Master Check <suffix> would be at …% of a 1.00 credit limit, … over it." — with **Approve anyway** and **Cancel**. Nothing is approved while it is open; **Cancel** leaves the order a draft; Approve again and **Approve anyway** approves it. TEST01 is in warn mode (no policy row), so nothing blocks.
 - **Data (HTTP):** `GET /api/v1/customers/{id}/credit-status?amount=<order total>` → `status: WARNING`, `would_block: false`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §16.2 for the limit (the save needs `CUSTOMER_MANAGE_SETTINGS`) and §11.6 for what approval does with it; the status check writes nothing.
 - **Leaves:** an approved order for 2, and a customer with a limit of 1.
+
+### TC-CUST-011 — The two credit modes, on an order and on a bill
+
+- **Covers:** backlog 107 (customer task S2)
+- **Fixture:** `ready-firm` (a firm of its own, because the case changes the firm's credit policy)
+- **Also needs:** a stock item at 100 with GST 18% and 100 in stock; a customer with **Credit limit** `1000` and nothing owed. Seven pieces come to 826 (82.6%), ten to 1,180 (118%).
+- **Steps**
+  1. Settings > Credit Control: **Warn**, warn at 80, block at 100 → Save.
+  2. Orders of 5, 7 and 10 pieces → **Approve** each.
+  3. Credit Control: **Warn, then block** → Save. New orders of 7 and 10 → **Approve** each.
+  4. Ship the order of 7 from step 2 in full, bill the note → **Approve**. Then ship and bill the order of 5 → **Approve**.
+  5. Credit Control: **Warn** → Save → **Approve** the second bill again.
+- **Expect:** (2) the order of 5 is approved with no question; 7 asks ("… would be at 82.6% of a 1000.00 credit limit, leaving 174.00 available.") and 10 asks ("… 118.0% …, 180.00 over it."); **Approve anyway** approves both. (3) 7 asks and is approved; 10 asks nothing and is **refused** ("… would be at 118.0% of a 1000.00 credit limit. Collect payment or raise the limit before continuing.") and stays a draft. (4) the first bill asks at 82.6% and is approved, 826 is owed; the second is refused at 141.6% and stays a draft. (5) the same bill now asks, and **Approve anyway** approves it; 1,416 is owed.
+- **Data (HTTP):** `GET /api/v1/customers/{id}/credit-status?amount=<total>` gives `OK`, `WARNING` (`would_block: false`) or `BREACH` (`would_block: true`); a refusal is a 422 from `POST …/approve`. The policy is `GET`/`PUT /api/v1/customers/credit-settings`. The status check writes nothing.
+- **Leaves:** the firm's policy at Warn 80/100, four approved orders, one draft order, two approved bills.
 
 ### TC-CUST-005 — Statement and ageing agree with the account
 

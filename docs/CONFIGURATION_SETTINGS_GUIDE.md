@@ -441,15 +441,16 @@ has no limit** and is never checked.
 
 | Field | Default | What it does |
 | --- | --- | --- |
-| When a customer reaches their limit | **Warn** | *Do nothing*: limits are recorded, never checked. *Warn*: the approval goes ahead with a warning. *Block*: warn at the first threshold, refuse at the second. |
-| Warn at (%) | 80 | *"Ravi Stores would be at 88.5% of a 250000.00 credit limit, leaving 12000.00 available."* |
+| When a customer reaches their limit | **Warn** | *Do nothing*: limits are recorded, never checked. *Warn*: from the first threshold the screen asks before approving, and the person may go on; nothing is ever refused. *Warn, then block*: the same question from the first threshold, and the document is refused at the second. |
+| Warn at (%) | 80 | The question, with **Approve anyway** and **Cancel**: *"Ravi Stores would be at 88.5% of a 250000.00 credit limit, leaving 28750.00 available."* Past the limit under Warn it ends *"... 30000.00 over it."* |
 | Block at (%) | 100 | Only under Block: *"... would be at 112.0% of a 250000.00 credit limit. Collect payment or raise the limit before continuing."* Must not be below the warning level. |
 | Cash discount: pay within (days) and Discount (%) | None | An early-payment discount offered on bills paid within the days. A customer's own terms override it. |
 | Overdue interest: rate a year (%) | 0 (none) | Interest on overdue bills, shown on the statement; charged only when somebody raises it. |
 | Grace (days) | 0 | No interest until this many days after the due date. |
 
-The approval screens warn but never block on their own: when the firm chooses
-Block, it is the server that refuses.
+The approval screens ask but never block on their own: when the firm chooses
+Block, it is the server that refuses. Approving many documents from a list
+asks nothing; a document over the limit under Block is refused in its row.
 
 ### Price Floor
 

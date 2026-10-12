@@ -190,8 +190,10 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
   String get _explanation => switch (_enforcement) {
         'OFF' => 'Credit limits are recorded but never checked.',
         'BLOCK' =>
-          'Warn at the first threshold; refuse the document at the second.',
-        _ => 'Warn at the threshold. No document is ever refused.',
+          'From the first threshold the screen asks before approving; at '
+              'the second the document is refused.',
+        _ => 'From the threshold the screen asks before approving. No '
+            'document is ever refused.',
       };
 
   @override

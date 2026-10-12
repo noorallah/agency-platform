@@ -140,6 +140,14 @@ class CreditControlService:
                 ),
             )
         if used_percent >= policy.warn_at_percent:
+            # Past the limit under a policy that only warns, nothing is left:
+            # "leaving -180.00 available" was the sentence a person was asked
+            # to confirm (backlog 107).
+            room = (
+                f"leaving {shown_available} available."
+                if available >= _ZERO
+                else f"{-shown_available} over it."
+            )
             return CreditAssessment(
                 status=CreditStatus.WARNING,
                 limit=limit,
@@ -148,8 +156,7 @@ class CreditControlService:
                 used_percent=used_percent,
                 message=(
                     f"{customer.display_name} would be at {shown_percent}% of a "
-                    f"{shown_limit} credit limit, leaving {shown_available} "
-                    "available."
+                    f"{shown_limit} credit limit, {room}"
                 ),
             )
         return CreditAssessment(
