@@ -540,6 +540,7 @@ class _LimitsDialog extends StatefulWidget {
 class _LimitsDialogState extends State<_LimitsDialog> with SaveInDialog {
   final TextEditingController _threshold = TextEditingController();
   final TextEditingController _rounding = TextEditingController();
+  final TextEditingController _clearance = TextEditingController();
   bool _loading = true;
   String? _loadError;
   bool _isDefault = false;
@@ -554,6 +555,7 @@ class _LimitsDialogState extends State<_LimitsDialog> with SaveInDialog {
   void dispose() {
     _threshold.dispose();
     _rounding.dispose();
+    _clearance.dispose();
     super.dispose();
   }
 
@@ -565,6 +567,7 @@ class _LimitsDialogState extends State<_LimitsDialog> with SaveInDialog {
       setState(() {
         _threshold.text = limits.approvalThreshold;
         _rounding.text = limits.roundingLimit;
+        _clearance.text = limits.clearanceDiscountPercent;
         _isDefault = limits.isDefault;
         _loading = false;
       });
@@ -621,6 +624,22 @@ class _LimitsDialogState extends State<_LimitsDialog> with SaveInDialog {
                       helperMaxLines: 2,
                     ),
                   ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    key: const ValueKey('pa-limit-clearance'),
+                    controller: _clearance,
+                    enabled: widget.mayEdit,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Clearance discount, up to %',
+                      helperText: 'The most of a due that may be waived as a '
+                          'discount on a receipt, beyond the customer\'s '
+                          'terms. Blank sets no ceiling. Only someone who '
+                          'may approve adjustments can give one.',
+                      helperMaxLines: 4,
+                    ),
+                  ),
                   if (_isDefault)
                     Padding(
                       padding: const EdgeInsets.only(top: AppSpacing.sm),
@@ -656,6 +675,10 @@ class _LimitsDialogState extends State<_LimitsDialog> with SaveInDialog {
                         <String, dynamic>{
                           'approval_threshold': _threshold.text.trim(),
                           'rounding_limit': _rounding.text.trim(),
+                          'clearance_discount_percent':
+                              _clearance.text.trim().isEmpty
+                                  ? null
+                                  : _clearance.text.trim(),
                         },
                       ),
                     ),

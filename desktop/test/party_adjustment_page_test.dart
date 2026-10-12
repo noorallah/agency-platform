@@ -446,6 +446,19 @@ void main() {
     expect(api.limitsSaved, <String, dynamic>{
       'approval_threshold': '2500',
       'rounding_limit': '10.00',
+      'clearance_discount_percent': null,
     });
+
+    // The clearance ceiling is read back and saved as typed.
+    await tester.tap(find.byKey(const ValueKey('toolbar-more')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const ValueKey('toolbar-command-limits-menu')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('pa-limit-clearance')), '5');
+    await tester.tap(find.byKey(const ValueKey('pa-limits-save')));
+    await tester.pumpAndSettle();
+    expect(api.limitsSaved?['clearance_discount_percent'], '5');
   });
 }

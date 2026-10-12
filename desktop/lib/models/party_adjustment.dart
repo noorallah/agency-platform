@@ -203,16 +203,23 @@ class PartyAdjustmentSettings {
     required this.approvalThreshold,
     required this.roundingLimit,
     this.isDefault = false,
+    this.clearanceDiscountPercent = '',
   });
 
   final String approvalThreshold;
   final String roundingLimit;
   final bool isDefault;
 
+  /// The largest share of the bills a receipt clears that may be waived as a
+  /// clearance discount. Blank is no ceiling.
+  final String clearanceDiscountPercent;
+
   factory PartyAdjustmentSettings.fromJson(Json json) =>
       PartyAdjustmentSettings(
         approvalThreshold: stringValue(json['approval_threshold']),
         roundingLimit: stringValue(json['rounding_limit']),
         isDefault: json['is_default'] == true,
+        clearanceDiscountPercent:
+            stringValue(json['clearance_discount_percent']),
       );
 }

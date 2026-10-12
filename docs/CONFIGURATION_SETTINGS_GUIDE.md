@@ -109,7 +109,7 @@ Seven rules hold for every setting:
 | Tax Settings (labels) | Settings > Tax | "Tax", "Component", "Profile" | `TAX_MANAGE_SETTINGS` |
 | GST Documents (+ e-invoice route) | Settings > Tax | Dispatch before invoice **warns**; e-invoice not applicable; sandbox | `TAX_MANAGE_SETTINGS` |
 | TDS on Purchases (194Q) | Settings > Tax | **Off** | `ACCOUNT_MANAGE` |
-| Party adjustment limits | Accounts > Books > Party Adjustments | 1,000 / rounding 10 | `PARTY_ADJUSTMENT_APPROVE` |
+| Party adjustment limits | Accounts > Books > Party Adjustments | 1,000 / rounding 10 / clearance discount blank | `PARTY_ADJUSTMENT_APPROVE` |
 | Print settings | The Print button on a document | Standard layout | `SETTINGS_UPDATE` |
 | Application Settings | The gear on the sign-in screen | This PC's server | Anyone at this PC |
 | Agency branding (name, tagline, logo) | Settings > Platform > Agency > Branding | Not set: Agency Platform's own name shows | `PLATFORM_SETTINGS` |
@@ -832,6 +832,7 @@ registers and 26Q work as before.
 | --- | --- | --- |
 | Second approver above | 1,000.00 | An adjustment (a write-off or settlement of a customer's or supplier's small balance) above this can be approved only by someone holding `PARTY_ADJUSTMENT_APPROVE`, **and not by the person who drafted it**. Cancelling an approved one above it needs the same. |
 | Rounding limit | 10.00 | The most a receipt or payment may round off. More than this is refused: *"Record the difference as a discount, or write the balance off with a party adjustment."* |
+| Clearance discount, up to % | blank | The most of a due that may be waived as a discount on a receipt, beyond the cash discount the customer's terms earn, as a share of what the receipt clears. Blank sets no ceiling; 0 allows none. Whatever the figure, only someone holding `PARTY_ADJUSTMENT_APPROVE` can give one: a cashier or an accountant recording the receipt is refused, *"... of this discount is a clearance discount. Giving one needs the approve party adjustments permission"*. The bill's tax does not change. |
 
 ---
 

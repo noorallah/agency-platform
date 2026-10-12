@@ -36,12 +36,18 @@ from app.customers.models import CustomerReceivableTransaction
 from app.customers.services.statement_service import CustomerStatementService
 from app.finance.models import GLPosting, LedgerAccount
 from app.identity.system_seed import ROLE_PERMISSION_CODES
-from app.party_adjustments.api.router import approve_party_adjustment
+from app.party_adjustments.api.router import (
+    approve_party_adjustment,
+    get_party_adjustment_settings,
+    update_party_adjustment_settings,
+)
 from app.party_adjustments.models import PartyAdjustment
 from app.party_adjustments.schemas import (
     PartyAdjustmentAllocationWrite,
     PartyAdjustmentCreate,
     PartyAdjustmentKindEnum,
+    PartyAdjustmentSettingsResponse,
+    PartyAdjustmentSettingsWrite,
     PartyAdjustmentSideEnum,
     PartyAdjustmentUpdate,
 )
@@ -49,7 +55,11 @@ from app.party_adjustments.services import PartyAdjustmentService
 from app.party_adjustments.services.settings import stage_adjustment_limits
 from app.sales_invoice.models import SalesInvoice
 from app.sales_invoice.services import SalesInvoiceService
-from app.settlements.api.router import get_receipt
+from app.settlements.api.router import (
+    CLEARANCE_DISCOUNT_CODE,
+    get_receipt,
+    record_receipt,
+)
 from app.settlements.models import Settlement
 from app.settlements.schemas import (
     SettlementAllocationWrite,
@@ -92,8 +102,10 @@ def _receipt(
     *,
     amount: str,
     allocate: str | None = None,
+    owner: bool = True,
     **deductions: str,
 ) -> Settlement:
+    """Record a receipt; ``owner`` may give a clearance discount."""
     row = ReceiptService(books.session).create(
         SettlementCreate(
             party_id=books.customer.id,
@@ -109,6 +121,7 @@ def _receipt(
         ),
         firm_id=books.firm.id,
         actor_id=books.actor_id,
+        may_give_clearance_discount=owner,
     )
     books.session.commit()
     return row
@@ -257,6 +270,176 @@ def test_rounding_above_the_firms_limit_is_refused_until_it_is_raised() -> None:
     books.session.commit()
     receipt = _receipt(books, invoice, amount="1000.00", rounding_amount="12.00")
     assert receipt.rounding_amount == Decimal("12.00")
+
+
+# ---- a discount at collection (backlog 115) --------------------------------
+
+
+def _clearance_ceiling(books: _Books, percent: str | None) -> None:
+    stage_adjustment_limits(
+        books.session,
+        books.firm.id,
+        approval_threshold=Decimal("1000.00"),
+        rounding_limit=Decimal("10.00"),
+        actor_id=books.actor_id,
+        clearance_discount_percent=None if percent is None else Decimal(percent),
+    )
+    books.session.commit()
+
+
+def _discounted_receipt(
+    books: _Books, invoice: SalesInvoice, discount: str
+) -> SettlementCreate:
+    return SettlementCreate(
+        party_id=books.customer.id,
+        settlement_date=WHEN,
+        amount=Decimal("1000.00"),
+        method=SettlementMethodEnum.BANK,
+        discount_amount=Decimal(discount),
+        allocations=[
+            SettlementAllocationWrite(invoice_id=invoice.id, amount=Decimal("1000.00"))
+        ],
+    )
+
+
+def test_a_collector_cannot_waive_part_of_a_due_and_the_owner_can() -> None:
+    books = _books()
+    invoice = _customer_bill(books, "SI-1", "1000.00")
+    payload = _discounted_receipt(books, invoice, "50.00")
+    collector = frozenset({"RECEIPT_CREATE", "RECEIPT_VIEW"})
+    with pytest.raises(AuthorizationError, match="50.00 of this discount is a clear"):
+        record_receipt(payload, scope=_scope(books, collector), db=books.session)
+    books.session.rollback()
+    assert _customer_owes(books) == [Decimal("1000.00")]
+
+    owner = collector | {"PARTY_ADJUSTMENT_APPROVE"}
+    receipt = record_receipt(payload, scope=_scope(books, owner), db=books.session).data
+    assert receipt is not None
+    assert (receipt.discount_amount, receipt.cash_amount) == (
+        Decimal("50.00"),
+        Decimal("950.00"),
+    )
+    row = books.session.get(Settlement, receipt.id)
+    assert row is not None
+    # The whole bill comes off receivables and the waiver is the firm's cost:
+    # no tax account is touched, so the tax the bill charged stands.
+    assert _legs(books, row.journal_entry_id) == {
+        BANK: (Decimal("950.00"), Decimal("0.00")),
+        DISCOUNT_ALLOWED: (Decimal("50.00"), Decimal("0.00")),
+        RECEIVABLES: (Decimal("0.00"), Decimal("1000.00")),
+    }
+    assert _customer_owes(books) == []
+    books.session.refresh(invoice)
+    assert invoice.grand_total == Decimal("1000.00")
+
+
+@pytest.mark.parametrize(
+    "role",
+    ["SALES_MANAGER", "SALES_EXECUTIVE", "CASHIER", "ACCOUNTANT", "BILLING_EXECUTIVE"],
+)
+def test_no_selling_or_collecting_role_holds_the_clearance_code(role: str) -> None:
+    assert CLEARANCE_DISCOUNT_CODE not in ROLE_PERMISSION_CODES[role]
+    assert CLEARANCE_DISCOUNT_CODE in ROLE_PERMISSION_CODES["FIRM_ADMIN"]
+
+
+def test_the_cash_discount_the_terms_earn_needs_nobodys_leave() -> None:
+    books = _books()
+    books.customer.cash_discount_days = 10
+    books.customer.cash_discount_percent = Decimal("2")
+    books.session.commit()
+    invoice = _customer_bill(books, "SI-1", "1000.00")
+    receipt = _receipt(
+        books, invoice, amount="1000.00", owner=False, discount_amount="20.00"
+    )
+    assert receipt.discount_amount == Decimal("20.00")
+
+
+def test_a_discount_above_the_terms_is_a_clearance_discount_for_the_rest() -> None:
+    books = _books()
+    books.customer.cash_discount_days = 10
+    books.customer.cash_discount_percent = Decimal("2")
+    books.session.commit()
+    invoice = _customer_bill(books, "SI-1", "1000.00")
+    with pytest.raises(AuthorizationError, match="terms earn 20.00.*so 5.00 of"):
+        _receipt(books, invoice, amount="1000.00", owner=False, discount_amount="25.00")
+
+
+def test_the_owner_is_held_to_the_firms_clearance_percentage() -> None:
+    books = _books()
+    invoice = _customer_bill(books, "SI-1", "1000.00")
+    _clearance_ceiling(books, "5")
+    with pytest.raises(ValidationError, match="up to 5.00% .* which is 50.00"):
+        _receipt(books, invoice, amount="1000.00", discount_amount="50.01")
+    books.session.rollback()
+    receipt = _receipt(books, invoice, amount="1000.00", discount_amount="50.00")
+    assert receipt.discount_amount == Decimal("50.00")
+
+
+def test_the_ceiling_is_a_share_of_what_the_receipt_clears() -> None:
+    books = _books()
+    invoice = _customer_bill(books, "SI-1", "1000.00")
+    _clearance_ceiling(books, "5")
+    with pytest.raises(ValidationError, match="which is 20.00"):
+        _receipt(
+            books, invoice, amount="400.00", allocate="400.00", discount_amount="25.00"
+        )
+
+
+def test_a_ceiling_of_zero_allows_none_and_blank_allows_any() -> None:
+    books = _books()
+    invoice = _customer_bill(books, "SI-1", "1000.00")
+    _clearance_ceiling(books, "0")
+    with pytest.raises(ValidationError, match="up to 0.00%"):
+        _receipt(books, invoice, amount="1000.00", discount_amount="1.00")
+    books.session.rollback()
+    _clearance_ceiling(books, None)
+    receipt = _receipt(books, invoice, amount="1000.00", discount_amount="400.00")
+    assert receipt.discount_amount == Decimal("400.00")
+
+
+def _save_limits(
+    books: _Books, body: dict[str, str | None]
+) -> PartyAdjustmentSettingsResponse:
+    saved = update_party_adjustment_settings(
+        PartyAdjustmentSettingsWrite.model_validate(body),
+        scope=_scope(books, frozenset({"PARTY_ADJUSTMENT_APPROVE"})),
+        db=books.session,
+    ).data
+    assert saved is not None
+    return saved
+
+
+def test_saving_the_other_limits_leaves_the_clearance_percentage_alone() -> None:
+    books = _books()
+    both = {"approval_threshold": "1000.00", "rounding_limit": "10.00"}
+    saved = _save_limits(books, {**both, "clearance_discount_percent": "5"})
+    assert saved.clearance_discount_percent == Decimal("5.00")
+
+    # A client that does not know the field sends the two it has always sent.
+    kept = _save_limits(books, {**both, "approval_threshold": "2000.00"})
+    assert (kept.approval_threshold, kept.clearance_discount_percent) == (
+        Decimal("2000.00"),
+        Decimal("5.00"),
+    )
+
+    cleared = _save_limits(books, {**both, "clearance_discount_percent": None})
+    assert cleared.clearance_discount_percent is None
+    read = get_party_adjustment_settings(
+        scope=_scope(books, frozenset({"PARTY_ADJUSTMENT_VIEW"})), db=books.session
+    ).data
+    assert read is not None
+    assert read.clearance_discount_percent is None
+
+
+def test_a_clearance_percentage_above_a_hundred_is_refused() -> None:
+    with pytest.raises(PydanticValidationError):
+        PartyAdjustmentSettingsWrite.model_validate(
+            {
+                "approval_threshold": "1000.00",
+                "rounding_limit": "10.00",
+                "clearance_discount_percent": "100.01",
+            }
+        )
 
 
 def test_a_deduction_must_close_a_bill_not_sit_on_account() -> None:

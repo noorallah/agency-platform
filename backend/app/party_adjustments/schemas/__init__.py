@@ -203,6 +203,9 @@ class PartyAdjustmentSettingsResponse(PartyAdjustmentSchema):
     approval_threshold: Decimal
     rounding_limit: Decimal
     is_default: bool
+    #: The largest share of the bills a receipt clears that may be waived as
+    #: a clearance discount (backlog 115). Blank is no ceiling; 0 is none.
+    clearance_discount_percent: Decimal | None = None
 
 
 class PartyAdjustmentSettingsWrite(PartyAdjustmentSchema):
@@ -210,6 +213,10 @@ class PartyAdjustmentSettingsWrite(PartyAdjustmentSchema):
 
     approval_threshold: Decimal = Field(ge=0, max_digits=18, decimal_places=2)
     rounding_limit: Decimal = Field(ge=0, max_digits=18, decimal_places=2)
+    #: Left out keeps what the firm has; an explicit null removes the ceiling.
+    clearance_discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=5, decimal_places=2
+    )
 
 
 class PartyAdjustmentRegisterRecord(PartyAdjustmentSchema):
