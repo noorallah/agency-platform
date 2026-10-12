@@ -3297,7 +3297,10 @@ by a history reset.
 
 A rule with **slabs ignores `percentage` entirely**, so never show that column
 beside a ladder. A ladder must start at zero, meet exactly, and be open-ended
-only at the top.
+only at the top. Each slab pays a **percentage or a fixed amount, never
+both** (`fixed_amount`, null on a percentage slab): `WHOLE_AMOUNT` pays only
+the amount of the slab reached, `MARGINAL` adds the amount of every slab
+entered.
 
 `minimum_amount` earns **nothing at all** below it and pays on **all** of it
 above — deliberately not a zero-percent bottom slab, which pays from the first

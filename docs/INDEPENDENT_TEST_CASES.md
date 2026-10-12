@@ -3904,6 +3904,23 @@ commission uses `commission-firm`:
 - **Expect:** the preview gathers each source **once**: scheme redemptions (at the principal's share of the benefit), expiry write-offs of its products (at book value) and damaged or scrapped lines of completed sales returns (at the taxable rate credited). Raising posts Dr *Claims Receivable from Principals* and Cr promotional expense (schemes) or inventory adjustment (stock). A second claim over the same sources is refused or empty (one live claim per source). Settlement by credit note and by bank payment moves the status RAISED → PART_SETTLED → SETTLED; reversing a receipt moves it back. Cancelling frees the sources to be claimed again. Reading needs PURCHASE_VIEW, writing PURCHASE_APPROVE. Free quantity on a bill line is not claimed yet.
 - **Leaves:** a claim and its postings.
 
+### TC-INCENT-013 — A commission slab pays a fixed amount or a percentage
+
+*Added 2026-10-13 (backlog 110, customer task S5). Driven over HTTP on a fixture firm; the screen steps were not clicked.*
+
+- **Covers:** backlog 110
+- **Fixture:** `ready-firm` (any firm with one member to be the salesman, a stock item and a customer)
+- **Steps:** as the **Firm admin**, Sell > Incentives > **Commission** → **Rates** → **Add rule**: Applies to the salesman, Paid on *Invoiced value*, In force from the first to the last day of **last month**. **Add slab** three times: From `0` To `1000`, Pays **Amount**, Sum `50`; From `1000` To `5000`, Pays **Amount**, Sum `300`; From `5000` To blank, Pays **Percent**, Rate `5`. How the slabs read: the *band reached* choice. Save. Then sell 20 of an item at 100 with 18% GST to a customer, dated the 10th of last month and tagged to the salesman: order, approve; delivery note, approve, dispatch; invoice from the note, approve (2,360.00). Commission → **Collected**, last month → Show. **Payouts** → Accrue last month for the salesman. Repeat in another ended month with the *each band* choice.
+- **Expect**
+  - Choosing **Amount** turns the slab's Rate box into **Sum**; there is one box, so a slab cannot be typed with both.
+  - Band reached: invoiced **2,360.00**, commission **300.00** — the amount of the second slab and nothing of the first. The draft payout earns and owes **300.00**.
+  - Each band: the same bill pays **350.00** — 50 for the first slab and 300 for the second.
+  - A bill whose total is above 5,000 pays 5% of the whole total on the band-reached rule; on the each-band rule it pays 50 + 300 + 5% of what is above 5,000. (Not driven.)
+  - Over HTTP, a slab sent with both `percentage` and `fixed_amount` is refused 422 ("A slab pays a percentage or a fixed amount, not both"), and so is a slab with neither. Reading the rule answers `fixed_amount` on each slab, null on a percentage slab.
+  - Editing the first slab back to **Percent** clears its amount.
+- **Data (HTTP):** `POST /api/v1/commission/rules` (`slabs[].fixed_amount`); `GET /api/v1/commission/report?from_date=…&to_date=…&salesman_id=…`; `POST /api/v1/commission/payouts/accrue`. Table `commission_rule_slabs.fixed_amount`.
+- **Leaves:** a rule for last month, one approved bill, one draft payout.
+
 
 ---
 

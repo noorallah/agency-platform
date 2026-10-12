@@ -1,6 +1,10 @@
 import 'entities.dart';
 
-/// One rung of a commission ladder: a band of value, and its rate.
+/// One rung of a commission ladder: a band of value, and what it pays.
+///
+/// A rung pays a percentage or a fixed amount, never both. [fixedAmount]
+/// empty is a percentage rung; filled, the rung pays that sum and
+/// [percentage] is zero.
 ///
 /// `toAmount` empty is the open-ended top rung. The rungs must start at zero
 /// and meet exactly — the server refuses a ladder with a gap, because a gap is
@@ -10,6 +14,7 @@ class CommissionSlabRecord {
     required this.fromAmount,
     required this.percentage,
     this.toAmount = '',
+    this.fixedAmount = '',
     this.sequence = 1,
   });
 
@@ -17,6 +22,9 @@ class CommissionSlabRecord {
   final String fromAmount;
   final String toAmount;
   final String percentage;
+  final String fixedAmount;
+
+  bool get paysFixedAmount => fixedAmount.isNotEmpty;
 
   String get bandLabel =>
       toAmount.isEmpty ? '$fromAmount and above' : '$fromAmount to $toAmount';
@@ -24,7 +32,11 @@ class CommissionSlabRecord {
   Json toJson() => <String, dynamic>{
         'from_amount': fromAmount,
         if (toAmount.isNotEmpty) 'to_amount': toAmount,
-        'percentage': percentage,
+        // One or the other: the server refuses a rung that names both.
+        if (paysFixedAmount)
+          'fixed_amount': fixedAmount
+        else
+          'percentage': percentage,
       };
 
   factory CommissionSlabRecord.fromJson(Json json) => CommissionSlabRecord(
@@ -32,6 +44,7 @@ class CommissionSlabRecord {
         fromAmount: stringValue(json['from_amount']),
         toAmount: stringValue(json['to_amount']),
         percentage: stringValue(json['percentage']),
+        fixedAmount: stringValue(json['fixed_amount']),
       );
 }
 

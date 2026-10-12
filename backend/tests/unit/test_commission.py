@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.commission.models import CommissionRule
+from app.commission.models import CommissionRule, CommissionRuleSlab
 from app.commission.schemas import (
     CommissionBasisEnum,
     CommissionRuleCreate,
@@ -198,7 +198,11 @@ class _Books:
         max_commission_amount: Decimal | None = None,
         slabs: list[tuple[str, str | None, str]] | None = None,
     ) -> CommissionRule:
-        """Declare one commission rate."""
+        """Declare one commission rate.
+
+        A slab's third value is its percentage, or its fixed amount when it
+        is written with a leading ``=``.
+        """
         row = CommissionService(self.session).create_rule(
             CommissionRuleCreate(
                 salesman_id=salesman_id,
@@ -213,7 +217,10 @@ class _Books:
                     CommissionSlabWrite(
                         from_amount=Decimal(low),
                         to_amount=None if high is None else Decimal(high),
-                        percentage=Decimal(rate),
+                        percentage=(None if rate.startswith("=") else Decimal(rate)),
+                        fixed_amount=(
+                            Decimal(rate[1:]) if rate.startswith("=") else None
+                        ),
                     )
                     for low, high, rate in (slabs or [])
                 ],
@@ -674,6 +681,137 @@ def test_an_amount_landing_on_a_boundary_belongs_to_the_rung_above() -> None:
     _collect(books, "SI-1", "100000.00", books.asha)
 
     assert _earned(books, books.asha) == Decimal("3000.00")
+
+
+#: 500 for anything up to 100k, 2,000 from there to 200k, 5% above.
+FIXED_LADDER = [
+    ("0", "100000", "=500"),
+    ("100000", "200000", "=2000"),
+    ("200000", None, "5"),
+]
+
+
+def test_a_fixed_amount_slab_pays_its_amount_whatever_was_sold_within_it() -> None:
+    """A rung of 2,000 from a lakh pays 2,000 at 120,000 and at 180,000.
+
+    Read WHOLE_AMOUNT, the rung reached is the whole answer: the 500 of the
+    rung below is replaced, not added.
+    """
+    books = _Books(_session_factory()())
+    books.rule(
+        "0",
+        salesman_id=books.asha,
+        slab_mode=CommissionSlabModeEnum.WHOLE_AMOUNT,
+        slabs=FIXED_LADDER,
+    )
+    _collect(books, "SI-1", "120000.00", books.asha)
+    assert _earned(books, books.asha) == Decimal("2000.00")
+
+    _collect(books, "SI-2", "60000.00", books.asha)
+    assert _earned(books, books.asha) == Decimal("2000.00")
+
+
+def test_a_percentage_slab_above_fixed_ones_still_pays_its_rate() -> None:
+    """One ladder may mix the two; each rung pays the one way it names."""
+    books = _Books(_session_factory()())
+    books.rule(
+        "0",
+        salesman_id=books.asha,
+        slab_mode=CommissionSlabModeEnum.WHOLE_AMOUNT,
+        slabs=FIXED_LADDER,
+    )
+    _collect(books, "SI-1", "250000.00", books.asha)
+
+    assert _earned(books, books.asha) == Decimal("12500.00")
+
+
+def test_a_marginal_ladder_adds_the_fixed_amount_of_every_slab_entered() -> None:
+    """MARGINAL reads a fixed sum the way it reads a rate: band by band.
+
+    250,000 has entered all three rungs, so it pays 500, then 2,000, then 5%
+    of the 50,000 above the last boundary.
+    """
+    books = _Books(_session_factory()())
+    books.rule("0", salesman_id=books.asha, slabs=FIXED_LADDER)
+    _collect(books, "SI-1", "250000.00", books.asha)
+
+    assert _earned(books, books.asha) == Decimal("5000.00")
+
+
+def test_a_marginal_fixed_slab_is_not_owed_until_the_amount_passes_its_floor() -> None:
+    """Exactly 100,000 has filled the first rung and not entered the second."""
+    books = _Books(_session_factory()())
+    books.rule("0", salesman_id=books.asha, slabs=FIXED_LADDER)
+    _collect(books, "SI-1", "100000.00", books.asha)
+
+    assert _earned(books, books.asha) == Decimal("500.00")
+
+
+def test_a_cap_still_limits_a_fixed_amount_slab() -> None:
+    """The cap is on the arrangement, whichever way a rung pays."""
+    books = _Books(_session_factory()())
+    books.rule(
+        "0",
+        salesman_id=books.asha,
+        slab_mode=CommissionSlabModeEnum.WHOLE_AMOUNT,
+        max_commission_amount=Decimal("1500"),
+        slabs=FIXED_LADDER,
+    )
+    _collect(books, "SI-1", "120000.00", books.asha)
+
+    assert _earned(books, books.asha) == Decimal("1500.00")
+
+
+def test_a_slab_cannot_hold_both_a_percentage_and_a_fixed_amount() -> None:
+    """Two answers to what one rung pays is refused, and so is none."""
+    with pytest.raises(ValueError, match="not both"):
+        CommissionSlabWrite(
+            from_amount=Decimal("0"),
+            percentage=Decimal("2"),
+            fixed_amount=Decimal("500"),
+        )
+    # Zero percent beside an amount is still both: the rung named two things.
+    with pytest.raises(ValueError, match="not both"):
+        CommissionSlabWrite(
+            from_amount=Decimal("0"),
+            percentage=Decimal("0"),
+            fixed_amount=Decimal("500"),
+        )
+    with pytest.raises(ValueError, match="needs a percentage or a fixed"):
+        CommissionSlabWrite(from_amount=Decimal("0"))
+
+
+def test_the_table_refuses_a_slab_holding_both() -> None:
+    """The backstop for a row that reaches the table another way."""
+    books = _Books(_session_factory()())
+    rule = books.rule("0", salesman_id=books.asha, slabs=FIXED_LADDER)
+    books.session.add(
+        CommissionRuleSlab(
+            commission_rule_id=rule.id,
+            sequence=9,
+            from_amount=Decimal("0"),
+            percentage=Decimal("2"),
+            fixed_amount=Decimal("500"),
+        )
+    )
+    with pytest.raises(IntegrityError):
+        books.session.flush()
+    books.session.rollback()
+
+
+def test_a_fixed_amount_slab_is_stored_and_answered_as_one() -> None:
+    """The rung reads back with its amount and a percentage of zero."""
+    books = _Books(_session_factory()())
+    rule = books.rule("0", salesman_id=books.asha, slabs=FIXED_LADDER)
+    service = CommissionService(books.session)
+
+    response = service.rule_response(rule, service.names_for(books.firm.id))
+
+    assert [(slab.percentage, slab.fixed_amount) for slab in response.slabs] == [
+        (Decimal("0"), Decimal("500.00")),
+        (Decimal("0"), Decimal("2000.00")),
+        (Decimal("5"), None),
+    ]
 
 
 def test_a_cap_limits_what_was_earned_and_not_what_was_sold() -> None:

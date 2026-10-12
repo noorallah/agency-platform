@@ -252,7 +252,13 @@ class CommissionSlabMode(StrEnum):
 
 
 class CommissionRuleSlab(BaseEntity):
-    """One rung of a rule's ladder: a band of value, and its rate.
+    """One rung of a rule's ladder: a band of value, and what it pays.
+
+    A rung pays a **percentage** or a **fixed amount**, never both: "two
+    percent up to a lakh" and "five hundred rupees for reaching a lakh" are
+    both ordinary arrangements, and a rung holding the two would have two
+    answers. `fixed_amount` NULL is a percentage rung, which is every rung
+    written before the column existed.
 
     A rule with no slabs pays its flat `percentage`, which is what every rule
     written before this table existed does and keeps doing. A rule *with* slabs
@@ -273,6 +279,13 @@ class CommissionRuleSlab(BaseEntity):
         CheckConstraint(
             "to_amount IS NULL OR to_amount > from_amount",
             name="CK_commission_rule_slabs_band",
+        ),
+        # The backstop for "never both". The schema says it in the language
+        # of the request; this holds for anything reaching the table another
+        # way.
+        CheckConstraint(
+            "fixed_amount IS NULL OR (fixed_amount >= 0 AND percentage = 0)",
+            name="CK_commission_rule_slabs_one_payment",
         ),
         Index(
             "IX_commission_rule_slabs_rule",
@@ -301,3 +314,8 @@ class CommissionRuleSlab(BaseEntity):
     percentage: Mapped[Decimal] = mapped_column(
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The sum this rung pays once the subtotal reaches it, or NULL where the
+    #: rung pays `percentage`. NULL rather than zero for "not a fixed rung",
+    #: because a rung that pays nothing below a threshold is a real
+    #: arrangement and zero has to be able to say it.
+    fixed_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))

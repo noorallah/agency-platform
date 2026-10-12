@@ -55,13 +55,25 @@ class CommissionSlabWrite(CommissionSchema):
     `to_amount` null is the open-ended top rung. The service checks that the
     rungs start at zero, meet exactly and only run out at the top, because a
     gap is an amount the rule cannot answer for and an overlap is two answers.
+
+    A rung pays `percentage` or `fixed_amount` and names exactly one of them.
+    Neither has a default, because a rung that pays zero percent and a rung
+    nobody finished typing are different things and only the first is an
+    arrangement.
     """
 
     from_amount: Decimal = Field(ge=0, max_digits=18, decimal_places=2)
     to_amount: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=2
     )
-    percentage: Decimal = Field(ge=0, le=100, max_digits=9, decimal_places=4)
+    percentage: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
+    )
+    #: The sum paid once the subtotal reaches this rung, whatever it reached
+    #: within it.
+    fixed_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
 
     @model_validator(mode="after")
     def _band_runs_forwards(self) -> "CommissionSlabWrite":
@@ -78,6 +90,27 @@ class CommissionSlabWrite(CommissionSchema):
             raise ValueError("to_amount must be above from_amount.")
         return self
 
+    @model_validator(mode="after")
+    def _pays_one_way(self) -> "CommissionSlabWrite":
+        """Refuse a rung that pays both ways, or neither.
+
+        Returns:
+            The validated rung.
+
+        Raises:
+            ValueError: If the rung names both a percentage and a fixed
+                amount, or names neither.
+
+        """
+        if self.percentage is not None and self.fixed_amount is not None:
+            raise ValueError(
+                "A slab pays a percentage or a fixed amount, not both: "
+                "send one of percentage and fixed_amount."
+            )
+        if self.percentage is None and self.fixed_amount is None:
+            raise ValueError("A slab needs a percentage or a fixed amount.")
+        return self
+
 
 class CommissionSlabResponse(CommissionSchema):
     """Return one rung."""
@@ -85,7 +118,10 @@ class CommissionSlabResponse(CommissionSchema):
     sequence: int
     from_amount: Decimal
     to_amount: Decimal | None
+    #: Zero on a rung that pays a fixed amount.
     percentage: Decimal
+    #: Null on a rung that pays a percentage.
+    fixed_amount: Decimal | None = None
 
 
 class CommissionRuleCreate(CommissionSchema):

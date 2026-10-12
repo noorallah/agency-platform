@@ -254,6 +254,23 @@ pays on one of them** -- the overlap guard refuses a second live rule over
 one person's days whatever its basis, which is what stops a firm changing
 over from paying twice for one sale. `max_commission_amount` is applied
 **after** the ladder, so it caps what was earned rather than what was sold.
+
+**A slab pays a percentage or a fixed amount, never both** (backlog 110,
+`20261013_0356`). `commission_rule_slabs.fixed_amount` NULL is a percentage
+slab, which is every slab stored before the column existed; filled, the slab
+pays that sum and its `percentage` is zero. `CommissionSlabWrite` names
+exactly one of the two with **no default on either** -- a zero percent sent
+beside an amount is still both and is refused -- and
+`CK_commission_rule_slabs_one_payment` is the backstop for a row that reaches
+the table another way. One ladder may mix the two kinds. The mode reads a sum
+the way it reads a rate: WHOLE_AMOUNT pays **only** the sum of the highest
+slab reached, MARGINAL **adds** the sum of every slab the subtotal has
+entered (past its floor, so exactly 100,000 has not entered a slab that
+starts there, while WHOLE_AMOUNT has reached it). A subtotal of nothing, or
+below nothing after returns, is owed no fixed sum. The floor, the target
+bonus and the cap apply to a fixed slab as they do to a rate, and the payout
+snapshots the result at accrual like any other. The editor shows one box per
+slab and a **Pays** choice beside it, so a slab cannot be typed with both.
 A ladder must start at zero, meet exactly and be open-ended only at the top.
 And the governing rule is resolved per row on its own date, then each rule's
 subtotal is laddered separately -- pooling a person's whole period would

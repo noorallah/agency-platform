@@ -825,7 +825,9 @@ reports, on the selling side and the buying side.
 
 **Commission.** What each salesman earns. *Rates* set the rules: a flat
 percentage, or slabs that rise with the amount, on sales or on collections,
-by product, category or customer. *Collected* shows what has been earned so
+by product, category or customer. Each slab pays either a percentage or a
+fixed amount (choose **Percent** or **Amount** under *Pays*), for
+arrangements such as "2,000 for reaching one lakh, 5% above two lakh". *Collected* shows what has been earned so
 far. *Payouts* turn a period's earnings into a payout; approving it books
 the commission owed, and paying it books the payment. The person who
 approves a payout and the person who pays it can be kept apart.
