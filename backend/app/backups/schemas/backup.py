@@ -48,10 +48,23 @@ class BackupRunResponse(BaseModel):
     stores: list[BackupStoreResponse] = []
 
 
+class SecondCopyResponse(BaseModel):
+    """One password-protected copy in the second folder."""
+
+    name: str
+    size_bytes: int
+
+
 class BackupOverviewResponse(BaseModel):
     """Everything the backups screen shows."""
 
     backup_directory: str
     keep_manual: int
+    #: The second folder, or None when no second copy is kept.
+    second_directory: str | None = None
+    second_keep_days: int = 10
+    #: Why the second folder cannot be used right now, in plain words.
+    second_problem: str | None = None
+    second_copies: list[SecondCopyResponse] = []
     run: BackupRunResponse
     backups: list[BackupFolderResponse]

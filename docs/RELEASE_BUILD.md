@@ -188,7 +188,7 @@ the subprocess, was the actual problem, and it must not come back.
 
 **2. There is now one entry point, `backend/app/cli.py`.** Everything an
 installed copy does is a subcommand of it — `serve`, `create-database`,
-`migrate-all`, `firm-count`, `purge-retention`, `backup`, `messaging-run-once`, `loyalty-expire`, `set-branding`, `where`, `check`, `quick-check`, `--version` — so there is one thing
+`migrate-all`, `firm-count`, `purge-retention`, `backup`, `backup-copy`, `backup-open`, `messaging-run-once`, `loyalty-expire`, `set-branding`, `where`, `check`, `quick-check`, `--version` — so there is one thing
 to compile rather than seventeen scripts. `install.ps1` used to hold a Python
 program in a here-string and pipe it into the interpreter on stdin, which
 cannot work where there is no interpreter; that program is now
@@ -274,6 +274,15 @@ logs 90 (`AGENCY_LOG_RETENTION_DAYS`, `AGENCY_LOG_ERROR_RETENTION_DAYS`), and th
 whole folder is capped at 1 GB (`AGENCY_LOG_MAX_TOTAL_MB`), oldest files first.
 The server applies that at startup and hourly, and `purge-retention --yes` does
 too.
+
+**The second copy runs every night** (backlog 112): before retention, the
+same task runs `agency-server backup-copy --backup-directory <data
+root>\backups`, which writes the password-protected copy of every finished
+backup the second folder lacks and removes the copies past their days. The
+folder is named on the command line because the service learns it from its
+own definition, which a scheduled task does not read. With no
+`AGENCY_BACKUP_SECOND_DIRECTORY` in `config\.env` the command says so and
+exits 0; a failure is logged and never fails the backup.
 
 **Retention runs every night** (PLT-6): the `Agency Platform daily backup`
 task ends by running `agency-server purge-retention --yes --scheduled`, after

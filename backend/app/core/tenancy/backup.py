@@ -32,7 +32,7 @@ import shutil
 import subprocess
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -92,6 +92,9 @@ class BackupResult:
     started_at: datetime
     finished_at: datetime
     stores: list[StoreDump]
+    #: How the copy to the second folder went, in one sentence; None when no
+    #: second folder is set or the backup itself was not whole.
+    second_copy: str | None = None
 
     @property
     def failed(self) -> list[StoreDump]:
@@ -339,9 +342,28 @@ def back_up_every_store(
             removed = _apply_retention(root, settings.backup_keep_manual)
             for name in removed:
                 say(f"  removed the old backup {name}")
+            backup = replace(backup, second_copy=_second_copy(settings, say))
         return backup
     finally:
         _RUN_LOCK.release()
+
+
+def _second_copy(settings: Settings, say: Callable[[str], None]) -> str | None:
+    """Copy what the second folder lacks; say how it went, never raise.
+
+    The backup just taken is whole and stays whole whatever happens here: a
+    drive that is unplugged tonight must not turn a good backup into a failed
+    one. The next run copies what this one could not.
+    """
+    # Imported here: the copy is built on this module's listing.
+    from app.core.tenancy.backup_copy import copy_backups_to_second_folder
+
+    try:
+        result = copy_backups_to_second_folder(settings, report=say)
+    except BackupError as error:
+        say(f"  second copy NOT written: {error}")
+        return f"Second copy NOT written: {error}"
+    return None if result is None else result.summary()
 
 
 def is_running() -> bool:

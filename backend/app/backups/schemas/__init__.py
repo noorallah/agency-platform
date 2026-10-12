@@ -5,6 +5,7 @@ from app.backups.schemas.backup import (
     BackupOverviewResponse,
     BackupRunResponse,
     BackupStoreResponse,
+    SecondCopyResponse,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "BackupOverviewResponse",
     "BackupRunResponse",
     "BackupStoreResponse",
+    "SecondCopyResponse",
 ]

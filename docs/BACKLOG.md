@@ -7837,3 +7837,70 @@ its two dates.
 
 **Cases:** TC-INCENT-014. **Tests:** `tests/unit/test_commission_payouts.py`
 (six new), `desktop/test/commission_page_test.dart` (five in place of two).
+
+## 112. A second backup folder, password-protected -- built 2026-10-13
+
+**Asked.** A copy of each backup in a second place -- a folder a cloud client
+keeps in step, or another drive -- with the last 10 days kept and the copy
+protected by a password (customer task S7).
+
+**Found before building.** The server already took three kinds of backup into
+one folder on its own disk: nightly (Setup's scheduled task), by hand (*Back up
+now* and `agency-server backup`) and before an upgrade. Nothing copied any of
+them anywhere, and the Backups page told the administrator to do it by hand.
+A backup is a folder of `pg_dump` files with nothing protecting it.
+
+**Built.**
+
+- **Settings**, in `config\.env`: `AGENCY_BACKUP_SECOND_DIRECTORY`,
+  `AGENCY_BACKUP_SECOND_PASSWORD` (at least 8 characters) and
+  `AGENCY_BACKUP_SECOND_KEEP_DAYS` (10). With no folder named, nothing changes.
+- **The copy**, `app/core/tenancy/backup_copy.py`. Each finished backup becomes
+  one file in the second folder, `agency-backup-<kind>-<date-time>.agbk`,
+  written beside its name as `.part`, read back, then renamed. One pass copies
+  everything the folder lacks, so the backup before an upgrade is picked up by
+  the next run and so is a night when the drive was unplugged.
+- **Who runs it.** *Back up now* and `agency-server backup` end with it. The
+  nightly task ends with `agency-server backup-copy`, before retention.
+- **Opening one.** `agency-server backup-open --file <copy> --into <folder>`
+  asks for the password and writes the folder of dumps the restore steps start
+  from. A wrong password, a changed byte and a file cut short are all refused,
+  and nothing is written.
+- **Screen.** Settings > Platform > System > Backups names the second folder,
+  how many copies it holds and the newest, or says why it cannot be read.
+  `GET /api/v1/backups` carries `second_directory`, `second_keep_days`,
+  `second_problem` and `second_copies`.
+
+**Decided, by the usual standard.**
+
+- The password is the server's, kept in `config\.env` beside the database
+  passwords, which only administrators can read. It is not typed on a screen
+  and not stored in the database, so a backup never carries its own key.
+- A copy is never written without a password: a folder with none, or with a
+  short one, is refused by name and the backup itself still stands.
+- No library that ships in the build writes a password-protected zip, and a
+  new native dependency for one feature is what `secret_box.py` already
+  declined. The file is the backup as a tar, encrypted and authenticated with
+  the standard library (PBKDF2-HMAC-SHA256 keys, a SHAKE-256 keystream,
+  HMAC-SHA256 over the whole file). It therefore opens with
+  `agency-server backup-open` and with nothing else: 7-Zip will not read it.
+- "The last 10 days" counts days that hold a backup, not files: two backups
+  on one day are one day. A copy outlives its local folder, so the second
+  folder holds 10 days while the nightly folder keeps 7.
+- Only files with the copy's own name and ending are ever removed from the
+  second folder. Anything else there is left alone.
+- A second folder that cannot be used tonight never fails the backup. The
+  nightly log and the result line of *Back up now* say what was not written.
+- A second folder inside the backup folder is refused: it would be no second
+  place.
+
+**Not built.** Nothing uploads anywhere: the cloud is whatever client already
+keeps that folder in step. The nightly task runs as SYSTEM, which cannot see
+a drive letter mapped for one user; name a local folder or a full network
+path. Setup does not ask for the folder or the password; they are typed into
+`config\.env`. The password cannot be changed for copies already written:
+each opens with the password it was written under. `config\.env` itself is
+not in the copy.
+
+**Cases:** TC-PLAT-006. **Tests:** `tests/unit/test_backup_second_copy.py`
+(15), `desktop/test/phase2_backups_page_test.dart` (three new).

@@ -110,10 +110,25 @@ class BackupOverview {
     required this.keepManual,
     required this.run,
     required this.backups,
+    this.secondDirectory,
+    this.secondKeepDays = 10,
+    this.secondProblem,
+    this.secondCopies = const <String>[],
   });
 
   final String backupDirectory;
   final int keepManual;
+
+  /// The second folder every backup is copied to, password-protected; null
+  /// when the server keeps no second copy.
+  final String? secondDirectory;
+  final int secondKeepDays;
+
+  /// Why the second folder cannot be read right now, in the server's words.
+  final String? secondProblem;
+
+  /// The file names of the copies there, newest first.
+  final List<String> secondCopies;
   final BackupRun run;
 
   /// Newest first.
@@ -122,6 +137,14 @@ class BackupOverview {
   factory BackupOverview.fromJson(Json json) => BackupOverview(
         backupDirectory: stringValue(json['backup_directory']),
         keepManual: _intOr(json['keep_manual']) ?? 0,
+        secondDirectory: json['second_directory'] as String?,
+        secondKeepDays: _intOr(json['second_keep_days']) ?? 10,
+        secondProblem: json['second_problem'] as String?,
+        secondCopies: [
+          if (json['second_copies'] is List)
+            for (final dynamic row in json['second_copies'] as List)
+              if (row is Map) stringValue(row['name']),
+        ],
         run: BackupRun.fromJson(
           json['run'] is Map
               ? Map<String, dynamic>.from(json['run'] as Map)

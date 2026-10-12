@@ -24,6 +24,7 @@ from app.backups.schemas import (
     BackupOverviewResponse,
     BackupRunResponse,
     BackupStoreResponse,
+    SecondCopyResponse,
 )
 from app.backups.services import BackupRunState, backup_runner
 from app.common.audit.services import record_audit
@@ -40,6 +41,7 @@ from app.core.tenancy.backup import (
     is_running,
     list_backups,
 )
+from app.core.tenancy.backup_copy import list_second_copies, second_folder
 from app.identity.models import User
 
 router = APIRouter(
@@ -108,11 +110,39 @@ def _run(state: BackupRunState) -> BackupRunResponse:
     )
 
 
+def _second_copies(
+    settings: Settings,
+) -> tuple[list[SecondCopyResponse], str | None]:
+    """Return the copies in the second folder, or why it cannot be read."""
+    folder = second_folder(settings)
+    if folder is None:
+        return [], None
+    if not folder.is_dir():
+        return [], f"{folder} is not there yet; the next backup creates it."
+    try:
+        copies = list_second_copies(folder)
+    except BackupError as error:
+        return [], str(error)
+    return (
+        [
+            SecondCopyResponse(name=copy.name, size_bytes=copy.size_bytes)
+            for copy in copies
+        ],
+        None,
+    )
+
+
 def _overview(settings: Settings) -> BackupOverviewResponse:
     """Build everything the screen shows."""
+    folder = second_folder(settings)
+    copies, problem = _second_copies(settings)
     return BackupOverviewResponse(
         backup_directory=str(settings.backup_directory.resolve()),
         keep_manual=settings.backup_keep_manual,
+        second_directory=None if folder is None else str(folder),
+        second_keep_days=settings.backup_second_keep_days,
+        second_problem=problem,
+        second_copies=copies,
         run=_run(backup_runner.state()),
         backups=[_folder(backup) for backup in list_backups(settings)],
     )

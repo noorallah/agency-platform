@@ -29,6 +29,7 @@ class _BackupsApi extends ApiClient {
   ApiException? refuse;
   int gets = 0;
   int posts = 0;
+  Json second = const <String, dynamic>{};
 
   @override
   Future<Json> request(
@@ -60,6 +61,7 @@ class _BackupsApi extends ApiClient {
       'data': {
         'backup_directory': r'C:\ProgramData\Agency Platform\backups',
         'keep_manual': 10,
+        ...second,
         'run': run,
         'backups': backups,
       },
@@ -232,6 +234,54 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('backup-now')));
     await tester.pumpAndSettle();
     expect(find.text('A backup is already running.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('with no second folder the advice is to copy by hand',
+      (tester) async {
+    await _pump(tester);
+    expect(find.byKey(const ValueKey('backup-second-folder')), findsNothing);
+    expect(find.textContaining('copy them off this PC'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a second folder is named with what it holds', (tester) async {
+    final _BackupsApi api = _BackupsApi()
+      ..second = {
+        'second_directory': r'D:\OneDrive\AgencyBackups',
+        'second_keep_days': 10,
+        'second_problem': null,
+        'second_copies': [
+          {'name': 'agency-backup-daily-20261013-020000.agbk', 'size_bytes': 9},
+          {'name': 'agency-backup-daily-20261012-020000.agbk', 'size_bytes': 9},
+        ],
+      };
+    await _pump(tester, with_: api);
+    final Text line =
+        tester.widget(find.byKey(const ValueKey('backup-second-folder')));
+    expect(line.data, contains(r'D:\OneDrive\AgencyBackups holds 2 copies'));
+    expect(line.data,
+        contains('newest is agency-backup-daily-20261013-020000.agbk'));
+    expect(line.data, contains('last 10 days'));
+    expect(line.data, contains('password'));
+    expect(find.textContaining('copy them off this PC'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a second folder the server cannot read says why',
+      (tester) async {
+    final _BackupsApi api = _BackupsApi()
+      ..second = {
+        'second_directory': r'E:\Backups',
+        'second_keep_days': 10,
+        'second_problem': r'The second backup folder E:\Backups cannot be read.',
+        'second_copies': const <Json>[],
+      };
+    await _pump(tester, with_: api);
+    final Text line =
+        tester.widget(find.byKey(const ValueKey('backup-second-folder')));
+    expect(line.data, r'Second folder: The second backup folder E:\Backups '
+        'cannot be read.');
     expect(tester.takeException(), isNull);
   });
 
