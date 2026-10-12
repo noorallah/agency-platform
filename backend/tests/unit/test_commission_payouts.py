@@ -16,6 +16,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -1347,3 +1348,96 @@ def test_paying_a_cancelled_payout_says_so_and_a_draft_still_asks_for_approval()
     [draft] = books.accrue()
     with pytest.raises(ValidationError, match="Only an approved payout can be paid"):
         _pay(books, draft.id)
+
+
+def _accrue_days(books: _Books, start: date, days: int) -> list[CommissionPayout]:
+    """Accrue a period said as a start date and a number of days."""
+    rows = CommissionPayoutService(books.session).accrue(
+        CommissionPayoutAccrue(period_start=start, period_days=days),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    return list(rows)
+
+
+def test_a_period_said_in_days_ends_on_the_day_before_the_next_one() -> None:
+    """Ten days from the 16th is the 16th to the 25th, the first day counted."""
+    books = _ready()
+    books.collect("SI-2", "2000.00", when=date(2026, 4, 26))
+
+    [payout] = _accrue_days(books, date(2026, 4, 16), 10)
+
+    assert (payout.period_start, payout.period_end) == (
+        date(2026, 4, 16),
+        date(2026, 4, 25),
+    )
+    # Only the 20th's 5,000 falls inside; the 26th waits for the next period.
+    assert payout.measured_amount == Decimal("5000.00")
+    assert payout.payable_amount == Decimal("500.00")
+    assert payout.accrued_on == date(2026, 4, 25)
+
+    [following] = _accrue_days(books, date(2026, 4, 26), 10)
+    assert following.period_end == date(2026, 5, 5)
+    assert following.payable_amount == Decimal("200.00")
+
+
+def test_a_period_longer_than_a_month_pays_what_both_months_earned() -> None:
+    """Forty-five days from 1 April runs to 15 May and takes in both bills."""
+    books = _ready()
+    books.collect("SI-2", "2000.00", when=date(2026, 5, 10))
+    books.collect("SI-3", "900.00", when=date(2026, 5, 16))
+
+    [payout] = _accrue_days(books, date(2026, 4, 1), 45)
+
+    assert payout.period_end == date(2026, 5, 15)
+    assert payout.payable_amount == Decimal("700.00")
+
+
+def test_a_period_of_one_day_is_that_day_alone() -> None:
+    """One day counts the first, so it starts and ends on it."""
+    books = _ready()
+
+    [payout] = _accrue_days(books, WHEN, 1)
+
+    assert (payout.period_start, payout.period_end) == (WHEN, WHEN)
+
+
+def test_a_period_in_days_that_overlaps_a_payout_is_refused() -> None:
+    """The overlap guard reads the day worked out, not the one typed."""
+    books = _ready()
+    _accrue_days(books, date(2026, 4, 16), 10)
+    books.collect("SI-2", "2000.00", when=date(2026, 4, 25))
+
+    with pytest.raises(ConflictError, match="2026-04-16 to 2026-04-25"):
+        _accrue_days(books, date(2026, 4, 25), 7)
+
+
+def test_a_period_in_days_that_has_not_ended_is_refused_with_its_free_day() -> None:
+    """The refusal names the day after the worked-out end."""
+    books = _ready()
+    today = firm_today(books.session, books.firm.id)
+
+    with pytest.raises(ValidationError, match="has not ended") as refusal:
+        _accrue_days(books, today - timedelta(days=4), 10)
+    assert f"{today + timedelta(days=6):%Y-%m-%d}" in str(refusal.value)
+
+
+def test_a_period_is_ended_one_way_only() -> None:
+    """An end date and a number of days together could disagree."""
+    start = date(2026, 4, 1)
+    for extra in (
+        {},
+        {"period_end": date(2026, 4, 30), "period_days": 30},
+        {"period_days": 0},
+        {"period_days": 367},
+    ):
+        with pytest.raises(PydanticValidationError):
+            CommissionPayoutAccrue.model_validate({"period_start": start, **extra})
+
+    assert CommissionPayoutAccrue(period_start=start, period_days=366).last_day == (
+        date(2027, 4, 1)
+    )
+    assert CommissionPayoutAccrue(
+        period_start=start, period_end=date(2026, 4, 30)
+    ).last_day == date(2026, 4, 30)

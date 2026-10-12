@@ -3342,6 +3342,11 @@ documents, so re-reading would answer differently after a settlement is
 reversed or a rate corrected — and the journal posted at approval would then
 disagree with the record beside it.
 
+**A period is a start date and a number of days**, or a start and an end
+date over HTTP (`period_days` or `period_end`, never both). The first day
+is counted. Any length is allowed, a period must have ended, and two
+payouts for one person never share a day.
+
 Approval posts `Dr COMMISSION_EXPENSE / Cr COMMISSION_PAYABLE`; payment posts
 `Dr COMMISSION_PAYABLE / Cr` the money account. Two purposes, because an
 approved payout is a liability that outlives the month it was earned in.

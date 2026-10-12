@@ -3921,6 +3921,24 @@ commission uses `commission-firm`:
 - **Data (HTTP):** `POST /api/v1/commission/rules` (`slabs[].fixed_amount`); `GET /api/v1/commission/report?from_date=…&to_date=…&salesman_id=…`; `POST /api/v1/commission/payouts/accrue`. Table `commission_rule_slabs.fixed_amount`.
 - **Leaves:** a rule for last month, one approved bill, one draft payout.
 
+### TC-INCENT-014 — A commission period is a start date and a number of days
+
+*Added 2026-10-13 (backlog 111, customer task S6). Driven over HTTP on a fixture firm; the screen steps were not clicked.*
+
+- **Covers:** backlog 111
+- **Fixture:** `ready-firm` (any firm with one member to be the salesman, a stock item and a customer)
+- **Steps:** as the **Firm admin**, Sell > Incentives > **Commission** → **Rates** → **Add rule**: Applies to the salesman, Paid on *Invoiced value*, Rate `10`, in force for 30 days that have all passed, starting on a day `D`. Bill the customer 2 of an item at 100 with 18% GST (236.00), tagged to the salesman, four times: dated `D+4`, `D+12`, `D+20` and `D+28` (order, approve; delivery note, approve, dispatch; invoice from the note, approve). **Payouts** → **Accrue period**: Starts on `D`, Number of days `10` → Accrue. Accrue period again and read what is offered. Accept it but change the days to `17` → Accrue. Then try Starts on `D+9`, 17 days.
+- **Expect**
+  - The form has **Starts on** and **Number of days**, and under them "Ends on …": 10 days from `D` end on `D+9`, because the start day is counted. Typing either box moves the end date at once.
+  - The first payout runs `D` to `D+9`, measures **236.00** and owes **20.00** (10% of the 200.00 before tax); it is booked on its last day.
+  - Opened again, the form offers the day after the last period (`D+10`) and the same number of days (10). After a whole calendar month it offers the next whole month instead, with that month's own number of days.
+  - The second payout, 17 days, runs `D+10` to `D+26`, measures **472.00** (two bills) and owes **40.00**: what the *Collected* report says for the same days. Where `D` is past the 14th it crosses a month end.
+  - A period starting on `D+9` is refused: "A commission payout already covers part of that period for this salesman (`D` to `D+9`)."
+  - A number of days that is blank, 0, above 366 or not a whole number is refused on the form before anything is sent. A period whose last day is today or later is refused by the server, naming the first day it can be accrued.
+  - Over HTTP, `period_end` and `period_days` sent together are refused 422 ("Give either period_end or period_days …"), and so is neither. A period said by `period_end` alone still works, as before.
+- **Data (HTTP):** `POST /api/v1/commission/payouts/accrue` with `period_start` and `period_days` (or `period_end`); `GET /api/v1/commission/payouts`; `GET /api/v1/commission/report?from_date=…&to_date=…&salesman_id=…`.
+- **Leaves:** a rule for 30 days, four approved bills, draft payouts.
+
 
 ---
 
