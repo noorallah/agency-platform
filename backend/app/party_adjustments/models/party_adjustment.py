@@ -241,10 +241,12 @@ class PartyAdjustmentAllocation(BaseEntity):
 class PartyAdjustmentSettings(BaseEntity):
     """A firm's limits on adjusting balances. A firm with no row has defaults.
 
-    Two numbers: the amount above which an adjustment needs a second person
-    holding `PARTY_ADJUSTMENT_APPROVE`, and the most a receipt or payment may
-    round off. They sit together because both answer "how much may be cleared
-    without money before somebody else has to agree".
+    Three numbers: the amount above which an adjustment needs a second person
+    holding `PARTY_ADJUSTMENT_APPROVE`, the most a receipt or payment may
+    round off, and the largest share of the bills a receipt clears that may be
+    waived as a clearance discount (backlog 115; blank is no ceiling, 0 is
+    none at all). They sit together because all three answer "how much may be
+    cleared without money before somebody else has to agree".
     """
 
     __tablename__ = "party_adjustment_settings"
@@ -256,6 +258,11 @@ class PartyAdjustmentSettings(BaseEntity):
         ),
         CheckConstraint(
             "rounding_limit >= 0", name="CK_party_adjustment_settings_rounding"
+        ),
+        CheckConstraint(
+            "clearance_discount_percent IS NULL OR "
+            "(clearance_discount_percent >= 0 AND clearance_discount_percent <= 100)",
+            name="CK_party_adjustment_settings_clearance",
         ),
     )
 
@@ -272,3 +279,4 @@ class PartyAdjustmentSettings(BaseEntity):
         default=DEFAULT_ROUNDING_LIMIT,
         server_default="10.00",
     )
+    clearance_discount_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))

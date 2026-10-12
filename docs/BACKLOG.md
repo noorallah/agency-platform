@@ -8028,3 +8028,89 @@ shows it were not clicked in the running app this time.
 **Cases:** TC-SELL-097. **Tests (already there):**
 `tests/unit/test_role_discount_limits.py`,
 `tests/unit/test_discount_limit_judges_the_price.py`.
+
+## 115. A discount at collection: the owner waives part of a due -- built 2026-10-13
+
+**Asked.** At collection the owner waives part of a due as a discount; the
+GST on the bill does not change. A one-time clearance percentage as a firm
+setting, allowed to the owner only (customer task S10; try D3). Done when the
+bill closes, the GST on it is unchanged and a salesman cannot give it.
+
+**Found.** Most of the posting. Since backlog 74 row 2 a receipt carries
+`discount_amount`, part of the amount that did not move as money: Dr Discount
+Allowed, Cr Receivables for the whole bill, no tax account touched, the bill
+closed, and a reversal takes it back. The receipt screen has the **Discount
+allowed** box, and offers the cash discount a customer's terms earn (SEL-14).
+What was missing was any limit on it: whoever could record a receipt --
+a cashier, an accountant -- could type any discount, and the firm had nowhere
+to say how much may be waived.
+
+**Decided, by convention.**
+
+- A receipt's discount is two things. Up to the cash discount the customer's
+  terms earn on the bills the receipt clears, it is the firm keeping its
+  word, and whoever records the receipt gives it. Anything above is a
+  **clearance discount**.
+- A clearance discount needs `PARTY_ADJUSTMENT_APPROVE`, the code that already
+  agrees to a write-off and sets the write-off limits. The firm administrator
+  holds it; Sales Manager, Sales Executive, Cashier, Accountant and Billing
+  Executive do not. No new code: a waiver at collection and a write-off are
+  the same decision, profit given away without money, and one person should
+  not hold one without the other. (A sales role cannot record a receipt at
+  all.)
+- The firm's **clearance percentage** is a ceiling on it, as a share of what
+  the receipt allocates to bills. Blank is no ceiling, which is how every firm
+  behaved before; 0 allows none, even by the owner. It sits with the other two
+  limits on clearing a balance without money (`party_adjustment_settings`).
+- "One-time" is read as: given once, on the receipt that clears the due, as
+  opposed to a standing discount on the customer. Nothing counts how many
+  times a customer has had one.
+- The tax is not touched. A discount that should lower the tax is a credit
+  note, as before.
+
+**Built.**
+
+- `party_adjustment_settings.clearance_discount_percent` (nullable, 0 to 100,
+  migration `20261013_0358`, firm-owned, idempotent). `GET` and `PUT
+  /api/v1/party-adjustments/settings` carry it; a save that does not name it
+  leaves it alone and an explicit null clears it.
+- `SettlementService.create` takes `may_give_clearance_discount`, false unless
+  the caller says otherwise; `POST /api/v1/receipts` passes whether the
+  principal holds `PARTY_ADJUSTMENT_APPROVE`. Without it the part beyond the
+  terms is refused 403, naming the amount and the permission; with it, above
+  the ceiling is refused 422 naming the percentage and the figure. Payments
+  and refunds are not judged.
+- Screen: **Clearance discount, up to %** on *Party Adjustments > Adjustment
+  limits*; a line under the receipt's deduction boxes saying who may give a
+  discount beyond the terms.
+
+**Changes what a firm could do yesterday.** A cashier or an accountant who
+typed a discount beyond the customer's terms on a receipt is now refused.
+That is the request. A firm that wants its accountant to give one grants the
+role `PARTY_ADJUSTMENT_APPROVE`, which also lets it approve write-offs.
+
+**Tried over HTTP, 2026-10-13,** on the fixture firm `T10139XDY-R` with a
+Cashier and a Sales Manager beside the firm administrator, the ceiling at 5%
+and bills of 1,180.00 (28 checks):
+
+- The cashier is refused setting the percentage (403); 101 is refused (422);
+  a save without the field leaves 5%.
+- The sales manager cannot record the receipt (403). The cashier is refused a
+  50.00 waiver, told that 50.00 is a clearance discount and what it needs;
+  the bill still owes 1,180.00.
+- The owner is refused 59.01 ("up to 5.00% of the 1180.00 ... which is
+  59.00") and records 59.00: cash 1,121.00, the bill closed, its figures as
+  before, the journal three legs (cash, discount allowed, receivables).
+- A customer on 2% in 10 days: the cashier is refused 30.00 (6.40 beyond the
+  23.60 the terms earn) and records 23.60. The owner is refused 82.61 and
+  records 82.60 (23.60 on terms plus 59.00).
+- At 0% the owner is refused 1.00; with the ceiling removed the owner waives
+  300.00 and the cashier is still refused 1.00.
+
+**Not done.** The two screens were not clicked in the running app (widget
+tests only). The receipt screen does not read the ceiling to warn before the
+save; the server's refusal is shown in the dialog. Nothing reports clearance
+discounts apart from the Discount Allowed ledger.
+
+**Cases:** TC-FIN-028. **Tests:** `tests/unit/test_party_adjustments.py` (13
+new), `desktop/test/party_adjustment_page_test.dart`.

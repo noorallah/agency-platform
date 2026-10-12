@@ -29,7 +29,11 @@ from app.common.party_places import customer_places, vendor_places
 from app.common.report_names import customers_matching, vendors_matching
 from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.database.batch import children_by_parent
-from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.chunks import over_chunks, whole_past_a_chunk
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
@@ -1237,9 +1241,20 @@ class SettlementService(TransactionalDocumentService):
     # ------------------------------------------------------------------
 
     def create(
-        self, data: SettlementCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: SettlementCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_give_clearance_discount: bool = False,
     ) -> Settlement:
-        """Record one settlement, allocate it, and post it to the ledger."""
+        """Record one settlement, allocate it, and post it to the ledger.
+
+        ``may_give_clearance_discount`` says the caller holds
+        ``PARTY_ADJUSTMENT_APPROVE``. Without it a receipt's discount stops at
+        the cash discount the customer's terms earn on the bills it clears
+        (backlog 115); the router passes it from the principal.
+        """
         is_receipt = self.DIRECTION == SettlementDirection.RECEIPT
         is_refund = self.DIRECTION == SettlementDirection.REFUND
         tds_amount = quantize_ledger(data.tds_amount or ZERO)
@@ -1297,6 +1312,13 @@ class SettlementService(TransactionalDocumentService):
                 data, firm_id=firm_id, party_id=data.party_id, amount=amount
             )
             deductions = self._deductions(data, firm_id=firm_id, allocated=allocated)
+            self._assert_clearance_discount(
+                data,
+                firm_id=firm_id,
+                allocated=allocated,
+                discount=deductions.get(ControlAccountPurpose.DISCOUNT_ALLOWED, ZERO),
+                allowed=may_give_clearance_discount,
+            )
         # 194C and 194J are deducted at the earlier of credit and payment
         # (PG-5): what this payment should deduct is worked out before it is
         # written, so it is not its own past, and kept beside what it did.
@@ -2214,6 +2236,80 @@ class SettlementService(TransactionalDocumentService):
             ): discount,
         }
         return {purpose: value for purpose, value in found.items() if value > ZERO}
+
+    def _assert_clearance_discount(
+        self,
+        data: SettlementCreate,
+        *,
+        firm_id: UUID,
+        allocated: Decimal,
+        discount: Decimal,
+        allowed: bool,
+    ) -> None:
+        """Hold a receipt's discount beyond the terms to who may give it.
+
+        A discount on a receipt is two things (backlog 115). Up to the cash
+        discount the customer's terms earn on the bills this receipt clears,
+        it is the firm keeping its word, and whoever records the receipt
+        gives it. Anything above that is a **clearance discount**: part of a
+        due waived to get the rest in. That is profit given away, so it needs
+        ``PARTY_ADJUSTMENT_APPROVE`` -- the code that agrees to a write-off --
+        and stays within the firm's clearance percentage of what the receipt
+        allocates, where the firm has set one.
+
+        The tax on the bill is untouched either way: the discount is a leg of
+        the receipt's journal, posted to discount allowed, and the supply is
+        worth what it was billed at.
+
+        Raises:
+            AuthorizationError: If the caller may not give one.
+            ValidationError: If it is above the firm's ceiling.
+
+        """
+        if discount <= ZERO:
+            return
+        # Imported here: both modules read the settlement services.
+        from app.customers.services.payment_terms import PaymentTermsService
+        from app.party_adjustments.services.settings import adjustment_limits
+
+        cleared = {allocation.invoice_id for allocation in data.allocations}
+        earned = sum(
+            (
+                offer.amount
+                for offer in PaymentTermsService(self._session).cash_discounts(
+                    data.party_id, firm_id=firm_id, on=data.settlement_date
+                )
+                if offer.invoice_id in cleared
+            ),
+            ZERO,
+        )
+        clearance = discount - earned
+        if clearance <= ZERO:
+            return
+        terms = (
+            f"The customer's terms earn {quantize_ledger(earned)} on these bills"
+            if earned > ZERO
+            else "The customer's terms earn no cash discount on these bills"
+        )
+        if not allowed:
+            raise AuthorizationError(
+                f"{terms}, so {quantize_ledger(clearance)} of this discount is a "
+                "clearance discount. Giving one needs the approve party "
+                "adjustments permission (PARTY_ADJUSTMENT_APPROVE). Lower the "
+                "discount, or ask somebody who holds it."
+            )
+        percent = adjustment_limits(self._session, firm_id).clearance_discount_percent
+        if percent is None:
+            return
+        ceiling = quantize_ledger(allocated * percent / Decimal("100"))
+        if clearance > ceiling:
+            raise ValidationError(
+                f"{terms}, so {quantize_ledger(clearance)} of this discount is a "
+                f"clearance discount. This firm allows up to {percent}% of the "
+                f"{allocated} these bills are cleared for, which is {ceiling}. "
+                "Lower the discount, or write the balance off with a party "
+                "adjustment."
+            )
 
     def _validate_allocations(
         self,

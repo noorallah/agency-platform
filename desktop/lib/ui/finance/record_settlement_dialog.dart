@@ -1066,7 +1066,10 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
             ? '${receipt ? 'Money received' : 'Money paid'} in $account: '
                 '${moved.toStringAsFixed(2)}'
             : 'Leave blank when nothing was deducted. The amount above is '
-                'what settles the ${receipt ? 'customer' : 'supplier'}.',
+                'what settles the ${receipt ? 'customer' : 'supplier'}.'
+                '${receipt ? ' A discount beyond the customer\'s terms is a '
+                    'clearance discount: only someone who may approve '
+                    'adjustments can give one.' : ''}',
         key: const ValueKey('settlement-money-moved'),
         style: Theme.of(context).textTheme.bodySmall,
       ),

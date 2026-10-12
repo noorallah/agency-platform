@@ -73,6 +73,7 @@ def _limits_response(limits: AdjustmentLimits) -> PartyAdjustmentSettingsRespons
         approval_threshold=limits.approval_threshold,
         rounding_limit=limits.rounding_limit,
         is_default=limits.is_default,
+        clearance_discount_percent=limits.clearance_discount_percent,
     )
 
 
@@ -147,13 +148,18 @@ def update_party_adjustment_settings(
     scope: PartyAdjustmentApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PartyAdjustmentSettingsResponse]:
-    """Set the approval threshold and the rounding limit."""
+    """Set the approval threshold, the rounding limit and the clearance ceiling."""
     limits = stage_adjustment_limits(
         db,
         scope.firm_id,
         approval_threshold=payload.approval_threshold,
         rounding_limit=payload.rounding_limit,
         actor_id=scope.actor_id,
+        clearance_discount_percent=(
+            payload.clearance_discount_percent
+            if "clearance_discount_percent" in payload.model_fields_set
+            else ...
+        ),
     )
     db.commit()
     return ApiResponse(data=_limits_response(limits), message="Limits saved.")

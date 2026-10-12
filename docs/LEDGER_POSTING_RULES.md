@@ -772,6 +772,19 @@ reversal does. Decided by convention:
   (`party_adjustment_settings.rounding_limit`, `PUT
   /party-adjustments/settings`). More than that is a discount or a write-off
   and should be named as one.
+- **A discount beyond the customer's terms is a clearance discount, and the
+  owner's to give** (backlog 115, 2026-10-13). Up to the cash discount the
+  customer's terms earn on the bills a receipt clears, whoever records the
+  receipt gives it. The rest is part of a due waived to get the rest in:
+  it needs `PARTY_ADJUSTMENT_APPROVE` -- the code that agrees to a
+  write-off, which no selling or collecting role is given -- and stays
+  within the firm's clearance percentage of what the receipt allocates
+  (`party_adjustment_settings.clearance_discount_percent`; blank is no
+  ceiling, 0 is none at all). It posts exactly as any discount allowed
+  does, Dr Discount Allowed, so **the tax on the bill is untouched**: a
+  waiver at collection is the firm's cost, not a change in what the
+  supply was worth. A discount that should lower the tax is a credit
+  note. A payment's discount received is not judged.
 - **Deductions must close bills**: together they cannot exceed what the
   settlement allocates. A discount on money held on account would turn an
   advance into a cost.
