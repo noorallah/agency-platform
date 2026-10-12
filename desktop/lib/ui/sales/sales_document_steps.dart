@@ -21,9 +21,9 @@ import 'price_floor_check_dialog.dart';
 
 /// Approve a sale, asking first what approval decides.
 ///
-/// Credit is warned of **before** the call: once approved the document is in
-/// the exposure it is checked against, and asking afterwards would count it
-/// twice. A warning, never a block -- the server refuses when the firm's
+/// Credit is asked about **before** the call: once approved the document is
+/// in the exposure it is checked against, and asking afterwards would count
+/// it twice. A question, never a block -- the server refuses when the firm's
 /// policy says Block. Then the licences its lines need (backlog 54) and the
 /// price floors (backlog 64 row 2), each of which may carry the reason of
 /// whoever overrides it.
@@ -37,13 +37,13 @@ Future<DocumentStepDone?> _approveSale(
   required Future<PriceFloorCheck> Function() priceCheck,
   bool backOrders = false,
 }) async {
-  await warnOnCreditExposure(
+  final bool goOn = await confirmCreditExposure(
     context,
     api,
     customerId: row['customer_id'] as String?,
     amount: '${row['grand_total'] ?? '0'}',
   );
-  if (!context.mounted) return null;
+  if (!goOn || !context.mounted) return null;
   final LicenceCheckOutcome licence = await confirmLicenceCheck(
     context,
     api,
@@ -71,7 +71,7 @@ Future<DocumentStepDone?> _approveSale(
           },
   );
   // Said by the list once it reads itself again, and only by the status:
-  // a message here would cover the credit warning shown before the call --
+  // the status says it, and "approved" would add nothing to it --
   // except when an order was approved for more than the stock on hand,
   // which nothing else says (D-UI-24).
   final String? shortage =

@@ -35,7 +35,7 @@ class LicenceCheckOutcome {
 /// caller that cannot even ask -- no `TRADE_LICENCE_VIEW`, or the check
 /// itself fails -- proceeds exactly as it would with no check at all, and the
 /// server's own refusal speaks for itself if the policy blocks. This mirrors
-/// [warnOnCreditExposure]'s rule for the same reason: warn when nothing is
+/// [confirmCreditExposure]'s rule for the same reason: warn when nothing is
 /// going to stop you, and let the stop speak for itself when something is.
 ///
 /// [document] is one of SALES_ORDER, DELIVERY_NOTE, SALES_INVOICE,

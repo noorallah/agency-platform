@@ -906,6 +906,24 @@ def test_warning_is_the_default_and_never_blocks() -> None:
     assert assessment.status is CreditStatus.WARNING
     assert assessment.blocks is False
     assert "200" in (assessment.message or "")
+    # Past the limit there is nothing left, and the sentence says by how much.
+    assert (assessment.message or "").endswith("1000.00 over it.")
+    assert "-" not in (assessment.message or "")
+
+
+def test_a_warning_inside_the_limit_says_what_is_left() -> None:
+    """Between the warning mark and the limit, the room left is stated."""
+    session = _session_factory()()
+    firm = _firm(session, "CR4B")
+    customer = _customer_with_credit(session, firm.id, limit="1000", outstanding="0")
+    service = CreditControlService(session)
+
+    assessment = service.assert_within_limit(customer, additional_amount=Decimal("826"))
+
+    assert assessment.status is CreditStatus.WARNING
+    assert (assessment.message or "").endswith(
+        "would be at 82.6% of a 1000.00 credit limit, leaving 174.00 available."
+    )
 
 
 def test_a_firm_can_choose_to_block() -> None:

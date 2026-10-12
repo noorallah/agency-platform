@@ -7615,3 +7615,39 @@ No opening-capital entry screen: capital is credited by a journal or by
 Opening Balances, as before.
 
 **Cases:** TC-FIN-026. **Tests:** `tests/unit/test_ready_made_accounts.py`.
+
+## 107. Credit limit: the screen asks to confirm -- built 2026-10-13
+
+**Customer task S2.** Wanted, per firm: either warn and ask to confirm, or
+warn near the limit and refuse at it; on a sales order and on an invoice; the
+screen asks and never blocks on its own.
+
+**What was there.** Both modes, on the server, since `20260810_0057`:
+`credit_control_settings` holds *Do nothing*, *Warn* or *Warn, then block*
+with a warning and a blocking percentage, judged when a sales order is
+approved and again when a sales invoice is, and set on Settings > Credit
+Control. Under *Warn, then block* the server refuses at the second
+percentage, by name. The screen's part was a notice shown while the approval
+ran: nobody was asked anything.
+
+**What was built.**
+
+- `confirmCreditExposure` (`desktop/lib/ui/sales/credit_notice.dart`)
+  replaces the notice: from the warning mark, Approve on a sales order or a
+  sales invoice -- from the list or from the document's own window -- opens
+  **Credit limit** with the server's sentence, **Approve anyway** and
+  **Cancel**. Cancel approves nothing. It still asks nothing where the server
+  is going to refuse, and a check that cannot be read holds nothing up.
+- A warning past the limit ends "... 180.00 over it." where it said
+  "leaving -180.00 available" (`CreditControlService.assess`).
+- Credit Control says what each choice does in those words.
+
+**Not built, and why.** Approving many from a list asks nothing: each row is
+judged by the server and a refusal is reported for its row. The limit is
+judged at approval, not while a draft is typed; the document's side panel
+already shows what is owed against the limit. Orders approved and not yet
+billed are still not counted in what is owed (`credit_control.py` says why).
+
+**Cases:** TC-CUST-004, TC-CUST-011. **Tests:**
+`desktop/test/sales_credit_notice_test.dart`,
+`tests/unit/test_customer_management.py`.
