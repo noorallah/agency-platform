@@ -10,6 +10,7 @@ import '../../models/product.dart';
 import '../../models/sales_territory.dart';
 import '../../models/vendor.dart';
 import '../workspace/paged_fetch.dart';
+import '../workspace/party_place.dart';
 
 /// Writing one arrangement.
 ///
@@ -369,7 +370,8 @@ class _PriceListDialogState extends State<PriceListDialog> {
                   for (final Customer item in widget.customers)
                     DropdownMenuItem(
                       value: item.id,
-                      child: Text(item.displayName,
+                      child: Text(
+                          withPlace(item.displayName, customerPlace(item)),
                           overflow: TextOverflow.ellipsis),
                     ),
                 ],
@@ -415,7 +417,9 @@ class _PriceListDialogState extends State<PriceListDialog> {
             DropdownMenuItem(
               value: item.id,
               child: Text(
-                  item.displayName.isEmpty ? item.name : item.displayName,
+                  withPlace(
+                      item.displayName.isEmpty ? item.name : item.displayName,
+                      vendorPlace(item)),
                   overflow: TextOverflow.ellipsis),
             ),
         ],

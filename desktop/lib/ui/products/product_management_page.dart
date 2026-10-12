@@ -15,6 +15,7 @@ import '../../models/product.dart';
 import '../../models/vendor.dart';
 import '../../models/file_import.dart';
 import '../../models/kit.dart';
+import '../workspace/party_place.dart';
 import 'kit_components_section.dart';
 import 'price_revisions_section.dart';
 import '../inventory/repack_dialog.dart' show RepackOption;
@@ -2777,7 +2778,10 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
             DropdownMenuItem(
               value: vendor.id,
               child: Text(
-                vendor.displayName.isEmpty ? vendor.name : vendor.displayName,
+                withPlace(
+                  vendor.displayName.isEmpty ? vendor.name : vendor.displayName,
+                  vendorPlace(vendor),
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),

@@ -23,6 +23,7 @@ import '../../models/uom_packaging.dart';
 import '../../models/vendor.dart';
 import '../inventory/inventory_import_wizard.dart';
 import '../settings/send_message_dialog.dart';
+import '../workspace/party_place.dart';
 import 'purchase_import_sample.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../trade_licences/licence_check_dialog.dart';

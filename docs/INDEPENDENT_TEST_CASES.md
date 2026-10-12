@@ -464,6 +464,22 @@ that an edit changes what it names and nothing else.
 - **Data (HTTP):** `GET /api/v1/customers/{id}/credit-status?amount=<total>` gives `OK`, `WARNING` (`would_block: false`) or `BREACH` (`would_block: true`); a refusal is a 422 from `POST …/approve`. The policy is `GET`/`PUT /api/v1/customers/credit-settings`. The status check writes nothing.
 - **Leaves:** the firm's policy at Warn 80/100, four approved orders, one draft order, two approved bills.
 
+### TC-CUST-012 — Two parties of one name are told apart by area and city
+
+- **Covers:** backlog 108 (customer task S3)
+- **Fixture:** `firm-admin`
+- **Also needs:** two customers both named `Sri Balaji Medicals <SUFFIX>`, one with a billing address in area `Abids`, city `Hyderabad`, the other in `Kavadiguda`, `Secunderabad`; two suppliers both named `Sri Balaji Agencies <SUFFIX>`, each with a primary address picked from the place ladder in a different city; a third supplier of the same name with no address.
+- **Steps**
+  1. Sell > Sales Orders > **+ New** → type `Sri Balaji` in **Customer**.
+  2. Money > Receipts > **+ New** → type `Sri Balaji` in **Received from**.
+  3. Buy > Purchase Orders > **+ New** → type `Sri Balaji` in **Supplier**.
+  4. Money > Payments > **+ New** → type `Sri Balaji` in **Paid to**.
+  5. Masters > Customers, then Masters > Suppliers → search `Sri Balaji`.
+  6. Approve and print a sales order for one of the two customers.
+- **Expect:** (1) two lines, "Sri Balaji Medicals <SUFFIX> — <code> · Abids, Hyderabad" and "… · Kavadiguda, Secunderabad". (2) the same two places after the code and the name. (3) and (4) the two placed suppliers end "· <area>, <city>" and the third shows its name and code alone. (5) the **Area, city** column reads the same places; it is blank for the supplier with no address. (6) the print shows the customer's address as it always did and no "· area, city" after the name.
+- **Data (HTTP):** `GET /api/v1/vendors?search=…` → each address carries `city` and `area` beside `city_id` and `locality_id`; sending either back on `PUT /api/v1/vendors/{id}` is a 422. `GET /api/v1/receipts/parties?search=…` and `/payments/parties`, `/refunds/parties` → `place: "Abids, Hyderabad"`, or `null` with no address. Nothing is written by any of these reads.
+- **Leaves:** two customers and three suppliers.
+
 ### TC-CUST-005 — Statement and ageing agree with the account
 
 - **Covers:** plan 4.7, 4.8

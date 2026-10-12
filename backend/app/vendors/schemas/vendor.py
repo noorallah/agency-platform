@@ -411,11 +411,18 @@ class VendorContactResponse(VendorContactInput):
 
 
 class VendorAddressResponse(VendorAddressInput):
-    """Expose one persisted vendor address."""
+    """Expose one persisted vendor address.
+
+    `city` and `area` are the names behind `city_id` and `locality_id`, read
+    from the geography masters. They are for a screen telling two suppliers of
+    one name apart; an address is written by its ids and never by these.
+    """
 
     id: UUID
     created_at: datetime
     updated_at: datetime
+    city: str | None = None
+    area: str | None = None
 
 
 class VendorBankResponse(VendorBankInput):

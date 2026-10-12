@@ -208,6 +208,7 @@ def _response(
     scope: ResolvedFirmScope,
     *,
     attributes: list[AttributeValueResponse] | None = None,
+    places: dict[UUID, tuple[str | None, str | None]] | None = None,
 ) -> VendorResponse:
     """Build one vendor response with its custom fields attached.
 
@@ -226,6 +227,10 @@ def _response(
     )
     if not _may_view_bank(scope):
         payload["bank_accounts"] = []
+    # The city and area of each address by name, for the screens (S3).
+    named = VendorService(db).address_places([row]) if places is None else places
+    for address in payload["addresses"]:
+        address["city"], address["area"] = named.get(address["id"], (None, None))
     return VendorResponse.model_validate(payload)
 
 
@@ -233,9 +238,12 @@ def _responses(
     rows: list[Vendor], db: Session, scope: ResolvedFirmScope
 ) -> list[VendorResponse]:
     """Build a page of responses, reading every row's custom fields at once."""
-    attributes = VendorService(db).attribute_responses_for_many(rows)
+    service = VendorService(db)
+    attributes = service.attribute_responses_for_many(rows)
+    places = service.address_places(rows)
     return [
-        _response(row, db, scope, attributes=attributes.get(row.id, [])) for row in rows
+        _response(row, db, scope, attributes=attributes.get(row.id, []), places=places)
+        for row in rows
     ]
 
 

@@ -26,6 +26,7 @@ import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/opening_bill_import_dialog.dart';
 import '../workspace/party_merge.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import 'credit_settings_dialog.dart';
@@ -941,7 +942,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             _column('Name', 'name'),
             const GridColumn(key: 'gst', label: 'GST'),
             const GridColumn(key: 'phone', label: 'Phone'),
-            const GridColumn(key: 'city', label: 'City'),
+            const GridColumn(key: 'city', label: 'Area, city'),
             _column('Status', 'status'),
             _column('Credit limit', 'credit_limit', numeric: true),
             _column('Outstanding', 'current_outstanding', numeric: true),
@@ -954,7 +955,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             customer.name,
             customer.gstNumber,
             customer.phone,
-            customer.city,
+            customerPlace(customer),
             customer.isDeleted ? 'DELETED' : _statusCell(customer.status),
             _money(customer.creditLimit),
             _money(customer.currentOutstanding),
@@ -1537,7 +1538,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         DropdownMenuItem(
           value: vendor.id,
           child: Text(
-            '${vendor.code}  ${label(vendor)}',
+            withPlace('${vendor.code}  ${label(vendor)}', vendorPlace(vendor)),
             overflow: TextOverflow.ellipsis,
           ),
         ),

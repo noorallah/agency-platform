@@ -13,6 +13,7 @@ import '../../models/product.dart';
 import '../../models/vendor.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import 'price_list_dialog.dart';
 
 /// What a firm has agreed to charge, and to whom.
@@ -258,7 +259,10 @@ class _PriceListPageState extends State<PriceListPage> {
                 for (final Vendor v in _vendors)
                   DropdownMenuItem(
                     value: v.id,
-                    child: Text(v.displayName.isEmpty ? v.name : v.displayName,
+                    child: Text(
+                        withPlace(
+                            v.displayName.isEmpty ? v.name : v.displayName,
+                            vendorPlace(v)),
                         overflow: TextOverflow.ellipsis),
                   ),
               ],

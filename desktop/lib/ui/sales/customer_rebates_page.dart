@@ -20,6 +20,7 @@ import '../../models/entities.dart';
 import '../../models/party_adjustment.dart';
 import '../../models/settlement.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 
 String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
 
@@ -832,7 +833,8 @@ class _CustomerRebateDialogState extends State<CustomerRebateDialog>
                 DropdownMenuItem<String>(
                   value: c.id,
                   child:
-                      Text(_customerLabel(c), overflow: TextOverflow.ellipsis),
+                      Text(withPlace(_customerLabel(c), customerPlace(c)),
+                          overflow: TextOverflow.ellipsis),
                 ),
             ],
             onChanged: saving ? null : (id) => setState(() => _customerId = id),

@@ -16,6 +16,7 @@ import '../../models/goods_receipt.dart';
 import '../../models/landed_cost.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 
 String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
@@ -667,7 +668,8 @@ class _LandedCostDialogState extends State<LandedCostDialog>
               for (final Vendor vendor in _vendors)
                 DropdownMenuItem<String?>(
                   value: vendor.id,
-                  child: Text(_vendorLabel(vendor),
+                  child: Text(
+                      withPlace(_vendorLabel(vendor), vendorPlace(vendor)),
                       overflow: TextOverflow.ellipsis),
                 ),
             ],

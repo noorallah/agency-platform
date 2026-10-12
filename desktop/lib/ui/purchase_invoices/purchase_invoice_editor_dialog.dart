@@ -21,6 +21,7 @@ import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../../models/document_file.dart';
 import '../purchases/document_attachments_dialog.dart';
+import '../workspace/party_place.dart';
 import 'supplier_irn_dialog.dart';
 
 part 'purchase_invoice_editor_phase2.dart';

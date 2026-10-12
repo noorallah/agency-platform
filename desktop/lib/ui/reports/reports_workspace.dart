@@ -15,6 +15,7 @@ import '../../models/vendor.dart';
 import '../finance/journal_entry_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
+import '../workspace/party_place.dart';
 import 'report_catalog.dart';
 
 /// How a downloaded report file is written to disk. Tests inject one,
@@ -634,7 +635,8 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                   for (final Vendor vendor in _vendors)
                     DropdownMenuItem(
                       value: vendor.id,
-                      child: Text(vendor.name, overflow: TextOverflow.ellipsis),
+                      child: Text(withPlace(vendor.name, vendorPlace(vendor)),
+                          overflow: TextOverflow.ellipsis),
                     ),
                 ],
                 onChanged: (value) {

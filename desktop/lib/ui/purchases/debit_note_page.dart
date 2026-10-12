@@ -21,6 +21,7 @@ import '../../models/vendor.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 
 part 'debit_note_editor_phase2.dart';

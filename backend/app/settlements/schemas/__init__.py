@@ -311,7 +311,7 @@ class OutstandingInvoiceRecord(SettlementSchema):
 class SettlementPartyRecord(SettlementSchema):
     """One party money can be taken from or paid to: a name and nothing else.
 
-    Deliberately three fields. The money screens need to name who is paying,
+    Deliberately narrow. The money screens need to name who is paying,
     and the customer and vendor masters answer that question with credit
     limits, balances, addresses, tax registrations and everything else a
     master carries -- so reaching for them made `CUSTOMER_VIEW` the real gate
@@ -325,11 +325,17 @@ class SettlementPartyRecord(SettlementSchema):
     the same answer `GET /api/v1/firm-members` gave when three copies of a
     people-list sat behind three different permissions and no screen could
     call any of them: one narrow list, gated on the thing it exists for.
+
+    `place` is the party's area and city, "Abids, Hyderabad", and is there so
+    two shops of one name can be told apart when money is taken (first
+    customer, S3). It is the two words only: never a street line, a
+    registration or a balance, so the list is still not the master.
     """
 
     id: UUID
     code: str
     name: str
+    place: str | None = None
 
 
 class SupplierCreditRecord(SettlementSchema):

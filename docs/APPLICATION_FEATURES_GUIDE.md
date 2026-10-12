@@ -1810,6 +1810,14 @@ contacts, addresses, bank account for payments, category and type, payment
 terms, GST type, and whether the supplier e-invoices. Same export, bulk and
 restore actions.
 
+**Two parties of one name.** Wherever a customer or a supplier is picked --
+on a document, a receipt or a payment, a price list, an offer, a contract --
+the line ends with the party's area and city ("Sri Balaji Medicals — C0412 ·
+Abids, Hyderabad"), taken from the customer's billing address or the
+supplier's main address. Both lists have an **Area, city** column. A party
+with no address shows its name alone. This is on screens only; a print shows
+the address as before.
+
 **Configuration** (*Settings → Set up → Party lists*): *Customer Groups*
 (segments with a group discount and a price level), *Vendor Categories*,
 *Vendor Types*, *Licence Types* and *Licence Check*.

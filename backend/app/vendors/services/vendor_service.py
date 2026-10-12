@@ -31,8 +31,10 @@ from app.core.exceptions import (
     ResourceNotFoundError,
     ValidationError,
 )
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.validation import check_tan_if_set, settle_pan
+from app.sales.models import GeoCity, GeoLocality
 from app.vendors.gst_registration import assert_consistent
 from app.vendors.models import (
     Vendor,
@@ -1167,6 +1169,45 @@ class VendorService:
             owner: [AttributeValueResponse.model_validate(row) for row in rows]
             for owner, rows in grouped.items()
         }
+
+    def address_places(
+        self, vendors: list[Vendor]
+    ) -> dict[UUID, tuple[str | None, str | None]]:
+        """Name the city and area of every address on a page of vendors.
+
+        Keyed by address id, as `(city, area)`. A supplier's address holds
+        ids into the geography masters and no text, so a picker had nothing
+        to tell two suppliers of one name apart with. Two reads for the whole
+        page, however long it is.
+        """
+        addresses = [item for row in vendors for item in row.addresses]
+        cities = self._place_names(
+            GeoCity, {item.city_id for item in addresses if item.city_id}
+        )
+        areas = self._place_names(
+            GeoLocality, {item.locality_id for item in addresses if item.locality_id}
+        )
+        return {
+            item.id: (
+                cities.get(item.city_id) if item.city_id else None,
+                areas.get(item.locality_id) if item.locality_id else None,
+            )
+            for item in addresses
+        }
+
+    def _place_names(
+        self, model: type[GeoCity] | type[GeoLocality], ids: set[UUID]
+    ) -> dict[UUID, str]:
+        """Read the names of the given cities or localities, in chunks."""
+        names: dict[UUID, str] = {}
+        for chunk in chunks(sorted(ids, key=str)):
+            names.update(
+                (row.id, row.name)
+                for row in self._session.execute(
+                    select(model.id, model.name).where(model.id.in_(chunk))
+                )
+            )
+        return names
 
     @staticmethod
     def _vendor_values(

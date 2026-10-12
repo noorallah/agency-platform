@@ -237,8 +237,10 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
             for (final Customer item in widget.customers)
               DropdownMenuEntry<String>(
                 value: item.id,
-                label: '${item.displayName} — ${item.code}'
+                label: withPlace(
+                    '${item.displayName} — ${item.code}'
                     '${item.phone.isEmpty ? '' : '  ${item.phone}'}',
+                    customerPlace(item)),
               ),
           ],
           onSelected: (value) {
