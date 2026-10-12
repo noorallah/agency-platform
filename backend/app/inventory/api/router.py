@@ -251,6 +251,11 @@ class StockValuationRecord(BaseModel):
     value: Decimal
     #: The goods type, General where the product has none; empty on a total.
     goods_type: str = ""
+    #: A unit's MRP where every unit on hand carries the same one, and the
+    #: stock at MRP, each unit at its own batch's (backlog 109). Null where
+    #: none is recorded; the grand total adds up what has one.
+    mrp: Decimal | None = None
+    mrp_value: Decimal | None = None
 
 
 StockValuationScope = Annotated[
@@ -334,7 +339,8 @@ def stock_valuation(
 
     Tally's Stock Summary (D-GOLIVE-3): each item's quantity, its moving
     average cost and value, then the grand total, the Inventory account's
-    balance on the same day and the difference. ``from_date`` is accepted and
+    balance on the same day and the difference. The same stock is stated at
+    its MRP beside its cost (backlog 109). ``from_date`` is accepted and
     ignored -- a valuation is as on a day, not over a period -- so the dated
     report screen can call it like its siblings.
     """

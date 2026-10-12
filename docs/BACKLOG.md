@@ -7700,3 +7700,49 @@ have to send it on every document row.
 
 **Cases:** TC-CUST-012. **Tests:** `desktop/test/party_place_test.dart`,
 `tests/unit/test_party_places.py`, `tests/unit/test_vendor_address_places.py`.
+
+## 109. Stock valuation shows the value at MRP beside the value at cost -- built 2026-10-13
+
+**Customer task S4.** Wanted: the stock report shows what the stock is worth
+at its MRP beside what it cost, and both totals agree with a hand count of
+three items.
+
+**What was there.** Reports > Financial > **Stock valuation** listed each
+item's quantity, its moving-average cost and its value, then the grand total,
+the Inventory account in the books and the difference. A product holds an MRP
+and so does each batch (the manufacturer prints a different one on each
+batch; a batch with none falls back to the product's). Nothing multiplied
+either by the stock.
+
+**What was built.**
+
+- **Server.** `GET /api/v1/inventory/reports/stock-valuation` answers two
+  more fields on each row: `mrp` and `mrp_value`. Each unit on hand is priced
+  at **its own batch's MRP**, and at the **product's** where the batch has
+  none or the item is not kept by batch; the item's `mrp_value` is the sum.
+  `mrp` is stated only where every unit on hand carries the same one, and is
+  blank where the batches on hand differ. The grand total adds up the rows
+  that state a value. The quantities are grouped by product and batch MRP in
+  the one statement that already added them up, so the report asks no more
+  of the database than before. No migration.
+- **Screen.** The report's columns read **Cost rate**, **Value at cost**,
+  **MRP**, **Value at MRP**; the Excel and CSV exports carry the same four.
+
+**Decided, by the usual standard (Marg, Busy).**
+
+- A unit with **no MRP anywhere** adds nothing, and an item with none shows a
+  blank, not 0.00: an unrecorded price is not a price of zero. The MRP total
+  is therefore the total of the items that have one.
+- The MRP is **the one held today**. No history of an MRP is kept, so a
+  valuation as on a past day shows that day's quantities at today's printed
+  price. The cost side is unchanged and is still the cost as on the day.
+- The two books rows (the Inventory account, the difference) state nothing
+  at MRP: the books are kept at cost.
+- The MRP is tax-inclusive, as printed; the cost is before tax. The two
+  columns are stated side by side and no margin is worked out from them.
+
+**Not built.** The other stock reports (Stock ageing, Slow-moving, Dead
+stock, the bank's stock statement) still value at cost only.
+
+**Cases:** TC-STOCK-042. **Tests:** `tests/unit/test_stock_valuation.py`.
+**Kept check:** `docs/qa/checks/inventory/p_value_at_mrp.py` (19 checks).

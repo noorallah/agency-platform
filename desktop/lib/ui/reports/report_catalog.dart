@@ -1071,12 +1071,15 @@ const List<ReportDefinition> reportCatalog = [
   // Tally's Stock Summary (D-GOLIVE-3): what the stock is worth as on a day,
   // at moving average cost, with the Inventory account beside the total so a
   // gap between the stock and the books shows. Quarantined goods count: they
-  // are still owned.
+  // are still owned. The same stock at its MRP stands beside its cost
+  // (backlog 109): each unit at its own batch's MRP, the product's where the
+  // batch has none; blank where the batches differ or none is recorded.
   ReportDefinition(
     id: 'stock-valuation',
     label: 'Stock valuation',
     description: "Every item's quantity, average cost and value as on the "
-        'day, the grand total, and the Inventory account in the books.',
+        'day, the same stock at its MRP, the grand total, and the Inventory '
+        'account in the books.',
     path: '/api/v1/inventory/reports/stock-valuation',
     permission: 'INVENTORY_VIEW',
     area: ReportArea.financial,
@@ -1089,8 +1092,10 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'goods_type', label: 'Goods type'),
       ReportColumn(key: 'unit', label: 'Unit'),
       ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
-      ReportColumn(key: 'rate', label: 'Rate', numeric: true),
-      ReportColumn(key: 'value', label: 'Value', numeric: true),
+      ReportColumn(key: 'rate', label: 'Cost rate', numeric: true),
+      ReportColumn(key: 'value', label: 'Value at cost', numeric: true),
+      ReportColumn(key: 'mrp', label: 'MRP', numeric: true),
+      ReportColumn(key: 'mrp_value', label: 'Value at MRP', numeric: true),
     ],
   ),
   // How old the stock on hand is (55 S7): FIFO's answer -- what is left is

@@ -1622,8 +1622,13 @@ Statements*.
 - **Profit & Loss**: income less expenses for a period -- a month, a quarter,
   a year or any run of months, **month by month** in columns, and **compared
   with last year**.
-- **Stock valuation**: every item's quantity, rate and value as on a date, with
-  the Inventory account's balance on the same day and the difference. Each
+- **Stock valuation**: every item's quantity, cost rate and value at cost as on
+  a date, with the Inventory account's balance on the same day and the
+  difference. The same stock is shown **at its MRP** beside its cost: each
+  unit at its own batch's MRP, the product's where the batch has none. The
+  MRP column is blank where the batches on hand carry different ones, and an
+  item with no MRP is left blank and out of the MRP total. The MRP is the one
+  held today, also when the report is asked as on a past day. Each
   item shows its goods type (General where it has none), as it does on Stock
   ageing, Slow-moving stock and Dead stock.
 - **Balance Sheet**: what the firm owns and owes at a date.

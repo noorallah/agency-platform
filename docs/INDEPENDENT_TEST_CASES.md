@@ -2709,6 +2709,17 @@ the fixture builds (a minute or two).
 - **Expect:** Each is refused, **422**: "S is a service, and a service is never held as stock. Bill it; there is nothing to bring into a warehouse." S has no stock row and P still holds 10. (A firm that already holds units of a service may still adjust them **down**; a goods receipt of a service is D-BUY-74, open.)
 - **Leaves:** nothing.
 
+### TC-STOCK-042 — Stock valuation states the stock at its MRP beside its cost
+
+*Added 2026-10-13 (backlog 109). Driven over HTTP on the day it was built; the screen was not clicked.*
+
+- **Covers:** backlog 109 (first customer's list, S4)
+- **Fixture:** `firm-admin`
+- **Also needs:** two warehouses and three new products, none with stock: **P** with MRP 65 (selling price 55); **B**, kept by batch, with MRP 40 (selling price 30) and three batches -- `A` with MRP 42, `B` with MRP 45.50, `C` with no MRP; **N** with no MRP. Opening stock, posted, in the first warehouse: P 10 at 50; B 4 of batch A, 6 of batch B, 2 of batch C, each at 25.50; N 3 at 100. In the second warehouse: P 5 at 50.
+- **Steps:** as the **Firm admin**: (1) Reports > Financial > **Stock valuation**, as on today. (2) The same report for the second warehouse only. (3) Export to Excel.
+- **Expect:** (1) the columns read *Cost rate*, *Value at cost*, *MRP*, *Value at MRP*. P: quantity 15, value at cost 750.00, MRP 65.00, value at MRP **975.00**. B: quantity 12, value at cost 306.00, MRP **blank** (its batches differ), value at MRP **521.00** (4 x 42 + 6 x 45.50 + 2 x 40). N: value at cost 300.00, MRP and value at MRP both **blank**, not 0.00. Against a firm with nothing else in stock the grand total reads 1,356.00 at cost and **1,496.00** at MRP; otherwise it is the sum of the rows, the blank ones adding nothing. The *Inventory account in the books* and *Difference* rows are blank under Value at MRP. (2) one row, P: 5, 250.00 at cost, 325.00 at MRP, and the same two figures as the total; no books rows. (3) the file has the same four columns and figures.
+- **Data (HTTP):** `GET /api/v1/inventory/reports/stock-valuation` → each row carries `mrp` and `mrp_value` beside `rate` and `value`; both are `null` for N and on the `BOOKS` and `DIFFERENCE` rows. Kept check: `docs/qa/checks/inventory/p_value_at_mrp.py`.
+
 ### Known defects found while writing these cases
 
 - **D-8-1 — Dispatch drew an expired batch. Fixed 2026-09-16.** In a Pharmacy firm with batches expired 30 days ago, expiring in 20 days and in 400 days, dispatching 5 took them from the **expired** batch — its status still AVAILABLE. "Earliest expiry first" read literally does that; for a pharmacy it ships expired medicine. `InventoryService.allocate_for_dispatch` now drops expired stock from the candidates rather than ranking it first, and when that leaves the document short it says so **by name** — "10 of this product's stock is past its expiry date (X expired 2026-08-17) and cannot be dispatched: write it off or quarantine it" — because the screen still shows that stock as on hand and "short by 5" beside it explains nothing. Expiry is judged on the **document's own date**, which the delivery note passes, so rebuilding a year of history posts what it posted at the time. Three tests in `tests/unit/test_inventory_foundation.py`.
