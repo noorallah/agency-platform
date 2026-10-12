@@ -3782,6 +3782,38 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Leaves:** five approved bills and no discount limit.
 
 
+### TC-SELL-098 — The licence check warns or blocks, catches an expired licence, and the firm's numbers print on the bill
+
+*Added 2026-10-13 (backlog 116). **Driven over HTTP** that day on a fixture firm (30 checks); the screens were not clicked.*
+
+- **Covers:** backlog 116 (customer task S11); backlog 54
+- **Fixture:** `ready-firm`
+- **Also needs:** a second user of the firm holding only **Sales Manager**; under *Settings → Set up → Party lists → Licence Types* two types, **DGL** and **FSSAI**; a category **Medicines** whose licence is DGL; a product **M** in Medicines and a product **P** in no category, both with stock; a customer **A** with no licence. The firm holds no licence yet. Where the firm types orders and delivery notes, each bill below continues a note.
+- **Steps**
+  1. Under *Licence Check* choose **Warn** for selling and save. Raise a sales order for A with P and approve it.
+  2. Raise a sales order for A with M and press **Approve**.
+  3. Choose **Block** and save. Raise another order for A with M and approve it, giving no reason.
+  4. As the Sales Manager approve the order of step 3, giving a reason.
+  5. As the firm administrator approve it, giving a reason.
+  6. Under *Masters → Trade Licences* record the firm's own DGL licence, valid to next year, and A's DGL licence, valid to **yesterday**. Raise an order for A with M and approve it.
+  7. Change A's licence to end next year. Approve the order of step 6, deliver it and raise its bill, leaving the bill a draft.
+  8. Change A's licence to end yesterday again and approve the bill.
+  9. Change A's licence to end next year and approve the bill.
+  10. Record the firm's own FSSAI licence, valid to next year, and a second DGL licence of the firm that ended yesterday. Print the bill.
+- **Expect**
+  - Step 1: approved; nothing is said about a licence.
+  - Step 2: a notice names line 1 and says A holds no DGL and the firm holds no DGL. The order is approved.
+  - Step 3: refused, "Line 1 (M): A holds no DGL. ... The firm's policy refuses a sale without the licence ...". The order is still a draft.
+  - Step 4: refused. Overriding needs the licence override permission.
+  - Step 5: approved, and the order's timeline keeps the reason.
+  - Step 6: refused, naming A's licence number and "expired on" yesterday's date. The firm is not named: its licence is valid.
+  - Step 7: the order is approved with nothing said; the delivery note and the draft bill follow.
+  - Step 8: refused in the words of step 6.
+  - Step 9: approved.
+  - Step 10: under the firm's name and address the bill reads **DGL** with the valid number and **FSSAI** with its number; the DGL number that ended yesterday is not there. Under **Billed to**, A's DGL number.
+- **Leaves:** the policy at Block, three licences of the firm and one of A. Later bills of the firm print the firm's two valid numbers.
+
+
 
 ## Pricing, promotions and incentives
 
