@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.finance.models import (
@@ -55,6 +55,11 @@ class SeedAccount:
     account_type: AccountTypeEnum
     group: str
     purpose: ControlAccountPurpose | None = None
+    #: Open the account in the group of the account this purpose is mapped
+    #: to, where the firm has mapped one, rather than in ``group``. A firm
+    #: whose books were opened before Cash had a group of its own keeps its
+    #: cash under Current Assets, and petty cash belongs beside it.
+    beside: ControlAccountPurpose | None = None
 
 
 GROUPS: tuple[tuple[str, str, AccountTypeEnum], ...] = (
@@ -89,7 +94,8 @@ SUB_GROUPS: dict[str, tuple[str, AccountTypeEnum, str]] = {
 #: short books the difference there by itself (``BANK_CHARGES``), and a
 #: firm's own bank fee is still recorded against it by hand. Migration
 #: 20260927_0162 gives existing firms the same accounts; 20261001_0191 maps
-#: the purpose.
+#: the purpose. Transport and Fuel came with the first customer's list
+#: (backlog 106); migration 20261012_0355 gives existing firms those two.
 INDIRECT_EXPENSE_ACCOUNTS: tuple[SeedAccount, ...] = tuple(
     SeedAccount(code, name, AccountTypeEnum.EXPENSE, "IEXP", purpose)
     for code, name, purpose in (
@@ -98,6 +104,8 @@ INDIRECT_EXPENSE_ACCOUNTS: tuple[SeedAccount, ...] = tuple(
         ("6200", "Electricity", None),
         ("6300", "Telephone and Internet", None),
         ("6400", "Travel and Conveyance", None),
+        ("6450", "Transport", None),
+        ("6460", "Fuel", None),
         ("6500", "Office and General Expenses", None),
         ("6600", "Repairs and Maintenance", None),
         ("6700", "Bank Charges", ControlAccountPurpose.BANK_CHARGES),
@@ -125,6 +133,17 @@ CHART: tuple[SeedAccount, ...] = (
     ),
     SeedAccount(
         "1010", "Bank", AccountTypeEnum.ASSET, "CA-BANK", ControlAccountPurpose.BANK
+    ),
+    SeedAccount(
+        # The small cash kept apart from the till (backlog 106). No purpose:
+        # a person pays from it, nothing posts to it by itself. Beside Cash,
+        # so the cash book and a contra voucher read it as cash. Migration
+        # 20261012_0355 gives existing firms the same account and Capital.
+        "1005",
+        "Petty Cash",
+        AccountTypeEnum.ASSET,
+        "CA-CASH",
+        beside=ControlAccountPurpose.CASH,
     ),
     SeedAccount(
         "1100",
@@ -524,6 +543,9 @@ CHART: tuple[SeedAccount, ...] = (
         "EQ",
         ControlAccountPurpose.DRAWINGS,
     ),
+    # What the owner put in (backlog 106). No purpose: it is credited by a
+    # journal or an opening balance, never by a document.
+    SeedAccount("3200", "Capital", AccountTypeEnum.EQUITY, "EQ"),
     SeedAccount(
         # What a customer is charged for a cheque that bounced (ACC-2): other
         # income, outside GST. Migration 20261003_0253 gives existing firms
@@ -614,6 +636,71 @@ def _sub_group(
     return row.id
 
 
+def _existing_account(
+    session: Session, firm_id: UUID, entry: SeedAccount
+) -> LedgerAccount | None:
+    """Return the firm's account for a chart entry, if it already has one.
+
+    An account a document posts to is known by its code, because that is what
+    its purpose was mapped to. One that only a person chooses -- Capital,
+    Fuel, Petty Cash -- is also the firm's own account of that name under
+    whatever code the firm gave it, so opening the books again does not put a
+    second Fuel beside the first.
+    """
+    by_code = session.scalar(
+        select(LedgerAccount).where(
+            LedgerAccount.firm_id == firm_id,
+            LedgerAccount.code == entry.code,
+            LedgerAccount.is_deleted.is_(False),
+        )
+    )
+    if entry.purpose is not None:
+        return by_code
+    by_name = session.scalar(
+        select(LedgerAccount)
+        .where(
+            LedgerAccount.firm_id == firm_id,
+            func.lower(LedgerAccount.name) == entry.name.lower(),
+            LedgerAccount.account_type == entry.account_type.value,
+            LedgerAccount.is_deleted.is_(False),
+        )
+        .order_by(LedgerAccount.code.asc())
+        .limit(1)
+    )
+    if by_name is not None:
+        return by_name
+    if by_code is not None and by_code.account_type == entry.account_type.value:
+        return by_code
+    return None
+
+
+def _free_code(taken: set[str], code: str) -> str:
+    """Return ``code``, or the next number after it the firm has not used.
+
+    Only an account of another kind can hold the code by the time this is
+    asked -- the firm used 3200 for a loan, say -- and it keeps it.
+    """
+    candidate = code
+    while candidate in taken:
+        candidate = str(int(candidate) + 1)
+    taken.add(candidate)
+    return candidate
+
+
+def _group_beside(
+    session: Session, mapped: dict[str, UUID], entry: SeedAccount
+) -> UUID | None:
+    """Return the group of the account an entry is opened beside, if mapped."""
+    if entry.beside is None:
+        return None
+    neighbour = mapped.get(entry.beside.value)
+    if neighbour is None:
+        return None
+    return session.scalar(
+        select(LedgerAccount.account_group_id).where(LedgerAccount.id == neighbour)
+    )
+
+
 def seed_finance_setup(
     session: Session, *, firm_id: UUID, year_starts_on: date, actor_id: UUID
 ) -> dict[str, int]:
@@ -653,23 +740,35 @@ def seed_finance_setup(
         groups[code] = existing.id
 
     accounts: dict[str, UUID] = {}
-    for entry in CHART:
-        existing_account = session.scalar(
-            select(LedgerAccount).where(
+    mapped = controls.mapping(firm_id)
+    taken = set(
+        session.scalars(
+            select(LedgerAccount.code).where(
                 LedgerAccount.firm_id == firm_id,
-                LedgerAccount.code == entry.code,
                 LedgerAccount.is_deleted.is_(False),
             )
         )
+    )
+    for entry in CHART:
+        existing_account = _existing_account(session, firm_id, entry)
         if existing_account is None:
-            if entry.group not in groups:
-                groups[entry.group] = _sub_group(
-                    session, finance, entry.group, groups, firm_id, actor_id, created
-                )
+            group_id = _group_beside(session, mapped, entry)
+            if group_id is None:
+                if entry.group not in groups:
+                    groups[entry.group] = _sub_group(
+                        session,
+                        finance,
+                        entry.group,
+                        groups,
+                        firm_id,
+                        actor_id,
+                        created,
+                    )
+                group_id = groups[entry.group]
             existing_account = finance.create_ledger_account(
                 LedgerAccountCreate(
-                    account_group_id=groups[entry.group],
-                    code=entry.code,
+                    account_group_id=group_id,
+                    code=_free_code(taken, entry.code),
                     name=entry.name,
                     account_type=entry.account_type,
                 ),

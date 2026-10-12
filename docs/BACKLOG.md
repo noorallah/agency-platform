@@ -7580,3 +7580,38 @@ Not part of this item.
 
 **Size: M.** Mostly mechanical once the places are listed; the sweep and
 the guard are the work.
+
+## 106. Ready-made accounts in every firm: Capital, Drawings, Petty Cash, Transport, Fuel -- built 2026-10-12
+
+**From the first customer's list** (`docs/CUSTOMER_BUILD_TASKS.md`, row S1):
+five accounts a small firm looks for on its first day, in a new firm's books
+and in an existing firm's, with nothing existing overwritten.
+
+**What was there.** *Drawings* (3100), in every firm since `20261003_0276`,
+mapped to a control purpose of its own (BUY-2). The other four
+were not in the chart: money the owner put in had only *Opening Balance
+Equity* to go to, and diesel went under *Travel and Conveyance*.
+
+**What was built.**
+
+- `CHART` in `app/finance/services/opening_setup.py` gains **Petty Cash**
+  (1005, asset), **Capital** (3200, equity), **Transport** (6450) and
+  **Fuel** (6460, both Indirect Expenses). None is mapped to a control
+  purpose: a person chooses them, no document posts to them by itself.
+- **Petty Cash is opened beside the firm's Cash account** -- in
+  *Cash-in-Hand* for a firm opened since decision A22, straight under
+  *Current Assets* for one opened before -- so a contra voucher and the
+  Expenses screen offer it as cash and the cash book reads it.
+- **Existing firms:** migration `20261012_0355`, for every firm whose books
+  are open, and the same rule when books are opened again
+  (`_existing_account`): an account of the same name and kind is the firm's
+  own and stays the only one; an account the firm renamed under the number
+  stays; a number the firm used for another kind of account stays with it
+  and the new account takes the next free number.
+
+**Not built, and why.** No screen: the Chart of Accounts, the Expenses
+screen and the contra voucher already list whatever accounts the firm has.
+No opening-capital entry screen: capital is credited by a journal or by
+Opening Balances, as before.
+
+**Cases:** TC-FIN-026. **Tests:** `tests/unit/test_ready_made_accounts.py`.

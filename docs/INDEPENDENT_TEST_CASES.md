@@ -4496,6 +4496,17 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Expect:** the price list grid counts **distinct products** ("1 (3 rates)"); the *One territory* scope has a territory picker; a returnable line with no description is labelled by product code and name, and "Line N" only when nothing is known.
 - **Leaves:** a price list.
 
+### TC-FIN-026 — Ready-made accounts: Capital, Drawings, Petty Cash, Transport, Fuel
+
+*Added 2026-10-12 (backlog 106). Driven over HTTP on the day it was built; the screens were not clicked.*
+
+- **Covers:** backlog 106 (first customer's list, S1)
+- **Fixture:** `selling-firm`
+- **Also needs:** a second firm created and its books opened during the case (Settings > Platform > Firms > Set up > Open books).
+- **Steps:** as the fixture's **Firm admin**: Accounts > Books > **Chart of Accounts** → search *Capital*, *Drawings*, *Petty Cash*, *Transport*, *Fuel*. Accounts > **Expenses** → New: open the *Expense* list, then the *Paid from* list. Accounts > Books > **Contra Vouchers** → New: move 500 from Cash to Petty Cash and post it; open Accounts > Books > **Cash Book**. Open the Chart of Accounts of the second firm.
+- **Expect:** each of the five is there **once**: Petty Cash 1005 (asset, beside Cash), Drawings 3100 and Capital 3200 (equity), Transport 6450 and Fuel 6460 (expense, Indirect Expenses). Transport and Fuel are offered as an expense; Petty Cash is offered under *Paid from* and in the contra voucher as cash. The contra voucher leaves the cash book's total unchanged (both sides are cash). The second firm shows the same five from the moment its books are opened. A firm that already had an account of one of these names keeps it as the only one; a firm that had used one of the numbers for another kind of account keeps that, and the new account has the next number.
+- **Leaves:** a posted contra voucher of 500; a second firm.
+
 
 ---
 

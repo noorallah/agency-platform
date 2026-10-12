@@ -305,10 +305,11 @@ def test_the_bank_book_reads_every_asset_in_a_group_of_its_own() -> None:
         main.id,
         second.id,
     }
-    # Cash sits in Current Assets beside receivables: its book is Cash alone.
-    assert service.money_accounts(books.firm.id, ControlAccountPurpose.CASH) == [
-        books.account("1000")
-    ]
+    # Cash-in-Hand holds Cash and Petty Cash (backlog 106): the book is both.
+    assert set(service.money_accounts(books.firm.id, ControlAccountPurpose.CASH)) == {
+        books.account("1000"),
+        books.account("1005"),
+    }
     page = bank_book(
         report_scope(books.firm.id),
         from_date=date(2026, 4, 1),

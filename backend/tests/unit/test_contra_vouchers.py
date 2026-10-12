@@ -87,8 +87,22 @@ def _open_account(
     beside: str = CASH,
     active: bool = True,
 ) -> LedgerAccount:
-    """Open another account in the group the ``beside`` account sits in."""
+    """Open another account in the group the ``beside`` account sits in.
+
+    Petty Cash (1005) is in every firm's books since backlog 106, so a code
+    the firm already has is that account, put beside the neighbour.
+    """
     neighbour = _account(books, beside)
+    existing = books.session.scalar(
+        select(LedgerAccount).where(
+            LedgerAccount.firm_id == books.firm.id, LedgerAccount.code == code
+        )
+    )
+    if existing is not None:
+        existing.account_group_id = neighbour.account_group_id
+        existing.is_active = active
+        books.session.commit()
+        return existing
     row = LedgerAccount(
         firm_id=books.firm.id,
         account_group_id=neighbour.account_group_id,
@@ -199,7 +213,7 @@ def test_a_new_firm_keeps_cash_and_bank_in_groups_of_their_own() -> None:
         row.code
         for row in ContraVoucherService(books.session).money_accounts(books.firm.id)
     }
-    assert codes == {CASH, BANK}
+    assert codes == {CASH, "1005", BANK}
 
 
 def test_a_firm_set_up_before_keeps_cash_and_bank_where_they_were() -> None:
@@ -432,8 +446,9 @@ def test_list_get_register_and_print() -> None:
         first.voucher_number,
     ]
 
+    # Cash, Petty Cash and Bank: what a new firm opens with.
     accounts = contra_money_accounts(scope=scope, db=books.session)
-    assert accounts.data is not None and len(accounts.data) == 2
+    assert accounts.data is not None and len(accounts.data) == 3
 
     printed = print_contra_voucher(first.id, scope=scope, db=books.session)
     assert printed.media_type == "application/pdf"

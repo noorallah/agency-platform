@@ -54,7 +54,7 @@ These are recorded in two steps, both under **Accounts**: open an account for
 the expense once, then enter a journal each time it is paid. **A firm set up
 on 1.3.0 already has the common ones** in an *Indirect Expenses* group (codes
 below marked *seeded*), so Step A is only for a kind of expense not in the
-list. The shorter way for a clerk is **Accounts → Expenses → New** (section 5,
+list. **Transport** and **Fuel** joined them on 2026-10-12, in every firm. The shorter way for a clerk is **Accounts → Expenses → New** (section 5,
 item 1); this section is the accountant's way, by journal.
 
 ### Step A -- open an expense account (once per kind of expense)
@@ -68,7 +68,7 @@ item 1); this section is the accountant's way, by journal.
 | Name | what the expense is |
 | Type | **EXPENSE** |
 
-Accounts a new firm already has (*seeded*, group IEXP) and two to add:
+Accounts a new firm already has (*seeded*, group IEXP) and one to add:
 
 | Code | Name | Typical entries |
 | --- | --- | --- |
@@ -77,11 +77,12 @@ Accounts a new firm already has (*seeded*, group IEXP) and two to add:
 | 6200 | Electricity (*seeded*) | power bills |
 | 6300 | Telephone and Internet (*seeded*) | mobile, broadband |
 | 6400 | Travel and Conveyance (*seeded*) | travel, conveyance |
+| 6450 | Transport (*seeded*) | freight paid to transporters, lorry hire |
+| 6460 | Fuel (*seeded*) | diesel, petrol |
 | 6500 | Office and General Expenses (*seeded*) | stationery, printing, courier |
 | 6600 | Repairs and Maintenance (*seeded*) | vehicle, shop, equipment repairs |
 | 6700 | Bank Charges (*seeded*) | charges, commission, card fees |
 | 6910 | Staff Welfare (*seeded*) | tea, meals, bonus, uniforms |
-| 6800 | Fuel and Transport (add) | diesel, petrol, freight paid to transporters |
 | 6950 | Miscellaneous Expenses (add) | anything that fits nowhere else |
 
 The group, type and code cannot be changed once saved; the name can. Choose the
@@ -169,7 +170,9 @@ Recorded so a decision can be made; none of these stops the steps above.
    *Indirect Expenses* group (IEXP) holding Rent, Salaries and Wages, Electricity,
    Telephone and Internet, Travel and Conveyance, Office and General Expenses,
    Repairs and Maintenance and Bank Charges (6000-6700); migration
-   `20260927_0162` gave every firm with open books the same. **Still open:**
+   `20260927_0162` gave every firm with open books the same. Transport (6450)
+   and Fuel (6460) were added on 2026-10-12 with Capital and Petty Cash
+   (backlog 106, migration `20261012_0355`). **Still open:**
    the Profit & Loss sections by account type, not by group, so it does not
    yet show a gross profit (Direct) above a net profit (Indirect) -- that
    belongs with backlog section 50 -- and the Chart of Accounts screen cannot
