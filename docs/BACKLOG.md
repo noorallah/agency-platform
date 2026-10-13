@@ -10327,7 +10327,7 @@ new UI only for the Download (the old UI's page has no Download button):
 in `customer_statement_page.dart`. Tests:
 `backend/tests/unit/test_customer_statement.py` (2 more),
 `desktop/test/customer_account_all_and_download_test.dart` (7). Case:
-TC-CUST-015. PR #PR-NUMBER.
+TC-CUST-015. PR #1482.
 
 **Not built.**
 
