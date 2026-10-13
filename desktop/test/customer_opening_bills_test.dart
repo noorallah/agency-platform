@@ -175,6 +175,7 @@ class _ReceiptApi extends ApiClient {
   Future<List<OutstandingInvoice>> outstandingInvoices({
     required SettlementDirection direction,
     required String partyId,
+    bool withShops = false,
   }) async =>
       [
         OutstandingInvoice.fromJson(const {

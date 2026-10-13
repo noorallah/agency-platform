@@ -8954,3 +8954,97 @@ shops* column on the customer list. Tests:
 - Nothing prints "shop of" on a bill; a bill prints the shop's name and
   address as before.
 - No screen was clicked in the running app.
+
+## 126. One receipt from a parent spread over its shops' bills -- built 2026-10-13
+
+Customer task M8 (`docs/CUSTOMER_BUILD_TASKS.md`): one receipt from a parent
+buyer spread over its shops' bills; a shop can also pay for itself (answer
+A10: both). The owner's note on the *Not shown* sheet of the answers workbook
+(2026-10-12): "money received from the parent is one receipt, spread over the
+shops' bills, and any part not yet spread sits on the parent's account until
+mapped". Done when one receipt closes bills of three shops and each shop's
+account is right.
+
+**What was there.** A receipt belongs to one customer (`settlements`), names
+the bills it clears (`settlement_allocations`), posts one journal, and moves
+that customer's balance by one row in `customer_receivable_transactions`,
+whose stored deltas are what a reversal puts back. A bill could be cleared
+only by a receipt of its own customer. Backlog 125 gave a parent its shops
+(`customers.parent_customer_id`) and nothing that used the link for money.
+
+**Design.**
+
+- **The receipt stays the parent's.** One row in `settlements`, one number,
+  one journal for the whole amount. No table and no column was added, and
+  there is no migration.
+- **An allocation may name a shop's bill.** Where the receipt's customer is a
+  parent, the bills its money may clear are its own and its shops'. A shop's
+  own receipt clears the shop's bills only: it does not reach a sibling or
+  the parent.
+- **Each account moves by its own row.** For every shop whose bills the
+  receipt clears, a `RECEIPT` row is written on that shop's account for what
+  was cleared there, naming the receipt and who paid. The parent's account
+  gets a `RECEIPT` row for the rest only: its own bills, and what is not set
+  against any bill. So a shop's statement and balance come down by exactly
+  what was paid for it, and the parent's statement shows only what was the
+  parent's.
+- **What is not spread stays on the parent's account,** as less owed or as
+  money held on account, by the rule every receipt already follows.
+- **Spreading it later moves it.** Setting the unspread part against a shop's
+  bill (`POST /api/v1/receipts/{id}/allocate`) writes two rows on one day,
+  both naming the receipt: a `RECEIPT_TRANSFER` row on the parent, which
+  gives the money up, and a `RECEIPT` row on the shop, which takes it. The
+  parent gives up money held on account first; any part that had come off
+  what the parent owed goes back on what it owes, because that money is now
+  paying somebody else's bill.
+- **No journal for the spreading.** Every customer's account sits in the one
+  receivables control account, and the rows cancel. The ledger moved once,
+  when the money arrived.
+- **A reversal puts every account back.** `reverse` already undoes every row
+  that names the receipt, each by its own stored deltas; it now does so on
+  each account the receipt touched. The applications are undone first, then
+  what was moved to shops, then the recording rows.
+
+**Decided by me, by the industry standard.**
+
+- One receipt on the paying company with its bills picked across the shops is
+  how the common packages do it (QuickBooks' "receive payment" on a parent
+  with sub-customers' bills listed, Zoho's parent account payment).
+- The cheque's tax collected at source, its TDS, bank charges and discount
+  belong to the receipt and so to the parent. A cash discount earned under a
+  shop's terms is not worked out for a parent's receipt: a discount on it
+  beyond what the parent's own bills earn needs the approve party adjustments
+  permission, as any clearance discount does.
+- A shop cannot pay for another shop or for its parent.
+- The parent's money held on account is used before its balance is raised.
+- Money the parent no longer holds (refunded or applied since) is refused by
+  name rather than moved.
+- The list of a shop's receipts does not show the parent's receipt; the
+  shop's statement and the receipt's own page do.
+
+**Built.** `ReceiptService` in
+`app/settlements/services/settlement_service.py`: `shop_ids`,
+`family_outstanding_invoices`, `_settleable_bills`, `_held_by_party`,
+`_move_to_shop`, `shop_bill_owners`, and the changes to `create`, `allocate`,
+`reverse`, `_advance_part_of`, `_recording_row` and `_rows_written_by`.
+`CustomerService.stage_receipt_transfer` and the transaction type
+`RECEIPT_TRANSFER`, which cannot be posted by hand.
+`GET /api/v1/receipts/outstanding` takes `with_shops`, and each row then
+names whose bill it is (`party_id`, `party_code`, `party_name`); an
+allocation on a receipt answer carries the same three fields where the bill
+is a shop's. Desktop: Record Receipt and Apply list the shops' bills under a
+parent with the shop named on each, and a receipt's cleared bills name the
+shop. Tests: `tests/unit/test_receipt_over_shops.py`,
+`desktop/test/receipt_over_shops_test.dart`. Test case TC-FIN-033.
+
+**Not done.**
+
+- A combined statement for the whole buyer, and a shared credit limit (as in
+  backlog 125).
+- A shop's receipt list does not show receipts its parent paid for it.
+- A parent's money is not taken back from a shop's bill once spread, short of
+  reversing the receipt.
+- Returns and credit notes are not spread across a family: a credit is set
+  against a bill of the customer that holds it.
+- The supplier side (row M9).
+- No screen was clicked in the running app.

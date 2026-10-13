@@ -221,6 +221,12 @@ class SettlementAllocationResponse(SettlementSchema):
     currency_amount: Decimal | None = None
     base_amount: Decimal | None = None
     exchange_difference: Decimal = Decimal("0")
+    #: Whose bill it is, where it is not the settlement's own party: a shop
+    #: whose bill its parent's receipt cleared (backlog 126). Null on a bill
+    #: of the party itself.
+    party_id: UUID | None = None
+    party_code: str | None = None
+    party_name: str | None = None
 
 
 class SettlementResponse(SettlementSchema):
@@ -293,6 +299,10 @@ class OutstandingInvoiceRecord(SettlementSchema):
     #: list was only ever asked about one party; the vendor outstanding and
     #: overdue reports ask about every party at once (D-RPT-2).
     party_id: UUID | None = None
+    #: The owner by code and name, filled where the list was asked for a
+    #: parent with its shops (backlog 126) and a row has to say whose it is.
+    party_code: str | None = None
+    party_name: str | None = None
     due_date: date | None = None
     #: A bill the supplier was owed before the firm started here, rather than
     #: a purchase invoice. It is paid the same way, but it is not a purchase

@@ -91,6 +91,7 @@ class _SettlementApi extends ApiClient {
   Future<List<OutstandingInvoice>> outstandingInvoices({
     required SettlementDirection direction,
     required String partyId,
+    bool withShops = false,
   }) async =>
       outstanding;
 

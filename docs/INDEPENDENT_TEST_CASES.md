@@ -4966,6 +4966,34 @@ redo yours."*
   - Step 6: the list is empty and says no bills are handed to him.
   - Step 7: none of the three is in his menu.
 
+### TC-FIN-033 — One receipt from a parent closes bills of three shops
+
+*Added 2026-10-13 (backlog 126). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 126 (customer task M8)
+- **Fixture:** `ready-firm`
+- **Also needs:** a parent customer with three shops under it (TC-CUST-014 makes them), and one approved sales bill on each shop, say for 100.00, 250.00 and 400.00.
+- **Steps**
+  1. Note what each shop owes on *Customer Statements*.
+  2. Open *Sell → Money → Receipts* → **Record receipt**. Choose the parent as the customer.
+  3. Look at the list of bills.
+  4. Amount 1,000.00, by bank. Set 100.00, 250.00 and 400.00 against the three shops' bills. Save.
+  5. Open the statement of each shop, and of the parent.
+  6. Open the receipt in the list and look at the bills it cleared.
+  7. Raise one more bill of 150.00 on the first shop and approve it. On the receipt press **Apply**, choose that bill, 150.00, save.
+  8. Open the statement of the first shop and of the parent again.
+  9. Record a receipt from the second shop itself and look at the list of bills.
+  10. Reverse the parent's receipt with a reason. Open the three shops' statements and the parent's.
+- **Expect**
+  - Step 3: the three shops' bills are listed, each with its shop's code and name under the bill number, and a line above says the bills of the shops under this customer are listed too.
+  - Step 4: saved as one receipt in the parent's name for 1,000.00; 750.00 set against bills, 250.00 not.
+  - Step 5: each shop owes nothing, and its statement has one receipt line for its own bill's amount with the parent's receipt number and "Paid by" the parent. The parent's statement has one receipt line of 250.00, held on account.
+  - Step 6: each bill is followed by its shop's code and name.
+  - Step 7: saved. The receipt has 100.00 left not set against a bill.
+  - Step 8: the first shop owes nothing again. The parent holds 100.00 on account.
+  - Step 9: only that shop's own bills are listed; no other shop's and not the parent's.
+  - Step 10: every shop owes its bills again in full, the parent holds nothing on account, and the receipt reads Reversed.
+
 ### TC-FIN-032 — The collector's day sheet adds up to the receipts
 
 *Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
