@@ -8088,6 +8088,8 @@ to say how much may be waived.
 typed a discount beyond the customer's terms on a receipt is now refused.
 That is the request. A firm that wants its accountant to give one grants the
 role `PARTY_ADJUSTMENT_APPROVE`, which also lets it approve write-offs.
+(**Changed the same day by backlog 135:** the discount has a code of its
+own, `CLEARANCE_DISCOUNT_GIVE`, and the write-off code no longer gives one.)
 
 **Tried over HTTP, 2026-10-13,** on the fixture firm `T10139XDY-R` with a
 Cashier and a Sales Manager beside the firm administrator, the ceiling at 5%
@@ -9718,3 +9720,60 @@ its own.
   rounded and the bill was not, so the two differ by the paise.
 - A supplier's bill, a purchase return and a debit note are untouched.
 - No screen was clicked; the switch is covered by a widget test.
+
+## 135. The discount at collection is the firm administrator's alone -- built 2026-10-13
+
+**Customer task F4**, the owner's answer of 2026-10-13: "The clearance
+discount at collection (S10) is the firm admin's alone: a permission of its
+own, held by FIRM_ADMIN only; FIRM_MANAGER loses it. Migration for existing
+stores." PR #1476.
+
+**What was there.** Backlog 115 held a discount beyond the customer's terms
+to `PARTY_ADJUSTMENT_APPROVE`, the code that agrees to a write-off, on the
+reasoning that the two are one decision. The firm's administrator and the
+firm manager both hold that code, so a manager could waive part of a due,
+and could move the firm's ceiling on it.
+
+**Design.**
+
+- A code of its own, `CLEARANCE_DISCOUNT_GIVE`, in the `party_adjustment`
+  group. `FIRM_ADMIN` holds it; `FIRM_MANAGER` is the operational set less
+  this code, and no other seeded firm role is given it. The platform roles
+  hold every code, as always.
+- `POST /api/v1/receipts` asks the principal for the new code and no longer
+  for `PARTY_ADJUSTMENT_APPROVE`. The refusal (403) names the amount that is
+  a clearance discount, the permission, and who holds it.
+- The firm's **clearance percentage** follows it. `PUT
+  /api/v1/party-adjustments/settings` is still gated on
+  `PARTY_ADJUSTMENT_APPROVE` for the threshold and the rounding limit, and
+  refuses (403) a change to the percentage from a caller without the new
+  code. The percentage sent as the firm already has it is not a change, and
+  left out it is left alone, so a manager still saves the other two.
+- Migration `20261013_0371`: platform data only, idempotent. It inserts the
+  code and reconciles the system roles, which grants it to `FIRM_ADMIN`.
+  Nothing is revoked: `PARTY_ADJUSTMENT_APPROVE` still approves a write-off
+  and every holder keeps it.
+- Desktop: on *Adjustment limits* the **Clearance discount, up to %** box is
+  read-only without the code and is not sent; the line under the receipt's
+  deduction boxes says only the firm's administrator gives a discount beyond
+  the terms.
+
+**Decided here, by convention.**
+
+- A role a firm made for itself that held `PARTY_ADJUSTMENT_APPROVE` could
+  give the discount yesterday and cannot today. The migration does not copy
+  the grant across: the request is that the administrator alone holds it,
+  and he grants the new code to a role of his own where he wants one to.
+- Whoever gives the discount is who moves its ceiling. A manager who could
+  set the figure to 0 would switch off the one thing kept from him.
+- Everything else of backlog 115 stands: the cash discount the terms earn
+  needs nobody's leave, the ceiling is a share of what the receipt clears,
+  the tax is not touched, payments and refunds are not judged.
+
+**Not built.**
+
+- Nothing counts or reports the clearance discounts given; they are on the
+  Discount Allowed account with every other discount.
+- The collector's own receipt (M6) and a receipt spread from a parent (M8)
+  go through the same service with no leave to give one, as before.
+- No screen was clicked; the box is covered by a widget test.

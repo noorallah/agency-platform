@@ -35,7 +35,11 @@ from app.core.security.jwt import TokenClaims
 from app.customers.models import CustomerReceivableTransaction
 from app.customers.services.statement_service import CustomerStatementService
 from app.finance.models import GLPosting, LedgerAccount
-from app.identity.system_seed import ROLE_PERMISSION_CODES
+from app.identity.system_seed import (
+    FIRM_ROLE_CODES,
+    PERMISSION_GROUPS,
+    ROLE_PERMISSION_CODES,
+)
 from app.party_adjustments.api.router import (
     approve_party_adjustment,
     get_party_adjustment_settings,
@@ -312,7 +316,15 @@ def test_a_collector_cannot_waive_part_of_a_due_and_the_owner_can() -> None:
     books.session.rollback()
     assert _customer_owes(books) == [Decimal("1000.00")]
 
-    owner = collector | {"PARTY_ADJUSTMENT_APPROVE"}
+    # The code that agrees to a write-off no longer gives one (row F4): a
+    # firm manager holds it and is refused, by the name of the code he lacks.
+    manager = collector | {"PARTY_ADJUSTMENT_APPROVE"}
+    with pytest.raises(AuthorizationError, match="CLEARANCE_DISCOUNT_GIVE"):
+        record_receipt(payload, scope=_scope(books, manager), db=books.session)
+    books.session.rollback()
+    assert _customer_owes(books) == [Decimal("1000.00")]
+
+    owner = collector | {"CLEARANCE_DISCOUNT_GIVE"}
     receipt = record_receipt(payload, scope=_scope(books, owner), db=books.session).data
     assert receipt is not None
     assert (receipt.discount_amount, receipt.cash_amount) == (
@@ -340,6 +352,19 @@ def test_a_collector_cannot_waive_part_of_a_due_and_the_owner_can() -> None:
 def test_no_selling_or_collecting_role_holds_the_clearance_code(role: str) -> None:
     assert CLEARANCE_DISCOUNT_CODE not in ROLE_PERMISSION_CODES[role]
     assert CLEARANCE_DISCOUNT_CODE in ROLE_PERMISSION_CODES["FIRM_ADMIN"]
+
+
+def test_the_clearance_code_is_the_firm_administrators_alone() -> None:
+    assert CLEARANCE_DISCOUNT_CODE == "CLEARANCE_DISCOUNT_GIVE"
+    assert CLEARANCE_DISCOUNT_CODE in PERMISSION_GROUPS["party_adjustment"]
+    holders = {
+        role
+        for role in FIRM_ROLE_CODES
+        if CLEARANCE_DISCOUNT_CODE in ROLE_PERMISSION_CODES[role]
+    }
+    assert holders == {"FIRM_ADMIN"}
+    # The manager still agrees to a write-off; only the discount left him.
+    assert "PARTY_ADJUSTMENT_APPROVE" in ROLE_PERMISSION_CODES["FIRM_MANAGER"]
 
 
 def test_the_cash_discount_the_terms_earn_needs_nobodys_leave() -> None:
@@ -398,15 +423,53 @@ def test_a_ceiling_of_zero_allows_none_and_blank_allows_any() -> None:
 
 
 def _save_limits(
-    books: _Books, body: dict[str, str | None]
+    books: _Books,
+    body: dict[str, str | None],
+    *,
+    codes: frozenset[str] = frozenset(
+        {"PARTY_ADJUSTMENT_APPROVE", "CLEARANCE_DISCOUNT_GIVE"}
+    ),
 ) -> PartyAdjustmentSettingsResponse:
     saved = update_party_adjustment_settings(
         PartyAdjustmentSettingsWrite.model_validate(body),
-        scope=_scope(books, frozenset({"PARTY_ADJUSTMENT_APPROVE"})),
+        scope=_scope(books, codes),
         db=books.session,
     ).data
     assert saved is not None
     return saved
+
+
+def test_only_who_gives_a_clearance_discount_moves_its_ceiling() -> None:
+    books = _books()
+    both = {"approval_threshold": "1000.00", "rounding_limit": "10.00"}
+    manager = frozenset({"PARTY_ADJUSTMENT_APPROVE"})
+    _save_limits(books, {**both, "clearance_discount_percent": "5"})
+
+    with pytest.raises(AuthorizationError, match="CLEARANCE_DISCOUNT_GIVE"):
+        _save_limits(books, {**both, "clearance_discount_percent": "50"}, codes=manager)
+    with pytest.raises(AuthorizationError, match="CLEARANCE_DISCOUNT_GIVE"):
+        _save_limits(books, {**both, "clearance_discount_percent": None}, codes=manager)
+
+    # The other two limits are still his, sent with the ceiling as it stands
+    # (what the screen sends) or without it.
+    kept = _save_limits(
+        books,
+        {
+            "approval_threshold": "2000.00",
+            "rounding_limit": "10.00",
+            "clearance_discount_percent": "5.00",
+        },
+        codes=manager,
+    )
+    assert (kept.approval_threshold, kept.clearance_discount_percent) == (
+        Decimal("2000.00"),
+        Decimal("5.00"),
+    )
+    kept = _save_limits(books, {**both, "rounding_limit": "20.00"}, codes=manager)
+    assert (kept.rounding_limit, kept.clearance_discount_percent) == (
+        Decimal("20.00"),
+        Decimal("5.00"),
+    )
 
 
 def test_saving_the_other_limits_leaves_the_clearance_percentage_alone() -> None:

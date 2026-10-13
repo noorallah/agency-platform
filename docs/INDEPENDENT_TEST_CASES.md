@@ -5090,13 +5090,33 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
   6. As the firm administrator set the percentage to **0** and record a receipt for A's second bill with **Discount allowed** 1.00. Then clear the box (blank), save, and record it with 300.00.
 - **Expect**
   - Step 1: the boxes are read-only for the Cashier; the server refuses the save (403).
-  - Step 2: refused: "The customer's terms earn no cash discount on these bills, so 50.00 of this discount is a clearance discount. Giving one needs the approve party adjustments permission (PARTY_ADJUSTMENT_APPROVE)." Nothing is recorded; the bill still owes 1,180.00.
+  - Step 2: refused: "The customer's terms earn no cash discount on these bills, so 50.00 of this discount is a clearance discount. Giving one needs the give clearance discount permission (CLEARANCE_DISCOUNT_GIVE), which the firm's administrator holds." Nothing is recorded; the bill still owes 1,180.00.
   - Step 3: refused: the firm allows up to 5.00% of the 1,180.00 these bills are cleared for, which is 59.00.
   - Step 4: recorded. Cash received 1,121.00. The bill is closed. Its taxable value, tax and total read as before. The entry has three lines: Cash 1,121.00 Dr, Discount Allowed 59.00 Dr, Receivables 1,180.00 Cr; no tax account is in it.
   - Step 5: 30.00 is refused, saying the terms earn 23.60 and 6.40 is a clearance discount. 23.60 is recorded by the Cashier and the bill is closed.
   - Step 6: at 0, the 1.00 is refused ("up to 0.00%"). With the box blank, the 300.00 is recorded.
 - **Data:** `party_adjustment_settings.clearance_discount_percent`; `settlements.discount_amount`; one journal per receipt.
 - **Leaves:** three closed bills and three receipts; the clearance percentage blank. A sales role cannot do step 2 at all: it does not hold the record-receipt permission.
+
+### TC-FIN-037 — The discount at collection is the firm administrator's alone: a firm manager is refused
+
+*Added 2026-10-13 (backlog 135, row F4). Driven over HTTP on the day it was built; the screens were not clicked.*
+
+- **Covers:** backlog 135 (customer task F4; try D3)
+- **Fixture:** `ready-firm`
+- **Also needs:** a second user of the firm holding only **Firm Manager**. A customer with no cash discount terms and one approved bill of 1,180.00. **Clearance discount, up to %** set to **5** by the firm administrator.
+- **Steps**
+  1. As the Firm Manager open *Accounts → Books → Party Adjustments → Adjustment limits*. Change **Approval threshold** to 2,500 and save.
+  2. As the Firm Manager record a receipt for the bill: amount 1,180.00, allocated to the bill, **Discount allowed** 50.00.
+  3. As the firm administrator record the same receipt.
+  4. As the firm administrator open *Adjustment limits*, change the clearance percentage to 10 and save.
+- **Expect**
+  - Step 1: the **Clearance discount, up to %** box is read-only and says only the firm's administrator can give one or change the figure. The threshold saves; the percentage is still 5.
+  - Step 2: refused (403): "... so 50.00 of this discount is a clearance discount. Giving one needs the give clearance discount permission (CLEARANCE_DISCOUNT_GIVE), which the firm's administrator holds." Nothing is recorded; the bill still owes 1,180.00.
+  - Step 3: recorded. Cash received 1,130.00, the bill closed, its tax unchanged.
+  - Step 4: saved; the percentage reads 10.
+- **Data:** `permissions.code = 'CLEARANCE_DISCOUNT_GIVE'`, granted to the system role `FIRM_ADMIN` and to no other firm role.
+- **Leaves:** one closed bill, one receipt, the threshold at 2,500 and the percentage at 10: put both back.
 
 ### TC-FIN-029 — A statement or a report downloads as an Excel sheet with the figures on screen
 

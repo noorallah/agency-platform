@@ -19,6 +19,7 @@ from app.common.scope import (
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
+from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -51,6 +52,9 @@ router = APIRouter(
 #: adjustment, and setting the threshold itself -- the role a limit
 #: constrains must not be the one that moves it.
 APPROVE_CODE = "PARTY_ADJUSTMENT_APPROVE"
+#: Who may move the firm's ceiling on a clearance discount: whoever may give
+#: one, which is the firm's administrator alone (row F4).
+CLEARANCE_CODE = "CLEARANCE_DISCOUNT_GIVE"
 
 PartyAdjustmentViewScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PARTY_ADJUSTMENT_VIEW")
@@ -148,7 +152,25 @@ def update_party_adjustment_settings(
     scope: PartyAdjustmentApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PartyAdjustmentSettingsResponse]:
-    """Set the approval threshold, the rounding limit and the clearance ceiling."""
+    """Set the approval threshold, the rounding limit and the clearance ceiling.
+
+    The clearance ceiling moves only for a caller holding
+    ``CLEARANCE_DISCOUNT_GIVE`` (row F4). Sent as the firm already has it,
+    it is not a change, so a screen that sends all three still saves the
+    other two.
+    """
+    if (
+        "clearance_discount_percent" in payload.model_fields_set
+        and payload.clearance_discount_percent
+        != adjustment_limits(db, scope.firm_id).clearance_discount_percent
+        and not scope.principal.has_permission(CLEARANCE_CODE)
+    ):
+        raise AuthorizationError(
+            "Changing the clearance discount percentage needs the give "
+            "clearance discount permission (CLEARANCE_DISCOUNT_GIVE), which "
+            "the firm's administrator holds. The other limits can be saved "
+            "without it."
+        )
     limits = stage_adjustment_limits(
         db,
         scope.firm_id,

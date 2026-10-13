@@ -114,8 +114,9 @@ PaymentCreateScope = Annotated[
 
 
 #: Who may waive part of a due as a discount when collecting it (backlog 115):
-#: the code that agrees to a write-off, which the collecting roles do not hold.
-CLEARANCE_DISCOUNT_CODE = "PARTY_ADJUSTMENT_APPROVE"
+#: a code of its own, held by the firm's administrator alone (row F4). The
+#: code that agrees to a write-off does not give one.
+CLEARANCE_DISCOUNT_CODE = "CLEARANCE_DISCOUNT_GIVE"
 
 
 def _to_response(service: SettlementService, row: Settlement) -> SettlementResponse:
@@ -659,8 +660,8 @@ def record_receipt(
     """Record money received from a customer and post it to the ledger.
 
     A discount beyond the cash discount the customer's terms earn is a
-    clearance discount, and only a caller who may approve party adjustments
-    gives one (backlog 115).
+    clearance discount, and only a caller holding ``CLEARANCE_DISCOUNT_GIVE``
+    gives one (backlog 115, row F4).
     """
     service = ReceiptService(db)
     row = service.create(

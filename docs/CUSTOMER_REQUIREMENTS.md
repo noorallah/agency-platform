@@ -164,7 +164,7 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | COL-5 | End-of-day return | Each bill out: collected, part, promised, not collected. A firm switch, off to start, decides whether his line records the receipt or the office confirms it | Built | M6 |
 | COL-6 | One receipt from a parent over its shops' bills | A parent's receipt lists the bills of every shop under it; a shop can still pay for itself | Built | M8 |
 | COL-7 | Discount at collection | The owner waives part of a due as discount, GST unchanged, within a firm ceiling | Built | S10 |
-| COL-8 | Only the firm admin gives it | A permission of its own, held by the firm admin alone | Planned | F4 |
+| COL-8 | Only the firm admin gives it | A permission of its own, held by the firm admin alone | Built | F4 |
 | COL-9 | A collector's phone app | Morning sync, marking during the day with no connection, evening sync back by Wi-Fi, Bluetooth or a file. Office entry stays | Later | F12 |
 
 ## 12. Tax
@@ -240,3 +240,4 @@ customer to agree, and the smaller firm goes first.
 | Date | Change |
 | --- | --- |
 | 2026-10-13 | First written, from the review of 2026-10-12, the sample bills and the owner's answers of the day |
+| 2026-10-13 | COL-8 built (F4): the discount at collection has a permission of its own, the firm admin's alone |

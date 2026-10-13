@@ -1335,7 +1335,7 @@ class SettlementService(TransactionalDocumentService):
         """Record one settlement, allocate it, and post it to the ledger.
 
         ``may_give_clearance_discount`` says the caller holds
-        ``PARTY_ADJUSTMENT_APPROVE``. Without it a receipt's discount stops at
+        ``CLEARANCE_DISCOUNT_GIVE``. Without it a receipt's discount stops at
         the cash discount the customer's terms earn on the bills it clears
         (backlog 115); the router passes it from the principal.
 
@@ -2523,9 +2523,10 @@ class SettlementService(TransactionalDocumentService):
         it is the firm keeping its word, and whoever records the receipt
         gives it. Anything above that is a **clearance discount**: part of a
         due waived to get the rest in. That is profit given away, so it needs
-        ``PARTY_ADJUSTMENT_APPROVE`` -- the code that agrees to a write-off --
-        and stays within the firm's clearance percentage of what the receipt
-        allocates, where the firm has set one.
+        ``CLEARANCE_DISCOUNT_GIVE`` -- a code of its own, the firm
+        administrator's alone (row F4) -- and stays within the firm's
+        clearance percentage of what the receipt allocates, where the firm
+        has set one.
 
         The tax on the bill is untouched either way: the discount is a leg of
         the receipt's journal, posted to discount allowed, and the supply is
@@ -2564,9 +2565,9 @@ class SettlementService(TransactionalDocumentService):
         if not allowed:
             raise AuthorizationError(
                 f"{terms}, so {quantize_ledger(clearance)} of this discount is a "
-                "clearance discount. Giving one needs the approve party "
-                "adjustments permission (PARTY_ADJUSTMENT_APPROVE). Lower the "
-                "discount, or ask somebody who holds it."
+                "clearance discount. Giving one needs the give clearance "
+                "discount permission (CLEARANCE_DISCOUNT_GIVE), which the "
+                "firm's administrator holds. Lower the discount, or ask them."
             )
         percent = adjustment_limits(self._session, firm_id).clearance_discount_percent
         if percent is None:
