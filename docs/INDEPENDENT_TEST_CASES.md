@@ -3814,6 +3814,17 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Leaves:** the policy at Block, three licences of the firm and one of A. Later bills of the firm print the firm's two valid numbers.
 
 
+### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
+
+*Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` fixture: the full chain and the direct bill, and both refusals. The screens were not clicked.*
+
+- **Covers:** D-SELL-91; the first customer's "buy 10 get 1, he takes five and a half and gets half free"
+- **Preconditions:** the `selling-firm` fixture (product DET is counted in PIECE, which takes no fraction; 100 in MAIN).
+- **Steps:** (a) Sales order for C01: DET, quantity **5.5**, free **0.5**; approve. Delivery note for the line, 5.5; approve; dispatch. Sales invoice of the note, 5.5; approve. (b) Settings > Selling > Sales Stages: switch all three off. New sales invoice: DET, quantity **1.5**, free **0.5**; approve. (c) New sales invoice: DET, quantity **1.5**, free **0**. (d) New sales invoice: DET, quantity **2**, free **0.5**.
+- **Expect:** (a) every step is taken; the note and the bill read 5.5 with 0.5 free; stock falls by **6**; the bill charges 5.5 (462.00 before the price list's discount) and nothing for the half given. (b) the bill is saved and approved; stock falls by **2**. (c) refused: *PIECE is counted in whole numbers, so 1.5 PIECE cannot be entered.* (d) refused the same way, naming **2.5** PIECE: what leaves must be whole pieces.
+- **Leaves:** two approved bills and 8 fewer DET; the sales stages off (switch them back on).
+
+
 
 ## Pricing, promotions and incentives
 
