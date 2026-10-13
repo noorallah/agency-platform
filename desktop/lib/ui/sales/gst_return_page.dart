@@ -958,7 +958,12 @@ class _GstReturnPageState extends State<GstReturnPage> {
       ('itc_import_goods', '4(A)(1) Import of goods'),
       ('eligible_itc', '4(A)(5) All other ITC (includes blocked credit)'),
       ('itc_reverse_charge', '4(A)(3) Reverse charge'),
+      ('itc_reclaimed_stock', '4(A)(5) ITC claimed again — stock that came back'),
       ('itc_reversed_blocked', '4(B)(1) ITC reversed — blocked (s.17(5))'),
+      (
+        'itc_reversed_stock',
+        '4(B)(1) ITC reversed — stock given free, lost or written off',
+      ),
       ('itc_reversed', '4(B)(2) ITC reversed — returns and others'),
       ('itc_reversed_rule37', 'of which rule 37'),
       ('net_itc', '4(C) Net ITC available'),

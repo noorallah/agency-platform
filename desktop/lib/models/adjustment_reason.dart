@@ -15,6 +15,7 @@ class AdjustmentReasonRecord {
     this.ledgerAccountName = '',
     this.isSystem = false,
     this.isActive = true,
+    this.reversesInputCredit = false,
     this.version = 0,
   });
 
@@ -27,6 +28,10 @@ class AdjustmentReasonRecord {
   final String ledgerAccountName;
   final bool isSystem;
   final bool isActive;
+
+  /// Stock leaving under this reason gives up the input credit taken on
+  /// it (goods given free, as samples, lost or written off; D-CMP-24).
+  final bool reversesInputCredit;
   final int version;
 
   factory AdjustmentReasonRecord.fromJson(Json json) => AdjustmentReasonRecord(
@@ -37,6 +42,8 @@ class AdjustmentReasonRecord {
         ledgerAccountName: stringValue(json['ledger_account_name']),
         isSystem: json['is_system'] as bool? ?? false,
         isActive: json['is_active'] as bool? ?? true,
+        reversesInputCredit:
+            json['reverses_input_credit'] as bool? ?? false,
         version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }

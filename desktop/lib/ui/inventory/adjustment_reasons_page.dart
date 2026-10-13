@@ -32,13 +32,21 @@ ResourceDefinition<AdjustmentReasonRecord> adjustmentReasonDefinition(
     showFrame: showFrame,
     description: 'Why stock leaves the books, and where the value goes.',
     searchHint: 'Search reasons by code or name',
-    headers: const ['Code', 'Name', 'Ledger account', 'System', 'Status'],
+    headers: const [
+      'Code',
+      'Name',
+      'Ledger account',
+      'Input credit',
+      'System',
+      'Status',
+    ],
     cells: (reason) => [
       reason.code,
       reason.name,
       reason.ledgerAccountName.isEmpty
           ? 'Default adjustment account'
           : reason.ledgerAccountName,
+      reason.reversesInputCredit ? 'Reversed' : '',
       reason.isSystem ? 'Yes' : '',
       reason.isActive ? 'Active' : 'Inactive',
     ],
@@ -100,12 +108,22 @@ ResourceDefinition<AdjustmentReasonRecord> adjustmentReasonDefinition(
         boolean: true,
         helperText: 'An inactive reason is no longer offered on a write-off.',
       ),
+      const FieldSpec(
+        key: 'reverses_input_credit',
+        label: 'Reverses input credit',
+        boolean: true,
+        helperText: 'On: stock leaving under this reason gives up the GST '
+            'input credit taken on it, and GSTR-3B shows it in 4(B)(1). '
+            'The law asks this of goods given free or as samples, and of '
+            'goods lost, stolen, destroyed or written off.',
+      ),
     ],
     initialValues: (reason) => <String, dynamic>{
       'code': reason?.code ?? '',
       'name': reason?.name ?? '',
       'ledger_account_id': reason?.ledgerAccountId ?? '',
       'is_active': reason?.isActive ?? true,
+      'reverses_input_credit': reason?.reversesInputCredit ?? false,
     },
     payload: (values, isCreating) {
       final String account =
@@ -116,6 +134,7 @@ ResourceDefinition<AdjustmentReasonRecord> adjustmentReasonDefinition(
         // Null clears the account, which is what "Default" means.
         'ledger_account_id': account.isEmpty ? null : account,
         'is_active': values['is_active'] == true,
+        'reverses_input_credit': values['reverses_input_credit'] == true,
       };
     },
   );

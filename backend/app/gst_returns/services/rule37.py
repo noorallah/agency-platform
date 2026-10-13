@@ -40,7 +40,7 @@ from app.finance.currency import rupee_rate_sql
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine, JournalLineData
-from app.gst_returns.models import ItcMovement, ItcReversal
+from app.gst_returns.models import ItcBasis, ItcMovement, ItcReversal
 from app.purchase_invoice.models import (
     PurchaseInvoice,
     PurchaseInvoiceLine,
@@ -256,6 +256,7 @@ class Rule37Service:
             journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
             movement = ItcReversal(
                 firm_id=firm_id,
+                basis=ItcBasis.RULE37.value,
                 purchase_invoice_id=row.purchase_invoice_id,
                 movement=(
                     ItcMovement.REVERSAL.value
@@ -297,6 +298,7 @@ class Rule37Service:
             select(ItcReversal).where(
                 ItcReversal.firm_id == firm_id,
                 ItcReversal.is_deleted.is_(False),
+                ItcReversal.basis == ItcBasis.RULE37.value,
                 ItcReversal.movement_date >= from_date,
                 ItcReversal.movement_date <= to_date,
             )
@@ -393,6 +395,8 @@ class Rule37Service:
             .where(
                 ItcReversal.firm_id == firm_id,
                 ItcReversal.is_deleted.is_(False),
+                # Credit given up on stock (D-CMP-24) is not this rule's.
+                ItcReversal.basis == ItcBasis.RULE37.value,
             )
             .group_by(ItcReversal.purchase_invoice_id)
         ).tuples():
@@ -402,7 +406,7 @@ class Rule37Service:
                 "sgst": Decimal(str(sgst or 0)),
                 "cess": Decimal(str(cess or 0)),
             }
-            if sum(heads.values(), ZERO) > ZERO:
+            if bill_id is not None and sum(heads.values(), ZERO) > ZERO:
                 standing[bill_id] = heads
         return standing
 

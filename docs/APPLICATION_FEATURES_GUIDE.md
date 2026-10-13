@@ -1935,6 +1935,18 @@ Under *GST Documents* the firm chooses *Off*, *Report* (the default) or
 *Report and post*, which posts each reversal and reclaim against Input Tax Not
 Claimable; GSTR-3B reports both.
 
+**Stock given away or written off.** Goods given free or as samples, and
+goods lost, stolen, destroyed or written off, give up the input credit taken
+on them (section 17(5)(h)). Each reason under Settings > Stock > *Adjustment
+Reasons* has a switch, *Reverses input credit*: on for Sample, Given free to
+customer, Loss, Damage and Expiry, off for Internal use, Staff, Display and
+any reason the firm adds. A write-off, or an adjustment that names a reason,
+under a reason that is on posts the tax of the goods at their cost against
+Input Tax Not Claimable, at the rates of the product's latest bill that
+claimed credit, and GSTR-3B shows it in 4(B)(1). Stock that comes back under
+the same reason, entered as an adjustment inward, claims it again. A count
+difference and an adjustment with no reason reverse nothing (D-CMP-24).
+
 **E-Invoice.** Registers an invoice, a credit note, a debit note to a
 customer or a sales return with the government portal and records the IRN,
 acknowledgement and signed QR it returns, which then print on the document.
