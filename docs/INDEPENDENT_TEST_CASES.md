@@ -4528,6 +4528,32 @@ commission uses `commission-firm`:
 - **Also true, by the server:** `paper=HALF` asked of a firm on A4 is refused (*The paper is chosen at printing only where the firm prints its bills on half pages.*).
 - **Leaves:** the firm's paper at A4; B on full pages.
 
+### TC-SELL-110 — A product that needs two licences is checked for both
+
+*Added 2026-10-14 (backlog 152, row P3). The server was driven over HTTP on a fixture firm; the two forms are covered by widget tests only and **no screen was clicked**, so the screen steps are written from the build.*
+
+- **Covers:** backlog 152 (customer task P3, LIC-6)
+- **Fixture:** `ready-firm`
+- **Also needs:** two active licence types, **L1** and **L2**; the firm holding a valid licence of each; a product **P** with stock; a customer **C** holding neither; *Licence Check* for sales set to **Block**.
+- **Steps**
+  1. Open product P. Under **Licences needed** choose *Add licence* and pick L1, then again and pick L2. Save.
+  2. Raise a one-line sales order for P to customer C and choose *Approve*.
+  3. Give customer C a valid licence of type L1. Approve the order again.
+  4. Give customer C a licence of type L2 that expired last month. Approve the order again.
+  5. Change C's L2 licence to be valid today. Approve the order again.
+  6. Open product P, remove L2 from **Licences needed** with the cross on its chip, and save. Take C's L2 licence away. Raise and approve another order for P to C.
+  7. Open P's category, tick L1 and L2 under **Licences needed**, and save. Open P, remove L1 so that the list is empty, and save. Raise and approve another order for P to C.
+- **Expect**
+  - Step 1: P shows two chips, L1 and L2, and the helper reads *The buyer must hold every one of these.*
+  - Step 2: refused. The message names both licences: C holds no L1, and C holds no L2.
+  - Step 3: refused. The message names L2 only.
+  - Step 4: refused. The message says C's L2 licence expired, with its number and date.
+  - Step 5: approved, with no licence warning.
+  - Step 6: approved: P now needs L1 alone, as a product naming one licence always did.
+  - Step 7: refused, naming L2: with no list of its own, P takes its category's two.
+- **Also true, by the server:** a licence type on a product's or a category's list cannot be deleted; an edit that does not mention the list leaves it alone; the purchase check asks the supplier for every one the same way and only warns.
+- **Leaves:** P with no licences of its own; its category naming L1 and L2.
+
 ### TC-INCENT-001 — A price list is a ladder, and a promotion still outranks it
 
 - **Covers:** plan 10.1, 10.2

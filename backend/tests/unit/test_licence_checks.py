@@ -65,7 +65,7 @@ class _Pharma(_Firm):
             code="SCHED-H",
             name="Schedule H",
             path="SCHED-H",
-            required_licence_type_id=self.drug.id,
+            required_licence_type_ids=[self.drug.id],
         )
         self.session.add(self.category)
         self.session.flush()
@@ -182,14 +182,14 @@ def test_a_product_needs_its_own_type_else_the_nearest_category_s(
     pharma.product.category_id = child.id
     pharma.session.commit()
     needed = pharma.checks.required_types(pharma.firm.id, {pharma.product.id})
-    assert needed == {pharma.product.id: pharma.drug.id}
+    assert needed == {pharma.product.id: (pharma.drug.id,)}
 
-    pharma.product.required_licence_type_id = pharma.types["DRUG_SCHEDULE_X"].id
+    pharma.product.required_licence_type_ids = [pharma.types["DRUG_SCHEDULE_X"].id]
     pharma.session.commit()
     needed = pharma.checks.required_types(pharma.firm.id, {pharma.product.id})
-    assert needed == {pharma.product.id: pharma.types["DRUG_SCHEDULE_X"].id}
+    assert needed == {pharma.product.id: (pharma.types["DRUG_SCHEDULE_X"].id,)}
 
-    pharma.product.required_licence_type_id = None
+    pharma.product.required_licence_type_ids = []
     pharma.product.category_id = None
     pharma.session.commit()
     assert pharma.checks.required_types(pharma.firm.id, {pharma.product.id}) == {}
@@ -205,12 +205,14 @@ def test_a_category_edit_that_omits_the_field_keeps_the_requirement(
         firm_scope=pharma.firm.id,
         actor_id=pharma.actor_id,
     )
-    assert pharma.category.required_licence_type_id == pharma.drug.id
+    assert pharma.category.required_licence_type_ids == [pharma.drug.id]
     with pytest.raises(ValidationError, match="Licence type not found"):
         ProductService(pharma.session).update_category(
             pharma.category.id,
             ProductCategoryUpdate(
-                code="SCHED-H", name="Schedule H", required_licence_type_id=uuid4()
+                code="SCHED-H",
+                name="Schedule H",
+                required_licence_type_ids=[uuid4()],
             ),
             firm_scope=pharma.firm.id,
             actor_id=pharma.actor_id,
@@ -282,7 +284,7 @@ def test_a_licence_of_another_type_does_not_cover_it(pharma: _Pharma) -> None:
 
 def test_goods_needing_nothing_are_never_flagged(pharma: _Pharma) -> None:
     """The check is per line: a customer with no licence buys the rest."""
-    pharma.category.required_licence_type_id = None
+    pharma.category.required_licence_type_ids = []
     pharma.session.commit()
     pharma.policy(LicenceEnforcement.BLOCK)
     pharma.sale()

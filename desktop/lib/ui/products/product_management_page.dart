@@ -781,9 +781,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             : (categoryId ?? product.categoryId),
         'sub_category_id':
             product.subCategoryId.isEmpty ? null : product.subCategoryId,
-        'required_licence_type_id': product.requiredLicenceTypeId.isEmpty
-            ? null
-            : product.requiredLicenceTypeId,
+        'required_licence_type_ids': product.requiredLicenceTypeIds,
         'preferred_vendor_id': product.preferredVendorId.isEmpty
             ? null
             : product.preferredVendorId,
@@ -2106,7 +2104,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late String _productType;
   late String _status;
   late String _categoryId;
-  late String _requiredLicenceTypeId;
+  late List<String> _requiredLicenceTypeIds;
   late String _preferredVendorId;
   late String _taxProfileGroupCode;
   late String _itcEligibility;
@@ -2320,7 +2318,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         : 'STOCK_ITEM';
     _status = product?.status.isNotEmpty == true ? product!.status : 'ACTIVE';
     _categoryId = product?.categoryId ?? '';
-    _requiredLicenceTypeId = product?.requiredLicenceTypeId ?? '';
+    _requiredLicenceTypeIds =
+        List<String>.of(product?.requiredLicenceTypeIds ?? const <String>[]);
     _preferredVendorId = product?.preferredVendorId ?? '';
     _taxProfileGroupCode = product?.taxProfileGroupCode ?? '';
     _itcEligibility = product?.itcEligibility ?? 'ELIGIBLE';
@@ -2708,40 +2707,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
             ),
           ),
           _goodsTypeLine(),
-          SizedBox(
-            width: 260,
-            child: DropdownButtonFormField<String>(
-              key: const ValueKey('product-licence-type'),
-              isExpanded: true,
-              // A type since deactivated is not offered, but must not crash
-              // a dropdown built to only ever offer active ones -- it stays
-              // the product's value until somebody actually changes it.
-              initialValue: _requiredLicenceTypeId.isNotEmpty &&
-                      widget.licenceTypes
-                          .any((type) => type.id == _requiredLicenceTypeId)
-                  ? _requiredLicenceTypeId
-                  : null,
-              decoration: InputDecoration(
-                labelText: 'Licence needed',
-                helperText: _requiredLicenceTypeId.isNotEmpty &&
-                        !widget.licenceTypes
-                            .any((type) => type.id == _requiredLicenceTypeId)
-                    ? 'Currently set to a retired type'
-                    : 'From category unless named here',
-              ),
-              items: [
-                for (final TradeLicenceTypeRecord type in widget.licenceTypes)
-                  DropdownMenuItem(
-                    value: type.id,
-                    child: Text(type.name, overflow: TextOverflow.ellipsis),
-                  ),
-              ],
-              onChanged: _readOnly
-                  ? null
-                  : (value) =>
-                      setState(() => _requiredLicenceTypeId = value ?? ''),
-            ),
-          ),
+          _licencesNeededField(),
           _field(_unit, 'Unit'),
           _brandField(),
           _field(_model, 'Model'),
@@ -2751,6 +2717,69 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           _field(_qrCode, 'QR Code', readOnly: _readOnly),
         ],
       );
+
+  /// The licences the buyer must all hold (backlog 54, P3). A type since
+  /// deactivated is not offered to add, but stays as a chip and is sent back
+  /// until somebody removes it.
+  Widget _licencesNeededField() {
+    final List<TradeLicenceTypeRecord> toAdd = [
+      for (final TradeLicenceTypeRecord type in widget.licenceTypes)
+        if (!_requiredLicenceTypeIds.contains(type.id)) type,
+    ];
+    String nameOf(String id) {
+      for (final TradeLicenceTypeRecord type in widget.licenceTypes) {
+        if (type.id == id) return type.name;
+      }
+      return 'Inactive licence type';
+    }
+
+    return SizedBox(
+      width: 520,
+      child: InputDecorator(
+        key: const ValueKey('product-licence-types'),
+        decoration: InputDecoration(
+          labelText: 'Licences needed',
+          helperText: _requiredLicenceTypeIds.isEmpty
+              ? "None named here: the category's licences apply."
+              : 'The buyer must hold every one of these.',
+        ),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final String id in _requiredLicenceTypeIds)
+              InputChip(
+                key: ValueKey('product-licence-chip-$id'),
+                label: Text(nameOf(id)),
+                onDeleted: _readOnly
+                    ? null
+                    : () => setState(() => _requiredLicenceTypeIds =
+                        [..._requiredLicenceTypeIds]..remove(id)),
+              ),
+            if (!_readOnly && toAdd.isNotEmpty)
+              PopupMenuButton<String>(
+                key: const ValueKey('product-licence-add'),
+                tooltip: 'Add licence',
+                onSelected: (String id) => setState(() =>
+                    _requiredLicenceTypeIds = [..._requiredLicenceTypeIds, id]),
+                itemBuilder: (BuildContext context) => [
+                  for (final TradeLicenceTypeRecord type in toAdd)
+                    PopupMenuItem<String>(
+                      value: type.id,
+                      child: Text(type.name),
+                    ),
+                ],
+                child: const Chip(
+                  avatar: Icon(Icons.add, size: 16),
+                  label: Text('Add licence'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   /// The supplier reorder orders this product from (A18). A supplier since
   /// deactivated, or one the user cannot list, stays the product's value
@@ -4068,8 +4097,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'product_type': _productType,
       'status': _status,
       'category_id': _categoryId.isEmpty ? null : _categoryId,
-      'required_licence_type_id':
-          _requiredLicenceTypeId.isEmpty ? null : _requiredLicenceTypeId,
+      'required_licence_type_ids': List<String>.of(_requiredLicenceTypeIds),
       'preferred_vendor_id':
           _preferredVendorId.isEmpty ? null : _preferredVendorId,
       'tax_profile_group_code':

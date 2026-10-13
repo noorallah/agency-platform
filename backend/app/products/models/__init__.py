@@ -7,6 +7,8 @@ from app.products.models.product import (
     Product,
     ProductAttributeValue,
     ProductCategory,
+    ProductCategoryLicenceRequirement,
+    ProductLicenceRequirement,
     ProductMedia,
 )
 
@@ -19,5 +21,7 @@ __all__ = [
     "Product",
     "ProductAttributeValue",
     "ProductCategory",
+    "ProductCategoryLicenceRequirement",
+    "ProductLicenceRequirement",
     "ProductMedia",
 ]

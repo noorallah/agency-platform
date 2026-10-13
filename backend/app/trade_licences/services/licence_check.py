@@ -7,6 +7,12 @@ it. A product that resolves to none needs none, so a customer without any
 licence can still buy everything else: the check is per line, not per
 customer.
 
+**A product or a category may name several** (backlog 152), and then every
+one is asked for: each type is judged by itself, so a party short of two
+gets two findings, each naming its licence. The list a product names takes
+the place of its category's; it is not added to it. A list of one behaves
+exactly as the single type did.
+
 **The sale check** asks two parties: the customer, and the firm as seller --
 a licence for the whole firm, or for the selling branch, since a drug licence
 is issued per premises. **The purchase check** asks the vendor. Each is judged
@@ -44,7 +50,12 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
-from app.products.models import Product, ProductCategory
+from app.products.models import (
+    Product,
+    ProductCategory,
+    ProductCategoryLicenceRequirement,
+    ProductLicenceRequirement,
+)
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -112,20 +123,20 @@ class _Holder:
 
 def _ancestors(
     category_id: UUID | None,
-    categories: dict[UUID, tuple[UUID | None, UUID | None]],
-) -> UUID | None:
-    """Return the nearest licence type named on a category or above it."""
+    categories: dict[UUID, tuple[UUID | None, tuple[UUID, ...]]],
+) -> tuple[UUID, ...]:
+    """Return the licence types of the nearest category that names any."""
     seen: set[UUID] = set()
     while category_id is not None and category_id not in seen:
         seen.add(category_id)
         entry = categories.get(category_id)
         if entry is None:
-            return None
-        parent_id, licence_type_id = entry
-        if licence_type_id is not None:
-            return licence_type_id
+            return ()
+        parent_id, licence_type_ids = entry
+        if licence_type_ids:
+            return licence_type_ids
         category_id = parent_id
-    return None
+    return ()
 
 
 class LicenceCheckService:
@@ -211,44 +222,85 @@ class LicenceCheckService:
 
     # -- what the lines need --------------------------------------------------------
 
-    def required_types(self, firm_id: UUID, product_ids: set[UUID]) -> dict[UUID, UUID]:
-        """Map each product that needs a licence to the type it needs."""
+    def required_types(
+        self, firm_id: UUID, product_ids: set[UUID]
+    ) -> dict[UUID, tuple[UUID, ...]]:
+        """Map each product that needs a licence to the types it needs.
+
+        Every type on the list is needed. A product's own list takes the
+        place of its category's, and the nearest category that names any
+        takes the place of those above it.
+        """
         if not product_ids:
             return {}
         products = self._session.execute(
-            select(
-                Product.id,
-                Product.required_licence_type_id,
-                Product.sub_category_id,
-                Product.category_id,
-            ).where(Product.id.in_(product_ids))
+            select(Product.id, Product.sub_category_id, Product.category_id).where(
+                Product.id.in_(product_ids)
+            )
         ).all()
-        categories: dict[UUID, tuple[UUID | None, UUID | None]] | None = None
-        needed: dict[UUID, UUID] = {}
-        for product_id, own, sub_category_id, category_id in products:
-            if own is not None:
-                needed[product_id] = own
+        own: dict[UUID, list[UUID]] = defaultdict(list)
+        for product_id, licence_type_id in self._session.execute(
+            select(
+                ProductLicenceRequirement.product_id,
+                ProductLicenceRequirement.licence_type_id,
+            )
+            .where(
+                ProductLicenceRequirement.product_id.in_(product_ids),
+                ProductLicenceRequirement.is_deleted.is_(False),
+            )
+            .order_by(ProductLicenceRequirement.position)
+        ).all():
+            own[product_id].append(licence_type_id)
+        categories: dict[UUID, tuple[UUID | None, tuple[UUID, ...]]] | None = None
+        needed: dict[UUID, tuple[UUID, ...]] = {}
+        for product_id, sub_category_id, category_id in products:
+            if product_id in own:
+                needed[product_id] = tuple(own[product_id])
                 continue
             if sub_category_id is None and category_id is None:
                 continue
             if categories is None:
-                # A firm's categories are a short list: read once, walk here.
-                categories = {
-                    row_id: (parent_id, licence_type_id)
-                    for row_id, parent_id, licence_type_id in self._session.execute(
-                        select(
-                            ProductCategory.id,
-                            ProductCategory.parent_id,
-                            ProductCategory.required_licence_type_id,
-                        ).where(ProductCategory.firm_id == firm_id)
-                    ).all()
-                }
+                categories = self._category_requirements(firm_id)
             found = _ancestors(sub_category_id, categories) or _ancestors(
                 category_id, categories
             )
-            if found is not None:
+            if found:
                 needed[product_id] = found
         return needed
+
+    def _category_requirements(
+        self, firm_id: UUID
+    ) -> dict[UUID, tuple[UUID | None, tuple[UUID, ...]]]:
+        """Return each category's parent and the licence types it names.
+
+        A firm's categories are a short list: read once, walked by the
+        caller.
+        """
+        named: dict[UUID, list[UUID]] = defaultdict(list)
+        for category_id, licence_type_id in self._session.execute(
+            select(
+                ProductCategoryLicenceRequirement.category_id,
+                ProductCategoryLicenceRequirement.licence_type_id,
+            )
+            .join(
+                ProductCategory,
+                ProductCategory.id == ProductCategoryLicenceRequirement.category_id,
+            )
+            .where(
+                ProductCategory.firm_id == firm_id,
+                ProductCategoryLicenceRequirement.is_deleted.is_(False),
+            )
+            .order_by(ProductCategoryLicenceRequirement.position)
+        ).all():
+            named[category_id].append(licence_type_id)
+        return {
+            row_id: (parent_id, tuple(named.get(row_id, ())))
+            for row_id, parent_id in self._session.execute(
+                select(ProductCategory.id, ProductCategory.parent_id).where(
+                    ProductCategory.firm_id == firm_id
+                )
+            ).all()
+        }
 
     # -- the checks, by document -------------------------------------------------
 
@@ -514,8 +566,8 @@ class LicenceCheckService:
             return [], []
         by_type: dict[UUID, list[LicenceLine]] = defaultdict(list)
         for line in sorted(lines, key=lambda item: item.line_number):
-            licence_type_id = needed.get(line.product_id)
-            if licence_type_id is not None:
+            # A line that needs several is judged under each (backlog 152).
+            for licence_type_id in needed.get(line.product_id, ()):
                 by_type[licence_type_id].append(line)
         types = {
             row.id: row

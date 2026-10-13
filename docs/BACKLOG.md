@@ -4383,7 +4383,7 @@ filtered list does not.
 
 | Piece | Where |
 | --- | --- |
-| `required_licence_type_id` on product categories and products. A product's own outranks its sub-category's, then its category's, then any category above -- the nearest wins. Null on a product takes the category's; a category edit that omits the field leaves it alone | `app/products`, migration `20260930_0168` |
+| (*Since backlog 152 a list, `required_licence_type_ids`, held in `product_licence_requirements` and `product_category_licence_requirements`; the single column is gone.*) `required_licence_type_id` on product categories and products. A product's own outranks its sub-category's, then its category's, then any category above -- the nearest wins. Null on a product takes the category's; a category edit that omits the field leaves it alone | `app/products`, migration `20260930_0168` |
 | One judgement, `LicenceCheckService`: each line's required type must be held by the **customer** and by the **firm as seller** (a whole-firm licence or one for the selling branch) -- for a purchase, by the **vendor** -- valid on the **document's own date**. Findings name the lines, products, party and why: missing, expired on ..., valid only from ... A licence of another type does not count | `app/trade_licences/services/licence_check.py` |
 | Firm policy `trade_licence_settings`: sale OFF / WARN / BLOCK, purchase OFF / WARN (BLOCK refused -- the goods on the dock have arrived). No row warns on both | `GET/PUT /api/v1/trade-licences/settings`, `TRADE_LICENCE_MANAGE_SETTINGS` |
 | The sale check at the approval of the sales order, delivery note and sales invoice; the purchase check at purchase-order approval and goods-receipt completion. A warning is recorded on the APPROVED / COMPLETED timeline event and the audit row; BLOCK refuses before stock is reserved or shipped | the five services |
@@ -11078,3 +11078,40 @@ firm refused; a run keeps each bill's paper; the route. Desktop:
 The paper is not chosen per bill in a run. Other documents (the proforma,
 the challan, the credit note) print on their own setting and are not asked.
 
+## 152. A product may need several licences, and every one is checked (row P3, LIC-6) -- built 2026-10-14
+
+**The owner, 2026-10-13.** A product, or its category, named one licence
+type. A medicine can need two, and a new kind of licence later must be an
+entry and not a rebuild.
+
+**What was there (backlog 54, 139).** One `required_licence_type_id` on
+`products` and on `product_categories`; the check per line, off / warn /
+block, on the document's date; the parent's licence for a shop that holds
+none of the type; the override with a reason.
+
+**What was built.**
+
+| Piece | Where |
+| --- | --- |
+| A list with no fixed size on the product and on the category: `product_licence_requirements` and `product_category_licence_requirements`, one row per licence, in the order typed. The single column is dropped; nothing reads it | `app/products/models/product.py`, migration `20261014_0377` |
+| Every product and category that named a type keeps it, as a list of one, in every store | the same migration, row by row, only where the list does not hold it yet |
+| `required_licence_type_ids` (a list) on the product and the category, read and written. On an update, absent leaves the list alone and an empty list clears it. A type must be the firm's own and active **when it is added**; one switched off since stays on a record that already names it | `app/products/schemas/product.py`, `ProductService._validate_licence_types` |
+| The check asks for **every** licence on the list. Each type is judged by itself, so a party short of two gets two findings, each naming its licence, missing or lapsed. The parent's licence, the override, the timeline and the print are unchanged | `LicenceCheckService.required_types`, `_findings` |
+| A licence type on any product's or category's list cannot be deleted | `TradeLicenceService.delete_type` |
+| *Licences needed* on the product form (a chip per licence, *Add licence*) and on the category form (tick each) | `product_management_page.dart`, `desktop_shell.dart` |
+
+**Decided here, each easy to turn round.**
+
+1. **A product's own list takes the place of its category's; it is not added
+   to it.** That is what one licence did (own outranks category), so a list of
+   one behaves exactly as before. A product that needs its category's licence
+   and one more names both.
+2. A change to the list alone moves the record's `version`, so a second
+   editor is told.
+3. At most 20 licences on one list: no rule sets a number, this only stops a
+   runaway list.
+4. The old field name is gone from the API, not kept beside the new one.
+
+**Not done.** No screen was clicked. The products import file has no licence
+column, as before. The print of the licences used was not looked at with two
+licences on one line.

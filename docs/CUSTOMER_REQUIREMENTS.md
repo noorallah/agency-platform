@@ -80,7 +80,7 @@ name, GST number or bank detail is written in this file.
 | LIC-3 | Warn or stop | A firm setting: off, warn, or block. A blocked sale can be passed by someone with the right, giving a reason | Built | S11 |
 | LIC-4 | The firm's own licence numbers on the bill | Printed under the firm's address | Built | S11 |
 | LIC-5 | Shops under a parent | A shop's own licence first; where it has none of that type, its parent's counts and the check says so. A shop that holds one of its own, even a lapsed one, is checked on its own. A firm setting, *A shop must hold its own licence*, makes each shop hold its own. Suppliers' branches the same way | Built | F8 |
-| LIC-6 | A product needing several licences | A product, or its category, names a list of licence types, with no fixed size. The customer must hold every one, each valid on the bill's date; the check names each one missing. A shop's two drug licences are two entries on the customer | Planned | P3 |
+| LIC-6 | A product needing several licences | A product, or its category, names a list of licence types, with no fixed size. The customer must hold every one, each valid on the bill's date; the check names each one missing. A shop's two drug licences are two entries on the customer | Built (not yet clicked) | P3 |
 
 ## 6. Buying
 
@@ -273,3 +273,5 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-14 | COL-11, the server half (F13, backlog 150): a cheque can be written to a supplier, a customer, an expense or any other account, recorded at once when dated today and held when dated ahead, and printed from its record. The screen is not built, so the status stays Planned |
 | 2026-10-14 | COL-11, the screen (F13): **Write a cheque** under *Accounts → Books → Cheques Issued*, **Print cheque** on a cheque issued, an expense and a refund, and the list says who each cheque pays. Status Built; no screen was clicked and no cheque printed on a leaf yet |
 | 2026-10-14 | PRT-2 (P1, backlog 151): on a firm that prints half pages, *Print* first says which paper the bill needs and lets the person switch that one print between half and full; a firm on full pages no longer reads the customer's *Bill paper*. Not yet clicked |
+| 2026-10-14 | PRT-4 and PRT-8 (row P2) wait for the owner: a bill's salesman can only be a user of the application today, so *Order By* cannot name a salesman without a sign-in, *Phone order* or *Company staff*. Nothing of the row was built |
+| 2026-10-14 | LIC-6 (P3, backlog 152): a product and a category name a list of licences; the buyer (and on a purchase the supplier) must hold every one on the document's date, and the check names each one missing or lapsed. Existing products and categories keep theirs as a list of one. Not yet clicked |
