@@ -4895,7 +4895,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `compliance-firm`
 - **Also needs:** an invoice to a buyer whose GSTIN has a wrong check character; a product with no HSN; an approved invoice to a registered buyer for a firm that e-invoices but with no IRN; a credit note dated late; a credit note on a cancelled invoice; a supplier bill with a bad GSTIN.
 - **Steps:** as the fixture's **Firm admin**: Accounts > Tax filing > **GST checks** → choose the month → Run. Read each finding. Click a row. Fix one problem and run again. As a role without SALES_VIEW open the screen.
-- **Expect:** findings are named by code and each row names its document (type, number, date, party): GSTIN_INVALID (the firm's own, a buyer's on invoices and notes, a supplier's on bills as a **warning**), HSN_MISSING and HSN_SHORT (six digits once the firm e-invoices, four below), PLACE_OF_SUPPLY_MISSING, IRN_MISSING, CREDIT_NOTE_LATE (after 30 November following the supply's year) and CREDIT_NOTE_ON_CANCELLED_INVOICE. The checks read the same invoices GSTR-1 declares. *Open document* is disabled (the desktop cannot open a sales invoice by id yet). After fixing, the finding is gone on the next run. Needs SALES_VIEW.
+- **Expect:** findings are named by code and each row names its document (type, number, date, party): GSTIN_INVALID (the firm's own, a buyer's on invoices and notes, a supplier's on bills as a **warning**), HSN_MISSING and HSN_SHORT (six digits once the firm e-invoices, four below), PLACE_OF_SUPPLY_MISSING, IRN_MISSING (on a bill, a credit note, a debit note and a completed sales return that credits a bill), CREDIT_NOTE_LATE (after 30 November following the supply's year) and CREDIT_NOTE_ON_CANCELLED_INVOICE. The checks read the same invoices GSTR-1 declares. *Open document* is disabled (the desktop cannot open a sales invoice by id yet). After fixing, the finding is gone on the next run. Needs SALES_VIEW.
 - **Leaves:** unchanged.
 
 ### TC-COMP-022 — A filed return is kept, and a change becomes an amendment
@@ -4961,6 +4961,17 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Expect:** (1) table 4 shows *4(B)(1) ITC reversed — stock given free, lost or written off* CGST **18.00**, SGST **18.00**, and *4(C) Net ITC* is down by the same; the ledger shows Dr *Input Tax Not Claimable* 36.00, Cr input CGST 18.00 and input SGST 18.00, dated the write-off. (2) the line rises by 9.00 and 9.00. (3) and (4) it does not move. (5) *4(A)(5) ITC claimed again — stock that came back* shows 9.00 and 9.00, the 4(B)(1) line stays, the net credit rises by 9.00 and 9.00. (6) the first write-off adds 9.00 and 9.00, the second adds nothing.
 - **Also:** a product whose bill's credit was blocked, or that has no bill in these books, reverses nothing under any reason. Rule 37's list and its "of which rule 37" line do not change.
 - **Leaves:** stock movements, journals, one reason.
+
+### TC-COMP-028 — A return in another unit on the HSN summary, and a return with no IRN in the GST checks
+
+*Added 2026-10-14 (D-CMP-25, D-CMP-26, D-CMP-27, row G5). Driven over HTTP on a fixture firm; the screens were not clicked.*
+
+- **Covers:** D-CMP-25, D-CMP-26, D-CMP-27
+- **Preconditions:** a product kept in PIECE at 100.00 with 18% local GST and an HSN code of its own, a rule that 1 BOX is 12 PIECE; a customer with a valid GST number; stock on hand.
+- **Steps:** (1) Order **2 BOX**, deliver them, and bill the note typed as **24 PIECE**. Open Reports > **HSN summary** for today. (2) Raise a sales return off the bill for **1 BOX**, approve and complete it. Open the HSN summary again. (3) Settings > GST documents: set *E-invoicing applies from* to today. Open Sell > Tax filing > **GST checks** for today. (4) Open E-invoice > the list of documents waiting to be registered. (5) Put the e-invoicing date back.
+- **Expect:** (1) one row for the code: unit **PIECE**, quantity **24**, taxable value **2,400.00**. (2) still one row: **PIECE**, quantity **12**, taxable value **1,200.00**; no row in BOX and no negative quantity. (3) *No IRN* is listed on the bill as *Sales invoice* and on the return as *Sales return*. (4) the list opens and holds both the bill and the return.
+- **Also:** 7 PIECE back off a bill typed 2 BOX leaves one row, BOX 1.4167 worth 1,700.00. A return of goods no bill had charged, a return not yet completed and a return to a customer with no GST number are not listed under *No IRN*.
+- **Leaves:** a warehouse, a product, a conversion rule, a customer, an order, a note, a bill and a return.
 
 
 ## Finance, reports and the rest of the platform

@@ -26,10 +26,11 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.common.firm_metadata import firm_today
 from app.core.exceptions import ValidationError
+from app.core.utils.chunks import over_chunks
 from app.customers.models import Customer
 from app.einvoice.models import EInvoiceRegistration
 from app.sales_invoice.models import SalesInvoice
@@ -122,6 +123,33 @@ def _state(days_left: int | None) -> str:
     if days_left <= DUE_SOON_DAYS:
         return DUE_SOON
     return OPEN
+
+
+@over_chunks("document_ids")
+def _attempts(
+    session: Session,
+    firm_scope: UUID,
+    link: InstrumentedAttribute[UUID | None],
+    document_ids: list[UUID],
+) -> dict[UUID, EInvoiceRegistration]:
+    """Return the registration attempt each of these documents carries.
+
+    Asked in chunks: a firm that has just switched e-invoicing on has every
+    B2B document since that date waiting, and one statement naming them all
+    is refused past 65,535 ids (D-CMP-27).
+    """
+    if not document_ids:
+        return {}
+    return {
+        getattr(row, link.key): row
+        for row in session.scalars(
+            select(EInvoiceRegistration).where(
+                EInvoiceRegistration.firm_id == firm_scope,
+                link.in_(document_ids),
+                EInvoiceRegistration.is_deleted.is_(False),
+            )
+        )
+    }
 
 
 def pending(
@@ -225,16 +253,7 @@ def pending(
             # bill had charged credits no tax invoice and is not listed.
             crediting = returns_crediting_bills(session, [row[0] for row in rows])
             rows = [row for row in rows if row[0] in crediting]
-        attempts = {
-            getattr(row, link.key): row
-            for row in session.scalars(
-                select(EInvoiceRegistration).where(
-                    EInvoiceRegistration.firm_id == firm_scope,
-                    link.in_([row[0] for row in rows]),
-                    EInvoiceRegistration.is_deleted.is_(False),
-                )
-            )
-        }
+        attempts = _attempts(session, firm_scope, link, [row[0] for row in rows])
         for doc_id, doc_number, doc_on, doc_amount, customer_name in rows:
             attempt = attempts.get(doc_id)
             deadline = doc_on + timedelta(days=REPORTING_DAYS) if binds else None

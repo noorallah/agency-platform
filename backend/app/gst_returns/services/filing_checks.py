@@ -20,7 +20,8 @@ period that passes here cannot fail there for one of these reasons:
 - **PLACE_OF_SUPPLY_MISSING** -- IGST charged to a buyer with no GSTIN and no
   state to read: GSTR-1 lists it in ``unplaced_invoices`` and cannot file it.
 - **IRN_MISSING** -- a document the firm had to e-invoice with no live IRN
-  (rule 48(4)), which is not a tax invoice at all.
+  (rule 48(4)), which is not a tax invoice at all. A completed sales return
+  that credits a bill is a credit note and is checked as one (D-CMP-25).
 - **CREDIT_NOTE_LATE** -- a credit note dated after 30 November following the
   end of the year of the supply it credits: section 34(2) lets no tax be
   reduced on it.
@@ -50,6 +51,8 @@ from app.einvoice.services.issue_gate import missing_irn
 from app.gst_returns.services.gstr_service import GstReturnService
 from app.purchase_invoice.models import PurchaseInvoice
 from app.sales_invoice.models import SalesInvoice
+from app.sales_return.billing import returns_crediting_bills
+from app.sales_return.models import SalesReturn
 from app.tax.services.gst_compliance import GstComplianceService
 from app.vendors.models import Vendor
 
@@ -108,6 +111,7 @@ class GstFilingChecks:
         rows += self._invoices(firm_id, from_date=from_date, to_date=to_date)
         rows += self._credit_notes(firm_id, from_date=from_date, to_date=to_date)
         rows += self._debit_notes(firm_id, from_date=from_date, to_date=to_date)
+        rows += self._sales_returns(firm_id, from_date=from_date, to_date=to_date)
         rows += self._purchase_invoices(firm_id, from_date=from_date, to_date=to_date)
         return sorted(
             rows,
@@ -346,6 +350,64 @@ class GstFilingChecks:
                     document_id=note.id,
                     document_number=note.debit_note_number,
                     document_date=note.debit_note_date,
+                    party_name=customer.name,
+                    message=message,
+                )
+                for check, message in messages
+            ]
+        return rows
+
+    def _sales_returns(
+        self, firm_id: UUID, *, from_date: date, to_date: date
+    ) -> list[FilingCheckRow]:
+        """Check completed sales returns that credit a bill: GSTIN and IRN.
+
+        Such a return is a credit note (CGST Act s.34) and GSTR-1 declares it
+        as one; one of goods no bill had charged credits no tax invoice and is
+        left out, by the answer the e-invoice list and the print's gate read
+        (``returns_crediting_bills``, D-PRC-89).
+        """
+        found = self._session.execute(
+            select(SalesReturn, Customer)
+            .join(Customer, Customer.id == SalesReturn.customer_id)
+            .where(
+                SalesReturn.firm_id == firm_id,
+                SalesReturn.is_deleted.is_(False),
+                SalesReturn.status.in_(("COMPLETED", "CLOSED")),
+                SalesReturn.return_date >= from_date,
+                SalesReturn.return_date <= to_date,
+            )
+        ).all()
+        crediting = returns_crediting_bills(
+            self._session, [sales_return.id for sales_return, _ in found]
+        )
+        rows: list[FilingCheckRow] = []
+        for sales_return, customer in found:
+            if sales_return.id not in crediting:
+                continue
+            messages: list[tuple[str, str]] = []
+            problem = gstin_problem(customer.gst_number)
+            if problem is not None:
+                messages.append(("GSTIN_INVALID", f"The buyer's {problem}"))
+            reason = missing_irn(
+                self._session,
+                firm_scope=firm_id,
+                number=sales_return.return_number,
+                on=sales_return.return_date,
+                customer_id=sales_return.customer_id,
+                status=sales_return.status,
+                sales_return_id=sales_return.id,
+            )
+            if reason is not None:
+                messages.append(("IRN_MISSING", reason))
+            rows += [
+                FilingCheckRow(
+                    check=check,
+                    severity=ERROR,
+                    document_type="SALES_RETURN",
+                    document_id=sales_return.id,
+                    document_number=sales_return.return_number,
+                    document_date=sales_return.return_date,
                     party_name=customer.name,
                     message=message,
                 )

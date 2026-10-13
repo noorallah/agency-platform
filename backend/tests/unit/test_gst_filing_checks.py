@@ -13,6 +13,7 @@ from datetime import date
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
 from app.core.exceptions import ValidationError
 from app.core.validation.common import gstin_check_character, gstin_problem
@@ -22,6 +23,7 @@ from app.gst_returns.services.filing_checks import (
     credit_note_deadline,
 )
 from app.sales_invoice.models import SalesInvoiceLine
+from app.sales_return.models import SalesReturnLine
 from app.tax.schemas.gst_compliance import GstComplianceSettingsWrite
 from app.tax.services.gst_compliance import GstComplianceService
 from tests.unit.test_gst_returns import APRIL, _Books, _session_factory
@@ -141,6 +143,38 @@ def test_a_bill_that_needed_an_irn_and_has_none_is_listed() -> None:
     assert [c for c in _checks(books) if c[0] == "IRN_MISSING"] == [
         ("IRN_MISSING", "SALES_INVOICE", "INV-NEW")
     ]
+
+
+def test_a_return_that_credits_a_bill_and_has_no_irn_is_listed() -> None:
+    """D-CMP-25: a completed return is a credit note and needs its own IRN."""
+    books = _books()
+    _einvoice_from(books, date(2026, 4, 5))
+    bill = books.invoice("INV-NEW", on=date(2026, 4, 10))
+    counter = books.invoice("INV-B2C", customer=books.walk_in, on=date(2026, 4, 10))
+    books.returned("SR-1", bill)
+    books.returned("SR-OPEN", bill, status="APPROVED")
+    books.returned("SR-B2C", counter)
+    assert [c for c in _checks(books) if c[0] == "IRN_MISSING"] == [
+        ("IRN_MISSING", "SALES_INVOICE", "INV-NEW"),
+        ("IRN_MISSING", "SALES_RETURN", "SR-1"),
+    ]
+
+
+def test_a_return_of_goods_no_bill_charged_needs_no_irn() -> None:
+    """It credits no tax invoice, so there is nothing to register."""
+    books = _books()
+    _einvoice_from(books, date(2026, 4, 5))
+    bill = books.invoice("INV-NEW", on=date(2026, 4, 10))
+    back = books.returned("SR-1", bill)
+    line = books.session.scalars(
+        select(SalesReturnLine).where(SalesReturnLine.sales_return_id == back.id)
+    ).one()
+    line.source_document_type = "DELIVERY_NOTE"
+    line.source_document_id = uuid4()
+    line.source_document_line_id = uuid4()
+    line.unbilled_quantity = line.current_return_quantity
+    books.session.commit()
+    assert [c for c in _checks(books) if c[1] == "SALES_RETURN"] == []
 
 
 @pytest.mark.parametrize(
