@@ -3236,6 +3236,60 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_staff_advance(
+        self,
+        *,
+        firm_id: UUID,
+        entry_id: UUID,
+        entry_number: str,
+        entry_date: date,
+        amount: Decimal,
+        debit_account_id: UUID,
+        credit_account_id: UUID,
+        description: str,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Book an advance to an employee, or its recovery (row P4).
+
+        Two legs and no control account, as an expense has: the caller has
+        chosen both accounts. An advance debits the employee and credits the
+        money; a recovery credits the employee and debits the salary's
+        expense account or the money account it was paid back into.
+
+        Raises:
+            ValidationError: If no open period covers the date.
+
+        """
+        context = self.context_for(firm_id, entry_date)
+        total = quantize_ledger(quantize_money(amount))
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=entry_date,
+            reference_number=entry_number,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=debit_account_id,
+                    debit_amount=total,
+                    credit_amount=ZERO,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=credit_account_id,
+                    debit_amount=ZERO,
+                    credit_amount=total,
+                    description=description,
+                ),
+            ],
+            source_module="staff_advances",
+            source_id=entry_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_goods_issue(
         self,
         *,

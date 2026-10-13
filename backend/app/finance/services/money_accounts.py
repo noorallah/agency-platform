@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import ConflictError
 from app.core.utils.money import ZERO, quantize_ledger
 from app.finance.models import (
+    AccountGroup,
     AccountType,
     FirmControlAccount,
     GLPosting,
@@ -43,6 +44,11 @@ from app.finance.services.control_accounts import ControlAccountPurpose
 MONEY_PURPOSES = frozenset(
     {ControlAccountPurpose.CASH.value, ControlAccountPurpose.BANK.value}
 )
+
+#: The group every employee's advance account is opened in (row P4). Known
+#: by its code, so a firm may rename it. An account in it is money a person
+#: owes the firm, never money the firm holds.
+STAFF_ADVANCES_GROUP_CODE = "CA-STAFF"
 
 KIND_CASH = "CASH"
 KIND_BANK = "BANK"
@@ -134,6 +140,27 @@ def money_accounts(session: Session, firm_id: UUID) -> list[tuple[LedgerAccount,
         for account in candidates
         if mapped.get(account.id, set()) <= MONEY_PURPOSES
     ]
+
+
+def staff_advance_account_ids(session: Session, firm_id: UUID) -> set[UUID]:
+    """Return the ids of every account in the firm's Staff Advances group.
+
+    Read by the expense form, which offers every asset account the firm
+    opened itself as a place money is paid from: an employee is not one.
+    """
+    return set(
+        session.scalars(
+            select(LedgerAccount.id)
+            .join(AccountGroup, AccountGroup.id == LedgerAccount.account_group_id)
+            .where(
+                LedgerAccount.firm_id == firm_id,
+                LedgerAccount.is_deleted.is_(False),
+                AccountGroup.firm_id == firm_id,
+                AccountGroup.code == STAFF_ADVANCES_GROUP_CODE,
+                AccountGroup.is_deleted.is_(False),
+            )
+        ).all()
+    )
 
 
 def balance_on(
@@ -250,7 +277,9 @@ __all__ = [
     "KIND_BANK",
     "KIND_CASH",
     "MONEY_PURPOSES",
+    "STAFF_ADVANCES_GROUP_CODE",
     "ask_before_cash_goes_below_zero",
     "balance_on",
     "money_accounts",
+    "staff_advance_account_ids",
 ]

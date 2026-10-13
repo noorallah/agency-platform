@@ -122,6 +122,7 @@ from app.settlements.models import (  # noqa: F401
     post_dated_cheque,
     settlement,
 )
+from app.staff_advances.models import staff_advance  # noqa: F401
 from app.supplier_rebates.models import rebate  # noqa: F401
 from app.supplier_schemes.models import supplier_scheme  # noqa: F401
 from app.tax.models import tax_framework  # noqa: F401

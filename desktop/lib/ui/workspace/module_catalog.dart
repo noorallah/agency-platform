@@ -1208,6 +1208,13 @@ abstract final class ModuleCatalog {
           label: 'Expenses',
           requiredPermissions: ['EXPENSE_VIEW'],
         ),
+        // Money given to an employee that comes back out of his salary or is
+        // paid back; it reads and writes on the expense rights.
+        ModuleTabDefinition(
+          id: 'staff-advances',
+          label: 'Staff Advances',
+          requiredPermissions: ['EXPENSE_VIEW'],
+        ),
         // Where the books stood on the firm's cutover date (backlog 36).
         // Posts straight to the ledger like a journal, so it reads on the
         // same code and is saved with JOURNAL_POST.

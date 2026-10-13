@@ -21,6 +21,7 @@ import 'post_dated_cheque_page.dart';
 import 'tally_export_page.dart';
 import 'tds_challan_page.dart';
 import 'expenses_page.dart';
+import 'staff_advances_page.dart';
 import 'fixed_assets_pages.dart';
 import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
@@ -302,6 +303,11 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
           'expenses' => ExpensesPage(
               api: widget.api,
               preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'staff-advances' => StaffAdvancesPage(
+              api: widget.api,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
             ),

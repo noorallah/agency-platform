@@ -1853,3 +1853,31 @@ ahead. So:
   that reversed it, beside the `PAYMENT_REVERSAL` line on the main office.
 - What a bill still owes is read from the allocations as before, so the
   branch's open bills and its statement agree.
+
+## A staff advance is a balance on the employee's own account
+
+Row P4, backlog 153 (2026-10-14). No payroll. An employee is a ledger account
+in the group `CA-STAFF` (*Staff Advances*, under Current Assets), and the
+module `staff_advances` posts two legs and no control account, as an expense
+does:
+
+| Entry | Debit | Credit |
+| --- | --- | --- |
+| An advance | the employee | the cash or bank account it was paid from |
+| A recovery taken from salary | the expense account the salary is booked to | the employee |
+| A recovery paid back | the cash or bank account it was paid into | the employee |
+
+**What an employee owes is never stored.** It is the sum of the postings on
+his account, read each time, so an advance paid by a cheque to his account or
+by a journal counts with the rest. A recovery of more than that sum is
+refused under a lock on the employee's account row: the guard reads a sum and
+then inserts, which no version counter protects.
+
+**The salary expense is the full salary.** The part of a month's salary that
+the advance already paid is the recovery *taken from salary*; the part handed
+over is an ordinary expense. Together they charge the salary account the
+whole figure.
+
+A wrong entry is cancelled by a mirror journal under `<number>-CAN`. An
+employee's account is left out of the accounts an expense may be **paid
+from**: it is money a person owes the firm, not money the firm holds.

@@ -125,6 +125,7 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
             {
                 "finance",
                 "expenses",
+                "staff-advances",
                 "contra-vouchers",
                 "party-adjustments",
                 "post-dated-cheques",

@@ -204,7 +204,7 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | --- | --- | --- | --- | --- |
 | USR-1 | A collector sees only his bills | His own screen only (COL-4). Limiting every list and report to a user's own customers is not built | Built | M5 |
 | USR-2 | What each role must not see or do | Not yet described by the customer | Open | |
-| USR-3 | An account per employee for salary advances | No payroll. Each employee has an account under *Staff advances*; an advance is paid from cash or a bank, recovered when the salary is paid, and a list shows what each still owes | Planned | P4 |
+| USR-3 | An account per employee for salary advances | No payroll. Each employee has an account under *Staff advances*; an advance is paid from cash or a bank, recovered when the salary is paid, and a list shows what each still owes | Built (not yet clicked) | P4, backlog 153 |
 
 ## 16. Coming from the old program
 
@@ -275,3 +275,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-14 | PRT-2 (P1, backlog 151): on a firm that prints half pages, *Print* first says which paper the bill needs and lets the person switch that one print between half and full; a firm on full pages no longer reads the customer's *Bill paper*. Not yet clicked |
 | 2026-10-14 | PRT-4 and PRT-8 (row P2) wait for the owner: a bill's salesman can only be a user of the application today, so *Order By* cannot name a salesman without a sign-in, *Phone order* or *Company staff*. Nothing of the row was built |
 | 2026-10-14 | LIC-6 (P3, backlog 152): a product and a category name a list of licences; the buyer (and on a purchase the supplier) must hold every one on the document's date, and the check names each one missing or lapsed. Existing products and categories keep theirs as a list of one. Not yet clicked |
+| 2026-10-14 | USR-3 (P4, backlog 153): *Accounts > Books > Staff Advances*. Each employee has an account of his own; an advance is paid from cash or a bank account, a recovery is taken from salary or paid back, and the list shows what each still owes, read from the books. No payroll. Not yet clicked |

@@ -12,6 +12,7 @@ import '../../models/bulk_action.dart';
 import '../../models/finance.dart';
 import '../../models/physical_count.dart';
 import '../../models/expense.dart';
+import '../../models/staff_advance.dart';
 import '../../models/gst_payment.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
@@ -11601,6 +11602,83 @@ class ApiClient {
             '/api/v1/expenses/$id/cancel',
             body: {'reason': reason},
             expectedVersion: expectedVersion,
+          ),
+        ),
+      );
+
+  /// Every employee with an account under Staff Advances, and what each owes.
+  Future<List<StaffEmployee>> staffEmployees() async => _unwrapList(
+        await request('GET', '/api/v1/staff-advances/employees'),
+        StaffEmployee.fromJson,
+      );
+
+  /// Open an account for one employee. A name already in use is refused.
+  Future<StaffEmployee> addStaffEmployee(String name) async =>
+      StaffEmployee.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/staff-advances/employees',
+            body: {'name': name},
+          ),
+        ),
+      );
+
+  /// The accounts the advance and recovery forms offer.
+  Future<StaffAdvanceAccountChoices> staffAdvanceAccountChoices() async =>
+      StaffAdvanceAccountChoices.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/staff-advances/accounts')),
+      );
+
+  /// One page of advances and recoveries, newest first.
+  Future<PagedResult<StaffAdvanceEntry>> staffAdvances({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String? employeeAccountId,
+    String? status,
+    String? entryFrom,
+    String? entryTo,
+  }) =>
+      _list(
+        '/api/v1/staff-advances',
+        StaffAdvanceEntry.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (employeeAccountId != null && employeeAccountId.isNotEmpty)
+            'employee_account_id': employeeAccountId,
+          if (status != null && status.isNotEmpty) 'status': status,
+          if (entryFrom != null) 'entry_from': entryFrom,
+          if (entryTo != null) 'entry_to': entryTo,
+        },
+      );
+
+  /// Give an advance or record a recovery. The server posts its journal in
+  /// the same request; an advance out of cash that would go below zero asks
+  /// first (`ApiException.isCashBelowZero`).
+  Future<StaffAdvanceEntry> recordStaffAdvance(Json data) async =>
+      StaffAdvanceEntry.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/staff-advances', body: data),
+        ),
+      );
+
+  /// Take an entry back with an opposite journal; the original stays. A
+  /// reason is required.
+  Future<StaffAdvanceEntry> cancelStaffAdvance(
+    String id, {
+    required String reason,
+    int? version,
+  }) async =>
+      StaffAdvanceEntry.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/staff-advances/$id/cancel',
+            body: {'reason': reason},
+            expectedVersion: version,
           ),
         ),
       );
