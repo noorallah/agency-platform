@@ -39,6 +39,7 @@
     "additional_charges": "0.0000",
     "allow_direct_sales_order": true,
     "amount_payable": "551.65",
+    "approval_step": true,
     "approved_at": null,
     "attached_file_count": 0,
     "attachments": [],

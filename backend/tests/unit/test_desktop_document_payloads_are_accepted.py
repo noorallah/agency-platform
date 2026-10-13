@@ -251,19 +251,19 @@ def _assert_known(sent: set[str], *schemas: type) -> None:
 
 def test_a_quotation_carries_only_quotation_fields() -> None:
     """The phase 2 quotation shares this builder."""
-    head = _keys_in(_QUOTATION, "Json? _buildPayload()", "return <String", "'lines': [")
+    head = _keys_in(_QUOTATION, "Json? _buildPayload(", "return <String", "'lines': [")
     _assert_known(head, QuotationCreate)
-    line = _keys_in(_QUOTATION, "Json? _buildPayload()", "'lines': [", "],\n    };")
+    line = _keys_in(_QUOTATION, "Json? _buildPayload(", "'lines': [", "],\n    };")
     _assert_known(line, QuotationLineWrite)
 
 
 def test_a_sales_order_carries_only_order_fields() -> None:
     """The phase 2 order shares this builder."""
     head = _keys_in(
-        _ORDER, "Json? _buildPayload()", "return <String", "'lines': <Json>["
+        _ORDER, "Json? _buildPayload(", "return <String", "'lines': <Json>["
     )
     _assert_known(head, SalesOrderCreate)
-    line = _keys_in(_ORDER, "Json? _buildPayload()", "'lines': <Json>[", "],\n    };")
+    line = _keys_in(_ORDER, "Json? _buildPayload(", "'lines': <Json>[", "],\n    };")
     _assert_known(line, SalesOrderLineWrite)
 
 
