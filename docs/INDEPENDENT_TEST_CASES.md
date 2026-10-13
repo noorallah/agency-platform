@@ -4069,6 +4069,36 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   - Step 8: one **Save**; the order is **Approved** and holds its stock.
 - **Leaves:** approved bills and one approved order for A; the settings as they were.
 
+### TC-SELL-101 — Retail and wholesale: the bill starts at the customer's level, and one switch reprices it
+
+*Added 2026-10-13 (backlog 131). The sales order was **driven over HTTP** that day on a fixture firm (28 checks); the bill typed directly was run in the unit suite only; the screens were not clicked.*
+
+- **Covers:** backlog 131 (customer task M13)
+- **Fixture:** `ready-firm`
+- **Also needs:** price levels **Retail** and **Wholesale** (*Price Levels*); a product **Soap** selling at 100.00 with 95.00 at Retail and 80.00 at Wholesale; a product **Oil** at 200.00 with 190.00 and 150.00; a product **Salt** at 40.00 with 38.00 at Retail and no Wholesale rate; a customer **T** whose price level is Wholesale; a customer **S** with no price level. Rates do not include GST.
+- **Steps**
+  1. New sales order for T. Add Soap, Oil and Salt, quantity 2 each. Read the **Price level** box and the three rates.
+  2. In the **Price level** box choose **Retail**.
+  3. Type 91.00 over Soap's rate. Save the draft, close it and open it again.
+  4. Choose **Wholesale** in the box.
+  5. Choose **Customer's usual** in the box. Save.
+  6. New sales order for S with the same three lines. Read the box and the rates; then choose **Wholesale**.
+  7. Change the customer of that order to T.
+  8. On a firm that types its bills directly (Sales order and Delivery note stages off): new sales invoice for T, add Soap and Oil; then choose **Retail**; save.
+  9. On a firm with no price level at all, open a new sales order.
+- **Expect**
+  - Step 1: the box reads **Customer's usual** and the line under it says *Usual for this customer: Wholesale*. Rates 80.00, 150.00 and 40.00 (Salt has no wholesale rate, so its own price).
+  - Step 2: all three rates change at once: 95.00, 190.00, 38.00.
+  - Step 3: the order reopens with **Retail** in the box, Soap at 91.00, Oil 190.00, Salt 38.00.
+  - Step 4: every line is repriced, the typed one too: 80.00, 150.00, 40.00.
+  - Step 5: the same prices (T's usual is Wholesale); the saved order names no level of its own.
+  - Step 6: the line under the box says *This customer has no price level: the product's price*; rates 100.00, 200.00, 40.00; after the switch 80.00, 150.00, 40.00.
+  - Step 7: the box goes back to **Customer's usual**.
+  - Step 8: the bill starts at 80.00 and 150.00; after the switch 95.00 and 190.00; the saved bill is billed at those.
+  - Step 9: there is no **Price level** box and the order behaves as before.
+- **Also true, by the server:** an order naming a level that is not the firm's, or one switched off, is refused in words; a bill of delivery notes that names a level is refused (*This bill takes its prices from the documents it bills*); where a role has a discount limit, a cheaper level named on the order counts as a reduction from the customer's own price and needs somebody allowed that much.
+- **Leaves:** draft sales orders for T and S, and one bill for T.
+
 ### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
 
 *Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` fixture: the full chain and the direct bill, and both refusals. The screens were not clicked.*

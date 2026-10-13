@@ -647,6 +647,8 @@ class _OrderApi extends ApiClient {
     required String on,
     String customerId = '',
     String territoryId = '',
+    String priceLevelId = '',
+    void Function(String? customerPriceLevelId)? onCustomerLevel,
   }) async {
     asked.add(_Asked(productIds, on, customerId));
     return {

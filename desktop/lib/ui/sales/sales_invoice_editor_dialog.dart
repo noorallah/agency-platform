@@ -12,6 +12,7 @@ import '../../models/batch_sale_settings.dart';
 import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../../models/customer.dart';
+import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/document_preview.dart';
@@ -27,6 +28,7 @@ import '../workspace/brand_filter.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/party_place.dart';
+import '../workspace/price_level_box.dart';
 import '../workspace/printed_document.dart';
 import 'counter_shift_widgets.dart';
 import 'ship_to_field.dart';
@@ -235,6 +237,51 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     } on Object {
       // Brands come from the products alone, with no company entries.
     }
+  }
+
+  /// Backlog 131 (M13): the firm's price levels, read once when a bill of
+  /// products opens (phase 2). [_priceLevelChoice] is the level the whole bill
+  /// is priced at, blank for the customer's usual one; [_usualLevelId] is that
+  /// usual level once [_usualKnown]. Nothing is drawn or sent while the firm
+  /// has no level to offer.
+  List<PriceLevelRecord> _priceLevels = const [];
+  bool _priceLevelsRead = false;
+  String _priceLevelChoice = '';
+  bool _usualKnown = false;
+  String? _usualLevelId;
+
+  Future<void> _readPriceLevels() async {
+    try {
+      final List<PriceLevelRecord> read = await widget.api.priceLevels();
+      if (mounted) {
+        setState(() {
+          _priceLevels = read;
+          _priceLevelsRead = true;
+        });
+      }
+    } on Object {
+      // Refused or down: no box, and the bill behaves as it always did.
+    }
+  }
+
+  /// Whether the Price level box is drawn and its choice sent: only on a bill
+  /// of bare product lines, never on one that bills documents.
+  bool get _showsPriceLevel =>
+      _phase2 &&
+      _direct &&
+      _priceLevelsRead &&
+      offeredPriceLevels(_priceLevels, _priceLevelChoice).isNotEmpty;
+
+  /// A newly chosen customer: the box goes back to his usual level, which is
+  /// known at once when he carries a level of his own.
+  void _resetPriceLevelFor(String? customerId) {
+    _priceLevelChoice = '';
+    String? own;
+    for (final Customer item in _customers) {
+      if (item.id == customerId) own = item.priceLevelId;
+    }
+    _usualLevelId = own;
+    _usualKnown = own != null;
   }
 
   /// The counter's shift and held bills (backlog 87 #7): the caller's open
@@ -553,6 +600,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       // After the invoice, so a correction opens with its stored values.
       unawaited(_customFields.start());
       if (_products.isNotEmpty) unawaited(_readBrands());
+      if (_phase2 && _direct) unawaited(_readPriceLevels());
       unawaited(_readCounterState());
       _schedulePreview();
     } on ApiException catch (error) {
@@ -1256,6 +1304,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       // Sent on every bill of products: the phase 1 screen types rates
       // before tax, whatever the firm's default.
       'rate_includes_tax': _phase2 && _rateIncludesTax,
+      // M13: null is the customer's usual level. Only on a bill of bare
+      // product lines, which is all this function builds: the server refuses
+      // it on a bill whose lines name documents.
+      if (_showsPriceLevel)
+        'price_level_id': _priceLevelChoice.isEmpty ? null : _priceLevelChoice,
       if (_phase2) 'shipping_address_id': _shipToId,
       if (_reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
@@ -1424,7 +1477,76 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     if (value != null && _isSerialised(value)) {
       _loadSerials(value, _directWarehouse);
     }
+    // The price at the customer's level, or the chosen one (M13); the
+    // product's own price above stays until the answer lands.
+    unawaited(_quoteDirect([line]));
     _schedulePreview();
+  }
+
+  /// Ask the server what the bill's customer is charged, at the bill's Price
+  /// level, for [lines] that name a product, and show it in their rate box.
+  ///
+  /// Phase 2 and a bill of products only, and a suggestion: a line whose rate
+  /// somebody typed is left alone -- unless [replaceTyped], the Price level
+  /// switch, which is a deliberate act on the whole bill. [_DirectLine.autoPrice]
+  /// keeps its meaning: the filled rate is recorded there, so it still counts
+  /// as not typed. The answer is dropped if the customer, the level or the
+  /// line's product moved while it was on its way; a refusal or a missing
+  /// answer leaves the product's own price where it was. With GST in the
+  /// rates a blank box is the server's own pre-tax price, so nothing is typed
+  /// into it.
+  Future<void> _quoteDirect(
+    Iterable<_DirectLine> lines, {
+    bool replaceTyped = false,
+  }) async {
+    final String? customerId = _customerId;
+    if (!_phase2 || !_direct || _rateIncludesTax || customerId == null) return;
+    final Map<_DirectLine, String> asked = {
+      for (final _DirectLine line in lines)
+        if (line.productId != null && (replaceTyped || line.priceUntyped))
+          line: line.productId!,
+    };
+    if (asked.isEmpty) return;
+    final String level = _priceLevelChoice;
+    bool answeredUsual = false;
+    String? usual;
+    try {
+      final Map<String, UnitPriceQuote> quotes = await widget.api.unitPrices(
+        productIds: asked.values.toSet().toList(),
+        on: _iso(widget.today),
+        customerId: customerId,
+        priceLevelId: level,
+        onCustomerLevel: (String? id) {
+          answeredUsual = true;
+          usual = id;
+        },
+      );
+      if (!mounted || _customerId != customerId || _priceLevelChoice != level) {
+        return;
+      }
+      setState(() {
+        if (answeredUsual) {
+          _usualKnown = true;
+          _usualLevelId = usual;
+        }
+        asked.forEach((_DirectLine line, String productId) {
+          final UnitPriceQuote? quote = quotes[productId];
+          if (quote == null ||
+              line.productId != productId ||
+              !_directLines.contains(line) ||
+              !(replaceTyped || line.priceUntyped)) {
+            return;
+          }
+          if ((double.tryParse(quote.unitPrice) ?? 0) <= 0) return;
+          final String text = plainQuotedPrice(quote.unitPrice);
+          line.price.text = text;
+          line.autoPrice = text;
+        });
+      });
+      _schedulePreview();
+    } on Object {
+      // Only a suggestion: the product's own price stays.
+    }
   }
 
   /// Take what the scanner typed: a barcode, ending in Enter. A product
@@ -1577,6 +1699,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _scanMessage = null;
       _scanNote = null;
       _billSerial++;
+      // The next customer's bill starts from his own level, not the last one.
+      _priceLevelChoice = '';
       _reference.clear();
       _coupon.clear();
       _billDiscount.clear();

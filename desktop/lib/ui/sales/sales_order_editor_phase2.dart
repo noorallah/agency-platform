@@ -52,6 +52,28 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     _schedulePreview();
   }
 
+  /// The Price level switch (M13): the whole order is priced at [choice]
+  /// ('' is the customer's usual). Every line naming a product is repriced,
+  /// one typed by hand included, with one request for all of them. With GST
+  /// in the rates a blank box takes the level's price on the server, so the
+  /// boxes are cleared instead of quoted.
+  void _choosePriceLevel(String choice) {
+    if (_locked) return;
+    _setState(() {
+      _priceLevelChoice = choice;
+      if (_rateIncludesTax) {
+        for (final _LineDraft line in _lines) {
+          if (line.productId == null) continue;
+          line.unitPrice.clear();
+          line.priceEdited = false;
+          line.priceSource = '';
+        }
+      }
+    });
+    if (!_rateIncludesTax) unawaited(_quotePrices(_lines, replaceTyped: true));
+    _schedulePreview();
+  }
+
   Widget _rateIncludesTaxField() => DocumentField(
         label: 'Rate includes GST',
         width: 150,
@@ -366,6 +388,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             _setState(() {
               _customerId = value;
               _shippingAddressId = defaultShipToId(_customerAddresses);
+              _resetPriceLevelFor(value);
             });
             unawaited(_quotePrices(_lines));
             _schedulePreview();
@@ -395,6 +418,22 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             _brandChoice = value;
             _brandEpoch++;
           }),
+        ),
+      // Backlog 131: one switch on the order for the level it is priced at.
+      if (_showsPriceLevel)
+        PriceLevelBox(
+          fieldKey: const ValueKey('sales-order-price-level'),
+          levels: offeredPriceLevels(_priceLevels, _priceLevelChoice),
+          value: _priceLevelChoice,
+          helper: _customerId == null
+              ? null
+              : priceLevelHelper(
+                  _priceLevels,
+                  known: _usualKnown,
+                  usualId: _usualLevelId,
+                ),
+          enabled: !_locked && !_saving,
+          onChanged: _choosePriceLevel,
         ),
       DocumentField(
         label: 'Order date',

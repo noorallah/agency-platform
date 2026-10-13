@@ -1620,6 +1620,21 @@ on the server, before the GST-inclusive conversion, which converts only typed
 prices (level and list prices are pre-tax). Downstream documents inherit the
 price of the line they continue, as before.
 
+**A document may name its own level (backlog 131, 2026-10-13).**
+`sales_orders.price_level_id`, NULL for the customer's usual, takes the
+customer's level's place in that ranking and no other:
+`UnitPriceResolver(price_level_id=...)`. `document_price_level` refuses a
+level that is not the firm's or not in use. A bill typed directly passes its
+`price_level_id` to the order it raises and stores none itself; a bill of
+documents is refused one. An update that omits the field keeps the level, an
+explicit null clears it, and only a line sent without a price is priced at
+it. The discount limit is untouched: `DiscountLimitService.customer_prices`
+still asks at the **customer's** level, so a cheaper level named on the
+document is judged as a reduction (`test_price_level_on_the_document.py`).
+`GET /price-levels/unit-prices?price_level_id=` quotes at a level and answers
+`customer_price_level_id`; the level list is readable with any of the sales
+create codes.
+
 **The batch's trade rate (PG-14, 2026-10-05).** Where the line leaves from a
 known batch -- `pinned_batch_id` on a sales order line, or a counter bill line
 whose `batches` all name one batch (handed to the order it raises as

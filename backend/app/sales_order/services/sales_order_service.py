@@ -72,7 +72,7 @@ from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService, LineConversion
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.pricing.services.price_list_service import PriceListResolver
-from app.pricing.services.unit_price import UnitPriceResolver
+from app.pricing.services.unit_price import UnitPriceResolver, document_price_level
 from app.products.models import Product
 from app.products.services.free_issue import assert_not_sold_at_a_price
 from app.products.services.stockless import is_stockless, stockless_products
@@ -499,6 +499,9 @@ class SalesOrderService(TransactionalDocumentService):
             branch_id=data.branch_id,
             warehouse_id=data.warehouse_id,
             business_profile_id=data.business_profile_id,
+            price_level_id=document_price_level(
+                self._session, firm_id=firm_id, price_level_id=data.price_level_id
+            ),
             order_number=order_number,
             order_date=data.order_date,
             delivery_date=data.delivery_date,
@@ -650,6 +653,15 @@ class SalesOrderService(TransactionalDocumentService):
         row.branch_id = data.branch_id
         row.warehouse_id = data.warehouse_id
         row.business_profile_id = data.business_profile_id
+        # Absent keeps the level the order names; None goes back to the
+        # customer's usual one. Prices already on the lines are not moved by
+        # this: only a line sent without a price is priced at it.
+        if "price_level_id" in data.model_fields_set:
+            row.price_level_id = document_price_level(
+                self._session,
+                firm_id=firm_scope,
+                price_level_id=data.price_level_id,
+            )
         row.order_date = data.order_date
         row.delivery_date = data.delivery_date
         row.customer_reference = data.customer_reference
@@ -1615,6 +1627,7 @@ class SalesOrderService(TransactionalDocumentService):
             branch_id=row.branch_id,
             warehouse_id=row.warehouse_id,
             business_profile_id=row.business_profile_id,
+            price_level_id=row.price_level_id,
             order_number=row.order_number,
             order_date=row.order_date,
             delivery_date=row.delivery_date,
@@ -3395,6 +3408,7 @@ class SalesOrderService(TransactionalDocumentService):
             customer_id=row.customer_id,
             territory_id=row.territory_id,
             on=row.order_date,
+            price_level_id=row.price_level_id,
         )
         return [
             (

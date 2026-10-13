@@ -24,6 +24,7 @@ import '../workspace/brand_filter.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/party_place.dart';
+import '../workspace/price_level_box.dart';
 import 'ship_to_field.dart';
 
 part 'sales_order_editor_phase2.dart';
@@ -247,6 +248,55 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       // Brands come from the products alone, with no company entries.
     }
   }
+
+  /// Backlog 131 (M13): the firm's price levels, read once when the editor
+  /// opens (phase 2). [_priceLevelChoice] is the level the whole order is
+  /// priced at, blank for the customer's usual one; [_usualLevelId] is that
+  /// usual level once [_usualKnown]. Nothing is drawn or sent while the firm
+  /// has no level to offer.
+  List<PriceLevelRecord> _priceLevels = const [];
+  bool _priceLevelsRead = false;
+  String _priceLevelChoice = '';
+  bool _usualKnown = false;
+  String? _usualLevelId;
+
+  Future<void> _readPriceLevels() async {
+    try {
+      final List<PriceLevelRecord> read = await widget.api.priceLevels();
+      if (mounted) {
+        setState(() {
+          _priceLevels = read;
+          _priceLevelsRead = true;
+        });
+      }
+    } on Object {
+      // Refused or down: no box, and the order behaves as it always did.
+    }
+  }
+
+  /// Whether the Price level box is drawn and its choice sent.
+  bool get _showsPriceLevel =>
+      _phase2 &&
+      _priceLevelsRead &&
+      offeredPriceLevels(_priceLevels, _priceLevelChoice).isNotEmpty;
+
+  /// A newly chosen customer: the box goes back to his usual level, which is
+  /// known at once when he carries a level of his own.
+  void _resetPriceLevelFor(String? customerId) {
+    _priceLevelChoice = '';
+    _seedUsualLevel(customerId);
+  }
+
+  /// What is known of the customer's usual level before any price is asked.
+  void _seedUsualLevel(String? customerId) {
+    String? own;
+    for (final Customer item in _customers) {
+      if (item.id == customerId) own = item.priceLevelId;
+    }
+    _usualLevelId = own;
+    _usualKnown = own != null;
+  }
+
   List<BranchRecord> _branches = const [];
   List<WarehouseRecord> _warehouses = const [];
 
@@ -488,6 +538,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         _loading = false;
         if (existing != null) {
           _adoptExisting(existing);
+          _seedUsualLevel(_customerId);
         } else {
           // The branch and the warehouse are nearly always the same ones, and
           // the firm says which. The customer is left unchosen: it is the
@@ -505,6 +556,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       // After the order, so a correction opens with its stored values.
       unawaited(_customFields.start());
       if (_products.isNotEmpty) unawaited(_readBrands());
+      if (_phase2) unawaited(_readPriceLevels());
       _ensureUnitCodes();
       // Phase 2 prices what was loaded straight away.
       _schedulePreview();
@@ -565,6 +617,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _paymentTerms.text = stringValue(order['payment_terms']);
     _paymentTermsDays.text = stringValue(order['payment_terms_days']);
     _rateIncludesTax = order['rate_includes_tax'] == true;
+    _priceLevelChoice = stringValue(order['price_level_id']);
     _remarks.text = stringValue(order['remarks']);
     _customFields.seed(attributeValuesFrom(order['attributes']));
     // Blank rather than '0' where there was none, so the box reads as empty
@@ -780,31 +833,53 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// way, and the figure still goes out as the typed value it now is -- so
   /// what is saved is what is on screen. A refusal or a missing answer leaves
   /// the product's own price where it was.
-  Future<void> _quotePrices(Iterable<_LineDraft> lines) async {
+  ///
+  /// Asked at the order's Price level (M13). [replaceTyped] is the switch on
+  /// the Price level box: a deliberate act on the whole order, so a line
+  /// somebody typed a price on is repriced too and goes back to not typed.
+  Future<void> _quotePrices(
+    Iterable<_LineDraft> lines, {
+    bool replaceTyped = false,
+  }) async {
     final String? customerId = _customerId;
     // With GST in the rate a blank box is the server's own pre-tax price, and
     // a quoted pre-tax figure typed into it would be read as shelf price.
     if (!_phase2 || _locked || _rateIncludesTax || customerId == null) return;
     final List<_LineDraft> targets = [
       for (final _LineDraft line in lines)
-        if (!line.priceEdited && line.productId != null) line,
+        if ((replaceTyped || !line.priceEdited) && line.productId != null) line,
     ];
     if (targets.isEmpty) return;
     final Map<_LineDraft, String> asked = {
       for (final _LineDraft line in targets) line: line.productId!,
     };
+    final String level = _priceLevelChoice;
+    bool answeredUsual = false;
+    String? usual;
     try {
       final Map<String, UnitPriceQuote> quotes = await widget.api.unitPrices(
         productIds: asked.values.toSet().toList(),
         on: _iso(_orderDate),
         customerId: customerId,
+        priceLevelId: level,
+        onCustomerLevel: (String? id) {
+          answeredUsual = true;
+          usual = id;
+        },
       );
-      if (!mounted || _customerId != customerId) return;
+      // Dropped when the customer or the level moved while it was on its way.
+      if (!mounted || _customerId != customerId || _priceLevelChoice != level) {
+        return;
+      }
       setState(() {
+        if (answeredUsual) {
+          _usualKnown = true;
+          _usualLevelId = usual;
+        }
         asked.forEach((_LineDraft line, String productId) {
           final UnitPriceQuote? quote = quotes[productId];
           if (quote == null ||
-              line.priceEdited ||
+              (line.priceEdited && !replaceTyped) ||
               line.productId != productId ||
               !_lines.contains(line)) {
             return;
@@ -812,6 +887,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           if ((double.tryParse(quote.unitPrice) ?? 0) <= 0) return;
           line.unitPrice.text = _plainPrice(quote.unitPrice);
           line.priceSource = quote.sourceLabel;
+          line.priceEdited = false;
         });
       });
       _schedulePreview();
@@ -977,6 +1053,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       // order's own on an update, and the switch is the user's to say.
       // Phase 1 has no switch, so a new order there is typed before tax.
       'rate_includes_tax': _rateIncludesTax,
+      // M13: null is the customer's usual level. Sent only while the box is
+      // there, so an order whose levels could not be read keeps its own.
+      if (_showsPriceLevel)
+        'price_level_id': _priceLevelChoice.isEmpty ? null : _priceLevelChoice,
       if (delivery != null) 'delivery_date': _iso(delivery),
       if (_customerReference.text.trim().isNotEmpty)
         'customer_reference': _customerReference.text.trim(),

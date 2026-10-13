@@ -9435,3 +9435,109 @@ refuse the whole batch and leave no order behind.
   whole; it was not timed on the volume firm.
 - The old UI is unchanged.
 - No screen was clicked in the running app.
+
+## 131. Retail and wholesale: a price level named on the order and the bill -- built 2026-10-13
+
+**Customer task M13**, decision D17 ("named price levels with a rate per
+product, reached through the customer or his group; new work is only the
+switch on the bill"). Asked: "a customer carries his usual choice, and one
+switch on the bill changes the whole bill"; done when: "the switch reprices
+every line; a new bill starts from the customer's choice".
+
+**What was found.** Price levels (backlog SEL-9: Retail, Wholesale, Dealer,
+a rate per product, a level on the customer or on his segment) already price
+a line nobody typed a price on. Three things were missing. No document could
+name a level of its own, so a retail customer buying at wholesale today had
+to be retyped line by line. The sales bill typed directly filled each line
+with the product's own selling price and sent it as typed, so **the
+customer's level never reached that bill at all** from the desktop. And only
+somebody holding the price list code could read the list of levels.
+
+**Design.**
+
+- `sales_orders.price_level_id`, nullable (migration `20261013_0368`). NULL
+  is "the customer's usual", which is what every order already written
+  means. A level named there **takes the customer's level's place in the
+  ranking and no other**: typed price > price list agreed with the customer >
+  batch PTR/PTS > *the document's level, else the customer's* > product
+  price. A product with no rate at the named level falls to its own price,
+  not to the customer's level.
+- A bill typed directly raises an order, and the level it names is kept on
+  that order; the bill itself gains no column. `price_level_id` on the bill
+  is accepted only on a bill of product lines. A bill of delivery notes or
+  orders takes its prices from them and is refused a level in words.
+- On an edit, leaving the field out keeps the document's level, an explicit
+  null goes back to the customer's usual, and a line sent without a price is
+  priced at the level the document now names. A price already on a line is
+  not moved by the server: the screen is what reprices.
+- A level must be the firm's own and in use, or the document is refused by
+  the level's name.
+- `GET /price-levels/unit-prices` takes `price_level_id` and also answers
+  `customer_price_level_id`, the customer's usual level (his own, else his
+  segment's), so the screen can say what "usual" is. `GET /price-levels` (the
+  list) is open to whoever may raise a quotation, a sales order or a sales
+  bill; keeping the levels still needs the price list code.
+- Screen, new UI only: a **Price level** box on the sales order and on the
+  sales bill typed directly, drawn only when the firm has a level in use.
+  Its first entry is *Customer's usual*; under the box a line says what that
+  is. A new document starts there. Choosing another entry reprices **every**
+  line that names a product with one request; a new line is then priced at
+  it too. Changing the customer puts the box back to *Customer's usual*. The
+  direct bill now asks the server for each line's price, so it starts from
+  the customer's level.
+
+**Decided by the standard, not asked.**
+
+- *The switch reprices a price typed by hand as well.* Tally's price level on
+  the voucher and Marg's rate switch both restate every rate; the switch is a
+  deliberate act on the whole bill, and the box is then shown as not typed.
+  A price typed after the switch stands.
+- *Anybody who may raise the document may use the switch*, as in both of
+  those. It is not a way round a discount limit: the limit (D-PRC-2) still
+  measures what a line charges against **the customer's own price**, so a
+  cheaper level named on the document is a reduction like any other and
+  needs somebody allowed that much. A firm with no limits is not held up.
+- *A price list agreed with the customer still wins.* It is an agreement
+  with him; a level is a rate for a class of buyers.
+- *Where the rates include GST* the screen clears the price boxes on a
+  switch rather than filling them: a blank box there is the server's own
+  price before tax, at the level named.
+
+**Where it lives.** `app/pricing/services/unit_price.py`
+(`UnitPriceResolver(price_level_id=)`, `document_price_level`),
+`app/pricing/api/price_levels_router.py`, `app/sales_order` (model, schemas,
+`SalesOrderService`), `app/sales_invoice/services/sales_chain_service.py` and
+`sales_invoice_service.py` (a saved direct bill keeps its level when an edit
+raises its order again). Tests:
+`backend/tests/unit/test_price_level_on_the_document.py` (11). Desktop:
+`desktop/lib/ui/workspace/price_level_box.dart`, the two sales editors,
+`unitPrices` in `api_client.dart`. Tests:
+`desktop/test/price_level_on_the_bill_test.dart` (15). Test case TC-SELL-101.
+
+**Tried over HTTP** on a fixture firm, 28 checks: a wholesale customer's
+quote and new order start at wholesale (80, 150, and 40 for a product with no
+wholesale rate); asked at retail every price is the retail one (95, 190, 38)
+and his usual level is still named; an order naming retail is priced at it
+and gives the level back; a typed price stands beside two level prices; an
+edit that says nothing keeps the level, another level reprices the unpriced
+lines, an explicit null goes back to the customer's prices; a level nobody
+has and a level out of use are each refused in words. That firm types an
+order before its bill, so **the direct bill was tried in the unit suite
+only**.
+
+**Not done.**
+
+- No Price level box on the quotation, the proforma, the delivery note, a
+  bill of delivery notes, or a saved draft bill being edited (the server
+  keeps that bill's level).
+- The level is not printed on the order or the bill, and is not a column of
+  any list or report.
+- Working the prices of each level out from a margin at purchase, the other
+  half of D17, is not part of this row.
+- The box makes the sales order's header one row taller: at a window of
+  800 by 600 it overflows by 14 pixels when the firm has levels. At 1366 by
+  768 it does not.
+- The counter (till) bill is the same screen as the direct bill in the new
+  UI, so it shows the box too when the firm has levels.
+- The old UI is unchanged.
+- No screen was clicked in the running app.
