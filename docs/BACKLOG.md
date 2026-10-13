@@ -9441,6 +9441,9 @@ refuse the whole batch and leave no order behind.
 - The supplier cannot be changed row by row on the screen, only for the
   whole plan.
 - A requisition cannot be raised from the plan, only draft orders.
+  *(Backlog 142, 2026-10-13: the plan now opens on six months of sales
+  rather than the firm's reorder days, and every suggested quantity can be
+  raised by a percentage at once.)*
 - A plan with no company on a firm with many thousands of products is read
   whole; it was not timed on the volume firm.
 - The old UI is unchanged.
@@ -10340,3 +10343,85 @@ TC-CUST-015. PR #1482.
 - No print of the Account view, and a supplier's account has no such table.
 - No screen was clicked in the running app, and no sheet was opened in
   Excel itself.
+
+## 142. Plan an order: six months to start, and every quantity raised at once -- built 2026-10-13
+
+**Customer task F11** (the owner, 2026-10-13, on M12). Asked: the days read
+start at **the last six months** with the other periods one click away, and
+the user can raise what is suggested, line by line as now and all lines at
+once by a percentage. Try: "a new plan opens on six months; plus 10% on all
+raises every suggested quantity and the order made carries the raised
+figures".
+
+**What was found.**
+
+- Backlog 130 (M12) opened the plan on the firm's *Reorder planning* days,
+  90 unless the firm had typed its own. Those days belong to the reorder
+  alert, which asks what is short this week; a month-end order is judged on
+  a longer run of sales.
+- A quantity could be typed over on each line, and there was no way to put
+  all of them up together.
+
+**Design.**
+
+- **Six months.** *Sales of the last ... days* opens on **180**, whatever
+  the firm's reorder alert reads. Beside the box are four choices, **1
+  month**, **3 months**, **6 months** and **1 year** (30, 90, 180 and 365
+  days); one click puts that number in the box, and the one that matches the
+  box is marked. The box is still typed for any other number from 7 to 365.
+  *Stock for ... days* still opens on the firm's own figure.
+- The server does the same where a plan names no days: `sales_days` left out
+  of `GET /api/v1/purchases/order-plan` reads 180 days; `cover_days` left
+  out is still the firm's figure. *Below reorder level* is untouched and
+  keeps the firm's days.
+- **Raise all by %.** A box and **Apply** beside **Show**. Apply puts every
+  suggested quantity up by the percentage typed, 0 to 500, decimals allowed.
+  Each raised figure is rounded **up** to a whole unit and then to the
+  supplier's minimum and pack, the way the server rounds its own suggestion.
+- **It starts from the suggestion each time.** 10 and then 20 is plus 20,
+  not plus 32; 0 puts the suggestions back. A row with nothing suggested is
+  left as it is. A figure typed on a line *after* Apply stays as typed; one
+  typed *before* Apply is replaced by the raised suggestion.
+- The label says "Raised by 10%" once applied, and the downloaded sheet
+  carries the same line. **Show** reads the plan again and starts from the
+  suggestions.
+- **The order carries the raised figures** with no change to how an order is
+  raised: the screen always sent the figure in each ticked box, and the
+  server orders that figure.
+- **Server, two small changes.** The six-month default above, and each row
+  of the plan now says the supplier's `minimum_order_quantity` and
+  `order_multiple` (blank where its catalogue lists none), so the screen can
+  round a raised figure without asking again. No new route, table, column,
+  permission, setting or migration.
+
+**Calls.** Unchanged: opening reads the warehouses, companies, suppliers and
+the firm's planning figures once; **Show** is one read of the plan; a period
+choice and **Apply** ask the server nothing; **Raise draft orders** is one
+write.
+
+**Built.** Server: `PLAN_SALES_DAYS` and the two fields in
+`backend/app/purchase/services/order_plan.py`, the row in
+`backend/app/purchase/api/router.py`. Desktop:
+`desktop/lib/ui/purchases/order_plan_dialog.dart` (in a short window the
+choices scroll, so the rows keep their room). Tests:
+`backend/tests/unit/test_order_plan.py` (one changed, one more),
+`desktop/test/order_plan_dialog_test.dart` (11, four of them new). Case:
+TC-BUY-108. PR #1484.
+
+**Decided on the way.**
+
+- Six months is 180 days and a year 365, not calendar months: the plan has
+  always counted days, and the sum a person checks by hand divides by them.
+- The raise is done on the screen, not by the server: it is one click with
+  no read, and what is ordered is what the box shows.
+- The percentage only raises. Lowering every line is typed line by line.
+
+**Not built.**
+
+- The percentage is not kept: a plan opened again starts with the box
+  empty, and the order raised does not say what it was raised by.
+- A figure typed on a line before Apply is replaced, with no warning.
+- No raise by brand or by supplier, only all lines.
+- The period is not remembered per user; every new plan opens on six
+  months, as asked.
+- No screen was clicked in the running app.

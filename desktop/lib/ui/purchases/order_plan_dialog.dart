@@ -23,6 +23,12 @@ import '../workspace/save_in_dialog.dart';
 /// should choose a company first. The rows are raised with the choices that
 /// produced them, kept when Show was pressed, not with whatever the boxes say
 /// afterwards.
+///
+/// The sales read start at **the last six months** (backlog 142), with one
+/// month, three months and a year one click away and the box still typed.
+/// **Raise all by %** puts every suggested quantity up by a percentage at
+/// once, rounded up to a whole unit and to the supplier's minimum and pack;
+/// a line typed afterwards stays as typed.
 class OrderPlanDialog extends StatefulWidget {
   const OrderPlanDialog({super.key, required this.api});
 
@@ -41,8 +47,21 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
   String _companyId = '';
   String _supplierId = '';
 
-  final TextEditingController _salesDays = TextEditingController(text: '90');
+  /// The periods offered beside the typed days, in days.
+  static const List<(int, String)> _periods = <(int, String)>[
+    (30, '1 month'),
+    (90, '3 months'),
+    (180, '6 months'),
+    (365, '1 year'),
+  ];
+
+  final TextEditingController _salesDays = TextEditingController(text: '180');
   final TextEditingController _coverDays = TextEditingController(text: '30');
+  final TextEditingController _raisePercent = TextEditingController();
+
+  /// The percentage the shown quantities were last raised by; null until
+  /// Apply is pressed, and again after the next Show.
+  double? _raisedBy;
 
   bool _choicesLoading = true;
   String? _choicesError;
@@ -69,6 +88,7 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
   void dispose() {
     _salesDays.dispose();
     _coverDays.dispose();
+    _raisePercent.dispose();
     for (final TextEditingController controller in _quantities) {
       controller.dispose();
     }
@@ -97,14 +117,12 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
       } on ApiException {
         suppliers = const [];
       }
-      // The firm's own days are the starting point; a refusal keeps 90 / 30.
+      // The sales read start at six months whatever the firm's reorder alert
+      // reads; the days of stock wanted start at the firm's own, and a
+      // refusal keeps 30.
       try {
         final Json planning = await widget.api.reorderPlanning();
-        final int? sales = int.tryParse(stringValue(planning['sales_window_days']));
         final int? cover = int.tryParse(stringValue(planning['cover_days']));
-        if (sales != null && sales >= 7 && sales <= 365) {
-          _salesDays.text = '$sales';
-        }
         if (cover != null && cover >= 1 && cover <= 365) {
           _coverDays.text = '$cover';
         }
@@ -148,6 +166,45 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
   static bool _positive(String text) => (double.tryParse(text.trim()) ?? 0) > 0;
 
   static bool _orderable(Json row) => stringValue(row['supplier_id']).isNotEmpty;
+
+  /// The percentage typed, 0 to 500; null when it is not one.
+  double? get _percentValue {
+    final double? value = double.tryParse(_raisePercent.text.trim());
+    return value != null && value >= 0 && value <= 500 ? value : null;
+  }
+
+  /// A suggested quantity put up by [percent]: rounded up to a whole unit,
+  /// then to the supplier's minimum and pack as the server rounds its own.
+  static double _raised(Json row, double percent) {
+    final double suggested =
+        double.tryParse(stringValue(row['suggested_quantity'])) ?? 0;
+    // The hair taken off keeps 250 + 10% at 275 rather than 276.
+    double quantity =
+        (suggested * (100 + percent) / 100 - 1e-9).ceilToDouble();
+    final double minimum =
+        double.tryParse(stringValue(row['minimum_order_quantity'])) ?? 0;
+    final double multiple =
+        double.tryParse(stringValue(row['order_multiple'])) ?? 0;
+    if (minimum > 0 && quantity < minimum) quantity = minimum;
+    if (multiple > 0) {
+      quantity = (quantity / multiple - 1e-9).ceilToDouble() * multiple;
+    }
+    return quantity;
+  }
+
+  /// Puts every suggested quantity up by the percentage typed. It starts
+  /// from the suggestion each time, so 10 then 20 is plus 20 and 0 puts the
+  /// suggestions back; a row with nothing suggested is left as it is.
+  void _raiseAll() {
+    final double? percent = _percentValue;
+    final List<Json>? rows = _rows;
+    if (percent == null || rows == null) return;
+    for (int i = 0; i < rows.length; i++) {
+      if (!_positive(stringValue(rows[i]['suggested_quantity']))) continue;
+      _quantities[i].text = _plain(_raised(rows[i], percent));
+    }
+    setState(() => _raisedBy = percent);
+  }
 
   /// A quantity as the server sent it, without trailing zeros.
   static String _plain(dynamic value) {
@@ -202,6 +259,7 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
           'cover_days': cover,
         };
         _rows = rows;
+        _raisedBy = null;
         _ticked
           ..clear()
           ..addAll([
@@ -245,6 +303,8 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
           'Warehouse: ${warehouse?.name ?? ''}',
           'Sales of the last ${_kept['sales_days']} days; '
               'stock for ${_kept['cover_days']} days',
+          if ((_raisedBy ?? 0) > 0)
+            'Suggested quantities raised by ${_plain(_raisedBy)}%',
         ],
         headers: const [
           'Code',
@@ -296,7 +356,13 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!_choicesLoading) _choices(),
+            // A short window scrolls the choices rather than squeezing the
+            // rows out from under them.
+            if (!_choicesLoading)
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: height - 170),
+                child: SingleChildScrollView(child: _choices()),
+              ),
             const SizedBox(height: AppSpacing.xs),
             Text(
               'To order = sold in the period ÷ its days × days of stock '
@@ -413,6 +479,21 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
           before: 'Sales of the last',
           controller: _salesDays,
         ),
+        Wrap(
+          spacing: AppSpacing.xs,
+          children: [
+            for (final (int days, String label) in _periods)
+              ChoiceChip(
+                key: ValueKey('order-plan-period-$days'),
+                label: Text(label),
+                visualDensity: VisualDensity.compact,
+                selected: _salesValue == days,
+                onSelected: saving
+                    ? null
+                    : (_) => setState(() => _salesDays.text = '$days'),
+              ),
+          ],
+        ),
         _daysBox(
           key: 'order-plan-cover-days',
           before: 'Stock for',
@@ -423,6 +504,7 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
           onPressed: _canShow ? _show : null,
           child: Text(_showing ? 'Reading…' : 'Show'),
         ),
+        _raiseAllRow(Theme.of(context)),
       ],
     );
   }
@@ -518,6 +600,47 @@ class _OrderPlanDialogState extends State<OrderPlanDialog>
             itemCount: rows.length,
             itemBuilder: (context, index) => _row(theme, rows[index], index),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _raiseAllRow(ThemeData theme) {
+    final double? raisedBy = _raisedBy;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          raisedBy != null && raisedBy > 0
+              ? 'Raised by ${_plain(raisedBy)}%. Raise all by'
+              : 'Raise all by',
+          key: const ValueKey('order-plan-raised-note'),
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        SizedBox(
+          width: 56,
+          child: TextField(
+            key: const ValueKey('order-plan-raise-percent'),
+            controller: _raisePercent,
+            enabled: !saving,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(isDense: true),
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        Text('%', style: theme.textTheme.bodySmall),
+        const SizedBox(width: AppSpacing.sm),
+        OutlinedButton(
+          key: const ValueKey('order-plan-raise-apply'),
+          onPressed: !saving &&
+                  !_showing &&
+                  (_rows ?? const []).isNotEmpty &&
+                  _percentValue != null
+              ? _raiseAll
+              : null,
+          child: const Text('Apply'),
         ),
       ],
     );

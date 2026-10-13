@@ -1014,6 +1014,8 @@ class OrderPlanRecord(BaseModel):
     supplier_id: UUID | None
     supplier_name: str | None
     unit_price: Decimal
+    minimum_order_quantity: Decimal | None = None
+    order_multiple: Decimal | None = None
 
 
 class OrderPlanPickWrite(BaseModel):
@@ -1059,8 +1061,8 @@ def order_plan(
     """Say what to order for a company's products from what sold (130).
 
     Average sales over ``sales_days`` times ``cover_days``, less the stock in
-    hand and what open orders still bring; the days default to the firm's
-    reorder planning.
+    hand and what open orders still bring. ``sales_days`` left out reads the
+    last six months; ``cover_days`` left out is the firm's reorder planning.
     """
     window = ReportWindow(None, None, page, page_size)
     rows = OrderPlanService(db).plan(

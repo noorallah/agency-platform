@@ -3,7 +3,9 @@
 // Nothing is listed until Show; the rows carry the sum's figures; a row with
 // nothing to order or no supplier is not ticked; Raise sends the choices the
 // shown rows were computed with plus the ticked items; a refusal keeps the
-// dialog open.
+// dialog open. The sales read start at six months with the other periods one
+// click away, and every suggested quantity can be raised by a percentage at
+// once (backlog 142).
 
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/models/entities.dart';
@@ -12,7 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _PlanApi extends ApiClient {
-  _PlanApi({this.refuse, this.planningRefused = false})
+  _PlanApi({this.refuse, this.planningRefused = false, this.pack})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -22,6 +24,9 @@ class _PlanApi extends ApiClient {
 
   final String? refuse;
   final bool planningRefused;
+
+  /// The pack the first product's supplier sells it in, if any.
+  final String? pack;
   final List<Uri> planReads = <Uri>[];
   final List<Json> sent = <Json>[];
 
@@ -60,6 +65,8 @@ class _PlanApi extends ApiClient {
             'suggested_quantity': '250.0000',
             'supplier_id': 'v-1',
             'supplier_name': 'Sri Ganesh Traders',
+            'minimum_order_quantity': null,
+            'order_multiple': pack,
           },
           <String, dynamic>{
             'product_id': 'p-2',
@@ -176,8 +183,19 @@ void main() {
     final _PlanApi api = _PlanApi();
     await _open(tester, api);
 
-    // Nothing is listed until Show.
+    // Nothing is listed until Show, so there is nothing to raise either.
     expect(api.planReads, isEmpty);
+    await tester.enterText(
+        find.byKey(const ValueKey('order-plan-raise-percent')), '10');
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<OutlinedButton>(
+                find.byKey(const ValueKey('order-plan-raise-apply')))
+            .onPressed,
+        isNull);
+    await tester.enterText(
+        find.byKey(const ValueKey('order-plan-raise-percent')), '');
     expect(find.text('SKU-001 · Basmati 5kg'), findsNothing);
 
     await _chooseCompany(tester);
@@ -187,7 +205,7 @@ void main() {
         api.planReads.single.queryParametersAll;
     expect(asked['warehouse_id'], ['wh-1']);
     expect(asked['company_id'], ['co-1']);
-    expect(asked['sales_days'], ['60']);
+    expect(asked['sales_days'], ['180']);
     expect(asked['cover_days'], ['21']);
     expect(asked.containsKey('vendor_id'), isFalse);
 
@@ -241,7 +259,7 @@ void main() {
       'company_id': 'co-1',
       'brand_ids': <String>[],
       'vendor_id': null,
-      'sales_days': 60,
+      'sales_days': 180,
       'cover_days': 21,
       'items': <Json>[
         <String, dynamic>{'product_id': 'p-1', 'quantity': '260'},
@@ -265,15 +283,24 @@ void main() {
     expect(find.textContaining('not sold by anyone'), findsOneWidget);
   });
 
-  testWidgets('the days start at the firm planning figures', (tester) async {
+  testWidgets(
+      'a new plan opens on six months, the stock wanted on the firm figure',
+      (tester) async {
     await _open(tester, _PlanApi());
+    // The firm's reorder alert reads 60 days; the plan does not follow it.
     expect(
         tester
             .widget<TextField>(
                 find.byKey(const ValueKey('order-plan-sales-days')))
             .controller!
             .text,
-        '60');
+        '180');
+    expect(
+        tester
+            .widget<ChoiceChip>(
+                find.byKey(const ValueKey('order-plan-period-180')))
+            .selected,
+        isTrue);
     expect(
         tester
             .widget<TextField>(
@@ -283,7 +310,157 @@ void main() {
         '21');
   });
 
-  testWidgets('the days fall back to 90 and 30 when planning is refused',
+  testWidgets('another period is one click away', (tester) async {
+    final _PlanApi api = _PlanApi();
+    await _open(tester, api);
+
+    for (final String key in <String>[
+      'order-plan-period-30',
+      'order-plan-period-90',
+      'order-plan-period-180',
+      'order-plan-period-365',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
+    await tester.tap(find.byKey(const ValueKey('order-plan-period-90')));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<TextField>(
+                find.byKey(const ValueKey('order-plan-sales-days')))
+            .controller!
+            .text,
+        '90');
+    expect(
+        tester
+            .widget<ChoiceChip>(
+                find.byKey(const ValueKey('order-plan-period-180')))
+            .selected,
+        isFalse);
+
+    await _show(tester);
+    expect(api.planReads.single.queryParametersAll['sales_days'], ['90']);
+
+    // A typed number of days that is none of the periods selects none.
+    await tester.enterText(
+        find.byKey(const ValueKey('order-plan-sales-days')), '45');
+    await tester.pumpAndSettle();
+    for (final int days in <int>[30, 90, 180, 365]) {
+      expect(
+          tester
+              .widget<ChoiceChip>(
+                  find.byKey(ValueKey('order-plan-period-$days')))
+              .selected,
+          isFalse);
+    }
+  });
+
+  testWidgets('plus 10% on all raises every suggested quantity',
+      (tester) async {
+    final _PlanApi api = _PlanApi();
+    await _open(tester, api);
+    await _chooseCompany(tester);
+    await _show(tester);
+
+    // Nothing to apply until a percentage is typed.
+    expect(find.text('Raise all by'), findsOneWidget);
+    expect(
+        tester
+            .widget<OutlinedButton>(
+                find.byKey(const ValueKey('order-plan-raise-apply')))
+            .onPressed,
+        isNull);
+    await tester.enterText(
+        find.byKey(const ValueKey('order-plan-raise-percent')), '10');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('order-plan-raise-apply')));
+    await tester.pumpAndSettle();
+
+    String box(int index) => tester
+        .widget<TextField>(find.byKey(ValueKey('order-plan-quantity-$index')))
+        .controller!
+        .text;
+    // 250 + 10% = 275; nothing suggested stays blank; 15 + 10% = 16.5,
+    // rounded up to 17.
+    expect(box(0), '275');
+    expect(box(1), '');
+    expect(box(2), '17');
+    expect(find.text('Raised by 10%. Raise all by'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('order-plan-raise')));
+    await tester.pumpAndSettle();
+    expect(api.sent.single['items'], <Json>[
+      <String, dynamic>{'product_id': 'p-1', 'quantity': '275'},
+    ]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('raising starts from the suggestion each time', (tester) async {
+    await _open(tester, _PlanApi());
+    await _show(tester);
+    String first() => tester
+        .widget<TextField>(
+            find.byKey(const ValueKey('order-plan-quantity-0')))
+        .controller!
+        .text;
+    Future<void> apply(String percent) async {
+      await tester.enterText(
+          find.byKey(const ValueKey('order-plan-raise-percent')), percent);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('order-plan-raise-apply')));
+      await tester.pumpAndSettle();
+    }
+
+    await apply('10');
+    expect(first(), '275');
+    await apply('20');
+    expect(first(), '300');
+    // A line typed after the raise stays as typed.
+    await tester.enterText(
+        find.byKey(const ValueKey('order-plan-quantity-0')), '310');
+    await tester.pumpAndSettle();
+    expect(first(), '310');
+    expect(find.text('Raise draft orders (1)'), findsOneWidget);
+    // Nought puts the suggestions back.
+    await apply('0');
+    expect(first(), '250');
+    expect(find.text('Raise all by'), findsOneWidget);
+
+    // Not a percentage: nothing to apply.
+    for (final String wrong in <String>['-5', 'ten', '501']) {
+      await tester.enterText(
+          find.byKey(const ValueKey('order-plan-raise-percent')), wrong);
+      await tester.pumpAndSettle();
+      expect(
+          tester
+              .widget<OutlinedButton>(
+                  find.byKey(const ValueKey('order-plan-raise-apply')))
+              .onPressed,
+          isNull,
+          reason: wrong);
+    }
+  });
+
+  testWidgets('a raised quantity keeps to the supplier pack', (tester) async {
+    await _open(tester, _PlanApi(pack: '12.0000'));
+    await _show(tester);
+    await tester.enterText(
+        find.byKey(const ValueKey('order-plan-raise-percent')), '10');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('order-plan-raise-apply')));
+    await tester.pumpAndSettle();
+
+    // 275 in dozens is 276.
+    expect(
+        tester
+            .widget<TextField>(
+                find.byKey(const ValueKey('order-plan-quantity-0')))
+            .controller!
+            .text,
+        '276');
+  });
+
+  testWidgets('the days of stock fall back to 30 when planning is refused',
       (tester) async {
     await _open(tester, _PlanApi(planningRefused: true));
     expect(
@@ -292,7 +469,7 @@ void main() {
                 find.byKey(const ValueKey('order-plan-sales-days')))
             .controller!
             .text,
-        '90');
+        '180');
     expect(
         tester
             .widget<TextField>(
@@ -308,6 +485,8 @@ void main() {
 
     expect(find.byKey(const ValueKey('order-plan-row-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('order-plan-download')), findsOneWidget);
+    expect(find.byKey(const ValueKey('order-plan-raise-apply')), findsOneWidget);
+    expect(find.byKey(const ValueKey('order-plan-period-180')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

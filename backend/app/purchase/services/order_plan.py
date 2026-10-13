@@ -7,7 +7,9 @@ brands is listed with what to order, short or not.
 **One sum per product, which a person can do by hand.** Over the last
 ``sales_days`` days up to today the warehouse sold *S* (dispatches less
 returns, each net of its reversals, in stock units). The plan covers
-``cover_days`` days:
+``cover_days`` days. A plan that names no ``sales_days`` reads the last six
+months (``PLAN_SALES_DAYS``, backlog 142): a month-end order is judged on a
+longer run of sales than the reorder alert is.
 
     needed    = S / sales_days * cover_days
     to order  = needed - stock in hand - already on open orders
@@ -59,6 +61,9 @@ from app.vendors.models.supplier_product import SupplierProduct
 from app.vendors.services.order_quantities import rounded_quantity
 from app.vendors.services.vendor_brands import VendorBrandService
 
+#: The days of sales a plan reads when none are named: six months.
+PLAN_SALES_DAYS = 180
+
 #: Products asked about at a time: a statement holds 65,535 parameters, and a
 #: plan with no filter names every product the firm has.
 _CHUNK = 5000
@@ -72,8 +77,9 @@ class OrderPlanQuery:
     company_id: UUID | None = None
     brand_ids: tuple[UUID, ...] = ()
     vendor_id: UUID | None = None
-    #: ``None`` takes the firm's reorder planning figure (90 and 30 unset).
+    #: ``None`` reads the last six months (``PLAN_SALES_DAYS``).
     sales_days: int | None = None
+    #: ``None`` takes the firm's reorder planning figure (30 unset).
     cover_days: int | None = None
 
 
@@ -100,6 +106,10 @@ class OrderPlanRow:
     supplier_id: UUID | None
     supplier_name: str | None
     unit_price: Decimal
+    #: The supplier's terms the suggestion was rounded up to, so a screen
+    #: that raises the suggestion can round the same way (backlog 142).
+    minimum_order_quantity: Decimal | None = None
+    order_multiple: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -124,7 +134,7 @@ class OrderPlanService(ReorderService):
 
         """
         planning = self.planning(firm_id)
-        sales_days = query.sales_days or planning.sales_window_days
+        sales_days = query.sales_days or PLAN_SALES_DAYS
         cover_days = query.cover_days or planning.cover_days
         if not 7 <= sales_days <= 365:
             raise ValidationError("Read sales over 7 to 365 days.")
@@ -194,6 +204,10 @@ class OrderPlanService(ReorderService):
                         if rate is not None
                         else Decimal(str(product.purchase_price or 0))
                     ),
+                    minimum_order_quantity=(
+                        None if listed is None else listed.minimum_order_quantity
+                    ),
+                    order_multiple=None if listed is None else listed.order_multiple,
                 )
             )
         rows.sort(key=lambda row: row.product_code)

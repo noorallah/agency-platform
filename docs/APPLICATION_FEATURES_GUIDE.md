@@ -1521,8 +1521,14 @@ rows, type over a quantity where wanted, and **Raise draft orders** raises
 one draft per supplier; **Download** gives the list as an Excel sheet. A
 supplier chosen at the top takes every row; otherwise each product goes to
 its preferred supplier, else the one last billed, else the one its company is
-bought from. Left untyped, the days are the firm's *Reorder planning*
-figures.
+bought from. The sales read open on **the last six months** (180 days); **1
+month**, **3 months**, **6 months** and **1 year** are one click beside the
+box, and any other number of days can be typed. The days of stock to hold
+open on the firm's *Reorder planning* figure. **Raise all by %** with
+**Apply** puts every suggested quantity up by a percentage at once, rounded
+up to a whole unit and to the supplier's pack; it works from the suggestion
+each time (0 puts the suggestions back), and a quantity typed on a line
+afterwards stays as typed.
 
 Every buying list names the **supplier** in a column and on the bar, and is
 searched by supplier name.
