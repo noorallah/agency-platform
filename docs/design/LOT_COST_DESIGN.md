@@ -253,11 +253,44 @@ own rate, price level, product price.
 | Serial numbers | A unit already belongs to a batch, so to a lot. Unchanged |
 | Landed cost added later | Onto the lots of that receipt for the units still in them; the share of units gone posts to purchase price variance |
 | A principal's price cut, a supplier's rebate by credit note | Unchanged: income or variance, never back into a lot (`docs/LEDGER_POSTING_RULES.md`) |
-| Negative stock | Refused for a firm costing by lot: a sale with no lot has no cost and nothing to trace. Decision 4 |
+| Negative stock | Refused for a firm costing by lot unless the firm has switched on *Allow billing without stock* and the bill maker confirms; then section 3.7. Decision 4 |
 
 Units: a lot's cost, MRP and prices are per stock unit, as batch prices and
 the average are today. A line in boxes converts the way it does now
 (`docs/UOM_FRAMEWORK.md`).
+
+### 3.7 Billing without stock, where the firm allows it
+
+The owner, 2026-10-13: by default a bill for goods that no lot holds is
+refused, but a firm may allow it, and then the bill maker is asked and
+decides. Many firms bill from goods on the shelf before the purchase is
+typed, and a flat refusal would stop their counter.
+
+- **The switch.** `stock_lot_settings.allow_billing_without_stock`, Boolean,
+  not null, default false. It works with the item's own "allow negative
+  stock": both must be on. Off, the sale is refused by name ("No stock of
+  Item A in any lot. Enter the purchase first.").
+- **The question.** On, the approval answers a warning the screen must
+  confirm, as the credit limit does: "No stock of Item A. Bill anyway?".
+  The confirmation is recorded with who gave it. The server asks; a client
+  that does not confirm is refused.
+- **The cost for now.** The units leave at the item's last lot cost (the
+  last purchase), or the item's average where it has never been bought, and
+  the movement is marked as waiting for its lot. One row per such movement
+  in a new table, `lot_shortfalls`: the movement, the item, the units still
+  waiting and the cost used.
+- **When the purchase is typed.** The new lot first covers the units
+  waiting, oldest sale first. Those units leave the lot at once, the sale's
+  lines now name the lot, and the difference between the cost used and the
+  lot's cost is posted on the purchase's date (`COST_CORRECTION`), never
+  back into the day of the sale, so no closed month is touched. What is
+  left of the lot is stock.
+- **Nothing waits unseen.** A report, *Bills waiting for their cost*, lists
+  every open row with its age, and the stock valuation states the units
+  owed to lots as a line of its own. A year cannot be closed while a row
+  dated in it is open.
+- A return of such units before their purchase is typed cancels the row to
+  that extent, at the cost used.
 
 ## 4. Books
 
@@ -302,7 +335,11 @@ build up. And a purchase return of what was bought leaves no variance.
 
 ### 4.3 The costing method is a firm setting
 
-`AVERAGE` (today) or `BY_LOT`, per firm, in `stock_lot_settings`. Not per
+`AVERAGE` (today) or `BY_LOT`, per firm, in `stock_lot_settings`. **By lot
+is the preferred method** (the owner, 2026-10-13): once L2 is complete a
+firm created from then on starts on `BY_LOT`, and Average stays available
+because it is already built and firms are trading on it. A firm that exists
+today stays on Average until it switches (4.4). Not per
 item: one firm, one method, one stock figure the accountant can state in a
 sentence. Tally and ERPNext allow a method per item; we do not need it and
 it doubles every test. A firm on `AVERAGE` behaves exactly as today in
@@ -313,6 +350,10 @@ stock rows, picking, cost and reports.
 The method is changed by its own action, never by saving a settings form,
 and never silently.
 
+0. A switch never touches a bill already made. Every saved bill line keeps
+   the selling price and the cost it was saved with, so past bills, their
+   margin and the reports on them read the same afterwards (the owner asked
+   this on 2026-10-13).
 1. Somebody with the finance settings permission asks to switch, naming the
    day. The screen first shows what will happen: items, stock value, the
    date.
@@ -373,6 +414,7 @@ Each step is one pull request, mergeable and testable alone. A firm on
 | 5 | Selling: the delivery note keeps each lot's movement and cost; the bill line's cost is read per line; prints merge equal rows | **Yes** | Two lines of one item from two lots show two costs; print tests |
 | 6 | Returns: sales return into the lots it left, with `sales_return_line_batches`; purchase return out of the receipt's lot; every cancel path | **Yes** | The return of the worked example; cancel tests leave no variance |
 | 7 | The rest of stock: transfers, adjustments, write-offs, counts, quarantine, repack; negative stock refused | No | One test per row of section 3.6 |
+| 7a | Billing without stock (section 3.7): the firm's switch, the question at approval, `lot_shortfalls`, the settling when the purchase is typed, the report, the year-close refusal | **Yes** | The cost of a sale made before its purchase equals the lot's cost once settled; the Inventory account equals lots less units owed |
 | 8 | Bill rate correction and landed cost onto the lot (`COST_CORRECTION`) | No | Ledger tests: Inventory account equals the sum of lots |
 | 9 | The switch-over action, its preview, the proof by totals, the refusal of earlier dates, the settings screen | No | Integration test on PostgreSQL across two stores; a firm with two years of history switched and compared |
 | 10 | Reports: valuation by lot and its drill-down, ageing from `received_on`, margin by lot, price floor on lot cost | No | Report tests; totals agree with the Inventory account |
@@ -417,34 +459,34 @@ L3 is built later. This is what the lot must carry for it, and where.
 
 Each has the recommended answer first.
 
+All six were answered by the owner on 2026-10-13.
+
 1. **Is the costing method a firm setting, Average or By lot?**
-   **Yes: per firm, By lot for the first customer's firms, every existing
-   firm stays on Average until switched.** One method per firm is what an
-   accountant can sign; a method per item doubles the testing for no asked
-   need. To confirm with the CA: the cost of a sale is the cost of the lots
-   actually taken, first in first out being the default order.
+   **ANSWERED: both are kept, per firm, and By lot is the preferred one.**
+   New firms start on By lot once it is built; firms trading today stay on
+   Average until switched. To confirm with the CA: the cost of a sale is
+   the cost of the lots actually taken.
 2. **May a firm switch, and may it switch back?**
-   **Any day, one way, stock carried in at that day's average, nothing
-   re-valued.** Going back would have to melt lots into an average and lose
-   every trace; the start of a financial year is the suggested day.
+   **ANSWERED: as recommended.** Any day, one way, stock carried in at that
+   day's average, nothing re-valued. Bills already made keep their selling
+   price and their cost.
 3. **The supplier's bill comes at another rate than the receipt.**
-   **Correct the lot for the units still in it; the share already sold goes
-   to purchase price variance.** Stock then stands at what was really paid.
-   It cannot arise where the bill itself brings the stock in, which is how
-   the first customer works. The CA confirms.
+   **ANSWERED: as recommended.** Correct the lot for the units still in it;
+   the share already sold goes to purchase price variance. The CA confirms.
 4. **Selling an item with no stock in any lot.**
-   **Refuse it for a firm costing by lot.** A sale with no lot has no cost
-   and no supplier's bill behind it. The purchase is typed first; the item's
-   own "allow negative stock" switch is ignored for such a firm.
+   **ANSWERED: refused by default; a firm may switch on billing without
+   stock, and then the bill maker is asked and may go on.** Section 3.7
+   says how such a sale is costed and settled.
 5. **Should firms on Average also get a lot per purchase line now?**
-   **No, later and as its own item.** It would reshape the stock of every
-   firm already trading for no change they asked for. L2 builds the one
-   structure; moving the rest onto it is a migration to do once the first
-   customer is live on it.
+   **ANSWERED: no, later and as its own item.**
 6. **The word Lot is already a menu (production lots).**
-   **Call the new thing Lot on screen, and hide the old Lots menu for
-   firms costing by lot.** Nothing in stock writes the old table. Removing
-   it altogether is a clean-up to agree separately.
+   **ANSWERED: option A.** The list is called **Lots** and the number the
+   maker printed is **Batch no.**, a field of the lot that may be blank.
+   The old Lots menu is hidden for firms costing by lot; removing the old
+   table is a clean-up to agree separately.
+
+Also settled the same day, from the box-and-piece note: **an item has one
+box size, the item's own**; a lot keeps no pack size.
 
 ## 10. Decided here by convention
 
@@ -468,3 +510,4 @@ Recorded so nobody has to ask again.
 | Later rebates and price cuts | Never into a lot | The existing ledger rule |
 | Cost storage | Its own table, not on the batch | Batches hold no quantity; cost must not leak |
 | Method stored | Per firm, stamped per item at the switch | One read per movement |
+| A line that takes from two lots | Stays one line, with its lots beneath it | So an offer counts the line's whole quantity (the L6 note asked) |
