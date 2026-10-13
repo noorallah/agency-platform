@@ -5685,9 +5685,11 @@ commit.
 - **A drug licence is gated on the field, not the vendor**: every
   `tax[].drug_license` sent is checked against the firm's `DRUG_LICENSE`
   feature (§14.3), and refused by name for a profile that does not enable it.
-- **Refused, nothing written:** a code or GSTIN the firm already holds,
-  deleted vendors included — "Vendor code or GSTIN already exists in this
-  firm."; two primaries in one collection.
+- **Refused, nothing written:** a code a live vendor of the firm holds
+  ("Vendor code already exists in this firm."); a GST number another live
+  vendor typed, naming the holder (backlog 136; a branch that sends none
+  takes its main office's and `gstin_from_parent` is set); two primaries in
+  one collection.
 - **Not checked:** `category_id`, `type_id` and `business_profile_id` are
   written straight through, so another firm's category in the shared store is
   accepted (D-MST-3); the address's geography ids are stored without the

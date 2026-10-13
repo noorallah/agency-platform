@@ -1259,6 +1259,14 @@ deep. `app/vendors/services/supplier_family.py` holds the rules and the three
 questions the documents ask: `company_of` (the main office each supplier
 belongs to), `same_company` and `assert_office_of`.
 
+**A GST number is typed once (backlog 136).** A branch that sends no number
+takes its main office's: the server copies it onto the branch's row and marks
+it `gstin_from_parent`, so every reader of `vendors.gstin` taxes and matches
+the branch under it. `UQ_vendors_firm_gstin_own_active` holds a typed number
+to one live supplier and leaves the copies out; `SupplierFamily.resolve`
+decides what a write stores and names the holder when it refuses. The copy
+moves when the main office's number does, in the same transaction.
+
 | Document | Whose it is | Rule |
 | --- | --- | --- |
 | Purchase order | The office it was placed on | Unchanged |

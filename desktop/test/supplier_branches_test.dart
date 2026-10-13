@@ -1,5 +1,5 @@
 // A supplier company is one main-office supplier with a supplier record per
-// branch under it (backlog 127). Each branch keeps its own GST number.
+// branch under it (backlog 127). A branch keeps its own GST number or takes its main office's.
 //
 // What the screens owe: a "Branch of" field that sends only
 // `parent_vendor_id`, a Branches panel fed by one family call (and none for
@@ -42,8 +42,12 @@ Json _vendorJson({
   String? parentCode,
   String? parentName,
   int branches = 0,
+  String gstin = '',
+  bool gstinFromParent = false,
 }) =>
     <String, dynamic>{
+      'gstin': gstin,
+      'gstin_from_parent': gstinFromParent,
       'id': id,
       'firm_id': 'firm-1',
       'code': code,
@@ -85,8 +89,37 @@ final VendorFamily _family = VendorFamily.fromJson(<String, dynamic>{
   'total_balance': '79.50',
 });
 
+// The same company when the Bengaluru branch left its GSTIN blank and the
+// server copied the main office's onto it.
+final VendorFamily _takingFamily = VendorFamily.fromJson(<String, dynamic>{
+  'parent_id': 'v-main',
+  'members': <Json>[
+    <String, dynamic>{
+      'id': 'v-main',
+      'code': 'HQ',
+      'name': 'Sundaram Pharma',
+      'is_parent': true,
+      'gstin': '33AAAAA0000A1Z5',
+      'gstin_from_parent': false,
+      'status': 'ACTIVE',
+      'balance': '100.00',
+    },
+    <String, dynamic>{
+      'id': 'v-blr',
+      'code': 'HQ-BLR',
+      'name': 'Sundaram Pharma Bengaluru',
+      'is_parent': false,
+      'gstin': '33AAAAA0000A1Z5',
+      'gstin_from_parent': true,
+      'status': 'ACTIVE',
+      'balance': '0.00',
+    },
+  ],
+  'total_balance': '100.00',
+});
+
 class _VendorApi extends ApiClient {
-  _VendorApi({this.rows = const <Json>[]})
+  _VendorApi({this.rows = const <Json>[], this.family})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -95,6 +128,7 @@ class _VendorApi extends ApiClient {
         );
 
   final List<Json> rows;
+  final VendorFamily? family;
   Json? saved;
   final List<String> familyCalls = <String>[];
 
@@ -114,7 +148,7 @@ class _VendorApi extends ApiClient {
   @override
   Future<VendorFamily> vendorFamily(String id) async {
     familyCalls.add(id);
-    return _family;
+    return family ?? _family;
   }
 
   @override
@@ -367,8 +401,8 @@ void main() {
       expect(find.text('Branch of'), findsOneWidget);
       expect(
         find.text('The main office this supplier is a branch of. A branch '
-            'keeps its own GST number. Leave blank for a supplier on its '
-            'own.'),
+            'takes its GST number unless it types its own. Leave blank for a '
+            'supplier on its own.'),
         findsOneWidget,
       );
       final Finder box = find.byKey(const ValueKey('vendor-parent-box'));
@@ -435,6 +469,55 @@ void main() {
 
       expect(api.saved!.containsKey('parent_vendor_id'), isTrue);
       expect(api.saved!['parent_vendor_id'], isNull);
+    });
+
+    testWidgets('a branch that takes its main office\'s GSTIN opens with the '
+        'box empty, names the number, and saves blank', (tester) async {
+      final _VendorApi api = _VendorApi(
+        rows: [
+          _vendorJson(
+              id: 'v-blr',
+              code: 'HQ-BLR',
+              name: 'Bengaluru',
+              parentId: 'v-main',
+              parentCode: 'HQ',
+              parentName: 'Sundaram Pharma',
+              gstin: '33AAAAA0000A1Z5',
+              gstinFromParent: true),
+        ],
+        family: _takingFamily,
+      );
+      await _pumpVendors(tester, api);
+      await _editRow(tester, 'HQ-BLR');
+
+      final Finder box = find.widgetWithText(TextField, 'GSTIN');
+      expect(tester.widget<TextField>(box).controller!.text, isEmpty);
+      expect(
+        find.text("Blank takes the main office's GST number "
+            '(33AAAAA0000A1Z5). Type one only for a branch registered in '
+            'another state.'),
+        findsOneWidget,
+      );
+
+      await _save(tester);
+      expect(api.saved!['gstin'], isEmpty);
+      expect(api.saved!['gstin'], isNot('33AAAAA0000A1Z5'));
+    });
+
+    testWidgets('the Branches panel marks a GSTIN the branch took from its '
+        'main office', (tester) async {
+      final _VendorApi api = _VendorApi(
+        rows: [
+          _vendorJson(id: 'v-main', code: 'HQ', name: 'Sundaram', branches: 1),
+        ],
+        family: _takingFamily,
+      );
+      await _pumpVendors(tester, api);
+      await _editRow(tester, 'HQ');
+
+      await tester.ensureVisible(find.byKey(const ValueKey('vendor-branches')));
+      expect(find.textContaining("33AAAAA0000A1Z5 (main office's)"),
+          findsOneWidget);
     });
 
     testWidgets('a main office with branches cannot become a branch',

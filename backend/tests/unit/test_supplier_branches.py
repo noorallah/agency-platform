@@ -1,8 +1,9 @@
 """A supplier company with branches (backlog 127, row M9).
 
 A supplier company is one main office with a supplier per branch under it.
-Each branch keeps its own GST number. An order on the main office is
-received from a branch and billed by it, and a payment to the main office
+A branch keeps its own GST number or takes its main office's. An order on
+the main office is received from a branch and billed by it, and a payment to
+the main office
 clears a branch's bills, while each office's account still closes on what
 that office is owed.
 """
@@ -234,11 +235,12 @@ def test_a_main_office_with_branches_each_with_its_own_gst_number() -> None:
     plain = _supplier(fixture, "HUL-MYP", main.id)
 
     assert kkp.parent_vendor_id == main.id
-    # Nothing is copied: a branch is registered in its own state.
-    assert kkp.gstin == "36ABCDE1234F1Z0"
-    assert plain.gstin is None
-    # The key that was already there still holds a number to one supplier.
-    with pytest.raises(ConflictError):
+    # A branch registered in its own state holds its own number.
+    assert (kkp.gstin, kkp.gstin_from_parent) == ("36ABCDE1234F1Z0", False)
+    # One that types none takes its main office's (backlog 136).
+    assert (plain.gstin, plain.gstin_from_parent) == ("29ABCDE1234F1Z5", True)
+    # A number is still typed once.
+    with pytest.raises(ConflictError, match="held by HUL-KKP"):
         _supplier(
             fixture,
             "HUL-DUP",

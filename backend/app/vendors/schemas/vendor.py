@@ -178,7 +178,8 @@ class VendorWrite(VendorSchema):
     blocked_reason: str | None = Field(default=None, max_length=500)
     business_profile_id: UUID | None = None
     #: The main office this supplier is a branch of (backlog 127). A branch
-    #: keeps its own GST number; nothing is copied from the main office.
+    #: that sends no GST number takes its main office's; one in another state
+    #: sends its own (backlog 136).
     parent_vendor_id: UUID | None = None
     gst_registration: bool = False
     gstin: str | None = Field(default=None, max_length=32)
@@ -519,6 +520,8 @@ class VendorResponse(VendorSchema):
     branch_count: int = 0
     gst_registration: bool
     gstin: str | None
+    #: The GST number is the main office's, taken by this branch.
+    gstin_from_parent: bool = False
     gst_registration_type: str | None = None
     pan: str | None
     payment_terms_days: int = 0
@@ -563,6 +566,7 @@ class VendorFamilyMember(VendorSchema):
     name: str
     is_parent: bool
     gstin: str | None = None
+    gstin_from_parent: bool = False
     status: str
     #: Area and city of the office's main address, to tell branches apart.
     place: str | None = None

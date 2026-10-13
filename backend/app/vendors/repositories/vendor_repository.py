@@ -73,17 +73,17 @@ class VendorRepository:
         firm_id: UUID,
         *,
         code: str,
-        gstin: str | None,
         excluding_id: UUID | None = None,
     ) -> UUID | None:
-        """Duplicate id."""
-        conditions = [Vendor.code == code]
-        if gstin:
-            conditions.append(Vendor.gstin == gstin)
-        # Live rows only (D-MST-11): a deleted vendor releases its code and
-        # GSTIN, as the partial keys do.
+        """Return the live vendor holding a code, if any.
+
+        Live rows only (D-MST-11): a deleted vendor releases its code, as the
+        partial key does. A GST number's holder is asked of ``SupplierFamily``.
+        """
         statement = select(Vendor.id).where(
-            Vendor.firm_id == firm_id, Vendor.is_deleted.is_(False), or_(*conditions)
+            Vendor.firm_id == firm_id,
+            Vendor.is_deleted.is_(False),
+            Vendor.code == code,
         )
         if excluding_id is not None:
             statement = statement.where(Vendor.id != excluding_id)

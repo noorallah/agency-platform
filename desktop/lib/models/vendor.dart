@@ -350,9 +350,13 @@ class Vendor {
     this.parentCode,
     this.parentName,
     this.branchCount = 0,
+    this.gstinFromParent = false,
   });
 
   final String id;
+
+  /// True when [gstin] is the main office's, copied by the server.
+  final bool gstinFromParent;
 
   /// The main office this supplier is a branch of, or null for a supplier on
   /// its own.
@@ -527,6 +531,7 @@ class Vendor {
         parentCode: json['parent_code'] as String?,
         parentName: json['parent_name'] as String?,
         branchCount: (json['branch_count'] as num?)?.toInt() ?? 0,
+        gstinFromParent: boolValue(json['gstin_from_parent']),
       );
 }
 
@@ -541,6 +546,7 @@ class VendorFamilyMember {
     required this.status,
     required this.place,
     required this.balance,
+    this.gstinFromParent = false,
   });
 
   final String id;
@@ -548,6 +554,9 @@ class VendorFamilyMember {
   final String name;
   final bool isParent;
   final String gstin;
+
+  /// True when [gstin] is the main office's, copied by the server.
+  final bool gstinFromParent;
   final String status;
 
   /// "Area, City", or empty.
@@ -562,6 +571,7 @@ class VendorFamilyMember {
         name: stringValue(json['name']),
         isParent: boolValue(json['is_parent']),
         gstin: stringValue(json['gstin']),
+        gstinFromParent: boolValue(json['gstin_from_parent']),
         status: stringValue(json['status']),
         place: stringValue(json['place']),
         balance: stringValue(json['balance']).isEmpty

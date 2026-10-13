@@ -2427,6 +2427,33 @@ of 2026-10-05 and, like the rest, have not been run by hand.
   - Step 6: refused, nothing to order for `P3`; no order is raised.
   - Step 7: an Excel sheet with the rows and figures on the screen.
 
+### TC-BUY-106 — A supplier's GST number is held once; a branch takes its main office's
+
+*Added 2026-10-13 (backlog 136). The server steps were driven over HTTP; the form is covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 136 (customer task F5)
+- **Fixture:** `ready-firm`
+- **Also needs:** two GST numbers nobody in the firm holds, `G1` (state 36) and `G2` (state 29) on one PAN, and a third, `G3`, on another PAN
+- **Steps**
+  1. *Buy → Suppliers* → **New**. Code `MAIN`, GSTIN `G1`. Save.
+  2. **New**. Code `BR1`, **Branch of** `MAIN`, GSTIN left blank. Save, then open it again.
+  3. **New**. Code `BR2`, **Branch of** `MAIN`, GSTIN `G2`. Save.
+  4. **New**. Code `OTHER`, no main office, GSTIN `G1`. Save.
+  5. **New**. Code `OTHER`, no main office, GSTIN `G2`. Save.
+  6. Open `MAIN`, change the GSTIN to `G3` and the PAN to match. Save. Open `BR1` and `BR2`.
+  7. **New**. Code `OTHER`, GSTIN `G1`. Save.
+  8. Open `BR1`, clear **Branch of**. Save.
+  9. Delete `OTHER`. **New**, code `AGAIN`, GSTIN `G1`. Save. Then restore `OTHER`.
+- **Expect**
+  - Step 2: saved. The form opens with the GSTIN box blank and under it "Blank takes the main office's GST number (`G1`)". The **Branches** panel on `MAIN` shows `BR1` with "`G1` (main office's)". The supplier list and any report show `BR1` under `G1`.
+  - Step 3: saved; `BR2` holds `G2` as its own.
+  - Step 4: refused. The message says `G1` is held by `MAIN`, and to make this supplier a branch of `MAIN` and leave its GST number blank.
+  - Step 5: refused, naming `BR2`.
+  - Step 6: `BR1` now shows `G3` and the new PAN; `BR2` still holds `G2`.
+  - Step 7: saved: the number the company gave up is free.
+  - Step 8: `BR1` is a supplier on its own with no GST number; it does not keep `G3`.
+  - Step 9: `AGAIN` is saved with `G1`. Restoring `OTHER` is refused: its GST number is now held by `AGAIN`.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked
