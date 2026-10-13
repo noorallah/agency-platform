@@ -10247,7 +10247,7 @@ button in `goods_receipt_editor_phase2.dart` with its state in
 `purchase_invoice_editor_phase2.dart` with their state in
 `purchase_invoice_editor_dialog.dart`. Server:
 `backend/app/purchase_invoice/services/purchase_chain_service.py`. Tests:
-`desktop/test/supplier_branch_added_while_receiving_test.dart` (10),
+`desktop/test/supplier_branch_added_while_receiving_test.dart` (11),
 `backend/tests/unit/test_branch_bills_an_order.py` (3). Case: TC-BUY-107.
 PR #1481.
 

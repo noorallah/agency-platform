@@ -6,6 +6,8 @@
 // branch chosen and what was typed kept. Offered only to somebody holding
 // `VENDOR_CREATE`.
 
+import 'dart:io';
+
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/models/document_preview.dart';
 import 'package:agency_desktop/models/entities.dart';
@@ -417,6 +419,18 @@ void main() {
       expect(find.byKey(_receiptButton), findsNothing);
       expect(find.text('Received from'), findsOneWidget);
     });
+  });
+
+  test('the Goods Receipts page offers it to a holder of VENDOR_CREATE', () {
+    // The window is tried above with the flag handed to it; this is the one
+    // line that hands it over, and nothing else would notice it gone.
+    final String page = File(
+      'lib/ui/goods_receipts/goods_receipt_management_page.dart',
+    ).readAsStringSync();
+    expect(
+      page,
+      contains("canAddBranch: widget.permissions.hasPermission('VENDOR_CREATE')"),
+    );
   });
 
   group('on a supplier bill raised against an order', () {
