@@ -1730,6 +1730,30 @@ is the subsidiary ledger's business:
   `app/settlements/services/settlement_service.py` reads where the money
   stands from those rows and never recomputes it.
 
+### One customer pays another customer's bill (row P5, backlog 154, 2026-10-14)
+
+The same subsidiary-ledger fact with no parent in it. A receipt that names
+`paid_for_customer_id` is the payer's and posts one journal; nothing more
+is posted for whose bill it cleared.
+
+- The whole of the money that is not for the payer's own shops is first a
+  `RECEIPT` row on the **payer's** account. What clears the other
+  customer's bills then leaves it by a `RECEIPT_TRANSFER` row (*Paid for
+  B: bills*) and arrives on the bill's customer as a `RECEIPT` row (*Paid
+  by A, applied to bills*), all in the one transaction. The payer's two
+  rows cancel, so it stands where it stood, and its statement says whom
+  it paid for.
+- A parent's own shop is not a stranger: its share is written straight
+  onto the shop as before, and the parent's account gets no row for it.
+- A receipt's unapplied money set against the named customer's bill later
+  (`/allocate` with `paid_for_customer_id`) writes the same two rows and
+  no journal.
+- Without the name the bill is refused. The name opens that customer's
+  own bills only, never the bills of shops under it.
+- A credit from a return or a credit note is **not** moved across
+  customers: `apply_customer_credit` still reads only the credit's own
+  customer's bills.
+
 ## A promise to pay is recorded, never posted (SG-8, 2026-10-05)
 
 `app/collections` keeps what a customer said about paying: `payment_promises`

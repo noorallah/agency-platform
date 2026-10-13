@@ -11178,3 +11178,81 @@ list has no "as on" date and no export. An employee is not tied to a user
 account or to a salesman. The opening balance of an employee who already
 holds an advance on the day the firm starts is typed with the other opening
 balances, on his account, after he is added.
+
+## 154. One customer pays another customer's bill (row P5, COL-12) -- built 2026-10-14
+
+**The owner, 2026-10-13.** Two independent shops, no parent between them.
+One pays the other's bill, and it is recorded: the bill is closed, the bill's
+customer's account reads *Paid by* the other, the payer's account reads *Paid
+for* this one, and the printed receipt says the same. A customer's money on
+account can be used for another customer's bill the same way, with no journal
+typed.
+
+**What was there.** A receipt reached its own customer's bills, and a
+parent's receipt its shops' bills (backlog 126), and nothing else. Everything
+under it was already general: a bill on the receipt that is not the payer's
+own moves the bill's customer's account by a row of its own, and a reversal
+undoes every row a receipt wrote on every account. What stopped a stranger's
+bill was only the list of bills a receipt may name.
+
+**Design.**
+
+- **The receipt is the payer's.** One row, one number, one journal for the
+  money (`Dr cash or bank / Cr receivables`). No table, no column, no
+  migration.
+- **The other customer is named.** `POST /api/v1/receipts` takes
+  `paid_for_customer_id`; with it the allocations may name that customer's
+  own bills. A bill's id alone never opens it: without the name the bill is
+  refused as before, so a slip of the hand cannot pay a stranger's bill.
+- **Both accounts move, and both say why.** The money is recorded on the
+  payer's account with the rest of the receipt and leaves it at once for the
+  bill's customer, by the two rows that spreading a parent's receipt later
+  already writes: `RECEIPT_TRANSFER` on the payer, *Paid for B: bill*, and
+  `RECEIPT` on the bill's customer, *Paid by A, applied to bill*. The payer
+  ends where it stood.
+- **What is not set against a bill stays on the payer's account,** as for
+  any receipt.
+- **Money already held.** `POST /api/v1/receipts/{id}/allocate` takes the
+  same field: a receipt's unapplied money clears the named customer's bill,
+  with the same two rows and no journal.
+- **A reversal puts both back,** by the stored deltas of each row; one
+  mirror journal.
+- **The printed receipt** reads *Received from* the payer and *Paid for* the
+  bill's customer.
+
+**The screen.** On *Record Receipt*, under the customer, **Paid by** reads the customer's own name; **Another customer paid** picks another, and **Back to** the customer undoes it. The bills listed stay the chosen customer's, a line says in whose name the money is recorded and where anything left over stays, and the screen asks *Paid by A for B?* before it saves. On a receipt with money unapplied, **Apply** offers **Bill of another customer**: pick the customer, pick his bill, confirm. The customer list is read only when the picker is opened.
+
+**Decided here, for the owner to confirm.**
+
+1. **No right of its own.** Whoever may record a receipt may record one paid
+   by another customer; the screen asks to confirm first. (The row said so.)
+2. The named customer's **own** bills are reached, not the bills of shops
+   under it: to pay for a shop, name the shop.
+3. A shop may pay for its parent or for another shop of the same parent when
+   it names it. Backlog 126 refused that; it refused it because nothing
+   named the other customer, and now something does.
+4. A parent naming one of its own shops is an ordinary parent's receipt, as
+   before (the shop's row says *Paid by*, and the parent's account gets no
+   row for money that was never its own).
+5. The cash discount a receipt may give without the clearance right is still
+   worked out from the **payer's** own bills, as for a parent's receipt; the
+   screen does not suggest one when the payer is another customer.
+6. Tax collected at source on the receipt is the payer's: he is the one who
+   paid.
+
+**Not done.**
+
+- **A credit left by a return or a credit note cannot be set against another
+  customer's bill.** Only money received (a receipt's unapplied part) can.
+  The credit module keeps its own record of where each credit went and of
+  what it gives back when a bill is unpaid again (D-PRC-75, D-PRC-88); moving
+  one across customers changes those rules and is a piece of work of its
+  own. Until then: refund the credit to the customer, or apply it to his own
+  bill.
+- No report lists "bills paid by somebody else"; each account's statement and
+  each receipt say it.
+- The list of a customer's receipts does not show a receipt another customer
+  paid for him; his statement does (the same as a shop under a parent).
+- A payment to a supplier has no twin of this (one supplier's advance for
+  another supplier's bill); it was not asked for.
+- No screen was clicked.
