@@ -191,11 +191,16 @@ Close months in order, and keep the current month open.
    carries the year's profit into retained earnings itself, and the next
    year's trial balance starts from the balances as they stand, as Tally does.
 4. If the auditor needs a correction, **Reopen year** (only a user holding the
-   reopen right; it asks for a reason, which is kept), post the correction,
-   and close it again.
+   reopen right; it asks for a reason, which is kept). Its months stay closed:
+   press **Open** on the month the correction is dated in (the latest month
+   first), post the correction, and close the month and the year again.
 
-Before closing, make sure the next year exists (**Gear > Firm > Financial Years**):
-invoices dated in the new year need it.
+**The next year does not begin by itself.** Before the first day of the new
+year, press **Start next year** on **Gear > Firm > Financial Years**: it makes
+the year with its twelve months, all open, and leaves the year you are in open,
+so both take entries while the old one is being finished. Bills dated in the
+new year are refused until it exists. The bill numbers need nothing: they start
+again at 1 for the new year by themselves, on the bill's date.
 
 ---
 

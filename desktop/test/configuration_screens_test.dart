@@ -176,6 +176,14 @@ class _ConfigApi extends ApiClient {
   }
 
   @override
+  Future<FinancialYear> startNextFinancialYear() async {
+    yearCalls.add('next');
+    final String? refusal = closeRefusal;
+    if (refusal != null) throw ApiException(refusal, statusCode: 422);
+    return _year(id: 'fy-2', code: 'FY2027');
+  }
+
+  @override
   Future<FinancialYear> reopenFinancialYear(String id, String reason) async {
     yearCalls.add('reopen:$id:$reason');
     return _year(id: id);
@@ -458,6 +466,61 @@ void main() {
       );
       expect(find.text('Close year'), findsNothing);
       expect(find.text('Reopen year'), findsNothing);
+    });
+
+    testWidgets('the next year is started from the screen, once confirmed',
+        (tester) async {
+      // D-FIN-32: a year does not begin by itself, and the screen had no way
+      // to make one.
+      final _ConfigApi api = _ConfigApi(
+        years: [_year()],
+        periods: [_period()],
+      );
+      await _pumpYears(
+        tester,
+        api,
+        perms: const ['FINANCIAL_YEAR_VIEW', 'FINANCIAL_YEAR_CREATE'],
+      );
+
+      await tester.tap(find.byKey(const ValueKey('start-next-year')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('The year you are in stays open'),
+          findsOneWidget);
+      expect(api.yearCalls, isEmpty);
+      await tester.tap(find.widgetWithText(FilledButton, 'Start next year'));
+      await tester.pumpAndSettle();
+
+      expect(api.yearCalls, ['next']);
+    });
+
+    testWidgets('a refusal to start the next year is shown in its own words',
+        (tester) async {
+      final _ConfigApi api = _ConfigApi(
+        years: [_year()],
+        periods: [_period()],
+      )..closeRefusal = 'Financial year FY2027 is already there and has not '
+          'begun.';
+      await _pumpYears(
+        tester,
+        api,
+        perms: const ['FINANCIAL_YEAR_VIEW', 'FINANCIAL_YEAR_CREATE'],
+      );
+
+      await tester.tap(find.byKey(const ValueKey('start-next-year')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Start next year'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('is already there'), findsOneWidget);
+    });
+
+    testWidgets('who may not make a year is not offered the next one',
+        (tester) async {
+      await _pumpYears(
+        tester,
+        _ConfigApi(years: [_year()], periods: [_period()]),
+      );
+      expect(find.byKey(const ValueKey('start-next-year')), findsNothing);
     });
 
     testWidgets('without the financial-year permission it is read-only',

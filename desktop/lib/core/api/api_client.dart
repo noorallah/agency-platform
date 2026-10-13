@@ -6412,6 +6412,16 @@ class ApiClient {
         FinancialYear.fromJson,
       );
 
+  /// Make the year after the firm's last one, with its twelve months. A year
+  /// does not begin by itself; the server refuses while the year after the
+  /// current one is already there.
+  Future<FinancialYear> startNextFinancialYear() async =>
+      FinancialYear.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/finance/financial-years/next'),
+        ),
+      );
+
   /// Close a financial year: nothing can be posted into it afterwards. The
   /// server refuses while a period is open or a draft journal is dated in it.
   Future<FinancialYear> closeFinancialYear(String id) async =>

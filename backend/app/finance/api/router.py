@@ -216,6 +216,26 @@ def create_financial_year(
     return ApiResponse(data=FinancialYearResponse.model_validate(row))
 
 
+@router.post(
+    "/financial-years/next",
+    response_model=ApiResponse[FinancialYearResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def start_next_financial_year(
+    scope: YearManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[FinancialYearResponse]:
+    """Make the year after the firm's last one, with its twelve months."""
+    row = FinanceService(db).start_next_financial_year(
+        firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(
+        data=FinancialYearResponse.model_validate(row),
+        message=f"Financial year {row.code} started, with its twelve months.",
+    )
+
+
 @router.get("/financial-years", response_model=ApiResponse[list[FinancialYearResponse]])
 def list_financial_years(
     scope: YearViewScope, db: Session = Depends(get_db)
