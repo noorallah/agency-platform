@@ -710,9 +710,14 @@ String _familyCell(Vendor vendor) {
 /// the supplier saved, or null when the form was closed without saving. The
 /// server asks `VENDOR_CREATE`; a caller offers this only to somebody who
 /// holds it.
+///
+/// [branchOf] opens the form already set as a branch of that main office
+/// (backlog 140): the goods on an order placed on the company came from a
+/// branch nobody has entered yet. The person can still change or clear it.
 Future<Vendor?> addSupplierInPlace(
   BuildContext context, {
   required ApiClient api,
+  VendorFamilyMember? branchOf,
 }) async {
   Vendor? created;
   await Navigator.of(context).push<Object?>(
@@ -725,6 +730,7 @@ Future<Vendor?> addSupplierInPlace(
         child: SelectionArea(
           child: _VendorEditorDialog(
             api: api,
+            branchOf: branchOf,
             searchParents: (text) =>
                 api.vendors(search: text).then((page) => page.items),
             onSave: (Json data) async {
@@ -769,7 +775,12 @@ class _VendorEditorDialog extends StatefulWidget {
     this.searchParents,
     this.loadFamily,
     this.onSave,
+    this.branchOf,
   });
+
+  /// The main office a new supplier starts as a branch of, where the form
+  /// was opened from a document for exactly that. Null starts it on its own.
+  final VendorFamilyMember? branchOf;
 
   /// Finds suppliers by what was typed, for the "Branch of" field. Null omits
   /// the field, and then `parent_vendor_id` is not sent at all, so a save
@@ -959,11 +970,12 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
 
   // The main office this supplier is a branch of; empty is "on its own",
   // sent as null. Sent only when the form offers the field.
-  late String _parentId = widget.vendor?.parentVendorId ?? '';
+  late String _parentId =
+      widget.vendor?.parentVendorId ?? widget.branchOf?.id ?? '';
   late String _parentLabel = [
     for (final String? part in [
-      widget.vendor?.parentCode,
-      widget.vendor?.parentName
+      widget.vendor?.parentCode ?? widget.branchOf?.code,
+      widget.vendor?.parentName ?? widget.branchOf?.name
     ])
       if (part != null && part.isNotEmpty) part,
   ].join(' - ');
@@ -971,7 +983,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   // GSTIN box. Never put into the box.
   late String _parentGstin = widget.vendor?.gstinFromParent == true
       ? widget.vendor!.gstin
-      : '';
+      : widget.vendor == null
+          ? widget.branchOf?.gstin ?? ''
+          : '';
   VendorFamily? _family;
 
   /// Phase 2: the sections are one scroll rather than tabs.

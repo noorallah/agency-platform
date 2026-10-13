@@ -18,6 +18,7 @@ import '../document_framework/document_steps.dart';
 import '../workspace/desktop_framework.dart';
 import '../../models/document_file.dart';
 import '../purchases/document_attachments_dialog.dart';
+import '../vendors/vendor_management_page.dart' show addSupplierInPlace;
 import 'goods_receipt_eway_dialog.dart';
 import 'serial_entry_dialog.dart';
 
@@ -190,9 +191,14 @@ class GoodsReceiptEditorDialog extends StatefulWidget {
     this.features = const BusinessFeatures.unknown(),
     this.steps = const [],
     this.canAttach = true,
+    this.canAddBranch = false,
   });
 
   final ApiClient api;
+
+  /// Whether **New branch** is offered beside *Received from* (backlog 140):
+  /// the user holds `VENDOR_CREATE`.
+  final bool canAddBranch;
 
   /// Whether the user may add and delete files on the receipt
   /// (`PURCHASE_RECEIVE`); without it they can only look.
@@ -255,12 +261,58 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
     try {
       final VendorFamily family = await widget.api.vendorFamily(order.vendorId);
       if (!mounted || _order?.id != order.id) return;
-      if (family.members.length < 2) return;
+      // Kept for a supplier on its own too: a branch added from here names
+      // it as the main office.
       setState(() => _family = family);
     } on Object {
       // A family that cannot be read costs the choice, not the receipt: the
       // goods are taken as from the order's supplier.
     }
+  }
+
+  /// Bumped when a branch is added from here, so the *Received from* box is
+  /// built again and shows it chosen.
+  int _officesEpoch = 0;
+
+  /// Whether **New branch** is offered: an order is chosen and the person
+  /// may add suppliers.
+  bool get _offersNewBranch => widget.canAddBranch && _order != null;
+
+  /// Open the supplier form over the receipt, set as a branch of the company
+  /// the order is on, and choose the branch it saved (backlog 140). What was
+  /// typed on the receipt is kept: the form is a page above this one.
+  Future<void> _addBranch() async {
+    final PurchaseOrder? order = _order;
+    if (order == null) return;
+    VendorFamily? family = _family;
+    if (family == null) {
+      try {
+        family = await widget.api.vendorFamily(order.vendorId);
+      } on ApiException catch (exception) {
+        if (!mounted) return;
+        setState(() => _error = refusalMessage(exception));
+        return;
+      }
+      if (!mounted || _order?.id != order.id) return;
+    }
+    final VendorFamilyMember main = mainOfficeOf(family);
+    final Vendor? added =
+        await addSupplierInPlace(context, api: widget.api, branchOf: main);
+    if (added == null || !mounted || _order?.id != order.id) return;
+    if (added.parentVendorId != main.id) {
+      // The person took it out from under the main office in the form: it
+      // was saved, and it is no office of this order's supplier.
+      setState(() => _error = '${added.displayName} was saved, but not as a '
+          'branch of ${main.name}, so these goods cannot be received from '
+          'it.');
+      return;
+    }
+    setState(() {
+      _family = familyWithBranch(family!, added);
+      _receivedFromId = added.id;
+      _officesEpoch += 1;
+      _error = null;
+    });
   }
 
   /// "Received from": the offices of the order's supplier company. Null when

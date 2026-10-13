@@ -603,6 +603,41 @@ class VendorFamily {
       );
 }
 
+/// The main office of a supplier company as its family answers it.
+VendorFamilyMember mainOfficeOf(VendorFamily family) {
+  for (final VendorFamilyMember member in family.members) {
+    if (member.isParent) return member;
+  }
+  return family.members.first;
+}
+
+/// A supplier company with a branch just saved added to it, for a document
+/// that added the branch itself: no second read of the family is needed to
+/// offer it. A branch already listed is left as it is.
+VendorFamily familyWithBranch(VendorFamily family, Vendor branch) {
+  if (family.members.any((member) => member.id == branch.id)) return family;
+  return VendorFamily(
+    parentId: family.parentId,
+    totalBalance: family.totalBalance,
+    members: [...family.members, officeFrom(branch, isParent: false)],
+  );
+}
+
+/// One office of a supplier company, from the supplier's own row: what a
+/// document needs to offer it, with no balance read.
+VendorFamilyMember officeFrom(Vendor vendor, {required bool isParent}) =>
+    VendorFamilyMember(
+      id: vendor.id,
+      code: vendor.code,
+      name: vendor.name,
+      isParent: isParent,
+      gstin: vendor.gstin,
+      gstinFromParent: vendor.gstinFromParent,
+      status: vendor.status,
+      place: '',
+      balance: '0.00',
+    );
+
 class VendorQuery {
   const VendorQuery({
     this.status,
