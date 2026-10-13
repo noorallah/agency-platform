@@ -91,6 +91,29 @@ refused; a lot of one purchase line may repeat a printed number.
 | `batch_valuations` | What one lot is worth: `quantity_on_hand`, `unit_cost`, `total_value`, one row per `batch_id`. The shape of `product_valuations` one level down. Cleared with it by the history reset |
 | `stock_lot_settings` | One live row per firm: `costing_method` (`AVERAGE` or `BY_LOT`), `switched_on`, `allow_billing_without_stock`. A firm with no row is on Average. No endpoint writes it yet |
 
+#### How a lot is valued (L2 step 2)
+
+`_apply_valuation` in `backend/app/inventory/services/inventory_service.py`
+reads the method off the item's `product_valuations` row, which it already
+loads. `WEIGHTED_AVERAGE` (every item today) is valued as before and writes
+no `batch_valuations` row. `BY_LOT` goes to `_apply_lot_valuation`:
+
+- goods arrive in the lot at the cost stated, and the lot's `unit_cost`
+  becomes its value over its quantity, held at six decimals;
+- goods leave at the lot's own cost, never the item's average, and the issue
+  that empties the lot takes everything left, so a lot closes at exactly zero;
+- goods coming back with no cost stated come back at the lot's cost;
+- a reversal moves the value written on its original's stock ledger row, not
+  today's cost, and the lot's cost is worked out again from what is left;
+- the item's own row is still kept (quantity, value, and the average the two
+  give) and moves by the same amount as the lot, so it is always the sum of
+  its lots;
+- a movement that names no lot is valued at the average, as before.
+
+Nothing stamps an item `BY_LOT` yet but `tests/unit/test_lot_valuation.py`;
+the switch-over (section 4.4 of the note) will. A landed cost still adds to
+the item's figure only, until the step that puts it on the lot.
+
 ### Table: `lots`
 
 | Column | Type | Notes |

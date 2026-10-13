@@ -12,6 +12,16 @@ none until step 3, where every creator of a batch issues one, and the column
 is made NOT NULL there. Making it NOT NULL in step 1 would have changed
 every place that makes a batch, and step 1 changes no behaviour.
 
+Step 2, the valuation (no migration): `_apply_lot_valuation` in
+`backend/app/inventory/services/inventory_service.py`. An item whose
+`product_valuations.costing_method` is `BY_LOT` takes each movement's value
+from the lot it names and keeps `batch_valuations`; the issue that empties a
+lot takes all that is left; a reversal moves the value its original carried.
+Only a test stamps an item `BY_LOT`, so every firm is still on Average. A
+movement that names no lot is still valued at the average, until steps 3 and
+4 give every stock row a lot. The worked example of section 1 is
+`backend/tests/unit/test_lot_valuation.py`.
+
 Words used here. A **lot** is one purchase line's goods: its own cost, MRP,
 selling prices, batch and expiry. A **batch** is the number the manufacturer
 prints on the goods. Two deliveries of one printed batch are two lots.
