@@ -8702,3 +8702,63 @@ again before and after taking back: nothing moved.
   out.
 - No screen was clicked in the running app.
 
+## 123. The Bill collector role and his one screen -- built 2026-10-13
+
+Customer task M5 (`docs/CUSTOMER_BUILD_TASKS.md`): a ready-made Bill collector
+role and his one screen: the bills handed to him, and older unpaid bills of
+the same customers marked apart. Done when a collector signs in and sees only
+that screen and only his bills.
+
+**What was there.** Section 122 records which bill is out with which person.
+The only way to read it was *Bills with Collectors*, on `RECEIPT_VIEW`, which
+shows every unpaid bill of the firm. No role was narrow enough to give to a
+person who only carries bills.
+
+**Decided.**
+
+- **A code of its own, `COLLECTION_OWN_VIEW`,** in the `accounting` group. It
+  reads one route, `GET /api/v1/collections/my-bills`.
+- **The route takes the collector from the token.** No parameter names a
+  person, so the code cannot read anybody else's bag.
+- **The list is the bills in his bag plus their neighbours.** The unpaid bills
+  handed to him and still out; beside each customer's, that customer's other
+  unpaid bills, marked as not handed to him (customer answer A14: both, marked
+  apart). Nothing of a customer he carries no bill of. For a neighbour the
+  answer does not say who carries it.
+- **By customer, the bag first, then oldest first**: the order he walks a
+  street in.
+- **A bill paid in full while it is out is not listed.** It owes nothing. The
+  office still finds it under History and takes it back.
+- **A seventeenth system role, `BILL_COLLECTOR`, holding that one code**, and
+  a job template `bill-collector` to hire from. Not `RECEIPT_VIEW` and not
+  `CUSTOMER_VIEW`: either shows him the whole firm.
+- **The firm's administrator, manager and accountant hold the code too.** It
+  is in the group their roles are built from, and in a small firm the owner
+  carries bills himself. The read-only role holds it as it holds every view
+  code. A cashier does not.
+- **The screen is read only.** *My Bills to Collect*, a tab of Finance shown
+  under Sell > Money. Recording what he collected is M6.
+
+**Decided by me, by the industry standard.** A collection agent's view in the
+field apps of the common accounting packages is his own assigned bills and
+nothing of the ledger, with the customer's other dues shown for reference.
+Showing those without the other collector's name follows the same
+least-privilege line.
+
+**Built.** `BillHandoverService.my_bills`, the route, migration
+`20261013_0363` (platform data only: the role, the code, the grants, the job
+template; each inserted only where missing), `MyBillsPage` in the desktop.
+Tests: `tests/unit/test_my_bills.py`, `desktop/test/my_bills_page_test.dart`,
+a collector case in `desktop/test/menu_layout_test.dart`. Test case
+TC-FIN-031.
+
+**Not done.**
+
+- He lands on Home, which is empty for him, and opens his screen from the
+  menu; the app does not open it for him.
+- No receipt and no end-of-day return from this screen: M6.
+- No print of his list and no Download.
+- The customer's phone number is not on the list.
+- The list reads the firm's whole unpaid list per request, as *Bills with
+  Collectors* does; not timed on PERF01.
+- No screen was clicked in the running app.

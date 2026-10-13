@@ -170,9 +170,10 @@ with a membership and no roles can select a firm and press nothing.
 where the role was granted, not who owns it. See
 [Part 4](#part-4--how-a-role-becomes-a-permission-on-a-request).
 
-## The sixteen seeded roles
+## The seventeen seeded roles
 
-Four are platform-tier and twelve are firm-tier. `SUPPORT_ADMIN` is in
+Four are platform-tier and thirteen are firm-tier (`BILL_COLLECTOR` joined on
+2026-10-13, backlog 123). `SUPPORT_ADMIN` is in
 `HIDDEN_SYSTEM_ROLE_CODES` and is not offered in listings.
 
 Counts re-derived from `ROLE_PERMISSION_CODES` on 2026-10-04 (D-ROLE-1, D-ROLE-3);
@@ -195,6 +196,7 @@ re-run the command under the tree below rather than trusting them.
 | `CASHIER` | firm | 4 | `PAYMENT_CREATE`/`PAYMENT_VIEW`, `RECEIPT_CREATE`/`RECEIPT_VIEW` -- the money screens read their own party list, so no master is needed | see [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
 | `BILLING_EXECUTIVE` | firm | 5 | `SALES_INVOICE_CREATE`, `SALES_VIEW`, `DOCUMENT_SEND`; reads customers and products | everything else |
 | `CUSTOMER_SUPPORT` | firm | 3 | `CUSTOMER_VIEW`, `CUSTOMER_UPDATE`, `PRODUCT_VIEW` | everything else |
+| `BILL_COLLECTOR` | firm | 1 | `COLLECTION_OWN_VIEW`: the bills handed to **him**, read on `GET /api/v1/collections/my-bills`, which takes the collector from the token (backlog 123) | `RECEIPT_VIEW` and `CUSTOMER_VIEW` (either would show him every bill or every customer of the firm), every write |
 | `VIEWER` | firm | 43 | Every `*_VIEW` code **except** `PLATFORM_VIEW`, `USER_VIEW`, `ROLE_VIEW`, `PERMISSION_VIEW`, `AUDIT_LOG_VIEW`, `FIRM_AUDIT_LOG_VIEW`, `SETTINGS_VIEW` | every write |
 
 **A role that raises a document reads what its editor picks from** (D-ROLE-1,
@@ -303,6 +305,11 @@ FIRM_ADMIN (197)          runs the firm and its people
 VIEWER (43)               outside the tree
 ```
 
+`BILL_COLLECTOR` (1), added 2026-10-13, is not drawn: its one code,
+`COLLECTION_OWN_VIEW`, is in the `accounting` group, so the command puts it
+under `ACCOUNTANT` and, ending in `_VIEW`, under `VIEWER` too. The drawing's
+counts are of 2026-10-04; re-run the command.
+
 Re-derived 2026-10-04. `BILLING_EXECUTIVE` is no longer drawn under
 `SALES_EXECUTIVE`: it has held `DOCUMENT_SEND` since backlog 51 and a sales
 executive does not, so the drawing had stopped matching the command before
@@ -349,6 +356,29 @@ able to switch the control off.**
 | `ACCOUNTANT` | *(holds)* `VENDOR_VIEW_FINANCIAL_DETAILS`, **not** `VENDOR_MANAGE_BANK_DETAILS` | Whoever pays a supplier has to read the account the money goes to, and must not be the one who says where it goes. The vendor router withholds the bank accounts without the read code and refuses a change to them without the manage code (D-MST-10); `VIEWER` holds neither, so a read-only user is served a vendor with no accounts |
 | `ACCOUNTANT`, `CASHIER` | **not** `SALES_VIEW` or `PURCHASE_VIEW`, yet they open the two bill lists | Whoever records the money against a bill reads the bill. The read routes of `/sales-invoices` take `SALES_VIEW` **or** `RECEIPT_VIEW`, and those of `/purchase-invoices` take `PURCHASE_VIEW` **or** `PAYMENT_VIEW` (D-UI-46, found on screen 2026-10-07); the module codes themselves would have opened the orders, quotations, rate contracts and supplier schemes too. Raising, changing and approving a bill still need the module's own codes. `tests/unit/test_accounts_reads_the_bills_it_settles.py` pins both halves |
 
+### Who hands bills out, and who carries them
+
+Two codes in the `accounting` group, both added on 2026-10-13, split one job
+on purpose.
+
+- **`COLLECTION_ASSIGN`** (backlog 122) hands unpaid bills to a collector and
+  takes them back: `POST /api/v1/collections/handovers` and
+  `/handovers/take-back`. Held by `FIRM_ADMIN`, `FIRM_MANAGER` and
+  `ACCOUNTANT`. **Not** by `CASHIER`: whoever records what was collected must
+  not be the one who decides which bills he carries. Reading who carries what
+  stays on `RECEIPT_VIEW`.
+- **`COLLECTION_OWN_VIEW`** (backlog 123) reads the bills handed to the
+  caller: `GET /api/v1/collections/my-bills`. The route takes the collector
+  from the token and no parameter names another person, so the code cannot be
+  used to read anybody else's bag. It is the whole of `BILL_COLLECTOR`, and
+  the three roles above hold it too, because in a small firm the owner
+  carries bills himself. `VIEWER` holds it as it holds every `*_VIEW` code;
+  with nothing handed to him the list is empty.
+
+A firm's own role coded `BILL_COLLECTOR` from before 2026-10-13 would now be
+read as the system role by the queries that match `FIRM_ROLE_CODES` on the
+code alone.
+
 ## Custom roles
 
 `POST /api/v1/roles` (`ROLE_CREATE`) creates one. Three rules:
@@ -357,7 +387,7 @@ able to switch the control off.**
 - **`firm_id` is taken from the caller's scope**, not from the body. A platform
   caller creates an unscoped role; a firm caller creates their own firm's.
 - **Reserved codes are refused case-insensitively**: `platform_admin`, plus the
-  lowercase spelling of all sixteen system role codes.
+  lowercase spelling of all seventeen system role codes.
 
 `PUT /api/v1/roles/{id}/permissions` (`ROLE_ASSIGN`) sets what it grants. A
 **firm-scoped** caller may not attach any of the 22 `PLATFORM_PERMISSION_CODES`
@@ -798,7 +828,7 @@ not be able to copy access instead.
 carries an email, a password, memberships, an audit trail and a login history,
 and quietly inherits whatever was edited after the template was written.
 
-**Eleven are seeded platform-wide** (`firm_id IS NULL` = offered to everybody);
+**Twelve are seeded platform-wide** (`firm_id IS NULL` = offered to everybody);
 a firm may add its own, visible only to it.
 
 | Code | Name | Roles |
@@ -813,6 +843,7 @@ a firm may add its own, visible only to it.
 | `purchase-manager` | Purchase Manager | `PURCHASE_MANAGER` |
 | `accounts` | Accounts | `ACCOUNTANT` |
 | `customer-support` | Customer Support | `CUSTOMER_SUPPORT` |
+| `bill-collector` | Bill Collector | `BILL_COLLECTOR` (added by `20261013_0363`) |
 | `read-only` | Read Only | `VIEWER` |
 
 Most are one role, and that is not redundancy — **the value is the name.**
@@ -847,7 +878,7 @@ Four things to know:
 - **The code is unique per scope**, which needs two partial indexes rather than
   one: PostgreSQL treats NULLs as distinct, so a single key on `(firm_id, code)`
   would let the platform hold ten templates all called `counter-sales`.
-- **The eleven are inserted by the migration**, not by `seed_system_rbac` — that
+- **The twelve are inserted by migrations** (eleven by `20260905_0129`, `bill-collector` by `20261013_0363`), not by `seed_system_rbac` — that
   seeder is called only by `generate_sample_data.py` and never at startup, so a
   live database gets its seeded rows from migrations.
 
@@ -1032,6 +1063,7 @@ Computed from the catalogue and the seed, with the business-profile gate open.
 | `BILLING_EXECUTIVE` | 6 | Sales(1/16), the five sales documents |
 | `CUSTOMER_SUPPORT` | 1 | Masters(4/16) |
 | `VIEWER` | 16 | everything readable; Inventory(12/14), Settings(1/2) |
+| `BILL_COLLECTOR` | 1 | Finance, one tab: **My Bills to Collect** (added 2026-10-13; the rows above were counted on 2026-10-04) |
 
 A firm that has switched a module off removes it from every row above.
 

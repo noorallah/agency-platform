@@ -8005,6 +8005,15 @@ class ApiClient {
         },
       );
 
+  /// One page of the unpaid bills handed to the signed-in person, with the
+  /// same customers' other unpaid bills marked apart (backlog 123). Returns
+  /// the whole response.
+  Future<Json> myBillsToCollect({int page = 1, int pageSize = 50}) => request(
+        'GET',
+        '/api/v1/collections/my-bills',
+        query: <String, String>{'page': '$page', 'page_size': '$pageSize'},
+      );
+
   /// One page of the hand-over history. [state] is OUT or RETURNED.
   Future<Json> billHandovers({
     int page = 1,

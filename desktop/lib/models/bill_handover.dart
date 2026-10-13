@@ -144,3 +144,69 @@ class BillHandover {
         version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
+
+/// One unpaid bill on the collector's own list (backlog 123).
+///
+/// Read from `GET /api/v1/collections/my-bills`. A bill with [handedToMe] is
+/// one the office gave to the signed-in person; the others are further unpaid
+/// bills of the same customers, listed beside them.
+class MyBill {
+  const MyBill({
+    required this.invoiceId,
+    this.invoiceNumber = '',
+    this.invoiceDate = '',
+    this.dueDate = '',
+    this.daysOverdue = 0,
+    this.isOpeningBill = false,
+    this.customerId = '',
+    this.customerCode = '',
+    this.customerName = '',
+    this.customerPlace = '',
+    this.invoiceTotal = '',
+    this.outstanding = '',
+    this.handedToMe = false,
+    this.handoverId,
+    this.handedOn = '',
+  });
+
+  final String invoiceId;
+  final String invoiceNumber;
+  final String invoiceDate;
+  final String dueDate;
+  final int daysOverdue;
+  final bool isOpeningBill;
+  final String customerId;
+  final String customerCode;
+  final String customerName;
+  final String customerPlace;
+  final String invoiceTotal;
+  final String outstanding;
+  final bool handedToMe;
+  final String? handoverId;
+  final String handedOn;
+
+  /// What is still owed, as a number for the totals.
+  double get owed => double.tryParse(outstanding) ?? 0;
+
+  /// The customer's name, with "· place" after it when there is one.
+  String get customerLabel =>
+      customerPlace.isEmpty ? customerName : '$customerName · $customerPlace';
+
+  factory MyBill.fromJson(Json json) => MyBill(
+        invoiceId: stringValue(json['invoice_id']),
+        invoiceNumber: stringValue(json['invoice_number']),
+        invoiceDate: stringValue(json['invoice_date']),
+        dueDate: stringValue(json['due_date']),
+        daysOverdue: (json['days_overdue'] as num?)?.toInt() ?? 0,
+        isOpeningBill: boolValue(json['is_opening_bill']),
+        customerId: stringValue(json['customer_id']),
+        customerCode: stringValue(json['customer_code']),
+        customerName: stringValue(json['customer_name']),
+        customerPlace: stringValue(json['customer_place']),
+        invoiceTotal: stringValue(json['invoice_total']),
+        outstanding: stringValue(json['outstanding']),
+        handedToMe: boolValue(json['handed_to_me']),
+        handoverId: json['handover_id'] as String?,
+        handedOn: stringValue(json['handed_on']),
+      );
+}

@@ -14,6 +14,7 @@ import 'control_accounts_page.dart';
 import 'contra_voucher_page.dart';
 import 'bank_details_page.dart';
 import 'bill_handover_page.dart';
+import 'my_bills_page.dart';
 import 'collection_follow_up_pages.dart';
 import 'payment_runs_page.dart';
 import 'post_dated_cheque_page.dart';
@@ -387,6 +388,12 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               hasActiveFirm: widget.hasActiveFirm,
             ),
           'bills-with-collectors' => BillHandoverPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'my-bills' => MyBillsPage(
               api: widget.api,
               preferences: widget.preferences,
               permissions: widget.permissions,

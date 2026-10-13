@@ -284,7 +284,7 @@ is `users.authorization_version` before and after.
 ### Create a role — Roles & Permissions → Roles → New (plan 25.2)
 - **Store:** platform, `roles` (`code, name, description, is_active, is_system = false, firm_id` = the caller's firm for a firm caller, `null` for a platform caller).
 - **Audit:** `role.created`.
-- **Refused:** a code spelling `platform_admin` or any of the sixteen seeded codes, case-insensitively — "'<code>' is reserved. Choose a different role code." `RoleCreate.code` is `^[a-z0-9._-]+$`, which *permits* that spelling, so the refusal is the service's.
+- **Refused:** a code spelling `platform_admin` or any of the seventeen seeded codes, case-insensitively — "'<code>' is reserved. Choose a different role code." `RoleCreate.code` is `^[a-z0-9._-]+$`, which *permits* that spelling, so the refusal is the service's.
 - **Check:** `select code, name, firm_id, is_system, is_deleted from platform.roles where code = 'night-desk';`
 
 ### Set a role's permissions — the Permissions section of the same form (plan 25.3)
@@ -4993,7 +4993,7 @@ read off the code only.
 
 - **Create** inserts `roles` with `firm_id` = the caller's firm scope (null
   for a platform caller) and `is_system` false; audit `role.created`, no data.
-  Refused: a reserved code, case-folded (`platform_admin` and the sixteen
+  Refused: a reserved code, case-folded (`platform_admin` and the seventeen
   seeded codes, TC-ROLE-003), and **any code any role has ever used** — the
   check reads every role, deleted or not, in every firm, and
   `UQ_roles_code` is a plain unique index. A deleted role's code can never be

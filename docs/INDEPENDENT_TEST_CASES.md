@@ -4912,6 +4912,29 @@ redo yours."*
   - Step 9: every row reads as taken back with its date; the unpaid bills show nobody under **With**; the balances are unchanged by the taking back.
   - Step 10: the list is shown; **Hand to** and the three buttons are not.
 
+### TC-FIN-031 — A bill collector sees only the bills handed to him
+
+*Added 2026-10-13 (backlog 123). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 123 (customer task M5)
+- **Fixture:** `ready-firm`
+- **Also needs:** two customers, the first with three approved sales bills still unpaid and the second with one; two users of the firm hired from the **Bill Collector** job (role Bill Collector only); a user who may hand bills out (the firm's administrator).
+- **Steps**
+  1. As the administrator open *Sell → Money → Bills with Collectors*. Hand the first customer's first bill to the first collector and the first customer's second bill to the second collector. Leave the third bill and the second customer's bill in the office.
+  2. Sign in as the first collector.
+  3. Open *Sell → Money → My Bills to Collect*.
+  4. Sign in as the second collector and open *My Bills to Collect*.
+  5. As the administrator record a receipt for part of the first bill, then sign in as the first collector and open the screen again.
+  6. As the administrator take the first bill back, then sign in as the first collector and open the screen again.
+  7. As the first collector, look in the menu for Receipts, Customers and Bills with Collectors.
+- **Expect**
+  - Step 2: Home opens with no figures. The menu offers one screen of the firm, *My Bills to Collect*; the gear offers his own preferences.
+  - Step 3: three rows, all of the first customer. The first bill is marked **With me** with the day it was handed over; the second and third bills are marked **Not handed to me**. The lines above the list count 1 bill with him and 2 other unpaid bills of his customers, each with its total. The second customer is not on the list. The second bill does not say who carries it.
+  - Step 4: the same three rows, the second bill marked **With me** and the other two **Not handed to me**.
+  - Step 5: the first bill shows what it still owes after the receipt.
+  - Step 6: the list is empty and says no bills are handed to him.
+  - Step 7: none of the three is in his menu.
+
 ### TC-CONC-001 — Two people editing one customer
 
 - **Covers:** plan 14.1
@@ -6071,7 +6094,7 @@ own roles and templates without anybody writing code.
   1. Sign in as the fixture's **Firm admin**, TEST01 selected.
   2. Roles → **New** → **Role code** `platform_admin`, any name → **Save**.
 - **Expect:** refused on the form — **"'platform_admin' is reserved. Choose a different role code."** Nothing is created. The code pattern `^[a-z0-9._-]+$` *permits* that spelling, so the refusal is the service's. Before 2026-09-05 this went through, and a firm administrator who assigned it to themselves signed in as a platform administrator.
-- **Also try** `firm_admin`, `cashier` or `system_auditor` — the same named refusal: the designation and all sixteen seeded codes are reserved. **Type them in lower case.** `FIRM_ADMIN` or `Cashier` is refused *earlier*, by the code pattern, with a generic "The request validation failed" — a different refusal for a different reason, and not what this case is checking. (The service's check is case-insensitive as defence in depth, for a role row written by some other route; through this form the pattern means only lower case can reach it.) *(Corrected 2026-09-16 after driving it: the first version of this case said `FIRM_ADMIN` gave the same refusal.)*
+- **Also try** `firm_admin`, `cashier` or `system_auditor` — the same named refusal: the designation and all seventeen seeded codes are reserved. **Type them in lower case.** `FIRM_ADMIN` or `Cashier` is refused *earlier*, by the code pattern, with a generic "The request validation failed" — a different refusal for a different reason, and not what this case is checking. (The service's check is case-insensitive as defence in depth, for a role row written by some other route; through this form the pattern means only lower case can reach it.) *(Corrected 2026-09-16 after driving it: the first version of this case said `FIRM_ADMIN` gave the same refusal.)*
 - **Data:** `select count(*) from platform.roles where lower(code) = 'platform_admin';` → **0**.
   Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.5 — a refused code writes nothing; a code any other firm or any deleted role holds is refused as well (D-IDN-9).
 - **Leaves:** a firm admin user.

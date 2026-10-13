@@ -232,6 +232,36 @@ class HandoverBillRow(CollectionSchema):
     handed_on: date | None
 
 
+class MyBillRow(CollectionSchema):
+    """One unpaid bill on a collector's own list (backlog 123).
+
+    Either a bill handed to them, or another unpaid bill of a customer whose
+    bill they carry, which is listed so they can ask for it at the same door
+    and is marked apart: it is not in their bag.
+    """
+
+    invoice_id: UUID
+    invoice_number: str
+    invoice_date: date
+    due_date: date | None
+    #: Days past the due date today; 0 for a bill not yet due.
+    days_overdue: int
+    #: A bill owed from before the firm started here, not a sales invoice.
+    is_opening_bill: bool
+    customer_id: UUID
+    customer_code: str
+    customer_name: str
+    #: "Area, City" of the customer's billing address; blank where it has none.
+    customer_place: str
+    invoice_total: Decimal
+    outstanding: Decimal
+    #: True for a bill handed to the reader; false for the customer's others.
+    handed_to_me: bool
+    #: The reader's own handover and its day; null on the customer's others.
+    handover_id: UUID | None
+    handed_on: date | None
+
+
 class HandoverResponse(CollectionSchema):
     """One bill handed to one collector, out or taken back."""
 
@@ -281,6 +311,7 @@ __all__ = [
     "HandoverResult",
     "HandoverState",
     "HandoverTakeBack",
+    "MyBillRow",
     "PaymentPromiseCreate",
     "PaymentPromiseResponse",
     "PaymentPromiseWithdraw",
