@@ -1284,6 +1284,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   late bool _whatsappOptIn = widget.customer?.whatsappOptIn ?? false;
   // Empty string is "no preference", sent as null.
   late String _preferredChannel = widget.customer?.preferredChannel ?? '';
+  // Empty string is "the firm's setting", sent as an explicit null.
+  late String _billPageSize = widget.customer?.billPageSize ?? '';
   // Empty string is "no group", which the dropdown shows and the payload
   // sends as null.
   late String _customerGroupId = widget.customer?.customerGroupId ?? '';
@@ -1858,6 +1860,9 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'no_reminders': _noReminders,
         'preferred_channel':
             _preferredChannel.isEmpty ? null : _preferredChannel,
+        // Always sent: on update an absent key leaves it alone, a null
+        // clears it back to the firm's own setting.
+        'bill_page_size': _billPageSize.isEmpty ? null : _billPageSize,
         'whatsapp_opt_in': _whatsappOptIn,
         'notes': _nullable('notes'),
         'addresses': _addresses.map((address) => address.toJson()).toList(),
@@ -2171,6 +2176,30 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               maximum: 3650,
               helper: 'Blank = none. Batches with less left are refused '
                   'or flagged at dispatch.',
+            ),
+            SizedBox(
+              width: 320,
+              child: DropdownButtonFormField<String>(
+                key: const ValueKey('customer-bill-page-size'),
+                isExpanded: true,
+                initialValue: _billPageSize,
+                decoration: const InputDecoration(
+                  labelText: 'Bill paper',
+                  helperText: "Which paper this customer's bills print on.",
+                ),
+                items: const [
+                  DropdownMenuItem(value: '', child: Text("Firm's setting")),
+                  DropdownMenuItem(value: 'HALF', child: Text('Half page')),
+                  DropdownMenuItem(
+                      value: 'A4', child: Text('Full page (A4)')),
+                ],
+                onChanged: _readOnly
+                    ? null
+                    : (value) => setState(() {
+                          _billPageSize = value ?? '';
+                          _dirty = true;
+                        }),
+              ),
             ),
           ]),
           _messagingGroup(),

@@ -173,6 +173,7 @@ class Customer {
     this.noReminders = false,
     this.tcsApplicable = true,
     this.preferredChannel,
+    this.billPageSize,
     this.whatsappOptIn = false,
     this.whatsappOptInAt = '',
     this.linkedVendorId = '',
@@ -259,6 +260,10 @@ class Customer {
 
   /// EMAIL, WHATSAPP or SMS, or null for "whichever the event lists first".
   final String? preferredChannel;
+
+  /// The paper this customer's bills print on: null = the firm's own print
+  /// setting, HALF = half of an A4 sheet, A4 = a full page.
+  final String? billPageSize;
 
   /// Whether the customer agreed to be sent WhatsApp messages.
   final bool whatsappOptIn;
@@ -350,6 +355,7 @@ class Customer {
         noReminders: boolValue(json['no_reminders']),
         tcsApplicable: json['tcs_applicable'] != false,
         preferredChannel: json['preferred_channel'] as String?,
+        billPageSize: json['bill_page_size'] as String?,
         whatsappOptIn: boolValue(json['whatsapp_opt_in']),
         whatsappOptInAt: stringValue(json['whatsapp_opt_in_at']),
         linkedVendorId: stringValue(json['linked_vendor_id']),

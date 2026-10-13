@@ -17,7 +17,7 @@ installer free of GTK and Pango.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from io import BytesIO
 from xml.sax.saxutils import escape
@@ -30,9 +30,13 @@ from reportlab.lib.pagesizes import A4, A5
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
+    BaseDocTemplate,
     Flowable,
+    Frame,
     KeepTogether,
+    NextPageTemplate,
     PageBreak,
+    PageTemplate,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -307,6 +311,7 @@ class TemplateSettings:
     #: Turned on by a document whose batches carry an MRP (79 row 7).
     show_mrp_column: bool = False
     copy_labels: tuple[str, ...] = ()
+    #: A4, A5, HALF (half an A4 sheet, backlog 118) or THERMAL80.
     page_size: str = "A4"
     margin_mm: Decimal = Decimal("12")
 
@@ -395,6 +400,17 @@ class InvoicePdfRenderer:
             )
 
             return ThermalReceiptRenderer(self._template).render(document)
+        if self._template.page_size.upper() == "HALF":
+            # Half an A4 sheet, where every copy fits on one (backlog 118).
+            from app.sales_invoice.services.half_page_pdf import HalfPageRenderer
+
+            half = HalfPageRenderer(self._template).render(document)
+            if half is not None:
+                return half
+            # Too long for half a page: a full page, in the full page's own
+            # layout, by itself.
+            full = replace(self._template, page_size="A4")
+            return InvoicePdfRenderer(full).render(document)
         buffer = BytesIO()
         margin = float(self._template.margin_mm) * mm
         page = A5 if self._template.page_size.upper() == "A5" else A4
@@ -413,6 +429,10 @@ class InvoicePdfRenderer:
 
     def story(self, document: InvoiceDocument, width: float) -> list[object]:
         """Build every copy of one document, each starting its own page."""
+        if self._template.page_size.upper() == "HALF":
+            from app.sales_invoice.services.half_page_pdf import HalfPageRenderer
+
+            return HalfPageRenderer(self._template).story(document, width)
         story: list[object] = []
         copies = self._template.copy_labels or ("",)
         for index, label in enumerate(copies):
@@ -909,6 +929,38 @@ class InvoicePdfRenderer:
         )
 
 
+def _settled_paper(
+    template: TemplateSettings, document: InvoiceDocument
+) -> TemplateSettings:
+    """Return the template on the paper this document really prints on.
+
+    A half page is kept only where every copy fits on one; a longer document
+    prints on a full A4 page, as it does alone (backlog 118).
+    """
+    if template.page_size.upper() != "HALF":
+        return template
+    from app.sales_invoice.services.half_page_pdf import HalfPageRenderer
+
+    if HalfPageRenderer(template).render(document) is not None:
+        return template
+    return replace(template, page_size="A4")
+
+
+def _paper(template: TemplateSettings) -> tuple[str, tuple[float, float], float]:
+    """Return a template's paper: its name, its size and its margin."""
+    name = template.page_size.upper()
+    if name == "HALF":
+        from app.sales_invoice.services.half_page_pdf import (
+            HALF_PAGE_SIZE,
+            half_page_margin,
+        )
+
+        return name, HALF_PAGE_SIZE, half_page_margin(template)
+    if name != "A5":
+        name = "A4"
+    return name, (A5 if name == "A5" else A4), float(template.margin_mm) * mm
+
+
 def render_together(
     items: Sequence[tuple[TemplateSettings, InvoiceDocument]], *, title: str
 ) -> bytes:
@@ -916,36 +968,59 @@ def render_together(
 
     Every document keeps the template it would print with alone -- its copies
     and its batch columns -- and starts on a fresh page, so the run reads as
-    the single prints stacked in the order given. The paper and the margins
-    are the first document's: they are the firm's, and the same for all.
+    the single prints stacked in the order given. The paper is each document's
+    own: a run of half-page bills carries a full page for the one too long for
+    half, and for the customer whose bills print on a full page. Each paper
+    keeps the margins of the first document printed on it; they are the
+    firm's, and the same for all.
 
     Raises:
-        BusinessRuleError: For a firm that prints on a thermal roll, where
+        BusinessRuleError: For a document that prints on a thermal roll, where
             every bill is a page of its own length and a run cannot share one.
 
     """
-    first = items[0][0]
-    if first.page_size.upper() == "THERMAL80":
+    if any(template.page_size.upper() == "THERMAL80" for template, _ in items):
         raise BusinessRuleError(
-            "Several documents print together on A4 or A5 paper. This firm "
-            "prints on a thermal roll, so print them one at a time."
+            "Several documents print together on A4, A5 or half-page paper. "
+            "This firm prints on a thermal roll, so print them one at a time."
         )
+    items = [
+        (_settled_paper(template, document), document) for template, document in items
+    ]
+    papers: dict[str, tuple[tuple[float, float], float]] = {}
+    for template, _ in items:
+        name, size, margin = _paper(template)
+        papers.setdefault(name, (size, margin))
     buffer = BytesIO()
-    margin = float(first.margin_mm) * mm
-    doc = SimpleDocTemplate(
+    first_size, first_margin = next(iter(papers.values()))
+    doc = BaseDocTemplate(
         buffer,
-        pagesize=A5 if first.page_size.upper() == "A5" else A4,
-        leftMargin=margin,
-        rightMargin=margin,
-        topMargin=margin,
-        bottomMargin=margin,
+        pagesize=first_size,
+        leftMargin=first_margin,
+        rightMargin=first_margin,
+        topMargin=first_margin,
+        bottomMargin=first_margin,
         title=title,
         author=items[0][1].seller.name,
     )
+    widths: dict[str, float] = {}
+    for name, (size, margin) in papers.items():
+        widths[name] = size[0] - 2 * margin
+        doc.addPageTemplates(
+            PageTemplate(
+                id=name,
+                frames=[
+                    Frame(margin, margin, widths[name], size[1] - 2 * margin, id=name)
+                ],
+                pagesize=size,
+            )
+        )
     story: list[object] = []
     for index, (template, document) in enumerate(items):
+        name = _paper(template)[0]
         if index:
-            story.append(PageBreak())
-        story.extend(InvoicePdfRenderer(template).story(document, doc.width))
+            # Named before the break: the page it opens is this document's.
+            story += [NextPageTemplate(name), PageBreak()]
+        story.extend(InvoicePdfRenderer(template).story(document, widths[name]))
     doc.build(story)
     return buffer.getvalue()

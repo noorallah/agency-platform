@@ -232,6 +232,10 @@ class Customer(BaseEntity):
     #: months. Earliest-expiry allocation passes over a batch with less; one
     #: chosen by hand meets the firm's rule. None asks nothing.
     minimum_shelf_life_days: Mapped[int | None] = mapped_column(Integer)
+    #: The paper this customer's bills print on (backlog 118): HALF for
+    #: half an A4 sheet, A4 for a full page. None takes the firm's own
+    #: print setting.
+    bill_page_size: Mapped[str | None] = mapped_column(String(10))
     #: RETAILER, STOCKIST or OTHER (PG-14): which trade rate of a batch this
     #: buyer is sold at -- price to retailer or price to stockist. None reads
     #: as OTHER, which takes neither.

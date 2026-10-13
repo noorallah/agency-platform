@@ -21,6 +21,7 @@ from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.core.exceptions import ResourceNotFoundError
 from app.core.utils.chunks import chunks
+from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.document_framework.services.print_support import (
     customer_party,
@@ -382,6 +383,13 @@ class SalesInvoicePrintService:
             refuse_without_irn(no_irn)
 
         template = self._template(firm_scope)
+        # The customer's own paper outranks the firm's (backlog 118): one
+        # buyer files full pages while the rest take the half-page bill.
+        paper = self._session.scalar(
+            select(Customer.bill_page_size).where(Customer.id == invoice.customer_id)
+        )
+        if paper:
+            template = replace(template, page_size=paper)
         document = self._document(invoice, firm_scope=firm_scope)
         if no_irn is not None:
             document = replace(document, not_final=REFERENCE_COPY_BANNER)

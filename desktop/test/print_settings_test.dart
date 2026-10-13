@@ -167,6 +167,23 @@ void main() {
       expect(api.saved?['page_size'], 'THERMAL80');
     });
 
+    testWidgets('a half page can be chosen and is what gets saved',
+        (tester) async {
+      final _TemplateApi api = _TemplateApi();
+      await _open(tester, api);
+
+      await tester.ensureVisible(find.byType(DropdownButton<String>).last);
+      await tester.tap(find.byType(DropdownButton<String>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Half page (half of A4)').last);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('print-half-page-note')), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.saved?['page_size'], 'HALF');
+    });
+
     testWidgets('a saved preference comes back on the next open',
         (tester) async {
       final _TemplateApi api = _TemplateApi(stored: <String, dynamic>{

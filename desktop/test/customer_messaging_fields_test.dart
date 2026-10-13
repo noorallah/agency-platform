@@ -13,7 +13,9 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Json _customerJson({bool optedIn = false}) => <String, dynamic>{
+Json _customerJson({bool optedIn = false, String? billPageSize}) =>
+    <String, dynamic>{
+      'bill_page_size': billPageSize,
       'id': 'cust-1',
       'version': 4,
       'firm_id': 'firm-1',
@@ -98,5 +100,44 @@ void main() {
     expect(sent?['preferred_channel'], isNull);
     expect(sent?['no_reminders'], isFalse);
     expect(sent?['whatsapp_opt_in'], isTrue);
+  });
+
+  // Backlog 118: which paper this customer's bills print on.
+  testWidgets('Bill paper shows what is stored and sends A4 when picked',
+      (tester) async {
+    final Json? sent = await _saveWith(
+      tester,
+      () async {
+        await tester.ensureVisible(
+            find.byKey(const ValueKey('customer-bill-page-size')));
+        await tester.pumpAndSettle();
+        expect(find.text('Bill paper'), findsOneWidget);
+        expect(find.text('Half page'), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('customer-bill-page-size')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Full page (A4)').last);
+        await tester.pumpAndSettle();
+      },
+      json: _customerJson(billPageSize: 'HALF'),
+    );
+    expect(sent?['bill_page_size'], 'A4');
+  });
+
+  testWidgets("Firm's setting is sent as an explicit null", (tester) async {
+    final Json? sent = await _saveWith(
+      tester,
+      () async {
+        await tester.ensureVisible(
+            find.byKey(const ValueKey('customer-bill-page-size')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('customer-bill-page-size')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text("Firm's setting").last);
+        await tester.pumpAndSettle();
+      },
+      json: _customerJson(billPageSize: 'HALF'),
+    );
+    expect(sent!.containsKey('bill_page_size'), isTrue);
+    expect(sent['bill_page_size'], isNull);
   });
 }

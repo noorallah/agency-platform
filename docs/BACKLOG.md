@@ -8278,3 +8278,90 @@ the Stock Ledger's line at 800x600), on `test/support/workbook_cells.dart`.
   Export should go.
 - Ordinary lists (customers, bills, orders) are not reports and were left
   alone.
+
+## 118. The half-page bill -- built 2026-10-13
+
+Customer task S13 (`docs/CUSTOMER_BUILD_TASKS.md`). The sample is the
+customer's own bill, kept outside the repository.
+
+**What was there.** A firm chose its paper under *Print settings*: A4, A5 or
+the 80 mm roll. The A4 layout already carried what the sample's lines carry:
+HSN, the MRP of the batch, the rate, free goods (beside the quantity, as "10 +
+1 free"), the discount, the batch and its expiry, each GST head as a rate and
+an amount, and the round-off; and under the firm's address its valid licence
+numbers (backlog 116). What it did not have: a layout that fits half a page (a
+one-line A4 bill, with its banner, two address boxes and HSN summary, is
+taller than half a sheet), a GST summary by rate, a paper per customer, and
+any switch between papers.
+
+**Decided.**
+
+- **Half a page is half an A4 sheet cut across: 210 x 148.5 mm.** The sample
+  is that: a bill on the top half of an A4 page. The page the server makes is
+  the half sheet itself, so it prints on half-sheet stationery as it is and on
+  the top of an A4 sheet at actual size.
+- **A layout of its own, in the sample's order**, not the A4 layout shrunk:
+  the firm on the left with its GSTIN and licence numbers, the title and the
+  buyer on the right; one strip for the number, the date and the references;
+  the lines as SL, Product Details, HSN, MRP, Qty, Free, Rate, Disc., GST %,
+  GST, Net Amount, Batch, Exp. Dt; then the GST summary **by rate**, the
+  amount in words, the bank, and beside them taxable value, total discount,
+  each GST head, round-off and net payable; then the customer's signature and
+  the firm's. All the sample's columns print on every half-page bill, empty
+  where a line has nothing to say, as the sample's batch column is.
+- **The switch is by fit, not by a count of lines.** A copy that does not fit
+  on one half page prints on a full A4 page, in the full page's own layout.
+  Half a page of lines followed by a second half page holding only the totals
+  is neither. About eight lines fit; a long product name or an e-invoice code
+  takes room and the bill switches sooner, by itself.
+- **A customer's own paper outranks the firm's.** A customer carries *Bill
+  paper*: the firm's setting (blank), half page or full page. It applies to
+  his sales bills only.
+- **A run keeps each bill's paper.** *Print selected* gives one file in which
+  a half-page bill is a half page and the long bill, or the full-page
+  customer's, is a full one.
+
+**Built.**
+
+- `app/sales_invoice/services/half_page_pdf.py`: the layout. Any document
+  that prints through the shared renderer can be put on it (the paper is set
+  per document type under *Print settings*).
+- `page_size` on a print template accepts `HALF` beside `A4`, `A5` and
+  `THERMAL80`.
+- `customers.bill_page_size` (`HALF`, `A4` or blank; migration
+  `20261013_0359`, firm-owned, idempotent), on the customer's create and
+  update bodies and the answer. An edit that does not send it leaves it; an
+  explicit null clears it.
+- `render_together` gives each document its own paper in one file.
+- Desktop: *Half page (half of A4)* in the Paper list of *Print settings*,
+  with a line saying a long bill prints on a full page by itself; **Bill
+  paper** on the customer form, under Money.
+
+**D10, how a long bill breaks across pages.** Tried: a 60-line bill prints on
+two full pages. The column headings repeat at the top of the second page; the
+totals and the HSN summary follow the last line; the bank, terms and
+signature block is kept in one piece and moves whole to the next page when it
+does not fit. There is no "continued" line and no page number.
+
+**Tested.** `tests/unit/test_invoice_print.py`: a one-line bill is one half
+page with the sample's columns, the licence numbers, the summary at 18% and
+the round-off; two copies are two half pages; a 40-line bill is full pages in
+the full layout while six lines still fit on half; a run of four bills comes
+out half, full, half, full. `tests/unit/test_print_runs.py`: the customer's
+paper outranks the firm's, both ways. Desktop: `print_settings_test.dart` and
+`customer_messaging_fields_test.dart`. Driven over HTTP on a fixture firm (38
+checks): the firm on half pages, a one-line bill read back with `pdftotext`, a
+60-line bill, a full-page customer, a run of three holding both papers, the
+firm back on A4 with a half-page customer, an edit that keeps the paper and
+one that clears it, a paper nobody knows refused with 422.
+
+**Not done.**
+
+- No bill was put through a printer, and no screen was clicked in the running
+  app. Whether the customer's printer takes a half sheet, or prints the half
+  page on the top of an A4 sheet, is to be tried on his printer.
+- The half page is the sample's arrangement, not a copy of its print: fonts,
+  ruling and exact positions are this application's.
+- The sample prints one discount column. Here it is the discount amount of
+  the line; the sample's may be a percentage.
+- The customer import does not carry the bill paper.

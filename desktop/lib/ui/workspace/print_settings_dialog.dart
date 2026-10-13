@@ -326,10 +326,25 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                               value: 'THERMAL80',
                               child: Text('Thermal roll (80 mm)'),
                             ),
+                            // Half of an A4 sheet, landscape.
+                            DropdownMenuItem(
+                              value: 'HALF',
+                              child: Text('Half page (half of A4)'),
+                            ),
                           ],
                         ),
                       ],
                     ),
+                    if (_pageSize == 'HALF')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'A bill too long for half a page prints on a full '
+                          'page by itself.',
+                          key: const ValueKey('print-half-page-note'),
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
                     if (_error != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
