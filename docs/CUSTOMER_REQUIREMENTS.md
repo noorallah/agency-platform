@@ -90,6 +90,7 @@ name, GST number or bank detail is written in this file.
 | BUY-2 | The plan reads six months by default and can be raised | Opens on the last six months (180 days); one month, three months and a year one click away; quantities raised line by line or all at once by a percentage, rounded up to the supplier's pack | Built | F11 |
 | BUY-3 | Narrow the product list by brand | A Brand box on the purchase order, starting at the supplier's brands | Built | M11 |
 | BUY-4 | Every purchase line is a lot | See section 7 | Building | L2 |
+| BUY-5 | Scan a paper from the scanner and keep it with the document | A **Scan** button where a file is attached: the pages are taken from the scanner and kept as one PDF. Mostly for a supplier's bill, and for the firm's own bill after the customer has signed it. Today a file is attached from a folder after scanning it apart. Backlog 145 | Later | |
 
 ## 7. Stock and lots
 
@@ -148,9 +149,12 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | No. | Requirement | How it works | Status | Row |
 | --- | --- | --- | --- | --- |
 | PRT-1 | Half-page bill as the customer's sample | Half of A4; MRP, quantity, free, rate, discount, GST, net amount, batch and expiry; a GST summary and round-off | Built | S13 |
-| PRT-2 | Half or full page | Per firm and per customer; a bill that does not fit moves to a full page by itself | Built | S13 |
+| PRT-2 | Half or full page | The firm chooses. Full page: every bill is a full page. Half page: a customer may be set to full page, the person printing may switch that one print, and a bill that does not fit moves to a full page by itself | Built, but for the choice at printing, which is Planned | S13, P1 |
 | PRT-3 | Boxes and pieces on the print | In the quantity cell as the customer's own bill prints them, with the box size added: **3/5 (x12)**; free goods **0/2**. May be changed later | Planned | L5 |
-| PRT-4 | Full-page bill as the customer's sample | To compare with his sample: manufacture date column, total quantity, where the customer's licence numbers print | Open | |
+| PRT-4 | Full-page bill as the customer's sample | A manufacture date column, filled only where the lot has one; the total quantity under the lines; the firm's terms at the foot; Order By (the salesman) and Market (the route). The customer's licence numbers stay under his details at the top. The interest line of the sample is words in the terms: no interest is worked out. The sample's discount boxes D1, D2 and D3 wait for the customer | Planned | P2 |
+| PRT-7 | The bill number | One series for the whole firm, as the sample: the series word and a running number. The customer confirms it | Decided | |
+| PRT-9 | Print from each row of the bill list | A **Print** on every row of the list of bills, where today printing is reached from the bar above the list or from the open bill. Low priority (the owner, 2026-10-13): which other lists get it is decided at the end | Later | |
+| PRT-8 | Order By | The bill's salesman. The salesman list also holds entries such as *Phone order* and *Company staff*, which earn no commission | Decided | P2 |
 | PRT-5 | Bill layout settings | The bill in fixed parts (header, lines, summary, footer), how many lines a page shows, and a rule for long shop and product names | Later | F12 |
 | PRT-6 | A code on the bill to pay by scanning | The firm's UPI ID is entered once (the bill's Print settings, or the bank account marked to print). Every printed bill, full page, half page and roll, then carries a QR code for what the bill still owes; any UPI app reads it with the amount and the bill number filled in. No gateway and no internet. The money is not recorded by itself: the receipt is still typed. A link that marks the bill paid needs a gateway account and is not built (backlog 51 B4) | Built | |
 
@@ -207,7 +211,8 @@ customer to agree, and the smaller firm goes first.
 | No. | Requirement | How it works | Status | Row |
 | --- | --- | --- | --- | --- |
 | IMP-1 | Masters and opening figures brought across | Products, customers, suppliers, opening bills, opening stock by lot, opening balances | Later | |
-| IMP-2 | Old bills kept for reference | As history bills: stored as issued, moving no stock and no books | Later | |
+| IMP-2 | Old bills kept for reference | As history bills: stored as issued, moving no stock and no books. Wanted as a record for audit; how many years is the customer's to say | Later | |
+| IMP-4 | The start date | Not fixed (the owner, 2026-10-13): the application is tested first, then the import, then the customer tries it. A start in the middle of a year is possible: the year's bills up to that day come in as history and the books open from that day's figures | Open | |
 | IMP-3 | Working financial year selector | A wall between years, or a filter | Open | |
 
 ## 17. Open questions
@@ -223,6 +228,11 @@ customer to agree, and the smaller firm goes first.
 | USR-2 | What each role must not see or do |
 | USR-3 | Whether each employee needs an account for salary and advances |
 | IMP-3 | Whether the working year is a wall or a filter |
+| PRT-4 | On the sample bill: what the boxes D1, D2 and D3 mean and when each is filled; what the letter B under the lines of one bill and the nought near Net Payable are |
+| PRT-7 | Whether one series in the present form is right, or the year should be inside the number |
+| BUY-5 | What he scans with: a flatbed scanner, a printer with a scanner, or a phone |
+| IMP-2 | What he needs from the old years, how many years back, and whether the other backups and a fresh one can be given |
+| IMP-1 | Two printouts from the old program for the larger firm: the opening trial balance and the customers' outstanding, because the opening figures in the backup do not agree |
 | PRT-5 | Plain paper or pre-printed, and which printer. How many lines on a half page and on a full page, and what a longer bill does. How a long shop or product name should print |
 | COL-9 | Which phones the collectors carry, whether they may join the office Wi-Fi, and whether a receipt is handed over at the shop |
 
@@ -237,7 +247,7 @@ customer to agree, and the smaller firm goes first.
 
 | For | Question |
 | --- | --- |
-| PRT-4 | The walk through of the three sample bills, and what the full page must match |
+| IMP-4 | The start date, once the application and the import are tested |
 | CUS-8 | Which GST provider, at what price |
 | COL-9 | The go-ahead to write the design note for the collector's phone app |
 
@@ -256,3 +266,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | BUY-2 built (F11): Plan an order opens on the last six months of sales, and every suggested quantity can be raised by a percentage at once |
 | 2026-10-13 | PRT-6 and COL-10 added as Built: the owner asked for a pay-by-scan code on the bill and for cheque printing, and both were already there. COL-11 added (the owner): a cheque to any account with the amount typed, post-dated too; row F13 |
 | 2026-10-13 | PRT-5 and COL-9 logged (F12) as backlog 143 and 144, open and not built. PRT-5 waits on the customer's answers about his paper and printer; COL-9 needs a design note first. Both stay Later |
+| 2026-10-13 | The walk through of the sample bills and the backups with the owner: PRT-2 restated (the firm chooses; the choice at printing is row P1), PRT-4 decided and Planned (row P2), PRT-7, PRT-8, BUY-5 (backlog 145), PRT-9 (low priority) and IMP-4 added, IMP-2 is for audit. Five questions for the customer added to section 17 |

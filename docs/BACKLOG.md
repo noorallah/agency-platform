@@ -10679,3 +10679,50 @@ smaller and safer:
 customer's answers above. Then the order is the note, the server's sync
 endpoint tested by a script with no app, the app, and one collector for a
 week. It is a large item: a third application, however small.
+
+## 145. Scan a paper from the scanner and attach it to a document -- open, not built
+
+**The owner, 2026-10-13**, while going through the customer's sample bills:
+can a paper be scanned and attached directly from the scanner. Wanted mostly
+for a supplier's bill, and for the firm's own bill after the customer has
+signed it, so the signed copy stays with the bill. It is BUY-5 in
+`docs/CUSTOMER_REQUIREMENTS.md`.
+
+**Nothing is built by this entry.**
+
+**What we do today.** A file can be attached to a document, and it is picked
+from a folder: the paper is scanned with the scanner's own program, saved,
+and then attached. A supplier's bill, a goods receipt and a sales bill (its
+"signed copy and other paper") all take files this way, as do journals,
+receipts, payments, delivery notes, stock adjustments, customers and
+suppliers. Nothing in the desktop talks to a scanner.
+
+**What a build would do.**
+
+- A **Scan** button beside the button that attaches a file, in the new UI.
+- The desktop asks Windows for the scanner, takes the pages, makes **one PDF
+  of all the pages** and sends it through the attachment route that exists.
+  No new table and no new server route are expected; the server sees one
+  more uploaded file.
+- Windows first. A scanner is reached through Windows' own scanning service,
+  so a build on Linux or macOS is a second piece of work.
+- Supplier bills and sales bills first; the same button can then be put
+  wherever a file is attached.
+
+**What it does not do.** It does not read the scanned bill and fill in the
+lines. That is the reading of a supplier's bill already recorded as not
+built in the purchasing audit (section 86).
+
+**Not known.**
+
+1. What the customer scans with: a flatbed scanner, a printer with a
+   scanner, or only a phone (question N8 in
+   `dist\customer\OPEN_QUESTIONS_2026-10-12.md`). A photo taken on a phone
+   is a different piece of work from a scanner on the computer.
+2. Whether several pages as one PDF is what he wants (assumed yes; the owner
+   has not said).
+3. The largest file a scan may be, and whether pages are stored in colour or
+   in grey to keep the backup small.
+
+**Size.** Medium: one desktop control, a test with a real scanner, and the
+guide and test cases.

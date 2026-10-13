@@ -162,6 +162,10 @@ built.
 Written to be read out or sent. The likely start is the next financial year,
 **1 April 2027**, with the old years brought in as well.
 
+**The start date is not fixed** (the owner, 2026-10-13): the application is
+tested first, then this import, and only then is the customer asked to try
+it. The old years are wanted as a record for audit, to look up and print.
+
 **On the start date, the firm opens our app and finds:**
 
 - Every customer, supplier and item it has today, under the same code
@@ -224,7 +228,7 @@ done; it needs more checking by the firm.
 | G1 | Cost and MRP per purchase lot; a sales line names its lot (backlog 101/103) | Step 9, way B, daily billing | Open |
 | G2 | Keep the old software's number against our record, so a second run skips it | Every step | Open |
 | G3 | Import for routes, segments, salesmen, brands, principals | Step 2 | Open; small enough to create by the converter through the services |
-| G4 | A unit for every item (Swathi has none); pieces per case to a pack | Step 3 | Open; default "piece" unless the firm says otherwise |
+| G4 | A unit for every item (Swathi has none); pieces per case to a pack | Step 3 | Open; default (2026-10-13): every item is a piece, an item with pieces per case above one also gets a box of that many, and the firm corrects a list before the start |
 | G5 | Customer import has no beat and no licence columns | Step 4 | Open |
 | G6 | No chart-of-accounts import; 29 heads and about 110 accounts to map | Steps 6, 7 | Open; a mapping table kept per source software |
 | G7 | A place for history bills outside stock, ledger and GST | Step 10, way A | Open; design note first |
@@ -233,7 +237,7 @@ done; it needs more checking by the firm.
 | G10 | Discount given at collection | Daily billing, step 10 | Decided 2026-10-12; whether it is built is not yet checked |
 | G11 | Bills handed to a collector for a day | Daily work | Open; the bill-and-collector point of 2026-10-12 |
 | G12 | Parent buyer with several shops under one GST number | Step 4 (six GST numbers are shared) | Built 2026-10-13 (backlog 125). A shared number is now refused on a second customer: the file names the parent in a **ParentCode** column and leaves the shop's GSTIN blank |
-| G13 | Half-page bill print with MRP, PTR, free, batch and expiry columns | Daily billing | Open; the sample bill has now arrived |
+| G13 | Half-page bill print with MRP, PTR, free, batch and expiry columns | Daily billing | Half page built (backlog 118). The full page against the sample is row P2 of `docs/CUSTOMER_BUILD_TASKS.md` |
 | G14 | Working financial year selector | Looking at old years | Not decided |
 | G15 | Two firms, where the requirement sheet says one | Set-up | Answered 2026-10-12: both move, the smaller first |
 
@@ -284,4 +288,8 @@ For the customer or the Swathi vendor:
    against.
 6. Why the customer opening total is higher than the opening bills (D2).
 7. Which old years must be kept, and whether the other twelve backups can be
-   handed over.
+   handed over. They are wanted for audit (the owner, 2026-10-13), so the
+   years an inspection can ask for may be enough.
+8. The opening trial balance and the customers' outstanding as the old
+   program prints them for the larger firm, to set beside D1 and D2 before
+   anybody is asked why they differ.
