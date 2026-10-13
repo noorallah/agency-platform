@@ -15,6 +15,14 @@ bank book gives the money back; what the bank charged the firm for the return,
 and what the firm charges the customer for it, each post a journal of their
 own. A cheque still held can be cancelled -- handed back or replaced -- and was
 never posted, so nothing is undone.
+
+**The firm's own cheque is not always to a supplier** (row F13, COL-11). It
+may pay a supplier, hand a customer money back, meet an expense, or go to any
+other ledger account -- a loan, a deposit, the owner's drawings -- and
+``paid_to_kind`` says which. What it becomes when presented follows from that:
+a payment, a refund, an expense, or a payment voucher of its own. A cheque
+written and dated today is in this register too, already presented, because a
+cheque is never printed without a record of it.
 """
 
 from datetime import date, datetime
@@ -52,6 +60,19 @@ class PostDatedChequeStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class ChequePaidTo(StrEnum):
+    """Who one of the firm's own cheques pays."""
+
+    #: A supplier: presenting it records a payment.
+    SUPPLIER = "SUPPLIER"
+    #: A customer: presenting it records a refund.
+    CUSTOMER = "CUSTOMER"
+    #: An expense account: presenting it records an expense.
+    EXPENSE = "EXPENSE"
+    #: Any other ledger account: presenting it posts a payment voucher.
+    ACCOUNT = "ACCOUNT"
+
+
 #: The states in which the cheque still stands for money somebody means to pay.
 LIVE_STATUSES: frozenset[str] = frozenset(
     {
@@ -62,17 +83,26 @@ LIVE_STATUSES: frozenset[str] = frozenset(
 )
 
 
+PARTY_CONSTRAINT = "CK_post_dated_cheques_party_matches_direction"
+
+#: A customer's cheque names the customer and nothing else; the firm's own
+#: names exactly one of a supplier, a customer or a ledger account.
+PARTY_MATCHES_DIRECTION = (
+    "(direction = 'RECEIPT' AND customer_id IS NOT NULL AND vendor_id IS NULL "
+    "AND paid_account_id IS NULL) OR (direction = 'PAYMENT' AND ("
+    "(vendor_id IS NOT NULL AND customer_id IS NULL AND paid_account_id IS NULL) "
+    "OR (customer_id IS NOT NULL AND vendor_id IS NULL AND paid_account_id IS "
+    "NULL) OR (paid_account_id IS NOT NULL AND vendor_id IS NULL AND "
+    "customer_id IS NULL)))"
+)
+
+
 class PostDatedCheque(BaseEntity):
-    """Store one cheque dated ahead, from a customer or to a supplier."""
+    """Store one cheque: a customer's dated ahead, or one the firm wrote."""
 
     __tablename__ = "post_dated_cheques"
     __table_args__ = (
-        CheckConstraint(
-            "(direction = 'RECEIPT' AND customer_id IS NOT NULL AND vendor_id IS "
-            "NULL) OR (direction = 'PAYMENT' AND vendor_id IS NOT NULL AND "
-            "customer_id IS NULL)",
-            name="CK_post_dated_cheques_party_matches_direction",
-        ),
+        CheckConstraint(PARTY_MATCHES_DIRECTION, name=PARTY_CONSTRAINT),
         CheckConstraint("amount > 0", name="CK_post_dated_cheques_amount_positive"),
         CheckConstraint(
             "bank_charges_amount >= 0 AND customer_charge_amount >= 0",
@@ -97,6 +127,22 @@ class PostDatedCheque(BaseEntity):
     vendor_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("vendors.id", ondelete="RESTRICT")
     )
+    #: Who the firm's own cheque pays (:class:`ChequePaidTo`). NULL on a
+    #: customer's cheque.
+    paid_to_kind: Mapped[str | None] = mapped_column(String(20))
+    #: The expense or other ledger account the firm's cheque pays, where it
+    #: pays neither a supplier nor a customer.
+    paid_account_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("ledger_accounts.id", ondelete="RESTRICT")
+    )
+    #: The firm's bank account the cheque is drawn on. NULL on a customer's
+    #: cheque, and on one recorded before the account was asked for, which
+    #: is drawn on the firm's Bank account.
+    bank_account_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("ledger_accounts.id", ondelete="RESTRICT")
+    )
+    #: The name written on the firm's cheque.
+    payee_name: Mapped[str | None] = mapped_column(String(200))
     cheque_number: Mapped[str] = mapped_column(String(30), nullable=False)
     #: The date written on the cheque: the first day it can be banked.
     cheque_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -115,6 +161,18 @@ class PostDatedCheque(BaseEntity):
     #: The receipt or payment it became when banked.
     settlement_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("settlements.id", ondelete="RESTRICT")
+    )
+    #: The expense it became, for a cheque to an expense account.
+    expense_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("expenses.id", ondelete="RESTRICT")
+    )
+    #: The payment voucher it posted, for a cheque to any other account, and
+    #: the mirror that took it back when the bank returned the cheque.
+    journal_entry_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("journal_entries.id", ondelete="RESTRICT")
+    )
+    reversal_journal_entry_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("journal_entries.id", ondelete="RESTRICT")
     )
     deposited_on: Mapped[date | None] = mapped_column(Date)
     cleared_on: Mapped[date | None] = mapped_column(Date)

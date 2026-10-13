@@ -624,7 +624,7 @@ trigger each schema owns its own copy of.
 | `customer_credit_applications` | firm store ¹ | Store how much of one return's or credit note's credit went where. | `customers` |
 | `payment_run_lines` | firm store ¹ | One bill in a run, and the payment that settled it. | `payment_runs`, `vendors`, `settlements` |
 | `payment_runs` | firm store ¹ | The bills chosen to be paid on one date (decision A110). | `firms` |
-| `post_dated_cheques` | firm store ¹ | Store one cheque dated ahead, from a customer or to a supplier. | `customers`, `vendors`, `settlements`, `journal_entries` |
+| `post_dated_cheques` | firm store ¹ | Store one cheque: a customer's dated ahead, or one the firm wrote to a supplier, a customer, an expense or any other account (row F13). | `customers`, `vendors`, `ledger_accounts`, `settlements`, `expenses`, `journal_entries` |
 | `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills`, `customer_opening_bills` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
 | `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `debit_notes`, `purchase_invoices`, `vendor_opening_bills` |

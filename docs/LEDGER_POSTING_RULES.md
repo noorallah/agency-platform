@@ -500,6 +500,22 @@ taxable value**: no line, no tax and no stock moves with it.
   bill that bore TCS with the supplier's PAN, the base, rate and TCS, and
   closes each financial-year quarter with a `QUARTER_TOTAL` row.
 
+**The firm's own cheque pays any account, and posts as what it becomes**
+(row F13, backlog 150, `PostDatedChequeService.write`). To a supplier it is a
+payment and to a customer a refund, both through the settlement service; to
+an expense account it is an expense through `ExpenseService`; to any other
+ledger account it is a payment voucher, Dr the account / Cr the bank
+(`post_cheque_payment`, source module `cheque_payment`, reference
+`CHQ-<cheque number>-<six characters of the cheque's id>`). There is no
+second way of posting any of the four. Dated today or before, that happens
+in the transaction that writes the cheque; dated ahead, nothing is posted
+until it is presented. The bank leg is the account the cheque is drawn on,
+which for a settlement is passed in rather than read from the firm's Bank
+mapping. A returned cheque is undone by the settlement's reversal, the
+expense's cancellation, or a mirror of the voucher under
+`<reference>-REV`. An account a control purpose claims is never paid this
+way: its balance is what its documents say.
+
 **A post-dated cheque posts nothing while it is held** (ACC-2,
 `post_dated_cheques.py`). Banking it posts the receipt or payment it becomes,
 dated the day it was banked, through the settlement service. A returned cheque

@@ -1345,8 +1345,14 @@ class SettlementService(TransactionalDocumentService):
         actor_id: UUID,
         may_give_clearance_discount: bool = False,
         ask_before_cash_below_zero: bool = False,
+        money_account_id: UUID | None = None,
     ) -> Settlement:
         """Record one settlement, allocate it, and post it to the ledger.
+
+        ``money_account_id`` is the bank account a cheque was drawn on (row
+        F13). Only the cheque register passes it, having checked it is one of
+        the firm's bank accounts; without it the money moves through the
+        firm's Cash or Bank account, by the method.
 
         ``may_give_clearance_discount`` says the caller holds
         ``CLEARANCE_DISCOUNT_GIVE``. Without it a receipt's discount stops at
@@ -1455,9 +1461,10 @@ class SettlementService(TransactionalDocumentService):
             )
             if proposal.section is not None:
                 tds_proposed = proposal.proposed
-        money_account_id = self._money_account(
-            firm_id=firm_id, method=SettlementMethod(data.method.value)
-        )
+        if money_account_id is None:
+            money_account_id = self._money_account(
+                firm_id=firm_id, method=SettlementMethod(data.method.value)
+            )
         # A taken number is stepped over rather than re-issued (D-FIN-9), and
         # a typed one is accepted only where the series allows it (D-CFG-2).
         number = self._issue_number(

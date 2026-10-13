@@ -34,7 +34,7 @@ from app.finance.services.ledger_attachments import (
     RECEIPT_DIRECTIONS,
     LedgerAttachmentService,
 )
-from app.settlements.models import Settlement, SettlementMethod
+from app.settlements.models import Settlement, SettlementDirection, SettlementMethod
 from app.settlements.schemas import (
     CustomerCreditApplicationRecord,
     CustomerCreditApplyRequest,
@@ -804,6 +804,31 @@ def refund_parties(
         search=search,
         page=page,
         page_size=page_size,
+    )
+
+
+@refunds_router.get("/{refund_id}/cheque", response_class=StreamingResponse)
+def refund_cheque(
+    refund_id: UUID,
+    scope: RefundCreateScope,
+    payee: Annotated[str | None, Query(max_length=120)] = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Print a refund paid by cheque onto the bank's leaf (row F13).
+
+    The twin of a supplier payment's cheque, made out to the customer; a
+    cash, UPI or transfer refund has none. ``payee`` names someone else.
+    """
+    pdf, filename = ChequeService(db).payment_cheque(
+        refund_id,
+        firm_id=scope.firm_id,
+        payee=payee,
+        direction=SettlementDirection.REFUND,
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 
