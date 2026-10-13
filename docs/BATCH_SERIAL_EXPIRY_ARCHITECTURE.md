@@ -67,6 +67,30 @@ Creating, changing and deleting a batch, lot or serial number is audited as
 `batch.created` / `batch.updated` / `batch.deleted` (likewise `lot.*` and
 `serial_number.*`), with the record's fields in `after_data` (D-STK-10).
 
+#### The lot's columns and tables (L2 step 1, migration 0369)
+
+The tables cost per purchase lot is built on
+(`docs/design/LOT_COST_DESIGN.md`, section 3.2). **Nothing reads them yet**:
+every firm costs on one moving average per product, as before.
+
+| Column on `batches` | Type | Notes |
+|---|---|---|
+| lot_reference | VARCHAR(40) | Our own reference, one per lot, unique per firm among live rows (`UQ_batches_firm_lot_reference_active`). Every batch that existed was numbered `B000001` onwards per firm, in the order made. Empty on a batch made since, until receiving issues one (step 3) |
+| per_purchase_line | BOOLEAN | False on every batch today. True on a lot made for one purchase line |
+| has_printed_batch | BOOLEAN | True today. False where the goods carry no printed batch |
+| received_on | DATE | The day the lot arrived |
+| source_document_type / _id / _line_id / _number | VARCHAR(30), UUID, UUID, VARCHAR(80) | What made the lot. Bare ids, no foreign key |
+
+`UQ_batches_firm_batch_product` (firm, batch number, product) is now a
+**partial unique index** covering rows where `per_purchase_line` is false.
+For every batch that exists it refuses exactly what the old constraint
+refused; a lot of one purchase line may repeat a printed number.
+
+| Table | Holds |
+|---|---|
+| `batch_valuations` | What one lot is worth: `quantity_on_hand`, `unit_cost`, `total_value`, one row per `batch_id`. The shape of `product_valuations` one level down. Cleared with it by the history reset |
+| `stock_lot_settings` | One live row per firm: `costing_method` (`AVERAGE` or `BY_LOT`), `switched_on`, `allow_billing_without_stock`. A firm with no row is on Average. No endpoint writes it yet |
+
 ### Table: `lots`
 
 | Column | Type | Notes |

@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     Date,
     ForeignKey,
     Index,
@@ -480,6 +481,86 @@ class ProductValuation(BaseEntity):
     )
     total_value: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+
+
+class BatchValuation(BaseEntity):
+    """Hold what one lot is worth, for a firm that costs by lot.
+
+    The shape of ``product_valuations`` one level down: one figure per firm
+    and lot, not per warehouse, so a transfer moves no value. Cost sits here
+    and not on ``batches`` because a batch stores no quantity, and so that a
+    batch response can never show a cost to somebody not allowed to see it
+    (`docs/design/LOT_COST_DESIGN.md`, section 3.2).
+    """
+
+    __tablename__ = "batch_valuations"
+    __table_args__ = (
+        UniqueConstraint("batch_id", name="UQ_batch_valuations_batch"),
+        Index("IX_batch_valuations_firm_product", "firm_id", "product_id"),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    batch_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "batches.id", name="FK_batch_valuations_batch_id", ondelete="RESTRICT"
+        ),
+        nullable=False,
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "products.id", name="FK_batch_valuations_product_id", ondelete="RESTRICT"
+        ),
+        nullable=False,
+    )
+    #: What the firm owns of the lot, in every warehouse and bucket.
+    quantity_on_hand: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: Cost of one stock unit.
+    unit_cost: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: Value left. The issue that empties the lot takes all of it, so a lot
+    #: closes at exactly zero.
+    total_value: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+
+
+class StockLotSettings(BaseEntity):
+    """One firm's costing method, and whether it may bill without stock.
+
+    One row per firm; a firm with no row is on Average, which is every firm
+    until it switches (`docs/design/LOT_COST_DESIGN.md`, sections 3.7, 4.3).
+    """
+
+    __tablename__ = "stock_lot_settings"
+    __table_args__ = (
+        Index(
+            "UQ_stock_lot_settings_firm_active",
+            "firm_id",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
+        ),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    #: AVERAGE (one moving average per product) or BY_LOT.
+    costing_method: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="AVERAGE", server_default="AVERAGE"
+    )
+    #: The day the firm moved to BY_LOT; empty while it is on Average.
+    switched_on: Mapped[date | None] = mapped_column(Date)
+    #: Whether a bill may go out for goods no lot holds, once the bill maker
+    #: has been asked. Works with the item's own "allow negative stock".
+    allow_billing_without_stock: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
 

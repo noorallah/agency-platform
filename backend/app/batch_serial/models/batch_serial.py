@@ -32,11 +32,26 @@ class BatchRecord(BaseEntity):
 
     __tablename__ = "batches"
     __table_args__ = (
-        UniqueConstraint(
+        # "The same number is the same batch" holds for every batch that is
+        # not a lot of one purchase line. A lot per purchase line may repeat a
+        # printed number: a second delivery of the batch is a second lot
+        # (`docs/design/LOT_COST_DESIGN.md`, section 3.2).
+        Index(
+            "UQ_batches_firm_batch_product",
             "firm_id",
             "batch_number",
             "product_id",
-            name="UQ_batches_firm_batch_product",
+            unique=True,
+            postgresql_where=text("NOT per_purchase_line"),
+            sqlite_where=text("NOT per_purchase_line"),
+        ),
+        Index(
+            "UQ_batches_firm_lot_reference_active",
+            "firm_id",
+            "lot_reference",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
         ),
         Index("IX_batches_firm_product", "firm_id", "product_id"),
         Index("IX_batches_firm_status", "firm_id", "status"),
@@ -89,6 +104,30 @@ class BatchRecord(BaseEntity):
     ptr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     pts: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     remarks: Mapped[str | None] = mapped_column(Text)
+
+    # The lot (`docs/design/LOT_COST_DESIGN.md`): where a firm costs by lot,
+    # this row is one purchase line's goods. Nothing reads these columns yet.
+    #: Our own running reference, one per lot, unique per firm among live
+    #: rows. Empty on a batch made before every creator issues one.
+    lot_reference: Mapped[str | None] = mapped_column(String(40))
+    #: True on a lot made for one purchase line; false on every batch that
+    #: "the same number is the same batch" still holds for.
+    per_purchase_line: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: False where the goods carry no printed batch: `batch_number` then
+    #: holds the lot reference, and no screen or print shows a batch for it.
+    has_printed_batch: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    #: The day the lot arrived, which orders lots of equal expiry.
+    received_on: Mapped[date | None] = mapped_column(Date)
+    #: What made the lot: GOODS_RECEIPT, OPENING_STOCK, ADJUSTMENT, REPACK or
+    #: CARRIED_FORWARD, with the document and line as bare ids.
+    source_document_type: Mapped[str | None] = mapped_column(String(30))
+    source_document_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    source_document_line_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    source_document_number: Mapped[str | None] = mapped_column(String(80))
 
     # A batch stores no quantities. It carries identity -- the number, who
     # supplied it, when it expires, whether it is blocked -- and how much of it
