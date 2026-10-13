@@ -587,6 +587,9 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
         priced == null ? 0 : _number(stringValue(priced['tax_total']));
     final double total =
         priced == null ? taxable : _number(stringValue(priced['grand_total']));
+    // Backlog 134 (F3): what the server added to reach a whole rupee.
+    final double roundOff =
+        priced == null ? 0 : _number(stringValue(priced['round_off']));
     final bool? interstate = _preview?.interstate;
     return DocumentTotalsBar(
       total: priced == null ? null : total,
@@ -603,6 +606,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
           ('CGST', tax / 2),
           ('SGST', tax / 2),
         ],
+        if (roundOff != 0) ('Round off', roundOff),
         ('Credit to customer', total),
       ],
     );

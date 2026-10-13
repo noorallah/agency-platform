@@ -591,6 +591,7 @@ class DocumentPostingService:
         actor_id: UUID,
         tax_by_component: dict[str, Decimal] | None = None,
         other_charges_amount: Decimal = ZERO,
+        round_off_amount: Decimal = ZERO,
     ) -> JournalEntry | None:
         """Post revenue, output tax and the receivable for an approved invoice.
 
@@ -613,6 +614,12 @@ class DocumentPostingService:
             other_charges_amount: The part of ``taxable_amount`` that is the
                 bill's separately taxed charges, before tax (SG-4). Credited
                 to `OTHER_CHARGES_RECOVERED` and taken off the revenue leg.
+            round_off_amount: The part of ``taxable_amount`` that is the
+                bill's round-off, where the firm rounds every bill (backlog
+                134). Posted to `ROUNDING` and taken off the revenue leg:
+                credited where the customer is asked a little more, debited
+                where a little less. Zero leaves a typed round-off in
+                revenue, as it has always been.
 
         Returns:
             The posted journal entry, or None for a bill whose every leg is
@@ -626,6 +633,7 @@ class DocumentPostingService:
         # Rounded once, as the ledger holds it, and the same figure comes off
         # revenue, so the entry balances whatever the fourth decimal was.
         ledger_charges = quantize_ledger(quantize_money(other_charges_amount))
+        ledger_round_off = quantize_ledger(quantize_money(round_off_amount))
         accounts = self._require_mapping(
             firm_id,
             SALES_INVOICE_PURPOSES + output_tax_purposes(tax_amount, tax_by_component)
@@ -635,7 +643,8 @@ class DocumentPostingService:
                 (ControlAccountPurpose.OTHER_CHARGES_RECOVERED,)
                 if ledger_charges != ZERO
                 else ()
-            ),
+            )
+            + ((ControlAccountPurpose.ROUNDING,) if ledger_round_off != ZERO else ()),
         )
         context = self.context_for(firm_id, invoice_date)
 
@@ -661,7 +670,7 @@ class DocumentPostingService:
         # total. On a bill that comes to nothing but still carries tax it is
         # negative -- the firm bore the tax -- and is debited rather than
         # credited as a negative (D-SELL-53).
-        ledger_revenue = ledger_taxable - ledger_charges
+        ledger_revenue = ledger_taxable - ledger_charges - ledger_round_off
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE],
@@ -683,6 +692,15 @@ class DocumentPostingService:
                     ],
                     credit_amount=ledger_charges,
                     description=f"Charges on invoice {invoice_number}",
+                )
+            )
+        if ledger_round_off != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.ROUNDING],
+                    debit_amount=max(-ledger_round_off, ZERO),
+                    credit_amount=max(ledger_round_off, ZERO),
+                    description=f"Round-off on invoice {invoice_number}",
                 )
             )
         lines.extend(
@@ -3233,6 +3251,7 @@ class DocumentPostingService:
         total_amount: Decimal,
         actor_id: UUID,
         tax_by_component: dict[str, Decimal] | None = None,
+        round_off_amount: Decimal = ZERO,
     ) -> JournalEntry | None:
         """Post what a customer is credited for goods they sent back.
 
@@ -3260,6 +3279,10 @@ class DocumentPostingService:
             tax_by_component: The tax per component as the return's lines
                 recorded it, so each GST head is reversed through its own
                 account (backlog 63.3). None reverses `OUTPUT_TAX` as a whole.
+            round_off_amount: The part of ``taxable_amount`` that is the
+                credit note's round-off, where the firm rounds every bill
+                (backlog 134). Posted to `ROUNDING`, the other way round from
+                the bill's, and taken off the sales-returns leg.
 
         Returns:
             The posted entry, or None when the credit rounds to nothing at the
@@ -3289,16 +3312,24 @@ class DocumentPostingService:
         ledger_taxable = ledger_total - ledger_tax
         if ledger_total == ZERO:
             return None
+        ledger_round_off = quantize_ledger(quantize_money(round_off_amount))
         accounts = self._require_mapping(
             firm_id,
-            SALES_RETURN_PURPOSES + output_tax_purposes(tax, tax_by_component),
+            SALES_RETURN_PURPOSES
+            + output_tax_purposes(tax, tax_by_component)
+            + ((ControlAccountPurpose.ROUNDING,) if ledger_round_off != ZERO else ()),
         )
         context = self.context_for(firm_id, return_date)
 
+        # What is left for sales returns once the round-off is taken out. A
+        # credit of a few paise rounded up to a rupee leaves it negative, and
+        # it is credited rather than debited as a negative.
+        ledger_returns = ledger_taxable - ledger_round_off
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.SALES_RETURNS],
-                debit_amount=ledger_taxable,
+                debit_amount=max(ledger_returns, ZERO),
+                credit_amount=max(-ledger_returns, ZERO),
                 description=f"Sales return {return_number}",
             ),
             JournalLineData(
@@ -3318,6 +3349,20 @@ class DocumentPostingService:
             start=1,
         ):
             lines.insert(offset, leg)
+        if ledger_round_off != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.ROUNDING],
+                    debit_amount=max(ledger_round_off, ZERO),
+                    credit_amount=max(-ledger_round_off, ZERO),
+                    description=f"Round-off on sales return {return_number}",
+                )
+            )
+            lines = [
+                line
+                for line in lines
+                if line.debit_amount != ZERO or line.credit_amount != ZERO
+            ]
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,

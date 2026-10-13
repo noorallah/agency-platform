@@ -70,3 +70,23 @@ def quantize_ledger(value: Decimal | int | str | None) -> Decimal:
     if value is None:
         return ZERO
     return Decimal(str(value)).quantize(LEDGER_SCALE, rounding=ROUND_HALF_UP)
+
+
+def rupee_round_off(total: Decimal | int | str | None) -> Decimal:
+    """Return what takes a document total to the nearest whole rupee.
+
+    The figure a firm that rounds every bill adds to it: 9,974.59 answers
+    0.41 and 9,974.49 answers -0.49. Half a rupee goes up, as every other
+    rounding here does. The answer is at the document's four decimals, so
+    the total and it sum to a whole number exactly.
+
+    Args:
+        total: The document total before any round-off.
+
+    Returns:
+        The round-off, positive where the customer is asked a little more.
+
+    """
+    worked_out = quantize_money(total)
+    whole = worked_out.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return quantize_money(whole - worked_out)

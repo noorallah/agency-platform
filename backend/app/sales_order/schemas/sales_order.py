@@ -582,6 +582,9 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     sales_order_approval: bool = True
     delivery_note_approval: bool = True
     sales_invoice_approval: bool = True
+    #: Whether the server rounds every sales bill and credit note to the
+    #: nearest rupee (backlog 134).
+    round_bills_to_rupee: bool = False
     is_configured: bool
 
 
@@ -623,6 +626,10 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     sales_order_approval: bool | None = None
     delivery_note_approval: bool | None = None
     sales_invoice_approval: bool | None = None
+    #: Round every sales bill and credit note to the nearest rupee
+    #: (backlog 134). Omitted is left as it is; a change reaches documents
+    #: saved from then on.
+    round_bills_to_rupee: bool | None = None
 
 
 class SalesOrderPreview(SalesOrderSchema):

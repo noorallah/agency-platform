@@ -167,6 +167,17 @@ is the amount a client offers to collect. Receipts already allocated against
 `quantize_ledger(grand_total)`, so 97.14 through `/receipts` clears the bill
 too.
 
+**A firm that rounds every bill posts the round-off on its own (backlog
+134).** With `sales_workflow_settings.round_bills_to_rupee` on, the server
+sets `round_off` on every save of a sales bill and of a sales return to what
+takes the total to a whole rupee, and `post_sales_invoice` and
+`post_sales_return` post it to the **Rounding** control account, taken off
+the Sales and Sales Returns legs: Cr Rounding on a bill rounded up, Dr on one
+rounded down, mirrored on the return, so a bill returned in full leaves
+Rounding at nothing. The account is asked for only by a document that has a
+round-off. With the switch off a round-off that was sent stays in Sales, as
+it always has, and no firm is asked for the account.
+
 No leg is posted for the fraction of a paisa, and none is needed: the
 invoice's revenue leg is derived as the rounded total less the rounded tax
 (`post_sales_invoice`), so the 0.0024 lands in Sales with the rest of the

@@ -43,6 +43,7 @@ DEFAULT_SETTINGS = SalesWorkflowSettings(
     sales_order_approval=True,
     delivery_note_approval=True,
     sales_invoice_approval=True,
+    round_bills_to_rupee=False,
 )
 
 #: The approval switch of each document that has one (backlog 119).
@@ -87,6 +88,15 @@ class SalesWorkflowService:
         """
         return bool(getattr(self.settings_for(firm_id), switch))
 
+    def rounds_bills(self, firm_id: UUID) -> bool:
+        """Say whether the firm rounds every bill to the nearest rupee.
+
+        Asked when a sales bill or a credit note is saved, where the server
+        then works the round-off out itself, and when one posts, where the
+        round-off goes to the Rounding account (backlog 134).
+        """
+        return bool(self.settings_for(firm_id).round_bills_to_rupee)
+
     def settings_response(self, firm_id: UUID) -> SalesWorkflowSettingsResponse:
         """Report the configuration and whether the firm actually chose it."""
         stored = self._stored_settings(firm_id)
@@ -105,6 +115,7 @@ class SalesWorkflowService:
             sales_order_approval=bool(policy.sales_order_approval),
             delivery_note_approval=bool(policy.delivery_note_approval),
             sales_invoice_approval=bool(policy.sales_invoice_approval),
+            round_bills_to_rupee=bool(policy.round_bills_to_rupee),
             is_configured=stored is not None,
         )
 
@@ -140,7 +151,10 @@ class SalesWorkflowService:
         if sent & {"default_branch_id", "default_warehouse_id"}:
             self._assert_defaults(firm_id, branch_id, warehouse_id)
         if row is None:
-            row = SalesWorkflowSettings(firm_id=firm_id, created_by=actor_id)
+            # Off until chosen: a row not yet flushed has no column default.
+            row = SalesWorkflowSettings(
+                firm_id=firm_id, created_by=actor_id, round_bills_to_rupee=False
+            )
             self._session.add(row)
         else:
             before = self._snapshot(row)
@@ -170,6 +184,8 @@ class SalesWorkflowService:
             elif getattr(row, switch) is None:
                 # A row not yet flushed has no column default to read.
                 setattr(row, switch, True)
+        if data.round_bills_to_rupee is not None:
+            row.round_bills_to_rupee = data.round_bills_to_rupee
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -201,6 +217,7 @@ class SalesWorkflowService:
             sales_order_approval=row.sales_order_approval,
             delivery_note_approval=row.delivery_note_approval,
             sales_invoice_approval=row.sales_invoice_approval,
+            round_bills_to_rupee=row.round_bills_to_rupee,
             is_configured=True,
         )
 
@@ -270,6 +287,7 @@ class SalesWorkflowService:
             "new_outlets_need_approval": row.new_outlets_need_approval,
             "reservation_lapse_days": row.reservation_lapse_days,
             **{switch: getattr(row, switch) for switch in APPROVAL_SWITCHES},
+            "round_bills_to_rupee": row.round_bills_to_rupee,
             "quotation_stage": row.quotation_stage,
             "sales_order_stage": row.sales_order_stage,
             "delivery_note_stage": row.delivery_note_stage,

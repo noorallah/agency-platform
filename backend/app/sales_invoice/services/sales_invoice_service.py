@@ -38,7 +38,7 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError, Validation
 from app.core.pagination import WHOLE_HISTORY, ReportRows, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
-from app.core.utils.money import quantize_ledger
+from app.core.utils.money import quantize_ledger, rupee_round_off
 from app.core.utils.pricing import (
     LineDiscount,
     apportion,
@@ -770,14 +770,18 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         row.tax_total = self._q(line_totals["tax_total"] + charges_tax)
-        row.grand_total = self._q(
+        worked_out = self._q(
             row.subtotal
             + row.tax_total
             + line_totals["line_charges_total"]
             + charges_total
             + row.additional_charges
-            + row.round_off
         )
+        # A firm that rounds every bill types no round-off: the server works
+        # it out from the total, whatever was sent (backlog 134).
+        if SalesWorkflowService(self._session).rounds_bills(firm_id):
+            row.round_off = rupee_round_off(worked_out)
+        row.grand_total = self._q(worked_out + row.round_off)
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_id
         )
@@ -1056,14 +1060,18 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         row.tax_total = self._q(line_totals["tax_total"] + charges_tax)
-        row.grand_total = self._q(
+        worked_out = self._q(
             row.subtotal
             + row.tax_total
             + line_totals["line_charges_total"]
             + charges_total
             + row.additional_charges
-            + row.round_off
         )
+        # A firm that rounds every bill types no round-off: the server works
+        # it out from the total, whatever was sent (backlog 134).
+        if SalesWorkflowService(self._session).rounds_bills(firm_id):
+            row.round_off = rupee_round_off(worked_out)
+        row.grand_total = self._q(worked_out + row.round_off)
         # Absent leaves the bill's attachments and notes alone; sent, each is
         # replaced whole, and an empty list clears it (D-SELL-79).
         if "attachments" in sent:
@@ -1743,6 +1751,13 @@ class SalesInvoiceService(TransactionalDocumentService):
             other_charges_amount=sum(
                 (Decimal(str(charge.amount)) for charge in self._charges_of(row.id)),
                 ZERO,
+            ),
+            # Where the firm rounds every bill the round-off is an account of
+            # its own (backlog 134); elsewhere a typed one stays in revenue.
+            round_off_amount=(
+                self._q(row.round_off)
+                if SalesWorkflowService(self._session).rounds_bills(firm_scope)
+                else ZERO
             ),
         )
         # Credit the customer for the sale, in the approval's own transaction:

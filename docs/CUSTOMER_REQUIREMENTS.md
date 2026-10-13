@@ -140,7 +140,7 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | SEL-5 | Boxes and pieces on one line | 10 boxes + 5 pieces typed in two cells; free goods the same way. Stored as one quantity in pieces; boxes are always full boxes (2 + 17 of a 12-pack becomes 3 + 5) | Planned | L5 |
 | SEL-6 | Who gets the box cells | The firm switches it on (selling and buying apart); then a customer's or supplier's tick decides how a new document opens; a toggle on the document changes it; the document keeps its choice and reopens in it | Planned | L5 |
 | SEL-7 | Rate always per piece | The rate of a box is shown, never typed | Decided | L5 |
-| SEL-8 | Round the bill to the nearest rupee | A firm setting. On, every bill and credit note is rounded and shows the round-off line. Off, the bill is left as worked out | Building | F3 |
+| SEL-8 | Round the bill to the nearest rupee | A firm setting. On, every bill and credit note is rounded and shows the round-off line. Off, the bill is left as worked out | Built | F3 |
 | SEL-9 | Choose the lot at billing | Lots listed with price, batch and expiry, nearest expiry first (STK-5) | Planned | L2 |
 
 ## 10. Bill print

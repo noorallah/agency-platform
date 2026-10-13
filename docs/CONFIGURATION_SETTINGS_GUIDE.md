@@ -417,6 +417,7 @@ stages on later.
 | Sales orders wait for approval | On | On: a saved order is a draft until somebody with the approve permission approves it. Off: **Save** completes it, and whoever raised it is who approves it. |
 | Delivery notes wait for approval | On | The same for a delivery note. Dispatch stays a step of its own either way. |
 | Sales bills wait for approval | On | The same for a sales bill. |
+| Round every bill to the nearest rupee | Off | On: every sales bill and sales return is rounded to the rupee when it is saved; nobody types the round-off, it prints as *Round off* and goes to the **Rounding** account. Off: a bill is left as worked out. A change applies to documents saved from then on. Supplier bills are not rounded. |
 
 **What happens when the order and delivery note stages are both off:** the
 person types only the bill. When it is saved, the bill raises the order and
