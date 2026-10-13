@@ -508,6 +508,7 @@ class SalesInvoicePrintService:
                 if line.source_document_type == "DELIVERY_NOTE"
             ],
         )
+        typed_on_order = self._typed_on_the_order(lines)
         printed: list[InvoiceLineBlock] = []
         for line in lines:
             product = products.get(line.product_id)
@@ -547,8 +548,12 @@ class SalesInvoicePrintService:
                     for item in taxes.get(line.id, [])
                 ),
                 # Both rates print where the bill typed them with GST in
-                # (backlog 64 row 4).
-                entered_rate=(line.entered_rate if invoice.rate_includes_tax else None),
+                # (backlog 64 row 4), or the order it continues did.
+                entered_rate=(
+                    line.entered_rate
+                    if invoice.rate_includes_tax and line.entered_rate is not None
+                    else typed_on_order.get(line.id)
+                ),
             )
             printed.extend(
                 per_batch(whole, batches, sum((qty for _, qty in batches), ZERO))
@@ -629,6 +634,68 @@ class SalesInvoicePrintService:
                 ),
             ),
         )
+
+    def _typed_on_the_order(self, lines: list[SalesInvoiceLine]) -> dict[UUID, Decimal]:
+        """Return the GST-inclusive rate each line's order was typed at (D-SELL-95).
+
+        A firm that types an order before its bill types the shelf price
+        there, and the bill inherits the rate before tax it derived to. The
+        order's print showed both rates and the tax invoice only the second,
+        so the one figure the buyer agreed to was missing from the one paper
+        the buyer keeps. A line whose price the bill changed is left out: the
+        typed rate is no longer the one it charges.
+        """
+        of_order_line: dict[UUID, UUID] = {
+            line.id: line.source_document_line_id
+            for line in lines
+            if line.source_document_type == "SALES_ORDER"
+        }
+        from_notes = {
+            line.id: line.source_document_line_id
+            for line in lines
+            if line.source_document_type == "DELIVERY_NOTE"
+        }
+        if from_notes:
+            order_line_of = {
+                note_line_id: order_line_id
+                for note_line_id, order_line_id in self._session.execute(
+                    select(
+                        DeliveryNoteLine.id, DeliveryNoteLine.sales_order_line_id
+                    ).where(DeliveryNoteLine.id.in_(list(from_notes.values())))
+                )
+            }
+            of_order_line.update(
+                {
+                    line_id: order_line_of[note_line_id]
+                    for line_id, note_line_id in from_notes.items()
+                    if note_line_id in order_line_of
+                }
+            )
+        if not of_order_line:
+            return {}
+        typed = {
+            order_line_id: (entered_rate, unit_price)
+            for order_line_id, entered_rate, unit_price in self._session.execute(
+                select(
+                    SalesOrderLine.id,
+                    SalesOrderLine.entered_rate,
+                    SalesOrderLine.unit_price,
+                )
+                .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+                .where(
+                    SalesOrderLine.id.in_(list(set(of_order_line.values()))),
+                    SalesOrderLine.entered_rate.is_not(None),
+                    SalesOrder.rate_includes_tax.is_(True),
+                )
+            )
+        }
+        by_id = {line.id: line for line in lines}
+        return {
+            line_id: typed[order_line_id][0]
+            for line_id, order_line_id in of_order_line.items()
+            if order_line_id in typed
+            and typed[order_line_id][1] == by_id[line_id].unit_price
+        }
 
     def _sources(
         self, invoice: SalesInvoice, lines: list[SalesInvoiceLine]

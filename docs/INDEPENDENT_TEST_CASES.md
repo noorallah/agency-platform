@@ -4127,6 +4127,31 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Also true, by the server:** an order, a note or a bill naming an address of another customer is refused (*The ship-to address must be one of the customer's own addresses.*). A half-page bill prints the two addresses the same way.
 - **Leaves:** approved bills for A, B, C and D; customer A with two addresses.
 
+### TC-SELL-103 — A rate typed including GST: what the line and each print show
+
+*Added 2026-10-13 (customer task C2, decision D11). **Server side driven over HTTP** that day on a fixture firm (46 checks), reading the text of each PDF; one defect found and fixed (D-SELL-95), one left open (D-SELL-96). The bill typed directly and the screens were not tried.*
+
+- **Covers:** D-SELL-95, D-SELL-96; backlog 64 row 4
+- **Fixture:** `ready-firm`
+- **Also needs:** a product at GST 18% and one at GST 5%, both in stock; a customer in the firm's own state.
+- **Steps**
+  1. Sales order, **Rate includes GST** off: one piece of the 18% product at 100. Approve, deliver, bill. Print the order and the bill.
+  2. Sales order, **Rate includes GST** on: one piece at 100. Print the order. Approve, deliver, bill. Print the challan and the bill.
+  3. Sales order, switch on: 7 of the 18% product at 33.33, 3 of the 5% product at 105, 1 of the 18% product at 99.99.
+  4. Sales order, switch on: one piece at 100 with a discount of 10%. Another: two pieces at 100 with a discount amount of 20.
+  5. A draft order, switch on, one piece at 100. Open it, change the quantity to 3, save. Then turn the switch off and save.
+  6. Quotation, switch on, one piece at 100. Print it. Send, accept, convert to an order.
+  7. A draft order, switch on: 500 pieces at 100.
+- **Expect**
+  - Step 1: taxable 100.00, tax 18.00, total 118.00. Each print has one **Rate** column, 100.00.
+  - Step 2: the order line shows the rate 100 as typed; taxable 84.75, tax 15.25, total 100.00. The order's print has **Rate incl. GST** 100.00 beside **Rate** 84.75. The bill totals 100.00 and its print shows the same two columns (D-SELL-95). The challan shows Rate 84.75 and the total 100.00.
+  - Step 3: the order totals 648.30, the sum of the three figures typed (233.31 + 315.00 + 99.99). The 5% line's rate before tax is 100.
+  - Step 4: 90.00 to pay; 180.00 to pay.
+  - Step 5: after the first save the total is 300.00 and the rate still reads 100. After the second it is 354.00: the same 100 is now before tax.
+  - Step 6: the quotation totals 100.00 and prints both rates; the order it becomes has the switch on and totals 100.00.
+  - Step 7: **today the total reads 50,000.02, not 50,000.00** (D-SELL-96, open). When that is fixed this step expects 50,000.00.
+- **Leaves:** approved bills, draft orders and one converted quotation.
+
 ### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
 
 *Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` fixture: the full chain and the direct bill, and both refusals. The screens were not clicked.*

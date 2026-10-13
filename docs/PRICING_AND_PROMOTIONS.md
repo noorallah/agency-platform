@@ -1605,6 +1605,21 @@ converts into an order typed at them, read back to pre-tax at the order's own
 date, so the customer is billed the price quoted; the quotation print shows
 both rates. A bill continuing an order inherits the pre-tax price, as before.
 
+**The bill's print reads the typed rate back from the order (D-SELL-95,
+2026-10-13).** The bill of such an order stores nothing typed -- its own
+switch is off and `entered_rate` is NULL -- so its print showed the pre-tax
+rate alone. `_typed_on_the_order` in
+`app/sales_invoice/services/invoice_print_service.py` finds the order line
+each bill line continues, directly or through its delivery note, and prints
+that line's `entered_rate` where the order's `rate_includes_tax` is on and the
+bill still charges the order's `unit_price`. A repriced line prints one rate.
+The challan prints the pre-tax rate only.
+
+**The residual is not absorbed today (D-SELL-96, open).** The paragraph above
+calls a large quantity's residual the round-off's, but no document fills
+`round_off` by itself: 500 at 100.00 including 18% totals 50,000.02. The
+total is always exact for a few dozen pieces.
+
 ## The price a line starts at (SEL-9, 2026-10-03)
 
 The discount ranking above decides what comes off; this decides what it comes

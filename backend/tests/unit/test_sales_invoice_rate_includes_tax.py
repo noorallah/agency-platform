@@ -29,6 +29,9 @@ from app.sales_invoice.services.invoice_pdf import (
     InvoicePdfRenderer,
     TemplateSettings,
 )
+from app.sales_invoice.services.invoice_print_service import (
+    SalesInvoicePrintService,
+)
 from app.sales_order.models import SalesOrderLine, SalesWorkflowSettings
 from app.sales_order.schemas import (
     SalesOrderCreate,
@@ -391,3 +394,94 @@ def test_a_bill_typed_before_tax_prints_one_rate() -> None:
     """No line typed inclusive, no extra column."""
     printed = _text_of(InvoicePdfRenderer().render(_document()))
     assert "incl." not in printed
+
+
+def _bill_of_an_order(
+    *, inclusive: bool, billed_at: Decimal | None = None
+) -> tuple[_Firm, SalesInvoice]:
+    """Bill one piece of an order typed at 118, with GST in it or before it."""
+    setup = _gst_firm(sales_order_stage=True)
+    actor = uuid4()
+    orders = SalesOrderService(setup.session)
+    order = orders.stage_order(
+        SalesOrderCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            order_date=date(2026, 8, 3),
+            rate_includes_tax=inclusive,
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=setup.product.id,
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("118"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    orders.stage_approval(order.id, firm_scope=setup.firm.id, actor_id=actor)
+    setup.session.commit()
+    order_line = setup.session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert order_line is not None
+    invoice = SalesInvoiceService(setup.session).create_invoice(
+        SalesInvoiceCreate(
+            customer_id=setup.customer.id,
+            invoice_date=date(2026, 8, 4),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=order.id,
+                    source_document_line_id=order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("1"),
+                    unit_price=billed_at,
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    return setup, invoice
+
+
+def _printed_typed_rate(setup: _Firm, invoice: SalesInvoice) -> Decimal | None:
+    """Return the GST-inclusive rate the bill's print states on its line."""
+    document = SalesInvoicePrintService(setup.session)._document(
+        invoice, firm_scope=setup.firm.id
+    )
+    [line] = document.lines
+    return line.entered_rate
+
+
+def test_the_bill_of_an_order_typed_with_gst_prints_the_rate_typed() -> None:
+    """D-SELL-95: the order's shelf price reaches the tax invoice's print."""
+    setup, invoice = _bill_of_an_order(inclusive=True)
+    line = _line(setup.session, invoice)
+
+    assert line.unit_price == Decimal("100.0000")
+    # The bill typed nothing itself, and its own switch stays off.
+    assert line.entered_rate is None
+    assert invoice.rate_includes_tax is False
+    assert invoice.grand_total == Decimal("118.0000")
+    assert _printed_typed_rate(setup, invoice) == Decimal("118.0000")
+
+
+def test_a_bill_that_changes_the_orders_price_prints_one_rate() -> None:
+    """The typed rate is not the one charged once the bill reprices the line."""
+    setup, invoice = _bill_of_an_order(inclusive=True, billed_at=Decimal("90"))
+
+    assert _line(setup.session, invoice).unit_price == Decimal("90.0000")
+    assert _printed_typed_rate(setup, invoice) is None
+
+
+def test_the_bill_of_an_order_typed_before_tax_prints_one_rate() -> None:
+    """An order before tax has no second rate to print."""
+    setup, invoice = _bill_of_an_order(inclusive=False)
+
+    assert _line(setup.session, invoice).unit_price == Decimal("118.0000")
+    assert _printed_typed_rate(setup, invoice) is None
