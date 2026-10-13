@@ -7768,6 +7768,16 @@ class ApiClient {
         query: {'from_date': fromDate, 'to_date': toDate},
       ));
 
+  /// The last [last] entries on a customer's account, oldest first, with the
+  /// balance before the first one shown and how many entries there are in all
+  /// (backlog 121, M3).
+  Future<Json> customerAccount(String customerId, {int last = 20}) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/customers/$customerId/account',
+        query: {'last': '$last'},
+      ));
+
   /// A customer and the supplier that is the same business, on one page, net
   /// of each other (ACC-11). Refused when no supplier is linked.
   Future<Json> customerCombinedStatement(

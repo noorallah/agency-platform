@@ -79,6 +79,7 @@ from app.customers.schemas.records import (
 from app.customers.schemas.statement import (
     CombinedStatementLine,
     CombinedStatementResponse,
+    CustomerAccount,
     InterestDebitNoteCreate,
     OverdueInterestRow,
 )
@@ -104,6 +105,10 @@ from app.document_framework.schemas.bulk_actions import (
 )
 from app.document_framework.services.bulk_actions import run_each
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
+
+#: The most entries the account table asks for at once. It is a screen's
+#: worth, not a report: a longer look is the statement for a period.
+MAX_ACCOUNT_ENTRIES = 200
 
 router = APIRouter(
     prefix="/api/v1/customers",
@@ -1213,6 +1218,29 @@ def customer_statement(
             firm_scope=scope.firm_id,
             from_date=from_date,
             to_date=to_date,
+        )
+    )
+
+
+@router.get(
+    "/{customer_id}/account",
+    response_model=ApiResponse[CustomerAccount],
+)
+def customer_account(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    last: Annotated[int, Query(ge=1, le=MAX_ACCOUNT_ENTRIES)] = 20,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerAccount]:
+    """Return the newest entries of one customer's account, oldest first.
+
+    The account as a table of rows (backlog 121): the last entries whatever
+    their dates, with the same running balance a statement shows. A receipt
+    is added through `/api/v1/receipts`; this only reads.
+    """
+    return ApiResponse(
+        data=CustomerStatementService(db).account(
+            customer_id, firm_scope=scope.firm_id, last=last
         )
     )
 

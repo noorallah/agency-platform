@@ -8542,3 +8542,70 @@ firm with a second user holding the Purchase Executive role (60 checks).
 - With the goods receipt's switch on, nothing on the server stops whoever
   typed a receipt completing it: that was so before and is unchanged.
 - No screen was clicked in the running app.
+
+## 121. The customer account as a table -- built 2026-10-13
+
+Customer task M3 (`docs/CUSTOMER_BUILD_TASKS.md`): the account as rows, the
+last X entries shown, and adding a row is a new receipt, for the customer or
+against one bill.
+
+**What was there.** Nearly all of it. The customer statement already read an
+account in date order with a running balance, for a period. Receipts already
+went through `/api/v1/receipts`, closed the bills they named through
+`settlement_allocations` and posted their journal. What was missing was a
+read of *the last entries whatever their dates*, and a way to add a receipt
+without leaving the account for the Receipts screen.
+
+**Decided.**
+
+- **X is 20, and the screen offers 20, 50 and 100.** The server takes up to
+  200. A longer look is the statement for a period, which is unchanged.
+- **The tail is taken by date, then by the order things were written**, the
+  order a statement reads in. A receipt typed today and dated last month is
+  not the last row.
+- **The opening balance is everything before the first row shown**, so the
+  running balance is the statement's own arithmetic and the last row's
+  balance is what the account stands at, however few rows are shown.
+- **A row is one receipt and at most one bill.** *On account* names no bill;
+  the money comes off the balance, and what is over becomes an advance, as
+  for any receipt. A discount, TDS, bank charges, a cheque's date or several
+  bills on one receipt stay on the Receipts screen.
+- **A saved row is never edited in the table.** A receipt is reversed from
+  Receipts, never changed (the settlements rule); the table says so.
+- **Nothing new is permitted.** Reading takes `CUSTOMER_VIEW`, the row takes
+  `RECEIPT_CREATE` and is not shown without it.
+
+**Built.**
+
+- `GET /api/v1/customers/{id}/account?last=N` (1 to 200, 20 by default):
+  the statement's shape plus `total_entries`. `CustomerStatementService.account`;
+  the line arithmetic is shared with the statement (`_running_lines`). No
+  migration.
+- Desktop: *Customer Statements* has a third view, **Account**, between
+  Ageing and Statement (`customer_account_table.dart`). The rows, an
+  *Opening balance* row when entries are hidden, "The last 20 of 143
+  entries", a *Show 20 / 50 / 100* chooser, and a last row with Date,
+  Against (*On account* or one unpaid bill with what it owes), Reference,
+  Mode, Amount and **Add**. Choosing a bill fills the amount with what it
+  owes when the box is empty. More than the bill owes is refused before any
+  request; a refusal from the server is shown by the row and what was typed
+  stays. Opening the view is two reads, adding is one post and two reads.
+
+**Tested.** `tests/unit/test_customer_statement.py` (5 new): the tail oldest
+first with its opening balance, the tail taken by date and not by when it
+was written, the whole account from zero, an empty account, another firm's
+customer. Desktop: `customer_account_table_test.dart` (13). Driven over HTTP
+on a fixture firm (35 checks): a receipt for one bill takes it off the unpaid
+bills, is the last row, and its journal entry is posted for the same amount;
+`last=1` opens at what came before; a receipt on account closes no bill;
+more than a bill owes and a closed bill are refused and write nothing; the
+table and the statement close at the same figure.
+
+**Not done.**
+
+- Clicking a customer in the ageing still opens the Statement; Account is one
+  more click.
+- The Account view has no Download and no print: the Statement has both.
+- A supplier's account has no such table.
+- No screen was clicked in the running app.
+

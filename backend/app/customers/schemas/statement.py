@@ -75,6 +75,18 @@ class CustomerStatement(StatementSchema):
     interest_accrued: Decimal = Decimal("0")
 
 
+class CustomerAccount(CustomerStatement):
+    """The newest entries of a customer's account, read as a table.
+
+    ``from_date`` and ``to_date`` are the dates of the first and last entry
+    shown; ``opening_balance`` is everything before the first of them.
+    """
+
+    #: Every entry on the account, shown or not, so a screen can say
+    #: "the last 20 of 143".
+    total_entries: int
+
+
 class OverdueInvoice(StatementSchema):
     """One bill that is still owed, and for how long."""
 
