@@ -54,6 +54,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSourceWrite,
 )
 from app.uom.services import UomService, buying_units_of
+from app.vendors.services.supplier_family import same_company
 
 ZERO = Decimal("0")
 _QUANTUM = Decimal("0.0001")
@@ -276,6 +277,7 @@ class PurchaseChainService:
         receipt = receipts.stage_receipt(
             GoodsReceiptCreate(
                 purchase_order_id=order.id,
+                vendor_id=self._received_from(data, order),
                 receipt_date=data.invoice_date,
                 invoice_reference=data.supplier_invoice_number,
                 remarks=data.remarks,
@@ -319,6 +321,23 @@ class PurchaseChainService:
                 "lines": lines,
             }
         )
+
+    def _received_from(
+        self, data: PurchaseInvoiceCreate, order: PurchaseOrder
+    ) -> UUID | None:
+        """Return the office the raised receipt is from, where the bill says.
+
+        A bill in the name of another office of the supplier company the
+        order is on (backlog 140) receives the goods from that office, so the
+        receipt nobody typed and the bill beside it name the same supplier.
+        A supplier outside the company is left to the bill, which refuses it
+        in its own words rather than in a receipt's.
+        """
+        if data.vendor_id is None or data.vendor_id == order.vendor_id:
+            return None
+        if not same_company(self._session, data.vendor_id, order.vendor_id):
+            return None
+        return data.vendor_id
 
     @staticmethod
     def _free_goods(

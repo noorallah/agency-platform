@@ -2466,6 +2466,36 @@ of 2026-10-05 and, like the rest, have not been run by hand.
   - Step 8: `BR1` is a supplier on its own with no GST number; it does not keep `G3`.
   - Step 9: `AGAIN` is saved with `G1`. Restoring `OTHER` is refused: its GST number is now held by `AGAIN`.
 
+### TC-BUY-107 — A new branch of the supplier is added while the goods are recorded
+
+*Added 2026-10-13 (backlog 140). Covered by widget and unit tests; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 140 (customer task F9)
+- **Fixture:** `ready-firm`
+- **Also needs:** two suppliers, `MAIN` with one branch under it and `ALONE` with none; an approved purchase order on each; a second user who may receive goods but may not add suppliers. For steps 8 to 10, a firm that types orders but no goods receipts, with an approved order on `MAIN`.
+- **Steps**
+  1. Open *Buy → Goods Receipts* → new. Before choosing an order, look for **New branch**.
+  2. Choose the order on `MAIN`. Type a supplier's invoice number.
+  3. Press **New branch**. Look at **Branch of**. Type only a name and save.
+  4. Save the receipt and open it again. Open *Buy → Suppliers*.
+  5. Open a new receipt, choose the order on `ALONE` and press **New branch**. Type a name and save. Save the receipt.
+  6. Open a new receipt, choose the order on `MAIN`, press **New branch**, clear **Branch of**, type a name and save.
+  7. Sign in as the second user, open a new receipt and choose the order on `MAIN`.
+  8. On the firm that types no receipts: open *Buy → Purchase Invoices* → new and choose the order on `MAIN`.
+  9. Press **New branch**, type a name and save. Type the supplier's invoice number and save the bill.
+  10. Open *Buy → Goods Receipts* and find the receipt the bill raised.
+- **Expect**
+  - Step 1: there is no **New branch** button until an order is chosen.
+  - Step 2: **Received from** lists the main office and its branch, and **New branch** is beside it.
+  - Step 3: the supplier form opens over the receipt with **Branch of** naming `MAIN`. After the save the receipt is shown again, **Received from** names the new branch, and the invoice number typed is still there.
+  - Step 4: the receipt is from the new branch. The supplier list shows the new branch as *Branch of MAIN*, with the main office's GST number where it typed none.
+  - Step 5: there is no **Received from** box at first, only the button. After the save the box is there with the new branch chosen, and the receipt is saved as from it. `ALONE` now shows *1 branch*.
+  - Step 6: the supplier is saved. The receipt says it was not saved as a branch of `MAIN` and cannot be received from; **Received from** is unchanged.
+  - Step 7: **Received from** is shown and **New branch** is not.
+  - Step 8: a **Billed by** box lists the offices of `MAIN`, with the main office chosen, and **New branch** is beside it.
+  - Step 9: **Billed by** names the new branch, and the bill is saved in that branch's name. The order is still on `MAIN`.
+  - Step 10: the receipt is from the same branch as the bill.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked

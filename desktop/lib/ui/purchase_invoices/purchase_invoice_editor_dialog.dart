@@ -371,7 +371,116 @@ class _PurchaseInvoiceEditorDialogState
 
   /// The supplier the bill is for, whichever way it was chosen.
   String? get _billSupplierId =>
-      _vendorId ?? _receipt?.vendorId ?? _order?.vendorId ?? _billVendorId;
+      _vendorId ??
+      _receipt?.vendorId ??
+      _billedById ??
+      _order?.vendorId ??
+      _billVendorId;
+
+  /// Backlog 140, a bill raised against an order: the supplier company the
+  /// order is on, where it has a main office or branches. Null for a
+  /// supplier on its own, which shows no *Billed by* box.
+  VendorFamily? _orderFamily;
+
+  /// The office the bill is from, where it is not the order's own supplier;
+  /// null takes the order's, as a bill always did.
+  String? _billedById;
+
+  /// Bumped when a branch is added from here, so the *Billed by* box is
+  /// built again and shows it chosen.
+  int _officesEpoch = 0;
+
+  /// *Billed by*: the offices of the order's supplier company. Null when the
+  /// supplier has no branches and no main office.
+  List<VendorFamilyMember>? get _orderOffices {
+    final VendorFamily? family = _orderFamily;
+    return family == null || family.members.length < 2 ? null : family.members;
+  }
+
+  /// Whether **New branch** is offered: the bill names an order and the
+  /// person may add suppliers.
+  bool get _offersNewBranch =>
+      _mode == PurchaseBillMode.order && _order != null && widget.canAddVendor;
+
+  /// Read the offices of the order's supplier, once per order chosen and
+  /// only where the supplier list says it has a main office or branches: a
+  /// supplier on its own makes no call.
+  Future<void> _loadOrderFamily(PurchaseOrder order) async {
+    final Vendor? supplier = _vendor(order.vendorId);
+    if (supplier != null &&
+        supplier.parentVendorId == null &&
+        supplier.branchCount == 0) {
+      return;
+    }
+    try {
+      final VendorFamily family = await widget.api.vendorFamily(order.vendorId);
+      if (!mounted || _order?.id != order.id) return;
+      setState(() => _orderFamily = family);
+    } on Object {
+      // A family that cannot be read costs the choice, not the bill: it is
+      // taken as from the order's supplier.
+    }
+  }
+
+  void _chooseBilledBy(String? officeId) {
+    setState(() {
+      _billedById =
+          officeId == null || officeId == _order?.vendorId ? null : officeId;
+    });
+    _schedulePreview();
+  }
+
+  /// Open the supplier form over the bill, set as a branch of the company
+  /// the order is on, and put the bill in the name of the branch it saved
+  /// (backlog 140). What was typed on the bill is kept.
+  Future<void> _addBranch() async {
+    final PurchaseOrder? order = _order;
+    if (order == null) return;
+    VendorFamily? family = _orderFamily;
+    if (family == null) {
+      final Vendor? supplier = _vendor(order.vendorId);
+      if (supplier != null && supplier.parentVendorId == null) {
+        // On its own until now: it becomes the main office.
+        family = VendorFamily(
+          parentId: supplier.id,
+          members: [officeFrom(supplier, isParent: true)],
+          totalBalance: '0.00',
+        );
+      } else {
+        try {
+          family = await widget.api.vendorFamily(order.vendorId);
+        } on ApiException catch (exception) {
+          if (!mounted) return;
+          setState(() => _error = refusalMessage(exception));
+          return;
+        }
+        if (!mounted || _order?.id != order.id) return;
+      }
+    }
+    final VendorFamilyMember main = mainOfficeOf(family);
+    final Vendor? added =
+        await addSupplierInPlace(context, api: widget.api, branchOf: main);
+    if (added == null || !mounted || _order?.id != order.id) return;
+    widget.onVendorAdded?.call(added);
+    if (added.parentVendorId != main.id) {
+      // Taken out from under the main office in the form: it was saved, and
+      // it is no office of this order's supplier.
+      setState(() {
+        _addedVendors.add(added);
+        _error = '${added.displayName} was saved, but not as a branch of '
+            '${main.name}, so this bill cannot be in its name.';
+      });
+      return;
+    }
+    setState(() {
+      _addedVendors.add(added);
+      _orderFamily = familyWithBranch(family!, added);
+      _billedById = added.id;
+      _officesEpoch += 1;
+      _error = null;
+    });
+    _schedulePreview();
+  }
 
   /// The currency of the supplier's account; blank is rupees.
   String get _supplierCurrency {
@@ -629,6 +738,9 @@ class _PurchaseInvoiceEditorDialogState
     setState(() {
       _order = order;
       _error = null;
+      // Another order is another supplier's offices.
+      _orderFamily = null;
+      _billedById = null;
       _lines = [
         for (int index = 0; index < order.lines.length; index++)
           _orderLine(
@@ -885,6 +997,10 @@ class _PurchaseInvoiceEditorDialogState
     // the firm's default, as the stage settings say.
     return {
       if (_direct) 'vendor_id': _vendorId,
+      // Backlog 140: only where another office of the order's supplier is
+      // billing; the server checks it is one, and receives the goods from it.
+      if (_mode == PurchaseBillMode.order && _billedById != null)
+        'vendor_id': _billedById,
       'invoice_date': _invoiceDate.trim(),
       'supplier_invoice_number':
           pricing && supplierNumber.isEmpty ? '-' : supplierNumber,

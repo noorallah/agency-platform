@@ -308,7 +308,9 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
             ),
           ),
           child: DropdownMenu<String>(
-            key: const ValueKey('goods-receipt-received-from'),
+            key: _officesEpoch == 0
+                ? const ValueKey('goods-receipt-received-from')
+                : ValueKey('goods-receipt-received-from-$_officesEpoch'),
             initialSelection: _receivedFromId,
             width: 280,
             enabled: !_saving,
@@ -330,6 +332,19 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
             ],
             onSelected: (value) =>
                 _setState(() => _receivedFromId = value ?? ''),
+          ),
+        ),
+      // Backlog 140: the goods came from a branch nobody has entered yet.
+      // Offered for a supplier on its own too, which has no box above.
+      if (_offersNewBranch)
+        DocumentField(
+          label: '',
+          width: 140,
+          child: OutlinedButton.icon(
+            key: const ValueKey('goods-receipt-new-branch'),
+            onPressed: _saving ? null : () => unawaited(_addBranch()),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New branch'),
           ),
         ),
       DocumentField(

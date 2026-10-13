@@ -306,6 +306,7 @@ class _GoodsReceiptManagementPageState
         features: _features,
         steps: _steps,
         canAttach: _canCreate,
+        canAddBranch: widget.permissions.hasPermission('VENDOR_CREATE'),
       ),
     );
     if (outcome is DocumentStepDone) return _afterWindow(outcome);

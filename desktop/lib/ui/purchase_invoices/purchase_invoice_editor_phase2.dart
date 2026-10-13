@@ -408,6 +408,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                   _current = 0;
                   _preview = null;
                   _selectOrder(item);
+                  unawaited(_loadOrderFamily(item));
                   _schedulePreview();
                 }
               }
@@ -594,6 +595,46 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             onPressed: _saving ? null : () => unawaited(_addVendor()),
             icon: const Icon(Icons.add, size: 18),
             label: const Text('New supplier'),
+          ),
+        ),
+      // Backlog 140: the order is on the company and the bill is from one of
+      // its offices, or from a branch nobody has entered yet.
+      if (_mode == PurchaseBillMode.order && _orderOffices != null)
+        DocumentField(
+          label: 'Billed by',
+          width: 280,
+          below: _quietLine(
+            context,
+            'The office of this supplier the bill is from',
+          ),
+          child: DropdownMenu<String>(
+            key: _officesEpoch == 0
+                ? const ValueKey('purchase-invoice-billed-by')
+                : ValueKey('purchase-invoice-billed-by-$_officesEpoch'),
+            initialSelection: _billedById ?? _order?.vendorId,
+            width: 280,
+            enabled: !_saving,
+            inputDecorationTheme: _pickerTheme(Theme.of(context).colorScheme),
+            dropdownMenuEntries: [
+              for (final VendorFamilyMember office in _orderOffices!)
+                DropdownMenuEntry<String>(
+                  value: office.id,
+                  label: '${office.code}  ${office.name}'
+                      '${office.isParent ? '  (main office)' : ''}',
+                ),
+            ],
+            onSelected: _chooseBilledBy,
+          ),
+        ),
+      if (_offersNewBranch)
+        DocumentField(
+          label: '',
+          width: 140,
+          child: OutlinedButton.icon(
+            key: const ValueKey('purchase-invoice-new-branch'),
+            onPressed: _saving ? null : () => unawaited(_addBranch()),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New branch'),
           ),
         ),
       if (also != null) also,

@@ -56,7 +56,7 @@ name, GST number or bank detail is written in this file.
 | --- | --- | --- | --- | --- |
 | SUP-1 | A supplier company with branches | The company is the main supplier; a branch is a supplier marked **Branch of** it, with its own GST number. Order on the main office, goods and bills from any branch, payment to either | Built | M9 |
 | SUP-2 | Add a supplier while typing a purchase | A button on a new purchase order and on a supplier's bill typed directly | Built | M10 |
-| SUP-3 | Add a new branch while recording goods received | The order is on the company and the goods can come from a branch not entered yet: a **New branch** button beside *Received from*, already set as a branch of that company | Planned | F9 |
+| SUP-3 | Add a new branch while recording goods received | The order is on the company and the goods can come from a branch not entered yet: a **New branch** button beside *Received from* on the goods receipt, already set as a branch of that company. A bill raised against an order has a **Billed by** box and the same button | Built | F9 |
 | SUP-4 | One GST number, one supplier | The customers' rule (CUS-3) for suppliers and their branches: a branch leaves it blank to use its main office's, or types its own | Built | F5 |
 | SUP-5 | The brands a supplier may sell | Ticked on the supplier. A stockist is a supplier with several companies' brands | Built | M11 |
 | SUP-6 | Buys in boxes and pieces, per supplier | A tick on the supplier, as CUS-6 | Planned | L5 |
@@ -245,3 +245,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | CUS-8 logged (F6) as backlog 137, open and not built: it waits on the provider and its price, which are the owner's to choose. Status stays Later |
 | 2026-10-13 | PRD-2 built (F7): a product cannot be saved without a brand, nor a brand without a company; what was there before is filed under *Unbranded* and *General* |
 | 2026-10-13 | LIC-5 built (F8): a shop with no licence of the kind needed is covered by its parent's and the check says so; a firm setting makes each shop hold its own. The question to the customer stays open: the setting is how the firm answers it |
+| 2026-10-13 | SUP-3 built (F9): a new branch of the supplier is added from the goods receipt, and from a bill raised against an order, without leaving the document |
