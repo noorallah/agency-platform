@@ -20,14 +20,35 @@ import 'package:flutter_test/flutter_test.dart';
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
-PermissionService _permissions({bool assign = true}) => PermissionService()
-  ..applyAccessToken(_accessToken({
-    'roles': <String>['user'],
-    'permissions': <String>[
-      'RECEIPT_VIEW',
-      if (assign) 'COLLECTION_ASSIGN',
-    ],
-  }));
+PermissionService _permissions({bool assign = true, bool receipt = false}) =>
+    PermissionService()
+      ..applyAccessToken(_accessToken({
+        'roles': <String>['user'],
+        'permissions': <String>[
+          'RECEIPT_VIEW',
+          if (assign) 'COLLECTION_ASSIGN',
+          if (receipt) 'RECEIPT_CREATE',
+        ],
+      }));
+
+Json _line(String id, {String? settlement, bool reversed = false}) =>
+    <String, dynamic>{
+      'id': id,
+      'handover_id': 'h-$id',
+      'return_date': '2026-10-13',
+      'outcome': 'COLLECTED',
+      'invoice_id': 'i-$id',
+      'invoice_number': 'INV-$id',
+      'customer_name': 'Customer $id',
+      'collector_name': 'Ravi',
+      'amount_collected': '800.00',
+      'payment_mode': 'UPI',
+      'settlement_id': settlement,
+      'settlement_number': settlement == null ? null : 'RC-1',
+      'receipt_amount': settlement == null || reversed ? '0.00' : '800.00',
+      'receipt_reversed': reversed,
+      'recorded_by_name': 'Asha',
+    };
 
 Json _bill(String n, {String? handoverId, String? collector}) =>
     <String, dynamic>{
@@ -87,6 +108,11 @@ class _Api extends ApiClient {
   final List<Map<String, String>?> billQueries = [];
   Json? given;
   Json? takenBack;
+  Json? lineBody;
+  String? receiptFor;
+  String? withdrawnReason;
+  bool addsUp = true;
+  final List<Map<String, String>?> sheetQueries = [];
 
   @override
   Future<Json> request(
@@ -118,6 +144,38 @@ class _Api extends ApiClient {
         'pagination': {'total_records': 3},
       };
     }
+    if (path == '/api/v1/collections/day-sheet') {
+      sheetQueries.add(query);
+      return <String, dynamic>{
+        'data': {
+          'day': '2026-10-13',
+          'rows': [_line('a'), _line('b', settlement: 's-1')],
+          'bills_without_a_line': addsUp ? 0 : 2,
+          'amount_stated': '1600.00',
+          'amount_receipted': addsUp ? '1600.00' : '800.00',
+          'amount_not_receipted': addsUp ? '0.00' : '800.00',
+          'adds_up': addsUp,
+        },
+      };
+    }
+    if (method == 'POST' && path == '/api/v1/collections/returns') {
+      lineBody = body;
+      return <String, dynamic>{
+        'data': {'id': 'r-new'},
+      };
+    }
+    if (method == 'POST' && path.endsWith('/receipt')) {
+      receiptFor = path;
+      return <String, dynamic>{
+        'data': {'id': 'a'},
+      };
+    }
+    if (method == 'POST' && path.endsWith('/withdraw')) {
+      withdrawnReason = body?['reason'] as String?;
+      return <String, dynamic>{
+        'data': {'id': 'a'},
+      };
+    }
     if (method == 'POST' && path == '/api/v1/collections/handovers') {
       given = body;
       if (refusal != null) throw ApiException(refusal!);
@@ -146,7 +204,9 @@ DesktopPreferencesService _preferences() => DesktopPreferencesService(
     );
 
 Future<void> _pump(WidgetTester tester, _Api api,
-    {bool assign = true, Size size = const Size(800, 600)}) async {
+    {bool assign = true,
+    bool receipt = false,
+    Size size = const Size(800, 600)}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -156,7 +216,7 @@ Future<void> _pump(WidgetTester tester, _Api api,
       body: BillHandoverPage(
         api: api,
         preferences: _preferences(),
-        permissions: _permissions(assign: assign),
+        permissions: _permissions(assign: assign, receipt: receipt),
         hasActiveFirm: true,
       ),
     ),
@@ -307,5 +367,83 @@ void main() {
       'handover_ids': ['a'],
     });
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the Day sheet lists the lines and says the sheet adds up',
+      (tester) async {
+    final _Api api = _Api();
+    await _pump(tester, api, receipt: true);
+    await _tap(tester, 'handover-view-day-sheet');
+    expect(find.text('Customer a'), findsOneWidget);
+    expect(find.text('Customer b'), findsOneWidget);
+    expect(find.text('No receipt yet'), findsOneWidget);
+    expect(find.text('RC-1'), findsOneWidget);
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('day-sheet-totals')))
+            .data,
+        'Stated 1,600.00. In receipts 1,600.00. Difference 0.00.');
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('day-sheet-adds-up')))
+            .data,
+        'The sheet adds up.');
+    // All collectors, today: only the day is asked.
+    expect(api.sheetQueries.single!.keys.toList(), ['day']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the Day sheet says when it does not add up', (tester) async {
+    final _Api api = _Api()..addsUp = false;
+    await _pump(tester, api, receipt: true);
+    await _tap(tester, 'handover-view-day-sheet');
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('day-sheet-adds-up')))
+            .data,
+        'The sheet does not add up: 800.00 stated is not in a receipt.');
+    expect(find.textContaining('2 bills out have no line.'), findsOneWidget);
+  });
+
+  testWidgets('Record receipt calls the route and reads the sheet again',
+      (tester) async {
+    final _Api api = _Api();
+    await _pump(tester, api, receipt: true);
+    await _tap(tester, 'handover-view-day-sheet');
+    // Only the line with money and no live receipt offers it.
+    expect(find.byKey(const ValueKey('day-sheet-receipt-b')), findsNothing);
+    await _tap(tester, 'day-sheet-receipt-a');
+    expect(api.receiptFor, '/api/v1/collections/returns/a/receipt');
+    expect(api.sheetQueries.length, 2);
+  });
+
+  testWidgets('without RECEIPT_CREATE the Day sheet has no actions',
+      (tester) async {
+    final _Api api = _Api();
+    await _pump(tester, api);
+    await _tap(tester, 'handover-view-day-sheet');
+    expect(find.text('Customer a'), findsOneWidget);
+    expect(find.byKey(const ValueKey('day-sheet-receipt-a')), findsNothing);
+    expect(find.byKey(const ValueKey('day-sheet-withdraw-a')), findsNothing);
+    await _tap(tester, 'handover-view-bills');
+    expect(find.byKey(const ValueKey('handover-line-h-2')), findsNothing);
+  });
+
+  testWidgets('the office records a line on a bill that is out',
+      (tester) async {
+    final _Api api = _Api();
+    await _pump(tester, api, receipt: true);
+    // Only the bill that is out offers it.
+    expect(find.byKey(const ValueKey('handover-line-h-2')), findsOneWidget);
+    await _tap(tester, 'handover-line-h-2');
+    expect(find.text('Save records the receipt.'), findsOneWidget);
+    await _tap(tester, 'return-save');
+    // The day is sent only when it is not today.
+    expect(api.lineBody, {
+      'handover_id': 'h-2',
+      'outcome': 'COLLECTED',
+      'payment_mode': 'CASH',
+    });
+    expect(find.byKey(const ValueKey('return-save')), findsNothing);
   });
 }

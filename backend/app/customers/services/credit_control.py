@@ -181,6 +181,9 @@ class CreditControlService:
             overdue_interest_rate=getattr(policy, "overdue_interest_rate", None)
             or Decimal("0"),
             interest_grace_days=getattr(policy, "interest_grace_days", None) or 0,
+            collector_records_receipt=bool(
+                getattr(policy, "collector_records_receipt", False)
+            ),
             is_configured=stored is not None,
         )
 
@@ -220,6 +223,8 @@ class CreditControlService:
             row.overdue_interest_rate = data.overdue_interest_rate
         if data.interest_grace_days is not None:
             row.interest_grace_days = data.interest_grace_days
+        if data.collector_records_receipt is not None:
+            row.collector_records_receipt = data.collector_records_receipt
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -246,6 +251,7 @@ class CreditControlService:
                 ),
                 "overdue_interest_rate": str(row.overdue_interest_rate),
                 "interest_grace_days": row.interest_grace_days,
+                "collector_records_receipt": bool(row.collector_records_receipt),
             },
         )
         self._session.commit()

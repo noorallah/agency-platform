@@ -519,6 +519,8 @@ class CreditControlSettingsResponse(CustomerSchema):
     cash_discount_percent: Decimal | None = None
     overdue_interest_rate: Decimal = Decimal("0")
     interest_grace_days: int = 0
+    #: Whether a collector's own end-of-day line records the receipt.
+    collector_records_receipt: bool = False
     is_configured: bool
 
 
@@ -538,6 +540,8 @@ class CreditControlSettingsWrite(CustomerSchema):
         default=None, ge=0, le=60, max_digits=7, decimal_places=4
     )
     interest_grace_days: int | None = Field(default=None, ge=0, le=365)
+    #: Absent keeps the firm's own (backlog 124).
+    collector_records_receipt: bool | None = None
 
     @model_validator(mode="after")
     def _warn_before_block(self) -> "CreditControlSettingsWrite":

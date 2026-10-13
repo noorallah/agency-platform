@@ -4935,6 +4935,32 @@ redo yours."*
   - Step 6: the list is empty and says no bills are handed to him.
   - Step 7: none of the three is in his menu.
 
+### TC-FIN-032 — The collector's day sheet adds up to the receipts
+
+*Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 124 (customer task M6)
+- **Fixture:** `ready-firm`
+- **Also needs:** a customer with three approved sales bills still unpaid, each for the same amount; a user hired from the **Bill Collector** job; the firm's administrator. *Customers → Credit settings → Collectors record their own receipts* switched **off**.
+- **Steps**
+  1. As the administrator open *Sell → Money → Bills with Collectors* and hand the three bills to the collector.
+  2. Sign in as the collector and open *Sell → Money → My Bills to Collect*.
+  3. On the first bill press **Record**, choose **Collected in full** and save.
+  4. On the second bill press **Record**, choose **Part collected**, enter less than the bill owes, name a promised day for the rest and save.
+  5. On the third bill press **Record**, choose **Not collected**, write a note and save.
+  6. As the administrator open *Bills with Collectors → Day sheet* and choose the collector and today.
+  7. On the first two lines press **Record receipt**.
+  8. As the administrator switch *Collectors record their own receipts* **on**. Hand a fourth unpaid bill to the collector. As the collector record it **Collected in full**.
+  9. As the collector try to withdraw the fourth bill's line.
+- **Expect**
+  - Step 3: the dialog says the office records the receipt. The bill stays on his list marked **Collected** and still owes its full amount. No receipt exists.
+  - Step 4: the bill is marked **Part collected** with the amount. The promise for the rest is on *Payment Promises* in his name.
+  - Step 5: the bill is marked **Not collected**. The line under the list counts three lines and says how much is still to be handed in.
+  - Step 6: three lines. Stated is the first bill plus the part; in receipts is nothing; the sheet says it **does not add up** by that amount.
+  - Step 7: each line names its receipt. The first bill owes nothing, the second owes the rest. The sheet says it **adds up**. Each receipt is on *Receipts*, dated today, applied to its bill.
+  - Step 8: the dialog says Save records the receipt. The fourth bill leaves his list; its receipt is on *Receipts*; the sheet still adds up. He still has no Receipts screen.
+  - Step 9: refused, naming the receipt to reverse first.
+
 ### TC-CONC-001 — Two people editing one customer
 
 - **Covers:** plan 14.1

@@ -8762,3 +8762,98 @@ TC-FIN-031.
 - The list reads the firm's whole unpaid list per request, as *Bills with
   Collectors* does; not timed on PERF01.
 - No screen was clicked in the running app.
+
+## 124. The collector's end-of-day line, and a day sheet that adds up -- built 2026-10-13
+
+Customer task M6 (`docs/CUSTOMER_BUILD_TASKS.md`): an end-of-day return entry
+per bill handed out: collected, part, promised, not collected. A firm setting
+decides whether the collector records the receipt himself (customer answers
+A13: a firm setting; A15: yes). Done when the day's sheet adds up to the
+receipts recorded.
+
+**What was there.** Section 122 records which bill is out with whom, section
+123 gives the collector his own list. Promises to pay (`payment_promises`) and
+receipts (`/api/v1/receipts`) existed. Nothing recorded what happened on a
+bill on a given day, and a collector could write nothing at all.
+
+**Design.**
+
+- **One table, `collection_returns`: one line per handed-out bill per day.**
+  It names the handover, the day, the outcome, what the bill owed, what the
+  collector says he took and how, the receipt (`settlement_id`) and the
+  promise (`payment_promise_id`). One live line per handover per day, held by
+  a partial unique index. A bill out three days has three lines.
+- **The line states; a receipt records.** `amount_collected` moves nothing.
+  The money is recorded by `ReceiptService.create`, the one way a receipt is
+  written, applied to that bill, and the line names it. No second way to
+  record money.
+- **A promise is a promise.** Promised, and part with a day named for the
+  rest, write a row through `PromiseService` in the collector's name.
+- **The firm's switch, `collector_records_receipt`,** a column on
+  `credit_control_settings`, which already holds the firm's collection terms.
+  Off to start.
+- **Two doors.** The office writes any bill's line on `RECEIPT_CREATE` and the
+  receipt is recorded with it. A collector writes his own on a code of its
+  own, `COLLECTION_OWN_RECORD`, for a bill in his own bag and for today; the
+  receipt is recorded only where the switch is on. Where it is off the office
+  records it from the day sheet (`POST /collections/returns/{id}/receipt`).
+- **The day sheet** (`GET /collections/day-sheet`, and the collector's own at
+  `/my-bills/day-sheet`): the day's live lines, counts by outcome, bills out
+  with no line, and three figures: stated, in receipts, the difference. It
+  adds up when the difference is nothing.
+- **A line is withdrawn, never edited**, with a reason, and its promise goes
+  with it unless the customer has kept it. Not while a live receipt stands on
+  it: the receipt is reversed first, on Receipts.
+
+**Decided by me, by the industry standard.**
+
+- Collected in full is exactly what the bill owes; anything less is part. An
+  amount that does not fit the outcome is refused rather than re-labelled.
+- The receipt carries no discount, TDS or bank charge: those stay on the
+  Receipts screen, where the person allowed to give them works.
+- A collector writes only today's line. A past day's is the office's, not
+  before the bill went out and never a future day.
+- Another collector's bill answers "not found" to him, as his list does not
+  say who carries a neighbour's bill.
+- A reversed receipt counts nothing on the sheet, so the sheet stops adding
+  up until a new receipt is recorded or the line is withdrawn.
+- A bill collected in full stays out until the office takes it back (section
+  122's rule); it leaves the collector's list because it owes nothing.
+- The switch sits with the credit settings and is written on
+  `CUSTOMER_MANAGE_SETTINGS`, which the collector does not hold: the person
+  the switch frees must not be the one to set it.
+- `FIRM_ADMIN`, `FIRM_MANAGER` and `ACCOUNTANT` hold `COLLECTION_OWN_RECORD`
+  (it is in the `accounting` group; an owner collects himself). `VIEWER` and
+  `CASHIER` do not.
+- Field collection in the common accounting packages works this way: the
+  agent reports, a cashier receipts, and the daily collection register is
+  reconciled to the cash handed in; letting the agent's entry post directly
+  is an option a firm turns on.
+
+**Built.** Model `app/collections/models/collection_return.py`, service
+`CollectionReturnService` (`app/collections/services/returns.py`:
+`stage_record`, `record`, `record_receipt`, `withdraw`, `day_sheet`,
+`responses`), seven routes under `/api/v1/collections`, three fields on each
+`my-bills` row for today's line, `PromiseService.stage_withdraw`, the switch
+on the credit settings read and write, migration `20261013_0364` (the table,
+the column, the code; each only where missing), `collection_returns` in the
+history reset order. Desktop: **Record** and **Withdraw** on *My Bills to
+Collect* with the day's summary, a **Day sheet** view and a **Day's line**
+action on *Bills with Collectors*, the switch on the credit settings dialog.
+Tests: `tests/unit/test_collection_returns.py`, the two desktop page tests.
+Test case TC-FIN-032.
+
+**Not done.**
+
+- A cheque dated ahead is not sent to the post-dated cheques register from a
+  line; the line records a receipt dated the line's day.
+- One line is one bill. Money for several bills in one payment is several
+  lines; money on account with no bill is a receipt on Receipts.
+- No discount at the door (section 115's clearance discount stays on
+  Receipts).
+- The day sheet has no print and no Download.
+- Taking a bill back does not ask for its line, and a line does not take the
+  bill back.
+- "Bills out with no line" is counted on the bills still out now, so for a
+  past day it is a guide, not a record.
+- No screen was clicked in the running app.

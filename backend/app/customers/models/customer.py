@@ -443,6 +443,12 @@ class CreditControlSettings(BaseEntity):
     interest_grace_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    #: Whether a collector's own end-of-day line records the receipt
+    #: (backlog 124). Off: he states what he took and the office records the
+    #: receipt. On: his line is the receipt, for his own bills only.
+    collector_records_receipt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
 
 class CustomerAttributeValue(AttributeValueBase):

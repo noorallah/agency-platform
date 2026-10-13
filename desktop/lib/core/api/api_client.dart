@@ -8074,6 +8074,68 @@ class ApiClient {
         ),
       );
 
+  // ---- The collector's end-of-day line (backlog 124, M6) -------------------
+
+  /// The signed-in collector's own day sheet; [day] is YYYY-MM-DD, today if
+  /// omitted. Returns the sheet.
+  Future<Json> myDaySheet({String? day}) async => _unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/collections/my-bills/day-sheet',
+          query: <String, String>{if (day != null) 'day': day},
+        ),
+      );
+
+  /// The collector's own line on a bill in his bag, today. Returns the line.
+  Future<Json> recordMyReturn(Json body) async => _unwrapMap(
+        await request('POST', '/api/v1/collections/my-bills/returns',
+            body: body),
+      );
+
+  /// Withdraw the collector's own line. Returns the line.
+  Future<Json> withdrawMyReturn(String id, String reason) async => _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/my-bills/returns/$id/withdraw',
+          body: <String, dynamic>{'reason': reason},
+        ),
+      );
+
+  /// The office's day sheet, for one collector or all. Returns the sheet.
+  Future<Json> collectionDaySheet({String? day, String? collectorId}) async =>
+      _unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/collections/day-sheet',
+          query: <String, String>{
+            if (day != null) 'day': day,
+            if (collectorId != null) 'collector_id': collectorId,
+          },
+        ),
+      );
+
+  /// The office's line on any bill handed out; the receipt is recorded with
+  /// it. Returns the line.
+  Future<Json> recordCollectionReturn(Json body) async => _unwrapMap(
+        await request('POST', '/api/v1/collections/returns', body: body),
+      );
+
+  /// Record the receipt for a line that only states its money. Returns the
+  /// line.
+  Future<Json> recordReturnReceipt(String id) async => _unwrapMap(
+        await request('POST', '/api/v1/collections/returns/$id/receipt'),
+      );
+
+  /// Withdraw a line as the office. Returns the line.
+  Future<Json> withdrawCollectionReturn(String id, String reason) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/returns/$id/withdraw',
+          body: <String, dynamic>{'reason': reason},
+        ),
+      );
+
   // ---- Hold and recall; counter shifts (backlog 87 #7, SG-7) -------------
 
   /// Park a draft bill while the next customer is served. [note] is what

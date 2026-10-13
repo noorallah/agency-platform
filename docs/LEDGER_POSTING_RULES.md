@@ -1600,6 +1600,34 @@ sheet before and after and expects them equal. Handing out takes
 `COLLECTION_ASSIGN`, apart from `RECEIPT_CREATE`: whoever records what was
 collected does not decide which bills he carries.
 
+## A collector's line states; only its receipt posts (backlog 124, 2026-10-13)
+
+`collection_returns` holds one line per handed-out bill per day: collected,
+part, promised or not collected. **The line posts nothing.** `amount_collected`
+is what the collector says he took; it moves no balance and no report reads
+it. The money enters the books through `ReceiptService.create`, the one way a
+receipt is recorded, and the line names that receipt in `settlement_id`. So
+the journal, the customer's balance, the allocation to the bill and every
+refusal are the receipt's own, and reversing it is done where receipts are
+reversed.
+
+Who writes the receipt is the firm's choice
+(`credit_control_settings.collector_records_receipt`, off unless switched on):
+
+| Who writes the line | Switch | What is written |
+| --- | --- | --- |
+| The office (`RECEIPT_CREATE`) | either | the line and its receipt, in one transaction |
+| The collector (`COLLECTION_OWN_RECORD`) | off | the line only; the office records the receipt from the day's sheet (`POST /collections/returns/{id}/receipt`) |
+| The collector | on | the line and its receipt, for a bill in his own bag |
+
+The day's sheet (`GET /collections/day-sheet`) states three figures: what the
+lines say was taken, what the receipts named on them took in, and the
+difference. It adds up when the difference is nothing. A reversed receipt
+counts nothing, so its line shows as stated and not in the books until a new
+receipt is recorded or the line is withdrawn. A line with a live receipt is
+not withdrawn. A promised day on a line is a row in `payment_promises`,
+written by `PromiseService`, never a second kind of promise.
+
 ## A promise to pay is recorded, never posted (SG-8, 2026-10-05)
 
 `app/collections` keeps what a customer said about paying: `payment_promises`

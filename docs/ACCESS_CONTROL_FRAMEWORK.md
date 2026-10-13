@@ -196,7 +196,7 @@ re-run the command under the tree below rather than trusting them.
 | `CASHIER` | firm | 4 | `PAYMENT_CREATE`/`PAYMENT_VIEW`, `RECEIPT_CREATE`/`RECEIPT_VIEW` -- the money screens read their own party list, so no master is needed | see [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
 | `BILLING_EXECUTIVE` | firm | 5 | `SALES_INVOICE_CREATE`, `SALES_VIEW`, `DOCUMENT_SEND`; reads customers and products | everything else |
 | `CUSTOMER_SUPPORT` | firm | 3 | `CUSTOMER_VIEW`, `CUSTOMER_UPDATE`, `PRODUCT_VIEW` | everything else |
-| `BILL_COLLECTOR` | firm | 1 | `COLLECTION_OWN_VIEW`: the bills handed to **him**, read on `GET /api/v1/collections/my-bills`, which takes the collector from the token (backlog 123) | `RECEIPT_VIEW` and `CUSTOMER_VIEW` (either would show him every bill or every customer of the firm), every write |
+| `BILL_COLLECTOR` | firm | 2 | `COLLECTION_OWN_VIEW`: the bills handed to **him**, read on `GET /api/v1/collections/my-bills`, which takes the collector from the token (backlog 123); `COLLECTION_OWN_RECORD`: the day's line on a bill in his own bag (backlog 124) | `RECEIPT_VIEW` and `CUSTOMER_VIEW` (either would show him every bill or every customer of the firm), every write |
 | `VIEWER` | firm | 43 | Every `*_VIEW` code **except** `PLATFORM_VIEW`, `USER_VIEW`, `ROLE_VIEW`, `PERMISSION_VIEW`, `AUDIT_LOG_VIEW`, `FIRM_AUDIT_LOG_VIEW`, `SETTINGS_VIEW` | every write |
 
 **A role that raises a document reads what its editor picks from** (D-ROLE-1,
@@ -374,6 +374,20 @@ on purpose.
   the three roles above hold it too, because in a small firm the owner
   carries bills himself. `VIEWER` holds it as it holds every `*_VIEW` code;
   with nothing handed to him the list is empty.
+- **`COLLECTION_OWN_RECORD`** (backlog 124) writes the day's line on a bill
+  in the caller's own bag, and withdraws it: `POST
+  /api/v1/collections/my-bills/returns` and `.../{id}/withdraw`. The bill
+  must be handed to the caller, who again comes from the token; another
+  collector's bill answers 404. Held by `BILL_COLLECTOR` and the three
+  roles above; not by `VIEWER` or `CASHIER`. **The code does not decide
+  whether his line records a receipt.** That is the firm's switch,
+  `collector_records_receipt` on its credit settings, written on
+  `CUSTOMER_MANAGE_SETTINGS`: off, his line states what he took and the
+  office records the receipt; on, his line records it, for his own bills
+  and nothing else. He never holds `RECEIPT_CREATE`, so he opens no
+  receipt screen either way. The office's line on any bill, the receipt
+  for a stated line and the day's sheet stay on `RECEIPT_CREATE` and
+  `RECEIPT_VIEW`.
 
 A firm's own role coded `BILL_COLLECTOR` from before 2026-10-13 would now be
 read as the system role by the queries that match `FIRM_ROLE_CODES` on the

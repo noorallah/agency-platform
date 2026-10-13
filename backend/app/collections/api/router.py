@@ -14,6 +14,13 @@ the bills handed to **the caller**: whose bag it is comes from the token and
 no parameter names anybody else. It is the one route here a person holding
 neither receipt code can call.
 
+The end-of-day line on a handed-out bill (backlog 124) has two doors. The
+office writes any bill's line on ``RECEIPT_CREATE`` and the receipt is
+recorded with it. A collector writes his own on ``COLLECTION_OWN_RECORD``,
+for a bill in his own bag, and the receipt is recorded only where the firm
+lets its collectors record; otherwise the office records it from the day's
+sheet.
+
 Every literal path is declared above ``/promises/{promise_id}/withdraw``.
 """
 
@@ -26,6 +33,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.collections.schemas import (
+    CollectionDaySheet,
+    CollectionReturnCreate,
+    CollectionReturnResponse,
+    CollectionReturnWithdraw,
     CollectionSheetRow,
     HandedFilter,
     HandoverBillRow,
@@ -43,6 +54,7 @@ from app.collections.schemas import (
 )
 from app.collections.services import (
     BillHandoverService,
+    CollectionReturnService,
     CollectionSheetService,
     PromiseService,
 )
@@ -71,6 +83,9 @@ CollectionAssignScope = Annotated[
 ]
 CollectionOwnScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("COLLECTION_OWN_VIEW")
+]
+CollectionOwnRecordScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("COLLECTION_OWN_RECORD")
 ]
 
 
@@ -243,6 +258,146 @@ def list_my_bills(
     return PaginatedResponse(
         data=rows,
         pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
+    )
+
+
+@router.get("/my-bills/day-sheet", response_model=ApiResponse[CollectionDaySheet])
+def my_day_sheet(
+    scope: CollectionOwnScope,
+    day: Annotated[date | None, Query()] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CollectionDaySheet]:
+    """Return the caller's own lines for a day, and whether they add up."""
+    return ApiResponse(
+        data=CollectionReturnService(db).day_sheet(
+            scope.firm_id, day=day, collector_id=scope.actor_id
+        )
+    )
+
+
+@router.post(
+    "/my-bills/returns",
+    response_model=ApiResponse[CollectionReturnResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def record_my_return(
+    data: CollectionReturnCreate,
+    scope: CollectionOwnRecordScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CollectionReturnResponse]:
+    """Write today's line on a bill in the caller's own bag.
+
+    The receipt is recorded with it only where the firm lets its collectors
+    record; otherwise the line states what was taken and the office records
+    the receipt.
+    """
+    return ApiResponse(
+        data=CollectionReturnService(db).record(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id, own=True
+        ),
+        message="Line recorded.",
+    )
+
+
+@router.post(
+    "/my-bills/returns/{return_id}/withdraw",
+    response_model=ApiResponse[CollectionReturnResponse],
+)
+def withdraw_my_return(
+    return_id: UUID,
+    data: CollectionReturnWithdraw,
+    scope: CollectionOwnRecordScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CollectionReturnResponse]:
+    """Take back a line of the caller's own, while no receipt stands on it."""
+    return ApiResponse(
+        data=CollectionReturnService(db).withdraw(
+            return_id,
+            data.reason,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            own=True,
+        ),
+        message="Line withdrawn.",
+    )
+
+
+@router.get("/day-sheet", response_model=ApiResponse[CollectionDaySheet])
+def collection_day_sheet(
+    scope: CollectionViewScope,
+    day: Annotated[date | None, Query()] = None,
+    collector_id: Annotated[UUID | None, Query()] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CollectionDaySheet]:
+    """Return a day's lines, one collector's or all, and whether they add up.
+
+    What the lines say was taken, what the receipts named on them took into
+    the books, and the difference.
+    """
+    return ApiResponse(
+        data=CollectionReturnService(db).day_sheet(
+            scope.firm_id, day=day, collector_id=collector_id
+        )
+    )
+
+
+@router.post(
+    "/returns",
+    response_model=ApiResponse[CollectionReturnResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def record_return(
+    data: CollectionReturnCreate,
+    scope: CollectionWriteScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CollectionReturnResponse]:
+    """Write a day's line on any handed-out bill, and record its receipt."""
+    return ApiResponse(
+        data=CollectionReturnService(db).record(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id, own=False
+        ),
+        message="Line recorded.",
+    )
+
+
+@router.post(
+    "/returns/{return_id}/receipt",
+    response_model=ApiResponse[CollectionReturnResponse],
+)
+def record_return_receipt(
+    return_id: UUID,
+    scope: CollectionWriteScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CollectionReturnResponse]:
+    """Record the receipt for a line that only states what was taken."""
+    return ApiResponse(
+        data=CollectionReturnService(db).record_receipt(
+            return_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+        ),
+        message="Receipt recorded.",
+    )
+
+
+@router.post(
+    "/returns/{return_id}/withdraw",
+    response_model=ApiResponse[CollectionReturnResponse],
+)
+def withdraw_return(
+    return_id: UUID,
+    data: CollectionReturnWithdraw,
+    scope: CollectionWriteScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CollectionReturnResponse]:
+    """Take a day's line back, with the reason; the record stays."""
+    return ApiResponse(
+        data=CollectionReturnService(db).withdraw(
+            return_id,
+            data.reason,
+            firm_id=scope.firm_id,
+            actor_id=scope.actor_id,
+            own=False,
+        ),
+        message="Line withdrawn.",
     )
 
 

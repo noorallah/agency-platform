@@ -29,7 +29,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.collections.models import BillHandover
+from app.collections.models import BillHandover, CollectionReturn
 from app.collections.schemas import (
     HandedFilter,
     HandoverBillRow,
@@ -40,6 +40,7 @@ from app.collections.schemas import (
     HandoverState,
     HandoverTakeBack,
     MyBillRow,
+    ReturnOutcome,
 )
 from app.collections.services.promises import FORMER_MEMBER, member_names
 from app.common.audit.services import record_audit
@@ -282,7 +283,21 @@ class BillHandoverService:
         )
         if not carried:
             return []
-        bills = self.bills(firm_id, today=today)
+        on = today or firm_today(self._session, firm_id)
+        bills = self.bills(firm_id, today=on)
+        # Today's line on each bill in the bag (backlog 124), read once.
+        lines = {
+            line.handover_id: line
+            for line in self._session.scalars(
+                select(CollectionReturn).where(
+                    CollectionReturn.firm_id == firm_id,
+                    CollectionReturn.collector_id == collector_id,
+                    CollectionReturn.return_date == on,
+                    CollectionReturn.is_deleted.is_(False),
+                    CollectionReturn.cancelled_at.is_(None),
+                )
+            )
+        }
         customers = {
             bill.customer_id for bill in bills if bill.collector_id == collector_id
         }
@@ -312,6 +327,12 @@ class BillHandoverService:
             for bill in bills
             if bill.customer_id in customers
         ]
+        for row in rows:
+            line = lines.get(row.handover_id) if row.handover_id else None
+            if line is not None:
+                row.return_id = line.id
+                row.return_outcome = ReturnOutcome(line.outcome)
+                row.return_amount = _money(line.amount_collected)
         rows.sort(
             key=lambda row: (
                 row.customer_name.casefold(),

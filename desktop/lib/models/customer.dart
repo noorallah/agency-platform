@@ -556,11 +556,15 @@ class CreditControlSettings {
     this.cashDiscountPercent,
     this.overdueInterestRate = '0',
     this.interestGraceDays = 0,
+    this.collectorRecordsReceipt = false,
   });
 
   final String enforcement;
   final String warnAtPercent;
   final String blockAtPercent;
+
+  /// Whether a collector's own end-of-day line records the receipt (M6).
+  final bool collectorRecordsReceipt;
 
   /// False while the firm is still on the platform default.
   final bool isConfigured;
@@ -589,9 +593,11 @@ class CreditControlSettings {
             ? '0'
             : stringValue(json['overdue_interest_rate']),
         interestGraceDays: (json['interest_grace_days'] as num?)?.toInt() ?? 0,
+        collectorRecordsReceipt: boolValue(json['collector_records_receipt']),
       );
 
   Json toJson() => <String, dynamic>{
+        'collector_records_receipt': collectorRecordsReceipt,
         'enforcement': enforcement,
         'warn_at_percent': warnAtPercent,
         'block_at_percent': blockAtPercent,
