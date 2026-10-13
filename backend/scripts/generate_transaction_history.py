@@ -317,6 +317,9 @@ RESET_ORDER: tuple[str, ...] = (
     "tds_challans",
     # A promise to pay names the bill it is for, RESTRICT (SG-8).
     "payment_promises",
+    # A bill handed to a collector names the bill it is, RESTRICT (backlog
+    # 122).
+    "bill_handovers",
     # A post-dated cheque names the receipt or payment it became and the
     # journal its return charges posted, both RESTRICT (ACC-2).
     "post_dated_cheques",

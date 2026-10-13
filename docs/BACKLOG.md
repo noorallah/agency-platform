@@ -8609,3 +8609,96 @@ table and the statement close at the same figure.
 - A supplier's account has no such table.
 - No screen was clicked in the running app.
 
+## 122. Bills handed to a collector -- built 2026-10-13
+
+Customer task M4 (`docs/CUSTOMER_BUILD_TASKS.md`): a separate
+bill-and-collector table that never touches the books; bills are handed out
+by date, by area, by a run of bill numbers, or by ticking.
+
+**What was there.** `app/collections` already had promises to pay and the
+collection sheet, and a customer already names a collector. The sheet answers
+"whose customers are these" from the customer master. Nothing recorded which
+*bill* was physically out with which person on which day, or that it came
+back.
+
+**Decided.**
+
+- **A handover is a note beside a bill.** One row in `bill_handovers`: the
+  bill, the collector, the day, who handed it out, what it owed at that
+  moment, and when it was taken back. It posts no journal, moves no customer
+  balance and is read by nothing that states money.
+- **Only a bill that still owes something is handed out**: a sales bill, or a
+  bill owed from before the firm started here. A bill paid while it is out
+  stays out until it is taken back, because the paper is still in the bag; it
+  is found under **History**.
+- **A bill is out with one person at a time.** A ticked bill somebody already
+  carries is refused by its number and none of the ticked bills go out. A
+  bundle (by date, area, customer or a run of numbers) leaves such bills where
+  they are and says how many. Two partial unique indexes settle two people
+  handing out the same bill at once.
+- **Taking back keeps the row.** Who carried a bill, and when, survives; the
+  bill can go out again, to the same person or another.
+- **A run of bill numbers stays inside one series**: `SI-26-27-000086` to
+  `SI-26-27-000120`. Either end may be left open. Two ends of different
+  series, an end with no digits and a run that ends before it starts are
+  refused.
+- **Area is part of the customer's area or city**, any case, read from the
+  billing address (the same two words the pickers show since backlog 108).
+- **The day is today or a past day**, by the firm's own calendar.
+- **A permission of its own, `COLLECTION_ASSIGN`**, in the accounting group:
+  the firm administrator, the firm manager and the accountant hold it. A
+  cashier does not. Reading who carries what stays on `RECEIPT_VIEW`. It is
+  apart from `RECEIPT_CREATE` on purpose: a collector who may record what he
+  collected (row M6) must not be the one who decides which bills he carries.
+
+**Built.**
+
+- `bill_handovers` (migration `20261013_0362`, firm-owned, idempotent), model
+  `BillHandover`, service `BillHandoverService`
+  (`app/collections/services/handovers.py`).
+- `GET /api/v1/collections/handovers/bills`: the unpaid bills, each with who
+  carries it; narrowed by `handed` (all, out, in the office), `collector_id`,
+  `date_from`, `date_to`, `area`, `number_from`, `number_to`, `customer_id`.
+- `GET /api/v1/collections/handovers`: the history, bills still out first;
+  by collector, state and the day handed.
+- `POST /api/v1/collections/handovers`: the bills ticked (`invoice_ids`) or a
+  bundle (`matching`), one of the two. Answers how many went, what they owe
+  together and how many were already out.
+- `POST /api/v1/collections/handovers/take-back`: all of the rows named, or
+  none.
+- Every handover and every return writes an audit record.
+- Desktop: **Bills with Collectors** under Sell > Money
+  (`bill_handover_page.dart`). Filters (Show, Collector, From, To, Area or
+  city, Bill no. from and to), a tick per row and *Tick every bill shown*,
+  **Hand over ticked**, **Hand over all matching** (asks first, naming the
+  filters it will use) and **Take back ticked**; a **History** view. The
+  buttons are shown only to somebody who holds `COLLECTION_ASSIGN`.
+- `bill_handovers` joined the history reset order of
+  `scripts/generate_transaction_history.py`.
+
+**Tested.** `tests/unit/test_bill_handovers.py` (17): a ticked bill goes out;
+handing out and taking back leave the journals, the receipts, the receivable
+rows, the ageing, the collection sheet and the unpaid bills exactly as they
+were; a bill already out, a paid bill, a stranger as collector and a future
+day are refused; bundles by area, by a run, by date and by customer; the
+lists; a bill paid while out; taking back is all or nothing; the index holds
+one live row per bill; the lists cost the same number of statements however
+long they are. Desktop: `bill_handover_page_test.dart` (8). Driven over HTTP
+on a fixture firm (88 checks): the customer's Try, with each customer's
+account, unpaid bills and statement, the trial balance, the collection sheet
+and the number of journal entries read before and after handing out, and
+again before and after taking back: nothing moved.
+
+**Not done.**
+
+- The collector's own screen and the ready-made role are row M5; the
+  end-of-day return entry (collected, part, promised, not collected) is M6.
+- No print of the bundle: the Collection Sheet prints by the customer's
+  collector, not by what was handed out.
+- A bill owed from before the firm started here was not handed out in any
+  test (no fixture holds one); the code path is the same list Record Receipt
+  reads.
+- Moving a bill from one collector to another is two steps: take back, hand
+  out.
+- No screen was clicked in the running app.
+

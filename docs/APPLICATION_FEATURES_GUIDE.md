@@ -742,6 +742,20 @@ paying a rebate out in money, and accruing part-way through a period.
 Sheet, Payment Promises, Post-dated Cheques and Refunds are under *Sell → All
 Sell screens → Money*.
 
+**Bills with Collectors** (added 2026-10-13, not yet tested by hand). The
+list of unpaid bills, each with who carries it. In the morning tick the bills
+going out, choose the collector under **Hand to** and press **Hand over
+ticked**. To hand out a whole bundle, fill a filter (the bills' dates, part
+of the area or city, or the first and last bill number of a run) and press
+**Hand over all matching**; the screen asks first and names the filters. A
+bill somebody already carries is left with him. **Take back ticked** brings
+bills home; **History** shows every bill handed out, those still out first,
+with what it owed going out and what it owes now, and is where a bill paid
+while it was out is found. Handing a bill out changes no balance and no
+report: it only records who carries the bill. The buttons are shown to
+whoever may hand bills out (the firm's administrator, manager and
+accountant); everybody who reads receipts sees the list.
+
 **Collection Sheet and Payment Promises** (added 2026-10-05, not yet tested by
 hand). The **Collection Sheet** lists every customer's open bills, opening
 bills included, with days overdue, the latest promise and the **collector**,

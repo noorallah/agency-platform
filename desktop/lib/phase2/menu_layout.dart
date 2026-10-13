@@ -305,6 +305,8 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.accounting, 'receipts', 'Receipts'),
         MenuItemSpec(
             AppModule.accounting, 'collection-sheet', 'Collection Sheet'),
+        MenuItemSpec(AppModule.accounting, 'bills-with-collectors',
+            'Bills with Collectors'),
         MenuItemSpec(
             AppModule.accounting, 'payment-promises', 'Payment Promises'),
         MenuItemSpec(

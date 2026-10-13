@@ -1587,6 +1587,19 @@ nothing and are left out. A posting dated before the account's first imported
 statement and matched by no line is taken as cleared before reconciling began
 (decision A125).
 
+## A bill handed to a collector is recorded, never posted (backlog 122, 2026-10-13)
+
+`bill_handovers` says which unpaid bill is out with which collector, since
+which day, and when it came back. **Nothing that states money reads it**: it
+posts no journal, moves no customer balance, and what a bill owes is still
+`ReceiptService.outstanding_invoices`, the same before a bill goes out, while
+it is out and after it is back. `outstanding_at_handover` is a note of that
+moment, never a balance. `tests/unit/test_bill_handovers.py` reads the
+journals, the receipts, the receivable rows, the ageing and the collection
+sheet before and after and expects them equal. Handing out takes
+`COLLECTION_ASSIGN`, apart from `RECEIPT_CREATE`: whoever records what was
+collected does not decide which bills he carries.
+
 ## A promise to pay is recorded, never posted (SG-8, 2026-10-05)
 
 `app/collections` keeps what a customer said about paying: `payment_promises`

@@ -4882,6 +4882,36 @@ component — says in a red toast: *"Somebody else saved this <thing> while you
 were editing it. Your changes were not saved. Open it again to see theirs and
 redo yours."*
 
+
+### TC-FIN-030 — Bills handed to a collector and taken back change no balance and no report
+
+*Added 2026-10-13 (backlog 122). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 122 (customer task M4)
+- **Fixture:** `ready-firm`
+- **Also needs:** two customers in different areas, each with two approved sales bills still unpaid; two people of the firm to act as collectors; a user who is a Cashier only.
+- **Steps**
+  1. Note the first customer's closing balance on *Customer Statements*, and the totals of the trial balance.
+  2. Open *Sell → Money → Bills with Collectors*.
+  3. Tick the first customer's first bill, choose the first collector under **Hand to** and press **Hand over ticked**.
+  4. Tick the same bill and another, choose the second collector and press **Hand over ticked**.
+  5. Type the first customer's area in **Area or city**, choose the second collector and press **Hand over all matching**; confirm.
+  6. Type one bill number of the second customer in both **Bill no. from** and **Bill no. to**, clear the area, and press **Hand over all matching**; confirm.
+  7. Read the first customer's closing balance and the trial balance again.
+  8. Record a receipt in full for a bill that is out, then choose **History**.
+  9. Tick every row still out and press **Take back ticked**. Read the balances once more.
+  10. Sign in as the Cashier and open *Bills with Collectors*.
+- **Expect**
+  - Step 2: every unpaid bill, the customer's area and city beside the name, **With** empty.
+  - Step 3: a message says 1 bill was handed to the collector and for how much; the row shows his name and today under **Handed on**.
+  - Step 4: refused, naming the bill already out; the other ticked bill stays in the office.
+  - Step 5: the message says 1 bill handed and 1 already out and left; the first bill is still with the first collector.
+  - Step 6: only the bill of that number goes out.
+  - Step 7: both figures are what they were in step 1.
+  - Step 8: the paid bill is no longer among the unpaid bills; History lists it as out, owing 0.00 now, with what it owed when handed.
+  - Step 9: every row reads as taken back with its date; the unpaid bills show nobody under **With**; the balances are unchanged by the taking back.
+  - Step 10: the list is shown; **Hand to** and the three buttons are not.
+
 ### TC-CONC-001 — Two people editing one customer
 
 - **Covers:** plan 14.1

@@ -1228,6 +1228,13 @@ abstract final class ModuleCatalog {
           label: 'Collection Sheet',
           requiredPermissions: ['RECEIPT_VIEW'],
         ),
+        // Bills handed to a collector and taken back (backlog 122): a note
+        // beside the bill, so it reads on the receipt code too.
+        ModuleTabDefinition(
+          id: 'bills-with-collectors',
+          label: 'Bills with Collectors',
+          requiredPermissions: ['RECEIPT_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'payment-promises',
           label: 'Payment Promises',
