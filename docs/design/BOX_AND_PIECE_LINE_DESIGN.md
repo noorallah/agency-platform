@@ -251,8 +251,16 @@ null, default false: this customer's selling documents open with the box
 cells (the customer's answer of 2026-10-13, decision 5). It is read only
 where the firm's selling switch is on. It is added in the same revision,
 guarded the same way, and joins the customer form, the customer import
-template and the customer response. A document stores no flag of its own:
-the lines hold a pair or they do not.
+template and the customer response.
+
+One column on each of the nine document headers, `box_and_piece_entry`,
+Boolean, not null, default false: the layout this document was saved in
+(the owner, 2026-10-13). It is declared once, in the same mixin file as the
+line columns, and added in the same revision. It is written on create and
+on update like any other header field, absent meaning leave it alone. A
+document raised from another (order to note, note to bill, bill to return)
+starts with its source's value. The server refuses a line holding a pair on
+a document whose flag is off, so the flag and the lines cannot disagree.
 
 Repo rules observed: the tables already extend `BaseEntity`; no column is
 called `version`; the foreign key is named on its referring column; every
@@ -270,10 +278,12 @@ buying switch. A selling document, where the firm's selling switch is on,
 follows its customer: **boxes and pieces** for a customer marked *Bills in
 boxes and pieces*, **pieces only** for any other. The bill maker can change
 it for the document in hand with one toggle above the lines, *Boxes and
-pieces / Pieces only*; that changes nothing on the customer. A saved
-document reopens in boxes and pieces if any of its lines holds a pair, and
-otherwise as its customer says. Switching to pieces only on a document that
-has pairs keeps every total and clears the pairs, after asking.
+pieces / Pieces only*; that changes nothing on the customer. **The choice
+is saved on the document, and a saved document reopens as it was saved**,
+whatever the customer's mark or the firm's switch says by then. A new
+buying document takes the firm's buying switch and keeps it the same way.
+Switching to pieces only on a document that has pairs keeps every total and
+clears the pairs, after asking.
 
 **The line.** In the boxes-and-pieces layout the line table of each editor
 replaces Qty and Free with four narrow boxes:
@@ -362,7 +372,7 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
 
 | # | Step | Migration | Proved by |
 | --- | --- | --- | --- |
-| 1 | The six columns on nine tables through one mixin; the two switches; the customer's mark. Nothing reads them | **Yes** | Schema registry test; the PostgreSQL insert test for every deployed table |
+| 1 | The six columns on nine tables through one mixin; the two switches; the customer's mark; the layout flag on the nine headers. Nothing reads them | **Yes** | Schema registry test; the PostgreSQL insert test for every deployed table |
 | 2 | `pack_of`, and one small value object that checks a pair against a total and splits a total for display. Item rows answer `pack_size` and `pack_unit_code`, read in bulk | No | Unit tests: both sides, no pack, a dated change of pack size, statement count of the item list |
 | 3 | Quotation and sales order: the four fields on write and read, the refusals of 3.4, the pair handed from quotation to order, offers' free goods on a pair line | No | Order tests; the worked example's sale to the paisa |
 | 4 | Delivery note and sales bill: inherit the pack size, own pair, part delivery; the bill typed straight in and the counter bill hand the pair to the documents raised behind them; the preview route | No | Chain tests; a pack size changed between order and note |
@@ -422,8 +432,10 @@ Each has the recommended answer first.
    switches stay as the master, off for every existing firm; with the
    selling switch on, a customer marked *Bills in boxes and pieces* gets
    the box cells and any other customer gets pieces only; a toggle above
-   the lines overrides it for one document. Buying follows the firm's
-   switch. An item with no pack shows pieces only; no switch per item.
+   the lines overrides it for one document. The document keeps its own
+   choice and reopens in it (the owner, 2026-10-13). Buying follows the
+   firm's switch. An item with no pack shows pieces only; no switch per
+   item.
 
 ## 9. Decided here by convention
 
