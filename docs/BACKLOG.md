@@ -10804,7 +10804,7 @@ sit beside it.
 
 **Size.** Large; a design note first.
 
-## 148. Settings: one screen per subject, its items as tabs in set-up order, with a Start here tab -- open, design agreed in outline, not built
+## 148. Settings: one screen per subject, its items as tabs in set-up order, with a Start here tab -- open; wireframes agreed, to be built for every section (rows T1, T2), not built yet
 
 **The owner, 2026-10-13.** Every setting is a menu item of its own and
 nothing says where to start: under Tax a user sees Tax Configuration, Tax
@@ -10849,10 +10849,17 @@ sections wireframes.html`, five views: the Settings page today and
 proposed, Tax (Start here, and inside a step), Item lists (Start here), and
 the eight assumptions to confirm.
 
+**The owner, 2026-10-13, on seeing the wireframes:** they are right, and the
+improvement is to be built, **for all possible settings**. Tax goes first,
+row T1 of `docs/CUSTOMER_BUILD_TASKS.md`, and builds the shared piece; every
+other section follows in row T2, its order worked out from what the server
+refuses without what and written in a table in
+`desktop/docs/DESKTOP_FRAMEWORK.md` for him to check.
+
 **Not decided.**
 
-1. The owner's word on the wireframes, and on the eight assumptions listed
-   in them (short names on the tabs among them).
+1. Nothing more on the wireframes; the eight assumptions stand as drawn,
+   short names on the tabs among them.
 2. The order of the steps in each section, and which are required. The
    order drawn for Tax and Item lists is a reading of the screens and is
    checked against each one before building. To be settled section by
