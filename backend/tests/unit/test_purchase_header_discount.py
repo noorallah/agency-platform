@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
-from app.core.utils.pricing import inherited_share
+from app.core.utils.pricing import continued_amount
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.goods_receipt.models import GoodsReceiptLine
 from app.products.models import Product
@@ -112,14 +112,21 @@ def _bill_of_order(
 
 def test_the_share_is_pro_rated_and_never_exceeds_the_source() -> None:
     """Four of ten take four tenths; covering the whole takes all of it."""
-    assert inherited_share(
-        Decimal("100"), part=Decimal("4"), whole=Decimal("10")
-    ) == Decimal("40.00")
-    assert inherited_share(
-        Decimal("100"), part=Decimal("12"), whole=Decimal("10")
-    ) == Decimal("100.00")
-    assert inherited_share(Decimal("0"), part=Decimal("4"), whole=Decimal("10")) == 0
-    assert inherited_share(Decimal("100"), part=Decimal("4"), whole=Decimal("0")) == 0
+
+    def share(amount: str, part: str, whole: str) -> Decimal:
+        """Return the plain share a return takes of a source line's figure."""
+        return continued_amount(
+            Decimal(amount), before=None, part=Decimal(part), whole=Decimal(whole)
+        )
+
+    assert share("100", "4", "10") == Decimal("40.00")
+    assert share("100", "12", "10") == Decimal("100.00")
+    assert share("0", "4", "10") == 0
+    assert share("100", "4", "0") == 0
+    # Cut at the paisa, as the bill cut its own share (D-BUY-68): a third of
+    # 10.00 is 3.33, where four places gave 3.3333 and a return taxed on a
+    # base a fraction of a paisa off its bill's.
+    assert share("10", "1", "3") == Decimal("3.33")
 
 
 def test_the_order_splits_its_discount_by_what_each_line_is_worth(
@@ -217,3 +224,57 @@ def test_a_bill_of_part_of_the_order_values_stock_and_payable_net(
     assert return_line is not None
     assert return_line.bill_discount_amount == Decimal("10.0000")
     assert returned.grand_total == Decimal("90.0000")
+
+
+def test_a_return_takes_its_share_of_the_discount_at_the_paisa(firm: _Firm) -> None:
+    """One of three at 100 with 100 off the order: 33.33 off, as a bill cuts it.
+
+    The return kept its share to four places -- 33.3333 -- where the bill
+    of the same unit cut 33.33, so the two stated the same goods a fraction
+    of a paisa apart and their tax could round a paisa apart (D-BUY-68).
+    """
+    firm.stages(order=True, receipt=False)
+    order = _order(firm, lines=[(firm.product, "3", "100")])
+    (order_line,) = _order_lines(firm, order)
+    bills = firm.bills()
+    bill = bills.create_invoice(
+        _bill_of_order(firm, order, order_line, "3"),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    bills.approve_invoice(bill.id, firm_scope=firm.firm.id, actor_id=firm.actor_id)
+    bill_line = firm.session.scalar(
+        select(PurchaseInvoiceLine).where(
+            PurchaseInvoiceLine.purchase_invoice_id == bill.id
+        )
+    )
+    assert bill_line is not None
+    assert bill_line.bill_discount_amount == Decimal("100.0000")
+
+    returned = PurchaseReturnService(firm.session).create_return(
+        PurchaseReturnCreate.model_validate(
+            {
+                "warehouse_id": firm.warehouse.id,
+                "return_date": "2026-08-12",
+                "lines": [
+                    {
+                        "source_document_type": "PURCHASE_INVOICE",
+                        "source_document_id": bill.id,
+                        "source_document_line_id": bill_line.id,
+                        "line_number": 1,
+                        "current_return_quantity": "1",
+                    }
+                ],
+            }
+        ),
+        firm_id=firm.firm.id,
+        actor_id=firm.actor_id,
+    )
+    return_line = firm.session.scalar(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == returned.id
+        )
+    )
+    assert return_line is not None
+    assert return_line.bill_discount_amount == Decimal("33.3300")
+    assert returned.grand_total == Decimal("66.6700")

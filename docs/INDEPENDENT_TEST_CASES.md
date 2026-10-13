@@ -2569,6 +2569,26 @@ enables them, and TEST01's Wholesale profile does not — so those cases run in
 a firm of the run's own on the **Pharmacy** or **Electronics** profile, which
 the fixture builds (a minute or two).
 
+### TC-BUY-109 — Purchase returns: the paisa, the second bill, held and warned
+
+*Added 2026-10-13 (D-BUY-68 to D-BUY-72, row G2). Driven over HTTP on a fixture firm; the screens were not clicked.*
+
+- **Covers:** D-BUY-68, D-BUY-69, D-BUY-70, D-BUY-71, D-BUY-72
+- **Fixture:** `ready-firm`
+- **Also needs:** orders and goods receipts both switched on; a product at 100 plus 18% local GST; a supplier of its own for each part, so what each is owed reads clean.
+- **Steps**
+  1. Supplier `A`: order **3** with **100.00** off the whole order, receive 3, bill 3. Raise a purchase return of **1** off the bill and read its line.
+  2. Supplier `B`: order and receive **2**; bill **1**, then bill the other **1**. Return **1** off the goods receipt and complete it. Return **1** off the first bill and complete it. Open *Record Payment* for `B`, then *Supplier credits*.
+  3. Supplier `C`: order, receive and bill **2**. Save and approve a return of **2** off the bill; do not complete it. Raise a debit note of **40.00** on the bill. Complete the return, and raise the debit note again.
+  4. Supplier `D`: order, receive and bill **2**. Return **1** off the goods receipt and complete it. Record a payment of **236.00** against the bill.
+  5. Supplier `E`: order and receive **2** three days ago; bill 1 and 1; approve a debit note of **40.00** on the second bill. Save and approve a return of **1** off the first bill, dated today. Return **1** off the receipt dated yesterday and complete it. Complete the first return.
+- **Expect**
+  - Step 1: the return line's share of the order's discount is **33.33**, not 33.3333: the figure a bill of one unit states.
+  - Step 2: *Record Payment* lists the **first** bill at **118.00** and not the second. *Supplier credits* shows 118.00, from the return off the receipt. Together the supplier is owed nothing.
+  - Step 3: the first debit note is refused: "200.00 billed, 0.00 already claimed, **0.00 already returned, 200.00 held by purchase return** ..., not completed yet. Complete or cancel what holds it, or claim less." The second is refused: "0.00 already claimed, 200.00 already returned."
+  - Step 4: the bill reads 236.00 owed and the payment is **taken**. The screen shows the supplier's credit before saving; the server's answer carries a warning that the supplier holds 118.00 of supplier credit, naming the return.
+  - Step 5: completing is refused. The message names the debit note for 40.00 on the second bill and the return for 100.00 on the first, and does not say a debit note was "approved since".
+
 ### TC-STOCK-001 — The summary and the rows agree; the ledger explains the balance
 
 - **Covers:** plan 8.1, 8.2

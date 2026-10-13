@@ -283,6 +283,10 @@ class SettlementResponse(SettlementSchema):
     reversal_reason: str | None
     allocations: list[SettlementAllocationResponse]
     version: int
+    #: What the person recording it should know and was not refused for: a
+    #: payment set against bills while the supplier holds credit (D-BUY-71).
+    #: Only on the answer to recording one; a list or a read carries none.
+    warnings: list[str] = Field(default_factory=list)
 
 
 class OutstandingInvoiceRecord(SettlementSchema):

@@ -809,12 +809,71 @@ class DebitNoteService(TransactionalDocumentService):
             # Money, said as money: "1440.0000 billed, 400.0000 already
             # claimed" counted rupees to four places (D-PRC-70), where the
             # credit note's twin says them to the paisa.
+            held, numbers = self._held_by_open_returns(source, returned=returned)
             raise ValidationError(
                 "A debit note cannot claim more than is left of the bill "
                 f"line: {billed:.2f} billed, {claimed:.2f} already claimed, "
-                f"{returned:.2f} already returned."
+                f"{returned - held:.2f} already returned"
+                + (
+                    "."
+                    if held <= ZERO
+                    else f", {held:.2f} held by {numbers}, not completed yet. "
+                    "Complete or cancel what holds it, or claim less."
+                )
             )
         return billed
+
+    def _held_by_open_returns(
+        self, source: PurchaseInvoiceLine, *, returned: Decimal
+    ) -> tuple[Decimal, str]:
+        """Return what open returns hold of a bill line, and their numbers.
+
+        A return raised off the bill line counts against a debit note from
+        the day it is saved, so two documents cannot both be raised for the
+        same value -- and the refusal called all of it "already returned",
+        which is not true of a draft: 1,440.00 "already returned" where
+        nothing had gone back (D-BUY-72). What has completed is said as
+        returned; the rest is said as held, by the returns that hold it.
+
+        Args:
+            source: The bill line.
+            returned: Everything counted against it for returns, drafts too.
+
+        """
+        # Imported here: the return module imports settlement-adjacent models.
+        from app.purchase_return.billing import COMPLETED, bill_line_claims
+        from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+
+        gone = quantize_money(
+            bill_line_claims(
+                self._session,
+                [source],
+                bill_returns=COMPLETED,
+                receipt_returns=COMPLETED,
+            )[source.id].returned_taxable
+        )
+        held = returned - gone
+        if held <= ZERO:
+            return ZERO, ""
+        numbers = self._session.scalars(
+            select(PurchaseReturn.return_number)
+            .join(
+                PurchaseReturnLine,
+                PurchaseReturnLine.purchase_return_id == PurchaseReturn.id,
+            )
+            .where(
+                PurchaseReturnLine.source_document_type == "PURCHASE_INVOICE",
+                PurchaseReturnLine.source_document_line_id == source.id,
+                PurchaseReturnLine.is_deleted.is_(False),
+                PurchaseReturn.is_deleted.is_(False),
+                PurchaseReturn.status.in_(("DRAFT", "APPROVED")),
+            )
+            .distinct()
+            .order_by(PurchaseReturn.return_number)
+        ).all()
+        if not numbers:
+            return held, "a purchase return"
+        return held, "purchase return " + ", ".join(numbers)
 
     def _assert_lines_still_have_room(self, note: DebitNote) -> None:
         """Ask the cap again at approval, where the claim becomes real.

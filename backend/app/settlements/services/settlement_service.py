@@ -1192,7 +1192,13 @@ class SettlementService(TransactionalDocumentService):
         the payables debit its journal posted and in no line
         (``return_header_parts``, D-PRC-83). In rupees at the bill's own
         rate, or in the bill's currency.
+
+        A line comes off the bill its units fell on (D-BUY-69): where a
+        return raised off one bill spilled onto another bill of the same
+        goods receipt, that part of its value leaves the bill it names and
+        comes off the other (``moved_onto_other_bills``).
         """
+        from app.purchase_return.billing import moved_onto_other_bills
         from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
         from app.settlements.services.supplier_credits import return_header_parts
 
@@ -1231,6 +1237,14 @@ class SettlementService(TransactionalDocumentService):
                 .group_by(PurchaseReturnLine.source_document_id)
             ).all()
         }
+        asked = set(invoice_ids)
+        for moved in self._session.execute(
+            moved_onto_other_bills(firm_id=firm_id, invoice_ids=invoice_ids)
+        ).all():
+            value = Decimal(str(moved.amount if in_currency else moved.rupees))
+            for bill_id, sign in ((moved.named_bill_id, -1), (moved.onto_bill_id, 1)):
+                if bill_id in asked:
+                    taken[bill_id] = taken.get(bill_id, ZERO) + sign * value
         for header in return_header_parts(
             self._session,
             firm_id=firm_id,

@@ -589,9 +589,10 @@ be **stored and taxed**, not derived at print time: `header_discount_amount`
 on a purchase order was subtracted *after* tax, so it reduced no taxable value
 and tax was paid on money never charged. D-BUY-19 (2026-09-30) put it on the
 lines the same way, and a purchase receipt, bill and return line inherit their
-share pro-rated by quantity (`inherited_share` on a return; `continued_amount`
-on a receipt and a bill, sliced at the paisa so the parts of a line sum to its
-share, D-PRC-93). And the rounding residual goes to the
+share pro-rated by quantity (`continued_amount`: sliced at the paisa on a
+receipt and a bill so the parts of a line sum to its share, D-PRC-93, and the
+plain share cut at the paisa on a return, which is not one of a sequence,
+D-BUY-68). And the rounding residual goes to the
 **largest** line so the shares sum exactly to the figure they split; a
 document whose lines do not add up to its own total is one no reconciliation
 can accept. A conversion carries the *deal* and re-splits it, because copying

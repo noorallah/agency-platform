@@ -35,8 +35,8 @@ from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger, quantize_money
 from app.core.utils.pricing import (
     LineDiscount,
+    continued_amount,
     inherited_line_discount,
-    inherited_share,
     resolve_line_discount,
 )
 from app.core.utils.quantities import plain_quantity
@@ -1153,8 +1153,9 @@ class PurchaseReturnService(TransactionalDocumentService):
             ),
         ).amount
         bill_share = min(
-            inherited_share(
+            continued_amount(
                 getattr(source_line, "bill_discount_amount", ZERO) or ZERO,
+                before=None,
                 part=quantity,
                 whole=whole,
             ),
@@ -1422,8 +1423,9 @@ class PurchaseReturnService(TransactionalDocumentService):
             Decimal(str(line.gross_amount)) - Decimal(str(line.discount_amount))
         )
         inherited = min(
-            inherited_share(
+            continued_amount(
                 getattr(source, "bill_discount_amount", ZERO) or ZERO,
+                before=None,
                 part=quantity,
                 whole=self._q(whole),
             ),
@@ -2892,8 +2894,9 @@ class PurchaseReturnService(TransactionalDocumentService):
             # The source line's share of the order's whole-order discount, for
             # the part of it returned here, comes off before tax (D-BUY-19).
             bill_share = min(
-                inherited_share(
+                continued_amount(
                     getattr(source_line, "bill_discount_amount", ZERO) or ZERO,
+                    before=None,
                     part=return_quantity,
                     whole=source_quantity,
                 ),
