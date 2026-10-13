@@ -76,18 +76,29 @@ The Swathi import is **not** in this list. It is kept in
 
 ## Group 3: large items, design note first
 
-The first row of each is a design note in `docs/`, read by the owner before
-any code. The loop writes the note, marks the row `NOTE READY` and **stops
-that item**; the rows after it stay WAITS until the owner says go.
+The first row of each is a design note in `docs/design/`, read and answered
+by the owner before any code. The notes for L1 and L4 were answered on
+2026-10-13 and their build rows are open; L6 still has questions with the
+owner.
+
+**A build row is worked one step of its note per run.** The note's own
+table of build steps is the list: each step is one branch, one pull
+request, tested and merged as any other row is. The Status of the row says
+how far it has got (`step 3 of 13 DONE #PR`), and the row is DONE when the
+last step is merged. Before a step, read the code the step touches and
+compare it with what the note says exists: the notes were written from a
+part reading of the code. Where they differ, follow the code, keep the
+note's intent, and say what differed in the Status. A firm on today's
+behaviour must behave exactly as before after every step.
 
 | # | Item | Status |
 | --- | --- | --- |
-| L1 | Design note: cost per purchase lot (backlog 101, 103). Every purchase line is a lot with its own cost and prices; goods with no batch get our own lot reference; at billing the user picks from stock per price and batch, nearest expiry first; the sales line keeps the lot, so a return traces to the supplier's bill; books at cost, first in first out by lot | DESIGN |
-| L2 | Build L1, in the steps its note sets out | WAITS for L1 |
-| L3 | Selling margin on the purchase price, by goods type, changeable on the purchase line, GST on top; the worked-out price rounded to the nearest rupee as a setting, and belonging to that lot only. Retail and wholesale price per lot. Cost and margin shown on the bill line, on screen only, to users allowed to see cost | WAITS for L2 |
-| L4 | Design note: one line with a box count and a piece count, rate per piece, free goods entered the same way | DESIGN |
-| L5 | Build L4 | WAITS for L4 |
-| L6 | Design note: offers and discounts listed on the bill line for the bill maker to choose, one applied to start, combining by the firm's setting, "buy N more", and a part share of an offer as a switch on each offer | DESIGN |
+| L1 | Design note: cost per purchase lot (backlog 101, 103). Every purchase line is a lot with its own cost and prices; goods with no batch get our own lot reference; at billing the user picks from stock per price and batch, nearest expiry first; the sales line keeps the lot, so a return traces to the supplier's bill; books at cost, first in first out by lot | DONE #1443. `docs/design/LOT_COST_DESIGN.md`; all six decisions answered by the owner on 2026-10-13 (section 9) |
+| L2 | Build L1, in the steps its note sets out | READY. Steps 1 to 12 and 7a of section 6 of the lot note, in the order 1, 2, 3, 4, 5, 6, 7, 7a, 8, 9, 10, 11, 12. No step done yet |
+| L3 | Selling margin on the purchase price, by goods type, changeable on the purchase line, GST on top; the worked-out price rounded to the nearest rupee as a setting, and belonging to that lot only. Retail and wholesale price per lot. Cost and margin shown on the bill line, on screen only, to users allowed to see cost | WAITS for L2 (section 7 of the lot note says what the lot carries) |
+| L4 | Design note: one line with a box count and a piece count, rate per piece, free goods entered the same way | DONE #1445. `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`; every decision answered by the owner on 2026-10-13 (section 8) |
+| L5 | Build L4 | READY after L2. Steps 1 to 12 of section 6 of the box-and-piece note. No step done yet |
+| L6 | Design note: offers and discounts listed on the bill line for the bill maker to choose, one applied to start, combining by the firm's setting, "buy N more", and a part share of an offer as a switch on each offer | NOTE WRITTEN #1446, open: five decisions with the owner |
 | L7 | Build L6 | WAITS for L6 |
 
 ## Checks on a running firm
