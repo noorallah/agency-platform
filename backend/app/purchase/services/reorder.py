@@ -461,15 +461,13 @@ class ReorderService:
         that is not below its reorder level, names no supplier the firm has
         billed, or comes to nothing, refuses the batch by name.
         """
-        from app.purchase.services import PurchaseService
-
         if not picks:
             raise ValidationError("Choose at least one row to order.")
         rows = {
             (row.warehouse_id, row.product_id): row
             for row in self.below_reorder(firm_id)
         }
-        grouped: dict[tuple[UUID, UUID, UUID], list[tuple[ReorderRow, Decimal]]]
+        grouped: dict[tuple[UUID, UUID, UUID], list[tuple[UUID, Decimal, Decimal]]]
         grouped = defaultdict(list)
         problems: list[str] = []
         for pick in picks:
@@ -496,9 +494,34 @@ class ReorderService:
                     "order -- what is needed is already on order."
                 )
                 continue
-            grouped[(supplier, row.branch_id, row.warehouse_id)].append((row, quantity))
+            grouped[(supplier, row.branch_id, row.warehouse_id)].append(
+                (row.product_id, quantity, row.unit_price)
+            )
         if problems:
             raise ValidationError("No order was raised. " + " ".join(problems))
+        return self._stage_orders(
+            firm_id,
+            grouped,
+            actor_id=actor_id,
+            remarks="Raised from Below reorder level.",
+        )
+
+    def _stage_orders(
+        self,
+        firm_id: UUID,
+        grouped: dict[tuple[UUID, UUID, UUID], list[tuple[UUID, Decimal, Decimal]]],
+        *,
+        actor_id: UUID,
+        remarks: str,
+    ) -> list[PurchaseOrder]:
+        """Stage one DRAFT per supplier, branch and warehouse, and commit once.
+
+        Each line is a product, a quantity and a rate. Shared by Below reorder
+        level and the order plan (backlog 130), so both raise an order exactly
+        as a typed one is raised.
+        """
+        from app.purchase.services import PurchaseService
+
         service = PurchaseService(self._session)
         today = firm_today(self._session, firm_id)
         orders: list[PurchaseOrder] = []
@@ -510,14 +533,14 @@ class ReorderService:
                         warehouse_id=warehouse,
                         vendor_id=supplier,
                         purchase_date=today,
-                        remarks="Raised from Below reorder level.",
+                        remarks=remarks,
                         lines=[
                             PurchaseLineWrite(
-                                product_id=row.product_id,
+                                product_id=product_id,
                                 ordered_quantity=quantity,
-                                unit_price=row.unit_price,
+                                unit_price=rate,
                             )
-                            for row, quantity in lines
+                            for product_id, quantity, rate in lines
                         ],
                     ),
                     firm_id=firm_id,

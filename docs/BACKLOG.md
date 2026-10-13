@@ -9318,3 +9318,120 @@ deleted; the change is on the audit trail.
 - No widget test opens the Brand box on the sales bill; the sales order's
   is tested and the two share the code.
 - No screen was clicked in the running app.
+
+## 130. Purchase planning by company from average sales -- built 2026-10-13
+
+**Customer task M12**, answer A6 ("is quantity already on an open purchase
+order taken off the suggested quantity? Yes"). Asked: "purchase planning by
+company from average sales, with stock in hand and quantity already on open
+orders taken off"; try: "the suggested quantity for three items matches a
+hand calculation". It is step 4 of backlog 93 in its smallest form; the rest
+of 93 stays designed and not built.
+
+**What was found.** *Below reorder level* (backlog 42.9, 69 row 12) already
+works out a quantity from average sales, takes off the stock in hand and
+what is on open orders (drafts counted), rounds to the supplier's pack and
+raises draft orders. Three things were missing for this row. It lists only
+what is **already short**, so a month-end order for a whole company cannot be
+read off it. It cannot be asked for **one company**. And its sales basis is a
+firm setting with a lead time and safety days inside the sum, which a person
+checking it by hand has to know about.
+
+**Design.**
+
+- One sum per product, in stock units, for one warehouse:
+  *needed* = sold in the last **N** days / N x **M** days of stock wanted;
+  *to order* = needed - stock in hand - already on open orders, rounded
+  **up** to a whole unit and never below zero. Where the supplier's list
+  quotes a minimum order or a pack multiple, a quantity above zero is rounded
+  up to it (BUY-5).
+- *Sold* is what went out to customers less what came back, each net of its
+  reversals, dated in the last N days up to the firm's today: the same reading
+  *Below reorder level* uses. An order nobody shipped is not a sale yet.
+- *Stock in hand* is what is available in that warehouse, so stock reserved
+  for an order is not counted. *On open orders* counts every purchase order
+  short of received, cancelled or closed, **drafts included**, less what its
+  receipts have taken in: planning twice does not order twice.
+- **Every** active product held as stock in the selection is listed, short or
+  not, with the figures of the sum beside it. A product that needs nothing
+  shows nothing to order.
+- Which products: a **company** means the products of its brands; brands can
+  be named as well or instead; a supplier named on its own means the brands
+  that supplier may sell (backlog 129); nothing named means every product.
+- From whom: the supplier named on the plan, for every row. Otherwise the
+  product's preferred supplier, else the supplier last billed for it, else
+  the supplier its company is bought from. A row with none is listed and is
+  refused when ordered until a supplier is named.
+- N and M are typed on the plan. Left out, they are the firm's *Reorder
+  planning* figures (90 and 30 until the firm changes them). N is 7 to 365, M
+  is 1 to 365.
+- `GET /api/v1/purchases/order-plan` (`warehouse_id` required; `company_id`,
+  `brand_id` repeated, `vendor_id`, `sales_days`, `cover_days`) answers the
+  rows. `POST /api/v1/purchases/order-plan/drafts` takes the same choices and
+  the ticked products, works the plan out again and raises **one draft order
+  per supplier**, all or none, through the order's own save path. A quantity
+  typed on a row is ordered as typed. Reading needs `PURCHASE_VIEW` or
+  `REPORT_VIEW`, raising `PURCHASE_CREATE`. No new permission, no table, no
+  migration, no setting.
+- Screen, new UI only: *Purchase Orders -> "..." -> Plan an order...*. The
+  buyer chooses the warehouse, the company, optionally a supplier, the two
+  numbers of days, and presses **Show**. Each row can be ticked and its
+  quantity typed over. **Download** writes the rows as an Excel sheet;
+  **Raise draft orders** raises them.
+- Calls: four reads when the window opens (warehouses, companies, suppliers, the
+  firm's days), one read for each **Show**, one write for **Raise**.
+
+**Decided by the standard, not asked.**
+
+- The sum has no lead time and no safety days in it. Marg's reorder on sale
+  ("sold in the last X days, times Y, less closing stock") and Tally's reorder
+  on consumption are this sum, and the row asks for a quantity that matches a
+  hand calculation. *Below reorder level* keeps its own.
+- The days default to the firm's *Reorder planning* figures, so a firm sets
+  them once.
+- A plan is for one warehouse, because an order is placed for one and stock
+  and sales are counted per warehouse.
+- Whole units, rounded up: nobody orders a third of a carton, and rounding
+  down leaves the firm short.
+
+**Defect found while it was tried, fixed before the merge.** Worked as
+sold / N x M, 100 / 60 x 30 came to 50.000...01 in decimal arithmetic and was
+rounded up to order 49 where the hand sum says 48. The sum is now multiplied
+first and held to four places. It was never on `main`, so it has no number in
+`docs/DEFECTS.md`; `test_a_sum_that_comes_out_whole_is_not_rounded_up_past_it`
+pins it.
+
+**Built.** Server: `backend/app/purchase/services/order_plan.py`
+(`OrderPlanService`, on top of `ReorderService`, whose order-raising tail
+became the shared `_stage_orders`), two routes in
+`backend/app/purchase/api/router.py`. Tests:
+`backend/tests/unit/test_order_plan.py` (14). Desktop:
+`desktop/lib/ui/purchases/order_plan_dialog.dart`, the menu entry in
+`purchase_management_page.dart`, two calls in `api_client.dart`. Tests:
+`desktop/test/order_plan_dialog_test.dart`. Test case TC-BUY-105.
+
+**Tried over HTTP** on a fixture firm, 50 checks. Three items of one company
+with 102, 65 and 60 in stock sold 100, 45 and 10: on 30 days of sales and 30
+days of stock the plan says 98, 25 and nothing; on 60 days of sales it says
+48, 3 (2.5 rounded up) and nothing. A brand on its own, another company, a
+supplier on its own and a supplier named on the plan each list what they
+should. A draft raised for 60 of the first item shows as 60 on order and the
+plan then says 38; an item fully on order cannot be ordered again. A row with
+nothing to order, a product outside the plan and a row with no supplier each
+refuse the whole batch and leave no order behind.
+
+**Not done.**
+
+- The rest of backlog 93: a level on the product, the category or the firm;
+  a monthly requirement typed on a product; the choice of the higher or the
+  lower of a typed level and the sales figure; a sheet laid out per supplier.
+- Stock committed to open sales orders is not a column; stock in hand is
+  what is available, which already leaves reserved stock out.
+- One warehouse at a time; no plan across warehouses.
+- The supplier cannot be changed row by row on the screen, only for the
+  whole plan.
+- A requisition cannot be raised from the plan, only draft orders.
+- A plan with no company on a firm with many thousands of products is read
+  whole; it was not timed on the volume firm.
+- The old UI is unchanged.
+- No screen was clicked in the running app.

@@ -2403,6 +2403,30 @@ of 2026-10-05 and, like the rest, have not been run by hand.
   - Step 7: refused: the brand is still on a product, and when no product carries it, still named on a supplier. The message names the supplier.
   - Step 8: the product box lists only the `Surf` and `Lux` products.
 
+### TC-BUY-105 — An order planned for a company matches a hand calculation
+
+*Added 2026-10-13 (backlog 130). The server steps were driven over HTTP; the screen is covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 130 (customer task M12)
+- **Fixture:** `ready-firm`
+- **Also needs:** a warehouse of its own for the case; a company `HUL` under *Set up → Item lists → Principals* that names supplier `A` as the one it is bought from, with brands `Surf` and `Lux`; three products of those brands, `P1`, `P2`, `P3`, with opening stock of 102, 65 and 60 in that warehouse; one sales order for 100, 45 and 10 of them, dispatched today from that warehouse; a product `Q1` of another company's brand.
+- **Steps**
+  1. Open *Buy → Purchase Orders* → **...** → **Plan an order...**. Choose the warehouse and company `HUL`, type **30** in *Sales of the last ... days* and **30** in *Stock for ... days*, press **Show**.
+  2. Work each row out by hand: sold ÷ 30 × 30, less *In hand*, less *On order*.
+  3. Change *Sales of the last ... days* to **60** and press **Show**.
+  4. Set it back to 30 and press **Show**. Type **60** in the *Order* box of `P1`, leave `P2` ticked, untick anything else, press **Raise draft orders**.
+  5. Open **Plan an order...** again with the same choices and press **Show**.
+  6. Tick `P3` and press **Raise draft orders**.
+  7. Press **Download**.
+- **Expect**
+  - Step 1: three rows, `P1`, `P2`, `P3`; `Q1` is not listed. Sold 100, 45, 10; in hand 2, 20, 50; on order 0. *Order* reads 98, 25 and nothing. `P1` and `P2` are ticked, `P3` is not. The supplier on each row is `A`.
+  - Step 2: the hand sums are 98, 25 and less than nothing, the same as the screen.
+  - Step 3: *Needed* reads 50, 22.5 and 5; *Order* reads 48, 3 and nothing.
+  - Step 4: one draft purchase order on supplier `A` for that warehouse, with 60 of `P1` and 25 of `P2`. Its remarks say it was raised from the order plan.
+  - Step 5: `P1` shows 60 on order and 38 to order; `P2` shows 25 on order and nothing to order.
+  - Step 6: refused, nothing to order for `P3`; no order is raised.
+  - Step 7: an Excel sheet with the rows and figures on the screen.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked

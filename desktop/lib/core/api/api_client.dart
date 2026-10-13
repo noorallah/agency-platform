@@ -5550,6 +5550,55 @@ class ApiClient {
         body: <String, dynamic>{'items': items},
       );
 
+  /// The order plan (backlog 130): every active stocked product of a
+  /// warehouse, optionally of one company or some brands, with what was sold
+  /// in [salesDays], what is wanted for [coverDays] and the quantity to
+  /// order. Pages are read until a short one.
+  Future<List<Json>> orderPlan({
+    required String warehouseId,
+    String? companyId,
+    List<String> brandIds = const [],
+    String? vendorId,
+    required int salesDays,
+    required int coverDays,
+  }) async {
+    final List<Json> rows = <Json>[];
+    for (int page = 1; page <= 50; page++) {
+      // `brand_id` repeats once per brand, which a `Map<String, String>`
+      // query cannot say, so the query string is built here.
+      final String queryString = Uri(queryParameters: <String, dynamic>{
+        'warehouse_id': warehouseId,
+        if (companyId != null && companyId.isNotEmpty) 'company_id': companyId,
+        if (brandIds.isNotEmpty) 'brand_id': brandIds,
+        if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+        'sales_days': '$salesDays',
+        'cover_days': '$coverDays',
+        'page': '$page',
+        'page_size': '100',
+      }).query;
+      final Json response = await request(
+        'GET',
+        '/api/v1/purchases/order-plan?$queryString',
+      );
+      final dynamic data = response['data'];
+      final List<Json> batch = <Json>[
+        for (final dynamic row in data is List ? data : const [])
+          if (row is Map) Map<String, dynamic>.from(row),
+      ];
+      rows.addAll(batch);
+      if (batch.length < 100) break;
+    }
+    return rows;
+  }
+
+  /// Raise one draft purchase order per supplier for the ticked rows of an
+  /// order plan, all or none. [body] is the plan's choices plus `items`.
+  Future<Json> raiseOrderPlanDrafts(Json body) async => await request(
+        'POST',
+        '/api/v1/purchases/order-plan/drafts',
+        body: body,
+      );
+
   /// Raise requisitions (one per warehouse) for the ticked reorder rows
   /// instead of orders (BUY-7). Same items as [raiseReorderDrafts].
   Future<Json> raiseReorderRequisitions(List<Json> items) async =>
