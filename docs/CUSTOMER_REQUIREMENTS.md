@@ -242,3 +242,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | First written, from the review of 2026-10-12, the sample bills and the owner's answers of the day |
 | 2026-10-13 | COL-8 built (F4): the discount at collection has a permission of its own, the firm admin's alone |
 | 2026-10-13 | SUP-4 built (F5): a supplier's GST number is held once; a branch takes its main office's or types its own |
+| 2026-10-13 | CUS-8 logged (F6) as backlog 137, open and not built: it waits on the provider and its price, which are the owner's to choose. Status stays Later |
