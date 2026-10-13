@@ -5,6 +5,13 @@
 and backlog 103 (one stock structure for every product), and it is what rows
 L2 and L3 are built from. The owner reads and approves it before any code.
 
+**Built so far (row L2):** step 1, the tables (#1465, migration
+`20261013_0369`). One point differs from section 3.2: `lot_reference` is
+still nullable. Batches that existed were numbered; a batch made now gets
+none until step 3, where every creator of a batch issues one, and the column
+is made NOT NULL there. Making it NOT NULL in step 1 would have changed
+every place that makes a batch, and step 1 changes no behaviour.
+
 Words used here. A **lot** is one purchase line's goods: its own cost, MRP,
 selling prices, batch and expiry. A **batch** is the number the manufacturer
 prints on the goods. Two deliveries of one printed batch are two lots.
