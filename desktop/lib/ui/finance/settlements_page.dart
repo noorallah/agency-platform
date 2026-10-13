@@ -880,6 +880,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
       direction: widget.direction,
       partyId: row.partyId,
       withShops: isReceipt,
+      withBranches: !isReceipt,
     );
     if (!mounted) return;
     if (invoices.isEmpty) {
@@ -901,7 +902,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
         availableLabel: 'on account',
         invoiceLabel: isReceipt ? 'Invoice' : 'Bill',
         invoices: invoices,
-        ownerId: isReceipt ? row.partyId : '',
+        ownerId: row.partyId,
         // The dialog runs the call and stays open on a refusal, the bill
         // and the amount kept (D-UI-70).
         onSave: (_Application application) => isReceipt

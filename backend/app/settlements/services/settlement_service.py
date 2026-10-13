@@ -830,11 +830,25 @@ class SettlementService(TransactionalDocumentService):
         return records
 
     def shop_ids(self, *, firm_id: UUID, party_id: UUID) -> list[UUID]:
-        """Return the shops under a customer, where it is a parent buyer.
+        """Return the shops under a customer, or the branches under a supplier.
 
-        Only a receipt reaches across a family (backlog 126): a refund and a
-        payment are with one party, and a shop has no shops.
+        A receipt from a parent buyer reaches its shops' bills (backlog 126)
+        and a payment to a supplier's main office reaches its branches'
+        (backlog 127). A refund is with one party, and a shop or a branch
+        has none under it.
         """
+        if self.DIRECTION == SettlementDirection.PAYMENT:
+            return list(
+                self._session.scalars(
+                    select(Vendor.id)
+                    .where(
+                        Vendor.firm_id == firm_id,
+                        Vendor.parent_vendor_id == party_id,
+                        Vendor.is_deleted.is_(False),
+                    )
+                    .order_by(Vendor.code)
+                )
+            )
         if self.DIRECTION != SettlementDirection.RECEIPT:
             return []
         return list(
@@ -852,21 +866,24 @@ class SettlementService(TransactionalDocumentService):
     def family_outstanding_invoices(
         self, *, firm_id: UUID, party_id: UUID
     ) -> list[OutstandingInvoiceRecord]:
-        """Return what a customer and the shops under it still owe, bill by bill.
+        """Return what a party and those under it still owe, bill by bill.
 
-        The bills one receipt from a parent may clear (backlog 126): its own
-        first, then each shop's, every row naming whose it is. For a customer
-        with no shops it is `outstanding_invoices` with the names filled in.
-        Read once per member, which is a handful of statements for each shop
-        of a chain rather than the firm's whole unpaid list.
+        The bills one receipt from a parent buyer may clear (backlog 126),
+        or one payment to a supplier's main office (backlog 127): its own
+        first, then each shop's or branch's, every row naming whose it is.
+        For a party with none under it, it is `outstanding_invoices` with the
+        names filled in. Read once per member, which is a handful of
+        statements for each shop of a chain rather than the firm's whole
+        unpaid list.
         """
         members = [party_id, *self.shop_ids(firm_id=firm_id, party_id=party_id)]
+        party: type[Customer] | type[Vendor] = (
+            Vendor if self.DIRECTION == SettlementDirection.PAYMENT else Customer
+        )
         names = {
             row.id: (row.code, row.name)
             for row in self._session.execute(
-                select(Customer.id, Customer.code, Customer.name).where(
-                    Customer.id.in_(members)
-                )
+                select(party.id, party.code, party.name).where(party.id.in_(members))
             )
         }
         records: list[OutstandingInvoiceRecord] = []
@@ -883,7 +900,8 @@ class SettlementService(TransactionalDocumentService):
     ) -> dict[UUID, OutstandingInvoiceRecord]:
         """Return the bills this party's money may be set against, by id.
 
-        The party's own; for a receipt from a parent buyer, its shops' too.
+        The party's own; for a receipt from a parent buyer, its shops' too,
+        and for a payment to a supplier's main office, its branches'.
         """
         if self.shop_ids(firm_id=firm_id, party_id=party_id):
             records = self.family_outstanding_invoices(
@@ -2572,8 +2590,8 @@ class SettlementService(TransactionalDocumentService):
             if record is None:
                 raise ValidationError(
                     "An allocated invoice does not belong to this party or "
-                    "to a shop under it, is not approved, or is already "
-                    "settled in full."
+                    "to a shop or branch under it, is not approved, or is "
+                    "already settled in full."
                 )
             self._refuse_rupees_for_foreign_bill(record)
             allocated = quantize_ledger(allocation.amount)
@@ -2783,7 +2801,11 @@ class SettlementService(TransactionalDocumentService):
         shops under the page's customers, and a page with none reads nothing
         more.
         """
-        if self.DIRECTION != SettlementDirection.RECEIPT or not allocations:
+        if not allocations:
+            return {}
+        if self.DIRECTION == SettlementDirection.PAYMENT:
+            return self._branch_bill_owners(rows, allocations)
+        if self.DIRECTION != SettlementDirection.RECEIPT:
             return {}
         payers = {row.customer_id for row in rows if row.customer_id is not None}
         shops = {
@@ -2823,6 +2845,56 @@ class SettlementService(TransactionalDocumentService):
                 )
             ):
                 owners[bill_id] = shops[customer_id]
+        return owners
+
+    def _branch_bill_owners(
+        self,
+        rows: Sequence[Settlement],
+        allocations: Sequence[SettlementAllocation],
+    ) -> dict[UUID, tuple[UUID, str, str]]:
+        """Say whose each paid bill is, where it is a branch's (backlog 127).
+
+        The supplier twin of `shop_bill_owners`: the bills on a page of
+        payments that belong to a branch under the supplier that was paid.
+        """
+        payees = {row.vendor_id for row in rows if row.vendor_id is not None}
+        branches = {
+            row.id: (row.id, row.code, row.name)
+            for row in self._session.execute(
+                select(Vendor.id, Vendor.code, Vendor.name).where(
+                    Vendor.parent_vendor_id.in_(payees)
+                )
+            )
+        }
+        if not branches:
+            return {}
+        owners: dict[UUID, tuple[UUID, str, str]] = {}
+        invoice_ids = [
+            item.purchase_invoice_id
+            for item in allocations
+            if item.purchase_invoice_id is not None
+        ]
+        if invoice_ids:
+            for bill_id, vendor_id in self._session.execute(
+                select(PurchaseInvoice.id, PurchaseInvoice.vendor_id).where(
+                    PurchaseInvoice.id.in_(invoice_ids),
+                    PurchaseInvoice.vendor_id.in_(branches),
+                )
+            ):
+                owners[bill_id] = branches[vendor_id]
+        opening_ids = [
+            item.vendor_opening_bill_id
+            for item in allocations
+            if item.vendor_opening_bill_id is not None
+        ]
+        if opening_ids:
+            for bill_id, vendor_id in self._session.execute(
+                select(VendorOpeningBill.id, VendorOpeningBill.vendor_id).where(
+                    VendorOpeningBill.id.in_(opening_ids),
+                    VendorOpeningBill.vendor_id.in_(branches),
+                )
+            ):
+                owners[bill_id] = branches[vendor_id]
         return owners
 
     def order_numbers_of(self, rows: Sequence[Settlement]) -> dict[UUID, str]:

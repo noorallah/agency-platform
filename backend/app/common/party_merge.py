@@ -360,6 +360,12 @@ class PartyMergeService:
         survivor that may be a shop itself. They are moved by hand first.
         """
         link = getattr(model, "parent_customer_id", None)
+        over, under = "parent", "shop"
+        if link is None:
+            # A supplier company's branches (backlog 127): handed to the
+            # survivor they would sit under an office they never named.
+            link = getattr(model, "parent_vendor_id", None)
+            over, under = "main office", "branch"
         if link is None:
             return
         shops = self._session.scalar(
@@ -368,9 +374,11 @@ class PartyMergeService:
             .where(link == duplicate.id, model.is_deleted.is_(False))
         )
         if shops:
+            plural = "es" if under == "branch" else "s"
             raise ValidationError(
-                f"{duplicate.code} is the parent of {shops} shop(s) and cannot "
-                f"be merged away. Move its shops to another {kind.label} first."
+                f"{duplicate.code} is the {over} of {shops} {under}({plural}) "
+                f"and cannot be merged away. Move its {under}{plural} to "
+                f"another {kind.label} first."
             )
 
     def _party(

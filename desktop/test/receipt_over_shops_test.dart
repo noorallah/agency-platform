@@ -27,6 +27,7 @@ class _ShopsApi extends ApiClient {
     required SettlementDirection direction,
     required String partyId,
     bool withShops = false,
+    bool withBranches = false,
   }) async {
     asked.add((direction: direction, withShops: withShops));
     return bills;

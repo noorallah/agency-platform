@@ -46,6 +46,7 @@ from app.vendors.schemas import (
     VendorCategoryResponse,
     VendorCategoryWrite,
     VendorCreate,
+    VendorFamily,
     VendorImportRequest,
     VendorListFilters,
     VendorResponse,
@@ -90,6 +91,7 @@ from app.vendors.services.supplier_catalogue import (
     SupplierCatalogueFileImporter,
     SupplierCatalogueService,
 )
+from app.vendors.services.supplier_family import SupplierFamilyFacts
 from app.vendors.services.supplier_gifts import SupplierGiftService
 from app.vendors.services.vendor_import import VendorFileImporter
 from app.vendors.services.vendor_import import template_csv as vendor_template_csv
@@ -209,6 +211,7 @@ def _response(
     *,
     attributes: list[AttributeValueResponse] | None = None,
     places: dict[UUID, tuple[str | None, str | None]] | None = None,
+    family: SupplierFamilyFacts | None = None,
 ) -> VendorResponse:
     """Build one vendor response with its custom fields attached.
 
@@ -231,6 +234,12 @@ def _response(
     named = VendorService(db).address_places([row]) if places is None else places
     for address in payload["addresses"]:
         address["city"], address["area"] = named.get(address["id"], (None, None))
+    facts = family or VendorService(db).family_facts([row]).get(
+        row.id, SupplierFamilyFacts()
+    )
+    payload["parent_code"] = facts.parent_code
+    payload["parent_name"] = facts.parent_name
+    payload["branch_count"] = facts.branch_count
     return VendorResponse.model_validate(payload)
 
 
@@ -241,8 +250,16 @@ def _responses(
     service = VendorService(db)
     attributes = service.attribute_responses_for_many(rows)
     places = service.address_places(rows)
+    family = service.family_facts(rows)
     return [
-        _response(row, db, scope, attributes=attributes.get(row.id, []), places=places)
+        _response(
+            row,
+            db,
+            scope,
+            attributes=attributes.get(row.id, []),
+            places=places,
+            family=family.get(row.id, SupplierFamilyFacts()),
+        )
         for row in rows
     ]
 
@@ -1024,6 +1041,22 @@ def get_vendor(
     )
     set_etag(response, vendor)
     return ApiResponse(data=_response(vendor, db, scope))
+
+
+@router.get("/{vendor_id}/family", response_model=ApiResponse[VendorFamily])
+def vendor_family(
+    vendor_id: UUID,
+    scope: VendorViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorFamily]:
+    """Return a supplier's main office and branches, with what they are owed.
+
+    Asked of the main office or of any branch the answer is the same
+    company; a supplier with neither is a company of one (backlog 127).
+    """
+    return ApiResponse(
+        data=VendorService(db).family(vendor_id, firm_scope=scope.firm_id)
+    )
 
 
 @router.put("/{vendor_id}", response_model=ApiResponse[VendorResponse])

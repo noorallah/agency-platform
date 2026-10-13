@@ -92,6 +92,7 @@ class _SettlementApi extends ApiClient {
     required SettlementDirection direction,
     required String partyId,
     bool withShops = false,
+    bool withBranches = false,
   }) async =>
       outstanding;
 

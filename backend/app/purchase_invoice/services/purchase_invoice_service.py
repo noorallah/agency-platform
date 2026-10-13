@@ -137,6 +137,7 @@ from app.uom.services import (
     unit_named,
 )
 from app.vendors.models import Vendor
+from app.vendors.services.supplier_family import company_of, same_company
 
 if TYPE_CHECKING:
     from app.finance.services.tds_sections import TdsProposal
@@ -545,10 +546,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             data, firm_id=firm_id, own_receipts=own_receipts
         )
         branch_id = data.branch_id or header["branch_id"]
-        vendor_id = data.vendor_id or header["vendor_id"]
+        vendor_id = self._billing_office(
+            data.vendor_id, header=header, source_rows=source_rows, firm_id=firm_id
+        )
         business_profile_id = data.business_profile_id
-        if vendor_id != header["vendor_id"]:
-            raise ValidationError("Invoice vendor must match all source documents.")
         self._refuse_blocked(vendor_id)
         if branch_id != header["branch_id"]:
             raise ValidationError("Invoice branch must match all source documents.")
@@ -666,6 +667,48 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         self._flush_or_conflict("Purchase invoice number already exists in this firm.")
         return row
 
+    def _billing_office(
+        self,
+        vendor_id: UUID | None,
+        *,
+        header: dict[str, UUID],
+        source_rows: list[dict[str, object]],
+        firm_id: UUID,
+    ) -> UUID:
+        """Return the supplier a bill is from, checked against what it bills.
+
+        The supplier of the receipts it bills, or another office of the same
+        supplier company (backlog 127): goods ordered on the main office are
+        billed by the branch that sent them. A bill that names no supplier
+        takes its receipts', which only says something when they agree.
+
+        Raises:
+            ValidationError: If the supplier is outside the company the
+                receipts are from, or none is named and the receipts are
+                from different offices.
+
+        """
+        received_from = {
+            office
+            for row in source_rows
+            if (office := _optional_uuid(row["vendor_id"])) is not None
+        }
+        if vendor_id is None:
+            if len(received_from) > 1:
+                raise ValidationError(
+                    "These goods receipts are from different offices of the "
+                    "supplier. Say which office the bill is from."
+                )
+            return header["vendor_id"]
+        if vendor_id in received_from:
+            return vendor_id
+        if not same_company(self._session, vendor_id, header["vendor_id"]):
+            raise ValidationError("Invoice vendor must match all source documents.")
+        named = self._session.get(Vendor, vendor_id)
+        if named is None or named.firm_id != firm_id or named.is_deleted:
+            raise ValidationError("Invoice vendor must match all source documents.")
+        return vendor_id
+
     def update_invoice(
         self,
         invoice_id: UUID,
@@ -727,7 +770,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         header, source_rows, line_specs = self._prepare_invoice_sources(
             data, firm_scope, own_receipts=own_receipts
         )
-        row.vendor_id = data.vendor_id or header["vendor_id"]
+        row.vendor_id = self._billing_office(
+            data.vendor_id, header=header, source_rows=source_rows, firm_id=firm_scope
+        )
         self._refuse_blocked(row.vendor_id)
         self._refuse_another_currency(data, firm_id=firm_scope)
         row.branch_id = data.branch_id or header["branch_id"]
@@ -3000,9 +3045,20 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             value = _optional_uuid(first.get(field))
             if value is not None:
                 header[field] = value
+        # One supplier, or offices of one supplier company (backlog 127):
+        # which office the bill is from is settled by `_billing_office`.
+        offices = company_of(
+            self._session,
+            {
+                office
+                for row in source_rows
+                if (office := _optional_uuid(row["vendor_id"])) is not None
+            },
+        )
         for source in source_rows[1:]:
             if (
-                source["vendor_id"] != header["vendor_id"]
+                offices.get(_optional_uuid(source["vendor_id"]) or header["vendor_id"])
+                != offices.get(header["vendor_id"])
                 or source["branch_id"] != header["branch_id"]
             ):
                 raise ValidationError(

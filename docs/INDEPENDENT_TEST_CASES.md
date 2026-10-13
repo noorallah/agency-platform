@@ -2319,6 +2319,39 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Leaves:** approved orders and bills for V, two completed receipts; the settings as they were.
 
 
+### TC-BUY-102 — An order on the main office is received from a branch and billed by it
+
+*Added 2026-10-13 (backlog 127). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 127 (customer task M9)
+- **Fixture:** `ready-firm`
+- **Also needs:** a product and a warehouse.
+- **Steps**
+  1. Open *Buy → Suppliers*. Add a supplier, the main office, with its GST number. Add a second supplier with a GST number of another state and choose the first under **Branch of**. Save.
+  2. Open the main office again and look at **Branches**. Look at the *Main office / branches* column of the list.
+  3. Try to choose the branch as **Branch of** on a third supplier. Try to delete the main office.
+  4. Raise a purchase order on the main office for 10 of the product at 100.00 and approve it.
+  5. Open *Goods Receipts* → new, choose that order. Under **Received from** choose the branch. Receive all 10 and complete it.
+  6. Open the order.
+  7. Raise a supplier bill: choose the branch as the supplier, tick that receipt, save and approve.
+  8. Open *Buy → Money → Payments* → **Record payment**. Choose the main office and look at the list of bills.
+  9. Amount 1,500.00, by bank. Set the bill's full amount against the branch's bill. Save.
+  10. Open the supplier statement of the branch, and of the main office.
+  11. Record a payment to a second branch of the same main office and look at the list of bills.
+  12. Reverse the main office's payment with a reason. Open both statements again.
+- **Expect**
+  - Step 1: saved. The branch keeps the GST number typed on it.
+  - Step 2: the panel lists the main office and the branch with what each is owed and one total; the list shows *Branch of* the main office's code on the branch and *1 branch* on the main office.
+  - Step 3: both refused. The first says the supplier is itself a branch and names its main office; the second says the main office has a branch and names it.
+  - Step 5: **Received from** lists the main office and the branch, the main office chosen first. The receipt is saved in the branch's name.
+  - Step 6: the order is still on the main office and reads Received.
+  - Step 7: saved in the branch's name; the tax is worked out for the branch's state. The branch is owed the bill; the main office is owed nothing.
+  - Step 8: the branch's bill is listed with the branch's code and name under the bill number, and a line above says the bills of the branches under this supplier are listed too.
+  - Step 9: saved as one payment in the main office's name; what was not set against the bill stays on the main office's account.
+  - Step 10: the branch's statement has the bill and a line *Paid by the main office* for the same amount, and closes at nothing. The main office's statement has the payment and a line *Paid for a branch*, and closes at the amount paid ahead.
+  - Step 11: only that branch's own bills are listed; not the first branch's and not the main office's.
+  - Step 12: the branch is owed its bill again, the main office's statement closes at nothing, and both statements keep the earlier lines with a reversal line under each.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked

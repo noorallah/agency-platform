@@ -2268,6 +2268,12 @@ class ApiClient {
         additionalQuery: filters.toQuery(),
       );
 
+  /// A supplier company: the main office and its branches, asked of any
+  /// office. Read only for a supplier that has a main office or branches.
+  Future<VendorFamily> vendorFamily(String id) async => VendorFamily.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/vendors/$id/family')),
+      );
+
   /// Suppliers that look like the one being typed (MST-3); see
   /// [customerDuplicates].
   Future<List<Json>> vendorDuplicates({
@@ -11093,6 +11099,7 @@ class ApiClient {
     required SettlementDirection direction,
     required String partyId,
     bool withShops = false,
+    bool withBranches = false,
   }) async {
     final Json response = await request(
       'GET',
@@ -11102,6 +11109,9 @@ class ApiClient {
         // A receipt from a parent buyer may clear its shops' bills too.
         if (withShops && direction == SettlementDirection.receipt)
           'with_shops': 'true',
+        // A payment to a main office may clear its branches' bills too.
+        if (withBranches && direction == SettlementDirection.payment)
+          'with_branches': 'true',
       },
     );
     return _unwrapList(response, OutstandingInvoice.fromJson);

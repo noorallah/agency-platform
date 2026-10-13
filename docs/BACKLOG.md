@@ -9048,3 +9048,107 @@ shop. Tests: `tests/unit/test_receipt_over_shops.py`,
   against a bill of the customer that holds it.
 - The supplier side (row M9).
 - No screen was clicked in the running app.
+
+## 127. A supplier company with branches -- built 2026-10-13
+
+Customer task M9 (`docs/CUSTOMER_BUILD_TASKS.md`): the company is the main
+supplier and its branches are suppliers under it, each with its own GST
+number; an order is placed on the main office, goods and bills come from any
+branch, and payment goes to the main office or to a branch (the *Not shown*
+sheet of the answers workbook, 2026-10-12; open question A10, "can a branch
+also be paid directly?", answered yes). Done when an order on the main office
+is received from a branch and billed by it.
+
+**What was there.** Each branch could already be a supplier of its own.
+Nothing tied the offices together: a goods receipt always took its order's
+supplier, a bill had to be from the supplier of the receipts it billed, and a
+payment cleared only the bills of the supplier it was made to. An order on
+the main office could not be received from, or billed by, a branch.
+
+**Design.**
+
+- **One column, `vendors.parent_vendor_id`,** a key to `vendors`. A branch
+  names its main office. One level deep: a branch has no branches and a main
+  office has none above it.
+- **Nothing is copied.** This is where the supplier side differs from the
+  buyer side (backlog 125). A branch is registered in its own state, so its
+  GST number is its own, and `UQ_vendors_firm_gstin_active` already held a
+  number to one live supplier. No marker, no new key, and no reader of
+  `vendors.gstin` changed: the tax on a bill is worked out from the office
+  that sent the bill.
+- **The order stays where it was placed; the receipt names the office the
+  goods came from.** A goods receipt takes `vendor_id`: the order's supplier,
+  its main office, or another branch of the same main office. Left out, it
+  is the order's supplier, as before. The order is still counted received
+  from its receipts, whoever sent them.
+- **The bill is from the office that sends it.** A supplier bill may be in
+  the name of any office of the company its receipts are from. So goods
+  received in the branch's name are billed by the branch, and goods received
+  in the main office's name can still be billed by a branch. What is owed is
+  owed to the office on the bill.
+- **A payment to the main office may clear a branch's bills; a branch is
+  also paid directly.** The payment stays the main office's: one row, one
+  number, one journal. A branch's payment clears its own bills only; it does
+  not pay for a sibling or for the main office.
+- **Each office's account still closes on what that office is owed.** A
+  supplier has no balance row; its statement is read off the payables lines
+  of the ledger, each traced to the supplier on the document. A main
+  office's payment that clears a branch's bill is therefore read as two
+  `PAYMENT_TRANSFER` lines, a debit on the branch and a credit on the main
+  office, on the day the money met the bill. The pair is derived from the
+  allocation and stored nowhere, it nets to nothing on the payables account,
+  and a reversed payment gains the opposite pair on the day it was reversed.
+  No table and no journal, which is the supplier-side twin of the rows
+  backlog 126 writes on a shop's account.
+
+**Decided by me, by the industry standard.**
+
+- One level, main office and branches (Tally's group of ledgers under one
+  party, Zoho's and ERPNext's supplier with a parent).
+- Any office of the company may deliver or bill an order placed on any other
+  office of it, not only a branch for the main office. It is one company.
+- A main office with branches cannot be deleted, made a branch, or merged
+  away; its branches are moved first. A deleted branch is not restored under
+  a main office that is deleted or has become a branch.
+- A bill that names no supplier takes its receipts' supplier; where the
+  receipts are from different offices it must say which office it is from.
+- TDS on a payment is proposed on the supplier that is paid (the main
+  office), as on any payment.
+
+**A defect found on the way (D-BUY-75).** Editing a draft supplier bill took
+any supplier at all: the check that a bill is from the supplier of its
+receipts ran on create and not on edit. Both paths now ask one method.
+
+**Built.** Column `parent_vendor_id` and its index (migration
+`20261013_0366`, no row rewritten); the rules in
+`app/vendors/services/supplier_family.py` (`SupplierFamily`, `company_of`,
+`same_company`, `assert_office_of`), called from `VendorService.stage_create`,
+`stage_update`, `delete` and `restore`; the guard in
+`app/common/party_merge.py`; four fields on every supplier answer
+(`parent_vendor_id`, `parent_code`, `parent_name`, `branch_count`), read once
+per page; `GET /api/v1/vendors/{id}/family` with each office's balance and
+one total; `vendor_id` on the goods receipt write; `_billing_office` in the
+supplier bill service; `with_branches` on `GET /payments/outstanding`, the
+branch named on a payment's allocations, and Apply reaching a branch's bill;
+the transfer lines in `app/vendors/services/statement_service.py`. Desktop:
+**Branch of** on the supplier form, a **Branches** panel with what each
+office is owed and one total, a *Main office / branches* column on the
+supplier list, **Received from** on the goods receipt when the order's
+supplier is a company, and Record Payment and Apply listing the branches'
+bills under a main office. Tests: `tests/unit/test_supplier_branches.py`,
+`desktop/test/supplier_branches_test.dart`. Test case TC-BUY-102.
+
+**Not done.**
+
+- The supplier import file has no column for the main office.
+- A purchase return and a debit note stay with the supplier on the document
+  they come from; a credit is set against a bill of the office that holds it.
+- A payment in another currency clears only the bills of the supplier it is
+  made to.
+- A payment run pays each office for its own bills.
+- Supplier price lists, lead times and ratings stay per office.
+- Combined reports and one statement for the whole company. The family read
+  gives each office's balance and the total.
+- The **Branch of** picker offers the first page of suppliers its search
+  returns.
+- No screen was clicked in the running app.
