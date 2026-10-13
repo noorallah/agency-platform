@@ -1741,7 +1741,8 @@ selected*.
 
 **Expenses.** Rent, fuel, salaries and other running costs: the expense
 account, the amount, the cash or bank account it was paid from, and TDS where it was deducted. Saving
-posts it to the journal; an expense dated in a locked year is refused.
+posts it to the journal; an expense dated in a locked year is refused, and so is
+one dated after today, since an expense is money already spent.
 
 **Ledgers.** One account's movements over a period, with the opening and
 closing balance.
