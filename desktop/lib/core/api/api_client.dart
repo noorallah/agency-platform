@@ -11092,11 +11092,17 @@ class ApiClient {
   Future<List<OutstandingInvoice>> outstandingInvoices({
     required SettlementDirection direction,
     required String partyId,
+    bool withShops = false,
   }) async {
     final Json response = await request(
       'GET',
       '/api/v1/${direction.path}/outstanding',
-      query: {direction.partyParameter: partyId},
+      query: {
+        direction.partyParameter: partyId,
+        // A receipt from a parent buyer may clear its shops' bills too.
+        if (withShops && direction == SettlementDirection.receipt)
+          'with_shops': 'true',
+      },
     );
     return _unwrapList(response, OutstandingInvoice.fromJson);
   }

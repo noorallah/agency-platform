@@ -10,7 +10,16 @@ class SettlementAllocation {
     required this.invoiceTotal,
     required this.amount,
     this.allocatedOn = '',
+    this.partyId = '',
+    this.partyCode = '',
+    this.partyName = '',
   });
+
+  /// Set only where the bill belongs to a shop under the receipt's customer;
+  /// blank on the customer's own bills.
+  final String partyId;
+  final String partyCode;
+  final String partyName;
 
   final String id;
   final String invoiceId;
@@ -31,6 +40,9 @@ class SettlementAllocation {
         invoiceTotal: stringValue(json['invoice_total']),
         amount: stringValue(json['amount']),
         allocatedOn: stringValue(json['allocated_on']),
+        partyId: stringValue(json['party_id']),
+        partyCode: stringValue(json['party_code']),
+        partyName: stringValue(json['party_name']),
       );
 }
 
@@ -237,7 +249,16 @@ class OutstandingInvoice {
     this.exchangeRate = '',
     this.currencyTotal = '',
     this.currencyOutstanding = '',
+    this.partyId = '',
+    this.partyCode = '',
+    this.partyName = '',
   });
+
+  /// Whose bill it is, filled when the receipt screen asked for the shops'
+  /// bills too. Blank on a payment's list.
+  final String partyId;
+  final String partyCode;
+  final String partyName;
 
   final String invoiceId;
   final String invoiceNumber;
@@ -271,6 +292,9 @@ class OutstandingInvoice {
         exchangeRate: exchangeRate,
         currencyTotal: currencyTotal,
         currencyOutstanding: currencyOutstanding,
+        partyId: partyId,
+        partyCode: partyCode,
+        partyName: partyName,
       );
 
   /// A bill the party owed, or was owed, before the firm started here --
@@ -293,6 +317,9 @@ class OutstandingInvoice {
         exchangeRate: stringValue(json['exchange_rate']),
         currencyTotal: stringValue(json['currency_total']),
         currencyOutstanding: stringValue(json['currency_outstanding']),
+        partyId: stringValue(json['party_id']),
+        partyCode: stringValue(json['party_code']),
+        partyName: stringValue(json['party_name']),
       );
 }
 

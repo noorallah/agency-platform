@@ -1628,6 +1628,29 @@ receipt is recorded or the line is withdrawn. A line with a live receipt is
 not withdrawn. A promised day on a line is a row in `payment_promises`,
 written by `PromiseService`, never a second kind of promise.
 
+## A parent's receipt posts once; spreading it over shops posts nothing (backlog 126, 2026-10-13)
+
+One receipt from a parent buyer may clear the bills of the shops under it.
+The receipt is the parent's and posts one journal for the whole amount
+(`Dr cash or bank / Cr receivables`). Each customer's account is a
+subsidiary of that one control account, so which shop the money belongs to
+is the subsidiary ledger's business:
+
+- For each shop whose bills it clears, a `RECEIPT` row on that shop's
+  account for what was cleared there. The parent's account takes a `RECEIPT`
+  row for the rest only.
+- Setting the unspread part against a shop's bill later writes a
+  `RECEIPT_TRANSFER` row on the parent (money held on account first, then
+  back onto what the parent owes) and a `RECEIPT` row on the shop, the same
+  day. No journal: the two rows cancel inside the control account.
+- Every one of those rows names the receipt, and a reversal undoes each by
+  its own stored deltas on its own account: the applications first, then
+  what was moved to shops, then the recording rows. One mirror journal.
+- The sum of the rows a receipt wrote, over all the accounts it touched,
+  is always the receipt's amount. `_held_by_party` in
+  `app/settlements/services/settlement_service.py` reads where the money
+  stands from those rows and never recomputes it.
+
 ## A promise to pay is recorded, never posted (SG-8, 2026-10-05)
 
 `app/collections` keeps what a customer said about paying: `payment_promises`

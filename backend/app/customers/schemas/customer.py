@@ -45,6 +45,12 @@ class CustomerReceivableTransactionType(StrEnum):
     RECEIPT = "RECEIPT"
     ADVANCE_RECEIPT = "ADVANCE_RECEIPT"
     ADVANCE_APPLY = "ADVANCE_APPLY"
+    #: Money a parent's receipt was holding, moved to one of its shops to
+    #: clear that shop's bill (backlog 126). Written on the parent only, by
+    #: the receipt service: the part that had come off the parent's balance
+    #: goes back on it, the part held as an advance leaves the advance, and
+    #: the shop gets a ``RECEIPT`` row for the same amount on the same day.
+    RECEIPT_TRANSFER = "RECEIPT_TRANSFER"
     CREDIT_NOTE = "CREDIT_NOTE"
     #: More charged on an invoice after it was billed (backlog 77 row 5). It
     #: raises what the customer owes exactly as the invoice did.

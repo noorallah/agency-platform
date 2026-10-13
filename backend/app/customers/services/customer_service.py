@@ -784,6 +784,77 @@ class CustomerService:
             self._session.commit()
         return row
 
+    def stage_receipt_transfer(
+        self,
+        customer_id: UUID,
+        *,
+        from_advance: Decimal,
+        from_balance: Decimal,
+        transaction_date: date,
+        reference_id: UUID,
+        reference_number: str,
+        remarks: str,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> CustomerReceivableTransaction:
+        """Take money a parent's receipt was holding off the parent's account.
+
+        The parent's half of moving it to a shop (backlog 126); the shop's
+        half is an ordinary ``RECEIPT`` row the caller posts beside this one.
+        What the receipt left as an advance comes out of the advance; what it
+        took off the parent's balance goes back on it, because that money is
+        now paying somebody else's bill. No journal: both accounts sit in the
+        one receivables control account, and the two rows cancel.
+
+        The deltas are stored, so reversing the receipt undoes this row the
+        way it undoes every other. Does not commit.
+
+        Raises:
+            ValidationError: If the parent no longer holds that advance.
+
+        """
+        customer = self.get(customer_id, firm_scope=firm_scope)
+        if from_advance > customer.unapplied_advance_balance:
+            raise ValidationError(
+                f"{customer.code} holds only "
+                f"{customer.unapplied_advance_balance} on account, so "
+                f"{from_advance} of it cannot be moved to a shop. Part of it "
+                "has been refunded or applied since."
+            )
+        customer.current_outstanding = customer.current_outstanding + from_balance
+        customer.unapplied_advance_balance = (
+            customer.unapplied_advance_balance - from_advance
+        )
+        customer.updated_by = actor_id
+        row = self._record_receivable_transaction(
+            customer=customer,
+            tx_type=CustomerReceivableTransactionType.RECEIPT_TRANSFER.value,
+            amount=from_advance + from_balance,
+            outstanding_delta=from_balance,
+            advance_delta=-from_advance,
+            transaction_date=transaction_date,
+            reference_type="settlement",
+            reference_id=reference_id,
+            reference_number=reference_number,
+            remarks=remarks,
+            actor_id=actor_id,
+        )
+        record_audit(
+            self._session,
+            action="customer.receivable_transaction_posted",
+            entity_type="customer",
+            entity_id=customer.id,
+            actor_id=actor_id,
+            firm_id=customer.firm_id,
+            after_data={
+                "transaction_type": row.transaction_type,
+                "amount": str(row.amount),
+                "outstanding_after": str(customer.current_outstanding),
+                "unapplied_advance_after": str(customer.unapplied_advance_balance),
+            },
+        )
+        return row
+
     def _store_attributes(
         self,
         customer: Customer,

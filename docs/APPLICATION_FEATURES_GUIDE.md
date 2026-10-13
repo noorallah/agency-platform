@@ -665,6 +665,15 @@ the number of shops. Changing the parent's GST number changes it on its shops.
 A parent cannot be deleted while it has shops. In a customer file, the column
 **ParentCode** names the parent.
 
+**One payment for several shops.** When the parent pays for its shops, record
+one receipt in the parent's name. Record Receipt lists the parent's own bills
+and the bills of every shop under it, each with the shop's name; set the
+money against the bills it pays. Each shop's account and statement come down
+by what was paid for it. Money not set against a bill stays on the parent's
+account, and **Apply** on the receipt sets it against a shop's bill later. A
+shop can still pay for itself: a receipt in the shop's name lists only that
+shop's bills. Reversing the parent's receipt puts every shop's account back.
+
 **Service invoices.** A product whose type is *Service* (installation,
 freight, a repair) is put on a quotation, order, delivery note, bill or
 return like any other line and is billed with its SAC. It **moves no stock**:

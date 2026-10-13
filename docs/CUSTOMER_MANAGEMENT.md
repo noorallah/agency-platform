@@ -49,6 +49,10 @@ address, bills, dues, credit limit and salesman.
   customer answer carries `parent_customer_id`, `parent_code`, `parent_name`,
   `gst_number_from_parent` and `shop_count`.
 - The rules are in `app/customers/services/buyer_family.py`.
+- **One receipt from the parent may clear its shops' bills** (backlog 126).
+  Each shop's account moves by a `RECEIPT` row of its own that names the
+  parent's receipt; the parent's account takes only what was not a shop's.
+  The rule and its reversal are in `docs/LEDGER_POSTING_RULES.md`.
 
 `credit_limit` and `opening_balance` use `NUMERIC(18,2)`.
 `payment_terms_days` is a non-negative integer. Customer types are

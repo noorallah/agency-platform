@@ -237,6 +237,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       final List<OutstandingInvoice> rows = await widget.api.outstandingInvoices(
         direction: widget.direction,
         partyId: partyId,
+        withShops: widget.direction == SettlementDirection.receipt,
       );
       if (!mounted) return;
       for (final TextEditingController controller in _allocations.values) {
@@ -1498,7 +1499,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         style: Theme.of(context).textTheme.bodySmall,
       );
     }
-    return SingleChildScrollView(
+    final bool shopsListed = shown.any(_isShopBill);
+    final Widget table = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
         columns: [
@@ -1521,13 +1523,27 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         rows: [
           for (final OutstandingInvoice invoice in shown)
             DataRow(cells: [
-              DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
-                Text(invoice.invoiceNumber),
-                if (invoice.isOpeningBill) ...[
-                  const SizedBox(width: 6),
-                  const StatusBadge(label: 'Opening'),
+              DataCell(Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text(invoice.invoiceNumber),
+                    if (invoice.isOpeningBill) ...[
+                      const SizedBox(width: 6),
+                      const StatusBadge(label: 'Opening'),
+                    ],
+                  ]),
+                  // Whose bill it is, on a shop's bill only.
+                  if (_isShopBill(invoice))
+                    Text(
+                      '${invoice.partyCode} ${invoice.partyName}'.trim(),
+                      key: ValueKey('bill-shop-${invoice.invoiceId}'),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                 ],
-              ])),
+              )),
               DataCell(Text(invoice.invoiceDate)),
               DataCell(Text(invoice.invoiceTotal)),
               DataCell(Text(invoice.outstandingAmount)),
@@ -1551,5 +1567,28 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         ],
       ),
     );
+    if (!shopsListed) return table;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+          child: Text(
+            'Bills of the shops under this customer are listed too. What is '
+            'not set against a bill stays on this customer\'s account.',
+            key: const ValueKey('receipt-shops-hint'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        table,
+      ],
+    );
   }
+
+  /// A bill that belongs to a shop under the chosen customer, not to the
+  /// customer itself.
+  bool _isShopBill(OutstandingInvoice invoice) =>
+      widget.direction == SettlementDirection.receipt &&
+      invoice.partyId.isNotEmpty &&
+      invoice.partyId != _partyId;
 }
