@@ -897,12 +897,17 @@ class SettlementService(TransactionalDocumentService):
         return records
 
     def _settleable_bills(
-        self, *, firm_id: UUID, party_id: UUID
+        self, *, firm_id: UUID, party_id: UUID, paid_for: UUID | None = None
     ) -> dict[UUID, OutstandingInvoiceRecord]:
         """Return the bills this party's money may be set against, by id.
 
         The party's own; for a receipt from a parent buyer, its shops' too,
         and for a payment to a supplier's main office, its branches'.
+
+        ``paid_for`` is another customer a receipt's money pays for (row
+        P5): that customer's own bills join the list, each naming whose it
+        is. It has to be named: a customer's money never reaches a
+        stranger's bill by the bill's id alone.
         """
         if self.shop_ids(firm_id=firm_id, party_id=party_id):
             records = self.family_outstanding_invoices(
@@ -910,7 +915,18 @@ class SettlementService(TransactionalDocumentService):
             )
         else:
             records = self.outstanding_invoices(firm_id=firm_id, party_id=party_id)
-        return {record.invoice_id: record for record in records}
+        bills = {record.invoice_id: record for record in records}
+        if paid_for is None or paid_for == party_id:
+            return bills
+        if self.DIRECTION != SettlementDirection.RECEIPT:
+            raise ValidationError("Only a receipt can pay another customer's bill.")
+        other = self._require_party(firm_id=firm_id, party_id=paid_for)
+        for record in self.outstanding_invoices(firm_id=firm_id, party_id=paid_for):
+            record.party_id = paid_for
+            record.party_code = other.code
+            record.party_name = other.name
+            bills.setdefault(record.invoice_id, record)
+        return bills
 
     def _owing_customer_opening_bills(
         self, *, firm_id: UUID, party_id: UUID | None
@@ -1393,6 +1409,8 @@ class SettlementService(TransactionalDocumentService):
             firm_id=firm_id, actor_id=actor_id
         )
         party = self._require_party(firm_id=firm_id, party_id=data.party_id)
+        if data.paid_for_customer_id is not None and not is_receipt:
+            raise ValidationError("Only a receipt can pay another customer's bill.")
         if data.credit_source_id is not None and not is_refund:
             # Accepted and discarded would be worse than refused: a credit
             # is set against a bill by its own route, not by a receipt.
@@ -1413,6 +1431,10 @@ class SettlementService(TransactionalDocumentService):
         deductions: dict[ControlAccountPurpose, Decimal]
         #: What of a parent's receipt clears each shop's bills (backlog 126).
         shop_shares: dict[UUID, Decimal] = {}
+        #: What it clears on a customer who is not the payer's shop (row
+        #: P5), bill by bill: recorded on the payer's account first and
+        #: moved from there, so both accounts say who paid for whom.
+        paid_for_shares: dict[UUID, list[tuple[str, Decimal]]] = {}
         if fx is not None:
             amount = fx.rupees
             allocated = amount
@@ -1420,16 +1442,31 @@ class SettlementService(TransactionalDocumentService):
         else:
             amount = quantize_ledger(data.amount)
             bills = (
-                self._settleable_bills(firm_id=firm_id, party_id=data.party_id)
+                self._settleable_bills(
+                    firm_id=firm_id,
+                    party_id=data.party_id,
+                    paid_for=data.paid_for_customer_id,
+                )
                 if data.allocations
                 else {}
             )
             allocated = self._validate_allocations(data, bills=bills, amount=amount)
+            shops = (
+                set(self.shop_ids(firm_id=firm_id, party_id=data.party_id))
+                if data.allocations
+                else set()
+            )
             for allocation in data.allocations:
-                owner = bills[allocation.invoice_id].party_id
-                if owner is not None and owner != data.party_id:
-                    shop_shares[owner] = shop_shares.get(owner, ZERO) + quantize_ledger(
-                        allocation.amount
+                record = bills[allocation.invoice_id]
+                owner = record.party_id
+                if owner is None or owner == data.party_id:
+                    continue
+                share = quantize_ledger(allocation.amount)
+                if owner in shops:
+                    shop_shares[owner] = shop_shares.get(owner, ZERO) + share
+                else:
+                    paid_for_shares.setdefault(owner, []).append(
+                        (record.invoice_number, share)
                     )
             deductions = self._deductions(data, firm_id=firm_id, allocated=allocated)
             self._assert_clearance_discount(
@@ -1665,7 +1702,22 @@ class SettlementService(TransactionalDocumentService):
                     actor_id=actor_id,
                     commit=False,
                 )
-            # Tax collected at source is charged **here**, on the money, not
+            # Money for another customer's bill (row P5) has just been
+            # recorded on the payer's account with the rest; it leaves it
+            # for the bill's customer here, by the two rows that spreading
+            # a parent's receipt later writes. The payer ends where it
+            # stood, and its account says whom it paid for.
+            for other_id, parts in paid_for_shares.items():
+                self._move_to_shop(
+                    row,
+                    shop_id=other_id,
+                    amount=sum((part for _, part in parts), ZERO),
+                    on=data.settlement_date,
+                    invoice_number=", ".join(number for number, _ in parts),
+                    firm_id=firm_id,
+                    actor_id=actor_id,
+                    paid_for=True,
+                )
             # when the invoice was raised: section 206C(1H) says "at the time
             # of receipt of such amount". Staged rather than committed, so a
             # receipt that posts and a collection that does not cannot both
@@ -1708,6 +1760,17 @@ class SettlementService(TransactionalDocumentService):
                         }
                     }
                     if shop_shares
+                    else {}
+                ),
+                # What it paid on another customer's bills (row P5).
+                **(
+                    {
+                        "paid_for": {
+                            str(other_id): str(sum((p for _, p in parts), ZERO))
+                            for other_id, parts in paid_for_shares.items()
+                        }
+                    }
+                    if paid_for_shares
                     else {}
                 ),
                 # A payment in another currency (PG-12).
@@ -1880,6 +1943,7 @@ class SettlementService(TransactionalDocumentService):
         invoice_number: str,
         firm_id: UUID,
         actor_id: UUID,
+        paid_for: bool = False,
     ) -> None:
         """Move money a parent's receipt holds onto a shop's account.
 
@@ -1891,6 +1955,9 @@ class SettlementService(TransactionalDocumentService):
         parent should not owe more while it holds money on account), and the
         shop's account takes it as a receipt. No journal, as for any other
         application of money already received.
+
+        ``paid_for`` says the other customer is not the payer's shop (row
+        P5): the same two rows, and the payer's reads *Paid for*.
         """
         parent = self._session.get(Customer, row.customer_id)
         shop = self._session.get(Customer, shop_id)
@@ -1905,7 +1972,11 @@ class SettlementService(TransactionalDocumentService):
             transaction_date=on,
             reference_id=row.id,
             reference_number=row.settlement_number,
-            remarks=f"Moved to {shop.code} {shop.name} for {invoice_number}.",
+            remarks=(
+                f"Paid for {shop.code} {shop.name}: {invoice_number}."
+                if paid_for
+                else f"Moved to {shop.code} {shop.name} for {invoice_number}."
+            ),
             firm_scope=firm_id,
             actor_id=actor_id,
         )
@@ -1936,6 +2007,7 @@ class SettlementService(TransactionalDocumentService):
         amount: Decimal,
         firm_id: UUID,
         actor_id: UUID,
+        paid_for_customer_id: UUID | None = None,
     ) -> Settlement:
         """Set money already moved against an invoice raised since.
 
@@ -1967,6 +2039,8 @@ class SettlementService(TransactionalDocumentService):
             amount: How much of it.
             firm_id: The owning firm.
             actor_id: The user applying it.
+            paid_for_customer_id: On a receipt, another customer whose bill
+                the money is to pay (row P5).
 
         Returns:
             The settlement, with its allocated and unallocated figures moved.
@@ -1999,10 +2073,11 @@ class SettlementService(TransactionalDocumentService):
         party_id = row.customer_id if is_receipt else row.vendor_id
         if party_id is None:  # pragma: no cover - direction guarantees it
             raise ValidationError("This settlement names no party to apply it for.")
-        # A parent's receipt may be set against a shop's bill (backlog 126).
-        record = self._settleable_bills(firm_id=firm_id, party_id=party_id).get(
-            invoice_id
-        )
+        # A parent's receipt may be set against a shop's bill (backlog 126),
+        # and any receipt against the bill of a customer it names (row P5).
+        record = self._settleable_bills(
+            firm_id=firm_id, party_id=party_id, paid_for=paid_for_customer_id
+        ).get(invoice_id)
         if record is None:
             raise ValidationError(
                 f"That invoice does not belong to this "
@@ -2087,6 +2162,8 @@ class SettlementService(TransactionalDocumentService):
                 invoice_number=record.invoice_number,
                 firm_id=firm_id,
                 actor_id=actor_id,
+                paid_for=shop_id
+                not in self.shop_ids(firm_id=firm_id, party_id=party_id),
             )
         row.allocated_amount = quantize_ledger(row.allocated_amount + asked)
         row.unallocated_amount = quantize_ledger(row.unallocated_amount - asked)
@@ -2830,13 +2907,14 @@ class SettlementService(TransactionalDocumentService):
         rows: Sequence[Settlement],
         allocations: Sequence[SettlementAllocation],
     ) -> dict[UUID, tuple[UUID, str, str]]:
-        """Say whose each allocated bill is, where it is a shop's (backlog 126).
+        """Say whose each allocated bill is, where it is not the payer's.
 
-        Keyed by bill id: the shop's id, code and name, for the bills on a
-        page of receipts that belong to a shop under the receipt's customer.
-        A bill of the receipt's own customer is left out. One read finds the
-        shops under the page's customers, and a page with none reads nothing
-        more.
+        Keyed by bill id: the owner's id, code and name, for the bills on a
+        page of receipts that belong to a shop under the receipt's customer
+        (backlog 126) or to another customer it paid for (row P5). A bill of
+        the receipt's own customer is left out. One read per kind of bill
+        says whose each is, and a page that paid for nobody else reads
+        nothing more.
         """
         if not allocations:
             return {}
@@ -2844,45 +2922,41 @@ class SettlementService(TransactionalDocumentService):
             return self._branch_bill_owners(rows, allocations)
         if self.DIRECTION != SettlementDirection.RECEIPT:
             return {}
-        payers = {row.customer_id for row in rows if row.customer_id is not None}
-        shops = {
+        payer_of = {row.id: row.customer_id for row in rows}
+        whose: dict[UUID, UUID] = {}
+        models: tuple[tuple[str, type[SalesInvoice] | type[CustomerOpeningBill]], ...]
+        models = (
+            ("sales_invoice_id", SalesInvoice),
+            ("customer_opening_bill_id", CustomerOpeningBill),
+        )
+        for column, model in models:
+            paid_by = {
+                getattr(item, column): payer_of.get(item.settlement_id)
+                for item in allocations
+                if getattr(item, column) is not None
+            }
+            if not paid_by:
+                continue
+            for bill_id, customer_id in self._session.execute(
+                select(model.id, model.customer_id).where(model.id.in_(paid_by))
+            ):
+                if customer_id != paid_by[bill_id]:
+                    whose[bill_id] = customer_id
+        if not whose:
+            return {}
+        names = {
             row.id: (row.id, row.code, row.name)
             for row in self._session.execute(
                 select(Customer.id, Customer.code, Customer.name).where(
-                    Customer.parent_customer_id.in_(payers)
+                    Customer.id.in_(set(whose.values()))
                 )
             )
         }
-        if not shops:
-            return {}
-        owners: dict[UUID, tuple[UUID, str, str]] = {}
-        invoice_ids = [
-            item.sales_invoice_id
-            for item in allocations
-            if item.sales_invoice_id is not None
-        ]
-        if invoice_ids:
-            for bill_id, customer_id in self._session.execute(
-                select(SalesInvoice.id, SalesInvoice.customer_id).where(
-                    SalesInvoice.id.in_(invoice_ids),
-                    SalesInvoice.customer_id.in_(shops),
-                )
-            ):
-                owners[bill_id] = shops[customer_id]
-        opening_ids = [
-            item.customer_opening_bill_id
-            for item in allocations
-            if item.customer_opening_bill_id is not None
-        ]
-        if opening_ids:
-            for bill_id, customer_id in self._session.execute(
-                select(CustomerOpeningBill.id, CustomerOpeningBill.customer_id).where(
-                    CustomerOpeningBill.id.in_(opening_ids),
-                    CustomerOpeningBill.customer_id.in_(shops),
-                )
-            ):
-                owners[bill_id] = shops[customer_id]
-        return owners
+        return {
+            bill_id: names[customer_id]
+            for bill_id, customer_id in whose.items()
+            if customer_id in names
+        }
 
     def _branch_bill_owners(
         self,

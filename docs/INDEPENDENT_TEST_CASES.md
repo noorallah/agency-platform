@@ -5788,6 +5788,37 @@ redo yours."*
   - Step 12: the list opens; **Add employee**, **Give advance**, **Record recovery** and **Cancel** are not offered.
 - **Leaves:** one employee account with nothing owing, and four cancelled entries (five if step 6 was saved).
 
+### TC-FIN-041 — One customer pays another customer's bill
+
+*Added 2026-10-14 (customer task P5, COL-12, backlog 154). The server was driven over HTTP on a fixture firm and the screen is covered by widget tests; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** **Paid by** on *Record Receipt*; **Apply** on a receipt, *Bill of another customer*; the customer's statement; the printed receipt; reversing a receipt
+- **Fixture:** `ready-firm`
+- **Also needs:** two customers, A and B, neither a shop of the other and neither with shops; B with two approved bills not yet paid; a user who may record receipts. Note what A owes and holds on account, and what B owes.
+- **Steps**
+  1. Open *Record Receipt* and choose customer B. Leave **Paid by** alone and look at it.
+  2. Press **Another customer paid** and pick customer A. Set the whole amount of B's first bill against it and save.
+  3. Answer **Cancel** to the question. Save again and answer **Record receipt**.
+  4. Open B's statement, then A's statement.
+  5. Print the receipt.
+  6. Reverse the receipt, with a reason. Look at both customers again.
+  7. Record a receipt from A for 10,000.00 against no bill. Open it and press **Apply**. Look at the bills offered.
+  8. Choose **Bill of another customer**, pick B, pick B's first bill, apply its whole amount and confirm.
+  9. Record a receipt for B, **Paid by** A, for the amount of B's second bill and 50.00 more, set against that bill.
+  10. Record a payment to a supplier and look for **Paid by**.
+- **Expect**
+  - Step 1: **Paid by** reads B's own name.
+  - Step 2: B's bills stay listed; a line says the money is recorded as A's and that anything left over stays on A's account.
+  - Step 3: the screen asks *Paid by A for B?*. Cancel saves nothing. Record receipt saves one receipt in A's name.
+  - Step 4: B's bill is paid, B owes that much less, and B's statement has a line *Paid by A*. A's statement has the receipt and a line *Paid for B* with the bill's number, and A owes and holds exactly what it did before.
+  - Step 5: the receipt reads *Received from* A and *Paid for* B, with the bill under *Against*.
+  - Step 6: B owes the bill again; A is unchanged.
+  - Step 7: A holds 10,000.00 on account. **Apply** offers A's own bills, not B's.
+  - Step 8: B's bill is paid; A holds that much less on account; no new entry is in the day book for it.
+  - Step 9: B owes nothing; the 50.00 is held on A's account, not B's.
+  - Step 10: a payment has no **Paid by**.
+- **Leaves:** three receipts in A's name (one reversed), B's two bills paid, A holding the rest of the 10,000.00 and the 50.00 on account.
+
 ### TC-FIN-032 — The collector's day sheet adds up to the receipts
 
 *Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*

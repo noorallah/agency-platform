@@ -726,6 +726,7 @@ def allocate_receipt(
         amount=payload.amount,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
+        paid_for_customer_id=payload.paid_for_customer_id,
     )
     db.refresh(row)
     return ApiResponse(
@@ -1278,6 +1279,8 @@ def allocate_payment(
         amount=payload.amount,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
+        # Refused by name: only a receipt pays another customer's bill.
+        paid_for_customer_id=payload.paid_for_customer_id,
     )
     db.refresh(row)
     return ApiResponse(

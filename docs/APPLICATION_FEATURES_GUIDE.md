@@ -696,6 +696,25 @@ account, and **Apply** on the receipt sets it against a shop's bill later. A
 shop can still pay for itself: a receipt in the shop's name lists only that
 shop's bills. Reversing the parent's receipt puts every shop's account back.
 
+**One customer pays another customer's bill.** Two shops with nothing
+between them: shop A pays 5,000 for shop B's bill. Open Record Receipt,
+choose shop B (the customer whose bill it is). Under the customer,
+**Paid by** reads B; press **Another customer paid** and pick shop A.
+B's bills are listed; set the money against the
+bill. The screen asks *Paid by A for B?* before it saves. The receipt is
+in A's name. B's bill is closed and B's statement reads *Paid by A*; A's
+statement reads *Paid for B* and A owes exactly what it owed before. Money
+not set against a bill stays on A's account. The printed receipt reads
+*Received from* A, *Paid for* B. Reversing the receipt makes B owe the
+bill again and leaves A as it was.
+
+Money A already holds on account is used the same way: open A's receipt
+that has money unapplied, press **Apply**, choose **Bill of another
+customer**, pick B and the bill. Nothing is posted to the books: the money
+arrived once. A credit left by a return or a credit note cannot be used
+for another customer's bill; refund it, or apply it to the customer's own
+bill.
+
 **Service invoices.** A product whose type is *Service* (installation,
 freight, a repair) is put on a quotation, order, delivery note, bill or
 return like any other line and is billed with its SAC. It **moves no stock**:
