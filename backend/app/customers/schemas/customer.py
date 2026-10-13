@@ -230,6 +230,9 @@ class CustomerWrite(CustomerSchema):
     #: (backlog 79 row 6). Any firm may record it; it only bites on goods
     #: whose product tracks expiry.
     minimum_shelf_life_days: int | None = Field(default=None, ge=1, le=3650)
+    #: The paper this customer's bills print on (backlog 118): half an A4
+    #: sheet or a full page. None takes the firm's own print setting.
+    bill_page_size: Literal["HALF", "A4"] | None = None
     #: Which batch trade rate this buyer takes (PG-14): RETAILER the price to
     #: retailer, STOCKIST the price to stockist; blank or OTHER neither.
     trade_class: Literal["RETAILER", "STOCKIST", "OTHER"] | None = None
@@ -366,6 +369,7 @@ class CustomerResponse(CustomerSchema):
     #: The firm's built-in walk-in customer (SG-2); never writable.
     is_cash_sale: bool = False
     minimum_shelf_life_days: int | None = None
+    bill_page_size: str | None = None
     trade_class: str | None = None
     preferred_channel: str | None = None
     whatsapp_opt_in: bool = False

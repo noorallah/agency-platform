@@ -35,6 +35,7 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
     amount_in_words,
+    render_together,
 )
 from app.sales_invoice.services.invoice_print_service import (
     NOT_FINAL,
@@ -614,3 +615,132 @@ def test_both_sides_licence_numbers_print_under_their_names() -> None:
     assert "KA-B20-1234" in printed
     assert "KA-R20-9876" in printed
     assert "Drug licence, wholesale" in printed
+
+
+_HALF = (595.28, 420.94)
+_FULL = (595.28, 841.89)
+
+
+def _is(size: tuple[float, float], paper: tuple[float, float]) -> bool:
+    """Say whether a page is this paper, to the point."""
+    return abs(size[0] - paper[0]) < 1 and abs(size[1] - paper[1]) < 1
+
+
+def _trade_bill(lines: int = 1) -> InvoiceDocument:
+    """Build a distributor's bill: MRP, free goods, a batch, a licence."""
+    document = _document()
+    line = replace(
+        document.lines[0],
+        free_quantity=Decimal("1"),
+        discount=Decimal("25.00"),
+        batch="B2407",
+        expiry="Mar 2028",
+        mrp=Decimal("320.00"),
+    )
+    return replace(
+        document,
+        seller=replace(
+            document.seller,
+            licences=(("DGL No.1", "AP/10/02/2019-4916"), ("FSSAI", "10114010000243")),
+        ),
+        lines=tuple(replace(line, number=index + 1) for index in range(lines)),
+        round_off=Decimal("0.29"),
+    )
+
+
+def test_a_short_bill_prints_on_half_a_page_in_the_trades_columns() -> None:
+    """Half an A4 sheet, one page, carrying what the trade's bill carries.
+
+    The columns are the customer's sample's (backlog 118): MRP, quantity,
+    free goods, rate, discount, GST as a rate and an amount, batch and
+    expiry; then a GST summary by rate rather than by HSN, and the round-off.
+    """
+    pdf = InvoicePdfRenderer(TemplateSettings(page_size="HALF")).render(_trade_bill())
+    sizes = _page_sizes(pdf)
+    assert len(sizes) == 1 and _is(sizes[0], _HALF), sizes
+
+    printed = _text_of(pdf)
+    for fact in (
+        "MRP",
+        "Free",
+        "Disc.",
+        "GST %",
+        "Net Amount",
+        "Batch",
+        "Exp. Dt",
+        "SI-2026-2027-000012",
+        "27ELEC01A1Z5",
+        "QuickTech Retail",
+        "Extension Board 5 Meter",
+        "854442",
+        "320.00",
+        "B2407",
+        "Mar 2028",
+        "AP/10/02/2019-4916",
+        "10114010000243",
+        # The summary by rate: 9 + 9 is one row at 18%.
+        "18%",
+        "Round off",
+        "0.29",
+        "1,180.00",
+        "Customer signature",
+    ):
+        assert fact in printed, fact
+    # By rate, not by HSN: the full page's summary is not drawn here.
+    assert "HSN / SAC" not in printed
+
+
+def test_each_copy_on_half_page_paper_is_a_half_page_of_its_own() -> None:
+    """Original and duplicate are two half pages, each saying which it is."""
+    template = TemplateSettings(page_size="HALF", copy_labels=("ORIGINAL", "DUPLICATE"))
+    pdf = InvoicePdfRenderer(template).render(_trade_bill())
+    sizes = _page_sizes(pdf)
+    assert len(sizes) == 2 and all(_is(size, _HALF) for size in sizes), sizes
+    printed = _text_of(pdf)
+    assert "ORIGINAL" in printed and "DUPLICATE" in printed
+
+
+def test_a_bill_too_long_for_half_a_page_prints_on_a_full_page_by_itself() -> None:
+    """Nobody chooses the paper per bill: the long one switches on its own.
+
+    And it prints as a full-page bill, in the full page's layout, rather than
+    as half a page of lines with the totals alone on a second half page.
+    """
+    template = TemplateSettings(page_size="HALF")
+    pdf = InvoicePdfRenderer(template).render(_trade_bill(lines=40))
+    sizes = _page_sizes(pdf)
+    assert sizes and all(_is(size, _FULL) for size in sizes), sizes
+    printed = _text_of(pdf)
+    assert "HSN / SAC" in printed
+    assert "AMOUNT CHARGEABLE, IN WORDS" in printed
+
+    # A handful of lines still fits: the switch is not at the second line.
+    few = _page_sizes(InvoicePdfRenderer(template).render(_trade_bill(lines=6)))
+    assert len(few) == 1 and _is(few[0], _HALF), few
+
+
+def test_a_run_gives_each_bill_the_paper_it_prints_on_alone() -> None:
+    """Half pages and full pages share one file, each bill on its own paper."""
+    half = TemplateSettings(page_size="HALF")
+    full = TemplateSettings(page_size="A4")
+    pdf = render_together(
+        [
+            (half, _trade_bill()),
+            # Too long for half: a full page, by itself.
+            (half, _trade_bill(lines=40)),
+            (half, replace(_trade_bill(), number="SI-LAST")),
+            # A customer whose bills print on a full page.
+            (full, replace(_trade_bill(), number="SI-FULL")),
+        ],
+        title="Sales invoices",
+    )
+    sizes = _page_sizes(pdf)
+    assert _is(sizes[0], _HALF), sizes
+    assert _is(sizes[1], _FULL), sizes
+    # The long bill may take more than one full page; the two after it are
+    # the last two pages, on their own papers again.
+    assert _is(sizes[-2], _HALF), sizes
+    assert _is(sizes[-1], _FULL), sizes
+    assert all(_is(size, _FULL) for size in sizes[1:-2]), sizes
+    printed = _text_of(pdf)
+    assert printed.index("SI-LAST") < printed.index("SI-FULL")

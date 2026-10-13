@@ -3814,6 +3814,33 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Leaves:** the policy at Block, three licences of the firm and one of A. Later bills of the firm print the firm's two valid numbers.
 
 
+### TC-SELL-099 — A short bill prints on half a page, a long one on a full page, and a customer has his own paper
+
+*Added 2026-10-13 (backlog 118). **Driven over HTTP** that day on a fixture firm (38 checks); the screens were not clicked and nothing was put through a printer.*
+
+- **Covers:** backlog 118 (customer task S13)
+- **Fixture:** `ready-firm`
+- **Also needs:** a product **P** with stock; three customers, **A**, **B** and **C**. Where the firm types orders and delivery notes, each bill below continues a note.
+- **Steps**
+  1. Open a sales invoice, choose *Print settings*, set **Paper** to **Half page (half of A4)** and save.
+  2. Raise and approve a bill for A with one line of P. Print it.
+  3. Raise and approve a bill for A with sixty lines. Print it.
+  4. Open customer B, set **Bill paper** to **Full page (A4)** and save. Raise and approve a one-line bill for B and print it.
+  5. Tick the three bills in the list and choose *Print selected*.
+  6. Set **Paper** back to **A4** under *Print settings*. Print the bill of step 2 again.
+  7. Open customer C, set **Bill paper** to **Half page** and save. Raise and approve a one-line bill for C and print it.
+  8. Open customer C, set **Bill paper** to **Firm's setting** and save. Print C's bill again.
+- **Expect**
+  - Step 1: under the list a line says a bill too long for half a page prints on a full page by itself.
+  - Step 2: one page per copy, as wide as A4 and half as tall. The firm with its GSTIN and licence numbers on the left, the buyer on the right. The columns read SL, Product Details, HSN, MRP, Qty, Free, Rate, Disc., GST %, GST, Net Amount, Batch, Exp. Dt. Below: a GST summary with one row per rate, the amount in words, and taxable value, each GST head and **Net payable**; then **Customer signature** and the firm's.
+  - Step 3: full A4 pages in the ordinary layout, with the HSN summary. The column headings repeat on the second page.
+  - Step 4: full A4 pages, though the firm prints half pages.
+  - Step 5: one file. A's short bill is half pages, A's long bill full pages, B's bill full pages, in the order of the list.
+  - Step 6: full A4 pages.
+  - Step 7: half pages, though the firm prints full pages.
+  - Step 8: full A4 pages.
+- **Leaves:** the firm's paper at A4; B on full pages.
+
 ### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
 
 *Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` fixture: the full chain and the direct bill, and both refusals. The screens were not clicked.*

@@ -12,10 +12,12 @@ from uuid import uuid4
 import pytest
 
 from app.core.exceptions import BusinessRuleError, ResourceNotFoundError
+from app.customers.models import Customer
 from app.delivery_note.api.router import ChallanPrintRunRequest
 from app.delivery_note.services.challan_print_service import (
     DeliveryChallanPrintService,
 )
+from app.document_framework.models import DocumentPrintTemplate
 from app.sales_invoice.api.router import InvoicePrintRunRequest
 from app.sales_invoice.services.invoice_pdf import (
     MAX_PRINT_RUN,
@@ -146,3 +148,44 @@ def test_a_run_is_capped() -> None:
         ChallanPrintRunRequest(note_ids=too_many)
     with pytest.raises(ValueError, match="at least"):
         InvoicePrintRunRequest(invoice_ids=[])
+
+
+def test_a_customers_own_paper_outranks_the_firms() -> None:
+    """One buyer's bills print on half a page while the firm prints full ones.
+
+    And the other way round (backlog 118): the firm's setting is what a
+    customer with no choice of his own takes, never what overrides one.
+    """
+    session, setup, cash = _counter()
+    bill = _draft(session, setup, _walk_in_bill(setup, cash))
+    printer = SalesInvoicePrintService(session)
+
+    def papers() -> set[tuple[int, int]]:
+        """Return the page sizes the bill prints on, in whole points."""
+        pdf, _ = printer.render(bill.id, firm_scope=setup.firm.id, reference_copy=True)
+        return {(round(width), round(height)) for width, height in _page_sizes(pdf)}
+
+    assert papers() == {(595, 842)}
+
+    customer = session.get(Customer, bill.customer_id)
+    assert customer is not None
+    customer.bill_page_size = "HALF"
+    session.commit()
+    assert papers() == {(595, 421)}
+
+    session.add(
+        DocumentPrintTemplate(
+            firm_id=setup.firm.id,
+            document_type="SALES_INVOICE",
+            page_size="HALF",
+            created_by=setup.firm.id,
+            updated_by=setup.firm.id,
+        )
+    )
+    customer.bill_page_size = None
+    session.commit()
+    assert papers() == {(595, 421)}
+
+    customer.bill_page_size = "A4"
+    session.commit()
+    assert papers() == {(595, 842)}

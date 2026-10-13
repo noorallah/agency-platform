@@ -592,6 +592,17 @@ run takes up to 100. A bill still waiting for its IRN prints as the reference
 copy, marked not a valid tax invoice. A firm that prints on the 80 mm thermal
 roll prints one at a time: every bill on a roll is a page of its own length.
 
+**The half-page bill.** Under *Print settings* a firm can choose **Half page
+(half of A4)** as its paper. A short bill then prints on half a sheet, in the
+layout the distribution trade uses: the firm and its licence numbers beside
+the buyer, the lines with MRP, quantity, free goods, rate, discount, GST,
+batch and expiry, a GST summary by rate, and the round-off and net payable.
+About eight lines fit. A bill too long for half a page prints on a full A4
+page by itself; nobody chooses per bill. A customer can have his own paper
+(*Bill paper* on the customer: the firm's setting, half page or full page),
+which outranks the firm's. *Print selected* gives each bill its own paper in
+the one file.
+
 **Sales Returns.** Goods coming back against an invoice. Approving puts the
 stock back into the warehouse (or into a damaged or quarantine bucket) and
 reduces what the customer owes, with the tax reversed. For a firm that
