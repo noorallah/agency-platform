@@ -1579,6 +1579,24 @@ a column; what the bill owes comes from `PaymentService.outstanding_invoices`.
 Only eligible, recoverable, non-reverse-charge credit is ever reversed -- the
 credit 4(A)(5) claimed.
 
+## Input credit on stock given away or written off (D-CMP-24, 2026-10-13)
+
+Stock that leaves under a reason whose *Reverses input credit* is on (section
+17(5)(h): gifts, free samples, goods lost, stolen, destroyed or written off)
+posts a second journal beside the write-off's own: **Dr Input Tax Not
+Claimable (5450), Cr input tax per head**, dated the movement, referenced
+`ITC-<movement reference>` with `source_module = "itc_stock"` and the
+`itc_reversals` row as its source (`basis` STOCK). The amount is the cost the
+stock ledger took out, times the rates on the product's latest approved bill
+that claimed credit; no such bill, no journal. Stock back in under the same
+reason posts the mirror, capped at what still stands reversed on the product.
+A stock leg is valued from the movement, as everywhere: the cost is the
+movement's, never the bill's price. `StockCreditService`
+(`app/gst_returns/services/stock_credit.py`) is the one writer, called from
+`write_off_stock` and `stage_adjustment`; a count sheet names no reason and
+posts none. A firm with no *Input tax not claimable* account is refused the
+write-off with the account named.
+
 ## Rule 42 common credit (GST-4, 2026-10-03)
 
 A firm with exempt, nil-rated or non-GST sales gives back the share of its

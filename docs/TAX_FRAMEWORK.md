@@ -385,6 +385,13 @@ cannot interleave a second document without a merged query.
   REPORT (default) / POST. 3B shows reversals in 4(B)(2)
   (`itc_reversed_rule37`) and reclaims in 4(A)(5) and 4(D)(1)
   (`itc_reclaimed`). Postings in `docs/LEDGER_POSTING_RULES.md`.
+- **Stock given away or written off** (D-CMP-24,
+  `app/gst_returns/services/stock_credit.py`): a write-off or adjustment
+  under a reason with `reverses_input_credit` gives up the credit on the
+  goods at cost, section 17(5)(h). 3B shows it in 4(B)(1)
+  (`itc_reversed_stock`) and, claimed again when the stock comes back, in
+  4(A)(5) (`itc_reclaimed_stock`); both are in `net_itc`. Scoped to the
+  branches of the GSTIN filing, by the movement's branch.
 - **The supplier's IRN and the inward e-way bill** (78 rows 5-6) are recorded
   and warned about, never refused: `purchase_invoices.supplier_irn` under
   `supplier_irn_check`, and `goods_receipts.eway_bill_number` above

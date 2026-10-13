@@ -337,7 +337,7 @@ trigger each schema owns its own copy of.
 | `gstr2b_documents` | firm store ¹ | One supplier document in a month's GSTR-2B, and what it matched. | `gstr2b_imports` |
 | `gstr2b_imports` | firm store ¹ | One month's GSTR-2B, imported once; a re-import replaces it. |  |
 | `itc_common_reversals` | firm store ¹ | One rule 42 reversal: a period's, or a year's true-up. | `journal_entries` |
-| `itc_reversals` | firm store ¹ | One reversal of a bill's credit, or one reclaim of it. | `purchase_invoices`, `journal_entries` |
+| `itc_reversals` | firm store ¹ | One reversal of credit, or one reclaim of it: on a bill unpaid 180 days (rule 37), or on stock given away or written off (`basis` STOCK, D-CMP-24). | `purchase_invoices`, `inventory_transactions`, `journal_entries` |
 
 ### `app/identity`
 

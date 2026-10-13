@@ -6151,7 +6151,7 @@ turnover rebate. Detail in `docs/BACKLOG_BUILD_PLAN.md` §8.
 
 **Status, 2026-10-07: the pricing pass is closed on the backend (ten rounds over HTTP, `docs/qa/PRICING_API_CHECK_ROUND_1_2026-10-06.md` to `docs/qa/PRICING_API_CHECK_ROUND_10_2026-10-07.md`); the rows below are what it left unbuilt. Nothing here is a defect: the defects are in `docs/DEFECTS.md` under D-PRC.** The market study that listed them is `docs/qa/PRICING_MARKET_GAPS_2026-10-06.md` (a reading study: nothing was run, and a "?" in it means not sure, so do not quote its Tally, Marg, Busy, Zoho or ERPNext cells to a customer without checking).
 
-Built from that study in the pass, and so not listed again: a scheme budget in money and in free units (#1234, desktop #1245); free goods in the claim to the principal (#1235); a principal's price cut claimed on the stock in hand (#1254, desktop #1266); a customer's credit set against another bill (D-PRC-75, #1311). **Held for the owner's chartered accountant, and in the register rather than here:** input credit reversal on stock given as samples, gifts or written off (D-CMP-24).
+Built from that study in the pass, and so not listed again: a scheme budget in money and in free units (#1234, desktop #1245); free goods in the claim to the principal (#1235); a principal's price cut claimed on the stock in hand (#1254, desktop #1266); a customer's credit set against another bill (D-PRC-75, #1311). **Held for the owner's chartered accountant, and in the register rather than here:** input credit reversal on stock given as samples, gifts or written off (D-CMP-24); fixed 2026-10-13 as row G1, #1487, the accountant to confirm what was assumed.
 
 Size: S under a day, M one to three days, L more.
 

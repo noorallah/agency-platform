@@ -39,6 +39,15 @@ SYSTEM_REASONS: tuple[tuple[str, str], ...] = (
 )
 
 
+#: The system reasons that start out giving up input credit: the ways of
+#: leaving that section 17(5)(h) of the CGST Act names -- gifts and free
+#: samples, and goods lost, stolen, destroyed or written off (D-CMP-24).
+#: Internal use, staff and display start off. A firm changes any of them.
+REVERSING_REASONS = frozenset(
+    {"FREE_TO_CUSTOMER", "SAMPLE", "LOSS", "DAMAGE", "EXPIRY"}
+)
+
+
 def _a(account_type: str) -> str:
     """Return an account type as it reads in a sentence: "an asset"."""
     word = account_type.lower()
@@ -63,6 +72,10 @@ class AdjustmentReasonWrite(BaseModel):
     #: Absent on an update leaves the account alone; null clears it.
     ledger_account_id: UUID | None = None
     is_active: bool = True
+    #: Stock leaving under this reason gives up the input credit taken on it
+    #: (D-CMP-24). Absent leaves it alone on an update and is off on a new
+    #: reason.
+    reverses_input_credit: bool | None = None
 
     @field_validator("code", mode="before")
     @classmethod
@@ -92,6 +105,7 @@ class AdjustmentReasonResponse(BaseModel):
     ledger_account_name: str | None
     is_system: bool
     is_active: bool
+    reverses_input_credit: bool
     version: int
 
 
@@ -116,7 +130,11 @@ class AdjustmentReasonService:
             if code not in have:
                 self._session.add(
                     StockAdjustmentReason(
-                        firm_id=firm_id, code=code, name=name, is_system=True
+                        firm_id=firm_id,
+                        code=code,
+                        name=name,
+                        is_system=True,
+                        reverses_input_credit=code in REVERSING_REASONS,
                     )
                 )
         self._session.flush()
@@ -173,6 +191,7 @@ class AdjustmentReasonService:
             name=data.name,
             ledger_account_id=data.ledger_account_id,
             is_active=data.is_active,
+            reverses_input_credit=bool(data.reverses_input_credit),
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -214,6 +233,8 @@ class AdjustmentReasonService:
         if "ledger_account_id" in data.model_fields_set:
             self._assert_account(firm_id, data.ledger_account_id)
             row.ledger_account_id = data.ledger_account_id
+        if data.reverses_input_credit is not None:
+            row.reverses_input_credit = data.reverses_input_credit
         row.updated_by = actor_id
         self._session.flush()
         self._audit("stock_adjustment_reason.updated", row, actor_id)
@@ -334,6 +355,7 @@ class AdjustmentReasonService:
                     else str(row.ledger_account_id)
                 ),
                 "is_active": row.is_active,
+                "reverses_input_credit": row.reverses_input_credit,
             },
         )
 
@@ -361,6 +383,7 @@ class AdjustmentReasonService:
                 ),
                 is_system=row.is_system,
                 is_active=row.is_active,
+                reverses_input_credit=row.reverses_input_credit,
                 version=row.version,
             )
             for row in rows

@@ -50,6 +50,7 @@ const List<Json> _reasonRows = [
     'ledger_account_name': 'Rework loss',
     'is_system': false,
     'is_active': true,
+    'reverses_input_credit': true,
     'version': 1,
   },
 ];
@@ -136,6 +137,9 @@ void main() {
       expect(find.text('Rework loss'), findsOneWidget);
       expect(find.text('Default adjustment account'), findsOneWidget);
       expect(find.text('Yes'), findsOneWidget);
+      // The reason that gives up input credit says so (D-CMP-24).
+      expect(find.text('Input credit'), findsOneWidget);
+      expect(find.text('Reversed'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -164,6 +168,7 @@ void main() {
         'name': 'Second rework',
         'ledger_account_id': 'a-2',
         'is_active': true,
+        'reverses_input_credit': false,
       });
       expect(tester.takeException(), isNull);
     });
@@ -182,6 +187,26 @@ void main() {
 
       expect(api.created!['ledger_account_id'], isNull);
       expect(api.created!.containsKey('ledger_account_id'), isTrue);
+    });
+
+    testWidgets('a reason is switched to give up input credit (D-CMP-24)',
+        (tester) async {
+      final _Api api = _Api();
+      await _pumpPage(tester, api, ['INVENTORY_VIEW', 'INVENTORY_MANAGE_REASONS']);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'New').first);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, 'Code').first, 'theft');
+      await tester.enterText(find.widgetWithText(TextField, 'Name').first, 'Stolen');
+      final Finder toggle = find.text('Reverses input credit');
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save & Close').last);
+      await tester.pumpAndSettle();
+
+      expect(api.created!['reverses_input_credit'], isTrue);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('a system reason keeps its code and cannot be deleted',

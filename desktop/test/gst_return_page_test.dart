@@ -279,6 +279,37 @@ void main() {
     expect(find.text('135.00'), findsWidgets);
   });
 
+  testWidgets('table 4 shows credit given up on stock, and claimed again',
+      (tester) async {
+    // Goods given free, as samples, lost or written off (D-CMP-24).
+    Json block(double central) => <String, dynamic>{
+          'integrated_tax': 0,
+          'central_tax': central,
+          'state_tax': central,
+          'cess': 0,
+        };
+    final Json summary = <String, dynamic>{
+      ..._gstr3b(),
+      'itc_reversed_stock': block(18.25),
+      'itc_reclaimed_stock': block(9.5),
+    };
+    await _pump(tester, _ReturnsApi(one: _gstr1(), summary: summary));
+    await tester.tap(find.text('GSTR-3B'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('4(B)(1) ITC reversed — stock given free, lost or written off'),
+      findsOneWidget,
+    );
+    expect(find.text('18.25'), findsNWidgets(2));
+    expect(
+      find.text('4(A)(5) ITC claimed again — stock that came back'),
+      findsOneWidget,
+    );
+    expect(find.text('9.50'), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a refused refresh reports the refusal instead of figures',
       (tester) async {
     // Loads once, then every later call is refused.

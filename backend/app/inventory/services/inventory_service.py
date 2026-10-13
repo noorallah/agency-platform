@@ -1988,6 +1988,13 @@ class InventoryService:
             ),
             expense_account_id=listed.ledger_account_id,
         )
+        # Goods given away, lost or written off give up the input credit
+        # taken on them, where the firm's reason says so (D-CMP-24).
+        from app.gst_returns.services.stock_credit import StockCreditService
+
+        StockCreditService(self._session).stage_for_movement(
+            transaction, reason=listed, value_delta=-value, actor_id=actor_id
+        )
         StockEvidenceService(self._session).stage_for_movement(
             transaction, data.attachments, actor_id=actor_id
         )
@@ -2416,6 +2423,18 @@ class InventoryService:
             ),
             expense_account_id=None if listed is None else listed.ledger_account_id,
         )
+        if listed is not None:
+            # Stock out under a reason that reverses gives up its input
+            # credit; stock back in under one claims it again (D-CMP-24). An
+            # adjustment that names no reason is a correction and moves none.
+            from app.gst_returns.services.stock_credit import StockCreditService
+
+            StockCreditService(self._session).stage_for_movement(
+                transaction,
+                reason=listed,
+                value_delta=value_delta,
+                actor_id=actor_id,
+            )
         StockEvidenceService(self._session).stage_for_movement(
             transaction, data.attachments, actor_id=actor_id
         )

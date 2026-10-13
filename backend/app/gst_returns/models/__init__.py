@@ -16,7 +16,7 @@ from app.gst_returns.models.itc_common_reversal import (
     CommonCreditStatus,
     ItcCommonReversal,
 )
-from app.gst_returns.models.itc_reversal import ItcMovement, ItcReversal
+from app.gst_returns.models.itc_reversal import ItcBasis, ItcMovement, ItcReversal
 
 __all__ = [
     "HEADS",
@@ -31,6 +31,7 @@ __all__ = [
     "GstReturnType",
     "Gstr2bDocument",
     "Gstr2bImport",
+    "ItcBasis",
     "ItcCommonReversal",
     "ItcMovement",
     "ItcReversal",

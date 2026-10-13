@@ -47,3 +47,9 @@ class StockAdjustmentReason(BaseEntity):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    #: Stock that leaves under this reason gives up the input credit taken
+    #: on it (CGST section 17(5)(h): gifts, free samples, goods lost, stolen,
+    #: destroyed or written off). The firm's own switch (D-CMP-24).
+    reverses_input_credit: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

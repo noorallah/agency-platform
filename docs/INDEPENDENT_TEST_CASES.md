@@ -4917,6 +4917,17 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Leaves:** documents.
 
 
+### TC-COMP-027 — Input credit given up on stock given away or written off
+
+*Added 2026-10-13 (D-CMP-24, row G1). Driven over HTTP on a fixture firm; the screens were not clicked.*
+
+- **Preconditions:** a firm with a GST number; a product bought on an approved supplier bill at 100 plus 18% local GST (CGST 9%, SGST 9%), ten in stock at a cost of 100; Settings > Stock > **Adjustment Reasons** as shipped (*Sample*, *Given free to customer*, *Loss*, *Damage*, *Expiry* show **Reversed** under *Input credit*; *Internal use*, *Staff*, *Display* do not).
+- **Steps:** (1) Stock > write off **2** as *Sample*. Open GSTR-3B for today. (2) Adjust stock by **-1** with the reason *Loss*. (3) Adjust by **-1** with no reason. (4) Write off **1** as *Internal use*. (5) Adjust by **+1** with the reason *Sample* (one came back). (6) Add a reason of the firm's own with *Reverses input credit* on, write off 1 under it; switch it off, write off 1 more.
+- **Expect:** (1) table 4 shows *4(B)(1) ITC reversed — stock given free, lost or written off* CGST **18.00**, SGST **18.00**, and *4(C) Net ITC* is down by the same; the ledger shows Dr *Input Tax Not Claimable* 36.00, Cr input CGST 18.00 and input SGST 18.00, dated the write-off. (2) the line rises by 9.00 and 9.00. (3) and (4) it does not move. (5) *4(A)(5) ITC claimed again — stock that came back* shows 9.00 and 9.00, the 4(B)(1) line stays, the net credit rises by 9.00 and 9.00. (6) the first write-off adds 9.00 and 9.00, the second adds nothing.
+- **Also:** a product whose bill's credit was blocked, or that has no bill in these books, reverses nothing under any reason. Rule 37's list and its "of which rule 37" line do not change.
+- **Leaves:** stock movements, journals, one reason.
+
+
 ## Finance, reports and the rest of the platform
 
 The books are on the **Accounts** menu (with Receipts on Sell and Payments on

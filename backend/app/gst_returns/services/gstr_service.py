@@ -1147,6 +1147,20 @@ class GstReturnService:
         imports, boe_count = self._import_of_goods(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
         )
+        # Section 17(5)(h) (D-CMP-24): credit given up on stock given free,
+        # as samples, lost or written off is 4(B)(1), beside blocked credit;
+        # stock that came back under the same reason claims it again in
+        # 4(A)(5). In keys of their own, as rule 42's are.
+        from app.gst_returns.services.stock_credit import StockCreditService
+
+        stock_reversed, stock_reclaimed = StockCreditService(
+            self._session
+        ).movements_between(
+            firm_id=firm_scope,
+            from_date=from_date,
+            to_date=to_date,
+            scope=self._gstin_scope,
+        )
 
         return {
             # 4(A)(1): IGST and cess paid to customs on imported goods, from
@@ -1216,6 +1230,21 @@ class GstReturnService:
                 "state_tax": _filed(rule42_reclaimed.sgst),
                 "cess": _filed(rule42_reclaimed.cess),
             },
+            # Of 4(B)(1), credit given up on stock given away, lost or
+            # written off (s.17(5)(h)).
+            "itc_reversed_stock": {
+                "integrated_tax": _filed(stock_reversed.igst),
+                "central_tax": _filed(stock_reversed.cgst),
+                "state_tax": _filed(stock_reversed.sgst),
+                "cess": _filed(stock_reversed.cess),
+            },
+            # Of 4(A)(5), that credit claimed again on stock that came back.
+            "itc_reclaimed_stock": {
+                "integrated_tax": _filed(stock_reclaimed.igst),
+                "central_tax": _filed(stock_reclaimed.cgst),
+                "state_tax": _filed(stock_reclaimed.sgst),
+                "cess": _filed(stock_reclaimed.cess),
+            },
             # Of 4(B)(2), the part reversed under rule 37.
             "itc_reversed_rule37": {
                 "integrated_tax": _filed(rule37_reversed.igst),
@@ -1239,15 +1268,18 @@ class GstReturnService:
                 "unplaced_return_count": unplaced_count,
             },
             # Table 4(C): 4(A)(1), 4(A)(3) and 4(A)(5), less 4(B)(1) and 4(B)(2);
-            # rule 42 is in both halves (4(B)(1) and, reclaimed, 4(A)(5)).
+            # rule 42 and stock given away are in both halves (4(B)(1) and,
+            # reclaimed, 4(A)(5)).
             "net_itc": {
                 "integrated_tax": _filed(
                     claimed.igst
                     + imports.igst
                     + rcm_credit.igst
                     + rule42_reclaimed.igst
+                    + stock_reclaimed.igst
                     - blocked.igst
                     - rule42_reversed.igst
+                    - stock_reversed.igst
                     - reversed_.igst
                 ),
                 "central_tax": _filed(
@@ -1255,8 +1287,10 @@ class GstReturnService:
                     + imports.cgst
                     + rcm_credit.cgst
                     + rule42_reclaimed.cgst
+                    + stock_reclaimed.cgst
                     - blocked.cgst
                     - rule42_reversed.cgst
+                    - stock_reversed.cgst
                     - reversed_.cgst
                 ),
                 "state_tax": _filed(
@@ -1264,8 +1298,10 @@ class GstReturnService:
                     + imports.sgst
                     + rcm_credit.sgst
                     + rule42_reclaimed.sgst
+                    + stock_reclaimed.sgst
                     - blocked.sgst
                     - rule42_reversed.sgst
+                    - stock_reversed.sgst
                     - reversed_.sgst
                 ),
                 "cess": _filed(
@@ -1273,8 +1309,10 @@ class GstReturnService:
                     + imports.cess
                     + rcm_credit.cess
                     + rule42_reclaimed.cess
+                    + stock_reclaimed.cess
                     - blocked.cess
                     - rule42_reversed.cess
+                    - stock_reversed.cess
                     - reversed_.cess
                 ),
             },
