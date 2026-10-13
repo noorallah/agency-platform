@@ -9549,7 +9549,7 @@ only**.
 value and the tax are split out of that total; the rate before tax is for
 display). Done when: "500 at 100.00 including 18% totals 50,000.00 on the
 order and on its bill; 1,000 and 250 at 45.50 too; a line typed before tax
-is unchanged to the paisa". PR #PRNUM.
+is unchanged to the paisa". PR #1471.
 
 **What was wrong.** A rate typed with GST in it is stored as the rate before
 tax, at four places (100.00 is 84.7458). Every document then worked the line
