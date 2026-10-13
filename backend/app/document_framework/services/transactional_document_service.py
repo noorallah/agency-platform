@@ -524,6 +524,14 @@ class TransactionalDocumentService:
         )
         if document is not None:
             return True
+        for other in self._columns_once_sharing_a_prefix(number_column):
+            held = self._session.scalar(
+                select(other)
+                .where(other.class_.firm_id == firm_id, other == number)
+                .limit(1)
+            )
+            if held is not None:
+                return True
         journal = self._session.scalar(
             select(JournalEntry.id)
             .where(
@@ -533,6 +541,36 @@ class TransactionalDocumentService:
             .limit(1)
         )
         return journal is not None
+
+    @staticmethod
+    def _columns_once_sharing_a_prefix(
+        number_column: InstrumentedAttribute[str],
+    ) -> tuple[InstrumentedAttribute[str], ...]:
+        """Name the other documents whose old numbers this series can reach.
+
+        A self-invoice was numbered ``SI-`` like a sales invoice, and a rate
+        contract ``RC-`` like a receipt, until ``20261005_0328`` moved them to
+        ``RSI-`` and ``RTC-``. Numbers already issued stayed as issued, so in a
+        store that issued any the sales invoice and receipt series still
+        counted up onto them: two tax documents under one serial number
+        (D-BUY-65). Those two series step over the old numbers instead, as
+        they step over a number of their own.
+        """
+        # Imported here: the framework does not otherwise depend on a domain.
+        from app.purchase_invoice.models import PurchaseInvoice
+        from app.rate_contracts.models import RateContract
+        from app.sales_invoice.models import SalesInvoice
+        from app.settlements.models import Settlement
+
+        if number_column.class_ is SalesInvoice and number_column.key == (
+            SalesInvoice.invoice_number.key
+        ):
+            return (PurchaseInvoice.self_invoice_number,)  # type: ignore[return-value]
+        if number_column.class_ is Settlement and number_column.key == (
+            Settlement.settlement_number.key
+        ):
+            return (RateContract.contract_number,)
+        return ()
 
     # ---- child rows -------------------------------------------------------
 

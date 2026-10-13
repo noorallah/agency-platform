@@ -860,6 +860,71 @@ def test_a_receipt_steps_over_a_number_a_journal_already_holds() -> None:
     assert second.status == "POSTED"
 
 
+def test_a_receipt_steps_over_a_number_an_old_rate_contract_holds() -> None:
+    """D-BUY-65: a contract numbered RC- before RTC- existed keeps its number.
+
+    Driven on a fixture firm (BUYQ-22): rate contract RC-2026-2027-000006 of
+    an earlier build and, later, a receipt posted under the same number. The
+    migration that moved contracts to RTC- left issued numbers as issued, so
+    the receipt series has to step over them.
+    """
+    from app.rate_contracts.models import RateContract
+
+    books = _Books(_session_factory()())
+    first = _receipt(books, "10.00")
+    books.session.commit()
+    stem, sequence = first.settlement_number.rsplit("-", 1)
+    width = len(sequence)
+    books.session.add(
+        RateContract(
+            firm_id=books.firm.id,
+            contract_number=f"{stem}-{int(sequence) + 1:0{width}d}",
+            vendor_id=books.vendor.id,
+            valid_from=WHEN,
+            valid_to=WHEN + timedelta(days=30),
+            created_by=books.actor_id,
+            updated_by=books.actor_id,
+        )
+    )
+    books.session.commit()
+
+    second = _receipt(books, "20.00")
+    books.session.commit()
+
+    assert second.settlement_number == f"{stem}-{int(sequence) + 2:0{width}d}"
+    assert second.status == "POSTED"
+
+
+def test_a_sales_invoice_number_an_old_self_invoice_holds_reads_as_taken() -> None:
+    """D-BUY-65: a self-invoice numbered SI- before RSI- existed keeps its number.
+
+    Two tax documents under one serial number is what D-BUY-58 set out to
+    stop, and it went on in any store that had issued an SI- self-invoice.
+    Another firm's number, and a series that never shared the prefix, do not
+    count.
+    """
+    books = _Books(_session_factory()())
+    bill = books.purchase_invoice("PI-1", "118.00")
+    bill.self_invoice_number = "SI-26-27-000003"
+    books.session.commit()
+    service = SalesInvoiceService(books.session)
+
+    def taken(column: object, firm_id: UUID) -> bool:
+        """Ask the step-over whether the old number is held."""
+        return service._number_taken(  # noqa: SLF001
+            column,  # type: ignore[arg-type]
+            "SI-26-27-000003",
+            firm_id=firm_id,
+        )
+
+    assert taken(SalesInvoice.invoice_number, books.firm.id)
+    assert not taken(SalesInvoice.invoice_number, uuid4())
+    assert not taken(Settlement.settlement_number, books.firm.id)
+    assert not service._number_taken(  # noqa: SLF001
+        SalesInvoice.invoice_number, "SI-26-27-000004", firm_id=books.firm.id
+    )
+
+
 def test_a_balance_cannot_be_moved_by_hand_any_more() -> None:
     """D-FIN-23: the hand-posted receivable route is retired.
 
