@@ -9152,3 +9152,63 @@ bills under a main office. Tests: `tests/unit/test_supplier_branches.py`,
 - The **Branch of** picker offers the first page of suppliers its search
   returns.
 - No screen was clicked in the running app.
+
+## 128. A supplier added while the goods are being entered -- built 2026-10-13
+
+**Customer task M10.** Asked: "a supplier can be added while receiving
+goods"; try: "a new supplier is created from the receiving screen without
+leaving it".
+
+**What was found.** A supplier could be added only on *Buy → Suppliers*. A
+person typing a purchase order or a supplier bill for a supplier not yet in
+the list had to close the document, lose what was typed, add the supplier and
+start again. A firm with no supplier at all was shown *Nothing to order yet*
+and could not open a new order.
+
+**Where a supplier is chosen.** A goods receipt names a purchase order, and
+the order names the supplier, so the Goods Receipt screen has no supplier box
+to add one from. A supplier is chosen in two places while goods come in: on a
+**purchase order**, and on a **supplier bill typed directly**, which is how a
+firm that has switched the order and receipt stages off receives its goods
+(the bill raises the order and the receipt behind it and puts the stock in).
+The action is on those two.
+
+**Design.** Screen only; the server is unchanged.
+
+- A **New vendor** button beside the supplier box of a new purchase order,
+  and a **New supplier** button beside the supplier box of a supplier bill
+  typed directly. Each screen keeps the word it already uses.
+- The button opens the full supplier form over the document, on the
+  document's own tab. It is the same form as *Buy → Suppliers* → new: a name
+  is enough, the look-alike warning runs, and the save is the same
+  `POST /api/v1/vendors`.
+- Save closes the form and shows the document again with the new supplier
+  chosen. Everything typed on the document is kept. Cancel or Esc closes the
+  form and changes nothing. A refusal stays in the form with the server's
+  message.
+- Shown only to a person holding `VENDOR_CREATE`; the server asks the same
+  permission on the save. No new permission, table, column or route.
+- A firm with no supplier yet can now open a new purchase order or a direct
+  supplier bill when the person may add suppliers, and add the first one
+  from there.
+- One call more than before, only when the button is used: the look-alike
+  check and the save. Opening a document costs no extra call.
+
+**Built.** Desktop, new UI only: `addSupplierInPlace` in
+`desktop/lib/ui/vendors/vendor_management_page.dart`; the button, the added
+suppliers and the choice in `purchase_order_editor_phase2.dart`,
+`purchase_management_page.dart`, `purchase_invoice_editor_phase2.dart`,
+`purchase_invoice_editor_dialog.dart` and
+`purchase_invoice_management_page.dart`. Tests:
+`desktop/test/supplier_added_while_buying_test.dart` (9). Test case
+TC-BUY-103.
+
+**Not done.**
+
+- No button on the Goods Receipt screen: it has no supplier box.
+- No button on a bill that names a receipt or an order, on a purchase order
+  being edited, or on the other buying documents (requisition, request for
+  quotation, rate contract, debit note, payment).
+- The same for a customer on the selling documents is not built.
+- The old UI is unchanged.
+- No screen was clicked in the running app.

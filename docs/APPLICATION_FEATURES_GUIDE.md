@@ -1082,6 +1082,16 @@ only that branch's bills. Each office has its own statement: a branch's bill
 paid by the main office shows there as *Paid by the main office*. A main
 office cannot be deleted while it has branches.
 
+**A supplier who is not in the list yet.** A supplier can be added without
+closing the document being typed. On a new purchase order press **New
+vendor** beside the supplier box; on a supplier bill typed directly press
+**New supplier**. The supplier form opens over the document. A name is enough;
+the rest can be filled in later under *Buy → Suppliers*. **Save** returns to
+the document with the new supplier chosen and everything typed still there;
+**Cancel** returns with nothing changed. The button is shown to a person who
+may add suppliers. A goods receipt takes its supplier from the purchase
+order, so it has no such button.
+
 ## 6.2 Documents
 
 *Purchase Orders, Goods Receipts* and *Purchase Invoices* are in the Buy

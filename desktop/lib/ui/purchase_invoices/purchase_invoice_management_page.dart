@@ -76,6 +76,9 @@ class _PurchaseInvoiceManagementPageState
 
   bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
 
+  /// Backlog 128: a supplier may be added from the bill being typed.
+  bool get _canAddVendor => widget.permissions.hasPermission('VENDOR_CREATE');
+
   /// The lists the view dialog resolves a line's ids against. Read on their
   /// own, after the workspace's own data, so a failure here costs a name and
   /// never the list.
@@ -191,7 +194,7 @@ class _PurchaseInvoiceManagementPageState
   bool get _canStartBill {
     if (_stages.goodsReceiptStage) return _billableReceipts.isNotEmpty;
     if (_stages.purchaseOrderStage) return _billableOrders.isNotEmpty;
-    return _vendors.isNotEmpty && _products.isNotEmpty;
+    return (_vendors.isNotEmpty || _canAddVendor) && _products.isNotEmpty;
   }
 
   /// Open the editor and reload if it saved a bill.
@@ -211,6 +214,10 @@ class _PurchaseInvoiceManagementPageState
         stages: _stages,
         orders: _billableOrders,
         vendors: _vendors,
+        canAddVendor: _canAddVendor,
+        onVendorAdded: (Vendor added) {
+          if (mounted) setState(() => _vendors = [..._vendors, added]);
+        },
         canAttach: widget.permissions.hasAnyPermission(
             const ['PURCHASE_CREATE', 'PURCHASE_UPDATE']),
         steps: [

@@ -14,6 +14,7 @@ import '../../models/vendor.dart';
 import '../../models/document_preview.dart';
 import '../../models/line_tax_rule.dart';
 import '../../phase2/document_page.dart';
+import '../vendors/vendor_management_page.dart' show addSupplierInPlace;
 import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
 import '../document_framework/document_steps.dart';
@@ -219,7 +220,17 @@ class PurchaseInvoiceEditorDialog extends StatefulWidget {
     this.vendors = const [],
     this.steps = const [],
     this.canAttach = true,
+    this.canAddVendor = false,
+    this.onVendorAdded,
   });
+
+  /// Whether **New supplier** is offered beside the supplier box of a bill
+  /// typed directly (backlog 128): the user holds `VENDOR_CREATE`.
+  final bool canAddVendor;
+
+  /// Told of a supplier added from this bill, so the list behind it knows
+  /// the name too.
+  final ValueChanged<Vendor>? onVendorAdded;
 
   final ApiClient api;
 
@@ -313,6 +324,26 @@ class _PurchaseInvoiceEditorDialogState
 
   void _setState(VoidCallback change) => setState(change);
 
+  /// Suppliers added from this bill (backlog 128), offered after the ones
+  /// the bill was opened with.
+  final List<Vendor> _addedVendors = <Vendor>[];
+
+  List<Vendor> get _vendorChoices => _addedVendors.isEmpty
+      ? widget.vendors
+      : [...widget.vendors, ..._addedVendors];
+
+  /// Open the supplier form over the bill and choose the supplier it saved.
+  Future<void> _addVendor() async {
+    final Vendor? added = await addSupplierInPlace(context, api: widget.api);
+    if (added == null || !mounted) return;
+    widget.onVendorAdded?.call(added);
+    setState(() {
+      _addedVendors.add(added);
+      _vendorId = added.id;
+    });
+    _schedulePreview();
+  }
+
   /// PG-13: the asset classes, read the first time a line is ticked as
   /// capital goods so a bill with none costs no call.
   List<AssetClass> _assetClasses = const [];
@@ -344,7 +375,7 @@ class _PurchaseInvoiceEditorDialogState
 
   /// The currency of the supplier's account; blank is rupees.
   String get _supplierCurrency {
-    for (final Vendor item in widget.vendors) {
+    for (final Vendor item in _vendorChoices) {
       if (item.id == _billSupplierId) return item.currencyCode;
     }
     return '';

@@ -1272,6 +1272,19 @@ is copied between offices: a branch's GST number is its own, and the tax on a
 bill is worked out from the office on the bill. What a main office's payment
 does to a branch's account is in `docs/LEDGER_POSTING_RULES.md`.
 
+## A supplier added from a document (backlog 128, 2026-10-13)
+
+Screen only. `addSupplierInPlace` in
+`desktop/lib/ui/vendors/vendor_management_page.dart` pushes the supplier form
+onto the navigator of the document that asked, so the document's state stays
+alive beneath it, and returns the supplier `POST /api/v1/vendors` created or
+null. The new purchase order and the supplier bill typed directly offer it
+beside their supplier box to a holder of `VENDOR_CREATE`, keep the supplier
+in a list of their own beside the one they were opened with, and tell the
+page behind them so its list knows the name. A goods receipt names an order
+and has no supplier box. A new buying document that needs the same action
+calls `addSupplierInPlace`; it does not build a second supplier form.
+
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the

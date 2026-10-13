@@ -234,7 +234,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
   Product? _product(String id) => _productById(id);
 
   Vendor? _vendor(String? id) {
-    for (final Vendor item in widget.vendors) {
+    for (final Vendor item in _vendorChoices) {
       if (item.id == id) return item;
     }
     return null;
@@ -429,8 +429,12 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                   ),
             vendor,
           ),
+          // Built again when a supplier is added from here, so the box shows
+          // the new name: a DropdownMenu reads its selection only once.
           child: DropdownMenu<String>(
-            key: const ValueKey('purchase-invoice-vendor'),
+            key: _addedVendors.isEmpty
+                ? const ValueKey('purchase-invoice-vendor')
+                : ValueKey('purchase-invoice-vendor-${_addedVendors.length}'),
             initialSelection: _vendorId,
             width: 400,
             enabled: !_saving,
@@ -439,7 +443,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             menuHeight: 320,
             inputDecorationTheme: _pickerTheme(scheme),
             dropdownMenuEntries: [
-              for (final Vendor item in widget.vendors)
+              for (final Vendor item in _vendorChoices)
                 DropdownMenuEntry<String>(
                   value: item.id,
                   label: withPlace(
@@ -579,6 +583,19 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final Widget? also = _receiptsField(context);
     return DocumentHeader(children: [
       _sourceField(context),
+      // Backlog 128: a supplier not in the list yet is added without
+      // leaving the bill.
+      if (_mode == PurchaseBillMode.products && widget.canAddVendor)
+        DocumentField(
+          label: '',
+          width: 150,
+          child: OutlinedButton.icon(
+            key: const ValueKey('purchase-invoice-new-supplier'),
+            onPressed: _saving ? null : () => unawaited(_addVendor()),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New supplier'),
+          ),
+        ),
       if (also != null) also,
       DocumentField(
         label: "Supplier's invoice number",
