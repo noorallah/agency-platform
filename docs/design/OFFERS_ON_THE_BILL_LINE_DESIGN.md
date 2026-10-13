@@ -363,28 +363,41 @@ chooses nothing is priced exactly as before. Steps 1 to 7 are server only.
   at**: price list rate, lot rate and price level keep their ranking.
 - **Restating old documents**, and **the old UI.**
 
-## 8. Decisions for the owner (recommended answer first)
+## 8. Decisions for the owner
+
+All five were answered by the owner on 2026-10-13, each as recommended.
 
 1. **What is applied to start: today's ranking, or the best for the customer?**
-   **Today's ranking: offers first, then price list, then standing rate.**
-   No saved or seeded document changes price, and the list shows each
-   candidate's worth, so a better one is one tick away.
+   **ANSWERED: today's ranking: offers first, then price list, then standing
+   rate.** No saved or seeded document changes price, and the list shows
+   each candidate's worth, so a better one is one tick away.
 2. **"Best one only": one offer per line, or one per bill as today?**
-   **Per line, with the offers on the whole bill judged among themselves.**
-   A distributor's schemes are per item; one scheme for a whole bill of many
-   items is not what the setting's name promises.
+   **ANSWERED: per line, with the offers on the whole bill judged among
+   themselves.** A firm already on "best one only" will give more schemes
+   on a bill of many items than it did; say so in the release notes.
 3. **Does the customer's own discount add on top of an offer's discount?**
-   **No. One source a line, as today; free goods sit beside either.** Every
-   bill so far was priced that way; adding them can be a later setting.
+   **ANSWERED: no. One source a line, as today; free goods sit beside
+   either.**
 4. **Who may change what is applied?**
-   **Anybody holding the new permission, given to every role that makes
-   bills; every choice is audited.** All candidates are the firm's own
-   arrangements; a firm takes the permission off a role to lock the list.
+   **ANSWERED: anybody holding the new permission, given to every role that
+   makes bills; every choice is audited.** A firm takes the permission off
+   a role to lock the list. A discount typed by hand is still judged by the
+   role's discount limit.
 5. **A part share: which offers, and what of pieces?**
-   **Only "buy N get M free" of the same item, a switch per offer, off by
-   default; charged and free must make whole pieces; such a line is
-   delivered and billed whole.** That is the 5.5 + 0.5 the first bills need,
-   and nothing else has to round.
+   **ANSWERED: only "buy N get M free" of the same item, a switch per
+   offer, off by default; charged and free must make whole pieces; such a
+   line is delivered and billed whole.**
+
+Two points the sister notes have since settled:
+
+- **A line that takes from two lots stays one line** (the lot note, section
+  10), so an offer counts the line's whole quantity and 6 + 6 from two lots
+  earns "11 + 1".
+- **Boxes and pieces are worked out from the line's one quantity and are
+  never stored** (the box-and-piece note, 3.1), so there is no second
+  whole-number check to disagree with a part share. The one check judges
+  charged plus free pieces together, as D-SELL-91 does; a part-share line
+  of 5.5 + 0.5 shows as 0 boxes + 6 pieces, of which 0.5 free.
 
 ## 9. Decided here by convention
 
