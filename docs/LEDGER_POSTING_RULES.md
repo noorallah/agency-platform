@@ -899,6 +899,20 @@ not yet keyed), and refusing would make the clerk enter things out of order
 to get past it. Cancelling checks the account the money goes back out of the
 same way.
 
+**An expense, a payment and a refund ask first (backlog 133).** Paid out of a
+**cash** account that would stand below zero on the document's date, each
+answers 409 with `details.reason` `cash_below_zero` and saves nothing; the
+same body with `cash_below_zero_confirmed` saves. It is a question the screen
+must put to the person, never a refusal, and a bank account is never asked
+about. The check (`ask_before_cash_goes_below_zero` in
+`app/finance/services/money_accounts.py`, which also holds the cash-or-bank
+rule above) runs **after** the journal is staged, so it judges the posting
+itself -- an expense less its TDS -- and raising rolls the staged document
+back. Only a router asks: a service called by another service (a payment
+run) is asked nothing, because nobody is there to answer. The confirming
+field permits nothing else, which is what keeps it from being a flag the
+caller sets to let itself through a control.
+
 Read with `JOURNAL_VIEW`, recorded with `JOURNAL_POST` (it writes a posted
 journal), cancelled with `JOURNAL_REVERSE` -- the codes a hand journal needs,
 so no new permission and no grant migration. The register

@@ -138,6 +138,14 @@ class ApiException implements Exception {
       isConflict &&
       message.startsWith('This record changed since you loaded it');
 
+  /// Paying out of a cash account more than it holds (row F2): the server
+  /// saved nothing and asks, in [message], whether to save anyway. The same
+  /// request with `cash_below_zero_confirmed` saves it.
+  bool get isCashBelowZero {
+    final Object? d = details;
+    return d is Map && d['reason'] == 'cash_below_zero';
+  }
+
   /// A stock movement above the poster's limit (STK-8): the server refuses the
   /// direct post and says it can be submitted for approval instead.
   bool get needsApproval {

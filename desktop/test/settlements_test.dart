@@ -132,8 +132,21 @@ class _SettlementApi extends ApiClient {
     required Json data,
   }) async {
     recorded = data;
+    saves++;
+    if (asksAboutCash && data['cash_below_zero_confirmed'] != true) {
+      throw const ApiException(
+        'Cash holds 500.00 on 01-09-2026 and this pays 800.00 out of it, which leaves it 300.00 below zero. Save anyway?',
+        statusCode: 409,
+        details: <String, dynamic>{'reason': 'cash_below_zero'},
+      );
+    }
     return rows.first;
   }
+
+  /// Answer an unconfirmed save as the server does when cash would go
+  /// below zero (row F2), and count every save that arrived.
+  bool asksAboutCash = false;
+  int saves = 0;
 
   /// What `/payments/supplier-credits` answers, and what was applied.
   List<SupplierCredit> credits = const [];
@@ -620,6 +633,39 @@ void main() {
       expect(api.recorded?.containsKey('rounding_amount'), isFalse);
       expect(api.recorded?.containsKey('bank_charges_amount'), isFalse);
       expect(api.recorded?.containsKey('discount_amount'), isFalse);
+    });
+
+    testWidgets(
+        'a payment out of cash that is not there is asked about, then saved '
+        '(row F2)', (tester) async {
+      final _SettlementApi api = _SettlementApi(
+        rows: [_settlement()],
+        outstanding: [_invoice('a', 'PI-1', '20000.00')],
+      )..asksAboutCash = true;
+      await open(tester, api, SettlementDirection.payment);
+
+      // The Save button spins while the question is open, so nothing
+      // settles: pump the dialog in instead.
+      await tester.tap(find.text('Record payment'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Cash would go below zero'), findsOneWidget);
+      expect(find.textContaining('Cash holds 500.00'), findsOneWidget);
+      expect(api.recorded?.containsKey('cash_below_zero_confirmed'),
+          isFalse);
+
+      await tester.tap(find.text('Go back'));
+      await tester.pumpAndSettle();
+      expect(api.saves, 1);
+      expect(find.text('Record payment'), findsOneWidget);
+
+      await tester.tap(find.text('Record payment'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Save anyway'));
+      await tester.pumpAndSettle();
+      expect(api.saves, 3);
+      expect(api.recorded?['cash_below_zero_confirmed'], isTrue);
     });
 
     testWidgets('a payment has no bank charges and says discount received',

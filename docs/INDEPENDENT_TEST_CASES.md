@@ -5274,6 +5274,34 @@ redo yours."*
   - Step 10: the Bank book closes where it began. The ledger reads Credits 3,200 and Closing 150.
   - Step 11: the Cash book closes where it began. *Packing material* is no longer offered in **Expense**.
 
+### TC-FIN-036 — Paying out of cash that is not there is asked about, never refused
+
+*Added 2026-10-13 (customer task F2, backlog 133). Covered by unit and widget tests and driven over HTTP on a fixture firm; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** the expense form, a payment to a supplier, a refund to a customer, the cash book
+- **Fixture:** `ready-firm`
+- **Also needs:** a user who may record expenses, payments, receipts and refunds; a supplier; a customer who owes nothing. Read *Cash book* for today and note what **Cash** and **Petty Cash** hold; call the Cash figure C.
+- **Steps**
+  1. Open *Accounts → Books → Expenses* and record an expense today, **Paid from** *Petty Cash*, for 300 more than Petty Cash holds. Press **Save**.
+  2. Press **Go back**. Then press **Save** again and **Save anyway**.
+  3. Record an expense today, **Paid from** *Bank*, for far more than the bank holds.
+  4. Record an expense today, **Paid from** *Cash*, for less than C.
+  5. Record a payment to the supplier today, mode **Cash**, for 700 more than Cash now holds. Press **Record payment**, then **Save anyway**.
+  6. Record the same payment with mode **Bank transfer**.
+  7. Record a receipt of 100 from the customer by **Bank transfer**, then a refund of 100 to the same customer in **Cash**. Press **Record refund**, then **Save anyway**.
+  8. Record a receipt from the customer in **Cash**.
+  9. Open *Cash book* for today.
+- **Expect**
+  - Step 1: nothing is saved. A box titled *Cash would go below zero* reads *Petty Cash holds … and this pays … out of it, which leaves it 300.00 below zero. Save anyway?*
+  - Step 2: **Go back** returns to the form with everything typed still there, no error on it, and no new expense in the list. **Save anyway** saves the expense, posted.
+  - Step 3: saved at once; no question for a bank account.
+  - Step 4: saved at once; cash covers it.
+  - Step 5: the box names *Cash*, what it holds and 700.00 below zero; **Save anyway** saves the payment.
+  - Step 6: saved at once.
+  - Step 7: the box reads *Cash is already 700.00 below zero … and this pays 100.00 more out of it*; **Save anyway** saves the refund.
+  - Step 8: saved at once; money coming in is never asked about.
+  - Step 9: the cash book shows every payment made, and closes below zero by what was confirmed.
+
 ### TC-FIN-032 — The collector's day sheet adds up to the receipts
 
 *Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*

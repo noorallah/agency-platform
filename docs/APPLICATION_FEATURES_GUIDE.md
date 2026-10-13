@@ -1766,6 +1766,14 @@ write-back* or a *set-off* between what a business owes and is owed. A draft
 changes nothing; approving posts the journal and moves the balance; it is
 cancelled, never edited, and always carries a reason.
 
+**Paying out of cash that is not there.** An expense, a payment to a supplier
+or a refund to a customer that would leave **Cash** or **Petty Cash** below
+zero on its date is not saved at once: a box says what the account holds and
+what is being paid, and asks *Save anyway?* **Save anyway** records it; **Go
+back** returns to the form as typed. It is a question and never a refusal,
+because the books may only be behind (a receipt not yet entered). A bank
+account is never asked about.
+
 **Contra Vouchers.** Money moved between the firm's own cash and bank accounts
 (cash paid into the bank, a transfer between banks), numbered in its own
 series, instead of a hand journal.

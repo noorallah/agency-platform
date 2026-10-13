@@ -54,6 +54,11 @@ class _ExpenseApi extends ApiClient {
   int? cancelVersion;
   String? refusal;
 
+  /// Answer an unconfirmed save as the server does when cash would go
+  /// below zero (row F2), and count every save that arrived.
+  bool asksAboutCash = false;
+  int saves = 0;
+
   @override
   Future<PagedResult<Expense>> expenses({
     int page = 1,
@@ -84,6 +89,14 @@ class _ExpenseApi extends ApiClient {
   @override
   Future<Expense> recordExpense(Json data) async {
     recorded = data;
+    saves++;
+    if (asksAboutCash && data['cash_below_zero_confirmed'] != true) {
+      throw const ApiException(
+        'Cash holds 500.00 on 01-09-2026 and this pays 800.00 out of it, which leaves it 300.00 below zero. Save anyway?',
+        statusCode: 409,
+        details: <String, dynamic>{'reason': 'cash_below_zero'},
+      );
+    }
     if (refusal != null) {
       throw ApiException(refusal!, statusCode: 422);
     }
@@ -346,6 +359,93 @@ void main() {
       find.text('No open accounting period covers 2026-09-01.'),
       findsOneWidget,
     );
+  });
+
+  group('paying out of cash that is not there (row F2)', () {
+    Future<void> fill(WidgetTester tester, _ExpenseApi api,
+        void Function(Expense?) onClosed) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => Phase2Scope(child: child!),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  onClosed(await showDialog<Expense>(
+                    context: context,
+                    builder: (_) => RecordExpenseDialog(
+                      api: api,
+                      today: DateTime(2026, 9, 1),
+                    ),
+                  ));
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('expense-account')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('6000 Rent').last);
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.byKey(const ValueKey('expense-paid-from')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('1000 Cash').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('expense-amount')), '800');
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the server\'s question is asked, and Go back saves nothing',
+        (tester) async {
+      final _ExpenseApi api = _ExpenseApi()..asksAboutCash = true;
+      bool closed = false;
+      await fill(tester, api, (_) => closed = true);
+
+      expect(find.text('Cash would go below zero'), findsOneWidget);
+      expect(find.textContaining('Cash holds 500.00'), findsOneWidget);
+      expect(api.recorded?.containsKey('cash_below_zero_confirmed'),
+          isFalse);
+
+      await tester.tap(find.text('Go back'));
+      await tester.pumpAndSettle();
+
+      expect(api.saves, 1, reason: 'nothing was sent a second time');
+      expect(closed, isFalse, reason: 'the form stays as typed');
+      expect(find.text('Record an expense'), findsOneWidget);
+      // A question answered no is not an error on the form.
+      expect(find.textContaining('Save anyway?'), findsNothing);
+    });
+
+    testWidgets('Save anyway sends the same expense confirmed',
+        (tester) async {
+      final _ExpenseApi api = _ExpenseApi()..asksAboutCash = true;
+      Expense? saved;
+      await fill(tester, api, (Expense? row) => saved = row);
+
+      await tester.tap(find.text('Save anyway'));
+      await tester.pumpAndSettle();
+
+      expect(api.saves, 2);
+      expect(api.recorded, {
+        'cash_below_zero_confirmed': true,
+        'expense_date': '2026-09-01',
+        'expense_account_id': 'a-rent',
+        'paid_from_account_id': 'a-cash',
+        'amount': '800',
+      });
+      expect(saved?.expenseNumber, 'EXP-2026-2027-000001');
+    });
   });
 
   testWidgets('it fits the smallest screen the app supports', (tester) async {

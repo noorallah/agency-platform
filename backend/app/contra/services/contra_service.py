@@ -56,19 +56,11 @@ from app.document_framework.services.transactional_document_service import (
     TransactionalDocumentService,
 )
 from app.finance.models import (
-    AccountType,
-    FirmControlAccount,
-    GLPosting,
-    JournalEntry,
     LedgerAccount,
 )
-from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
-
-_MONEY_PURPOSES = frozenset(
-    {ControlAccountPurpose.CASH.value, ControlAccountPurpose.BANK.value}
-)
+from app.finance.services.money_accounts import balance_on, money_accounts
 
 _KIND_NAMES = {
     ContraKind.DEPOSIT.value: "Cash deposited",
@@ -133,120 +125,25 @@ class ContraVoucherService(TransactionalDocumentService):
     def money_accounts(self, firm_id: UUID) -> list[MoneyAccountRecord]:
         """Return every account money may move into or out of, cash first.
 
-        See the module docstring for the rule. A firm that has nominated
+        The rule is `app/finance/services/money_accounts.py`, which the
+        expense and the settlement read too. A firm that has nominated
         neither a cash nor a bank account has none.
         """
-        mapped: dict[UUID, set[str]] = {}
-        nominated: dict[str, UUID] = {}
-        for account_id, purpose in self._session.execute(
-            select(
-                FirmControlAccount.ledger_account_id, FirmControlAccount.purpose
-            ).where(
-                FirmControlAccount.firm_id == firm_id,
-                FirmControlAccount.is_deleted.is_(False),
+        records = [
+            MoneyAccountRecord(
+                id=account.id,
+                code=account.code,
+                name=account.name,
+                kind=MoneyAccountKindEnum(kind),
             )
-        ).all():
-            mapped.setdefault(account_id, set()).add(purpose)
-            if purpose in _MONEY_PURPOSES:
-                nominated[purpose] = account_id
-        if not nominated:
-            return []
-        groups: dict[UUID, UUID] = {
-            account_id: group_id
-            for account_id, group_id in self._session.execute(
-                select(LedgerAccount.id, LedgerAccount.account_group_id).where(
-                    LedgerAccount.id.in_(nominated.values())
-                )
-            ).all()
-        }
-        cash_id = nominated.get(ControlAccountPurpose.CASH.value)
-        bank_id = nominated.get(ControlAccountPurpose.BANK.value)
-        cash_group = groups.get(cash_id) if cash_id else None
-        bank_group = groups.get(bank_id) if bank_id else None
-        wanted = {group for group in (cash_group, bank_group) if group is not None}
-        candidates = self._session.scalars(
-            select(LedgerAccount)
-            .where(
-                LedgerAccount.firm_id == firm_id,
-                LedgerAccount.is_deleted.is_(False),
-                LedgerAccount.is_active.is_(True),
-                LedgerAccount.account_type == AccountType.ASSET.value,
-                or_(
-                    LedgerAccount.account_group_id.in_(wanted),
-                    LedgerAccount.id.in_(nominated.values()),
-                ),
-            )
-            .order_by(LedgerAccount.code.asc())
-        ).all()
-        records: list[MoneyAccountRecord] = []
-        for account in candidates:
-            if not mapped.get(account.id, set()) <= _MONEY_PURPOSES:
-                continue
-            records.append(
-                MoneyAccountRecord(
-                    id=account.id,
-                    code=account.code,
-                    name=account.name,
-                    kind=self._kind_of_account(
-                        account,
-                        cash_id=cash_id,
-                        bank_id=bank_id,
-                        cash_group=cash_group,
-                        bank_group=bank_group,
-                    ),
-                )
-            )
+            for account, kind in money_accounts(self._session, firm_id)
+        ]
         records.sort(key=lambda row: (row.kind != MoneyAccountKindEnum.CASH, row.code))
         return records
 
-    @staticmethod
-    def _kind_of_account(
-        account: LedgerAccount,
-        *,
-        cash_id: UUID | None,
-        bank_id: UUID | None,
-        cash_group: UUID | None,
-        bank_group: UUID | None,
-    ) -> MoneyAccountKindEnum:
-        """Say whether one money account is cash or a bank account."""
-        if account.id == cash_id:
-            return MoneyAccountKindEnum.CASH
-        if account.id == bank_id:
-            return MoneyAccountKindEnum.BANK
-        in_cash = account.account_group_id == cash_group
-        in_bank = account.account_group_id == bank_group
-        if in_cash and not in_bank:
-            return MoneyAccountKindEnum.CASH
-        if in_bank and not in_cash:
-            return MoneyAccountKindEnum.BANK
-        return (
-            MoneyAccountKindEnum.CASH
-            if "cash" in account.name.lower()
-            else MoneyAccountKindEnum.BANK
-        )
-
     def balance_on(self, account_id: UUID, *, firm_id: UUID, on: date) -> Decimal:
-        """Return what a money account held at the end of a day.
-
-        Summed from every posting dated on or before it -- by the journal's
-        own date, not when it was keyed, so a back-dated receipt counts on the
-        day it says. Reversed originals and their mirrors both count, which
-        nets them to nothing as it should.
-        """
-        total = self._session.scalar(
-            select(
-                func.coalesce(
-                    func.sum(GLPosting.debit_amount - GLPosting.credit_amount), 0
-                )
-            )
-            .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
-            .where(
-                GLPosting.firm_id == firm_id,
-                GLPosting.ledger_account_id == account_id,
-                JournalEntry.journal_date <= on,
-            )
-        )
-        return quantize_ledger(Decimal(str(total or 0)))
+        """Return what a money account held at the end of a day."""
+        return balance_on(self._session, account_id, firm_id=firm_id, on=on)
 
     def _warning(
         self, account: MoneyAccountRecord, *, firm_id: UUID, on: date

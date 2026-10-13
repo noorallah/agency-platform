@@ -169,9 +169,19 @@ def record_expense(
     response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ExpenseResponse]:
-    """Record money spent and post its journal: Dr the expense, Cr the money."""
+    """Record money spent and post its journal: Dr the expense, Cr the money.
+
+    Paid out of a cash account that would stand below zero, it answers 409
+    with `details.reason` `cash_below_zero` and saves nothing; the same body
+    with `cash_below_zero_confirmed` saves it. A bank account is never asked.
+    """
     service = ExpenseService(db)
-    row = service.create(payload, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    row = service.create(
+        payload,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        ask_before_cash_below_zero=not payload.cash_below_zero_confirmed,
+    )
     db.commit()
     db.refresh(row)
     set_etag(response, row)

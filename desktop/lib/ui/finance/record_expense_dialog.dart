@@ -6,6 +6,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/expense.dart';
 import '../../models/tds.dart';
+import '../workspace/cash_below_zero_prompt.dart';
 import '../workspace/desktop_framework.dart';
 
 /// Record one expense: what it was for, how much, and where it came from.
@@ -117,7 +118,11 @@ class _RecordExpenseDialogState extends State<RecordExpenseDialog> {
     });
     String text(TextEditingController controller) => controller.text.trim();
     try {
-      final Expense saved = await widget.api.recordExpense(<String, dynamic>{
+      final Expense? saved = await saveAskingAboutCash<Expense>(
+          context,
+          (bool confirmed) => widget.api.recordExpense(<String, dynamic>{
+        // Sent only after the person answered the server's question.
+        if (confirmed) 'cash_below_zero_confirmed': true,
         'expense_date': DatePeriod.iso(_date),
         'expense_account_id': _expenseAccountId,
         'paid_from_account_id': _paidFromAccountId,
@@ -130,8 +135,9 @@ class _RecordExpenseDialogState extends State<RecordExpenseDialog> {
           'tds_section': _tdsSection,
           if (text(_payeePan).isNotEmpty) 'payee_pan': text(_payeePan),
         },
-      });
-      if (!mounted) return;
+      }));
+      // Went back from the question: the form stays as typed.
+      if (!mounted || saved == null) return;
       Navigator.of(context).pop(saved);
     } on ApiException catch (exception) {
       if (!mounted) return;
