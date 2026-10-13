@@ -21,6 +21,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'dart:convert';
 
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
+
+import 'support/workbook_cells.dart';
+
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
@@ -268,6 +273,62 @@ void main() {
       }
     });
   }
+
+  testWidgets('the Stock Ledger downloads its movements (backlog 117)',
+      (tester) async {
+    final _InventoryApi api = _InventoryApi();
+    await tester.binding.setSurfaceSize(const Size(1600, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: InventoryManagementPage(
+          api: api,
+          preferences: DesktopPreferencesService(),
+          permissions: _permissions(),
+          hasActiveFirm: true,
+          section: InventorySection.stockLedger,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    api.requested.clear();
+
+    // Behind "..." beside Export: the line has no room for a button at 800.
+    await tester.tap(find.byKey(const ValueKey('toolbar-more')));
+    await tester.pumpAndSettle();
+    final List<String> name = [];
+    final List<List<Object?>> cells = await downloadedSheet(
+      tester,
+      name: name,
+      button: find.byKey(const ValueKey('toolbar-command-download-menu')),
+    );
+
+    // Read again from the ledger itself, so the sheet is every movement the
+    // filters answer and not the page on show.
+    expect(api.requested, ['/api/v1/inventory/ledger']);
+    expect(name.single, startsWith('stock-ledger'));
+    expect(cells[0].first, 'Stock ledger');
+    final int head = cells.indexWhere((row) => row.first == 'Date');
+    expect(cells[head].sublist(0, 5),
+        ['Date', 'Type', 'Reference', 'Product code', 'Product']);
+    expect(cells[head].sublist(7), ['Quantity', 'Balance']);
+    expect(cells[head + 1].sublist(0, 5), [
+      '2026-08-04',
+      'GOODS_RECEIPT',
+      'GRN-MEDI01-0001',
+      'AMOX500',
+      'Amoxicillin 500mg',
+    ]);
+    expect(cells[head + 1].sublist(7), [120, 120]);
+    expect(cells, hasLength(head + 2));
+    expect(tester.takeException(), isNull);
+
+    // The line still fits at the smallest window.
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('switching section in place loads the new section',
       (tester) async {

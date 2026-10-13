@@ -4730,6 +4730,10 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
   9. Open *Profit & Loss*, show **Months or year**, turn **Month by month** on and download.
   10. Open *Balance Sheet*, *Ledgers* (choose the cash account) and the cash flow statement and download each.
   11. In any save dialog press Cancel.
+  12. Open *Payables by Month* and press **Download**; switch to **Paid** and download again.
+  13. Open *Rate Trend*, choose a product the firm has bought and download.
+  14. Open the *Asset register* and download; open the *Income-tax block schedule* and download.
+  15. Open the *Stock Ledger*, set a Period, press **...** on the line and choose **Download as an Excel sheet**.
 - **Expect**
   - Step 1: a save dialog offers a name made of the report and its dates, ending `.xlsx`. A message says where the file was saved.
   - Step 2: line 1 is the report's name, line 2 the period, then the same headings as the screen in bold. The sheet holds **every** row of the period, not only the hundred on the first page.
@@ -4740,6 +4744,10 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
   - Step 8: the Total line of the sheet equals the Total line of the screen, column for column.
   - Step 9: one column per month, then Total.
   - Step 11: "Export cancelled. No file was saved." and no file is written.
+  - Step 12: a row per supplier and the Total line, a column per month as on screen; the Paid sheet has no Older, Later or Credits column.
+  - Step 13: one row per bill: date, bill, supplier, quantity and rate, as in the table under the line.
+  - Step 14: the register's sheet holds every asset, with the disposal columns the grid hides until asked; the schedule's sheet has a row per block with the figures on screen.
+  - Step 15: the sheet holds every movement of the period, not only the page on show; quantity and balance are numbers.
 - **Leaves:** nothing in the firm; files where you saved them.
 
 

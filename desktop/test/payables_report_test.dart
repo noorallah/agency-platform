@@ -6,6 +6,8 @@ import 'package:agency_desktop/phase2/payables_report_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/workbook_cells.dart';
+
 /// PG-2: payables by supplier and month, with the books check.
 class _Api extends ApiClient {
   _Api({this.difference = '0.00'})
@@ -117,6 +119,38 @@ void main() {
     expect(api.asked.last['view'], 'paid');
     expect(find.text('Credits'), findsNothing);
     expect(find.byKey(const ValueKey('payables-total-row')), findsOneWidget);
+  });
+
+  testWidgets('Download saves the grid and its Total line (backlog 117)',
+      (tester) async {
+    await _open(tester, _Api(), const Size(1366, 768));
+    final List<String> name = [];
+    final List<List<Object?>> cells = await downloadedSheet(tester, name: name);
+    expect(name.single, startsWith('payables-by-month-owed-'));
+    expect(cells[0].first, 'Payables by month');
+    expect(cells[1].first, startsWith('Owed as of '));
+    final int head = cells.indexWhere((row) => row.first == 'Supplier');
+    expect(cells[head], [
+      'Supplier',
+      'Older',
+      '2026-09',
+      '2026-10',
+      'Later',
+      'Credits',
+      'Outstanding',
+    ]);
+    expect(cells[head + 1], ['Acme Traders', 10, 100, 200, 0, -5, 305]);
+    expect(cells.last, ['Total', 10, 100, 200, 0, -5, 305]);
+    expect(cells, hasLength(head + 3));
+
+    // The Paid view has no Older, Later or Credits, on screen or in the file.
+    await tester.tap(find.text('Paid'));
+    await tester.pumpAndSettle();
+    final List<List<Object?>> paid = await downloadedSheet(tester);
+    expect(paid.firstWhere((row) => row.first == 'Supplier'),
+        ['Supplier', '2026-09', '2026-10', 'Paid']);
+    expect(paid.last, ['Total', 100, 200, 305]);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('does not overflow at 800x600', (tester) async {

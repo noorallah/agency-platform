@@ -8,6 +8,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/sales_analysis.dart';
 import '../workspace/analysis_page.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/report_workbook.dart';
 
 /// What one product was bought at, bill by bill: a line over time, the
 /// points behind it, and the lowest, highest, last and how far the last has
@@ -210,6 +211,12 @@ class _PurchaseRateTrendPageState extends State<PurchaseRateTrendPage> {
                   onPressed: _product == null ? null : () => unawaited(_load()),
                   child: const Text('Refresh'),
                 ),
+                WorkbookDownloadButton(
+                  enabled: !_loading && _points.isNotEmpty,
+                  fileName: () =>
+                      workbookFileName(['rate-trend', _product?.label ?? '']),
+                  sheet: _sheet,
+                ),
                 Text(
                   'Blank dates read the last twelve months.',
                   style: Theme.of(context).textTheme.bodySmall,
@@ -321,6 +328,26 @@ class _PurchaseRateTrendPageState extends State<PurchaseRateTrendPage> {
       ),
     );
   }
+
+  /// The points as a sheet (backlog 117): the table under the line, a row
+  /// per bill.
+  WorkbookSheet _sheet() => WorkbookSheet(
+        title: 'Rate trend',
+        notes: [
+          'Product: ${_product?.label ?? ''}',
+          'Supplier: ${_supplier?.label ?? 'Any'}',
+          if (_from.text.trim().isEmpty && _to.text.trim().isEmpty)
+            'Period: the last twelve months'
+          else
+            'Period: ${_from.text.trim()} to ${_to.text.trim()}',
+        ],
+        headers: const ['Date', 'Bill', 'Supplier', 'Quantity', 'Rate'],
+        numeric: const {3, 4},
+        rows: [
+          for (final RateTrendPoint p in _points)
+            [p.billDate, p.billNumber, p.supplierName, p.quantity, p.rate],
+        ],
+      );
 
   String _quantity(double q) =>
       q == q.roundToDouble() ? q.toStringAsFixed(0) : q.toString();

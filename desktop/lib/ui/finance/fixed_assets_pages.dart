@@ -15,6 +15,7 @@ import '../../models/finance.dart';
 import '../../models/fixed_asset.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
+import '../workspace/report_workbook.dart';
 
 String _money(String value) {
   final double? parsed = double.tryParse(value);
@@ -489,9 +490,77 @@ class _AssetRegisterPageState extends State<AssetRegisterPage> {
                 unawaited(_load());
               },
             ),
+            WorkbookDownloadButton(
+              enabled: _rows.isNotEmpty,
+              fileName: () => workbookFileName(['asset-register', _asOf]),
+              sheet: _sheet,
+            ),
           ],
         ),
       );
+
+  /// The register as a sheet (backlog 117): every asset the filters answer,
+  /// read to the last page, with every column the grid can show.
+  Future<WorkbookSheet> _sheet() async {
+    final List<FixedAsset> rows = await fetchAllPages(
+      (page) => widget.api.fixedAssets(
+        search: _search.text.trim(),
+        status: _status,
+        assetClassId: _classId,
+        asOf: _asOf,
+        page: page,
+        pageSize: maxApiPageSize,
+      ),
+      maxPages: 1000,
+    );
+    return WorkbookSheet(
+      title: 'Asset register',
+      notes: [
+        _asOf.isEmpty ? 'As of today' : 'As of $_asOf',
+        'Show: ${switch (_status) {
+          'ACTIVE' => 'In use',
+          'DISPOSED' => 'Disposed',
+          _ => 'All',
+        }}',
+        'Class: ${_classes.where((c) => c.id == _classId).map((c) => c.code).firstOrNull ?? 'All'}',
+        if (_search.text.trim().isNotEmpty) 'Search: ${_search.text.trim()}',
+      ],
+      headers: const [
+        'Asset',
+        'Name',
+        'Class',
+        'Acquired',
+        'Cost',
+        'Depreciation',
+        'Net book value',
+        'Depreciated to',
+        'Bill',
+        'Disposed on',
+        'Sale amount',
+        'Gain / loss',
+        'Status',
+      ],
+      numeric: const {4, 5, 6, 10, 11},
+      rows: [
+        for (final FixedAsset a in rows)
+          [
+            a.assetNumber,
+            a.name,
+            a.assetClassCode,
+            a.acquisitionDate,
+            a.cost,
+            a.accumulatedDepreciation,
+            a.netBookValue,
+            a.depreciatedTo,
+            a.purchaseInvoiceNumber,
+            a.disposedOn,
+            a.saleAmount,
+            a.disposalGainLoss,
+            a.status,
+          ],
+      ],
+    );
+  }
 
   WorkspaceToolbar _toolbar(FixedAsset? row) => WorkspaceToolbar(
         actions: [
@@ -2207,9 +2276,12 @@ class _ItBlockSchedulePageState extends State<ItBlockSchedulePage> {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: AppSpacing.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: SizedBox(
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+            SizedBox(
               width: 300,
               child: DropdownButtonFormField<String>(
                 key: const ValueKey('it-block-year'),
@@ -2231,6 +2303,12 @@ class _ItBlockSchedulePageState extends State<ItBlockSchedulePage> {
                 },
               ),
             ),
+            WorkbookDownloadButton(
+              enabled: !_loading && _rows.isNotEmpty,
+              fileName: () => workbookFileName(['it-block-schedule', _year]),
+              sheet: _sheet,
+            ),
+            ],
           ),
           const SizedBox(height: AppSpacing.md),
           if (_error != null)
@@ -2241,6 +2319,46 @@ class _ItBlockSchedulePageState extends State<ItBlockSchedulePage> {
       ),
     );
   }
+
+  String get _year =>
+      _years
+          .where((y) => y.id == _yearId)
+          .map((y) => y.name.isEmpty ? y.code : y.name)
+          .firstOrNull ??
+      '';
+
+  /// The schedule as a sheet (backlog 117): the same columns, a row per
+  /// block.
+  WorkbookSheet _sheet() => WorkbookSheet(
+        title: 'Income-tax block schedule',
+        notes: ['Financial year: $_year'],
+        headers: const [
+          'Rate %',
+          'Classes',
+          'Opening WDV',
+          'Additions (full)',
+          'Additions (half)',
+          'Disposals',
+          'Depreciation',
+          'Closing WDV',
+          'Short-term gain',
+        ],
+        numeric: const {0, 2, 3, 4, 5, 6, 7, 8},
+        rows: [
+          for (final ItBlockRow r in _rows)
+            [
+              r.blockRate,
+              r.classNames.join(', '),
+              r.openingWdv,
+              r.additionsFullRate,
+              r.additionsHalfRate,
+              r.disposals,
+              r.depreciation,
+              r.closingWdv,
+              r.shortTermCapitalGain,
+            ],
+        ],
+      );
 
   Widget _body() {
     if (_loading) return const Center(child: CircularProgressIndicator());

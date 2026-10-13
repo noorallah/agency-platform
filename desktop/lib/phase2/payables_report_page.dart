@@ -6,6 +6,7 @@ import '../core/api/api_client.dart';
 import '../core/design/design_tokens.dart';
 import '../models/entities.dart' show Json;
 import '../ui/workspace/party_place.dart';
+import '../ui/workspace/report_workbook.dart';
 import 'indian_format.dart';
 
 /// Buy > Money > Payables by Month (PG-2, backlog 85): what each supplier is
@@ -190,6 +191,54 @@ class _PayablesReportPageState extends State<PayablesReportPage> {
             (v) => _change(() => _vendorId = v), true),
         _choice('payables-branch', 'All branches', _branches, _branchId,
             (v) => _change(() => _branchId = v), _view == 'owed'),
+        WorkbookDownloadButton(
+          enabled: !_loading && _rows.isNotEmpty,
+          fileName: () => workbookFileName(
+              ['payables-by-month', _view, _iso(_asOf)]),
+          sheet: _sheet,
+        ),
+      ],
+    );
+  }
+
+  /// The grid as a sheet (backlog 117): the same columns, a row per
+  /// supplier and the Total line under them.
+  WorkbookSheet _sheet() {
+    final List<String> months = _monthKeys;
+    final bool owed = _view == 'owed';
+    final Object? total = _data?['total'];
+    String chosen(List<MapEntry<String, String>> items, String? id) =>
+        items.where((e) => e.key == id).map((e) => e.value).firstOrNull ??
+        'All';
+    List<Object?> line(Map r) => [
+          '${r['vendor_name']}',
+          if (owed) r['older'],
+          ..._amounts(r['amounts'], months.length),
+          if (owed) r['later'],
+          if (owed) r['credits'],
+          r['total'],
+        ];
+    final List<String> headers = [
+      'Supplier',
+      if (owed) 'Older',
+      ...months,
+      if (owed) 'Later',
+      if (owed) 'Credits',
+      owed ? 'Outstanding' : 'Paid',
+    ];
+    return WorkbookSheet(
+      title: 'Payables by month',
+      notes: [
+        '${owed ? 'Owed' : 'Paid'} as of ${_iso(_asOf)}, '
+            'by ${_basis == 'due' ? 'due' : 'invoice'} date, $_months months',
+        'Supplier: ${chosen(_vendors, _vendorId)}',
+        if (owed) 'Branch: ${chosen(_branches, _branchId)}',
+      ],
+      headers: headers,
+      numeric: {for (int i = 1; i < headers.length; i++) i},
+      rows: [
+        for (final Map r in _rows) line(r),
+        if (total is Map) line(total),
       ],
     );
   }

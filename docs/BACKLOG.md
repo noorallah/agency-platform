@@ -8237,6 +8237,24 @@ of how many.
 - the balance sheet and the cash flow statement;
 - the sales and purchase analysis grids, beside the CSV they already had.
 
+**Built second (2026-10-13, the four screens that draw their own table).**
+
+- *Payables by Month*: the grid as shown, Owed or Paid, a row per supplier
+  and the Total line;
+- *Rate Trend*: the points under the line, a row per bill;
+- the *Asset register*: every asset the filters answer, read to the last
+  page (the screen shows the first hundred), with every column the grid can
+  show, hidden ones included; and the *Income-tax block schedule*, a row per
+  block;
+- the *Stock Ledger*: every movement the search, the filters and the period
+  answer, read to the last page. Here the download is **Download as an Excel
+  sheet** behind "..." beside Export, not a button: with the Period on the
+  line a button overflowed it at 800 pixels wide. Export is the server's own
+  file and reads the search alone; the two were left side by side.
+
+`downloadWorkbook` in `report_workbook.dart` is the button's work as a
+function, for a screen whose download is a menu entry.
+
 Nothing on the server changed, and no migration.
 
 **Tested.** `desktop/test/report_workbook_test.dart`: a figure is a number and
@@ -8245,16 +8263,18 @@ sheet holds all 250 with the first and last figure right; the trial balance's
 sheet carries the row and the Total line. A sheet written by the desktop was
 opened with `openpyxl`, a different reader, and its figures added up. The
 seventeen test files that open any of the touched screens pass, the
-1600x900 overflow sweep among them.
+1600x900 overflow sweep among them. The four later screens each have a test
+in their own file that presses the download and reads the saved sheet back
+(`payables_report_test.dart`, `purchase_analysis_extras_test.dart`,
+`fixed_assets_test.dart`, `inventory_sections_test.dart`, which also checks
+the Stock Ledger's line at 800x600), on `test/support/workbook_cells.dart`.
 
 **Not done.**
 
 - No screen was clicked in the running app, and no sheet was opened in Excel
   itself.
-- Four report screens that are not under Reports have no Download yet:
-  *Payables* (what is owed and the payment forecast), the *Stock Ledger*,
-  the *Asset register* with its income-tax block schedule, and *Purchase rate
-  trend*. Each draws its own table, so each needs its own few lines on the
-  shared writer. The row stays open for them.
+- The Stock Ledger keeps two files: Export (the server's, search only) and
+  the Excel sheet (search, filters and period). Nobody was asked whether
+  Export should go.
 - Ordinary lists (customers, bills, orders) are not reports and were left
   alone.

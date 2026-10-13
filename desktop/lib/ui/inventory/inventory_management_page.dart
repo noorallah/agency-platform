@@ -22,6 +22,7 @@ import 'inventory_import_wizard.dart';
 import 'opening_stock_import_dialog.dart';
 import '../../phase2/document_page.dart' show documentQuantity;
 import '../workspace/desktop_framework.dart';
+import '../workspace/report_workbook.dart';
 import 'stock_action_dialog.dart';
 import 'stock_evidence_dialog.dart';
 import 'stock_evidence_picker.dart';
@@ -901,6 +902,23 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           icon: Icons.attach_file,
           onPressed: _selectedMovement != null ? _openEvidence : null,
         ),
+        // The Excel sheet of the Stock Ledger (backlog 117), behind "..."
+        // beside Export: the line has no room for one more button at 800.
+        if (section == InventorySection.stockLedger)
+          ToolbarCommand(
+            id: 'download',
+            label: 'Download as an Excel sheet',
+            icon: Icons.download_outlined,
+            menuOnly: true,
+            onPressed: !_loading && _ledger.isNotEmpty
+                ? () => downloadWorkbook(
+                      context,
+                      fileName: workbookFileName(
+                          ['stock-ledger', _periodFrom ?? '', _periodTo ?? '']),
+                      sheet: _ledgerSheet,
+                    )
+                : null,
+          ),
         ToolbarCommand(
           id: 'post-draft',
           label: 'Post draft',
@@ -1377,6 +1395,66 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       ],
       onSelect: (item) => setState(() => _selectedTransaction = item),
       onPageChanged: _handlePageChange,
+    );
+  }
+
+  /// The Stock Ledger as a sheet (backlog 117): every movement the search,
+  /// the filters and the period answer, read to the last page, in the grid's
+  /// columns. Export beside it is the server's own file, which reads the
+  /// search alone.
+  Future<WorkbookSheet> _ledgerSheet() async {
+    final String search = _search.text.trim();
+    final InventoryTransactionQuery filters = InventoryTransactionQuery(
+      transactionType: _transactionType,
+      branchId: _branchId,
+      warehouseId: _warehouseId,
+      productId: _productId,
+      transactionFrom: _periodFrom,
+      transactionTo: _periodTo,
+    );
+    final List<InventoryTransactionRecord> rows = await fetchAllPages(
+      (page) => widget.api.stockLedger(
+        page: page,
+        pageSize: maxApiPageSize,
+        search: search,
+        filters: filters,
+      ),
+      maxPages: 1000,
+    );
+    return WorkbookSheet(
+      title: 'Stock ledger',
+      notes: [
+        if ((_periodFrom ?? '').isNotEmpty || (_periodTo ?? '').isNotEmpty)
+          'Period: ${_periodFrom ?? ''} to ${_periodTo ?? ''}',
+        if (search.isNotEmpty) 'Search: $search',
+        if ((_transactionType ?? '').isNotEmpty) 'Type: $_transactionType',
+      ],
+      headers: const [
+        'Date',
+        'Type',
+        'Reference',
+        'Product code',
+        'Product',
+        'Branch',
+        'Warehouse',
+        'Quantity',
+        'Balance',
+      ],
+      numeric: const {7, 8},
+      rows: [
+        for (final InventoryTransactionRecord item in rows)
+          [
+            item.transactionDate,
+            item.transactionType,
+            item.referenceNumber,
+            item.productCode,
+            item.productName,
+            item.branchName,
+            item.warehouseName,
+            item.quantity,
+            item.newCurrentQuantity,
+          ],
+      ],
     );
   }
 

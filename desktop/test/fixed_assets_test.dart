@@ -20,6 +20,8 @@ import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/workbook_cells.dart';
+
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
@@ -466,6 +468,35 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('Download saves every column of the register (backlog 117)',
+        (tester) async {
+      await _pumpRegister(tester, _Api(), const Size(1366, 768));
+      final List<String> name = [];
+      final List<List<Object?>> cells =
+          await downloadedSheet(tester, name: name);
+      expect(name.single, 'asset-register.xlsx');
+      expect(cells[0].first, 'Asset register');
+      expect(cells[1].first, 'As of today');
+      final int head = cells.indexWhere((row) => row.first == 'Asset');
+      expect(cells[head].sublist(4, 7),
+          ['Cost', 'Depreciation', 'Net book value']);
+      expect(cells[head + 1].sublist(0, 8), [
+        'FA-1',
+        'Packing machine',
+        'PLANT',
+        '2026-04-10',
+        100000,
+        30000,
+        70000,
+        '2026-09-30',
+      ]);
+      // Disposed on, the sale amount and the gain or loss are columns the
+      // grid hides until asked; the sheet carries them.
+      expect(cells.last.sublist(9), ['2026-10-01', 60000, -10000, 'DISPOSED']);
+      expect(cells, hasLength(head + 3));
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('add sends the declared fields and no vendor or branch',
         (tester) async {
       final _Api api = _Api();
@@ -712,6 +743,31 @@ void main() {
       expect(find.byKey(const ValueKey('it-block-table')), findsOneWidget);
       expect(find.text('256500.00'), findsOneWidget);
       expect(find.text('Plant and machinery'), findsOneWidget);
+    });
+
+    testWidgets('Download saves the blocks (backlog 117)', (tester) async {
+      await _pumpReport(tester, _Api(), const Size(1366, 768));
+      final List<String> name = [];
+      final List<List<Object?>> cells =
+          await downloadedSheet(tester, name: name);
+      expect(name.single, startsWith('it-block-schedule'));
+      expect(cells[0].first, 'Income-tax block schedule');
+      expect(cells[1].first, startsWith('Financial year: '));
+      final int head = cells.indexWhere((row) => row.first == 'Rate %');
+      expect(cells[head].last, 'Short-term gain');
+      expect(cells[head + 1], [
+        15,
+        'Plant and machinery',
+        200000,
+        80000,
+        20000,
+        0,
+        43500,
+        256500,
+        0,
+      ]);
+      expect(cells, hasLength(head + 2));
+      expect(tester.takeException(), isNull);
     });
 
     for (final Size size in _sizes) {
