@@ -478,10 +478,12 @@ Each has the recommended answer first.
    same mark for buying documents (the owner's answer 4). An item with no
    pack shows pieces only; no switch per item.
 
-No decision in this note is open. Two questions remain for the customer:
-whether one item ever arrives in two box sizes at once (a pack size per
-lot is not in this design, section 7), and whether any item is priced by
-the box.
+No decision in this note is open. Two further points were put to the owner
+and closed on 2026-10-13. **An item has one box size, the one set on the
+item**: if a supply arrives packed differently, it is still counted by the
+item's own box and the rest as pieces; a pack size per lot is not wanted
+(section 7). **Box and piece are the only two units a line is typed in**,
+and nothing is priced by the box.
 
 ## 9. Decided here by convention
 
