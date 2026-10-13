@@ -188,7 +188,6 @@ defect found goes into `docs/DEFECTS.md` and is fixed in the same work.
 | A **Scan** button that takes pages from a scanner and attaches them (backlog 145) | The owner's word to build it. The scanner is one on the computer, chosen in the application from those Windows knows; no phone |
 | Printing in text mode for a dot matrix printer (backlog 146) | A customer who has one; this one prints on cut A4 sheets |
 | Old years archived when they grow, and opened again when needed (backlog 147) | Not needed at this size; open |
-| Notifications: who is told about what (low stock, overdue bills, expiry) | The customer; nothing waits on it |
 | **Print** on each row of the list of bills, not only on the bar above it (PRT-9) | The owner, 2026-10-13: low priority; decided at the end, with which other lists get it |
 | The bill number: one series for the firm, the series word and a running number as on the sample | Set-up, no build; the customer confirms it (N5) |
 | Writing the A1 to A20 answers into the dated Excel copy | Owed, by hand, with the owner |

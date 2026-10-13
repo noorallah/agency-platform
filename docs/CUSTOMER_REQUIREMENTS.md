@@ -232,7 +232,6 @@ customer to agree, and the smaller firm goes first.
 | REP-2 | Whether the accountant works in Tally; what he needs at the year's end (which statements, in what form), and whether he wants a closing statement |
 | TAX-2 | Which bills he means by reverse charge: transport, or goods he sells |
 | USR-2 | What each kind of staff must not see or do: cost and margin, discount, editing or cancelling a bill, the books, receipts and cash, prices and masters |
-| SET | Notifications: who should be told about what (low stock, overdue bills, expiry). Nothing waits on it |
 | PRT-5 | How many lines on a half page and on a full page, and how a long shop or product name should print. Answered already: plain A4 cut in two, on a sheet printer |
 | COL-9 | Which phones the collectors carry, whether they may join the office Wi-Fi, and whether a receipt is handed over at the shop |
 
@@ -270,3 +269,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | PRT-5 and COL-9 logged (F12) as backlog 143 and 144, open and not built. PRT-5 waits on the customer's answers about his paper and printer; COL-9 needs a design note first. Both stay Later |
 | 2026-10-13 | The walk through of the sample bills and the backups with the owner: PRT-2 restated (the firm chooses; the choice at printing is row P1), PRT-4 decided and Planned (row P2), PRT-7, PRT-8, BUY-5 (backlog 145), PRT-9 (low priority) and IMP-4 added, IMP-2 is for audit. Five questions for the customer added to section 17 |
 | 2026-10-13 | The customer question list gone through with the owner. Decided by him: LIC-6 a product may need several licences (row P3); USR-3 an account per employee for advances (P4); COL-12 one customer pays another's bill (P5); IMP-3 the working year is a filter (P6); COL-13 a shop or its parent pays (check C5); the scanner is one on the computer (BUY-5); PRT-10 a dot matrix printer logged as backlog 146, old years archived as backlog 147. Section 17 holds only what is still the customer's |
+| 2026-10-13 | Notifications (who is told about what on the bell) taken off the customer's questions: the owner defines them when the firm's users are created |
