@@ -78,8 +78,8 @@ The Swathi import is **not** in this list. It is kept in
 
 The first row of each is a design note in `docs/design/`, read and answered
 by the owner before any code. The notes for L1 and L4 were answered on
-2026-10-13 and their build rows are open; L6 still has questions with the
-owner.
+2026-10-13 and their build rows are open; L6 was answered the same day
+and its build, L7, follows L5.
 
 **A build row is worked one step of its note per run.** The note's own
 table of build steps is the list: each step is one branch, one pull
@@ -98,8 +98,8 @@ behaviour must behave exactly as before after every step.
 | L3 | Selling margin on the purchase price, by goods type, changeable on the purchase line, GST on top; the worked-out price rounded to the nearest rupee as a setting, and belonging to that lot only. Retail and wholesale price per lot. Cost and margin shown on the bill line, on screen only, to users allowed to see cost | WAITS for L2 (section 7 of the lot note says what the lot carries) |
 | L4 | Design note: one line with a box count and a piece count, rate per piece, free goods entered the same way | DONE #1445. `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`; every decision answered by the owner on 2026-10-13 (section 8) |
 | L5 | Build L4 | READY after L2. Steps 1 to 12 of section 6 of the box-and-piece note. No step done yet |
-| L6 | Design note: offers and discounts listed on the bill line for the bill maker to choose, one applied to start, combining by the firm's setting, "buy N more", and a part share of an offer as a switch on each offer | NOTE WRITTEN #1446, open: five decisions with the owner |
-| L7 | Build L6 | WAITS for L6 |
+| L6 | Design note: offers and discounts listed on the bill line for the bill maker to choose, one applied to start, combining by the firm's setting, "buy N more", and a part share of an offer as a switch on each offer | DONE #1446. `docs/design/OFFERS_ON_THE_BILL_LINE_DESIGN.md`; all five decisions answered by the owner on 2026-10-13 (section 8) |
+| L7 | Build L6 | READY after L5. The steps of section 6 of the offers note, one per run. No step done yet |
 
 ## Checks on a running firm
 
