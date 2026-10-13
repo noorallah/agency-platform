@@ -2352,6 +2352,31 @@ of 2026-10-05 and, like the rest, have not been run by hand.
   - Step 11: only that branch's own bills are listed; not the first branch's and not the main office's.
   - Step 12: the branch is owed its bill again, the main office's statement closes at nothing, and both statements keep the earlier lines with a reversal line under each.
 
+### TC-BUY-103 — A supplier is added from the purchase order being typed
+
+*Added 2026-10-13 (backlog 128). Covered by widget tests; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 128 (customer task M10)
+- **Fixture:** `ready-firm`
+- **Also needs:** a product; a second user who may raise purchase orders but may not add suppliers.
+- **Steps**
+  1. Open *Buy → Purchase Orders* → new. Add a line: the product, quantity 7.
+  2. Press **New vendor** beside the supplier box.
+  3. Type only a name not used before and press **Save vendor**.
+  4. Save the order. Open *Buy → Suppliers*.
+  5. Open a new order, press **New vendor**, type a name and press **Cancel**.
+  6. Press **New vendor** again, type the name used in step 3 and save.
+  7. On a firm that types supplier bills directly (order and receipt stages off): open *Buy → Purchase Invoices* → new and press **New supplier**. Type a name and save.
+  8. Sign in as the second user and open a new purchase order.
+- **Expect**
+  - Step 2: the supplier form opens over the order, on the same tab.
+  - Step 3: the form closes and the order is shown again. The supplier box names the new supplier, and the line with quantity 7 is still there.
+  - Step 4: the order is saved for the new supplier. The supplier is in the list with a code of the firm's series.
+  - Step 5: the order is shown again with no supplier chosen; no supplier was added.
+  - Step 6: a warning lists the supplier that looks the same. Going back keeps the form open with what was typed.
+  - Step 7: the bill is shown again with the new supplier chosen.
+  - Step 8: there is no **New vendor** button.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked

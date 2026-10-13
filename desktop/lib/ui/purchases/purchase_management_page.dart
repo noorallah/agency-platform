@@ -37,6 +37,7 @@ import '../workspace/printed_document.dart';
 import '../../models/document_framework.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
+import '../vendors/vendor_management_page.dart' show addSupplierInPlace;
 import '../../phase2/indian_format.dart';
 import 'purchase_workflow_settings_dialog.dart';
 import 'reorder_planning_dialog.dart';
@@ -634,6 +635,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         mode: mode,
         order: order,
         vendors: _vendors,
+        canAddVendor: widget.permissions.hasPermission('VENDOR_CREATE'),
+        onVendorAdded: (Vendor added) {
+          if (mounted) setState(() => _vendors = [..._vendors, added]);
+        },
         branches: _branches,
         warehouses: _warehouses,
         products: _products,
@@ -2578,7 +2583,17 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
     required this.canSubmit,
     required this.canApprove,
     this.uoms = const <UomRecord>[],
+    this.canAddVendor = false,
+    this.onVendorAdded,
   });
+
+  /// Whether **New supplier** is offered beside the supplier box of a new
+  /// order (backlog 128): the user holds `VENDOR_CREATE`.
+  final bool canAddVendor;
+
+  /// Told of a supplier added from this order, so the list behind it knows
+  /// the name too.
+  final ValueChanged<Vendor>? onVendorAdded;
 
   final ApiClient api;
   final PermissionService permissions;
@@ -2691,6 +2706,26 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
 
   void _setState(VoidCallback change) => setState(change);
 
+  /// Suppliers added from this order (backlog 128), offered after the ones
+  /// the order was opened with.
+  final List<Vendor> _addedVendors = <Vendor>[];
+
+  List<Vendor> get _vendorChoices => _addedVendors.isEmpty
+      ? widget.vendors
+      : [...widget.vendors, ..._addedVendors];
+
+  /// Open the supplier form over the order and choose the supplier it saved.
+  Future<void> _addVendor() async {
+    final Vendor? added = await addSupplierInPlace(context, api: widget.api);
+    if (added == null || !mounted) return;
+    widget.onVendorAdded?.call(added);
+    setState(() {
+      _addedVendors.add(added);
+      _draft = _draft.copyWith(vendorId: added.id);
+    });
+    _schedulePreview();
+  }
+
   /// D-BUY-39: whether the currency box was typed in. Until it is, a new
   /// order shows the supplier's own currency and sends it, because the server
   /// holds only what the client sends and does not default it.
@@ -2698,7 +2733,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
 
   /// The currency of the supplier's account; blank is rupees.
   String get _supplierCurrency {
-    for (final Vendor item in widget.vendors) {
+    for (final Vendor item in _vendorChoices) {
       if (item.id == _draft.vendorId) return item.currencyCode;
     }
     return '';

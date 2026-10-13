@@ -697,6 +697,50 @@ String _familyCell(Vendor vendor) {
   return '';
 }
 
+/// Add a supplier from a document that is being typed (backlog 128): the
+/// supplier form opens over the document, on the document's own navigator,
+/// and closing it shows the document again with nothing typed lost. The same
+/// form, duplicate warning and create call as the Suppliers screen. Returns
+/// the supplier saved, or null when the form was closed without saving. The
+/// server asks `VENDOR_CREATE`; a caller offers this only to somebody who
+/// holds it.
+Future<Vendor?> addSupplierInPlace(
+  BuildContext context, {
+  required ApiClient api,
+}) async {
+  Vendor? created;
+  await Navigator.of(context).push<Object?>(
+    PageRouteBuilder<Object?>(
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      // The full-page form of the new UI, whatever is above the navigator
+      // this lands on: only the new UI's documents offer the action.
+      pageBuilder: (pageContext, _, __) => Phase2Scope(
+        child: SelectionArea(
+          child: _VendorEditorDialog(
+            api: api,
+            searchParents: (text) =>
+                api.vendors(search: text).then((page) => page.items),
+            onSave: (Json data) async {
+              created = await saveUnlessDuplicate<Vendor>(
+                pageContext,
+                noun: 'supplier',
+                check: () => api.vendorDuplicates(
+                  name: '${data['name'] ?? ''}',
+                  phone: '${data['phone'] ?? ''}',
+                  gstin: '${data['gstin'] ?? ''}',
+                ),
+                save: () => api.createVendor(data),
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+  return created;
+}
+
 class _VendorEditorDialog extends StatefulWidget {
   const _VendorEditorDialog({
     required this.api,

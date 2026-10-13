@@ -46,7 +46,8 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     if (widget.isCreating &&
-        (widget.vendors.isEmpty || widget.products.isEmpty)) {
+        ((_vendorChoices.isEmpty && !widget.canAddVendor) ||
+            widget.products.isEmpty)) {
       return const StandardEmptyState(
         type: EmptyStateType.noRecords,
         title: 'Nothing to order yet',
@@ -474,7 +475,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
   }
 
   Vendor? get _vendor {
-    for (final Vendor item in widget.vendors) {
+    for (final Vendor item in _vendorChoices) {
       if (item.id == _draft.vendorId) return item;
     }
     return null;
@@ -606,8 +607,12 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
         label: 'Vendor (type code, name or phone)',
         width: 420,
         below: vendor == null ? null : _vendorLine(context, vendor),
+        // Built again when a supplier is added from here, so the box shows
+        // the new name: a DropdownMenu reads its selection only once.
         child: DropdownMenu<String>(
-          key: const ValueKey('purchase-order-vendor'),
+          key: _addedVendors.isEmpty
+              ? const ValueKey('purchase-order-vendor')
+              : ValueKey('purchase-order-vendor-${_addedVendors.length}'),
           initialSelection: _draft.vendorId.isEmpty ? null : _draft.vendorId,
           width: 420,
           enabled: !_locked,
@@ -623,7 +628,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(5)),
           ),
           dropdownMenuEntries: [
-            for (final Vendor item in widget.vendors)
+            for (final Vendor item in _vendorChoices)
               DropdownMenuEntry<String>(
                 value: item.id,
                 label: withPlace(
@@ -637,6 +642,19 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           },
         ),
       ),
+      // Backlog 128: a supplier not in the list yet is added without
+      // leaving the order.
+      if (widget.isCreating && widget.canAddVendor && !_locked)
+        DocumentField(
+          label: '',
+          width: 150,
+          child: OutlinedButton.icon(
+            key: const ValueKey('purchase-order-new-supplier'),
+            onPressed: _saving ? null : () => unawaited(_addVendor()),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New vendor'),
+          ),
+        ),
       DocumentField(
         label: 'Order date',
         auto: widget.isCreating,
