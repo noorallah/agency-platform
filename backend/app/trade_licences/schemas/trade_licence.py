@@ -151,6 +151,10 @@ class TradeLicenceSettingsWrite(TradeLicenceSchema):
 
     sale_enforcement: LicenceEnforcement
     purchase_enforcement: LicenceEnforcement
+    #: Row F8: on, a shop under a parent buyer -- and a supplier's branch --
+    #: is judged on its own licences alone. Absent leaves the firm's choice
+    #: as it is, so a client written before the switch cannot clear it.
+    shop_needs_own_licence: bool | None = None
 
     @model_validator(mode="after")
     def _purchase_never_blocks(self) -> "TradeLicenceSettingsWrite":
@@ -166,6 +170,7 @@ class TradeLicenceSettingsWrite(TradeLicenceSchema):
 class TradeLicenceSettingsResponse(TradeLicenceSettingsWrite):
     """The firm's policy, and whether the firm actually chose it."""
 
+    shop_needs_own_licence: bool
     is_configured: bool
 
 
@@ -202,6 +207,31 @@ class LicenceFinding(TradeLicenceSchema):
     valid_to: date | None = None
     line_numbers: list[int]
     product_names: list[str]
+    #: The parent buyer, or the supplier's main office, whose licences were
+    #: looked at because the party holds none of the type itself (row F8).
+    parent_name: str | None = None
+    message: str
+
+
+class LicenceParentCover(TradeLicenceSchema):
+    """Lines a party is covered for by its parent's licence, not its own.
+
+    A shop under a parent buyer that holds no licence of a type, or a
+    supplier's branch that holds none, is covered by a valid one of the
+    parent's (row F8). Nothing is short, so this is not a finding and never
+    blocks; it says whose licence was used.
+    """
+
+    party: LicenceParty
+    party_name: str
+    parent_name: str
+    licence_type_id: UUID
+    licence_type_name: str
+    licence_number: str
+    valid_from: date | None = None
+    valid_to: date | None = None
+    line_numbers: list[int]
+    product_names: list[str]
     message: str
 
 
@@ -213,6 +243,8 @@ class LicenceCheckResponse(TradeLicenceSchema):
     enforcement: LicenceEnforcement
     on: date
     findings: list[LicenceFinding]
+    #: Lines covered by a parent's licence; never a reason to stop.
+    covered_by_parent: list[LicenceParentCover] = Field(default_factory=list)
     #: True when the firm's policy refuses the document as it stands.
     would_block: bool
     #: Every finding in one paragraph, or null when there are none.

@@ -2132,7 +2132,11 @@ sale*.
 the firm's, a branch's, a customer's or a supplier's, with their validity
 dates -- whose numbers print on invoices and whose expiry is raised on Home; a
 product or category can require one, and the sale (and purchase) then warns or
-blocks as the firm sets. *Licence Types* and *Licence Check* are set up under
+blocks as the firm sets. A shop under a parent buyer that holds no licence of
+the kind needed is covered by its parent's, and a supplier's branch by its
+main office's; the check and the document's history say whose was used, and
+*A shop must hold its own licence* on *Licence Check* switches that off.
+*Licence Types* and *Licence Check* are set up under
 *Settings → Set up → Party lists*.
 
 - **Branches**: places that trade, each with its address, GST registration

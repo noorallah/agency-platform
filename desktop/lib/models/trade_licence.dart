@@ -127,6 +127,7 @@ class TradeLicenceSettingsRecord {
     required this.saleEnforcement,
     required this.purchaseEnforcement,
     required this.isConfigured,
+    this.shopNeedsOwnLicence = false,
   });
 
   /// OFF, WARN or BLOCK.
@@ -139,6 +140,11 @@ class TradeLicenceSettingsRecord {
   /// server's own default of warn on both sides.
   final bool isConfigured;
 
+  /// Row F8. Off, a shop under a parent buyer that holds no licence of a
+  /// type is covered by its parent's, and a supplier's branch by its main
+  /// office's. On, each is judged on its own alone.
+  final bool shopNeedsOwnLicence;
+
   factory TradeLicenceSettingsRecord.fromJson(Json json) {
     final String sale = stringValue(json['sale_enforcement']);
     final String purchase = stringValue(json['purchase_enforcement']);
@@ -146,22 +152,26 @@ class TradeLicenceSettingsRecord {
       saleEnforcement: sale.isEmpty ? 'WARN' : sale,
       purchaseEnforcement: purchase.isEmpty ? 'WARN' : purchase,
       isConfigured: boolValue(json['is_configured']),
+      shopNeedsOwnLicence: boolValue(json['shop_needs_own_licence']),
     );
   }
 
   Json toJson() => {
         'sale_enforcement': saleEnforcement,
         'purchase_enforcement': purchaseEnforcement,
+        'shop_needs_own_licence': shopNeedsOwnLicence,
       };
 
   TradeLicenceSettingsRecord copyWith({
     String? saleEnforcement,
     String? purchaseEnforcement,
+    bool? shopNeedsOwnLicence,
   }) =>
       TradeLicenceSettingsRecord(
         saleEnforcement: saleEnforcement ?? this.saleEnforcement,
         purchaseEnforcement: purchaseEnforcement ?? this.purchaseEnforcement,
         isConfigured: isConfigured,
+        shopNeedsOwnLicence: shopNeedsOwnLicence ?? this.shopNeedsOwnLicence,
       );
 }
 
@@ -228,6 +238,7 @@ class LicenceCheckRecord {
     required this.findings,
     required this.wouldBlock,
     required this.message,
+    this.coveredByParent = const <String>[],
   });
 
   /// SALE or PURCHASE.
@@ -246,6 +257,11 @@ class LicenceCheckRecord {
   /// Every finding in one paragraph, or null when there are none.
   final String? message;
 
+  /// Row F8: one sentence per group of lines a party is covered for by its
+  /// parent's licence, having none of the type itself. Never a reason to
+  /// stop; it says whose licence was used.
+  final List<String> coveredByParent;
+
   factory LicenceCheckRecord.fromJson(Json json) => LicenceCheckRecord(
         direction: stringValue(json['direction']),
         enforcement: stringValue(json['enforcement']),
@@ -261,5 +277,10 @@ class LicenceCheckRecord {
         wouldBlock: boolValue(json['would_block']),
         message:
             json['message'] == null ? null : stringValue(json['message']),
+        coveredByParent: (json['covered_by_parent'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => stringValue(item['message']))
+            .where((text) => text.isNotEmpty)
+            .toList(),
       );
 }

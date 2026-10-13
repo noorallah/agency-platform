@@ -161,6 +161,27 @@ class _LicenceCheckSettingsPageState extends State<LicenceCheckSettingsPage> {
                     _settings = _settings.copyWith(purchaseEnforcement: value),
               ),
             ),
+            const SizedBox(height: AppSpacing.lg),
+            Text('Shops and branches', style: theme.textTheme.titleSmall),
+            SwitchListTile(
+              key: const ValueKey('licence-shop-needs-own'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: _settings.shopNeedsOwnLicence,
+              onChanged: _mayManage && _read && !_saving
+                  ? (value) => setState(
+                        () => _settings =
+                            _settings.copyWith(shopNeedsOwnLicence: value),
+                      )
+                  : null,
+              title: const Text('A shop must hold its own licence'),
+              subtitle: const Text(
+                "Off: a shop with no licence of the kind needed is covered "
+                "by its parent's, and a supplier's branch by its main "
+                "office's; the check says whose was used. On: each is "
+                'checked on its own.',
+              ),
+            ),
             if (!_mayManage) ...[
               const SizedBox(height: AppSpacing.lg),
               const _Notice(

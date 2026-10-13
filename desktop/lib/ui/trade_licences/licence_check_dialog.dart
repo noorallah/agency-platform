@@ -38,6 +38,11 @@ class LicenceCheckOutcome {
 /// [confirmCreditExposure]'s rule for the same reason: warn when nothing is
 /// going to stop you, and let the stop speak for itself when something is.
 ///
+/// A line covered by a parent's licence (row F8) is not a finding and does
+/// not open the dialog: nothing is short, and the server writes whose licence
+/// was used on the document's timeline. Where the dialog opens for another
+/// reason, those lines are listed under what was found.
+///
 /// [document] is one of SALES_ORDER, DELIVERY_NOTE, SALES_INVOICE,
 /// PURCHASE_ORDER or GOODS_RECEIPT.
 Future<LicenceCheckOutcome> confirmLicenceCheck(
@@ -130,6 +135,24 @@ class LicenceCheckDialog extends StatelessWidget {
                   ],
                 ),
               ),
+            if (check.coveredByParent.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                "Covered by a parent's licence",
+                style: theme.textTheme.labelMedium,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              for (final String cover in check.coveredByParent)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                  child: Text(
+                    cover,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
             if (blocked && !canOverride) ...[
               const SizedBox(height: AppSpacing.sm),
               Text(

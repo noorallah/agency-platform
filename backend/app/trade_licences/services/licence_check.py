@@ -14,6 +14,13 @@ on the document's own date, never today's, so a licence that lapsed after an
 order was dated does not condemn it and one that starts next week does not
 cover it.
 
+**A shop under a parent buyer** (row F8) is asked for its own licence of the
+type first. Where it holds none of that type at all, its parent's counts,
+judged on the same date, and the result says the parent's was used; a shop
+that holds one of its own, valid or not, is judged on its own. A supplier's
+branch and its main office work the same way on the purchase check. The firm
+setting ``shop_needs_own_licence`` switches the parent off for both.
+
 What happens then is the firm's policy (``trade_licence_settings``): warn by
 default, block if the firm chooses -- the sale side only. A blocked approval
 can be overridden by a holder of ``TRADE_LICENCE_OVERRIDE`` who gives a
@@ -28,7 +35,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch
@@ -50,6 +57,7 @@ from app.trade_licences.schemas import (
     LicenceCheckResponse,
     LicenceEnforcement,
     LicenceFinding,
+    LicenceParentCover,
     LicenceParty,
     LicenceShortfall,
     LicenceStanding,
@@ -95,6 +103,11 @@ class _Holder:
     party: LicenceParty
     name: str
     licences: list[TradeLicence]
+    #: The parent buyer or main office whose licences stand in for a type
+    #: this holder has none of; None where there is none, or the firm asks
+    #: each shop for its own.
+    parent_name: str | None = None
+    parent_licences: tuple[TradeLicence, ...] = ()
 
 
 def _ancestors(
@@ -140,11 +153,13 @@ class LicenceCheckService:
             return TradeLicenceSettingsResponse(
                 sale_enforcement=LicenceEnforcement.WARN,
                 purchase_enforcement=LicenceEnforcement.WARN,
+                shop_needs_own_licence=False,
                 is_configured=False,
             )
         return TradeLicenceSettingsResponse(
             sale_enforcement=LicenceEnforcement(stored.sale_enforcement),
             purchase_enforcement=LicenceEnforcement(stored.purchase_enforcement),
+            shop_needs_own_licence=stored.shop_needs_own_licence,
             is_configured=True,
         )
 
@@ -155,15 +170,22 @@ class LicenceCheckService:
         row = self._stored_settings(firm_id)
         before: dict[str, object] | None = None
         if row is None:
-            row = TradeLicenceSettings(firm_id=firm_id, created_by=actor_id)
+            row = TradeLicenceSettings(
+                firm_id=firm_id, created_by=actor_id, shop_needs_own_licence=False
+            )
             self._session.add(row)
         else:
             before = {
                 "sale_enforcement": row.sale_enforcement,
                 "purchase_enforcement": row.purchase_enforcement,
+                "shop_needs_own_licence": row.shop_needs_own_licence,
             }
         row.sale_enforcement = data.sale_enforcement.value
         row.purchase_enforcement = data.purchase_enforcement.value
+        # Absent means leave alone: a client older than the switch sends
+        # the two policies only.
+        if data.shop_needs_own_licence is not None:
+            row.shop_needs_own_licence = data.shop_needs_own_licence
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -181,6 +203,7 @@ class LicenceCheckService:
             after_data={
                 "sale_enforcement": row.sale_enforcement,
                 "purchase_enforcement": row.purchase_enforcement,
+                "shop_needs_own_licence": row.shop_needs_own_licence,
             },
         )
         self._session.commit()
@@ -352,12 +375,25 @@ class LicenceCheckService:
         policy = self.settings_response(firm_id)
         enforcement = policy.sale_enforcement
         if enforcement is LicenceEnforcement.OFF:
-            return self._result("SALE", enforcement, on, [])
-        customer_name = (
-            self._session.scalar(
-                select(Customer.display_name).where(Customer.id == customer_id)
+            return self._result("SALE", enforcement, on, [], [])
+        customer = self._session.execute(
+            select(Customer.display_name, Customer.parent_customer_id).where(
+                Customer.id == customer_id
             )
-            or "The customer"
+        ).one_or_none()
+        customer_name = (customer.display_name if customer else None) or (
+            "The customer"
+        )
+        parent_id = customer.parent_customer_id if customer else None
+        parent_name, parent_licences = (
+            (None, ())
+            if parent_id is None
+            else self._parent(
+                policy,
+                firm_id,
+                select(Customer.display_name).where(Customer.id == parent_id),
+                TradeLicence.customer_id == parent_id,
+            )
         )
         branch_name = (
             self._session.scalar(
@@ -379,6 +415,8 @@ class LicenceCheckService:
                 LicenceParty.CUSTOMER,
                 customer_name,
                 self._licences(firm_id, TradeLicence.customer_id == customer_id),
+                parent_name,
+                parent_licences,
             ),
             _Holder(
                 LicenceParty.SELLER,
@@ -386,8 +424,8 @@ class LicenceCheckService:
                 list(self._session.scalars(seller_query).all()),
             ),
         ]
-        findings = self._findings(firm_id, on=on, lines=lines, holders=holders)
-        return self._result("SALE", enforcement, on, findings)
+        findings, covers = self._findings(firm_id, on=on, lines=lines, holders=holders)
+        return self._result("SALE", enforcement, on, findings, covers)
 
     def check_purchase(
         self,
@@ -401,22 +439,54 @@ class LicenceCheckService:
         policy = self.settings_response(firm_id)
         enforcement = policy.purchase_enforcement
         if enforcement is LicenceEnforcement.OFF:
-            return self._result("PURCHASE", enforcement, on, [])
-        vendor_name = (
-            self._session.scalar(
-                select(Vendor.display_name).where(Vendor.id == vendor_id)
+            return self._result("PURCHASE", enforcement, on, [], [])
+        vendor = self._session.execute(
+            select(Vendor.display_name, Vendor.parent_vendor_id).where(
+                Vendor.id == vendor_id
             )
-            or "The vendor"
+        ).one_or_none()
+        vendor_name = (vendor.display_name if vendor else None) or "The vendor"
+        parent_id = vendor.parent_vendor_id if vendor else None
+        parent_name, parent_licences = (
+            (None, ())
+            if parent_id is None
+            else self._parent(
+                policy,
+                firm_id,
+                select(Vendor.display_name).where(Vendor.id == parent_id),
+                TradeLicence.vendor_id == parent_id,
+            )
         )
         holders = [
             _Holder(
                 LicenceParty.VENDOR,
                 vendor_name,
                 self._licences(firm_id, TradeLicence.vendor_id == vendor_id),
+                parent_name,
+                parent_licences,
             )
         ]
-        findings = self._findings(firm_id, on=on, lines=lines, holders=holders)
-        return self._result("PURCHASE", enforcement, on, findings)
+        findings, covers = self._findings(firm_id, on=on, lines=lines, holders=holders)
+        return self._result("PURCHASE", enforcement, on, findings, covers)
+
+    def _parent(
+        self,
+        policy: TradeLicenceSettingsResponse,
+        firm_id: UUID,
+        name_of_parent: Select[tuple[str]],
+        holds: object,
+    ) -> tuple[str | None, tuple[TradeLicence, ...]]:
+        """Return a parent's name and licences, where they may stand in.
+
+        Nothing where the firm asks each shop for its own: the party is then
+        judged alone, as one with no parent is.
+        """
+        if policy.shop_needs_own_licence:
+            return None, ()
+        name = self._session.scalar(name_of_parent)
+        if name is None:
+            return None, ()
+        return name, tuple(self._licences(firm_id, holds))
 
     def _licences(self, firm_id: UUID, condition: object) -> list[TradeLicence]:
         """Return a party's live licences."""
@@ -437,11 +507,11 @@ class LicenceCheckService:
         on: date,
         lines: list[LicenceLine],
         holders: list[_Holder],
-    ) -> list[LicenceFinding]:
+    ) -> tuple[list[LicenceFinding], list[LicenceParentCover]]:
         """Group the lines by the type they need; ask each holder for each type."""
         needed = self.required_types(firm_id, {line.product_id for line in lines})
         if not needed:
-            return []
+            return [], []
         by_type: dict[UUID, list[LicenceLine]] = defaultdict(list)
         for line in sorted(lines, key=lambda item: item.line_number):
             licence_type_id = needed.get(line.product_id)
@@ -463,19 +533,22 @@ class LicenceCheckService:
             .all()
         )
         findings: list[LicenceFinding] = []
+        covers: list[LicenceParentCover] = []
         for holder in holders:
             for licence_type_id, type_lines in by_type.items():
                 licence_type = types[licence_type_id]
-                finding = self._judge(
+                judged = self._judge(
                     holder,
                     licence_type,
                     on=on,
                     lines=type_lines,
                     product_names=names,
                 )
-                if finding is not None:
-                    findings.append(finding)
-        return findings
+                if isinstance(judged, LicenceFinding):
+                    findings.append(judged)
+                elif judged is not None:
+                    covers.append(judged)
+        return findings, covers
 
     @staticmethod
     def _judge(
@@ -485,17 +558,37 @@ class LicenceCheckService:
         on: date,
         lines: list[LicenceLine],
         product_names: dict[UUID, str],
-    ) -> LicenceFinding | None:
-        """Return why a holder's licences of one type do not cover a day."""
+    ) -> LicenceFinding | LicenceParentCover | None:
+        """Return why a holder's licences of one type do not cover a day.
+
+        Or, where the holder has none of the type and its parent's covers
+        the day, that the parent's was used.
+        """
         held = [
             licence
             for licence in holder.licences
             if licence.licence_type_id == licence_type.id
         ]
+        # The holder's own comes first: only one with none of the type at
+        # all is judged on its parent's (row F8).
+        from_parent = not held and holder.parent_name is not None
+        if from_parent:
+            held = [
+                licence
+                for licence in holder.parent_licences
+                if licence.licence_type_id == licence_type.id
+            ]
+        owner = (
+            f"{holder.name} holds no {licence_type.name}; its parent "
+            f"{holder.parent_name}'s"
+            if from_parent
+            else f"{holder.name}'s"
+        )
         standings = [
             (licence, standing_of(licence, licence_type, on=on)[0]) for licence in held
         ]
-        if any(standing in _COVERING for _, standing in standings):
+        covering = [licence for licence, standing in standings if standing in _COVERING]
+        if covering and not from_parent:
             return None
         line_numbers = [line.line_number for line in lines]
         products = list(
@@ -507,6 +600,25 @@ class LicenceCheckService:
             else "Lines " + ", ".join(str(number) for number in line_numbers)
         )
         where += f" ({', '.join(products)})"
+        if covering:
+            # The one that runs longest is the one named and printed.
+            used = max(covering, key=lambda item: item.valid_to or date.max)
+            return LicenceParentCover(
+                party=holder.party,
+                party_name=holder.name,
+                parent_name=holder.parent_name or "",
+                licence_type_id=licence_type.id,
+                licence_type_name=licence_type.name,
+                licence_number=used.licence_number,
+                valid_from=used.valid_from,
+                valid_to=used.valid_to,
+                line_numbers=line_numbers,
+                product_names=products,
+                message=(
+                    f"{where}: {owner} {licence_type.name} "
+                    f"{used.licence_number} was used."
+                ),
+            )
         not_yet = [
             licence
             for licence, standing in standings
@@ -522,23 +634,28 @@ class LicenceCheckService:
             shown = min(not_yet, key=lambda item: item.valid_from or date.max)
             shortfall = LicenceShortfall.NOT_YET_VALID
             why = (
-                f"{holder.name}'s {licence_type.name} {shown.licence_number} "
+                f"{owner} {licence_type.name} {shown.licence_number} "
                 f"is valid only from {shown.valid_from.isoformat()}"
                 if shown.valid_from is not None
-                else f"{holder.name}'s {licence_type.name} is not yet valid"
+                else f"{owner} {licence_type.name} is not yet valid"
             )
         elif expired:
             shown = max(expired, key=lambda item: item.valid_to or date.min)
             shortfall = LicenceShortfall.EXPIRED
             why = (
-                f"{holder.name}'s {licence_type.name} {shown.licence_number} "
+                f"{owner} {licence_type.name} {shown.licence_number} "
                 f"expired on {shown.valid_to.isoformat()}"
                 if shown.valid_to is not None
-                else f"{holder.name}'s {licence_type.name} has expired"
+                else f"{owner} {licence_type.name} has expired"
             )
         else:
             shortfall = LicenceShortfall.MISSING
-            why = f"{holder.name} holds no {licence_type.name}"
+            why = (
+                f"{holder.name} holds no {licence_type.name}, and neither "
+                f"does its parent {holder.parent_name}"
+                if from_parent
+                else f"{holder.name} holds no {licence_type.name}"
+            )
         return LicenceFinding(
             party=holder.party,
             party_name=holder.name,
@@ -550,6 +667,7 @@ class LicenceCheckService:
             valid_to=None if shown is None else shown.valid_to,
             line_numbers=line_numbers,
             product_names=products,
+            parent_name=holder.parent_name if from_parent else None,
             message=f"{where}: {why}.",
         )
 
@@ -559,6 +677,7 @@ class LicenceCheckService:
         enforcement: LicenceEnforcement,
         on: date,
         findings: list[LicenceFinding],
+        covers: list[LicenceParentCover],
     ) -> LicenceCheckResponse:
         """Wrap the findings with the policy's verdict."""
         return LicenceCheckResponse(
@@ -566,6 +685,7 @@ class LicenceCheckService:
             enforcement=enforcement,
             on=on,
             findings=findings,
+            covered_by_parent=covers,
             would_block=bool(findings) and enforcement is LicenceEnforcement.BLOCK,
             message=" ".join(item.message for item in findings) or None,
         )
@@ -582,9 +702,17 @@ class LicenceCheckService:
         warns, an override when it blocked and a reason was given, nothing
         when every line is covered. Whether the caller may override is the
         router's question -- it holds the principal.
+
+        A line covered by a parent's licence stops nothing, and the timeline
+        still says whose licence was used.
         """
+        covers = [item.model_dump(mode="json") for item in result.covered_by_parent]
+        used = " ".join(item.message for item in result.covered_by_parent)
+        cover_details: dict[str, object] = (
+            {"licence_parent_cover": {"covers": covers}} if covers else {}
+        )
         if not result.findings:
-            return None, None
+            return (used, cover_details) if covers else (None, None)
         findings = [item.model_dump(mode="json") for item in result.findings]
         if result.would_block:
             reason = (override_reason or "").strip()
@@ -600,7 +728,11 @@ class LicenceCheckService:
                     "licence_override": {
                         "reason": reason,
                         "findings": findings,
-                    }
+                    },
+                    **cover_details,
                 },
             )
-        return result.message, {"licence_warning": {"findings": findings}}
+        return (
+            f"{result.message} {used}".strip(),
+            {"licence_warning": {"findings": findings}, **cover_details},
+        )

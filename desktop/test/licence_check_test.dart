@@ -372,6 +372,12 @@ void main() {
       find.widgetWithText(TextField, 'Product name *'),
       'Paracetamol',
     );
+    // A product always has a brand (backlog 138): without one the form
+    // refuses the save before anything is sent.
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Brand *'),
+      'Calpol',
+    );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('product-licence-type')));
     await tester.pumpAndSettle();

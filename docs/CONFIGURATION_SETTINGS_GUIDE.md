@@ -714,6 +714,7 @@ holding a valid licence, and the seller must hold one too.
 | --- | --- | --- |
 | Sales | **Warn** | Checked when an order, delivery note or invoice is approved. A licensed product sold to a buyer with no valid licence (missing, expired or not yet valid) is a finding. *Warn*: approval goes ahead. *Block*: refused unless approved with an override reason. |
 | Purchases | **Warn** | Order and goods receipt approval warn when the supplier holds no valid licence. **Only Off or Warn**: the goods have already arrived. |
+| A shop must hold its own licence | **Off** | Off: a shop under a parent buyer that holds no licence of the kind needed is covered by its parent's valid one, and a supplier's branch by its main office's; the check says whose was used and the approval's history keeps it. A shop that holds one of its own, even a lapsed one, is checked on its own. On: each shop and each branch is checked on its own alone. |
 
 ---
 
