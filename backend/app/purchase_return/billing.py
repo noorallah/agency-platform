@@ -38,10 +38,11 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from app.debit_note.models import DebitNote, DebitNoteLine, DebitNoteStatus
+from app.finance.currency import rupee_rate_sql
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.purchase_return.models import (
     PurchaseReturn,
@@ -645,6 +646,114 @@ def standing_against(
             totals.items(), key=lambda item: (item[0][0], item[0][1], str(item[0][2]))
         )
     ]
+
+
+def moved_onto_other_bills(
+    *,
+    firm_id: UUID,
+    return_ids: Sequence[UUID] | None = None,
+    invoice_ids: Sequence[UUID] | None = None,
+    vendor_id: UUID | None = None,
+    as_of: date | None = None,
+) -> Select[tuple[UUID, date, str, UUID, UUID, Decimal, Decimal]]:
+    """Select what returns raised off one bill took off another (D-BUY-69).
+
+    A return raised off a bill line takes that line's units first, and where
+    a return off the goods receipt was already placed on them, the rest come
+    off the other bills of the same receipt line (``placing_order``). Its
+    units were counted there and its money was not: every reader of what a
+    bill still owes took the whole line off the bill it **names**, so the
+    named bill read settled for units it still held and the other read owed
+    for units that had gone back. The totals agreed and neither bill did.
+
+    One row per completed return, bill named and bill the units fell on,
+    where those differ: the line's value with its tax, by the share of its
+    taxable value placed there -- ``amount`` in the return's currency and
+    ``rupees`` at the named bill's own rate, as the return's journal posted
+    it (D-BUY-41). A reader takes the row off the named bill and puts it on
+    the other. No row for a return that stayed on the bill it names, which
+    is nearly every one.
+
+    Args:
+        firm_id: The firm.
+        return_ids: Only these returns, where given.
+        invoice_ids: Only rows that leave or reach these bills, where given.
+        vendor_id: Only this supplier's returns, where given.
+        as_of: Only returns dated on or before this day, where given.
+
+    Returns:
+        The statement: ``return_id``, ``return_date``, ``return_number``,
+        ``named_bill_id``, ``onto_bill_id``, ``amount``, ``rupees``.
+
+    """
+    named = aliased(PurchaseInvoice)
+    taxable = PurchaseReturnLine.net_amount - PurchaseReturnLine.tax_amount
+    moved = (
+        PurchaseReturnLine.net_amount
+        * PurchaseReturnBillPlacement.taxable_amount
+        / taxable
+    )
+    statement = (
+        select(
+            PurchaseReturn.id.label("return_id"),
+            PurchaseReturn.return_date.label("return_date"),
+            PurchaseReturn.return_number.label("return_number"),
+            PurchaseReturnLine.source_document_id.label("named_bill_id"),
+            PurchaseInvoiceLine.purchase_invoice_id.label("onto_bill_id"),
+            func.sum(moved).label("amount"),
+            func.sum(
+                moved * rupee_rate_sql(named.currency_code, named.exchange_rate)
+            ).label("rupees"),
+        )
+        .select_from(PurchaseReturnBillPlacement)
+        .join(
+            PurchaseReturnLine,
+            PurchaseReturnLine.id
+            == PurchaseReturnBillPlacement.purchase_return_line_id,
+        )
+        .join(
+            PurchaseReturn,
+            PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+        )
+        .join(
+            PurchaseInvoiceLine,
+            PurchaseInvoiceLine.id
+            == PurchaseReturnBillPlacement.purchase_invoice_line_id,
+        )
+        .join(named, named.id == PurchaseReturnLine.source_document_id)
+        .where(
+            PurchaseReturnBillPlacement.firm_id == firm_id,
+            PurchaseReturnBillPlacement.is_deleted.is_(False),
+            PurchaseReturnLine.is_deleted.is_(False),
+            PurchaseReturnLine.source_document_type == _BILL,
+            PurchaseInvoiceLine.purchase_invoice_id
+            != PurchaseReturnLine.source_document_id,
+            taxable > 0,
+            PurchaseReturn.is_deleted.is_(False),
+            PurchaseReturn.status.in_(COMPLETED),
+        )
+        .group_by(
+            PurchaseReturn.id,
+            PurchaseReturn.return_date,
+            PurchaseReturn.return_number,
+            PurchaseReturnLine.source_document_id,
+            PurchaseInvoiceLine.purchase_invoice_id,
+        )
+    )
+    if return_ids is not None:
+        statement = statement.where(PurchaseReturn.id.in_(list(return_ids)))
+    if invoice_ids is not None:
+        statement = statement.where(
+            or_(
+                PurchaseReturnLine.source_document_id.in_(list(invoice_ids)),
+                PurchaseInvoiceLine.purchase_invoice_id.in_(list(invoice_ids)),
+            )
+        )
+    if vendor_id is not None:
+        statement = statement.where(PurchaseReturn.vendor_id == vendor_id)
+    if as_of is not None:
+        statement = statement.where(PurchaseReturn.return_date <= as_of)
+    return statement
 
 
 def returns_resting_on(session: Session, *, invoice_id: UUID) -> set[UUID]:

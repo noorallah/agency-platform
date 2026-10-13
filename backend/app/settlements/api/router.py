@@ -77,6 +77,7 @@ from app.settlements.services.supplier_credits import (
     live_refunds,
     refund_supplier_credit,
     reverse_supplier_refund,
+    standing_credit_warning,
     supplier_credits,
 )
 
@@ -1194,9 +1195,15 @@ def record_payment(
     )
     db.commit()
     db.refresh(row)
-    return ApiResponse(
-        data=_to_response(service, row), message="Payment recorded and posted."
-    )
+    response = _to_response(service, row)
+    # Said, not refused (D-BUY-71): bills paid while supplier credit stands.
+    if response.allocations and row.vendor_id is not None:
+        warning = standing_credit_warning(
+            db, firm_id=scope.firm_id, vendor_id=row.vendor_id
+        )
+        if warning is not None:
+            response = response.model_copy(update={"warnings": [warning]})
+    return ApiResponse(data=response, message="Payment recorded and posted.")
 
 
 @payments_router.post(

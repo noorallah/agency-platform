@@ -174,6 +174,42 @@ def supplier_credits(
     ]
 
 
+def standing_credit_warning(
+    session: Session, *, firm_id: UUID, vendor_id: UUID
+) -> str | None:
+    """Say what supplier credit stands beside a payment just set against bills.
+
+    A return raised off a goods receipt does not come off its bill: it
+    stands as credit until somebody sets it against one. The bill therefore
+    reads owed in full, and paying it in full leaves the supplier owing the
+    firm the credit (D-BUY-71: a bill of 1,699.20 paid while 849.60 of it
+    had gone back). The payment is **not refused** -- paying a supplier
+    ahead is the firm's to decide, and the credit may be meant for another
+    bill -- but whoever records it is told, by whichever client they use.
+
+    Returns:
+        One sentence naming the credit, or None where the supplier holds
+        none.
+
+    """
+    standing = [
+        credit
+        for credit in supplier_credits(session, firm_id=firm_id, vendor_id=vendor_id)
+        if credit.available_amount > ZERO
+    ]
+    if not standing:
+        return None
+    total = sum((credit.available_amount for credit in standing), ZERO)
+    numbers = ", ".join(credit.return_number for credit in standing)
+    return (
+        f"This supplier holds {quantize_ledger(total)} of supplier credit "
+        f"({numbers}) that this payment did not use. Bills paid in full "
+        "beside it leave the supplier owing the firm that much: set the "
+        "credit against a bill with Supplier credits, or record its refund "
+        "when the supplier pays it back."
+    )
+
+
 def _all_credits(
     session: Session,
     *,
@@ -604,8 +640,12 @@ def _bill_parts(
     Newest document first, returns and debit notes together, the order in
     which a bill that cannot absorb them all turns them into credit. Narrowed
     to some sources, some bills, or both.
+
+    A return's line is counted on the bill its units fell on, which is not
+    always the bill it names (``moved_onto_other_bills``, D-BUY-69).
     """
     from app.debit_note.models import DebitNote
+    from app.purchase_return.billing import moved_onto_other_bills
     from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 
     statement = (
@@ -671,16 +711,32 @@ def _bill_parts(
     ):
         key = (header.purchase_return_id, header.purchase_invoice_id)
         headers[key] = headers.get(key, ZERO) + header.amount
+    lines: dict[tuple[UUID, UUID], Decimal] = {}
+    raised: dict[UUID, tuple[date, str]] = {}
+    for return_id, bill_id, amount, on, number in session.execute(statement).all():
+        lines[(return_id, bill_id)] = Decimal(str(amount))
+        raised[return_id] = (on, number)
+    wanted = None if invoice_ids is None else set(invoice_ids)
+    for moved in session.execute(
+        moved_onto_other_bills(
+            firm_id=firm_id, return_ids=source_ids, invoice_ids=invoice_ids
+        )
+    ).all():
+        value = Decimal(str(moved.rupees))
+        raised[moved.return_id] = (moved.return_date, moved.return_number)
+        for bill_id, sign in ((moved.named_bill_id, -1), (moved.onto_bill_id, 1)):
+            if wanted is not None and bill_id not in wanted:
+                continue
+            key = (moved.return_id, bill_id)
+            lines[key] = lines.get(key, ZERO) + sign * value
     parts: list[tuple[date, str, UUID, UUID, Decimal]] = [
         (
-            on,
-            number,
+            *raised[return_id],
             return_id,
             bill_id,
-            quantize_ledger(Decimal(str(amount)))
-            + headers.get((return_id, bill_id), ZERO),
+            quantize_ledger(amount) + headers.get((return_id, bill_id), ZERO),
         )
-        for return_id, bill_id, amount, on, number in session.execute(statement).all()
+        for (return_id, bill_id), amount in lines.items()
     ]
     # Counted as the bill counts it: each part rounded to the ledger, summed.
     parts.extend(

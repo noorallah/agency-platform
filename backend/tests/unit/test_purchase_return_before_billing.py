@@ -61,8 +61,16 @@ from app.purchase_return.services.purchase_return_service import (
 )
 from app.sales.models import GeoCountry
 from app.settlements.models import SupplierCreditApplication
+from app.settlements.schemas import (
+    SettlementAllocationWrite,
+    SettlementCreate,
+    SettlementMethodEnum,
+)
 from app.settlements.services.settlement_service import PaymentService
-from app.settlements.services.supplier_credits import supplier_credits
+from app.settlements.services.supplier_credits import (
+    standing_credit_warning,
+    supplier_credits,
+)
 from app.tax.schemas import (
     TaxComponentWrite,
     TaxProfileWrite,
@@ -1768,3 +1776,156 @@ def test_a_header_charge_is_shared_over_the_bills_a_return_names() -> None:
     assert _credit(fixture, sent.id) == D("0")
     assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("-60.00")
     assert _payables(fixture) == (D("0.00"), D("60.00"), D("0.00"))
+
+
+def _pay(fixture: _Fixture, bill: PurchaseInvoice, amount: str) -> None:
+    """Pay ``amount`` to the supplier against one bill, by bank."""
+    PaymentService(fixture.session).create(
+        SettlementCreate(
+            party_id=bill.vendor_id,
+            settlement_date=date(2026, 8, 9),
+            amount=D(amount),
+            method=SettlementMethodEnum.BANK,
+            allocations=[
+                SettlementAllocationWrite(invoice_id=bill.id, amount=D(amount))
+            ],
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    fixture.session.commit()
+
+
+def test_a_return_that_spilled_onto_a_second_bill_comes_off_that_bill() -> None:
+    """A unit off the receipt, then one on the first bill's own line (D-BUY-69).
+
+    The first return was placed on the first bill and stands as credit; the
+    second names the first bill and its unit fell on the second. Record
+    Payment took the second return's 118.00 off the bill it names, so the
+    first bill read settled with a unit of it still unclaimed there and the
+    second read owed for a unit that had gone back.
+    """
+    fixture, receipt, bills = _parts("B69A", 2, None)
+    first = _back(fixture, receipt, bills, "r")
+    assert _owes(fixture) == {bills[0].id: D("118.00"), bills[1].id: D("118.00")}
+
+    second = _back(fixture, receipt, bills, "0")
+
+    # The money follows the units: off the second bill, where they fell.
+    assert _owes(fixture) == {bills[0].id: D("118.00")}
+    assert _credit(fixture, first) == D("118.00")
+    assert _credit(fixture, second) == D("0")
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("0.00")
+    assert _payables(fixture)[1:] == (D("0.00"), D("0.00"))
+
+
+def test_a_return_that_spills_onto_a_paid_bill_leaves_its_value_as_credit() -> None:
+    """The second bill is paid before the unit falls on it (D-BUY-69, D-BUY-20).
+
+    A paid bill has nothing left for the return to come off, so the whole
+    of it is the supplier's to give back -- read on the bill the units fell
+    on, not on the one the return names, which still owes its 118.00.
+    """
+    fixture, receipt, bills = _parts("B69P", 2, None)
+    first = _back(fixture, receipt, bills, "r")
+    _pay(fixture, bills[1], "118")
+    assert _owes(fixture) == {bills[0].id: D("118.00")}
+
+    second = _back(fixture, receipt, bills, "0")
+
+    assert _owes(fixture) == {bills[0].id: D("118.00")}
+    assert _credit(fixture, first) == D("118.00")
+    assert _credit(fixture, second) == D("118.00")
+    # Bills 236.00, paid 118.00, returned 236.00: the supplier owes 118.00.
+    assert _net(fixture.session, fixture.firm.id, TRADE_PAYABLES) == D("118.00")
+
+
+def test_a_return_that_stayed_on_its_own_bill_moves_nothing() -> None:
+    """Both units off the bill that billed them: nothing reaches the other."""
+    fixture, receipt, bills = _parts("B69N", 2, None)
+    _back(fixture, receipt, bills, "0")
+    assert _owes(fixture) == {bills[1].id: D("118.00")}
+    _back(fixture, receipt, bills, "1")
+    assert _owes(fixture) == {}
+
+
+def test_a_debit_note_refused_for_a_draft_return_says_it_is_held() -> None:
+    """A return saved off the bill, nothing gone back, then a debit note.
+
+    The draft holds the bill line's value so both cannot be raised in full,
+    and the refusal called that "200.00 already returned" (D-BUY-72).
+    """
+    fixture, receipt = _received("B72D", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-72")
+    waiting = _raise_return(fixture, "2", bill=bill)
+
+    with pytest.raises(ValidationError) as refusal:
+        _debit_note(fixture, bill, "40", approve=False)
+    assert str(refusal.value.message) == (
+        "A debit note cannot claim more than is left of the bill line: 200.00 "
+        "billed, 0.00 already claimed, 0.00 already returned, 200.00 held by "
+        f"purchase return {_return_number(fixture, waiting)}, not completed "
+        "yet. Complete or cancel what holds it, or claim less."
+    )
+    fixture.session.rollback()
+
+    # Once the goods have gone back it is said as returned, as before.
+    _complete(fixture, waiting)
+    with pytest.raises(ValidationError) as gone:
+        _debit_note(fixture, bill, "40", approve=False)
+    assert str(gone.value.message) == (
+        "A debit note cannot claim more than is left of the bill line: 200.00 "
+        "billed, 0.00 already claimed, 200.00 already returned."
+    )
+    fixture.session.rollback()
+
+
+def test_part_held_and_part_returned_are_said_apart() -> None:
+    """One unit gone back and one in a draft: 100.00 returned, 100.00 held."""
+    fixture, receipt = _received("B72P", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-72P")
+    _complete(fixture, _raise_return(fixture, "1", bill=bill))
+    waiting = _raise_return(fixture, "1", bill=bill)
+
+    with pytest.raises(ValidationError) as refusal:
+        _debit_note(fixture, bill, "40", approve=False)
+    assert str(refusal.value.message) == (
+        "A debit note cannot claim more than is left of the bill line: 200.00 "
+        "billed, 0.00 already claimed, 100.00 already returned, 100.00 held by "
+        f"purchase return {_return_number(fixture, waiting)}, not completed "
+        "yet. Complete or cancel what holds it, or claim less."
+    )
+    fixture.session.rollback()
+
+
+def test_paying_a_bill_beside_a_standing_credit_is_said() -> None:
+    """One of two units back off the receipt, then the bill paid in full.
+
+    The return stands as credit and the bill reads owed in full; the
+    payment is taken, and whoever records it is told what it left the
+    supplier owing (D-BUY-71).
+    """
+    fixture, receipt = _received("B71W", "2")
+    bill = _bill(fixture, receipt, "2", number="SUP-71")
+    vendor_id = bill.vendor_id
+    assert (
+        standing_credit_warning(
+            fixture.session, firm_id=fixture.firm.id, vendor_id=vendor_id
+        )
+        is None
+    )
+    return_id = _raise_return(fixture, "1", receipt=receipt)
+    _complete(fixture, return_id)
+    assert _owes(fixture) == {bill.id: D("236.00")}
+
+    _pay(fixture, bill, "236")
+
+    assert standing_credit_warning(
+        fixture.session, firm_id=fixture.firm.id, vendor_id=vendor_id
+    ) == (
+        "This supplier holds 118.00 of supplier credit "
+        f"({_return_number(fixture, return_id)}) that this payment did not "
+        "use. Bills paid in full beside it leave the supplier owing the firm "
+        "that much: set the credit against a bill with Supplier credits, or "
+        "record its refund when the supplier pays it back."
+    )

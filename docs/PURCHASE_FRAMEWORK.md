@@ -714,6 +714,31 @@ against a bill of 1,699.20, Trade Payables 472.00 in debit and input tax of
 - **Not changed:** what a bill still *owes* in Record Payment. A return
   raised off the receipt does not come off its bill there; it stands as a
   supplier credit to set against it, as before.
+- **Paying a bill beside that credit is said, not refused** (D-BUY-71,
+  2026-10-13). The bill reads owed in full, so it can be paid in full
+  and the supplier then owes the firm the credit. The answer to
+  `POST /api/v1/payments` carries `warnings` when the payment was set
+  against bills and the supplier still holds credit: one sentence with
+  the amount and the returns it came from (`standing_credit_warning`).
+  Refusing would enforce a rule the firm did not choose -- paying ahead
+  is its decision, and the credit may be meant for another bill. The
+  Record Payment screen shows the same notice before saving (D-FIN-19).
+- **A return raised off a bill comes off the bill its units fell on**
+  (D-BUY-69, 2026-10-13). Where a return off the receipt was already
+  placed on the bill a later return names, that return's units fall on
+  the next bill of the receipt line, and its money used to stay on the
+  bill named: two bills of 118.00, the named one read settled and the
+  other owed 118.00 for a unit that had gone back.
+  `moved_onto_other_bills` (`app/purchase_return/billing.py`) reads the
+  difference from the stored placements, and what a bill still owes and
+  what a paid bill could not absorb both apply it. The payables report
+  still ages the value under the bill named; the supplier's total is
+  the same either way.
+- **A debit note refused for an open return says so** (D-BUY-72,
+  2026-10-13). A return raised off a bill line holds that value from the
+  day it is saved. The refusal now says what has gone back and what is
+  only held, and names the return: "0.00 already returned, 200.00 held
+  by purchase return PR-..., not completed yet".
 - **A return's header figures come off the bill as well as the account**
   (D-PRC-83, 2026-10-06, the buying twin of D-PRC-74;
   `return_header_parts` in `app/settlements/services/supplier_credits.py`).

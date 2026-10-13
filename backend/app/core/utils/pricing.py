@@ -421,32 +421,6 @@ def apportion(total: Decimal, weights: list[Decimal]) -> list[Decimal]:
     return shares
 
 
-def inherited_share(amount: Decimal, *, part: Decimal, whole: Decimal) -> Decimal:
-    """Return the part of a source line's discount share a later line inherits.
-
-    A downstream document inherits an *amount* pro-rated by the share of the
-    source line it covers -- a receipt of 4 of an ordered 10 takes four tenths
-    of the order line's share of the whole-order discount -- where a *rate*
-    would be inherited as itself. Capped at the whole: covering more than the
-    source line never inherits more than the source line was given.
-
-    Args:
-        amount: The source line's share.
-        part: The quantity this line covers.
-        whole: The source line's quantity the share was computed on.
-
-    Returns:
-        The inherited share, quantised to money; zero when there is nothing to
-        inherit or nothing to pro-rate against.
-
-    """
-    if amount <= ZERO or part <= ZERO or whole <= ZERO:
-        return ZERO
-    if part >= whole:
-        return quantize_money(amount)
-    return quantize_money(amount * part / whole)
-
-
 def continued_share(
     amount: Decimal, *, before: Decimal, part: Decimal, whole: Decimal
 ) -> Decimal:
