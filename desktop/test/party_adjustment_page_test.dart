@@ -25,6 +25,7 @@ PermissionService _permissions({
     'PARTY_ADJUSTMENT_VIEW',
     'PARTY_ADJUSTMENT_MANAGE',
     'PARTY_ADJUSTMENT_APPROVE',
+    'CLEARANCE_DISCOUNT_GIVE',
   ],
 }) =>
     PermissionService()
@@ -460,5 +461,39 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('pa-limits-save')));
     await tester.pumpAndSettle();
     expect(api.limitsSaved?['clearance_discount_percent'], '5');
+  });
+
+  testWidgets(
+      'without CLEARANCE_DISCOUNT_GIVE the ceiling is shown, not changed',
+      (tester) async {
+    final _AdjustmentApi api = _AdjustmentApi(rows: <Json>[_adjustment()]);
+    await _pump(
+      tester,
+      api,
+      permissions: _permissions(perms: const <String>[
+        'PARTY_ADJUSTMENT_VIEW',
+        'PARTY_ADJUSTMENT_MANAGE',
+        'PARTY_ADJUSTMENT_APPROVE',
+      ]),
+    );
+    await tester.tap(find.byKey(const ValueKey('toolbar-more')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('toolbar-command-limits-menu')));
+    await tester.pumpAndSettle();
+
+    final TextField ceiling = tester
+        .widget<TextField>(find.byKey(const ValueKey('pa-limit-clearance')));
+    expect(ceiling.enabled, isFalse);
+    expect(find.textContaining('or change this figure'), findsOneWidget);
+
+    // The other two limits are still theirs, and the ceiling is not sent.
+    await tester.enterText(
+        find.byKey(const ValueKey('pa-limit-threshold')), '2500');
+    await tester.tap(find.byKey(const ValueKey('pa-limits-save')));
+    await tester.pumpAndSettle();
+    expect(api.limitsSaved, <String, dynamic>{
+      'approval_threshold': '2500',
+      'rounding_limit': '10.00',
+    });
   });
 }

@@ -79,6 +79,11 @@ class _PartyAdjustmentPageState extends State<PartyAdjustmentPage> {
   bool get _mayApprove =>
       widget.permissions.hasPermission('PARTY_ADJUSTMENT_APPROVE');
 
+  /// Waiving part of a due at collection, and the ceiling on it, is a code
+  /// of its own that the firm's administrator alone holds.
+  bool get _mayGiveClearance =>
+      widget.permissions.hasPermission('CLEARANCE_DISCOUNT_GIVE');
+
   @override
   void initState() {
     super.initState();
@@ -222,7 +227,11 @@ class _PartyAdjustmentPageState extends State<PartyAdjustmentPage> {
   Future<void> _limits() async {
     await showDialog<Object>(
       context: context,
-      builder: (_) => _LimitsDialog(api: widget.api, mayEdit: _mayApprove),
+      builder: (_) => _LimitsDialog(
+        api: widget.api,
+        mayEdit: _mayApprove,
+        mayEditClearance: _mayApprove && _mayGiveClearance,
+      ),
     );
   }
 
@@ -528,10 +537,17 @@ double _number(String value) => double.tryParse(value.trim()) ?? 0;
 /// The firm's two limits: when a second approver is needed, and how much a
 /// rounding may be on a receipt or payment.
 class _LimitsDialog extends StatefulWidget {
-  const _LimitsDialog({required this.api, required this.mayEdit});
+  const _LimitsDialog({
+    required this.api,
+    required this.mayEdit,
+    required this.mayEditClearance,
+  });
 
   final ApiClient api;
   final bool mayEdit;
+
+  /// The clearance ceiling moves only for whoever may give the discount.
+  final bool mayEditClearance;
 
   @override
   State<_LimitsDialog> createState() => _LimitsDialogState();
@@ -628,16 +644,18 @@ class _LimitsDialogState extends State<_LimitsDialog> with SaveInDialog {
                   TextField(
                     key: const ValueKey('pa-limit-clearance'),
                     controller: _clearance,
-                    enabled: widget.mayEdit,
+                    enabled: widget.mayEditClearance,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Clearance discount, up to %',
                       helperText: 'The most of a due that may be waived as a '
                           'discount on a receipt, beyond the customer\'s '
-                          'terms. Blank sets no ceiling. Only someone who '
-                          'may approve adjustments can give one.',
-                      helperMaxLines: 4,
+                          'terms. Blank sets no ceiling. Only the firm\'s '
+                          'administrator can give one'
+                          '${widget.mayEditClearance ? '.' : ', or change '
+                              'this figure.'}',
+                      helperMaxLines: 5,
                     ),
                   ),
                   if (_isDefault)
@@ -675,10 +693,12 @@ class _LimitsDialogState extends State<_LimitsDialog> with SaveInDialog {
                         <String, dynamic>{
                           'approval_threshold': _threshold.text.trim(),
                           'rounding_limit': _rounding.text.trim(),
-                          'clearance_discount_percent':
-                              _clearance.text.trim().isEmpty
-                                  ? null
-                                  : _clearance.text.trim(),
+                          // Left out, the server keeps what the firm has.
+                          if (widget.mayEditClearance)
+                            'clearance_discount_percent':
+                                _clearance.text.trim().isEmpty
+                                    ? null
+                                    : _clearance.text.trim(),
                         },
                       ),
                     ),

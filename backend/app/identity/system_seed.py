@@ -239,6 +239,12 @@ PERMISSION_GROUPS = {
         # off is profit given away; the role that clears balances must not
         # be the one that decides how much it may clear alone.
         "PARTY_ADJUSTMENT_APPROVE",
+        # Waiving part of a due as a discount when collecting it, beyond the
+        # cash discount the customer's terms earn, and setting the firm's
+        # ceiling on it (row F4). A code of its own so the firm's
+        # administrator holds it alone: `FIRM_MANAGER` approves a write-off
+        # and is not given this.
+        "CLEARANCE_DISCOUNT_GIVE",
     ),
     "batch_serial": (
         "BATCH_VIEW",
@@ -653,9 +659,9 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     # routing.
     | frozenset({"SETTINGS_VIEW", "SETTINGS_UPDATE", "AUDIT_LOG_VIEW"})
     | _codes("firm_audit"),
-    "FIRM_MANAGER": _operational_permissions
-    - _firm_administration
-    - frozenset({"LICENSE_MANAGE"}),
+    "FIRM_MANAGER": _operational_permissions - _firm_administration
+    # A clearance discount at collection is the administrator's alone (F4).
+    - frozenset({"LICENSE_MANAGE", "CLEARANCE_DISCOUNT_GIVE"}),
     "ACCOUNTANT": _codes("accounting", "commission", "expenses", "report")
     | frozenset(
         {

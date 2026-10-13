@@ -787,8 +787,9 @@ reversal does. Decided by convention:
   owner's to give** (backlog 115, 2026-10-13). Up to the cash discount the
   customer's terms earn on the bills a receipt clears, whoever records the
   receipt gives it. The rest is part of a due waived to get the rest in:
-  it needs `PARTY_ADJUSTMENT_APPROVE` -- the code that agrees to a
-  write-off, which no selling or collecting role is given -- and stays
+  it needs `CLEARANCE_DISCOUNT_GIVE` -- a code of its own since row F4,
+  held by the firm's administrator alone; the firm manager, who agrees to
+  a write-off, is refused -- and stays
   within the firm's clearance percentage of what the receipt allocates
   (`party_adjustment_settings.clearance_discount_percent`; blank is no
   ceiling, 0 is none at all). It posts exactly as any discount allowed
