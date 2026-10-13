@@ -5,6 +5,7 @@
 import 'dart:convert';
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/models/bill_paper.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/document_framework/document_steps.dart';
@@ -41,7 +42,20 @@ class _CounterApi extends ApiClient {
   final List<String> lookups = <String>[];
 
   @override
-  Future<List<int>> salesInvoicePdf(String id, {bool referenceCopy = false}) {
+  Future<BillPaper> salesInvoicePaper(String id) async => const BillPaper(
+        firmPaper: 'A4',
+        customerPaper: null,
+        paper: 'A4',
+        fitsHalfPage: true,
+        mayChoose: false,
+      );
+
+  @override
+  Future<List<int>> salesInvoicePdf(
+    String id, {
+    bool referenceCopy = false,
+    String? paper,
+  }) {
     calls.add('pdf:$id');
     return Future<List<int>>.value(<int>[1, 2, 3]);
   }

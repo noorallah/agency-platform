@@ -10,7 +10,7 @@ same reason.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from uuid import UUID
 
@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import BusinessRuleError, ResourceNotFoundError
 from app.core.utils.chunks import chunks
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
@@ -46,6 +46,7 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
     render_together,
+    settled_paper,
 )
 from app.sales_invoice.services.upi_qr import UpiPayment, upi_payment
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -280,6 +281,25 @@ def stated_invoice_lines(
     }
 
 
+HALF_PAGE = "HALF"
+FULL_PAGE = "A4"
+
+
+@dataclass(frozen=True)
+class BillPaper:
+    """The paper one bill prints on, said before it is printed.
+
+    ``paper`` is what comes out when nobody chooses; ``may_choose`` says
+    whether the person printing may ask for the other one.
+    """
+
+    firm_paper: str
+    customer_paper: str | None
+    paper: str
+    fits_half_page: bool
+    may_choose: bool
+
+
 class SalesInvoicePrintService:
     """Render one invoice, with the firm's template around it."""
 
@@ -289,7 +309,12 @@ class SalesInvoicePrintService:
 
     # ------------------------------------------------------------------
     def render(
-        self, invoice_id: UUID, *, firm_scope: UUID, reference_copy: bool = False
+        self,
+        invoice_id: UUID,
+        *,
+        firm_scope: UUID,
+        reference_copy: bool = False,
+        paper: str | None = None,
     ) -> tuple[bytes, str]:
         """Return the PDF bytes and the filename to offer them under.
 
@@ -297,10 +322,58 @@ class SalesInvoicePrintService:
         (77 row 6); before then only as a reference copy, under a banner
         saying it is not a valid tax invoice.
 
+        ``paper`` is the choice of the person printing, for this print alone:
+        ``HALF`` or ``A4`` where the firm prints on half pages (backlog 151).
+
         Raises:
             ResourceNotFoundError: When the firm has no such invoice.
             BusinessRuleError: When the invoice needs an IRN it does not have
-                and no reference copy was asked for.
+                and no reference copy was asked for, or a paper is asked for
+                that the firm does not print on.
+
+        """
+        invoice = self._invoice(invoice_id, firm_scope=firm_scope)
+        template, document = self._prepared(
+            invoice, firm_scope=firm_scope, reference_copy=reference_copy, paper=paper
+        )
+        pdf = InvoicePdfRenderer(template).render(document)
+        safe = invoice.invoice_number.replace("/", "-").replace(" ", "-")
+        return pdf, f"{safe}.pdf"
+
+    def paper_for(self, invoice_id: UUID, *, firm_scope: UUID) -> BillPaper:
+        """Return the paper this bill needs, for the screen to say first.
+
+        A firm that cuts its sheets in two keeps the halves in the printer's
+        tray, and a full-page bill sent there is cut off: the person printing
+        has to know before the sheet moves.
+
+        Raises:
+            ResourceNotFoundError: When the firm has no such invoice.
+
+        """
+        invoice = self._invoice(invoice_id, firm_scope=firm_scope)
+        template, document = self._prepared(
+            invoice, firm_scope=firm_scope, reference_copy=True
+        )
+        firm_paper = self._template(firm_scope).page_size.upper()
+        on_half_pages = firm_paper == HALF_PAGE
+        fits = on_half_pages and (
+            settled_paper(replace(template, page_size=HALF_PAGE), document).page_size
+            == HALF_PAGE
+        )
+        return BillPaper(
+            firm_paper=firm_paper,
+            customer_paper=self._customer_paper(invoice) if on_half_pages else None,
+            paper=settled_paper(template, document).page_size.upper(),
+            fits_half_page=fits,
+            may_choose=fits,
+        )
+
+    def _invoice(self, invoice_id: UUID, *, firm_scope: UUID) -> SalesInvoice:
+        """Return the firm's invoice.
+
+        Raises:
+            ResourceNotFoundError: When the firm has no such invoice.
 
         """
         invoice = self._session.scalar(
@@ -312,12 +385,46 @@ class SalesInvoicePrintService:
         )
         if invoice is None:
             raise ResourceNotFoundError("Sales invoice not found.")
-        template, document = self._prepared(
-            invoice, firm_scope=firm_scope, reference_copy=reference_copy
+        return invoice
+
+    def _customer_paper(self, invoice: SalesInvoice) -> str | None:
+        """Return the paper the bill's customer is set to, if any."""
+        paper = self._session.scalar(
+            select(Customer.bill_page_size).where(Customer.id == invoice.customer_id)
         )
-        pdf = InvoicePdfRenderer(template).render(document)
-        safe = invoice.invoice_number.replace("/", "-").replace(" ", "-")
-        return pdf, f"{safe}.pdf"
+        return paper or None
+
+    def _paper(
+        self, template: TemplateSettings, invoice: SalesInvoice, asked: str | None
+    ) -> str:
+        """Return the paper one bill is laid out for.
+
+        The firm's paper decides. Only a firm on half pages reads anything
+        else: the choice made at printing, then the customer's own paper. A
+        firm on full pages prints every bill on one, whatever the customer is
+        set to (the owner, 2026-10-13).
+
+        Raises:
+            BusinessRuleError: When a paper is asked for that the firm does
+                not print on.
+
+        """
+        firm_paper = template.page_size.upper()
+        if firm_paper != HALF_PAGE:
+            if asked is not None and asked.upper() != firm_paper:
+                raise BusinessRuleError(
+                    "The paper is chosen at printing only where the firm prints "
+                    "its bills on half pages. Change the paper under Print "
+                    "settings."
+                )
+            return template.page_size
+        if asked is not None:
+            if asked.upper() not in (HALF_PAGE, FULL_PAGE):
+                raise BusinessRuleError(
+                    "A bill prints on a half page or on a full page."
+                )
+            return asked.upper()
+        return self._customer_paper(invoice) or template.page_size
 
     def render_many(
         self, invoice_ids: Sequence[UUID], *, firm_scope: UUID
@@ -355,13 +462,19 @@ class SalesInvoicePrintService:
         return render_together(items, title="Sales invoices"), "sales-invoices.pdf"
 
     def _prepared(
-        self, invoice: SalesInvoice, *, firm_scope: UUID, reference_copy: bool
+        self,
+        invoice: SalesInvoice,
+        *,
+        firm_scope: UUID,
+        reference_copy: bool,
+        paper: str | None = None,
     ) -> tuple[TemplateSettings, InvoiceDocument]:
         """Return the template and the document one invoice prints with.
 
         Raises:
             BusinessRuleError: When the invoice needs an IRN it does not have
-                and no reference copy was asked for.
+                and no reference copy was asked for, or a paper is asked
+                for that the firm does not print on.
 
         """
         from app.einvoice.services.issue_gate import (
@@ -383,13 +496,9 @@ class SalesInvoicePrintService:
             refuse_without_irn(no_irn)
 
         template = self._template(firm_scope)
-        # The customer's own paper outranks the firm's (backlog 118): one
-        # buyer files full pages while the rest take the half-page bill.
-        paper = self._session.scalar(
-            select(Customer.bill_page_size).where(Customer.id == invoice.customer_id)
-        )
-        if paper:
-            template = replace(template, page_size=paper)
+        # On a half-page firm one buyer may file full pages, and the person
+        # printing may switch this one print (backlogs 118 and 151).
+        template = replace(template, page_size=self._paper(template, invoice, paper))
         document = self._document(invoice, firm_scope=firm_scope)
         if no_irn is not None:
             document = replace(document, not_final=REFERENCE_COPY_BANNER)

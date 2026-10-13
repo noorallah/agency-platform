@@ -2,7 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import (
@@ -1268,6 +1268,16 @@ class InvoicePrintRunRequest(BaseModel):
     invoice_ids: list[UUID] = Field(min_length=1, max_length=MAX_PRINT_RUN)
 
 
+class InvoicePaperResponse(BaseModel):
+    """The paper one bill prints on, for the screen to say before printing."""
+
+    firm_paper: str
+    customer_paper: str | None
+    paper: str
+    fits_half_page: bool
+    may_choose: bool
+
+
 @router.post("/bulk-print", response_class=StreamingResponse)
 def print_sales_invoices(
     data: InvoicePrintRunRequest,
@@ -1301,6 +1311,7 @@ def print_sales_invoice(
     scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
     reference_copy: Annotated[bool, Query()] = False,
+    paper: Annotated[Literal["HALF", "A4"] | None, Query()] = None,
 ) -> StreamingResponse:
     """Render one invoice as the PDF a customer is sent.
 
@@ -1310,9 +1321,16 @@ def print_sales_invoice(
 
     A B2B invoice the firm must e-invoice is refused until it has its IRN
     (77 row 6); ``reference_copy`` prints it marked not valid instead.
+
+    ``paper`` switches this one print between a half page and a full one,
+    where the firm prints on half pages (backlog 151). A bill too long for
+    half a page still prints on a full page by itself.
     """
     pdf, filename = SalesInvoicePrintService(db).render(
-        invoice_id, firm_scope=scope.firm_id, reference_copy=reference_copy
+        invoice_id,
+        firm_scope=scope.firm_id,
+        reference_copy=reference_copy,
+        paper=paper,
     )
     return StreamingResponse(
         iter([pdf]),
@@ -1420,3 +1438,26 @@ def delete_sales_invoice_file(
         actor_id=scope.actor_id,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{invoice_id}/print/paper")
+def sales_invoice_paper(
+    invoice_id: UUID,
+    scope: SalesInvoiceViewScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> ApiResponse[InvoicePaperResponse]:
+    """Say which paper this bill prints on, before it is printed.
+
+    A firm on half pages keeps half sheets in the printer's tray, and a
+    full-page bill sent there is cut off (backlog 151).
+    """
+    found = SalesInvoicePrintService(db).paper_for(invoice_id, firm_scope=scope.firm_id)
+    return ApiResponse(
+        data=InvoicePaperResponse(
+            firm_paper=found.firm_paper,
+            customer_paper=found.customer_paper,
+            paper=found.paper,
+            fits_half_page=found.fits_half_page,
+            may_choose=found.may_choose,
+        )
+    )

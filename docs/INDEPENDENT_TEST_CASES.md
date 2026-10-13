@@ -4223,7 +4223,7 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   - Step 4: full A4 pages, though the firm prints half pages.
   - Step 5: one file. A's short bill is half pages, A's long bill full pages, B's bill full pages, in the order of the list.
   - Step 6: full A4 pages.
-  - Step 7: half pages, though the firm prints full pages.
+  - Step 7: full A4 pages. A firm that prints full pages does not read the customer's paper (changed 2026-10-14, backlog 151).
   - Step 8: full A4 pages.
 - **Leaves:** the firm's paper at A4; B on full pages.
 
@@ -4495,6 +4495,38 @@ commission uses `commission-firm`:
 | --- | --- |
 | `loyalty-points` | `selling-invoiced` — Vijaya's invoice for 483.21 — plus **200 points** credited to Vijaya by adjustment |
 | `commission-firm` | `territory-firm` plus: firm-wide **4%** of money collected; **Asha 15%** on `<SUFFIX>-P` only; **Bala** a ladder (2% to 50,000 then 4%, nothing below 1,000, 2% bonus when his target is met). Asha sold 20 `-P` (2,360.00) and 30 `-Q` (3,540.00); Bala 40 `-Q` (4,720.00); **all collected** today. This month's targets: Asha 1,000 (met), Bala 100,000 (missed) |
+
+
+### TC-SELL-109 — Print says which paper the bill needs, and one print can be switched between half and full
+
+*Added 2026-10-14 (backlog 151, row P1). The server was driven over HTTP on a fixture firm; the box on screen is covered by widget tests only and **no screen was clicked**, so those steps are written from the build. Nothing was put through a printer.*
+
+- **Covers:** backlog 151 (customer task P1, PRT-2)
+- **Fixture:** `ready-firm`
+- **Also needs:** a product **P** with stock; two customers, **A** (Bill paper: Firm's setting) and **B**. Where the firm types orders and delivery notes, each bill below continues a note.
+- **Steps**
+  1. With the firm's **Paper** at **A4** under *Print settings*, open customer B, set **Bill paper** to **Half page** and save. Raise and approve a one-line bill for B. Choose *Print*.
+  2. Set **Paper** to **Half page (half of A4)** under *Print settings*. Raise and approve a one-line bill for A. Choose *Print*.
+  3. In the box choose **Full page** and then *Print*.
+  4. Choose *Print* on the same bill again and look at the box.
+  5. Open customer B, set **Bill paper** to **Full page (A4)** and save. Choose *Print* on B's bill.
+  6. In the box choose **Half page** and then *Print*.
+  7. Raise and approve a bill for A with sixty lines. Choose *Print*.
+  8. Choose *Print* on any bill and then *Cancel* in the box.
+  9. Tick A's short bill and B's bill and choose *Print selected*.
+  10. Set **Paper** back to **A4**.
+- **Expect**
+  - Step 1: no box. The bill prints on full A4 pages, though B is set to half a page.
+  - Step 2: a box titled *Print* and the bill's number says the bill prints on a **Half page**, and to check the paper in the printer's tray. **Half page** is chosen, **Full page** is offered.
+  - Step 3: full A4 pages.
+  - Step 4: the box opens on **Half page** again: the choice of step 3 was for that print alone.
+  - Step 5: the box says the bill prints on a **Full page** because this customer's bills are set to a full page. **Full page** is chosen, **Half page** is offered.
+  - Step 6: half pages.
+  - Step 7: the box says the bill prints on a **Full page** because it is too long for half a page. Nothing is offered to choose. It prints on full A4 pages.
+  - Step 8: nothing prints and no message is shown.
+  - Step 9: no box. One file: A's bill on half pages, B's on full pages.
+- **Also true, by the server:** `paper=HALF` asked of a firm on A4 is refused (*The paper is chosen at printing only where the firm prints its bills on half pages.*).
+- **Leaves:** the firm's paper at A4; B on full pages.
 
 ### TC-INCENT-001 — A price list is a ladder, and a promotion still outranks it
 

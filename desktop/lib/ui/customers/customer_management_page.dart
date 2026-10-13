@@ -2427,7 +2427,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
                 initialValue: _billPageSize,
                 decoration: const InputDecoration(
                   labelText: 'Bill paper',
-                  helperText: "Which paper this customer's bills print on.",
+                  helperText:
+                      'Read where the firm prints its bills on half pages.',
                 ),
                 items: const [
                   DropdownMenuItem(value: '', child: Text("Firm's setting")),
