@@ -8459,3 +8459,86 @@ firm with a second user holding the Sales Executive role (42 checks).
 - No screen was clicked in the running app.
 - The Counter Sales (point of sale) screen was not changed; it completes a
   bill in its own way and its user needs what it needed before.
+
+---
+
+## 120. Approval per document type, buying side -- built 2026-10-13
+
+Customer task M2 (`docs/CUSTOMER_BUILD_TASKS.md`), the twin of section 119.
+The owner's decision of 2026-10-12 says the buying side is exactly the same:
+the purchase order, the goods receipt and the supplier's bill.
+
+**What was there.** A firm already chose which buying documents its people
+type (*Purchase Settings*: purchase order, goods receipt), and a bill typed
+straight in raised and approved the order and completed the receipt behind
+it. An order a person typed went draft, submitted, approved, and the approval
+needed `PURCHASE_APPROVE`; so did a bill's. A buyer in a firm of one owner
+could save an order or a bill and not finish it. A goods receipt was
+different already: completing one has taken the same permission as raising
+one since D-ROLE-3, so it never had an approver.
+
+**Decided.**
+
+- **A switch per document**, in `purchase_workflow_settings`: *Purchase
+  orders wait for approval*, *Goods receipts are completed as a step of
+  their own*, *Supplier bills wait for approval*. All on for every firm until
+  somebody switches one off, so nothing changed for an existing firm.
+- **The answer is stamped on the document as it is raised**
+  (`approval_step`), as on the sales side. A document already made keeps the
+  steps it was made under.
+- **Off does not remove the approval; it says who gives it.** Whoever raised
+  the order or the bill approves it under `PURCHASE_CREATE`. Anybody else's
+  still needs `PURCHASE_APPROVE`. No request can carry the stamp.
+- **Every check approval makes is still made**, on the person who approves:
+  the approval limit of their role, the firm's approval rules (levels of
+  sign-off), the purchase budgets, the licence check, the bill's tolerance
+  over its order (which still needs its own permission to pass), the tax
+  deducted at source. A firm that sets a limit on the buyer's role still
+  stops the buyer's own order above it.
+- **The purchase order keeps Submit.** One Save on the screen is three
+  requests: save, submit, approve. Submitting still takes `PURCHASE_UPDATE`,
+  which every seeded role that raises an order holds.
+- **The goods receipt's switch covers Complete**, the only step a receipt has
+  after its Save. There is nobody to let through and nothing new to permit,
+  so the server stamps the receipt and changes no permission; the window
+  reads the stamp and shows one Save that saves and completes, which brings
+  the stock in. This is where buying differs from the delivery note, whose
+  dispatch stayed a step of its own in section 119: the note has an approval
+  apart from its dispatch and the receipt does not, and the owner named the
+  goods receipt among the documents that complete in one click.
+- **Paying a bill as it is approved** still needs `PAYMENT_CREATE`.
+
+**Built.**
+
+- Migration `20261013_0361` (firm-owned, idempotent): three columns on
+  `purchase_workflow_settings`, `approval_step` on `purchase_orders`,
+  `goods_receipts` and `purchase_invoices`, all true by default.
+- The single approve routes of the order and the bill admit
+  `PURCHASE_CREATE` and narrow it with `assert_may_approve`
+  (`app/common/scope.py`, built for section 119). Bulk approve still needs
+  the approve code.
+- The three answers carry `approval_step` and `created_by`.
+- Desktop: an **Approval** section with the three switches on *Purchase
+  Settings*; the order, receipt and bill windows show one **Save** that
+  completes the document where its switch is off; Approve in the lists is
+  offered to the author of such an order or bill.
+
+**Tested.** `tests/unit/test_purchase_approval_per_document.py` (10): the
+defaults, an omitted switch left alone, no request carrying the stamp, a
+buyer with the create code alone approving his own order and nobody else's, a
+firm with approval on stopped at it, an order keeping the steps it was made
+under, the approval limit still refusing the author, a bill typed by a firm
+of one completed with the goods in, the bill on its own switch, the receipt
+stamped from its own. Desktop: `purchase_approval_per_document_test.dart` and
+`purchase_workflow_settings_dialog_test.dart`. Driven over HTTP on a fixture
+firm with a second user holding the Purchase Executive role (60 checks).
+
+**Not done.**
+
+- Purchase returns, debit notes and purchase requisitions keep their steps as
+  they are: no switch.
+- A role with `PURCHASE_CREATE` and without `PURCHASE_UPDATE` (no seeded role
+  is one) cannot submit its own order, so it cannot complete one.
+- With the goods receipt's switch on, nothing on the server stops whoever
+  typed a receipt completing it: that was so before and is unchanged.
+- No screen was clicked in the running app.

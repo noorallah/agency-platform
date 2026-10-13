@@ -569,8 +569,15 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             branch_code=self._scope_code(branch_id),
             company_code=self._company_code(firm_id),
         )
+        from app.purchase.services.workflow_settings_service import (
+            PurchaseWorkflowService,
+        )
+
         row = PurchaseInvoice(
             firm_id=firm_id,
+            approval_step=PurchaseWorkflowService(self._session).approval_is_a_step(
+                firm_id, "purchase_invoice_approval"
+            ),
             vendor_id=vendor_id,
             branch_id=branch_id,
             business_profile_id=business_profile_id,
@@ -1923,6 +1930,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         return PurchaseInvoiceResponse(
             id=row.id,
             version=row.version,
+            created_by=row.created_by,
+            approval_step=row.approval_step,
             firm_id=row.firm_id,
             vendor_id=row.vendor_id,
             vendor_name=vendor[0] if vendor else "",

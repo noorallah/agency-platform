@@ -267,6 +267,8 @@ class _PurchaseInvoiceManagementPageState
           id: bill.id,
           number: bill.invoiceNumber,
           status: bill.status,
+          approvalStep: bill.approvalStep,
+          createdBy: bill.createdBy,
         ),
       ),
   ];
@@ -951,7 +953,14 @@ class _PurchaseInvoiceRecord {
     this.attachedFileCount = 0,
     required this.lines,
     required this.sources,
+    this.approvalStep = true,
+    this.createdBy = '',
   });
+
+  /// Backlog 120 (M2): false when approval was not a step of its own for
+  /// this bill when it was raised, and who raised it.
+  final bool approvalStep;
+  final String createdBy;
 
   final String id;
   final String invoiceNumber;
@@ -1028,6 +1037,8 @@ class _PurchaseInvoiceRecord {
               .map((item) => Map<String, dynamic>.from(item))
               .toList()
           : const [],
+      approvalStep: json['approval_step'] != false,
+      createdBy: stringValue(json['created_by']),
     );
   }
 

@@ -959,6 +959,31 @@ are off, the Purchase Orders tab when orders are off (Purchase Settings stays),
 and the bill editor offers an order picker or a supplier and product lines in
 place of the receipt picker. Purchase returns are never hidden.
 
+### Approval switches: a step a firm may leave to the author
+
+Built 2026-10-13 (`docs/BACKLOG.md` section 120), the twin of the sales
+switches in `docs/SALES_CHAIN_RULES.md`. `purchase_order_approval`,
+`goods_receipt_approval` and `purchase_invoice_approval` sit on the same row
+as the stages, all on by default; on a write an omitted one is left alone.
+The answer is **stamped on the document as it is raised** (`approval_step`),
+never read live, so a document already made keeps its steps and no request
+can carry the stamp.
+
+- **Off does not remove the approval; it says who gives it.**
+  `assert_may_approve` (`app/common/scope.py`) lets whoever raised an order
+  or a bill approve it under `PURCHASE_CREATE`, and nobody else without
+  `PURCHASE_APPROVE`. The service is the same `stage_approval`, so the
+  approver's limit, the approval rules, the budgets, the licence check and
+  the bill's tolerance all still judge it, on the person approving.
+- **An order still goes through Submit.** The window sends save, submit,
+  approve; the service still refuses to approve a draft.
+- **A goods receipt has no approver.** Completing one has taken
+  `PURCHASE_RECEIVE`, the code that raises it, since D-ROLE-3. Its switch
+  changes no permission: the receipt is stamped and the window joins
+  Complete to its Save.
+- Bulk approve still needs the approve code. An order or receipt a bill
+  raised for itself is completed by the bill, as before.
+
 ---
 
 ## Reorder suggestions (backlog 42.9, 2026-10-01)

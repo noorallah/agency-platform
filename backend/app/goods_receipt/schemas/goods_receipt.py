@@ -304,6 +304,11 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
     #: How many uploaded files the receipt carries (PG-4), so a list can show
     #: a paper clip without asking per row. Counted once for the page.
     attached_file_count: int = 0
+    #: Who raised it, and whether approval is a step of its own on this
+    #: document (backlog 120). False: whoever raised it may complete it
+    #: without the approve code, so the desktop's Save does.
+    created_by: UUID | None = None
+    approval_step: bool = True
     firm_id: UUID
     purchase_order_id: UUID
     purchase_order_number: str

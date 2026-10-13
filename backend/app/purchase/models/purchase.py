@@ -92,6 +92,12 @@ class PurchaseOrder(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default="DRAFT"
     )
+    #: Whether approval was a step of its own when this order was raised
+    #: (backlog 120), stamped from the firm's buying workflow setting. False
+    #: lets whoever raised it approve it; the checks approval runs still run.
+    approval_step: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     subtotal: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -423,6 +429,22 @@ class PurchaseWorkflowSettings(BaseEntity):
     #: (BUY-5): ``WARN`` -- the editor suggests the quantity -- or ``REFUSE``.
     order_quantity_policy: Mapped[str] = mapped_column(
         String(10), nullable=False, default="WARN", server_default="WARN"
+    )
+    #: Whether approval is a step of its own on each document (backlog 120),
+    #: the buying twin of the three on ``sales_workflow_settings``. On, as
+    #: every firm has always worked. Off, whoever raises the document
+    #: completes it in the same Save. Each document is stamped with the
+    #: answer as it is raised (``approval_step``), so switching it never
+    #: changes one already made. A goods receipt has no approver; its switch
+    #: says whether completing it is a step apart from saving it.
+    purchase_order_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    goods_receipt_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    purchase_invoice_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
 
 

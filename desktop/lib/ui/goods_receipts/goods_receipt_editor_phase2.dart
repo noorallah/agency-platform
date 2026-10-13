@@ -32,8 +32,15 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
     // Save & complete (D-BUY-22): the step that posts the stock, offered
     // beside the save so a receipt is not left a draft by somebody who took
     // saving for completing.
+    final DocumentStep<GoodsReceiptRecord>? sole =
+        soleSaveStepOf<GoodsReceiptRecord>(
+      widget.steps,
+      settingOff: _approvalOff,
+      existing: _record,
+      stampedOff: (GoodsReceiptRecord receipt) => !receipt.approvalStep,
+    );
     final DocumentStep<GoodsReceiptRecord>? complete =
-        stepAfterSave(widget.steps);
+        sole ?? stepAfterSave(widget.steps);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
@@ -41,7 +48,9 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
           if (!_saving) leaveDocument(context, result: _saved, saved: _saved != null);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
-          if (!_saving) unawaited(_save());
+          if (!_saving) {
+            unawaited(sole != null ? _saveAndStep(sole) : _save());
+          }
         },
       },
       // A scope, not a plain Focus: after a click outside a text box the
@@ -100,10 +109,14 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
                   ),
                   ...saveButtons(
                     saveKey: const ValueKey('goods-receipt-save'),
-                    saveLabel: 'Save receipt',
-                    onSave: _saving ? null : () => unawaited(_save()),
+                    saveLabel: sole != null ? 'Save' : 'Save receipt',
+                    onSave: _saving
+                        ? null
+                        : sole != null
+                            ? () => unawaited(_saveAndStep(sole))
+                            : () => unawaited(_save()),
                     stepKey: const ValueKey('goods-receipt-save-complete'),
-                    stepLabel: complete?.afterSave,
+                    stepLabel: sole != null ? null : complete?.afterSave,
                     onStep: _saving || complete == null
                         ? null
                         : () => unawaited(_saveAndStep(complete)),

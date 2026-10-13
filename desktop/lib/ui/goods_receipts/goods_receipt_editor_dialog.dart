@@ -253,9 +253,27 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
 
   bool get _isEditing => _record != null;
 
+  /// Backlog 120 (M2): the firm does not make completing a step of its own
+  /// for goods receipts, so saving a new one completes it.
+  bool _approvalOff = false;
+
+  /// One read when a new receipt's window opens. Unreadable settings leave
+  /// completing a step of its own, which is what a receipt always was.
+  Future<void> _readApprovalSetting() async {
+    try {
+      final PurchaseWorkflowSettings stages =
+          await widget.api.purchaseWorkflowSettings();
+      if (!mounted || stages.goodsReceiptApproval) return;
+      setState(() => _approvalOff = true);
+    } on Object {
+      // Left as it was.
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    if (widget.existing == null) unawaited(_readApprovalSetting());
     final GoodsReceiptRecord? current = widget.existing;
     if (current != null) {
       _receiptDate = current.receiptDate;

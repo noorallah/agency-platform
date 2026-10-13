@@ -1074,6 +1074,15 @@ approved bill too), and warns when that supplier's bill has none (a firm may
 switch the warning off) or when another bill already carries the same IRN.
 It warns and never refuses: the firm still owes the money.
 
+**A firm chooses whether a buying document waits for approval.** Under
+*Settings → Buying → Purchase Settings*, in the part called *Approval*, the
+purchase order, the goods receipt and the supplier's bill each have a switch.
+Switched off, **Save** completes the document: an order or a bill is
+approved by the person who raised it, and a goods receipt is completed and
+its stock brought in. The checks made at approval are all still made,
+approval limits and budgets among them. A change applies to documents raised
+from then on.
+
 **Bill matching tolerances.** Under *Settings → Buying → Purchase Settings →
 Bill matching* a firm sets how far a bill's price may differ from the order (a
 percentage and an amount). A bill outside the tolerance is held: only a person

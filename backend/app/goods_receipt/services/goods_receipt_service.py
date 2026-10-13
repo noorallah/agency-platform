@@ -363,8 +363,15 @@ class GoodsReceiptService(TransactionalDocumentService):
             branch_code=branch_code,
             company_code=company_code,
         )
+        from app.purchase.services.workflow_settings_service import (
+            PurchaseWorkflowService,
+        )
+
         row = GoodsReceipt(
             firm_id=firm_id,
+            approval_step=PurchaseWorkflowService(self._session).approval_is_a_step(
+                firm_id, "goods_receipt_approval"
+            ),
             purchase_order_id=purchase_order.id,
             purchase_order_number=purchase_order.po_number,
             vendor_id=purchase_order.vendor_id,

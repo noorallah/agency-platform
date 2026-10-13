@@ -702,7 +702,14 @@ class PurchaseOrder {
     this.rateContractWarning,
     this.savedCurrencyCode,
     this.savedExchangeRate,
+    this.approvalStep = true,
+    this.createdBy = '',
   });
+
+  /// Backlog 120 (M2): false when approval was not a step of its own for
+  /// this order when it was raised, and who raised it.
+  final bool approvalStep;
+  final String createdBy;
 
   /// The concurrency version the server published when this order was read;
   /// an update echoes it as `If-Match` so a save from a stale copy is refused
@@ -899,6 +906,8 @@ class PurchaseOrder {
             : null,
         savedCurrencyCode: stringValue(json['currency_code']),
         savedExchangeRate: stringValue(json['exchange_rate']),
+        approvalStep: json['approval_step'] != false,
+        createdBy: stringValue(json['created_by']),
       );
 
   PurchaseOrder copyWith({
@@ -941,6 +950,8 @@ class PurchaseOrder {
         rateContractWarning: rateContractWarning,
         savedCurrencyCode: savedCurrencyCode,
         savedExchangeRate: savedExchangeRate,
+        approvalStep: approvalStep,
+        createdBy: createdBy,
         firmId: firmId,
         branchId: branchId ?? this.branchId,
         warehouseId: warehouseId ?? this.warehouseId,
@@ -1169,7 +1180,16 @@ class PurchaseWorkflowSettings {
     this.billToleranceAmount,
     this.orderQuantityPolicy = 'WARN',
     this.budgetPolicy = 'WARN',
+    this.purchaseOrderApproval = true,
+    this.goodsReceiptApproval = true,
+    this.purchaseInvoiceApproval = true,
   });
+
+  /// Backlog 120 (M2): whether approval is a step of its own, per document.
+  /// Off means one Save completes the document. Default on.
+  final bool purchaseOrderApproval;
+  final bool goodsReceiptApproval;
+  final bool purchaseInvoiceApproval;
 
   final bool purchaseOrderStage;
   final bool goodsReceiptStage;
@@ -1231,6 +1251,9 @@ class PurchaseWorkflowSettings {
         budgetPolicy: stringValue(json['budget_policy']) == 'NEEDS_APPROVAL'
             ? 'NEEDS_APPROVAL'
             : 'WARN',
+        purchaseOrderApproval: json['purchase_order_approval'] != false,
+        goodsReceiptApproval: json['goods_receipt_approval'] != false,
+        purchaseInvoiceApproval: json['purchase_invoice_approval'] != false,
       );
 
   /// The two switches and the two bill tolerances. The server leaves an
@@ -1243,6 +1266,9 @@ class PurchaseWorkflowSettings {
         'bill_tolerance_amount': billToleranceAmount,
         'order_quantity_policy': orderQuantityPolicy,
         'budget_policy': budgetPolicy,
+        'purchase_order_approval': purchaseOrderApproval,
+        'goods_receipt_approval': goodsReceiptApproval,
+        'purchase_invoice_approval': purchaseInvoiceApproval,
       };
 
   /// [clearPercent] / [clearAmount] switch a tolerance off, which a null
@@ -1256,6 +1282,9 @@ class PurchaseWorkflowSettings {
     bool clearAmount = false,
     String? orderQuantityPolicy,
     String? budgetPolicy,
+    bool? purchaseOrderApproval,
+    bool? goodsReceiptApproval,
+    bool? purchaseInvoiceApproval,
   }) =>
       PurchaseWorkflowSettings(
         purchaseOrderStage: purchaseOrderStage ?? this.purchaseOrderStage,
@@ -1271,6 +1300,11 @@ class PurchaseWorkflowSettings {
             : billToleranceAmount ?? this.billToleranceAmount,
         orderQuantityPolicy: orderQuantityPolicy ?? this.orderQuantityPolicy,
         budgetPolicy: budgetPolicy ?? this.budgetPolicy,
+        purchaseOrderApproval:
+            purchaseOrderApproval ?? this.purchaseOrderApproval,
+        goodsReceiptApproval: goodsReceiptApproval ?? this.goodsReceiptApproval,
+        purchaseInvoiceApproval:
+            purchaseInvoiceApproval ?? this.purchaseInvoiceApproval,
       );
 }
 

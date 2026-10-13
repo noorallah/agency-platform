@@ -569,8 +569,15 @@ class PurchaseService(TransactionalDocumentService):
             branch_code=branch_code,
             company_code=company_code,
         )
+        from app.purchase.services.workflow_settings_service import (
+            PurchaseWorkflowService,
+        )
+
         row = PurchaseOrder(
             firm_id=firm_id,
+            approval_step=PurchaseWorkflowService(self._session).approval_is_a_step(
+                firm_id, "purchase_order_approval"
+            ),
             branch_id=data.branch_id,
             warehouse_id=data.warehouse_id,
             vendor_id=data.vendor_id,

@@ -94,6 +94,12 @@ class PurchaseInvoice(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default="DRAFT"
     )
+    #: Whether approval was a step of its own when this bill was raised
+    #: (backlog 120), stamped from the firm's buying workflow setting. False
+    #: lets whoever raised it approve it; the checks approval runs still run.
+    approval_step: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     total_source_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

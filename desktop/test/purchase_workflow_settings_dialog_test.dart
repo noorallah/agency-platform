@@ -119,7 +119,44 @@ void main() {
       'bill_tolerance_amount': null,
       'order_quantity_policy': 'WARN',
       'budget_policy': 'WARN',
+      'purchase_order_approval': true,
+      'goods_receipt_approval': true,
+      'purchase_invoice_approval': true,
     });
+  });
+
+  testWidgets('the three approval switches load, change and are sent',
+      (tester) async {
+    // Backlog 120 (M2): approval as a step of its own, per document kind.
+    final _StagesApi api = _StagesApi(failReads: 0);
+    await _open(tester, api);
+
+    expect(find.text('Approval'), findsOneWidget);
+    for (final String key in const [
+      'purchase-order-approval-switch',
+      'goods-receipt-approval-switch',
+      'purchase-invoice-approval-switch',
+    ]) {
+      final Finder toggle = find.byKey(ValueKey(key));
+      await tester.ensureVisible(toggle);
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    }
+    for (final String key in const [
+      'purchase-order-approval-switch',
+      'purchase-invoice-approval-switch',
+    ]) {
+      final Finder toggle = find.byKey(ValueKey(key));
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.saved.single['purchase_order_approval'], isFalse);
+    expect(api.saved.single['goods_receipt_approval'], isTrue);
+    expect(api.saved.single['purchase_invoice_approval'], isFalse);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('switching receipts on switches orders on with it',

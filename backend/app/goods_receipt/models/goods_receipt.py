@@ -83,6 +83,13 @@ class GoodsReceipt(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default="DRAFT"
     )
+    #: Whether approval was a step of its own when this receipt was raised
+    #: (backlog 120), stamped from the firm's buying workflow setting. A
+    #: receipt has no approver: false means the Save that raises it also
+    #: completes it, which the same code has always allowed.
+    approval_step: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     #: The supplier bill that raised this receipt because the firm switched the
     #: goods-receipt stage off. Only that bill may bill it before it is
     #: completed, complete it on approval (which is when the stock arrives),

@@ -50,6 +50,14 @@ List<DocumentStep<DocumentRef>> purchaseInvoiceSteps(
       forward: true,
       afterSave: 'Save & approve',
       permitted: approver,
+      // Backlog 120 (M2): a bill raised where approval is not a step of its
+      // own is approved by whoever raised it, under the code they raised it
+      // with. The server makes the same test.
+      rowPermitted: (bill) =>
+          !bill.approvalStep &&
+          permissions.hasPermission('PURCHASE_CREATE') &&
+          permissions.userId != null &&
+          bill.createdBy == permissions.userId,
       allows: (bill) => allows(DocumentLifecycleAction.approve, bill),
       run: (context, bill) async {
         // PG-3 and PG-5: the dialog approves, so a refusal stays inside it,

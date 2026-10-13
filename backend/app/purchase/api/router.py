@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.common.scope import (
     ResolvedFirmScope,
+    assert_may_approve,
     firm_any_permission_scope,
     firm_permission_scope,
 )
@@ -147,6 +148,13 @@ PurchaseExportScope = Annotated[
 ]
 PurchaseApproveScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_APPROVE")
+]
+#: Approving one order also admits the code that raises one: where the firm
+#: has made approval no step of its own, the author completes the order
+#: (backlog 120). The handler narrows it with `assert_may_approve`.
+PurchaseApproveOneScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope("PURCHASE_APPROVE", "PURCHASE_CREATE"),
 ]
 PurchaseCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CANCEL")
@@ -1159,7 +1167,7 @@ def purchase_order_budget(
 @router.post("/{order_id}/approve", response_model=ApiResponse[PurchaseOrderResponse])
 def approve_purchase_order(
     order_id: UUID,
-    scope: PurchaseApproveScope,
+    scope: PurchaseApproveOneScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseOrderResponse]:
     """Approve a submitted purchase order.
@@ -1167,9 +1175,19 @@ def approve_purchase_order(
     Takes `PURCHASE_APPROVE`, deliberately a different code from the
     `PURCHASE_UPDATE` that submitting needs: the point of the two steps is
     that the person who raises an order need not be the person who commits
-    the firm to it.
+    the firm to it. Where the firm has made approval no step of its own,
+    whoever raised the order approves it (backlog 120); their approval
+    limit, the firm's approval rules and its budgets still judge it.
     """
     service = PurchaseService(db)
+    current = service.get_order(order_id, firm_scope=scope.firm_id)
+    assert_may_approve(
+        scope,
+        created_by=current.created_by,
+        approval_step=current.approval_step,
+        approve_codes=("PURCHASE_APPROVE",),
+        document="purchase order",
+    )
     row = service.approve_order(
         order_id,
         firm_scope=scope.firm_id,

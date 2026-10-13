@@ -74,7 +74,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         stringValue(_preview?.invoice['credit_time_limit_warning']);
     // Save & approve (D-BUY-22), and once this window has saved the bill,
     // that bill's own steps instead of a second save.
-    final DocumentStep<Json>? approve = stepAfterSave(widget.steps);
+    final DocumentStep<Json>? sole = soleSaveStep(widget.steps,
+        settingOff: !widget.stages.purchaseInvoiceApproval);
+    final DocumentStep<Json>? approve = sole ?? stepAfterSave(widget.steps);
     final Json? saved = _saved;
     return CallbackShortcuts(
       bindings: {
@@ -82,7 +84,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           if (!_saving) leaveDocument(context, result: saved, saved: saved != null);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
-          if (!_saving && saved == null) unawaited(_save());
+          if (!_saving && saved == null) {
+            unawaited(sole != null ? _saveAndStep(sole) : _save());
+          }
         },
         const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
           if (_direct && !_saving) _addDirectLine();
@@ -145,10 +149,14 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                   else
                     ...saveButtons(
                       saveKey: const ValueKey('purchase-invoice-save'),
-                      saveLabel: 'Save bill',
-                      onSave: _saving ? null : () => unawaited(_save()),
+                      saveLabel: sole != null ? 'Save' : 'Save bill',
+                      onSave: _saving
+                          ? null
+                          : sole != null
+                              ? () => unawaited(_saveAndStep(sole))
+                              : () => unawaited(_save()),
                       stepKey: const ValueKey('purchase-invoice-save-approve'),
-                      stepLabel: approve?.afterSave,
+                      stepLabel: sole != null ? null : approve?.afterSave,
                       onStep: _saving || approve == null
                           ? null
                           : () => unawaited(_saveAndStep(approve)),
