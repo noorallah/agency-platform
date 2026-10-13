@@ -1907,7 +1907,8 @@ GST payment uses it before the bank.
 
 **GST checks** (*Accounts → Tax filing → GST checks*). Before filing, lists what
 a return would trip over: an invalid GSTIN (the firm's, a buyer's, a supplier's),
-a missing or short HSN code, a missing place of supply, an invoice with no IRN,
+a missing or short HSN code, a missing place of supply, an invoice, credit note,
+debit note or completed sales return with no IRN,
 a credit note raised after the last date allowed (30 November after the year),
 or one on a cancelled invoice. Each row names its document. Separately, a
 credit note after that date, a supplier bill after its credit's last date and a

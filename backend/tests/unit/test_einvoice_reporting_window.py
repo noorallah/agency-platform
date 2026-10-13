@@ -180,6 +180,47 @@ def test_a_refused_attempt_is_listed_with_the_portals_reason() -> None:
     assert item.registration_error == "Buyer GSTIN is not active"
 
 
+def test_the_attempts_of_a_long_list_are_asked_in_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-CMP-27: each document keeps its own attempt past one chunk of ids."""
+    from app.core.utils import chunks as chunk_module
+    from app.einvoice.models import EInvoiceRegistration
+    from app.sales_invoice.models import SalesInvoice
+
+    books = _bound(1)
+    second = SalesInvoice(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        branch_id=books.branch.id,
+        invoice_number="SI-2",
+        invoice_date=books.invoice.invoice_date,
+        status="APPROVED",
+        grand_total=books.invoice.grand_total,
+    )
+    books.session.add(second)
+    books.session.flush()
+    for invoice, reason in ((books.invoice, "first"), (second, "second")):
+        books.session.add(
+            EInvoiceRegistration(
+                firm_id=books.firm.id,
+                sales_invoice_id=invoice.id,
+                mode="SANDBOX",
+                status="FAILED",
+                error_message=reason,
+            )
+        )
+    books.session.commit()
+    monkeypatch.setattr(chunk_module, "CHUNK_SIZE", 1)
+
+    listed = pending(books.session, books.firm.id)
+
+    assert [(item.number, item.registration_error) for item in listed] == [
+        ("SI-1", "first"),
+        ("SI-2", "second"),
+    ]
+
+
 def test_the_route_answers_the_list() -> None:
     """The endpoint carries the flag, the warning days and the items."""
     from types import SimpleNamespace

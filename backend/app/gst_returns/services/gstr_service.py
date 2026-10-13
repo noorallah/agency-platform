@@ -42,7 +42,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any, Protocol, cast
 from uuid import UUID
 
@@ -93,13 +93,16 @@ from app.tax.services.gst_buckets import (
     split_components,
 )
 from app.uom.models import Uom
-from app.uom.services import stated_line
+from app.uom.services import UomService, stated_line
 
 if TYPE_CHECKING:
     from app.customer_debit_note.models import CustomerDebitNote
 
 #: The place of supply a return gives a supply outside India.
 FOREIGN_PLACE = "96"
+
+#: A quantity is kept at four places, as a document line stores it.
+_FOUR_PLACES = Decimal("0.0001")
 
 
 def _bucket(component_code: str, amount: Decimal) -> GstBuckets:
@@ -2016,41 +2019,61 @@ class GstReturnService:
             if line_id is not None
         ]
         billed_codes = self._billed_codes(billed_lines)
-        # A line is netted in the unit it states -- 7 PIECE off a bill typed
-        # 24 PIECE leaves 17 -- and one that names none (a financial note)
-        # in the unit of the invoice line it credits (D-PRC-50).
-        billed_units = self._billed_units(billed_lines, products)
+        # A line is netted in the unit of the invoice line it credits: 7
+        # PIECE off a bill typed 24 PIECE leaves 17 (D-PRC-50), and 1 BOX off
+        # it leaves 12 PIECE, not a row of -1 BOX beside the 24 (D-CMP-26).
+        # One that credits no line keeps the unit it states.
+        billed_units = self._billed_unit_ids(billed_lines, products)
         own_units = self._unit_codes(
             [unit for credit in credits for *_, unit in credit.items]
+            + list(billed_units.values())
             + [product.stock_uom_id for product in products.values()]
         )
+        factors: dict[tuple[UUID, UUID, UUID, date], Decimal | None] = {}
         for credit in credits:
-            answer.hsn.extend(
-                (
-                    (
-                        self._billed(
-                            billed_codes.get(line_id) if line_id else None,
-                            products.get(product_id),
-                            (own_units.get(unit, "") if unit else "")
-                            or (billed_units.get(line_id, "") if line_id else "")
-                            or self._stock_unit(products.get(product_id), own_units),
+            for product_id, line_id, quantity, taxable, buckets, unit in credit.items:
+                billed_unit = billed_units.get(line_id) if line_id else None
+                if (
+                    product_id is not None
+                    and unit is not None
+                    and billed_unit is not None
+                    and unit != billed_unit
+                ):
+                    key = (product_id, unit, billed_unit, credit.issued_on)
+                    if key not in factors:
+                        factors[key] = self._units_in(firm_scope, *key)
+                    factor = factors[key]
+                    # No rule either way: left in its own unit, on its own
+                    # row, rather than added to a unit it is not.
+                    if factor is not None:
+                        quantity = (quantity * factor).quantize(
+                            _FOUR_PLACES, rounding=ROUND_HALF_UP
                         )
-                        if product_id is not None
-                        else None
-                    ),
-                    quantity,
-                    taxable,
-                    buckets,
+                        unit = billed_unit
+                answer.hsn.append(
+                    (
+                        (
+                            self._billed(
+                                billed_codes.get(line_id) if line_id else None,
+                                products.get(product_id),
+                                (own_units.get(unit, "") if unit else "")
+                                or (
+                                    own_units.get(billed_unit, "")
+                                    if billed_unit
+                                    else ""
+                                )
+                                or self._stock_unit(
+                                    products.get(product_id), own_units
+                                ),
+                            )
+                            if product_id is not None
+                            else None
+                        ),
+                        quantity,
+                        taxable,
+                        buckets,
+                    )
                 )
-                for (
-                    product_id,
-                    line_id,
-                    quantity,
-                    taxable,
-                    buckets,
-                    unit,
-                ) in credit.items
-            )
             customer = customers.get(credit.customer_id)
             gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
             buckets = credit.buckets
@@ -2748,10 +2771,10 @@ class GstReturnService:
             return ""
         return codes.get(product.stock_uom_id, "")
 
-    def _stated_units(
+    def _stated_unit_ids(
         self, lines: Sequence[Row[Any]], products: dict[UUID, _Billed]
-    ) -> dict[UUID, str]:
-        """Return the code of the unit each invoice line's quantity is stated in.
+    ) -> dict[UUID, UUID | None]:
+        """Return the unit each invoice line's quantity is stated in.
 
         The printed bill's own answer (``stated_invoice_lines``, D-PRC-40):
         the unit typed where the line kept what was typed, else the unit of
@@ -2786,16 +2809,48 @@ class GstReturnService:
             or getattr(products.get(line.product_id), "stock_uom_id", None)
             for line in lines
         }
+        return stated
+
+    def _stated_units(
+        self, lines: Sequence[Row[Any]], products: dict[UUID, _Billed]
+    ) -> dict[UUID, str]:
+        """Return the code of the unit each invoice line's quantity is stated in."""
+        stated = self._stated_unit_ids(lines, products)
         codes = self._unit_codes(list(stated.values()))
         return {
             line_id: codes.get(unit, "") if unit else ""
             for line_id, unit in stated.items()
         }
 
-    def _billed_units(
+    def _units_in(
+        self, firm_scope: UUID, product_id: UUID, unit: UUID, other: UUID, on: date
+    ) -> Decimal | None:
+        """Return how many of ``other`` one ``unit`` of a product is, if known.
+
+        By the rule in force on the day, read forwards, or backwards where the
+        firm wrote it only the other way: 12 for BOX in PIECE from a rule that
+        says a piece is a twelfth of a box. None where no rule joins the two.
+        """
+        rules = UomService(self._session)
+        for first, second in ((unit, other), (other, unit)):
+            try:
+                factor = rules.unit_factor(
+                    product_id=product_id,
+                    from_uom_id=first,
+                    to_uom_id=second,
+                    on_date=on,
+                    firm_scope=firm_scope,
+                )
+            except ValidationError:
+                continue
+            if factor > ZERO:
+                return factor if first == unit else Decimal("1") / factor
+        return None
+
+    def _billed_unit_ids(
         self, line_ids: list[UUID], products: dict[UUID, _Billed]
-    ) -> dict[UUID, str]:
-        """Return the unit code each of these invoice lines states, by line."""
+    ) -> dict[UUID, UUID | None]:
+        """Return the unit each of these invoice lines states, by line."""
         if not line_ids:
             return {}
         rows = [
@@ -2813,7 +2868,7 @@ class GstReturnService:
                 ).where(SalesInvoiceLine.id.in_(part))
             ).all()
         ]
-        return self._stated_units(rows, products)
+        return self._stated_unit_ids(rows, products)
 
     def _unit_codes(self, unit_ids: Sequence[UUID | None]) -> dict[UUID, str]:
         """Return the code of each unit named: a firm has a handful."""

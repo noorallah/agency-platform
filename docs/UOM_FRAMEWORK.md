@@ -363,9 +363,14 @@ line to the stock unit because that would state a quantity no document
 states. Each row of GSTR-1's `hsn` and of
 `/sales-invoices/reports/hsn-summary` carries `unit`: this firm's unit code,
 **not** a portal UQC. The unit is the printed bill's (`_stated_units`, the
-same order of answers as `stated_invoice_lines`); a return line states its
-own; a financial credit or debit note, which carries none, reads the invoice
-line it names. The values and the tax are the same rupees whichever row they
+same order of answers as `stated_invoice_lines`); a financial credit or debit
+note, which carries none, reads the invoice line it names. **A return line
+is netted in the unit of the bill line it credits (D-CMP-26, 2026-10-14):**
+it stated its own, so 1 BOX back off a bill typed 24 PIECE left 24 PIECE and
+a row of -1 BOX; it is now converted by the product's rule in force on the
+return's date, read backwards where the firm wrote it only the other way
+(`_units_in`), and the row reads 12 PIECE. Where no rule joins the two units
+the line keeps its own unit and its own row. The values and the tax are the same rupees whichever row they
 sit on, so no other table of GSTR-1 or GSTR-3B moves. Two things follow that
 are true rather than tidy: a box sent back off a bill typed in pieces takes
 1 off a BOX row and the value with it, which can leave that row negative

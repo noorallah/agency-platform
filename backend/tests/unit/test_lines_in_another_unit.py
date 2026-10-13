@@ -1530,6 +1530,33 @@ def test_the_hsn_summary_never_adds_pieces_to_boxes() -> None:
     assert sum((taxable for _, _, taxable in rows), D("0")) == D("4800.00")
 
 
+def test_a_box_back_off_a_bill_in_pieces_comes_off_the_pieces() -> None:
+    """24 PIECE billed and 1 BOX back leave 12 PIECE, not -1 BOX (D-CMP-26)."""
+    shop = _Shop()
+    bill, billed = _bill(shop, _shipped(shop), "24", invoice_uom_id=shop.piece)
+
+    back = _brought_back(shop, ("SALES_INVOICE", bill.id, billed.id), "1")
+
+    assert (back.sales_uom_id, back.entered_quantity) == (shop.box, None)
+    assert _hsn(shop) == [("PIECE", D("12.0000"), D("1200.00"))]
+
+
+def test_pieces_back_off_a_bill_in_boxes_come_off_the_boxes() -> None:
+    """2 BOX billed and 7 PIECE back leave one row in BOX worth 1,700.00.
+
+    The firm wrote only how many pieces a box holds, so the pieces are read
+    in boxes by that rule backwards.
+    """
+    shop = _Shop()
+    bill, billed = _bill(shop, _shipped(shop), "2")
+
+    _brought_back(
+        shop, ("SALES_INVOICE", bill.id, billed.id), "7", return_uom_id=shop.piece
+    )
+
+    assert _hsn(shop) == [("BOX", D("1.4167"), D("1700.00"))]
+
+
 # ---- refusals that say what they count in (D-PRC-57) -----------------------
 
 
