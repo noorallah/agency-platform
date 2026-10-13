@@ -5660,6 +5660,41 @@ redo yours."*
   - Step 4: after the return the customer holds 826.00. After the debit note the bill still owes nothing, the customer **owes 0.00 and holds 708.00**, and *Customer credits* reads 708.00 held. Cancelling the debit note is refused until the receipt is reversed, naming 118.00.
 - **Leaves:** the customers, their bills, returns, one receipt and one debit note.
 
+### TC-FIN-039 — A cheque written to any account, dated today or ahead
+
+*Added 2026-10-14 (customer task F13, COL-11, backlog 150). The server was driven over HTTP on a fixture firm and the screen is covered by widget tests; **no screen was clicked and no cheque was printed on a leaf**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** *Accounts → Books → Cheques Issued*, **Write a cheque**, **Print cheque** on a cheque issued, an expense and a refund
+- **Fixture:** `ready-firm`
+- **Also needs:** a user who may record payments, expenses and journals; a supplier; a customer who holds 500.00 on account (a receipt by bank transfer not set against a bill); an expense account; a ledger account that no document keeps, such as *Capital* or a loan account. Note the bank account's balance.
+- **Steps**
+  1. Open *Accounts → Books → Cheques Issued* and press **New**. Choose the bank under **Drawn on**, **Pays** *Expense account*, pick the expense account, leave the name as it fills in, amount 1,250.00, a cheque number, the date today. Read the line under the date, then press **Write cheque**.
+  2. In the print box that opens, press **Print**.
+  3. Open *Accounts → Books → Expenses*, select the expense the cheque became and press **Print cheque**.
+  4. Write a cheque to the supplier for 4,000.00 dated one month ahead, typing another name over the one filled in.
+  5. Select that cheque and press **Present**, leaving today's date.
+  6. Write a second cheque with the same number on the same bank.
+  7. Write a cheque to the customer for 500.00 dated today. Open *Sell → Money → Refunds*, select the refund and press **Print cheque**.
+  8. Write a cheque to the ledger account for 10,000.00 dated today.
+  9. Write a cheque to the supplier dated ahead, then select it and press **Cancel**, giving a reason. Select it again.
+  10. Select the cheque of step 1 and press **Returned**, with a reason.
+  11. Record an expense paid from *Cash*, select it and press **Print cheque**, then **Print**. On *Refunds*, select a refund paid in cash.
+  12. Sign in as a user who may record expenses and nothing else about money, and open **Write a cheque** from the command box (*write a cheque*).
+- **Expect**
+  - Step 1: the line reads *Dated today or before: it is recorded now as an expense.* The cheque is saved; the list shows it with **Pays** *Expense*, **Paid to** the name, **Recorded as** the expense's number, and the bank is down by 1,250.00.
+  - Step 2: the cheque prints with its date, the name, the amount in words and in figures, at the bank's saved layout.
+  - Step 3: the same cheque prints from the expense.
+  - Step 4: the line reads *Dated ahead: it is held and posts nothing until you present it.* The cheque is **Held**, the name typed is kept, **Recorded as** is blank and neither the bank nor the supplier's account has moved. **Print cheque** prints it now, with next month's date.
+  - Step 5: refused: the date cannot be before the cheque's own date. Presented on its date, it becomes a payment to the supplier on account and **Recorded as** shows the payment's number.
+  - Step 6: refused, naming the number already written on that bank account; the form stays open with everything typed.
+  - Step 7: the cheque is recorded as a refund, the customer holds 0.00, and the refund prints as a cheque in the customer's name.
+  - Step 8: **Recorded as** reads *Payment voucher*; the ledger account is debited and the bank credited 10,000.00.
+  - Step 9: the cheque is **Cancelled** and **Print cheque** is not offered for it.
+  - Step 10: the cheque is **Bounced**, the expense it became is cancelled and the bank has the 1,250.00 back.
+  - Step 11: the print box stays open and says a cash expense has no cheque to print; nothing prints. **Print cheque** is not offered for the cash refund.
+  - Step 12: the list itself needs the right to see payments, so this user is told he cannot see it (known and left, backlog 150). With that right added, **Pays** offers *Expense account* only.
+- **Leaves:** one cancelled expense, one payment on account to the supplier, one refund, one payment voucher, and the cheques.
+
 ### TC-FIN-032 — The collector's day sheet adds up to the receipts
 
 *Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*

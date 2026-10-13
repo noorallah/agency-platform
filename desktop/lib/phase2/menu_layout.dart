@@ -373,7 +373,6 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.accounting, 'payment-runs', 'Payment Runs'),
         MenuItemSpec.phase2(payablesRoute, 'Payables by Month',
             gate: 'purchaseInvoices'),
-        MenuItemSpec(AppModule.accounting, 'pdc-issued', 'Post-dated Cheques'),
         MenuItemSpec(
             AppModule.masters, 'supplier-statements', 'Supplier Statements'),
         MenuItemSpec(AppModule.masters, 'supplier-gifts', 'Supplier Gifts'),
@@ -456,6 +455,7 @@ abstract final class MenuLayout {
         MenuItemSpec(
             AppModule.accounting, 'journal-entries', 'Journal Entries'),
         MenuItemSpec(AppModule.accounting, 'expenses', 'Expenses'),
+        MenuItemSpec(AppModule.accounting, 'pdc-issued', 'Cheques Issued'),
         MenuItemSpec(
             AppModule.accounting, 'opening-balances', 'Opening Balances'),
         MenuItemSpec(AppModule.accounting, 'ledgers', 'Ledgers'),

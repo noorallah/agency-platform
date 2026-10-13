@@ -10,6 +10,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
+import '../workspace/balance_confirmation.dart' show OpenPdfOverride;
 import '../workspace/cheque_print_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../settings/send_message_dialog.dart';
@@ -32,6 +33,7 @@ class SettlementsPage extends StatefulWidget {
     required this.permissions,
     required this.hasActiveFirm,
     required this.direction,
+    this.openPdfOverride,
   });
 
   final ApiClient api;
@@ -41,6 +43,9 @@ class SettlementsPage extends StatefulWidget {
   final PermissionService permissions;
   final bool hasActiveFirm;
   final SettlementDirection direction;
+
+  /// Tests inject one, because a widget test cannot open a print dialog.
+  final OpenPdfOverride? openPdfOverride;
 
   @override
   State<SettlementsPage> createState() => _SettlementsPageState();
@@ -430,7 +435,8 @@ class _SettlementsPageState extends State<SettlementsPage> {
               ),
             // A bank payment written as a cheque (ACC-12); the layout is set
             // up now and then and is about no row, so it sits behind "...".
-            if (widget.direction == SettlementDirection.payment) ...[
+            // A refund to a customer is written the same way.
+            if (widget.direction != SettlementDirection.receipt)
               ToolbarCommand(
                 id: 'print-cheque',
                 label: 'Print cheque',
@@ -440,6 +446,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
                         ? () => unawaited(_printCheque(selected))
                         : null,
               ),
+            if (widget.direction == SettlementDirection.payment) ...[
               if (_canCreate)
                 ToolbarCommand(
                   id: 'cheque-layout',
@@ -565,14 +572,20 @@ class _SettlementsPageState extends State<SettlementsPage> {
   }
 
   Future<void> _printCheque(Settlement row) async {
+    final bool refund = row.direction == 'REFUND';
     await showDialog<Object>(
       context: context,
       builder: (_) => ChequePrintDialog(
         api: widget.api,
-        paymentId: row.id,
+        paymentId: refund ? null : row.id,
+        fetchPdf: refund
+            ? (payee) => widget.api.refundChequePdf(row.id, payee: payee)
+            : null,
+        payeeHelp: refund ? "Blank prints the customer's name" : null,
         number: row.settlementNumber,
         partyName: row.partyName,
         amount: row.cashAmount,
+        openPdfOverride: widget.openPdfOverride,
       ),
     );
   }

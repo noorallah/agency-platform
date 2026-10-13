@@ -244,7 +244,7 @@ def test_a_cashier_sees_the_till_and_not_the_ledger() -> None:
         "Payments",
         "Payment Runs",
         "Post-dated Cheques",
-        "Post-dated Cheques (Issued)",
+        "Cheques Issued",
         "Bank details",
     }
 

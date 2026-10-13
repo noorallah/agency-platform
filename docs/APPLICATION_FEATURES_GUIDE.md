@@ -876,14 +876,31 @@ bank transfer, UPI) and the instrument date; the cash and bank books show
 *Mode* and *Instrument*, and collections by mode read from it.
 
 **Post-dated cheques** (*Sell → Money → Post-dated Cheques*
-for cheques received; *Buy → Money → Post-dated Cheques* for
-cheques issued). A cheque is
+for cheques received; *Accounts → Books → Cheques Issued* for
+the firm's own). A cheque is
 **held** (nothing posted), then **deposited** (or presented) on or after its
 date -- which records the receipt or payment -- then **cleared**. A cheque that
 **bounces** reverses the receipt or payment as of the day it came back, and
 the bank's return charge can be posted and charged to the customer's account.
 A held cheque can be cancelled. The list can show only those due to deposit
 today.
+
+**Writing a cheque** (*Accounts → Books → Cheques Issued*, **New**). The
+firm's own cheque can pay a supplier, a customer (a refund), an expense
+account or any other ledger account such as a loan or capital. The form asks
+for the bank account it is drawn on, who it pays, the name on the cheque
+(filled from the account and can be typed over), the amount, the cheque
+number, its date and a note. **Dated today or before**, it is recorded at once
+as the payment it is: a payment to the supplier on account, a refund, an
+expense, or a payment voucher. **Dated ahead**, it is held and posts nothing
+until **Present** records it on its day. Either way it is in the list before
+it can be printed, and **Print cheque** prints it with its own date, so a
+post-dated cheque is printed now. A cheque number is written once on a bank
+account. A returned cheque takes back what it became. Each kind needs the
+right its payment already needs (payments, expenses, or journals), so a user
+is offered only the kinds they may record. Cash and bank accounts, and the
+accounts the documents keep (receivables, payables, stock, tax), cannot be
+paid this way.
 
 **Early-payment discount and interest on overdue.** A customer can carry
 *cash discount days and percent* (the credit policy holds the firm's default
@@ -1423,7 +1440,7 @@ it, or cancel the receipt and mark the line on the order or the receipt.
 ## 6.3 Money and insight
 
 *Payments* and *Supplier Statements* are in the Buy drop-down; the rest of
-Money (Payment Runs, Payables by Month, Post-dated Cheques, Supplier Gifts, Supplier Rebates,
+Money (Payment Runs, Payables by Month, Supplier Gifts, Supplier Rebates,
 Principal Claims, Landed Costs) and Insight (Purchase Dashboard, Purchase
 Analysis, Rate Trend) are under Buy.
 
@@ -1444,7 +1461,9 @@ its primary bank account). A layout for the firm's own bank is not built.
 **Printing a cheque.** *Print cheque* on a payment made by cheque prints on the
 leaf (CTS-2010 style: date boxes, payee, amount in words, A/c payee crossing);
 *Cheque layout* moves the print to suit the bank's leaf, kept per bank account.
-A cash or non-cheque payment, or a reversed one, is refused.
+A cash or non-cheque payment, or a reversed one, is refused. The same
+*Print cheque* is on a **refund** paid by cheque, on an **expense** paid from a
+bank account, and on every cheque under *Accounts → Books → Cheques Issued*.
 
 **Supplier Rebates** (*Buy → Money → Supplier Rebates*). A volume rebate agreed
 with a supplier: set up the agreement, *accrue* what is earned (booked as a

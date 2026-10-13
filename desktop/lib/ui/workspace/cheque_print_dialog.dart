@@ -16,25 +16,38 @@ import 'save_in_dialog.dart';
 /// cheque or before the mode was asked for, and not reversed. The server
 /// refuses the rest by name; this only decides whether to offer the command.
 bool canPrintCheque(Settlement row) =>
-    row.direction == 'PAYMENT' &&
+    (row.direction == 'PAYMENT' || row.direction == 'REFUND') &&
     row.method == 'BANK' &&
     (row.paymentMode.isEmpty || row.paymentMode == 'CHEQUE') &&
     row.status == 'POSTED';
 
-/// The payee box and the print button for one payment.
+/// The payee box and the print button for one payment, refund, expense or
+/// issued cheque.
 class ChequePrintDialog extends StatefulWidget {
   const ChequePrintDialog({
     super.key,
     required this.api,
-    required this.paymentId,
+    this.paymentId,
+    this.fetchPdf,
+    this.payeeHelp,
     required this.number,
     required this.partyName,
     required this.amount,
     this.openPdfOverride,
-  });
+  }) : assert(paymentId != null || fetchPdf != null,
+            'Give a payment id or a way to fetch the PDF.');
 
   final ApiClient api;
-  final String paymentId;
+
+  /// The payment to print; used when [fetchPdf] is not given.
+  final String? paymentId;
+
+  /// Fetches the PDF for a refund, an expense or an issued cheque; given the
+  /// payee typed, or null when the box is blank.
+  final Future<List<int>> Function(String? payee)? fetchPdf;
+
+  /// Replaces the default helper text under the payee box.
+  final String? payeeHelp;
   final String number;
   final String partyName;
   final String amount;
@@ -59,10 +72,11 @@ class _ChequePrintDialogState extends State<ChequePrintDialog>
   Future<void> _print() async {
     final String name = 'Cheque ${widget.number}';
     await saveAndClose<bool>(() async {
-      final List<int> pdf = await widget.api.paymentChequePdf(
-        widget.paymentId,
-        payee: _payee.text.trim().isEmpty ? null : _payee.text.trim(),
-      );
+      final String? payee =
+          _payee.text.trim().isEmpty ? null : _payee.text.trim();
+      final List<int> pdf = widget.fetchPdf != null
+          ? await widget.fetchPdf!(payee)
+          : await widget.api.paymentChequePdf(widget.paymentId!, payee: payee);
       if (!mounted) return false;
       if (widget.openPdfOverride != null) {
         await widget.openPdfOverride!(name, pdf);
@@ -98,9 +112,10 @@ class _ChequePrintDialogState extends State<ChequePrintDialog>
                 controller: _payee,
                 enabled: !saving,
                 maxLength: 120,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Payee',
-                  helperText: "Blank prints the supplier's legal name",
+                  helperText:
+                      widget.payeeHelp ?? "Blank prints the supplier's legal name",
                 ),
               ),
             ],

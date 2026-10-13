@@ -590,7 +590,8 @@ raised and dispatched its own note.
 
 **Added 2026-10-03** (written from the code, not yet driven): TC-FIN-012 to
 025. Screens: Accounts → Books → **Bank Reconciliation** and **Export to
-Tally**; **Post-dated Cheques** under Sell → Money and Buy → Money; **Bank
+Tally**; **Post-dated Cheques** under Sell → Money, and the firm's own under
+Accounts → Books → **Cheques Issued** since 2026-10-14 (TC-FIN-039); **Bank
 Details** and **TDS Challans** under Accounts → Tax filing; **Cash Flow**
 under Statements; **Files** on journals, receipts and payments; **Print
 cheque** and **Cheque layout** on Payments; close checks and ageing bands on
