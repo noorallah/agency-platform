@@ -10425,3 +10425,257 @@ TC-BUY-108. PR #1484.
 - The period is not remembered per user; every new plan opens on six
   months, as asked.
 - No screen was clicked in the running app.
+
+## 143. Bill layout settings: the bill in fixed parts, lines per page, long names -- open, not built
+
+**Customer task F12**, the owner, 2026-10-13: log it in `docs/BACKLOG.md` as
+an open item and no build, "when finalised". The ask: the bill in fixed parts
+(header, line items, summary, footer), a setting for how many line items a
+page shows, and a rule for long shop and product names so the columns hold.
+It is PRT-5 in `docs/CUSTOMER_REQUIREMENTS.md`.
+
+**Nothing is built by this entry.** It records what the print does today,
+the design a build would follow, and what is not known.
+
+**What we do today.**
+
+- A bill is drawn by the server as a PDF, in one of two layouts: the full
+  page (`InvoicePdfRenderer` in
+  `backend/app/sales_invoice/services/invoice_pdf.py`) and the half page
+  (`backend/app/sales_invoice/services/half_page_pdf.py`, backlog 118). Each
+  already has the four parts in a fixed order: the firm and the buyer, the
+  lines, the totals with the GST summary, and the bank, terms and signature
+  block.
+- What a firm may change is in *Print settings* (`TemplateSettings`): the
+  paper (A4, A5, half page, the 80 mm roll), the margin, the title, the
+  notes at the head and the foot, the bank details, the terms, the copies,
+  and whether the discount, batch and expiry columns print. A customer may
+  carry a paper of his own.
+- **No setting says how many lines a page shows.** The page takes as many
+  lines as fit. On the half page about eight fit, and a bill that does not
+  fit on one half page prints on a full page by itself (backlog 118: "the
+  switch is by fit, not by a count of lines"). On the full page a long bill
+  runs on to the next page: the column headings repeat, the totals follow
+  the last line, the bank and signature block moves whole to the next page
+  when it does not fit. There is no "continued" line and no page number.
+- **A long name wraps inside its own column.** The shop's name and the
+  product's name are drawn as paragraphs, so a long one takes a second or a
+  third line and the row grows taller. The columns keep their widths; no
+  name is cut and none runs into the next column. The cost is height: one
+  long name is one line fewer on the page, so the half page switches to a
+  full page sooner and nobody can say beforehand how many lines a bill
+  holds.
+- The parts are not of a fixed height. The header is taller for a firm with
+  three licence numbers or a buyer with a long address; the summary is
+  taller for a bill with four GST rates.
+
+**What the build would do, by the repository's rules.**
+
+- **Settings on the print template the firm already has**
+  (`document_print_templates`, one per document type), not a new table:
+  lines per page, and how a long name is treated. A firm that sets nothing
+  prints exactly as today.
+- **Lines per page is a ceiling, and fit still rules.** With 8 set, a page
+  takes at most 8 lines and the ninth starts the next page. Where the lines
+  of a page are too tall for the paper, the page breaks sooner; a setting
+  can never push the totals off the paper or print over the footer.
+- **The half page's switch to a full page is to be decided with it.** Today
+  a ninth line moves the bill to a full page. With lines per page set, the
+  other reading is a second half page, with the totals on the last one. The
+  trade does both. Backlog 118 chose the first and called the second
+  "neither"; this entry reopens that only if the customer asks for it.
+- **Pages that say where they are**: "Page 1 of 2" and "continued" on a
+  bill that runs over, with the amount carried forward if he wants it.
+  Fixed parts mean little without them.
+- **Long names: a rule per column, chosen by the firm.** Three ways are
+  usual: wrap (today), cut to the column with the rest dropped, or print
+  smaller until it fits one line. A cut name on a tax invoice is a risk:
+  the product must be identifiable, so a cut is offered for the shop's
+  short name and the product's print name, never by silently dropping the
+  end of the only name there is. A *print name* of its own on the product
+  and the customer is how Marg and Busy hold the columns, and is the likely
+  answer.
+- **Fixed heights only where he prints on pre-printed paper.** If the bill
+  goes on plain paper, the parts need a fixed order (which they have), not
+  fixed heights. Fixed heights matter when the stationery has the boxes
+  printed already; that is a different and larger piece of work (positions
+  in millimetres, a test print, an offset per printer).
+- One renderer for every document that prints through it, so the settings
+  reach the challan, the order and the credit note as well as the bill. The
+  phase 2 *Print settings* screen only.
+
+**What is known.**
+
+- His three sample bills were read on 2026-10-13 (half page, full page, and
+  the box quantity). PRT-1 and PRT-2 are built from them; PRT-3 (boxes and
+  pieces in the quantity cell) is planned with L5; PRT-4 (the full page
+  against his sample) is open.
+- From general knowledge of the other products, not checked against their
+  documents today: Marg, Busy and Tally let a firm set the lines per page
+  of a bill format, and carry a short or print name for a long item.
+
+**What is not known.**
+
+- **What "fixed parts" means to him**: a fixed order, which is there, or
+  fixed heights for pre-printed stationery. To ask.
+- **Whether he prints on plain paper or pre-printed**, and on which printer
+  (laser, inkjet or dot matrix). A dot matrix printer with continuous
+  stationery is where lines per page is a hard need, and it changes the
+  work: the page is then a count of text rows, not a PDF.
+- **How many lines he wants on a half page and on a full page**, and what a
+  bill past that number should do: a second half page, or a full page as
+  today.
+- **Which long-name rule he wants**, and whether his shops and products
+  already have short names in the old software that the import should
+  bring.
+- Whether the summary and the footer print on every page or only the last.
+- Whether the same count applies to the challan and the credit note.
+
+**Waiting on.** The owner: "when finalised", and the answers above from the
+customer; the walk through of the three sample bills (PRT-4) is the place to
+get them. No money, no contract. The build is small where the answer is a
+ceiling on lines, a page number and a print name; it is large where the
+answer is pre-printed stationery or a dot matrix printer.
+
+## 144. A collector's phone app: morning sync, a day with no connection, evening sync -- open, not built, needs a design note first
+
+**Customer task F12**, the owner, 2026-10-13: log it in `docs/BACKLOG.md` as
+an open item and no build. The ask: a small phone app. The morning sync
+brings the bills handed to the collector; he marks them during the day with
+no connection; the evening sync sends his lines back as the day's return
+(M6), by Wi-Fi, Bluetooth or a file. Office entry stays. It needs a design
+note first: the phone type, and a bill taken back while he is out. It is
+COL-9 in `docs/CUSTOMER_REQUIREMENTS.md`.
+
+**Nothing is built by this entry**, and the design note is not written by it
+either. It records what is there, what the note has to settle, and what is
+not known.
+
+**What we have today.**
+
+- **The office half is built** (2026-10-13). Bills are handed to a collector
+  and taken back (backlog 122). The *Bill collector* role sees one screen,
+  his own bills by customer (backlog 123). Each bill out gets one line a
+  day: collected, part, promised, not collected (backlog 124, table
+  `collection_returns`). A firm switch, `collector_records_receipt`, off to
+  start, decides whether his line records the receipt or the office
+  confirms it from the day sheet. The day sheet adds up when what he stated
+  equals what is in receipts.
+- **His own routes exist on the server**: `GET /api/v1/collections/my-bills`,
+  `/my-bills/day-sheet`, `POST /my-bills/returns` and the withdrawal. They
+  are what a phone would call. They need a connection at the moment of the
+  call.
+- **No phone app.** The Android build (`desktop/build_android.ps1`) is the
+  desktop layout in an APK, for looking at screens on a phone. The phone
+  layout of phase 2 is parked (backlog 48). Nothing in the code holds work
+  on a device, recognises a write sent twice, or settles a device against
+  the server.
+- **An older design is on file**: backlog 39 and `docs/FIELD_COLLECTIONS.md`
+  (2026-09-30). It was written before the office half existed, for a
+  collector walking a route and recording **receipts**. Its rule holds: the
+  server is the only book, the phone holds what he intends and never a copy
+  of the accounts, and the sync goes through the service a person at the
+  office would use. Its options table already weighs Wi-Fi at the office, a
+  file, a QR code and Bluetooth, and does not recommend direct Bluetooth.
+
+**What changes against the older design.** The thing the phone carries is
+no longer a receipt. It is the day's **line on a handed-out bill**, which is
+smaller and safer:
+
+- The morning pack is his bag: the bills handed to him, by customer, with
+  what each owes and that customer's older unpaid bills marked apart. That
+  is the answer `my-bills` gives today.
+- What he marks is the outcome, the amount and how it was paid, and for a
+  promise the day named. That is the body `POST /my-bills/returns` takes
+  today.
+- The evening sync sends each line through the same service method, one
+  line at a time, each in its own transaction, with a report per line.
+  Whether a line records the receipt is the firm's switch, as it is at the
+  office. No second way to write a line, and none to record money.
+- Receipt numbering from a block issued to the phone, the hard part of the
+  older design, is needed only where the switch is on **and** he hands the
+  customer a numbered receipt on the spot. Where the office confirms the
+  receipt, the phone needs no number at all.
+
+**What the design note has to settle.**
+
+- **The phone type**: Android only, or iPhone too. A file passed by
+  Bluetooth or a cable is ordinary on Android and awkward on an iPhone.
+- **A separate small app or a mode of the existing one.** A separate app is
+  lighter and has no desktop screens in it; it makes the repository three
+  applications where `CLAUDE.md` describes two.
+- **How he is known with no connection.** Signed in at the office in the
+  morning, the refresh token lasts 7 days. A file route has no sign-in at
+  all, so the pack and the return file must be signed for one collector and
+  one day, and refused for anybody else.
+- **A bill taken back while he is out.** The office takes a bill back at
+  noon, or hands it to somebody else, or records the customer's payment
+  itself; his phone still shows it. At sync the server decides on what is
+  true then: a line on a bill no longer in his bag is not written as his,
+  and the report says so by bill. If he took money on it, the cash is real
+  and must not vanish: the note has to say where that line goes (to the
+  office as a line of its own to confirm, most likely) and who is told.
+- **A bill handed to him after the morning sync.** He does not have it. He
+  syncs again before leaving, or the office writes that line.
+- **The day.** A collector writes only today's line (backlog 124). A sync
+  the next morning carries yesterday's lines. Either the sync endpoint may
+  write the collector's line for the day he marked it, within a limit of
+  days, or a late sync is the office's to enter. The line's day is the day
+  he marked it by the phone's clock, which can be wrong; the note says how
+  far it is trusted.
+- **Sent twice.** A sync that is cut and sent again must not write two
+  lines. One live line per handover per day is already held by a partial
+  unique index, so the second is refused by the key; the report has to read
+  that as "already there", not as a failure.
+- **A line the server refuses**: an amount more than the bill owes because
+  the office recorded a part payment meanwhile; "collected in full" on a
+  bill that now owes less. Collected in full is exactly what the bill owes
+  (backlog 124), so the phone's morning figure can be stale. The note says
+  whether such a line is kept for the office to settle or sent back to him.
+- **The cash.** Between the shop and the office the money is in his pocket
+  and in no system. The day sheet already compares what he stated with the
+  receipts; whether a handover of cash is counted and signed at the sync is
+  to be decided.
+- **The transport, in order**: Wi-Fi at the office first (the client
+  already accepts `http://` to a private address), a file second, with the
+  same payload in both so the second is a thin wrapper. Direct Bluetooth
+  between the phone and the office machine is a large piece of work with
+  pairing and drivers and brings nothing the file does not; "by Bluetooth"
+  is best read as the file sent over Bluetooth file share.
+- **A lost or changed phone**: lines marked and not yet synced are gone.
+  The bills are still out on the server, so nothing is wrong in the books;
+  the office enters the day from his paper. The note says so plainly.
+- What the phone may keep after a sync, and for how long: customers' names
+  and dues are on a device that leaves the building.
+
+**What is known.**
+
+- Office entry stays (the owner). So the app is an addition: a firm with no
+  phone works exactly as today.
+- The collector's day ends in the day's return of M6, so the server needs
+  one new endpoint at most (a batch of lines with a report per line) and
+  the morning pack is a read that exists.
+- Whether the collector records the receipt himself is already a firm
+  setting (customer answers A13 and A15).
+
+**What is not known.**
+
+- The phones his collectors carry, and whether the firm gives them or they
+  are the collectors' own.
+- Whether the office has Wi-Fi the phones may join, or the firm allows no
+  phone on its network (then the file route is the first one, not the
+  second).
+- How many collectors, and how many bills one carries in a day.
+- Whether he hands a printed or written receipt at the shop, and from what
+  book or number series.
+- Whether a collector should see what a customer owes in all, or only the
+  bills in his bag.
+- Whether he also wants orders taken on the phone later (backlog 48). That
+  would change the choice between a small app and a mode of the main one.
+- What it costs to put an app on the phones: a file installed by hand, or a
+  store listing, which is a developer account and a fee. The owner's.
+
+**Waiting on.** The owner: the go-ahead to write the design note, and the
+customer's answers above. Then the order is the note, the server's sync
+endpoint tested by a script with no app, the app, and one collector for a
+week. It is a large item: a third application, however small.
