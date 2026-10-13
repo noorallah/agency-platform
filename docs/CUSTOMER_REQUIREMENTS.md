@@ -223,6 +223,8 @@ customer to agree, and the smaller firm goes first.
 | USR-2 | What each role must not see or do |
 | USR-3 | Whether each employee needs an account for salary and advances |
 | IMP-3 | Whether the working year is a wall or a filter |
+| PRT-5 | Plain paper or pre-printed, and which printer. How many lines on a half page and on a full page, and what a longer bill does. How a long shop or product name should print |
+| COL-9 | Which phones the collectors carry, whether they may join the office Wi-Fi, and whether a receipt is handed over at the shop |
 
 **For the accountant**
 
@@ -237,6 +239,7 @@ customer to agree, and the smaller firm goes first.
 | --- | --- |
 | PRT-4 | The walk through of the three sample bills, and what the full page must match |
 | CUS-8 | Which GST provider, at what price |
+| COL-9 | The go-ahead to write the design note for the collector's phone app |
 
 ## 18. Changes to this document
 
@@ -252,3 +255,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | COL-2 built (F10): the customer's Account view shows the whole account, downloads to Excel and remembers how many entries each user chose |
 | 2026-10-13 | BUY-2 built (F11): Plan an order opens on the last six months of sales, and every suggested quantity can be raised by a percentage at once |
 | 2026-10-13 | PRT-6 and COL-10 added as Built: the owner asked for a pay-by-scan code on the bill and for cheque printing, and both were already there. COL-11 added (the owner): a cheque to any account with the amount typed, post-dated too; row F13 |
+| 2026-10-13 | PRT-5 and COL-9 logged (F12) as backlog 143 and 144, open and not built. PRT-5 waits on the customer's answers about his paper and printer; COL-9 needs a design note first. Both stay Later |
