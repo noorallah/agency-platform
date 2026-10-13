@@ -10903,7 +10903,7 @@ firm; whether the GST calculator also takes a discount and a quantity.
 
 **Size.** Small.
 
-## 150. A cheque to any account, the amount typed, dated today or ahead (row F13, COL-11) -- the server is built; the screen is not
+## 150. A cheque to any account, the amount typed, dated today or ahead (row F13, COL-11) -- built
 
 **The owner, 2026-10-13:** a cheque printed to any account -- a supplier, a
 customer, an expense, any other account -- with the amount typed, dated
@@ -10970,13 +10970,40 @@ only (ACC-2).
   returned, as any expense is; the settlement and the voucher are reversed
   on the day the bank returned them.
 
-**Still to build (the second half of row F13).** The **Write a cheque**
-screen under *Accounting* in the new UI; **Print cheque** on a saved
-expense, a refund and a cheque issued; the register showing who each cheque
-pays. Nothing in the desktop calls the five routes above yet, and
-`tests/unit/test_routes_have_a_caller.py` does not say so: it matches the
-shape of a path, and each of these has a sibling the desktop already calls.
-The test cases and the user guide come with the screen.
+**Built on 2026-10-14 (the screen, the second half of row F13).** New UI
+only.
+
+- **The list of the firm's cheques is *Accounts > Books > Cheques Issued***.
+  It was *Buy > Money > Post-dated Cheques*; it moved because a cheque now
+  pays more than suppliers. The tab keeps its address (`pdc-issued`), and the
+  command box finds it under *write a cheque*.
+- **New opens Write a cheque** (`write_cheque_dialog.dart`): the bank drawn
+  on, who it pays (supplier, customer, expense account, other account), the
+  name on the cheque filled from the account and typed over at will, the
+  amount, the number, the date and a note. A line under the date says what
+  the save will do: recorded now, or held. The form offers only the kinds the
+  user holds the right to record. After the save the print box opens.
+- **The list says who each cheque pays**: *Paid to*, *Pays* (Supplier,
+  Customer, Expense, Account), the bank account drawn on, and *Recorded as*
+  (the payment, the refund, the expense, or *Payment voucher*).
+- **Print cheque** is on a cheque issued (not a cancelled or returned one),
+  on an expense, and on a refund paid by cheque from a bank. The expense list
+  does not know whether an expense was paid from a bank, so the command is
+  offered on every live expense and the server's refusal for a cash one is
+  shown in the print box.
+- **Present, Clear, Returned and Cancel** follow the cheque's own kind for
+  their right and their words.
+- The old form that held a supplier's post-dated cheque is no longer opened
+  from this list; *Write a cheque* with a date ahead does the same and names
+  the bank account. `POST /post-dated-cheques/issued` stays on the server and
+  nothing in the new screens calls it.
+
+**Known and left:** reading the list still needs `PAYMENT_VIEW`, so a user
+who may record expenses only cannot open the list, and so cannot reach
+*Write a cheque*, until he is given that right. Reversing the payment or
+cancelling the expense from its own screen leaves the cheque *Deposited* in
+the list. Case TC-FIN-039. No screen was clicked and no cheque was printed on
+a leaf.
 
 **Not asked for, not built:** cheque book tracking (leaf ranges), several
 cheques at once, a stop-payment record, a payment advice.

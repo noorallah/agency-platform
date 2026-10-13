@@ -1262,7 +1262,7 @@ abstract final class ModuleCatalog {
         ),
         ModuleTabDefinition(
           id: 'pdc-issued',
-          label: 'Post-dated Cheques (Issued)',
+          label: 'Cheques Issued',
           requiredPermissions: ['PAYMENT_VIEW'],
         ),
         // Many supplier bills paid at once, with the bank's bulk file (BUY-11).

@@ -9849,6 +9849,49 @@ class ApiClient {
         expectedVersion: expectedVersion,
       )));
 
+  /// The accounts *Write a cheque* offers: banks to draw on, and the expense
+  /// and other accounts a cheque can pay.
+  Future<ChequeAccountChoices> chequeAccountChoices() async =>
+      ChequeAccountChoices.fromJson(_unwrapMap(
+          await request('GET', '${_pdcPath(true)}/accounts')));
+
+  /// Write one of the firm's cheques to any account; dated today or before it
+  /// is recorded at once, dated ahead it is held.
+  Future<PostDatedCheque> writeCheque({required Json body}) async =>
+      PostDatedCheque.fromJson(
+        _unwrapMap(await request('POST', '${_pdcPath(true)}/write', body: body)),
+      );
+
+  /// An issued cheque on the bank's leaf; a blank [payee] prints the name kept
+  /// on the cheque.
+  Future<List<int>> issuedChequePdf(String id, {String? payee}) =>
+      downloadBytes(
+        '${_pdcPath(true)}/$id/print',
+        query: {
+          if (payee != null && payee.trim().isNotEmpty) 'payee': payee.trim(),
+        },
+      );
+
+  /// A refund to a customer on the bank's leaf; a blank [payee] prints the
+  /// customer's name.
+  Future<List<int>> refundChequePdf(String refundId, {String? payee}) =>
+      downloadBytes(
+        '/api/v1/refunds/$refundId/cheque',
+        query: {
+          if (payee != null && payee.trim().isNotEmpty) 'payee': payee.trim(),
+        },
+      );
+
+  /// An expense paid by bank, on the bank's leaf; a blank [payee] prints the
+  /// payee kept on the expense.
+  Future<List<int>> expenseChequePdf(String expenseId, {String? payee}) =>
+      downloadBytes(
+        '/api/v1/expenses/$expenseId/cheque',
+        query: {
+          if (payee != null && payee.trim().isNotEmpty) 'payee': payee.trim(),
+        },
+      );
+
   // ---- payment runs (BUY-11) --------------------------------------------
 
   /// Supplier bills owing on or before [dueBy], for a run to pick from.

@@ -6,8 +6,10 @@ import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/contra_voucher.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/expense.dart';
 import 'package:agency_desktop/models/settlement.dart';
 import 'package:agency_desktop/models/settlement_direction.dart';
+import 'package:agency_desktop/ui/finance/expenses_page.dart';
 import 'package:agency_desktop/ui/finance/settlements_page.dart';
 import 'package:agency_desktop/ui/workspace/cheque_print_dialog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
@@ -27,7 +29,9 @@ class _ChequeApi extends ApiClient {
         );
 
   final List<Settlement> rows;
+  final List<Expense> expenseRows = [];
   String? refuse;
+  final List<String> pdfCalls = [];
   final List<String?> chequeCalls = [];
   final List<Map<String, Object?>> saves = [];
   final List<String> tests = [];
@@ -44,6 +48,29 @@ class _ChequeApi extends ApiClient {
     String? settlementTo,
   }) async =>
       PagedResult<Settlement>(items: rows, total: rows.length);
+
+  @override
+  Future<PagedResult<Expense>> expenses({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String? status,
+    String? expenseFrom,
+    String? expenseTo,
+  }) async =>
+      PagedResult<Expense>(items: expenseRows, total: expenseRows.length);
+
+  @override
+  Future<List<int>> refundChequePdf(String refundId, {String? payee}) async {
+    pdfCalls.add('refund $refundId $payee');
+    return const [37, 80, 68, 70];
+  }
+
+  @override
+  Future<List<int>> expenseChequePdf(String expenseId, {String? payee}) async {
+    pdfCalls.add('expense $expenseId $payee');
+    return const [37, 80, 68, 70];
+  }
 
   @override
   Future<List<int>> paymentChequePdf(String paymentId, {String? payee}) async {
@@ -181,7 +208,129 @@ Future<void> _openPayments(WidgetTester tester, _ChequeApi api) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _openRefunds(
+  WidgetTester tester,
+  _ChequeApi api,
+  List<String> printed,
+) async {
+  _window(tester, const Size(1600, 1100));
+  final Directory temp = Directory.systemTemp.createTempSync('cheque');
+  addTearDown(() => temp.deleteSync(recursive: true));
+  await tester.pumpWidget(MaterialApp(
+    builder: (context, child) => Phase2Scope(child: child!),
+    home: Scaffold(
+      body: SettlementsPage(
+        api: api,
+        preferences: DesktopPreferencesService(directory: temp),
+        permissions: PermissionService()
+          ..applyAccessToken(_accessToken({
+            'roles': <String>['user'],
+            'permissions': <String>['PAYMENT_VIEW', 'PAYMENT_CREATE'],
+          })),
+        hasActiveFirm: true,
+        direction: SettlementDirection.refund,
+        openPdfOverride: (name, bytes) async =>
+            printed.add('$name:${bytes.length}'),
+      ),
+    ),
+  ));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('PY-0001').first);
+  await tester.pump(const Duration(milliseconds: 500));
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  group('a refund and an expense on the leaf (F13)', () {
+    test('a posted bank refund can be printed, a cash one cannot', () {
+      expect(canPrintCheque(_payment(direction: 'REFUND')), isTrue);
+      expect(
+        canPrintCheque(_payment(direction: 'REFUND', method: 'CASH', mode: 'CASH')),
+        isFalse,
+      );
+    });
+
+    testWidgets('the Refunds screen prints from /refunds/{id}/cheque',
+        (tester) async {
+      final _ChequeApi api =
+          _ChequeApi(rows: [_payment(id: 'rf-1', direction: 'REFUND')]);
+      final List<String> printed = [];
+      await _openRefunds(tester, api, printed);
+
+      await tester.tap(find.text('Print cheque').first);
+      await tester.pumpAndSettle();
+      expect(find.text("Blank prints the customer's name"), findsOneWidget);
+      await tester.tap(_key('cheque-print'));
+      await tester.pumpAndSettle();
+
+      expect(api.pdfCalls, ['refund rf-1 null']);
+      expect(printed, ['Cheque PY-0001:4']);
+    });
+
+    testWidgets('a cash refund is offered no Print cheque', (tester) async {
+      final _ChequeApi api = _ChequeApi(rows: [
+        _payment(direction: 'REFUND', method: 'CASH', mode: 'CASH'),
+      ]);
+      await _openRefunds(tester, api, []);
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.text('Print cheque'), findsNothing);
+    });
+
+    testWidgets('the Expenses screen prints from /expenses/{id}/cheque',
+        (tester) async {
+      final _ChequeApi api = _ChequeApi();
+      api.expenseRows.add(Expense.fromJson({
+        'id': 'e-1',
+        'expense_number': 'EXP-0001',
+        'expense_date': '2026-09-01',
+        'expense_account_code': '6000',
+        'expense_account_name': 'Rent',
+        'paid_from_account_name': 'HDFC',
+        'amount': '25000.00',
+        'payee': 'Sharma Estates',
+        'status': 'POSTED',
+        'journal_entry_id': 'j-1',
+        'version': 1,
+      }));
+      final List<String> printed = [];
+      _window(tester, const Size(1600, 1100));
+      final Directory temp = Directory.systemTemp.createTempSync('cheque');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: ExpensesPage(
+            api: api,
+            preferences: DesktopPreferencesService(directory: temp),
+            permissions: PermissionService()
+              ..applyAccessToken(_accessToken({
+                'roles': <String>['user'],
+                'permissions': <String>['EXPENSE_VIEW', 'EXPENSE_CREATE'],
+              })),
+            hasActiveFirm: true,
+            openPdfOverride: (name, bytes) async =>
+                printed.add('$name:${bytes.length}'),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('EXP-0001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Print cheque').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Pay Sharma Estates'), findsOneWidget);
+      expect(find.text('Blank prints the payee kept on the expense'),
+          findsOneWidget);
+      await tester.tap(_key('cheque-print'));
+      await tester.pumpAndSettle();
+
+      expect(api.pdfCalls, ['expense e-1 null']);
+      expect(printed, ['Cheque EXP-0001:4']);
+    });
+  });
+
   group('print cheque dialog', () {
     Future<void> open(
       WidgetTester tester,

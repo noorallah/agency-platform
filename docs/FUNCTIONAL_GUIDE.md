@@ -2621,7 +2621,7 @@ and expired reports filter on exactly those flags.
 (all in the Buy drop-down, with Purchase Returns and Debit Notes). New → lines → Submit → Approve. Receive from the order's own dialog;
 bill from the receipt; return from the receipt. Requisitions, Approvals and
 Quality Inspection are under **Buy › Documents**; the
-purchase-side money screens (Payment Runs, Post-dated Cheques, Supplier Gifts,
+purchase-side money screens (Payment Runs, Supplier Gifts,
 Supplier Rebates, Principal Claims, Landed Costs) under **Money**; Purchase
 Settings, Approval Limits and Purchase Budgets under **Settings › Buying**.
 
@@ -3188,7 +3188,7 @@ original row** — never recomputed, because only that row remembers the split.
 | --- | --- |
 | Receipts, customer statements | **Sell › Receipts**, **Sell › Customer Statements** |
 | Payments, supplier statements | **Buy › Payments**, **Buy › Supplier Statements** |
-| Refunds, post-dated cheques | **Sell › Money › Refunds, Post-dated Cheques**; **Buy › Money › Post-dated Cheques** |
+| Refunds, post-dated cheques | **Sell › Money › Refunds, Post-dated Cheques**; the firm's own cheques, **Accounts › Books › Cheques Issued** (**New** writes one to a supplier, a customer, an expense or any other account) |
 | Payment runs | **Buy › Money › Payment Runs** |
 
 ## Tables

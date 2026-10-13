@@ -17,8 +17,11 @@ import '../../core/security/permission_service.dart';
 import '../../models/post_dated_cheque.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
+import '../workspace/balance_confirmation.dart' show OpenPdfOverride;
+import '../workspace/cheque_print_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
+import 'write_cheque_dialog.dart';
 
 const List<String> _statuses = [
   'HELD',
@@ -37,6 +40,7 @@ class PostDatedChequePage extends StatefulWidget {
     required this.permissions,
     required this.hasActiveFirm,
     required this.issued,
+    this.openPdfOverride,
   });
 
   final ApiClient api;
@@ -46,8 +50,11 @@ class PostDatedChequePage extends StatefulWidget {
   final PermissionService permissions;
   final bool hasActiveFirm;
 
-  /// True for the firm's own cheques to suppliers, false for a customer's.
+  /// True for the firm's own cheques, false for a customer's.
   final bool issued;
+
+  /// Tests inject one, because a widget test cannot open a print dialog.
+  final OpenPdfOverride? openPdfOverride;
 
   @override
   State<PostDatedChequePage> createState() => _PostDatedChequePageState();
@@ -64,8 +71,36 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
 
   bool get _mayView => widget.permissions
       .hasPermission(widget.issued ? 'PAYMENT_VIEW' : 'RECEIPT_VIEW');
-  bool get _mayWrite => widget.permissions
-      .hasPermission(widget.issued ? 'PAYMENT_CREATE' : 'RECEIPT_CREATE');
+
+  /// Writing a cheque needs the right for the kind of payee, so the issued
+  /// page offers New to anyone who holds one of them.
+  bool get _mayWrite => widget.issued
+      ? ['SUPPLIER', 'EXPENSE', 'ACCOUNT']
+          .any((kind) => mayWriteChequeTo(widget.permissions, kind))
+      : widget.permissions.hasPermission('RECEIPT_CREATE');
+
+  /// Who an issued cheque pays; a cheque with no kind is to a supplier.
+  String _kindOf(PostDatedCheque row) =>
+      row.paidToKind.isEmpty ? 'SUPPLIER' : row.paidToKind;
+
+  /// Presenting, clearing, cancelling or printing this cheque.
+  bool _mayAct(PostDatedCheque row) => widget.issued
+      ? mayWriteChequeTo(widget.permissions, _kindOf(row))
+      : widget.permissions.hasPermission('RECEIPT_CREATE');
+
+  /// Marking this cheque returned reverses what it raised, which is a
+  /// different right from the one that raised it.
+  bool _mayReturn(PostDatedCheque row) {
+    if (!widget.issued) {
+      return widget.permissions.hasPermission('RECEIPT_CREATE');
+    }
+    final String code = switch (_kindOf(row)) {
+      'EXPENSE' => 'EXPENSE_CANCEL',
+      'ACCOUNT' => 'JOURNAL_REVERSE',
+      _ => 'PAYMENT_CREATE',
+    };
+    return widget.permissions.hasPermission(code);
+  }
 
   String get _noun => widget.issued ? 'Issued cheques' : 'Cheques received';
   String get _depositWord => widget.issued ? 'Present' : 'Deposit';
@@ -120,7 +155,9 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
   void _tell(String message, AppNotificationKind kind) =>
       NotificationService.show(context, message, kind: kind);
 
+  /// An issued cheque is written to any account; a customer's is taken in.
   Future<void> _new() async {
+    if (widget.issued) return _write();
     final PostDatedCheque? saved = await showDialog<PostDatedCheque>(
       context: context,
       barrierDismissible: false,
@@ -133,6 +170,47 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
     setState(() => _selectedId = saved.id);
     _tell('Cheque ${saved.chequeNumber} — held.', AppNotificationKind.success);
     await _load();
+  }
+
+  Future<void> _write() async {
+    final PostDatedCheque? saved = await showDialog<PostDatedCheque>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => WriteChequeDialog(
+        api: widget.api,
+        permissions: widget.permissions,
+      ),
+    );
+    if (saved == null || !mounted) return;
+    setState(() => _selectedId = saved.id);
+    final String became = saved.becameLabel;
+    _tell(
+      saved.isHeld
+          ? 'Cheque ${saved.chequeNumber} written and held until '
+              '${saved.chequeDate}.'
+          : 'Cheque ${saved.chequeNumber} written and recorded'
+              '${became.isEmpty ? '' : ' as $became'}.',
+      AppNotificationKind.success,
+    );
+    await _load();
+    if (!mounted) return;
+    await _printCheque(saved);
+  }
+
+  /// The cheque on the bank's leaf, with the name it is written to.
+  Future<void> _printCheque(PostDatedCheque row) async {
+    await showDialog<Object>(
+      context: context,
+      builder: (_) => ChequePrintDialog(
+        api: widget.api,
+        fetchPdf: (payee) => widget.api.issuedChequePdf(row.id, payee: payee),
+        payeeHelp: 'Blank prints the name kept on the cheque',
+        number: row.chequeNumber,
+        partyName: row.payeeName.isEmpty ? row.partyName : row.payeeName,
+        amount: row.amount,
+        openPdfOverride: widget.openPdfOverride,
+      ),
+    );
   }
 
   Future<void> _deposit(PostDatedCheque row) async {
@@ -236,9 +314,10 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
     final PostDatedCheque? picked = _selected;
     return ManagementWorkspaceLayout(
       notice: widget.issued
-          ? 'Cheques you have given suppliers, dated ahead. Present one on '
-              'its day and the payment is recorded; mark it cleared when '
-              'the bank has paid it.'
+          ? 'Cheques the firm has written, to a supplier, a customer, an '
+              'expense or any other account. One dated today is recorded at '
+              'once; one dated ahead is held, and Present records it on its '
+              'day. Mark it cleared when the bank has paid it.'
           : 'Cheques customers have given you, dated ahead. Deposit one on '
               'its day and the receipt is recorded; mark it cleared when '
               'the bank has paid it, or bounced if it comes back.',
@@ -288,11 +367,12 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
   Widget _detail(PostDatedCheque cheque) {
     final String banked = widget.issued ? 'Presented' : 'Deposited';
     final String returned = widget.issued ? 'Returned' : 'Bounced';
+    final String became =
+        widget.issued ? cheque.becameLabel : cheque.settlementNumber;
     final List<String> lines = [
       'Dated ${cheque.chequeDate}, taken on ${cheque.receivedOn}',
       if (cheque.depositedOn.isNotEmpty)
-        '$banked ${cheque.depositedOn}'
-            '${cheque.settlementNumber.isEmpty ? '' : ' as ${cheque.settlementNumber}'}',
+        '$banked ${cheque.depositedOn}${became.isEmpty ? '' : ' as $became'}',
       if (cheque.clearedOn.isNotEmpty) 'Cleared ${cheque.clearedOn}',
       if (cheque.bouncedOn.isNotEmpty)
         '$returned ${cheque.bouncedOn}: ${cheque.bounceReason}',
@@ -313,8 +393,15 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
   }
 
   WorkspaceToolbar _toolbar(PostDatedCheque? selected) {
-    final bool held = selected != null && selected.isHeld && _mayWrite;
-    final bool banked = selected != null && selected.isDeposited && _mayWrite;
+    final bool held = selected != null && selected.isHeld && _mayAct(selected);
+    final bool banked =
+        selected != null && selected.isDeposited && _mayAct(selected);
+    final bool returnable =
+        selected != null && selected.isDeposited && _mayReturn(selected);
+    final bool printable = selected != null &&
+        _mayAct(selected) &&
+        selected.status != 'CANCELLED' &&
+        selected.status != 'BOUNCED';
     return WorkspaceToolbar(
       trailing: [
         // One menu, because "due to deposit" is a held cheque whose day has
@@ -381,7 +468,7 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
             id: 'bounce',
             label: _bounceWord,
             icon: Icons.undo,
-            onPressed: banked ? () => unawaited(_bounce(selected)) : null,
+            onPressed: returnable ? () => unawaited(_bounce(selected)) : null,
           ),
           ToolbarCommand(
             id: 'cancel',
@@ -389,6 +476,14 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
             icon: Icons.cancel_outlined,
             onPressed: held ? () => unawaited(_cancel(selected)) : null,
           ),
+          if (widget.issued)
+            ToolbarCommand(
+              id: 'print-cheque',
+              label: 'Print cheque',
+              icon: Icons.local_atm_outlined,
+              onPressed:
+                  printable ? () => unawaited(_printCheque(selected)) : null,
+            ),
         ],
       ],
     );
@@ -410,13 +505,23 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
       ),
       ChoosableColumn(
         column: GridColumn(
-            key: 'party', label: widget.issued ? 'Supplier' : 'Customer'),
-        cell: (item) => item.partyName,
+            key: 'party', label: widget.issued ? 'Paid to' : 'Customer'),
+        cell: (item) => widget.issued && item.payeeName.isNotEmpty
+            ? item.payeeName
+            : item.partyName,
         shownByDefault: true,
       ),
+      if (widget.issued)
+        ChoosableColumn(
+          column: const GridColumn(key: 'kind', label: 'Pays'),
+          cell: (item) => item.paidToWords,
+          shownByDefault: true,
+        ),
       ChoosableColumn(
         column: const GridColumn(key: 'bank', label: 'Bank', priority: 1),
-        cell: (item) => item.drawnOnBank,
+        cell: (item) => widget.issued && item.bankAccountName.isNotEmpty
+            ? item.bankAccountName
+            : item.drawnOnBank,
         shownByDefault: true,
       ),
       ChoosableColumn(
@@ -437,9 +542,10 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
       ChoosableColumn(
         column: GridColumn(
             key: 'settlement',
-            label: widget.issued ? 'Payment' : 'Receipt',
+            label: widget.issued ? 'Recorded as' : 'Receipt',
             priority: 1),
-        cell: (item) => item.settlementNumber,
+        cell: (item) =>
+            widget.issued ? item.becameLabel : item.settlementNumber,
         shownByDefault: true,
       ),
     ],
@@ -450,9 +556,12 @@ class _PostDatedChequePageState extends State<PostDatedChequePage> {
       return WorkspaceEmptyState(
         title: _dueOnly ? 'Nothing is due today' : 'No cheques yet',
         message: _mayWrite
-            ? 'Record a cheque that is dated ahead; it is held until its day.'
+            ? (widget.issued
+                ? 'Write a cheque; one dated ahead is held until its day.'
+                : 'Record a cheque that is dated ahead; it is held until '
+                    'its day.')
             : 'Recording one needs the create permission for '
-                '${widget.issued ? 'payments' : 'receipts'}.',
+                '${widget.issued ? 'payments, expenses or journals' : 'receipts'}.',
       );
     }
     return EnterpriseDataGrid<PostDatedCheque>(
@@ -489,8 +598,8 @@ DateTime? _parseDate(String value) =>
     value.length >= 10 ? DateTime.tryParse(value.substring(0, 10)) : null;
 
 /// A date field that opens a picker.
-class _DateField extends StatelessWidget {
-  const _DateField({
+class ChequeDateField extends StatelessWidget {
+  const ChequeDateField({
     super.key,
     required this.label,
     required this.value,
@@ -708,7 +817,7 @@ class _NewPostDatedChequeDialogState extends State<NewPostDatedChequeDialog>
                     const SizedBox(height: AppSpacing.md),
                     Row(children: [
                       Expanded(
-                        child: _DateField(
+                        child: ChequeDateField(
                           key: const ValueKey('pdc-cheque-date'),
                           label: 'Cheque date',
                           value: _chequeDate,
@@ -719,7 +828,7 @@ class _NewPostDatedChequeDialogState extends State<NewPostDatedChequeDialog>
                       ),
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
-                        child: _DateField(
+                        child: ChequeDateField(
                           key: const ValueKey('pdc-taken-date'),
                           label: widget.issued ? 'Given on' : 'Received on',
                           value: _takenOn,
@@ -796,6 +905,26 @@ class _DepositPostDatedChequeDialogState
   Widget build(BuildContext context) {
     final String verb = widget.issued ? 'Present' : 'Deposit';
     final String record = widget.issued ? 'payment' : 'receipt';
+    final PostDatedCheque cheque = widget.cheque;
+    final String dated = 'The date cannot be before the cheque’s own date, '
+        '${cheque.chequeDate}.';
+    final String sentence = !widget.issued
+        ? 'This records a $record of ${_money(cheque.amount)} '
+            'with ${cheque.partyName}. It is not set against any '
+            'invoice, so the money stays on account until you apply it. $dated'
+        : switch (cheque.paidToKind) {
+            'CUSTOMER' => 'This records a refund of ${_money(cheque.amount)} '
+                'to ${cheque.partyName}. $dated',
+            'EXPENSE' => 'This records an expense of ${_money(cheque.amount)} '
+                'on ${cheque.partyName}. $dated',
+            'ACCOUNT' =>
+              'This records a payment voucher of ${_money(cheque.amount)} '
+                  'to ${cheque.partyName}. $dated',
+            _ => 'This records a $record of ${_money(cheque.amount)} '
+                'with ${cheque.partyName}. It is not set against any '
+                'invoice, so the money stays on account until you apply it. '
+                '$dated',
+          };
     return AlertDialog(
       title: Text('$verb cheque ${widget.cheque.chequeNumber}'),
       content: SizedBox(
@@ -805,7 +934,7 @@ class _DepositPostDatedChequeDialogState
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             saveErrorBanner(),
-            _DateField(
+            ChequeDateField(
               key: const ValueKey('pdc-deposit-date'),
               label: widget.issued ? 'Presented on' : 'Deposited on',
               value: _date,
@@ -815,11 +944,7 @@ class _DepositPostDatedChequeDialogState
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'This records a $record of ${_money(widget.cheque.amount)} '
-              'with ${widget.cheque.partyName}. It is not set against any '
-              'invoice, so the money stays on account until you apply it. '
-              'The date cannot be before the cheque’s own date, '
-              '${widget.cheque.chequeDate}.',
+              sentence,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -882,7 +1007,7 @@ class _ClearPostDatedChequeDialogState extends State<ClearPostDatedChequeDialog>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             saveErrorBanner(),
-            _DateField(
+            ChequeDateField(
               key: const ValueKey('pdc-clear-date'),
               label: 'Cleared on',
               value: _date,
@@ -984,6 +1109,17 @@ class _BouncePostDatedChequeDialogState
   Widget build(BuildContext context) {
     final String record = widget.issued ? 'payment' : 'receipt';
     final String number = widget.cheque.settlementNumber;
+    final String effect = !widget.issued
+        ? 'The $record${number.isEmpty ? '' : ' $number'} is reversed, '
+            'so the customer owes the money again.'
+        : switch (widget.cheque.paidToKind) {
+            'CUSTOMER' => 'The refund is reversed, so the customer holds the '
+                'money on account again.',
+            'EXPENSE' => 'The expense is cancelled.',
+            'ACCOUNT' => 'The payment voucher is reversed.',
+            _ => 'The $record${number.isEmpty ? '' : ' $number'} is reversed, '
+                'so the supplier is owed the money again.',
+          };
     return AlertDialog(
       title: Text(
         '${widget.issued ? 'Cheque returned' : 'Cheque bounced'}: '
@@ -1008,13 +1144,11 @@ class _BouncePostDatedChequeDialogState
                   ),
                 ),
               Text(
-                'The $record${number.isEmpty ? '' : ' $number'} is reversed, '
-                'so ${widget.issued ? 'the supplier is owed' : 'the customer owes'} '
-                'the money again.',
+                effect,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: AppSpacing.md),
-              _DateField(
+              ChequeDateField(
                 key: const ValueKey('pdc-bounce-date'),
                 label: widget.issued ? 'Returned on' : 'Bounced on',
                 value: _date,

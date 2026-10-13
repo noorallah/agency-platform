@@ -9,6 +9,8 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/expense.dart';
+import '../workspace/balance_confirmation.dart' show OpenPdfOverride;
+import '../workspace/cheque_print_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'record_expense_dialog.dart';
@@ -26,6 +28,7 @@ class ExpensesPage extends StatefulWidget {
     required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
+    this.openPdfOverride,
   });
 
   final ApiClient api;
@@ -34,6 +37,9 @@ class ExpensesPage extends StatefulWidget {
   final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
+
+  /// Tests inject one, because a widget test cannot open a print dialog.
+  final OpenPdfOverride? openPdfOverride;
 
   @override
   State<ExpensesPage> createState() => _ExpensesPageState();
@@ -169,6 +175,21 @@ class _ExpensesPageState extends State<ExpensesPage> {
     }
   }
 
+  Future<void> _printCheque(Expense row) async {
+    await showDialog<Object>(
+      context: context,
+      builder: (_) => ChequePrintDialog(
+        api: widget.api,
+        fetchPdf: (payee) => widget.api.expenseChequePdf(row.id, payee: payee),
+        payeeHelp: 'Blank prints the payee kept on the expense',
+        number: row.expenseNumber,
+        partyName: row.payee.isEmpty ? row.expenseAccountName : row.payee,
+        amount: row.amount,
+        openPdfOverride: widget.openPdfOverride,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_canView) {
@@ -241,6 +262,17 @@ class _ExpensesPageState extends State<ExpensesPage> {
                 icon: Icons.undo,
                 onPressed: selected != null && !selected.isCancelled
                     ? () => unawaited(_cancel(selected))
+                    : null,
+              ),
+            // An expense paid from a bank, written as a cheque (F13). The
+            // server refuses a cash one by name, and the dialog shows it.
+            if (_canCreate)
+              ToolbarCommand(
+                id: 'print-cheque',
+                label: 'Print cheque',
+                icon: Icons.local_atm_outlined,
+                onPressed: selected != null && !selected.isCancelled
+                    ? () => unawaited(_printCheque(selected))
                     : null,
               ),
           ],
