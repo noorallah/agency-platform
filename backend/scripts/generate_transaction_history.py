@@ -347,6 +347,8 @@ RESET_ORDER: tuple[str, ...] = (
     # Expenses name the journals they posted, RESTRICT, so they go before the
     # journals below -- the next table to arrive with a feature (2026-09-27).
     "expenses",
+    # Staff advances name their journals and accounts, RESTRICT (row P4).
+    "staff_advance_entries",
     # Contra vouchers name their journals and accounts, RESTRICT (backlog 74
     # row 3).
     "contra_vouchers",

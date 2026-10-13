@@ -192,7 +192,7 @@ screens as before.
 | **Sell** | Documents, Money, Incentives, Insight, Field sales | Documents: Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Credit Notes, Debit Notes; Money: Receipts, Customer Statements |
 | **Buy** | Documents, Money, Insight | Documents: Purchase Orders, Goods Receipts, Purchase Invoices, Purchase Returns, Debit Notes; Money: Payments, Supplier Statements |
 | **Stock** | Stock, Movements, Tracking, Data | Stock: Stock Summary, Stock Ledger; Movements: Stock Transfers, Physical Count; Tracking: Batches, Expiry Monitor |
-| **Accounts** | Books, Fixed assets, Statements, Tax filing | Books: Journal Entries, Expenses, Ledgers, Bank Reconciliation; Statements: Trial Balance, Profit & Loss, Balance Sheet; Tax filing: GST Returns |
+| **Accounts** | Books, Fixed assets, Statements, Tax filing | Books: Journal Entries, Expenses, Staff Advances, Ledgers, Bank Reconciliation; Statements: Trial Balance, Profit & Loss, Balance Sheet; Tax filing: GST Returns |
 | **Masters** | Parties, Items, Organisation, Compliance | Parties: Customers, Vendors; Items: Products; Organisation: Branches, Warehouses |
 
 The foot of every drop-down carries **SETTINGS** and links to the Settings
@@ -1805,6 +1805,37 @@ selected*.
 account, the amount, the cash or bank account it was paid from, and TDS where it was deducted. Saving
 posts it to the journal; an expense dated in a locked year is refused, and so is
 one dated after today, since an expense is money already spent.
+
+**Staff Advances** (*Accounts → Books → Staff Advances*). Money lent to an
+employee against his salary, with no payroll. The list shows every employee
+with what he was advanced, what was recovered and what he **still owes**, and
+a total. The figures are the balance of his own account in the books, so an
+advance paid by a cheque to his account counts too.
+
+- **Add employee**: his name. He gets an account of his own (`ADV-001`, …)
+  in the group *Staff Advances* under Current Assets, which appears on the
+  trial balance and the balance sheet. Two employees of one name are
+  refused: add something to tell them apart.
+- **Give advance**: the date, the cash or bank account it is paid from and
+  the amount. Out of a cash account that does not hold that much, the
+  screen asks before saving, as it does for an expense.
+- **Record recovery**: either *Taken from salary*, which charges the salary
+  account that amount, or *Paid back in cash or bank*. More than he owes is
+  refused.
+- **Entries**: one employee's advances and recoveries, newest first. A wrong
+  one is **cancelled** with a reason; the entry and the entry that undoes it
+  both stay in the books. An advance that has since been recovered is
+  cancelled only after its recovery.
+
+*Paying a salary with an advance outstanding.* A man on 10,000 who holds an
+advance of 2,000 is handed 8,000. Record the 8,000 as an **expense** on
+*Salaries and Wages*, and the 2,000 as a **recovery** *Taken from salary*.
+The salary account then shows the full 10,000 and he owes nothing.
+
+The screen opens for whoever may see expenses, and its buttons for whoever
+may record or cancel one. To rename an employee or switch his account off,
+use the chart of accounts; an account switched off stays on the list while
+it still owes.
 
 **Ledgers.** One account's movements over a period, with the opening and
 closing balance.

@@ -455,6 +455,8 @@ abstract final class MenuLayout {
         MenuItemSpec(
             AppModule.accounting, 'journal-entries', 'Journal Entries'),
         MenuItemSpec(AppModule.accounting, 'expenses', 'Expenses'),
+        MenuItemSpec(
+            AppModule.accounting, 'staff-advances', 'Staff Advances'),
         MenuItemSpec(AppModule.accounting, 'pdc-issued', 'Cheques Issued'),
         MenuItemSpec(
             AppModule.accounting, 'opening-balances', 'Opening Balances'),

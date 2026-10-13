@@ -11115,3 +11115,66 @@ none of the type; the override with a reason.
 **Not done.** No screen was clicked. The products import file has no licence
 column, as before. The print of the licences used was not looked at with two
 licences on one line.
+
+## 153. An account per employee for salary advances, and what each still owes (row P4, USR-3) -- built 2026-10-14
+
+**The owner, 2026-10-13.** No payroll. Each employee has his own account
+under *Staff advances*; an advance is paid to it from Cash, Petty Cash or a
+bank account; a recovery takes it down when the salary is paid, so the salary
+expense is the full salary; a list shows what each employee still owes.
+
+**What was there.** Everything the books need, and no easy way to it. An
+asset account per person could be opened in the chart of accounts; a cheque
+to *another account* (backlog 150) or a journal typed by hand could pay him;
+a journal could book the recovery. All of that needs the chart, the journal
+screen and the right to post journals. There was no list of who owes what.
+And one thing was wrong: the expense form offers every asset account the firm
+opened itself as **Paid from**, so an employee's account would have been
+offered as somewhere to pay rent from.
+
+**What was built.**
+
+| Piece | Where |
+| --- | --- |
+| An employee is a ledger account in the group *Staff Advances* (`CA-STAFF`, under Current Assets), opened with the first employee, the way Cash-in-Hand and Bank Accounts are opened with their first account. His code is `ADV-001`, `ADV-002` and so on. Two employees of one name are refused | `StaffAdvanceService.add_employee` in `app/staff_advances/services/staff_advance_service.py` |
+| **What he owes is the balance of his account**, summed from the ledger on every read and stored nowhere. An advance paid by a cheque to his account or by a journal counts exactly as one recorded here | `StaffAdvanceService.employees` |
+| An **advance**: Dr the employee, Cr the cash or bank account. Out of a cash account that would stand below zero it is asked about first, as an expense is | `StaffAdvanceService.record`, `DocumentPostingService.post_staff_advance` |
+| A **recovery**: Cr the employee, and Dr either the expense account the salary is booked to (taken from salary) or the cash or bank account it was paid back into. More than he owes is refused | the same |
+| Each entry has a number of its own series (`SADV`), is posted when saved, and is cancelled with a mirror journal `<number>-CAN`; nothing is edited or deleted. An advance that has since been recovered is not cancelled until the recovery is | `staff_advance_entries`, migration `20261014_0378`, `StaffAdvanceService.cancel` |
+| An employee's account is no longer offered as **Paid from** on an expense | `ExpenseService.paid_from_accounts`, `staff_advance_account_ids` in `app/finance/services/money_accounts.py` |
+| The screen *Accounts > Books > Staff Advances*: the list of employees with Advanced, Recovered and Still owes and a total; **Add employee**, **Give advance**, **Record recovery**, **Entries** with **Cancel** | `desktop/lib/ui/finance/staff_advances_page.dart` |
+
+Routes, all under `/api/v1/staff-advances`: `GET /employees`,
+`POST /employees`, `GET /accounts`, `GET` (the entries, in pages),
+`POST` (an advance or a recovery), `POST /{id}/cancel`.
+
+**How the salary comes out at the full figure.** A man on 10,000 a month who
+holds an advance of 2,000 is paid 8,000 at the month end. The 8,000 is
+recorded as an expense on *Salaries and Wages* paid from cash, as before. The
+2,000 is recorded as a recovery *Taken from salary*: it charges *Salaries and
+Wages* 2,000 and takes his account down 2,000. The salary account then shows
+10,000 for the month and he owes nothing.
+
+**Decided here, each easy to turn round.**
+
+1. **The rights are the expense screen's** (`EXPENSE_VIEW`, `EXPENSE_CREATE`,
+   `EXPENSE_CANCEL`): whoever records the firm's rent records an advance. No
+   new right and nothing to grant. Adding an employee opens a ledger account,
+   and needs only the right to record an expense, not the chart of accounts.
+2. **An employee is a ledger account, not a record of its own.** No phone,
+   no address, no salary figure: none was asked for and payroll is not
+   wanted. Renaming him or switching his account off is done in the chart of
+   accounts.
+3. A recovery of more than he owes is refused rather than leaving the firm
+   owing the employee.
+4. An account switched off stays on the list while it carries a balance, and
+   takes no new entry until it is switched on (the ledger posts nothing to an
+   account that is off).
+5. The two halves of a salary are two entries (an expense and a recovery),
+   not one *Pay salary* form: that form is the first step of a payroll.
+
+**Not done.** No screen was clicked. Nothing prints (no advance slip). The
+list has no "as on" date and no export. An employee is not tied to a user
+account or to a salesman. The opening balance of an employee who already
+holds an advance on the day the firm starts is typed with the other opening
+balances, on his account, after he is added.

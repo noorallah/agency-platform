@@ -5753,6 +5753,41 @@ redo yours."*
   - Step 12: the list itself needs the right to see payments, so this user is told he cannot see it (known and left, backlog 150). With that right added, **Pays** offers *Expense account* only.
 - **Leaves:** one cancelled expense, one payment on account to the supplier, one refund, one payment voucher, and the cheques.
 
+### TC-FIN-040 — A salary advance to an employee, and its recovery
+
+*Added 2026-10-14 (customer task P4, USR-3, backlog 153). The server was driven over HTTP on a fixture firm and the screen is covered by widget tests; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** *Accounts → Books → Staff Advances*: **Add employee**, **Give advance**, **Record recovery**, **Entries**, **Cancel**
+- **Fixture:** `ready-firm`
+- **Also needs:** a user who may record and cancel expenses. Note the balance of *Cash*, of the bank account and of *Salaries and Wages*.
+- **Steps**
+  1. Open *Accounts → Books → Staff Advances* and press **Add employee**. Type a name and save. Press **Add employee** again and type the same name.
+  2. Select the employee and press **Give advance**: today, paid from the bank account, 5,000.00.
+  3. Press **Record recovery**, choose *Taken from salary*, leave the salary account, and type 5,000.01.
+  4. Change the amount to 2,000.00 and save.
+  5. Open *Accounts → Statements → Trial Balance* for this month and find the employee's account.
+  6. Back on *Staff Advances*, press **Give advance**, paid from *Cash*, for more than the cash account holds.
+  7. Press **Record recovery**, choose *Paid back in cash or bank*, *Cash*, 500.00.
+  8. Open *Accounts → Books → Expenses*, press **New** and open **Paid from**.
+  9. On *Staff Advances*, select the employee and press **Entries**. Select the advance of step 2 and press **Cancel**, with a reason.
+  10. Cancel the recovery of step 7, then the recovery of step 4, then the advance of step 2, each with a reason.
+  11. Give an advance dated tomorrow.
+  12. Sign in as a user who may see expenses and not record them, and open *Staff Advances*.
+- **Expect**
+  - Step 1: the employee is on the list with a code `ADV-` and a number, owing 0.00. The second is refused: he already has an account.
+  - Step 2: the entry is saved with a number beginning `SADV`; the list shows Advanced 5,000.00, Still owes 5,000.00; the bank is down by 5,000.00.
+  - Step 3: refused: he owes only 5,000.00.
+  - Step 4: saved. The list shows Recovered 2,000.00, Still owes 3,000.00, and *Salaries and Wages* is up by 2,000.00.
+  - Step 5: his account stands at 3,000.00 on the debit side, under *Staff Advances*, and the trial balance balances.
+  - Step 6: the screen asks before saving, naming what the cash account holds; **Save anyway** saves it and **Go back** saves nothing. (Go back here, or cancel the entry afterwards.)
+  - Step 7: saved. Still owes 2,500.00 and *Cash* is up by 500.00.
+  - Step 8: the employee is not on the **Paid from** list.
+  - Step 9: refused: he owes less than this advance; the recovery taken against it is cancelled first.
+  - Step 10: each is cancelled. The list shows Still owes 0.00, and the bank, *Cash* and *Salaries and Wages* are back where they started.
+  - Step 11: refused: it cannot be recorded on a future date.
+  - Step 12: the list opens; **Add employee**, **Give advance**, **Record recovery** and **Cancel** are not offered.
+- **Leaves:** one employee account with nothing owing, and four cancelled entries (five if step 6 was saved).
+
 ### TC-FIN-032 — The collector's day sheet adds up to the receipts
 
 *Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*

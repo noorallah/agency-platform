@@ -632,6 +632,12 @@ trigger each schema owns its own copy of.
 | `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `debit_notes`, `purchase_invoices`, `vendor_opening_bills` |
 | `supplier_credit_refunds` | firm store ¹ | Money a supplier paid back against one return's credit (69 row 7). | `vendors`, `purchase_returns`, `debit_notes`, `ledger_accounts`, `journal_entries` |
 
+### `app/staff_advances`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `staff_advance_entries` | firm store ¹ | Store one advance to an employee or one recovery, and its journal. | `firms`, `ledger_accounts`, `journal_entries` |
+
 ### `app/supplier_rebates`
 
 | Table | Store | Holds | Points at |

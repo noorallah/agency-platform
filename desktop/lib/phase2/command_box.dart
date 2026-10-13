@@ -34,6 +34,12 @@ const Map<String, List<String>> _synonyms = {
   ],
   'accounting/journal-entries': ['journal', 'jv'],
   'accounting/expenses': ['expense', 'payment voucher', 'rent', 'fuel'],
+  'accounting/staff-advances': [
+    'staff advance',
+    'salary advance',
+    'employee advance',
+    'advance to staff',
+  ],
   'accounting/ledgers': ['ledger', 'account book'],
   'accounting/bank-details': [
     'bank details',

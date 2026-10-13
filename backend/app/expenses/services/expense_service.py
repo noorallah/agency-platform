@@ -35,7 +35,10 @@ from app.finance.models import AccountType, FirmControlAccount, LedgerAccount
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
-from app.finance.services.money_accounts import ask_before_cash_goes_below_zero
+from app.finance.services.money_accounts import (
+    ask_before_cash_goes_below_zero,
+    staff_advance_account_ids,
+)
 
 #: The control purposes a paid-from account may carry. Cash and bank are what
 #: money is paid out of; every other purpose belongs to the documents that
@@ -127,13 +130,17 @@ class ExpenseService(TransactionalDocumentService):
 
         Cash and Bank, and any asset account the firm opened itself (a second
         bank account, petty cash). Receivables, inventory and input tax are
-        mapped to their own purposes and left out.
+        mapped to their own purposes and left out. So is an employee's
+        account under Staff Advances (row P4): it is money a person owes
+        the firm, and nothing can be paid out of it.
         """
         mapped = self._purposes_by_account(firm_id)
+        employees = staff_advance_account_ids(self._session, firm_id)
         return [
             account
             for account in self._live_accounts(firm_id, AccountType.ASSET.value)
             if mapped.get(account.id, set()) <= _MONEY_PURPOSES
+            and account.id not in employees
         ]
 
     def _require_account(

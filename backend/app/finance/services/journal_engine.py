@@ -75,6 +75,7 @@ SOURCE_DOCUMENT_NAMES = {
     "tcs": "TCS collection",
     "loyalty": "loyalty entry",
     "expenses": "business expense",
+    "staff_advances": "staff advance or its recovery",
     "opening_balances": "opening trial balance",
 }
 
