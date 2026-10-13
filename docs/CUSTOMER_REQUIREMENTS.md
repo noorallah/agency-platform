@@ -66,7 +66,7 @@ name, GST number or bank detail is written in this file.
 | No. | Requirement | How it works | Status | Row |
 | --- | --- | --- | --- | --- |
 | PRD-1 | Company, brand, product | A company has many brands; a product is under one brand | Built | M11 |
-| PRD-2 | A product always has a brand, a brand always a company | Neither can be saved without its parent. Products with none today go under *Unbranded*, brands with none under *General*, to be moved by the owner | Planned | F7 |
+| PRD-2 | A product always has a brand, a brand always a company | Neither can be saved without its parent. Products with none before this went under *Unbranded* (one with a brand typed kept that brand), brands with none under *General*, to be moved by the owner; the product list has an *Unbranded* filter | Built | F7 |
 | PRD-3 | Goods type | The kind of goods (medicine, food, hardware). It decides batch, expiry, serial number, the extra fields and which are compulsory, the usual HSN and GST, and the starting margins. Kept per firm, not per company | Built (margins: Planned) | L3 |
 | PRD-4 | Product category | The firm's own grouping, with levels, for finding, reports, offers and the licence needed. Separate from the goods type | Built | |
 | PRD-5 | One box size per item | An item has a piece and a box and no third level. A supply packed differently is still counted by the item's own box | Decided | L5 |
@@ -243,3 +243,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | COL-8 built (F4): the discount at collection has a permission of its own, the firm admin's alone |
 | 2026-10-13 | SUP-4 built (F5): a supplier's GST number is held once; a branch takes its main office's or types its own |
 | 2026-10-13 | CUS-8 logged (F6) as backlog 137, open and not built: it waits on the provider and its price, which are the owner's to choose. Status stays Later |
+| 2026-10-13 | PRD-2 built (F7): a product cannot be saved without a brand, nor a brand without a company; what was there before is filed under *Unbranded* and *General* |

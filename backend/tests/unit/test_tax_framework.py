@@ -24,6 +24,7 @@ from app.customers.models import Customer, CustomerAddress
 from app.firms.models import Firm
 from app.products.schemas import ProductCreate
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 from app.sales.models import GeoCountry, GeoState
 from app.tax.models import (
     TaxComponent,
@@ -75,6 +76,9 @@ def _firm(session: Session) -> Firm:
         financial_year_start=date(2026, 1, 1),
     )
     session.add(row)
+    session.commit()
+    # A product always has a brand, so every firm here keeps one by name.
+    BrandService(session).ensure_brand("Test Brand", firm_id=row.id, actor_id=row.id)
     session.commit()
     return row
 
@@ -171,6 +175,7 @@ def test_tax_framework_profile_drives_product_assignment() -> None:
                 "code": "SKU-TAX-1",
                 "name": "Taxable Item",
                 "product_type": "STOCK_ITEM",
+                "brand": "Test Brand",
                 "status": "ACTIVE",
                 "tax_profile_group_code": profile.group_code,
                 "selling_price": "10",
@@ -503,6 +508,7 @@ def test_profile_version_is_resolved_from_the_document_date() -> None:
                 "code": "SKU-RATE",
                 "name": "Rated item",
                 "product_type": "STOCK_ITEM",
+                "brand": "Test Brand",
                 "status": "ACTIVE",
                 "tax_profile_group_code": "GST_STANDARD",
                 "selling_price": "100",
@@ -548,6 +554,7 @@ def test_a_product_without_a_tax_group_resolves_to_nothing() -> None:
                 "code": "SKU-NOTAX",
                 "name": "Untaxed item",
                 "product_type": "STOCK_ITEM",
+                "brand": "Test Brand",
                 "status": "ACTIVE",
                 "selling_price": "10",
                 "attributes": [],

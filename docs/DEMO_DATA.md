@@ -124,6 +124,11 @@ next run, not something observed in a store.
 - **Each demo firm is handed its profile's starting goods types**
   (`start_firm_goods_types` in `app/products/goods_type_seed.py`), only for a firm
   holding none. A firm already holding one is left as it is.
+- **Every seeded product is filed under a brand row** (backlog 138): both
+  seeders name the brand through `BrandService.ensure_brand`, which makes it
+  under the company *General* the first time and finds it afterwards, and
+  `seed_multi_firm_demo.py` files a product seeded before the rule, only
+  where the row is missing.
 - **Each firm's one product category, `CORE_PRODUCTS`, carries the profile's
   goods type**: Medicine for the pharmacy firm, Food for the food firm,
   Electronics for the electronics firm; the wholesale firm's stays General (no

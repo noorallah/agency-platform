@@ -33,6 +33,7 @@ from app.common.file_import import (
 )
 from app.core.exceptions import ApplicationError
 from app.products.models import Product, ProductCategory
+from app.products.models.brand import Brand
 from app.products.schemas import ProductCreate, ProductUpdate
 from app.products.schemas.product import ProductStatus, ProductType
 from app.tax.models import TaxProfile
@@ -120,7 +121,14 @@ COLUMNS: tuple[Column, ...] = (
         "An active tax profile group code (see the Lists sheet).",
         "GST5",
     ),
-    Column("Brand", ("make", "manufacturer"), False, "Brand name.", "Acme"),
+    Column(
+        "Brand",
+        ("make", "manufacturer"),
+        False,
+        "One of the firm's brands, by name (see the Lists sheet). Needed on a "
+        "new product.",
+        "Acme",
+    ),
     Column("Model", ("modelno", "modelnumber"), False, "Model.", ""),
     Column(
         "Barcode",
@@ -223,7 +231,6 @@ _FIELD_HEADINGS: dict[str, str] = {
 }
 
 _TEXT_FIELDS: dict[str, str] = {
-    "Brand": "brand",
     "Model": "model",
     "Barcode": "barcode",
     "ShortName": "short_name",
@@ -253,9 +260,17 @@ _FLAG_FIELDS: dict[str, str] = {
 
 
 class _References:
-    """The firm's categories, units, unit sets and tax groups, once per file."""
+    """The firm's categories, units, unit sets, tax groups and brands, once."""
 
     def __init__(self, session: Session, firm_id: UUID) -> None:
+        #: Oldest first and kept on a clash, as ``BrandService.brand_named``.
+        self.brands: dict[str, Brand] = {}
+        for brand in session.scalars(
+            select(Brand)
+            .where(Brand.firm_id == firm_id, Brand.is_deleted.is_(False))
+            .order_by(Brand.created_at.asc(), Brand.id.asc())
+        ).all():
+            self.brands.setdefault(brand.name.strip().lower(), brand)
         self.unit_sets = {
             option.name.strip().lower(): option
             for option in UnitSetService(session).product_options(firm_id)
@@ -423,6 +438,22 @@ class ProductFileImporter(FileImporter[Product]):
         for heading, target in _TEXT_FIELDS.items():
             if reader.text(heading):
                 values[target] = reader.text(heading)
+        assert self._references is not None
+        # A product always has a brand (backlog 138): a new one names it, and
+        # a blank cell on a product that exists leaves its brand alone.
+        brand = reader.text("Brand")
+        if brand:
+            kept = self._references.brands.get(brand.strip().lower())
+            if kept is None:
+                reader.fail(
+                    "Brand",
+                    f"'{brand}' is not one of the firm's brands; add it under "
+                    "its company first.",
+                )
+            else:
+                values["brand_id"] = kept.id
+        elif current is None:
+            reader.fail("Brand", "is required.")
         hsn = reader.text("HSN")
         if hsn:
             values["hsn_sac"] = hsn.upper()
@@ -594,6 +625,8 @@ def template_workbook(session: Session, firm_id: UUID) -> bytes:
             "Tax group",
             "",
             "Unit set",
+            "",
+            "Brand",
         ],
         lists=[
             [item.code for item in categories],
@@ -609,6 +642,8 @@ def template_workbook(session: Session, firm_id: UUID) -> bytes:
             sorted(references.tax_groups.values()),
             [],
             sorted(option.name for option in references.unit_sets.values()),
+            [],
+            sorted(brand.name for brand in references.brands.values()),
         ],
     )
 

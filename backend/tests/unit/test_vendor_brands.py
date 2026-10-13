@@ -21,6 +21,7 @@ from app.common.party_merge import PartyMergeService, PartyMergeWrite
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.products.models import Product
+from app.products.models.brand import Principal
 from app.products.schemas import ProductListFilters
 from app.products.services import ProductService
 from app.products.services.brands import BrandService, BrandWrite, PrincipalWrite
@@ -39,11 +40,32 @@ def firm() -> _Firm:
     return _Firm(sessionmaker(bind=engine, expire_on_commit=False)(), code="BRAND")
 
 
+def _general_company(firm: _Firm) -> UUID:
+    """Return the firm's catch-all company, made on first use."""
+    kept = firm.session.scalars(
+        select(Principal.id).where(
+            Principal.firm_id == firm.firm.id, Principal.code == "GENERAL"
+        )
+    ).first()
+    if kept is not None:
+        return kept
+    return (
+        BrandService(firm.session)
+        .save_principal(
+            PrincipalWrite(code="GENERAL", name="General"),
+            firm_id=firm.firm.id,
+            actor_id=firm.actor_id,
+        )
+        .id
+    )
+
+
 def _brand(firm: _Firm, name: str, principal_id: UUID | None = None) -> UUID:
+    """Save a brand; one named under no company goes under the general one."""
     return (
         BrandService(firm.session)
         .save_brand(
-            BrandWrite(name=name, principal_id=principal_id),
+            BrandWrite(name=name, principal_id=principal_id or _general_company(firm)),
             firm_id=firm.firm.id,
             actor_id=firm.actor_id,
         )

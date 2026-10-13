@@ -27,6 +27,7 @@ from app.inventory.models import InventoryRecord
 from app.products.models import Product
 from app.products.schemas import ProductCreate
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.sales_order.models import SalesOrder, SalesOrderLine
 
@@ -66,6 +67,9 @@ def _firm(session: Session, code: str) -> Firm:
             )
         )
     session.commit()
+    # A product always has a brand, so every firm here keeps one by name.
+    BrandService(session).ensure_brand("Test Brand", firm_id=firm.id, actor_id=firm.id)
+    session.commit()
     return firm
 
 
@@ -73,7 +77,12 @@ def _product(service: ProductService, firm: Firm, code: str) -> Product:
     """Create one plain stock item."""
     return service.create_product(
         ProductCreate.model_validate(
-            {"code": code, "name": code, "product_type": "STOCK_ITEM"}
+            {
+                "code": code,
+                "name": code,
+                "product_type": "STOCK_ITEM",
+                "brand": "Test Brand",
+            }
         ),
         firm_id=firm.id,
         actor_id=uuid4(),

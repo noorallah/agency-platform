@@ -44,6 +44,7 @@ from app.products.schemas import (
     ProductUpdate,
 )
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 
 
 def _firm_scope(
@@ -57,6 +58,9 @@ def _firm_scope(
     return required_firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
+
+
+TEST_BRAND = "Test Brand"
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -79,6 +83,9 @@ def _firm(session: Session, code: str) -> Firm:
         financial_year_start=date(2026, 4, 1),
     )
     session.add(row)
+    session.commit()
+    # A product always has a brand, so every firm here keeps one by name.
+    BrandService(session).ensure_brand(TEST_BRAND, firm_id=row.id, actor_id=row.id)
     session.commit()
     return row
 
@@ -120,6 +127,7 @@ def _base_payload(code: str = "PROD-001") -> ProductCreate:
             "code": code,
             "name": "Pain Relief Tablet",
             "product_type": "STOCK_ITEM",
+            "brand": TEST_BRAND,
             "status": "ACTIVE",
             "selling_price": "120.00",
             "purchase_price": "95.00",

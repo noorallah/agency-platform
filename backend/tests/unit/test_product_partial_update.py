@@ -30,6 +30,7 @@ from app.products.api.router import update_product
 from app.products.models import Product
 from app.products.schemas import ProductCategoryCreate, ProductCreate, ProductUpdate
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 from app.uom.models import Uom
 
 
@@ -64,6 +65,9 @@ def _firm(session: Session, code: str) -> Firm:
             default_settings={},
         )
     )
+    session.commit()
+    # A product always has a brand; this file's products name Acme.
+    BrandService(session).ensure_brand("Acme", firm_id=firm.id, actor_id=firm.id)
     session.commit()
     return firm
 
@@ -164,6 +168,17 @@ def test_an_explicit_null_or_empty_list_still_clears() -> None:
     product = _full_product(session, firm)
     service = ProductService(session)
 
+    # A brand is the one thing an explicit null may not clear (backlog 138); a
+    # blank text beside no brand row is not an instruction, as before.
+    with pytest.raises(ValidationError, match="needs a brand"):
+        service.update_product(
+            product.id,
+            _three_fields(brand_id=None),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )
+    session.rollback()
+
     updated = service.update_product(
         product.id,
         _three_fields(brand=None, category_id=None, attributes=[], media=[]),
@@ -171,7 +186,7 @@ def test_an_explicit_null_or_empty_list_still_clears() -> None:
         actor_id=uuid4(),
     )
 
-    assert updated.brand is None
+    assert updated.brand == "Acme"
     assert updated.category_id is None
     assert updated.hsn_sac == "1234"
     assert service.attribute_responses(updated) == []
@@ -306,6 +321,7 @@ def test_a_preferred_supplier_must_be_the_firms_and_active() -> None:
     # An edit that leaves it alone is not refused once it goes inactive.
     mine.status = "INACTIVE"
     session.commit()
+    BrandService(session).ensure_brand("Other", firm_id=firm.id, actor_id=uuid4())
     again = service.update_product(
         product.id, _three_fields(brand="Other"), firm_scope=firm.id, actor_id=uuid4()
     )

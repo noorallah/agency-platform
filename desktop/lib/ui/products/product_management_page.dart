@@ -1674,6 +1674,14 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             ),
           ),
         _textFilter(_brand, 'Brand'),
+        ActionChip(
+          key: const ValueKey('product-filter-unbranded'),
+          label: const Text('Unbranded'),
+          onPressed: () {
+            setState(() => _brand.text = 'Unbranded');
+            _applyFilters();
+          },
+        ),
         _textFilter(_hsnSac, 'HSN / SAC'),
         _textFilter(_attributeSearch, 'Attribute contains'),
         FilterChip(
@@ -3650,11 +3658,12 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         ),
       );
 
-  /// The brand picker (MST-1). A product with no brand row keeps its
-  /// free-text brand in a box beside the picker until one is chosen.
+  /// The brand picker (MST-1). A product always has a brand: the box is a
+  /// required choice, and without the brand list the text box stands in
+  /// (the server resolves a brand by its name).
   Widget _brandField() {
     final List<BrandRecord>? brands = widget.brands;
-    if (brands == null) return _field(_brand, 'Brand');
+    if (brands == null) return _field(_brand, 'Brand', required: true);
     final bool known = brands.any((brand) => brand.id == _brandId);
     return SizedBox(
       width: 260,
@@ -3667,16 +3676,18 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
             isExpanded: true,
             initialValue: known ? _brandId : null,
             decoration: InputDecoration(
-              labelText: 'Brand',
-              helperText: _brandId.isEmpty && _brand.text.trim().isNotEmpty
-                  ? 'Free text: ${_brand.text.trim()}'
-                  : null,
+              labelText: 'Brand *',
+              helperText: brands.isEmpty
+                  ? 'No brands yet: add a company and a brand under '
+                      'Masters first.'
+                  : _brandId.isNotEmpty && !known
+                      ? 'Set to a brand no longer active'
+                      : _brandId.isEmpty && _brand.text.trim().isNotEmpty
+                          ? 'Free text: ${_brand.text.trim()}'
+                          : null,
+              helperMaxLines: 2,
             ),
             items: [
-              const DropdownMenuItem<String?>(
-                value: null,
-                child: Text('None'),
-              ),
               for (final BrandRecord brand in brands)
                 DropdownMenuItem<String?>(
                   value: brand.id,
@@ -3983,6 +3994,11 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     if (_name.text.trim().isEmpty) {
       issues.add('Product name is required.');
     }
+    if (widget.brands != null
+        ? _brandId.isEmpty
+        : _brand.text.trim().isEmpty) {
+      issues.add('Choose a brand.');
+    }
     if (_showLevelRates && _levelRatesTouched) {
       for (final TextEditingController box in _levelRates.values) {
         final String text = box.text.trim();
@@ -4081,7 +4097,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       // MST-1: sent only once the brand list arrived, so a failed fetch
       // cannot unfile a product. Naming a brand makes the server set the
       // brand text to its name.
-      if (widget.brands != null) 'brand_id': _brandId.isEmpty ? null : _brandId,
+      // A brand is required, so this is never blank once validated; a brand
+      // since deactivated is still sent back as it was.
+      if (widget.brands != null) 'brand_id': _brandId,
       'model': _model.text.trim().isEmpty ? null : _model.text.trim(),
       'hsn_sac': _hsn.text.trim().isEmpty ? null : _hsn.text.trim(),
       'purchase_price': _purchasePrice.text.trim().isEmpty

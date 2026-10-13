@@ -24,6 +24,7 @@ from app.firms.models import Firm
 from app.products.models import Product
 from app.products.schemas import ProductCreate
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 
 
 def _factory() -> sessionmaker[Session]:
@@ -60,13 +61,15 @@ def _firm(session: Session) -> Firm:
         ]
     )
     session.commit()
+    BrandService(session).ensure_brand("Acme", firm_id=firm.id, actor_id=firm.id)
+    session.commit()
     return firm
 
 
 def _record(code: str) -> ProductCreate:
     """Build the smallest importable product."""
     return ProductCreate.model_validate(
-        {"code": code, "name": code, "product_type": "STOCK_ITEM"}
+        {"code": code, "name": code, "product_type": "STOCK_ITEM", "brand": "Acme"}
     )
 
 
@@ -147,7 +150,7 @@ def test_a_csv_with_an_unknown_status_names_the_row() -> None:
     """The schema's refusal reaches the caller with the row it belongs to."""
     session = _factory()()
     firm = _firm(session)
-    content = "Code,Name,Status\nCSV-1,One,RETIRED\n"
+    content = "Code,Name,Status,Brand\nCSV-1,One,RETIRED,Acme\n"
 
     with pytest.raises(ValidationError, match="Row 2 \\(CSV-1\\): Status"):
         ProductService(session).import_products_csv(
@@ -177,8 +180,8 @@ def test_a_good_csv_and_a_good_workbook_import_whole() -> None:
 
     workbook = Workbook()
     sheet = workbook.active
-    sheet.append(["Code", "Name", "SellingPrice"])
-    sheet.append(["XL-1", "Sheet one", 25])
+    sheet.append(["Code", "Name", "SellingPrice", "Brand"])
+    sheet.append(["XL-1", "Sheet one", 25, "Acme"])
     buffer = BytesIO()
     workbook.save(buffer)
     xlsx_rows = service.import_products_xlsx(

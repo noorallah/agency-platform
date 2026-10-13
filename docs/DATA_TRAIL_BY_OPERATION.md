@@ -5808,7 +5808,10 @@ Five bulk endpoints (`/bulk-delete`, `/bulk-restore`, `/bulk-status`,
   permission flags, `status` — plus one `product_media` row per media entry and
   one `product_attribute_values` row per custom field (§14.5, TC-FIELD-007).
   Audit `product.created` carrying the code alone.
-- **What is checked:** the code, unique among **live** products; the barcode,
+- **What is checked:** the brand, which every product must have (backlog
+  138): named by `brand_id`, or by the brand's own name in `brand`, and a
+  name the firm does not keep is refused rather than made; the text is then
+  written in the brand row's spelling; the code, unique among **live** products; the barcode,
   unique among live products; the category and the sub-category, which must
   belong to the firm, be live, and the sub-category must sit under the
   category; `tax_profile_group_code`, which must match a live ACTIVE tax

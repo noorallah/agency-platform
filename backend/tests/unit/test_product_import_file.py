@@ -21,6 +21,7 @@ from app.core.database.base import Base
 from app.firms.models import Firm
 from app.products.models import Product, ProductCategory
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 from app.products.services.product_import import (
     COLUMNS,
     ImportReport,
@@ -29,6 +30,7 @@ from app.products.services.product_import import (
 )
 from app.tax.models import TaxProfile, TaxSystem
 from app.uom.models import Uom
+from tests.unit.test_product_master import TEST_BRAND
 
 
 def _factory() -> sessionmaker[Session]:
@@ -98,12 +100,24 @@ def _firm(session: Session) -> Firm:
             group_code="GST5",
         )
     )
+    for brand in (TEST_BRAND, "Acme"):
+        BrandService(session).ensure_brand(brand, firm_id=firm.id, actor_id=firm.id)
     session.commit()
     return firm
 
 
-def _csv(*lines: str) -> bytes:
-    """Join lines into a CSV file's bytes."""
+def _csv(*lines: str, brand: str | None = TEST_BRAND) -> bytes:
+    """Join lines into a CSV file's bytes.
+
+    A new product needs a brand, so a file whose heading names none gets a
+    ``Brand`` column holding ``brand`` on every row; ``brand=None`` leaves
+    the file exactly as written.
+    """
+    if brand is not None and "Brand" not in lines[0].split(","):
+        lines = (
+            f"{lines[0]},Brand",
+            *(f"{line},{brand}" for line in lines[1:]),
+        )
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
@@ -139,7 +153,9 @@ def test_a_check_reports_every_problem_by_row_and_writes_nothing() -> None:
     session = factory()
     firm = _firm(session)
     ProductService(session).import_products_csv(
-        "Code,Name\nTAKEN,Already here\n", firm_scope=firm.id, actor_id=uuid4()
+        f"Code,Name,Brand\nTAKEN,Already here,{TEST_BRAND}\n",
+        firm_scope=firm.id,
+        actor_id=uuid4(),
     )
     content = _csv(
         "Code,Name,Category,Unit,TaxGroup,SellingPrice,TrackBatch",
@@ -227,14 +243,22 @@ def test_headings_from_other_software_are_read() -> None:
     session = factory()
     firm = _firm(session)
     content = _csv(
-        "Item Code,ITEM NAME,HSN/SAC,Sale Price,UOM,Opening Qty",
-        "X-1,Imported,1234,25,pcs,10",
+        "Item Code,ITEM NAME,HSN/SAC,Sale Price,UOM,Opening Qty,Make",
+        f"X-1,Imported,1234,25,pcs,10,{TEST_BRAND}",
+        brand=None,
     )
 
     report = _run(session, firm.id, content, apply=True)
 
     assert report.imported
-    assert report.columns_used == ["Code", "Name", "Unit", "HSN", "SellingPrice"]
+    assert report.columns_used == [
+        "Code",
+        "Name",
+        "Unit",
+        "HSN",
+        "Brand",
+        "SellingPrice",
+    ]
     assert report.columns_ignored == ["Opening Qty"]
     with factory() as fresh:
         row = fresh.scalars(select(Product)).one()
@@ -263,7 +287,7 @@ def test_update_by_code_changes_what_the_file_says_and_leaves_blanks() -> None:
         _csv("Code,Name,Brand,SellingPrice", "KEEP,Kept,Acme,10"),
         apply=True,
     )
-    fix = _csv("Code,Name,Brand,SellingPrice", "KEEP,,,12", "NEW-1,New one,,")
+    fix = _csv("Code,Name,Brand,SellingPrice", "KEEP,,,12", "NEW-1,New one,Acme,")
 
     refused = _run(session, firm.id, fix, apply=True)
     assert [(issue.row, issue.column) for issue in refused.issues] == [(2, "Code")]
@@ -319,8 +343,8 @@ def test_a_workbook_with_whole_numbers_reads_them_as_text() -> None:
     firm = _firm(session)
     workbook = Workbook()
     sheet = workbook.active
-    sheet.append(["Code", "Name", "HSN", "MRP"])
-    sheet.append([1001, "Numbered", 10063020.0, 99.5])
+    sheet.append(["Code", "Name", "HSN", "MRP", "Brand"])
+    sheet.append([1001, "Numbered", 10063020.0, 99.5, TEST_BRAND])
     buffer = BytesIO()
     workbook.save(buffer)
 
@@ -535,3 +559,85 @@ def test_an_unknown_unit_set_is_a_problem_and_an_existing_product_keeps_its_unit
     with factory() as fresh:
         row = fresh.scalars(select(Product).where(Product.code == "TAB-1")).one()
     assert (row.name, row.purchase_uom_id) == ("Tablet one renamed", units["PCS"])
+
+
+def test_a_new_product_row_with_a_blank_brand_is_reported_on_the_column() -> None:
+    """A product always has a brand: a blank cell on a new row is a problem."""
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+
+    report = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,Brand", "NEW-1,No brand,", f"NEW-2,Branded,{TEST_BRAND}"),
+        apply=True,
+    )
+
+    assert [(item.row, item.column, item.message) for item in report.issues] == [
+        (2, "Brand", "is required.")
+    ]
+    assert not report.imported
+    assert _codes(factory) == []
+
+
+def test_an_unknown_brand_is_reported_on_the_column() -> None:
+    """The file never makes a brand: it must sit under a company already."""
+    session = _factory()()
+    firm = _firm(session)
+
+    report = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,Brand", "NEW-1,Strange,Zenith"),
+        apply=True,
+    )
+
+    assert [(item.row, item.column, item.message) for item in report.issues] == [
+        (
+            2,
+            "Brand",
+            "'Zenith' is not one of the firm's brands; add it under its "
+            "company first.",
+        )
+    ]
+    assert not report.imported
+
+
+def test_a_blank_brand_on_an_existing_product_leaves_the_stored_brand() -> None:
+    """A re-run that only fixes a price does not need the brand repeated."""
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+    _run(
+        session,
+        firm.id,
+        _csv("Code,Name,Brand", "KEEP,Kept,Acme"),
+        apply=True,
+    )
+
+    report = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,Brand", "KEEP,Kept again,"),
+        apply=True,
+        existing="update",
+    )
+
+    assert report.issues == [] and report.imported
+    with factory() as fresh:
+        kept = fresh.scalars(select(Product).where(Product.code == "KEEP")).one()
+        assert (kept.name, kept.brand) == ("Kept again", "Acme")
+        assert kept.brand_id is not None
+
+
+def test_the_templates_lists_sheet_names_the_firms_brands() -> None:
+    """The Brand column of the Lists sheet is the firm's own brands."""
+    session = _factory()()
+    firm = _firm(session)
+
+    workbook = load_workbook(BytesIO(template_workbook(session, firm.id)))
+
+    rows = list(workbook["Lists"].iter_rows(values_only=True))
+    column = next(index for index, value in enumerate(rows[0]) if value == "Brand")
+    assert [row[column] for row in rows[1:] if row[column]] == ["Acme", TEST_BRAND]

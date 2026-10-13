@@ -32,6 +32,7 @@ from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import product as _product_models  # noqa: F401
 from app.products.schemas import ProductCreate
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.search.api.router import global_search
@@ -739,10 +740,18 @@ def test_stock_is_found_by_its_products_name_and_code() -> None:
         )
         session.add(warehouse)
         session.commit()
+        brand = BrandService(session).ensure_brand(
+            "Test Brand", firm_id=firm.id, actor_id=uuid4()
+        )
         for code, name in (("PARA-500", "Paracetamol 500"), ("IBU-200", "Ibuprofen")):
             product = products.create_product(
                 ProductCreate.model_validate(
-                    {"code": code, "name": name, "product_type": "STOCK_ITEM"}
+                    {
+                        "code": code,
+                        "name": name,
+                        "product_type": "STOCK_ITEM",
+                        "brand_id": str(brand.id),
+                    }
                 ),
                 firm_id=firm.id,
                 actor_id=uuid4(),

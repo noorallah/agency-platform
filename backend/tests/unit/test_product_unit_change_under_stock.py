@@ -25,6 +25,7 @@ from app.inventory.models import InventoryRecord
 from app.products.models import Product
 from app.products.schemas import ProductCreate, ProductUpdate
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.uom.models import Uom
 
@@ -66,11 +67,16 @@ class _Setup:
             ]
         )
         self.session.commit()
+        BrandService(self.session).ensure_brand(
+            "Test Brand", firm_id=self.firm.id, actor_id=self.firm.id
+        )
+        self.session.commit()
         self.service = ProductService(self.session)
         self.fields: dict[str, object] = {
             "code": "UNIT-P",
             "name": "Counted",
             "product_type": "STOCK_ITEM",
+            "brand": "Test Brand",
         }
         if base_unit:
             self.fields["base_uom_id"] = self.piece.id

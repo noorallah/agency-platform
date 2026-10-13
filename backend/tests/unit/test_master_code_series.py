@@ -15,11 +15,12 @@ from sqlalchemy.orm import Session
 from app.customers.services import CustomerService
 from app.document_framework.models import DocumentNumberingRule
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 from app.vendors.schemas import VendorCreate
 from app.vendors.services import VendorService
 from tests.unit.test_customer_management import _customer_data, _session_factory
 from tests.unit.test_customer_management import _firm as _books_firm
-from tests.unit.test_product_master import _base_payload
+from tests.unit.test_product_master import TEST_BRAND, _base_payload
 
 
 def _setup() -> tuple[Session, object]:
@@ -74,6 +75,9 @@ def test_blank_supplier_and_product_codes_have_their_own_series() -> None:
     )
     assert vendor.code == "SUP-00001"
 
+    BrandService(session).ensure_brand(
+        TEST_BRAND, firm_id=firm.id, actor_id=actor  # type: ignore[attr-defined]
+    )
     product = ProductService(session).create_product(
         _base_payload(code=""),
         firm_id=firm.id,  # type: ignore[attr-defined]

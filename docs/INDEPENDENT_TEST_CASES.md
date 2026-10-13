@@ -1009,6 +1009,18 @@ warehouse rename its capability flags.
 - **Leaves:** two products, their levels, draft counter bills.
 
 
+
+### TC-MAST-033 — A product always has a brand, and a brand a company
+
+*Added 2026-10-13 (backlog 138). The server steps were driven over HTTP; the two forms and the filter are covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 138 (customer task F7); PRD-2
+- **Fixture:** `product-master`
+- **Also needs:** nothing. The names below are this case's own; add a suffix if they are taken.
+- **Steps:** as the **Firm admin**: (a) *Set up → Item lists → Brands* → **New**, name `B33`, **Company** left empty, Save. (b) *Principals* → **New**, code `C33`, name `Company 33`, Save; back on *Brands*, **New**, name `B33`, Company `Company 33`, Save. (c) *Masters → Products* → **New**: fill code and name, leave **Brand** as it is, Save. (d) Choose brand `B33`, Save; open the product again. (e) Open *Import*, download the template and read its *Lists* sheet; check a file of two new products, one with Brand `b33` and one with Brand left blank; then one with Brand `Nobody`. (f) Import a file holding only the first row. (g) Import a file that names the product of (d) with a new selling price and a blank Brand. (h) **Copy** the product of (d). (i) On *Brands*, delete `B33`. (j) On the product list open *Filters* and press **Unbranded**.
+- **Expect:** (a) refused on the form: *Company is required: choose one.*; nothing is saved. (b) both saved; the brand shows its company. (c) refused: *Choose a brand.*; nothing is sent. (d) saved; the Brand box reads `B33 (Company 33)` and the list's Brand column reads `B33`. (e) the Lists sheet has a *Brand* column listing `B33`; the check reports the blank row on column Brand as *is required.* and `Nobody` as *not one of the firm's brands; add it under its company first.*; the `b33` row has no problem. Nothing is written by a check. (f) the product is created with brand `B33`, spelt as the brand is. (g) the price changes and the brand stays `B33`. (h) the copy has brand `B33`. (i) refused, naming a product that still carries it. (j) the Brand filter reads `Unbranded` and the list shows the products filed under that brand: on a firm the migration settled, every product that had no brand; on this fixture, none unless one was put there.
+- **Leaves:** a company, a brand, three products.
+
 ---
 
 ## Configuration — numbering, profiles, tax and units

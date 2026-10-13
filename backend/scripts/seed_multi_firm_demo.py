@@ -113,6 +113,7 @@ from app.products.schemas import (
     ProductCreate,
 )
 from app.products.schemas.product import ProductStatus, ProductType
+from app.products.services.brands import BrandService
 from app.products.services.goods_types import GoodsTypeService
 from app.products.services.product_service import ProductService
 from app.sales.models import (
@@ -2398,6 +2399,16 @@ def _seed_products(
             if not (existing.hsn_sac or "").strip() and product.hsn_sac:
                 existing.hsn_sac = product.hsn_sac
                 changed = True
+            # The brand row is the next: a product always has one (backlog
+            # 138), and a store seeded before that holds the name as text
+            # only. Filed only where the row is missing.
+            if existing.brand_id is None:
+                kept = BrandService(session).ensure_brand(
+                    product.brand, firm_id=firm.id, actor_id=actor_id
+                )
+                existing.brand_id = kept.id
+                existing.brand = kept.name
+                changed = True
             # And the third of the same shape. A product seeded before the
             # firm had a tax profile keeps a NULL group code, `TaxRuleService`
             # then matches no rule for it, and **every sale of it is billed
@@ -2413,6 +2424,9 @@ def _seed_products(
             continue
         base_uom = uoms[product.base_uom_code]
         sales_uom = uoms[product.sales_uom_code]
+        brand = BrandService(session).ensure_brand(
+            product.brand, firm_id=firm.id, actor_id=actor_id
+        )
         attributes = _product_attributes_for_profile(
             blueprint=blueprint,
             definitions=attribute_definitions,
@@ -2431,7 +2445,7 @@ def _seed_products(
                 category_id=category.id,
                 sub_category_id=None,
                 unit=product.unit_label,
-                brand=product.brand,
+                brand_id=brand.id,
                 model=None,
                 hsn_sac=product.hsn_sac,
                 tax_profile_group_code=tax_profile.group_code,

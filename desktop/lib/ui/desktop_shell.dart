@@ -6490,8 +6490,8 @@ ResourceDefinition<PrincipalRecord> principalDefinition(
       },
     );
 
-/// The brands a product is filed under (MST-1), each optionally under a
-/// principal. Renaming one renames the brand text on its products.
+/// The brands a product is filed under (MST-1), each under a company (a
+/// principal). Renaming one renames the brand text on its products.
 ResourceDefinition<BrandRecord> brandDefinition(
   ApiClient api,
   PermissionService permissions,
@@ -6522,10 +6522,12 @@ ResourceDefinition<BrandRecord> brandDefinition(
         FieldSpec(key: 'name', label: 'Name', required: true),
         FieldSpec(
           key: 'principal_id',
-          label: 'Principal',
+          label: 'Company',
+          required: true,
           optionsResource: 'products/principals',
           singleSelection: true,
-          helperText: 'Leave empty for a brand with no principal.',
+          helperText: 'Every brand belongs to a company. If it is not listed, '
+              'add the company under Principals first.',
         ),
         FieldSpec(key: 'is_active', label: 'Active', boolean: true),
       ],
