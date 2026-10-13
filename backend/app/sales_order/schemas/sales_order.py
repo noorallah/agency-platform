@@ -129,6 +129,9 @@ class SalesOrderCreate(SalesOrderSchema):
     branch_id: UUID
     warehouse_id: UUID
     business_profile_id: UUID | None = None
+    #: The price level the order is priced at (backlog 131). None is the
+    #: customer's usual one; on an update, leaving it out keeps the order's.
+    price_level_id: UUID | None = None
     order_date: date
     delivery_date: date | None = None
     customer_reference: str | None = Field(default=None, max_length=80)
@@ -359,6 +362,8 @@ class SalesOrderResponse(SalesOrderSchema):
     branch_id: UUID
     warehouse_id: UUID
     business_profile_id: UUID | None
+    #: The level the order names for itself; None is the customer's usual.
+    price_level_id: UUID | None = None
     order_number: str
     order_date: date
     delivery_date: date | None

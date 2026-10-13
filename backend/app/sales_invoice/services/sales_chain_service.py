@@ -110,6 +110,12 @@ class SalesChainService:
         bare = [line for line in data.lines if line.source_document_line_id is None]
         if not bare:
             refuse_coupon_on_documents(data)
+            if data.price_level_id is not None:
+                raise ValidationError(
+                    "This bill takes its prices from the documents it bills, "
+                    "so it cannot name a price level. Change the level on the "
+                    "order, or type the price on the line."
+                )
             if settings.delivery_note_stage:
                 return data
             return self._note_for_order(data, firm_id=firm_id, actor_id=actor_id)
@@ -161,6 +167,7 @@ class SalesChainService:
                 branch_id=branch_id,
                 warehouse_id=warehouse_id,
                 business_profile_id=data.business_profile_id,
+                price_level_id=data.price_level_id,
                 order_date=data.invoice_date,
                 # Where the bill says the goods go; the note and the bill
                 # inherit it from here (backlog 67 row 3).

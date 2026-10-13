@@ -13,6 +13,12 @@ priced through ``price_in_unit``, which converts: the stock-unit price times
 the stock units one line unit holds (D-PRC-25). No price list or level names
 a unit of its own, so there is no per-unit price to prefer over that.
 
+**A document may name its own level** (backlog 131): the bill for a retail
+customer who buys at wholesale today. It takes the place of the customer's
+level in the ranking and of nothing else -- a price list's fixed rate and a
+batch's trade rate still come first -- and a document that names none is priced
+at the customer's, exactly as before.
+
 Built once per document, like ``PriceListResolver``: the customer, its level,
 its territory and the date do not change between lines, so the lists and the
 level's rates are read once and every line is matched against them.
@@ -27,6 +33,7 @@ from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord
 from app.business.gating import feature_enabled
+from app.core.exceptions import ValidationError
 from app.core.utils.money import quantize_money
 from app.core.utils.pricing import LinePrice, batch_trade_rate, resolve_unit_price
 from app.customers.models import Customer, CustomerGroup
@@ -50,6 +57,32 @@ def customer_price_level(session: Session, customer: Customer | None) -> UUID | 
     return group.price_level_id
 
 
+def document_price_level(
+    session: Session, *, firm_id: UUID, price_level_id: UUID | None
+) -> UUID | None:
+    """Return the level a document may name, refusing one it may not.
+
+    None is "the customer's usual" and always allowed. A level has to be the
+    firm's own and in use: a document priced at a level somebody withdrew
+    would be priced at rates nobody is keeping.
+
+    Raises:
+        ValidationError: The level is not one of this firm's, or is inactive.
+
+    """
+    if price_level_id is None:
+        return None
+    level = session.get(PriceLevel, price_level_id)
+    if level is None or level.is_deleted or level.firm_id != firm_id:
+        raise ValidationError("Choose one of the firm's price levels.")
+    if not level.is_active:
+        raise ValidationError(
+            f"The price level {level.name} is not in use. Choose another, or "
+            "leave the document on the customer's usual one."
+        )
+    return level.id
+
+
 class UnitPriceResolver:
     """Answer what price a line starts at, for one customer on one date."""
 
@@ -61,8 +94,13 @@ class UnitPriceResolver:
         customer_id: UUID | None,
         territory_id: UUID | None,
         on: date,
+        price_level_id: UUID | None = None,
     ) -> None:
-        """Load the customer's lists and level for one document."""
+        """Load the customer's lists and level for one document.
+
+        ``price_level_id`` is the level the document names for itself; None
+        prices at the customer's own (or its group's).
+        """
         self._session = session
         self._firm_id = firm_id
         self._on = on
@@ -77,10 +115,13 @@ class UnitPriceResolver:
         self._trade_class = customer.trade_class if customer is not None else None
         #: Read on the first line naming a batch, never for a document without.
         self._batch_rates_on: bool | None = None
-        self.level_id = customer_price_level(session, customer)
-        level = session.get(PriceLevel, self.level_id) if self.level_id else None
-        if level is None or level.is_deleted or not level.is_active:
-            self.level_id = None
+        #: The customer's usual level, whatever the document names.
+        self.customer_level_id = self._in_use(customer_price_level(session, customer))
+        self.level_id = (
+            self._in_use(price_level_id)
+            if price_level_id is not None
+            else self.customer_level_id
+        )
         self._levels: dict[UUID, Decimal] = {}
         if self.level_id is not None:
             self._levels = {
@@ -97,6 +138,18 @@ class UnitPriceResolver:
         #: (product, line unit, stock unit the line named) -> stock units in
         #: one line unit, resolved once per document.
         self._factors: dict[tuple[UUID, UUID, UUID | None], Decimal] = {}
+
+    def _in_use(self, level_id: UUID | None) -> UUID | None:
+        """Return the level if it is the firm's and still in use, else None."""
+        level = self._session.get(PriceLevel, level_id) if level_id else None
+        if (
+            level is None
+            or level.is_deleted
+            or not level.is_active
+            or level.firm_id != self._firm_id
+        ):
+            return None
+        return level.id
 
     def price(
         self,
@@ -240,4 +293,4 @@ class UnitPriceResolver:
         return self._products[product_id]
 
 
-__all__ = ["UnitPriceResolver", "customer_price_level"]
+__all__ = ["UnitPriceResolver", "customer_price_level", "document_price_level"]

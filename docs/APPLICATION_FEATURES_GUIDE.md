@@ -1111,6 +1111,18 @@ the firm's companies and brands, to shorten the product list while typing;
 the counter bill does not. A
 brand cannot be deleted while a supplier has it ticked.
 
+**Retail and wholesale on one bill.** A customer carries his usual price
+level (on the customer, or on his segment), and a sales order or a sales bill
+for him starts at that level's prices. Where the firm has price levels, both
+documents show a **Price level** box: it starts at *Customer's usual* and
+says under it which level that is. Choose another level and every line is
+priced again at it, a rate typed by hand included; a rate typed afterwards
+stays. A product with no rate at the level chosen takes its own selling
+price, and a price list agreed with the customer still comes first. The
+order remembers the level. Changing the customer puts the box back to his
+usual. Where somebody's discount is limited, a cheaper level counts as a
+discount from the customer's own price.
+
 ## 6.2 Documents
 
 *Purchase Orders, Goods Receipts* and *Purchase Invoices* are in the Buy

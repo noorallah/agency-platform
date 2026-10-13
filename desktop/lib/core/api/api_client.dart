@@ -7079,11 +7079,18 @@ class ApiClient {
 
   /// What the server would charge for each of [productIds], and from which
   /// arrangement. Keyed by product id.
+  ///
+  /// [priceLevelId] asks at that level instead of the customer's usual one
+  /// (M13). [onCustomerLevel] is told the customer's usual level, own else
+  /// his group's, or null when he has none -- it is not called when the
+  /// answer does not carry the field.
   Future<Map<String, UnitPriceQuote>> unitPrices({
     required List<String> productIds,
     required String on,
     String customerId = '',
     String territoryId = '',
+    String priceLevelId = '',
+    void Function(String? customerPriceLevelId)? onCustomerLevel,
   }) async {
     // `product_ids` repeats once per product, which a `Map<String, String>`
     // query cannot say, so the query string is built here and rides on the path.
@@ -7092,12 +7099,19 @@ class ApiClient {
       'on': on,
       if (customerId.isNotEmpty) 'customer_id': customerId,
       if (territoryId.isNotEmpty) 'territory_id': territoryId,
+      if (priceLevelId.isNotEmpty) 'price_level_id': priceLevelId,
     }).query;
     final Json response = await request(
       'GET',
       '/api/v1/price-levels/unit-prices?$queryString',
     );
     final dynamic data = response['data'];
+    if (onCustomerLevel != null &&
+        data is Map &&
+        data.containsKey('customer_price_level_id')) {
+      final String usual = stringValue(data['customer_price_level_id']);
+      onCustomerLevel(usual.isEmpty ? null : usual);
+    }
     final dynamic prices = data is Map ? data['prices'] : null;
     return <String, UnitPriceQuote>{
       if (prices is List)

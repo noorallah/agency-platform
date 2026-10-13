@@ -62,6 +62,17 @@ class SalesOrder(BaseEntity):
     business_profile_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT")
     )
+    #: The price level this order is priced at, where it names one of its own
+    #: (backlog 131): a retail customer buying at wholesale today. None is
+    #: the customer's usual level, read when a line is priced.
+    price_level_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "price_levels.id",
+            name="FK_sales_orders_price_level_id",
+            ondelete="RESTRICT",
+        ),
+    )
     order_number: Mapped[str] = mapped_column(String(60), nullable=False)
     order_date: Mapped[date] = mapped_column(Date, nullable=False)
     delivery_date: Mapped[date | None] = mapped_column(Date)

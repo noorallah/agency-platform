@@ -311,6 +311,10 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     salesman_id: UUID | None = None
     territory_id: UUID | None = None
     route_id: UUID | None = None
+    #: The price level a bill of products is priced at (backlog 131); None is
+    #: the customer's usual. It goes on the order such a bill raises. A bill
+    #: of documents takes its prices from them and may not name one.
+    price_level_id: UUID | None = None
     invoice_date: date
     customer_invoice_number: str | None = Field(default=None, max_length=120)
     #: Where the goods went (backlog 67 row 3). None inherits the ship-to of
