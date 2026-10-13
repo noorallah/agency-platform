@@ -246,6 +246,14 @@ Two switches, one per side, each a Boolean, not null, default false:
 `sales_workflow_settings.box_and_piece_entry` and
 `purchase_workflow_settings.box_and_piece_entry`.
 
+One column on the customer, `customers.box_and_piece_entry`, Boolean, not
+null, default false: this customer's selling documents open with the box
+cells (the customer's answer of 2026-10-13, decision 5). It is read only
+where the firm's selling switch is on. It is added in the same revision,
+guarded the same way, and joins the customer form, the customer import
+template and the customer response. A document stores no flag of its own:
+the lines hold a pair or they do not.
+
 Repo rules observed: the tables already extend `BaseEntity`; no column is
 called `version`; the foreign key is named on its referring column; every
 type is one SQLite holds. The migration is one revision, idempotent (it
@@ -257,7 +265,17 @@ schema in an earlier step than the screen that sends it.
 
 ## 4. Screens (new UI only)
 
-**The line.** Where the firm's switch is on, the line table of each editor
+**Which layout a document opens in.** A buying document follows the firm's
+buying switch. A selling document, where the firm's selling switch is on,
+follows its customer: **boxes and pieces** for a customer marked *Bills in
+boxes and pieces*, **pieces only** for any other. The bill maker can change
+it for the document in hand with one toggle above the lines, *Boxes and
+pieces / Pieces only*; that changes nothing on the customer. A saved
+document reopens in boxes and pieces if any of its lines holds a pair, and
+otherwise as its customer says. Switching to pieces only on a document that
+has pairs keeps every total and clears the pairs, after asking.
+
+**The line.** In the boxes-and-pieces layout the line table of each editor
 replaces Qty and Free with four narrow boxes:
 
 | # | Product | HSN | Box | Pcs | Free box | Free pcs | Unit | Rate | Disc % | Taxable | GST | Amount |
@@ -282,16 +300,21 @@ replaces Qty and Free with four narrow boxes:
   for all nine editors, so there is one implementation of the sum.
 - **Calls.** None new. The pack size rides on the item rows each editor
   already reads. The switch rides on the stages settings the order and bill
-  editors already read, and on a call already made in the others. The live
-  totals come from today's preview call, which takes the same line fields.
+  editors already read, and on a call already made in the others. The
+  customer's mark rides on the customer row the picker already returns. The
+  live totals come from today's preview call, which takes the same line
+  fields.
 
 **Lists and views.** Document lists show totals and do not change. A
 document's view and its lines read "3 box + 5 pcs (41)".
 
-**The switch.** *Sales Stages* and *Purchase Settings* each get one row:
-"Type quantities as boxes and pieces". Off for every existing firm. On, an
-item with a pack shows the four boxes and an item without shows pieces only.
-There is no switch per item: leaving the Box cell blank is typing in pieces.
+**The switches.** *Sales Stages* and *Purchase Settings* each get one row:
+"Type quantities as boxes and pieces". Off for every existing firm. With the
+selling switch on, the customer form shows one tick, *Bills in boxes and
+pieces*, off to start, and the customer list can be filtered by it. In the
+boxes-and-pieces layout an item with a pack shows the four boxes and an item
+without shows pieces only. There is no switch per item: leaving the Box cell
+blank is typing in pieces.
 
 **Prints.** Every document printed by the shared renderer (bill, order
 confirmation, challan, purchase order, credit note, thermal bill):
@@ -300,11 +323,17 @@ confirmation, challan, purchase order, credit note, thermal bill):
 | --- | --- | --- |
 | Full page | Qty, UOM; "10 + 1 free" under Qty | **Box**, **Pcs** take the place of Qty and UOM; free goods read "Free 0 + 2" |
 | Half page | Qty, Free | **Box**, **Pcs**, **Free** ("0 + 2"), in the width Qty and Free hold now |
-| 80 mm roll | Qty x rate | "3 box + 5" on the item's second row |
+| 80 mm roll | Qty x rate | "3 box x 12 + 5" on the item's second row |
+
+The Box cell says how many pieces a box holds, as the customer asked on
+2026-10-13: 10 boxes of 12 print as **10 x 12**, so the paper can be checked
+without the item list. A line with no box prints the cell empty.
 
 The two columns appear only on a document where a line holds a pair, the way
 the "rate incl. GST" column appears today. A line with no pair on such a
 document prints its quantity under Pcs. The total quantity line prints pieces.
+The customer's own sample bill prints one Qty and one Free column, so this
+layout is ours and not a copy of theirs.
 `InvoiceLineBlock` gains the four figures and the pack's word; the layouts do
 no arithmetic.
 
@@ -333,7 +362,7 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
 
 | # | Step | Migration | Proved by |
 | --- | --- | --- | --- |
-| 1 | The six columns on nine tables through one mixin; the two switches. Nothing reads them | **Yes** | Schema registry test; the PostgreSQL insert test for every deployed table |
+| 1 | The six columns on nine tables through one mixin; the two switches; the customer's mark. Nothing reads them | **Yes** | Schema registry test; the PostgreSQL insert test for every deployed table |
 | 2 | `pack_of`, and one small value object that checks a pair against a total and splits a total for display. Item rows answer `pack_size` and `pack_unit_code`, read in bulk | No | Unit tests: both sides, no pack, a dated change of pack size, statement count of the item list |
 | 3 | Quotation and sales order: the four fields on write and read, the refusals of 3.4, the pair handed from quotation to order, offers' free goods on a pair line | No | Order tests; the worked example's sale to the paisa |
 | 4 | Delivery note and sales bill: inherit the pack size, own pair, part delivery; the bill typed straight in and the counter bill hand the pair to the documents raised behind them; the preview route | No | Chain tests; a pack size changed between order and note |
@@ -341,7 +370,7 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
 | 6 | Purchase order and goods receipt; the supplier's minimum and the rate contract read a pair line rightly | No | The worked example's purchase: 132 in at 7.27 |
 | 7 | Supplier's bill (and the order and receipt it raises) and purchase return | No | Chain tests; free goods back to the supplier |
 | 8 | Prints: `InvoiceLineBlock`, full page, half page, roll, challan, purchase order, credit note | No | Print tests on the worked example; a mixed document; a bill that still fits half a page |
-| 9 | The switch on both settings screens; the shared two-box cells; sales order, quotation and sales bill editors, with the Free boxes the direct bill lacks | No | Widget tests incl. keyboard order at 800x600; a guard that every line key the desktop sends is declared by the server |
+| 9 | The switch on both settings screens; the tick on the customer form, its import column and list filter; the toggle above the lines; the shared two-box cells; sales order, quotation and sales bill editors, with the Free boxes the direct bill lacks | No | Widget tests incl. keyboard order at 800x600; a guard that every line key the desktop sends is declared by the server |
 | 10 | Delivery note, sales return, purchase order, goods receipt, supplier's bill and purchase return editors | No | Widget tests; clicked on a fixture firm |
 | 11 | Pack scan on the counter bill; the split shown on stock screens and registers | No | Counter bill test; report tests |
 | 12 | The import's pack from pieces per case; reference docs, user guide, QA cases; driven over HTTP end to end | No | The check file of the round |
@@ -358,6 +387,8 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
 - **Opening stock, transfers, adjustments and counts typed as a pair.**
 - **Restating old lines.** A line saved in BOX, or in pieces, stays as it is.
 - **A switch per item**, and firm-chosen words for the two column headings.
+- **A mark on the supplier.** Buying follows the firm's switch alone; nobody
+  has asked for it per supplier.
 - **A UQC mapping for GST returns**, and **the old UI**, which sends no pair
   and so goes on typing pieces.
 - **Offers chosen on the bill line** (L6) and **the free quantity register**
@@ -380,14 +411,19 @@ Each has the recommended answer first.
    **Kept as typed, with the tidy figure shown beside it.** A supplier's
    bill may really say 2 and 17, and the line should read as the paper does.
 4. **How do boxes and pieces print on the bill?**
-   **Two columns, Box and Pcs, in place of Qty, and Free as "0 + 2", only
-   on a bill that has such a line.** This fits the half page's present
-   width. The customer's sample was not read for this note; if it prints
-   one cell ("3-5"), say so and step 8 follows the sample.
+   **ANSWERED by the customer, 2026-10-13: both are shown, and the box
+   figure says how many pieces a box holds.** So: two columns, Box and Pcs,
+   in place of Qty, the Box cell reading "10 x 12", and Free as "0 + 2",
+   only on a bill that has such a line. This fits the half page's present
+   width.
 5. **Who gets the two boxes?**
-   **A switch per firm, one for selling and one for buying, off for every
-   existing firm; an item with no pack shows pieces only; no switch per
-   item.** One place to turn it on, and nothing to maintain per item.
+   **ANSWERED by the customer, 2026-10-13: it is chosen per customer, and
+   the bill maker can change it on the bill in hand.** So: the firm's two
+   switches stay as the master, off for every existing firm; with the
+   selling switch on, a customer marked *Bills in boxes and pieces* gets
+   the box cells and any other customer gets pieces only; a toggle above
+   the lines overrides it for one document. Buying follows the firm's
+   switch. An item with no pack shows pieces only; no switch per item.
 
 ## 9. Decided here by convention
 
