@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -36,6 +36,7 @@ from app.finance.services.document_posting import (
     assert_stock_date_not_ahead,
 )
 from app.inventory.models import (
+    BatchValuation,
     InventoryRecord,
     InventoryTransaction,
     OpeningStockBatch,
@@ -87,6 +88,12 @@ if TYPE_CHECKING:
     from app.inventory.services.opening_serials import OpeningSerials
 
 ZERO = Decimal("0")
+#: The scale a cost of one stock unit is stored at (``Numeric(18, 6)``).
+UNIT_COST_SCALE = Decimal("0.000001")
+#: ``product_valuations.costing_method`` of an item costed lot by lot. The
+#: switch-over stamps it; every item is ``WEIGHTED_AVERAGE`` until then
+#: (`docs/design/LOT_COST_DESIGN.md`, section 4.3).
+COSTING_BY_LOT = "BY_LOT"
 #: How many rows an export reads at a time; it reads until there are no more.
 EXPORT_PAGE_SIZE = 5000
 
@@ -168,6 +175,10 @@ class _Movement:
     #: stock had left -- a hold of 4 units at 30.00 wrote 120.00 off a firm
     #: that had lost nothing.
     revalues: bool = True
+    #: The movement this one undoes, when it is a reversal. An item costed by
+    #: lot puts back, or takes out, the value that movement carried rather
+    #: than today's cost; the moving average does not read it.
+    reverses: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2948,6 +2959,12 @@ class InventoryService:
             # Reservations and status moves shift no goods and no value.
             return None, None, average
 
+        lot_id = movement.batch_id or inventory.batch_id
+        if valuation.costing_method == COSTING_BY_LOT and lot_id is not None:
+            return self._apply_lot_valuation(
+                valuation, lot_id, movement, delta, actor_id
+            )
+
         if delta > ZERO:
             unit_cost = average if movement.unit_cost is None else movement.unit_cost
             new_quantity = on_hand + delta
@@ -2967,6 +2984,115 @@ class InventoryService:
         valuation.average_cost = average
         valuation.updated_by = actor_id
         return unit_cost, quantize_money(abs(delta) * unit_cost), average
+
+    def _apply_lot_valuation(
+        self,
+        valuation: ProductValuation,
+        lot_id: UUID,
+        movement: _Movement,
+        delta: Decimal,
+        actor_id: UUID,
+    ) -> tuple[Decimal | None, Decimal | None, Decimal]:
+        """Value one movement from the lot it names, for an item costed by lot.
+
+        Goods arrive in a lot at what they cost and leave at the lot's own
+        cost, never at the item's average. The issue that empties a lot takes
+        everything left in it, so a lot closes at exactly zero. A reversal
+        moves the value its original movement carried, not today's cost. The
+        item's own valuation is still kept -- quantity, value and the average
+        the two give -- but it no longer decides what a movement is worth
+        (`docs/design/LOT_COST_DESIGN.md`, section 4.1).
+
+        Args:
+            valuation: The item's running valuation.
+            lot_id: The lot (batch row) the movement names.
+            movement: The staged movement.
+            delta: How much the firm gained or stopped owning.
+            actor_id: The user responsible.
+
+        Returns:
+            The unit cost applied, the total cost of the movement, and the
+            item's average cost after it.
+
+        """
+        lot = self._session.scalar(
+            select(BatchValuation).where(
+                BatchValuation.batch_id == lot_id,
+                BatchValuation.is_deleted.is_(False),
+            )
+        )
+        known = lot is not None
+        if lot is None:
+            lot = BatchValuation(
+                firm_id=valuation.firm_id,
+                batch_id=lot_id,
+                product_id=valuation.product_id,
+                quantity_on_hand=ZERO,
+                unit_cost=ZERO,
+                total_value=ZERO,
+                created_by=actor_id,
+            )
+            self._session.add(lot)
+        lot_quantity = Decimal(str(lot.quantity_on_hand))
+        lot_value = Decimal(str(lot.total_value))
+        lot_cost = Decimal(str(lot.unit_cost))
+        average = Decimal(str(valuation.average_cost))
+        carried = self._carried_value(movement)
+        new_quantity = lot_quantity + delta
+
+        if delta > ZERO:
+            if movement.unit_cost is not None:
+                unit_cost = movement.unit_cost
+            else:
+                # Goods coming back with no cost stated return at the cost
+                # the lot carries; a lot nothing has valued yet has only the
+                # item's average to go by.
+                unit_cost = lot_cost if known else average
+            moved = quantize_money(delta * unit_cost)
+            if carried is not None:
+                moved = carried
+        else:
+            unit_cost = lot_cost
+            moved = quantize_money(-delta * lot_cost) if carried is None else carried
+            if new_quantity == ZERO:
+                moved = lot_value
+            moved = -moved
+        if abs(moved) != quantize_money(abs(delta) * unit_cost):
+            unit_cost = (abs(moved) / abs(delta)).quantize(
+                UNIT_COST_SCALE, rounding=ROUND_HALF_UP
+            )
+
+        new_value = lot_value + moved
+        lot.quantity_on_hand = new_quantity
+        lot.total_value = new_value
+        if new_quantity > ZERO and (delta > ZERO or carried is not None):
+            # One lot, one cost: it moves only when goods come in at another
+            # figure, or a reversal takes out what its original brought.
+            lot.unit_cost = (new_value / new_quantity).quantize(
+                UNIT_COST_SCALE, rounding=ROUND_HALF_UP
+            )
+        lot.updated_by = actor_id
+
+        on_hand = Decimal(str(valuation.quantity_on_hand)) + delta
+        item_value = quantize_money(Decimal(str(valuation.total_value)) + moved)
+        if on_hand > ZERO:
+            average = item_value / on_hand
+        valuation.quantity_on_hand = on_hand
+        valuation.total_value = item_value
+        valuation.average_cost = average
+        valuation.updated_by = actor_id
+        return unit_cost, abs(moved), average
+
+    def _carried_value(self, movement: _Movement) -> Decimal | None:
+        """Return the value the movement being reversed carried, if any."""
+        if movement.reverses is None:
+            return None
+        carried = self._session.scalar(
+            select(StockLedgerEntry.total_cost).where(
+                StockLedgerEntry.transaction_id == movement.reverses
+            )
+        )
+        return None if carried is None else Decimal(str(carried))
 
     def reverse_transaction(
         self,
@@ -3058,6 +3184,7 @@ class InventoryService:
                 entered_uom_id=original.entered_uom_id,
                 conversion_version=original.conversion_version,
                 remarks=reason,
+                reverses=original.id,
             ),
         )
         transaction.reversal_of_transaction_id = original.id
