@@ -11,6 +11,13 @@ Words used here. The **stock unit** is the unit an item's stock is counted in
 case) and the **pack size** is how many stock units it holds. A **pair** is
 the two figures typed on a line: so many packs and so many loose pieces.
 
+**Answered by the owner on 2026-10-13** and written in below: an item has a
+box and a piece and no third level; the rate is always per piece; boxes and
+pieces are converted, so 2 boxes + 17 becomes 3 + 5 and every figure
+downstream (dispatch, what is left, the print) is worked the same way; a
+supplier carries the same mark a customer does; a document keeps the layout
+it was saved in; stock is shown in boxes by a toggle.
+
 ## 1. What it does for the user
 
 On every buying and selling document a line can be typed as two figures, boxes
@@ -35,7 +42,10 @@ One item, kept in pieces, packed 12 to a box. GST 12%.
 - **The tax base is pieces times the rate of a piece**: 41 x 10.00. The free
   2 pieces are worth nothing on the bill and carry no tax, as today.
 - **Nothing is rounded.** No figure such as 3.4167 of a box exists anywhere.
-- **The bill prints** Box 3, Pcs 5, Free 0 + 2, Rate 10.00, Amount 410.00.
+- **Boxes are always full boxes.** Typing 2 boxes + 17 pieces turns into
+  3 + 5 as the cell is left, and that is what every later document shows.
+- **The bill prints** Box 3 x 12, Pcs 5, Free 0 + 2, Rate 10.00, Amount
+  410.00.
 
 ## 2. What exists today, and what is missing
 
@@ -71,12 +81,15 @@ One item, kept in pieces, packed 12 to a box. GST 12%.
 
 ## 3. The design
 
-### 3.1 The quantity stays one figure in pieces; the pair is how it was typed
+### 3.1 The quantity stays one figure in pieces; boxes and pieces are worked out from it
 
 A line typed as boxes and pieces **is a line in the stock unit**. Its quantity
 is the total in pieces (41), its rate is the rate of a piece, its conversion
-factor is 1. Beside them the line keeps the pair as typed and the pack size
-used. Total = boxes x pack size + pieces, and the server checks that sum.
+factor is 1. Beside them the line keeps the pack size used, and nothing
+else: **boxes = the whole packs in the total, pieces = what is over.** The
+pair is worked out wherever it is shown and is never stored, so it cannot
+disagree with the quantity (the owner's answer 3: converting makes dispatch
+and every other sum the same sum).
 
 Why this and not a line in boxes with a fraction:
 
@@ -94,13 +107,15 @@ Why this and not a line in boxes with a fraction:
 This is Tally's compound unit ("Box of 12 Pcs") and the main and alternate
 quantity of Busy and Marg: one stock figure, two entry figures.
 
-A line is **either** a pair in the stock unit **or** a quantity in a named
-unit as today. A pair sent beside another unit is refused by name. Existing
-documents, and firms that type "2 BOX", are untouched.
+A line typed as boxes and pieces is always in the stock unit. Existing
+documents, and firms that type "2 BOX" on a line in boxes, are untouched.
 
 ### 3.2 Which pack an item uses
 
-One pack per item per side, read from the item's own units. No new master.
+**Box and piece, two levels only** (the owner's answer 1). One pack per item
+per side, read from the item's own units. No new master. Most items have
+one box, used on both sides; the table says which wins where the item's
+buying and selling units differ.
 
 | Document side | The pack is |
 | --- | --- |
@@ -125,7 +140,7 @@ rule from that date; nobody edits the old one (`docs/UOM_FRAMEWORK.md`,
 "Effective dating").
 
 - A saved line keeps **its own** `pack_size`. It reads and reprints
-  "3 boxes + 5" for ever, and its 41 pieces never move.
+  "3 x 12 + 5" for ever, and its 41 pieces never move.
 - A line that continues another line **inherits the source line's pack
   size**, not today's. An order of 3 boxes + 5 delivered after the change is
   still counted 12 to a box, and a return next year reads the bill's pack.
@@ -134,40 +149,45 @@ rule from that date; nobody edits the old one (`docs/UOM_FRAMEWORK.md`,
 
 ### 3.4 What is typed, and what the server does with it
 
-Every line write schema gains four optional fields. The quantity field each
-schema has today stays required and stays the truth.
+The two cells are a way of typing one quantity. The screen adds them up and
+sends the quantity in pieces in the field every line has today. **No
+quantity field is added to any write schema.**
+
+Each line write schema gains one optional field:
 
 | Field | Meaning |
 | --- | --- |
-| `box_quantity` | Packs typed. Whole number, as BOX is a whole-number unit |
-| `piece_quantity` | Loose stock units typed. May be more than a pack (2 boxes + 17 is accepted) |
-| `free_box_quantity`, `free_piece_quantity` | The same for free goods |
+| `pack_size` | The pack size the screen used to add the two cells up. Sent only by a line typed as boxes and pieces |
 
 Rules:
 
-1. A pair is sent with the total. The server works out the pack size itself
-   and refuses a total that is not boxes x pack size + pieces: "Line 2: 3
-   boxes + 5 pieces of 12 is 41, not 40."
-2. The client never sends the pack size. It is the server's to read and store.
-3. A pair for an item with no pack is refused, naming the item.
-4. `free_quantity` keeps its three answers: absent takes the offer, zero
-   refuses it, a figure is the figure. A free pair needs `free_quantity`
-   beside it and must add up to it. Free goods an offer gave, which nobody
-   typed, store no pair; screens and prints show them split by the pack size.
-5. **The pair is kept as typed.** 2 boxes + 17 stays 2 and 17; the screen
-   shows "= 41 pcs (3 boxes + 5)" beside it and rewrites nothing.
-6. A line sent with no pair is a line typed in pieces. Every client that
-   exists today keeps working.
-7. The whole-number rule is asked of what was typed: the box figure against
-   the pack unit, the piece figure against the stock unit.
-8. Update follows the standing rule: the document is dumped with
+1. The server works out the item's pack size itself (3.2), or takes the
+   source line's (3.3), and stores it on the line. It never trusts the one
+   sent.
+2. Where `pack_size` is sent and differs from the server's, the line is
+   refused: "Line 2: a box of this item holds 10, not 12. Open the line
+   again." This is the one way the two cells could add up to a wrong total:
+   an item row read before its pack changed.
+3. **Boxes are always full boxes.** The screen turns 2 + 17 into 3 + 5 as
+   the cell is left and says so once ("17 pieces is 1 box + 5"). Nothing
+   else is possible, because only the total is kept.
+4. `free_quantity` is typed the same way, as two cells that add up to the
+   one figure the line has today, and keeps its three answers: absent takes
+   the offer, zero refuses it, a figure is the figure. Free goods an offer
+   gave are shown split by the same sum.
+5. A line sent with no `pack_size` is a line typed in pieces. Every client
+   that exists today keeps working, and the same line can be shown either
+   way.
+6. The whole-number rule is asked of the total against the stock unit, as
+   today.
+7. Update follows the standing rule: the document is dumped with
    `exclude_unset`, lines are reconciled on their line number, and a line's
    own fields are that line as sent.
 
 ### 3.5 Rate
 
-**The rate is per piece, and only per piece.** It is what the requirement
-asks, what the old program does, and what the stored `unit_price` already is.
+**The rate is per piece, and only per piece** (the owner's answer 2: always
+per piece). It is what the requirement asks, what the old program does, and what the stored `unit_price` already is.
 The side panel shows the rate of a box (rate x pack size) for reading against
 a supplier's price list. A box rate is not typed in L5: two rate boxes are two
 chances to disagree, and a box rate that does not divide (100.00 over 12)
@@ -177,9 +197,9 @@ today's line in BOX.
 Discounts, price lists, price levels, the price floor and the MRP ceiling are
 all per stock unit already and are unchanged.
 
-### 3.6 How the pair travels down the chain
+### 3.6 How the pack size travels down the chain
 
-| Document | Quantity the pair states | Pack size comes from |
+| Document | Quantity shown as boxes and pieces | Pack size comes from |
 | --- | --- | --- |
 | Quotation line | `quantity` | The item, on the quotation's date |
 | Sales order line | `quantity` | The item; or the quotation line it came from |
@@ -191,38 +211,37 @@ all per stock unit already and are unchanged.
 | Supplier's bill line | `current_invoice_quantity` | The receipt line; the item for a bill typed straight in |
 | Purchase return line | `current_return_quantity` | The receipt line |
 
-- **Each line stores its own pair** for its own quantity. A part delivery of
-  2 boxes + 0 against 3 boxes + 5 is a note line of 24 pieces with pair 2
-  and 0.
-- **What is left is shown, never stored**: 17 pieces left reads "1 box + 5".
-  Caps and "left to bill" stay sums of pieces, as the rule on lifecycle
-  status requires.
+- **Every quantity of a line is shown by the one sum**, at that line's own
+  pack size: ordered, delivering now, delivered, left, billed, returned. A
+  part delivery of 24 against 41 reads 2 x 12 + 0 now and 1 x 12 + 5 left.
+  This is what the owner's answer 3 is for: dispatch and every remainder
+  come out in full boxes without anybody working them out.
+- **Nothing about the pair is stored or inherited**, only the pack size. Caps
+  and "left to bill" stay sums of pieces, as the rule on lifecycle status
+  requires.
 - **A document raised for the user** (the order and note behind a counter
   bill, the order and receipt behind a supplier's bill, a quotation turned
-  into an order) is handed the pair with the quantity. The inheritance rule
-  of `docs/PRICING_AND_PROMOTIONS.md` then covers the pair as it covers price
-  and discount.
-- **Free goods inherited pro rata** by a part bill stay a figure in pieces
-  with no stored pair, shown split.
+  into an order) takes its source line's pack size and the header's layout
+  flag.
 - Rejected, damaged, scrap and "to shelf" figures are typed in pieces only.
   They are exceptions counted by hand, and four more pairs per line would
   crowd the receipt and return screens.
-- A pair is allowed only where the source line is itself in the stock unit.
-  Pieces typed against an older line in BOX go the existing road
-  (`entered_quantity`).
+- The two cells are offered only where the source line is itself in the
+  stock unit. Pieces typed against an older line in BOX go the existing
+  road (`entered_quantity`).
 
 ### 3.7 Rounding
 
-There is none to design. Quantity is boxes x a whole pack size + pieces, exact
-at the four places a quantity holds. Money is pieces x rate per piece, rounded
+There is none to design. Quantity is a count of pieces; boxes are its whole
+packs and pieces the rest, exact at the four places a quantity holds. Money is pieces x rate per piece, rounded
 where a line's amount is rounded today, and tax is worked on that. Parts of a
 line add up because they are whole pieces. An item kept in a decimal unit
-(25 kg bag) may type 2 bags + 3.5: the piece figure takes the stock unit's
-own decimal rule.
+(25 kg bag) may type 2 bags + 3.5: the loose figure takes the stock unit's
+own decimal rule and is always less than one pack.
 
 ### 3.8 Tables and columns
 
-Six columns, the same six on each of the nine line tables in 3.6
+Two columns, the same two on each of the nine line tables in 3.6
 (`sales_quotation_lines`, `sales_order_lines`, `delivery_note_lines`,
 `sales_invoice_lines`, `sales_return_lines`, `purchase_order_lines`,
 `goods_receipt_lines`, `purchase_invoice_lines`, `purchase_return_lines`),
@@ -232,15 +251,14 @@ cannot drift.
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `pack_uom_id` | UUID, null, FK `uoms.id` RESTRICT, named `FK_<table>_pack_uom_id` | The pack's unit, for the word printed (BOX, CASE) |
-| `pack_size` | Numeric(18,4), null | Stock units in one pack when the line was typed |
-| `box_quantity` | Numeric(18,4), null | Packs typed |
-| `piece_quantity` | Numeric(18,4), null | Loose units typed |
-| `free_box_quantity` | Numeric(18,4), null | Free packs typed |
-| `free_piece_quantity` | Numeric(18,4), null | Free loose units typed |
+| `pack_size` | Numeric(18,4), null | Stock units in one pack when the line was written |
 
-All null on every line that exists today, so there is no backfill.
-`pack_uom_id` and `pack_size` are set on any new line of an item that has a
-pack, pair or not, so its remainders can always be shown split.
+Both null on every line that exists today, so there is no backfill; such a
+line is shown split by the item's pack size on the document's date. They are
+set on any new line of an item that has a pack, however it was typed. The
+first draft of this note kept four more columns for the pair as typed; with
+boxes always full boxes they would only repeat the quantity, so they are
+gone.
 
 Two switches, one per side, each a Boolean, not null, default false:
 `sales_workflow_settings.box_and_piece_entry` and
@@ -253,14 +271,19 @@ where the firm's selling switch is on. It is added in the same revision,
 guarded the same way, and joins the customer form, the customer import
 template and the customer response.
 
+The same column on the supplier, `vendors.box_and_piece_entry`, for buying
+documents (the owner's answer 4: suppliers supply in boxes and pieces too).
+Read only where the firm's buying switch is on; on the supplier form, its
+import template and its response.
+
 One column on each of the nine document headers, `box_and_piece_entry`,
 Boolean, not null, default false: the layout this document was saved in
 (the owner, 2026-10-13). It is declared once, in the same mixin file as the
 line columns, and added in the same revision. It is written on create and
 on update like any other header field, absent meaning leave it alone. A
 document raised from another (order to note, note to bill, bill to return)
-starts with its source's value. The server refuses a line holding a pair on
-a document whose flag is off, so the flag and the lines cannot disagree.
+starts with its source's value. The flag says how the document is shown
+and typed; the lines are the same lines either way.
 
 Repo rules observed: the tables already extend `BaseEntity`; no column is
 called `version`; the foreign key is named on its referring column; every
@@ -273,17 +296,16 @@ schema in an earlier step than the screen that sends it.
 
 ## 4. Screens (new UI only)
 
-**Which layout a document opens in.** A buying document follows the firm's
-buying switch. A selling document, where the firm's selling switch is on,
-follows its customer: **boxes and pieces** for a customer marked *Bills in
-boxes and pieces*, **pieces only** for any other. The bill maker can change
+**Which layout a document opens in.** Where the firm's switch for that side
+is on, a new document follows its party: **boxes and pieces** for a customer
+marked *Bills in boxes and pieces* or a supplier marked *Buys in boxes and
+pieces*, **pieces only** for any other. The bill maker can change
 it for the document in hand with one toggle above the lines, *Boxes and
 pieces / Pieces only*; that changes nothing on the customer. **The choice
 is saved on the document, and a saved document reopens as it was saved**,
-whatever the customer's mark or the firm's switch says by then. A new
-buying document takes the firm's buying switch and keeps it the same way.
-Switching to pieces only on a document that has pairs keeps every total and
-clears the pairs, after asking.
+whatever the party's mark or the firm's switch says by then. Switching
+either way changes no quantity: the same lines are shown as one figure or
+as two.
 
 **The line.** In the boxes-and-pieces layout the line table of each editor
 replaces Qty and Free with four narrow boxes:
@@ -294,7 +316,8 @@ replaces Qty and Free with four narrow boxes:
 | 2 | Item B (no pack) | 3304 | (closed) | 7 | (closed) | | PCS | 55.00 | | 385.00 | 18 | 454.30 |
 
 - **Keyboard.** Product, Box, Pcs, Free box, Free pcs, Rate, Disc, then the
-  next line; Tab and Enter both move on. For an item with no pack the two box
+  next line; Tab and Enter both move on. Pieces typed past a full box move
+  into the Box cell as the cell is left. For an item with no pack the two box
   cells are closed and the cursor passes over them.
 - **No prefill.** Blank free boxes say nothing ("Blank takes the offer"); a
   typed 0 refuses it, the standing rule for discount and free boxes.
@@ -303,7 +326,7 @@ replaces Qty and Free with four narrow boxes:
   "Free with (offer): 1 box + 2 pcs".
 - **Continuing documents.** Delivering, Billing, Accepted and Returning each
   become the two boxes; Ordered, Delivered, Due and Left to bill read
-  "3 + 5".
+  "3 x 12 + 5".
 - **The sales bill typed straight in gains the free boxes** it lacks today,
   switch on or off (one Free box where the switch is off).
 - One shared widget in `desktop/lib/ui/workspace/` draws and reads the cells
@@ -321,7 +344,9 @@ document's view and its lines read "3 box + 5 pcs (41)".
 **The switches.** *Sales Stages* and *Purchase Settings* each get one row:
 "Type quantities as boxes and pieces". Off for every existing firm. With the
 selling switch on, the customer form shows one tick, *Bills in boxes and
-pieces*, off to start, and the customer list can be filtered by it. In the
+pieces*, off to start, and the customer list can be filtered by it. With
+the buying switch on, the supplier form shows *Buys in boxes and pieces*
+the same way. In the
 boxes-and-pieces layout an item with a pack shows the four boxes and an item
 without shows pieces only. There is no switch per item: leaving the Box cell
 blank is typing in pieces.
@@ -346,7 +371,7 @@ nothing more (the owner, 2026-10-13).
 **Prints.** Every document printed by the shared renderer (bill, order
 confirmation, challan, purchase order, credit note, thermal bill):
 
-| Paper | Today | With a pair on any line |
+| Paper | Today | In the boxes-and-pieces layout |
 | --- | --- | --- |
 | Full page | Qty, UOM; "10 + 1 free" under Qty | **Box**, **Pcs** take the place of Qty and UOM; free goods read "Free 0 + 2" |
 | Half page | Qty, Free | **Box**, **Pcs**, **Free** ("0 + 2"), in the width Qty and Free hold now |
@@ -356,9 +381,9 @@ The Box cell says how many pieces a box holds, as the customer asked on
 2026-10-13: 10 boxes of 12 print as **10 x 12**, so the paper can be checked
 without the item list. A line with no box prints the cell empty.
 
-The two columns appear only on a document where a line holds a pair, the way
-the "rate incl. GST" column appears today. A line with no pair on such a
-document prints its quantity under Pcs. The total quantity line prints pieces.
+The two columns appear only on a document saved in the boxes-and-pieces
+layout, the way the "rate incl. GST" column appears today. An item with no
+pack prints its quantity under Pcs. The total quantity line prints pieces.
 The customer's own sample bill prints one Qty and one Free column, so this
 layout is ours and not a copy of theirs.
 `InvoiceLineBlock` gains the four figures and the pack's word; the layouts do
@@ -389,15 +414,15 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
 
 | # | Step | Migration | Proved by |
 | --- | --- | --- | --- |
-| 1 | The six columns on nine tables through one mixin; the two switches; the customer's mark; the layout flag on the nine headers. Nothing reads them | **Yes** | Schema registry test; the PostgreSQL insert test for every deployed table |
-| 2 | `pack_of`, and one small value object that checks a pair against a total and splits a total for display. Item rows answer `pack_size` and `pack_unit_code`, read in bulk | No | Unit tests: both sides, no pack, a dated change of pack size, statement count of the item list |
-| 3 | Quotation and sales order: the four fields on write and read, the refusals of 3.4, the pair handed from quotation to order, offers' free goods on a pair line | No | Order tests; the worked example's sale to the paisa |
-| 4 | Delivery note and sales bill: inherit the pack size, own pair, part delivery; the bill typed straight in and the counter bill hand the pair to the documents raised behind them; the preview route | No | Chain tests; a pack size changed between order and note |
-| 5 | Sales return: pair, "of which free" pair, caps in pieces | No | The worked example's return |
+| 1 | The two columns on nine tables through one mixin; the two switches; the customer's and the supplier's mark; the layout flag on the nine headers. Nothing reads them | **Yes** | Schema registry test; the PostgreSQL insert test for every deployed table |
+| 2 | `pack_of`, and one small value object that splits a total into full boxes and pieces and adds two cells up. Item rows answer `pack_size` and `pack_unit_code`, read in bulk | No | Unit tests: both sides, no pack, a dated change of pack size, statement count of the item list |
+| 3 | Quotation and sales order: the pack size stored and answered, the `pack_size` precondition of 3.4, the header flag, the pack size handed from quotation to order, offers' free goods shown split | No | Order tests; the worked example's sale to the paisa |
+| 4 | Delivery note and sales bill: inherit the pack size, part delivery shown in full boxes; the bill typed straight in and the counter bill hand the pair to the documents raised behind them; the preview route | No | Chain tests; a pack size changed between order and note |
+| 5 | Sales return: the pack size of the line returned, caps in pieces | No | The worked example's return |
 | 6 | Purchase order and goods receipt; the supplier's minimum and the rate contract read a pair line rightly | No | The worked example's purchase: 132 in at 7.27 |
 | 7 | Supplier's bill (and the order and receipt it raises) and purchase return | No | Chain tests; free goods back to the supplier |
 | 8 | Prints: `InvoiceLineBlock`, full page, half page, roll, challan, purchase order, credit note | No | Print tests on the worked example; a mixed document; a bill that still fits half a page |
-| 9 | The switch on both settings screens; the tick on the customer form, its import column and list filter; the toggle above the lines; the shared two-box cells; sales order, quotation and sales bill editors, with the Free boxes the direct bill lacks | No | Widget tests incl. keyboard order at 800x600; a guard that every line key the desktop sends is declared by the server |
+| 9 | The switch on both settings screens; the tick on the customer and supplier forms, their import columns and list filters; the toggle above the lines; the shared two-box cells; sales order, quotation and sales bill editors, with the Free boxes the direct bill lacks | No | Widget tests incl. keyboard order at 800x600; a guard that every line key the desktop sends is declared by the server |
 | 10 | Delivery note, sales return, purchase order, goods receipt, supplier's bill and purchase return editors | No | Widget tests; clicked on a fixture firm |
 | 11 | Pack scan on the counter bill; *Show boxes* on the stock screens, reports, their downloads and the count screen, display only | No | Counter bill test; report tests; the toggle changes no stored figure and adds no call |
 | 12 | The import's pack from pieces per case; reference docs, user guide, QA cases; driven over HTTP end to end | No | The check file of the round |
@@ -409,14 +434,13 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
 - **A pack size per lot.** The pack is the item's on the day. An item whose
   new supply comes 10 to a box where the old stock was 12 reads both in the
   new size from that date.
-- **Tidying a pair**, and **pairs for rejected, damaged, scrap and to-shelf
-  quantities.**
+- **Keeping a line as typed where it is not full boxes** (2 + 17). Boxes are
+  always full boxes.
+- **Two cells for rejected, damaged, scrap and to-shelf quantities.**
 - **Opening stock, transfers, adjustments and counts typed as a pair.** They
   are shown as boxes and pieces by the toggle and typed in pieces.
 - **Restating old lines.** A line saved in BOX, or in pieces, stays as it is.
 - **A switch per item**, and firm-chosen words for the two column headings.
-- **A mark on the supplier.** Buying follows the firm's switch alone; nobody
-  has asked for it per supplier.
 - **A UQC mapping for GST returns**, and **the old UI**, which sends no pair
   and so goes on typing pieces.
 - **Offers chosen on the bill line** (L6) and **the free quantity register**
@@ -427,17 +451,16 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
 Each has the recommended answer first.
 
 1. **Which pack does an item use when it has several?**
-   **Its own purchase unit on buying documents and its own sales unit on
-   selling ones, each falling back to the other; nothing new to set up.**
-   One pack per side is what Tally, Busy and Marg offer, and the unit set
-   already records it. A carton above the box is scanned, not typed.
+   **ANSWERED by the owner, 2026-10-13: box and piece only.** Two levels,
+   one box per item. Where an item's buying and selling units differ, each
+   side uses its own (3.2). A carton above the box is scanned, not typed.
 2. **Is the rate typed per piece only?**
-   **Yes; the rate of a box is shown beside it and not typed.** It is the
-   requirement and the old program's way, and one rate box cannot disagree
-   with itself. A firm buying at a box rate keeps a line in BOX.
+   **ANSWERED by the owner, 2026-10-13: always per piece.** The rate of a
+   box is shown beside it and not typed.
 3. **Is 2 boxes + 17 pieces kept as typed, or tidied to 3 + 5?**
-   **Kept as typed, with the tidy figure shown beside it.** A supplier's
-   bill may really say 2 and 17, and the line should read as the paper does.
+   **ANSWERED by the owner, 2026-10-13: converted.** Boxes are always full
+   boxes, so dispatch, what is left and the print are all the same sum. The
+   line therefore stores no pair at all, only the pack size (3.1, 3.8).
 4. **How do boxes and pieces print on the bill?**
    **ANSWERED by the customer, 2026-10-13: both are shown, and the box
    figure says how many pieces a box holds.** So: two columns, Box and Pcs,
@@ -451,16 +474,21 @@ Each has the recommended answer first.
    selling switch on, a customer marked *Bills in boxes and pieces* gets
    the box cells and any other customer gets pieces only; a toggle above
    the lines overrides it for one document. The document keeps its own
-   choice and reopens in it (the owner, 2026-10-13). Buying follows the
-   firm's switch. An item with no pack shows pieces only; no switch per
-   item.
+   choice and reopens in it (the owner, 2026-10-13). A supplier carries the
+   same mark for buying documents (the owner's answer 4). An item with no
+   pack shows pieces only; no switch per item.
+
+No decision in this note is open. Two questions remain for the customer:
+whether one item ever arrives in two box sizes at once (a pack size per
+lot is not in this design, section 7), and whether any item is priced by
+the box.
 
 ## 9. Decided here by convention
 
 | Point | Choice | After |
 | --- | --- | --- |
-| Stored truth | One quantity in the stock unit; the pair is how it was typed | Tally compound unit; Busy and Marg alternate quantity |
+| Stored truth | One quantity in the stock unit; boxes and pieces are worked out from it | Tally compound unit; Busy and Marg alternate quantity |
 | Pack size on the line | Snapshotted; inherited by continuing lines | The repo's rule that a downstream document inherits its source |
 | Pack size source | The item's dated conversion rule, never a second table | `docs/UOM_FRAMEWORK.md`: rules convert, packaging levels describe |
-| Client sends | The pair and the total; the server reads the pack size and checks the sum | A flag or factor the caller sets is not a control |
-| Free goods | A second pair, summing to `free_quantity`; blank and zero keep their meanings | `docs/PRICING_AND_PROMOTIONS.md` |
+| Client sends | The total, and the pack size it added up with; the server reads the pack size itself and refuses a different one | A flag or factor the caller sets is not a control |
+| Free goods | Two more cells that add up to `free_quantity`; blank and zero keep their meanings | `docs/PRICING_AND_PROMOTIONS.md` |
