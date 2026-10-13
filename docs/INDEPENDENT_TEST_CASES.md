@@ -509,6 +509,35 @@ that an edit changes what it names and nothing else.
   - Step 8: the statement's closing balance equals the last balance of the table.
   - Step 9: the rows are shown and the last row for adding a receipt is not.
 
+### TC-CUST-015 — The customer's Account view: the whole account, the download, the choice remembered
+
+*Added 2026-10-13 (backlog 141). Covered by unit and widget tests, and the pages driven over HTTP; **no screen was clicked** and no sheet was opened in Excel, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 141 (customer task F10)
+- **Fixture:** `ready-firm`
+- **Also needs:** a customer with more than 100 entries on the account (bills, receipts, returns) and one with fewer than 20; a second user who may read customers.
+- **Steps**
+  1. Open *Sell → Customer Statements*, double-click the busy customer in the ageing, then choose **Account**.
+  2. Press **Download** and open the sheet.
+  3. Choose **Show all**.
+  4. Scroll the rows to their end, and again until the caption says all the entries are shown.
+  5. Choose **Statement** for the same customer over a period that holds every entry, then go back to **Account**.
+  6. Press **Download** and open the sheet.
+  7. Sign out, sign in again as the same user and open the same customer's **Account**.
+  8. Sign in as the second user on the same computer and open the same customer's **Account**.
+  9. Open the customer with few entries, choose **Show all**.
+- **Expect**
+  - Step 1: the last 20 entries, an *Opening balance* row above them, the caption "The last 20 of N entries".
+  - Step 2: the sheet is titled with the customer's name, says "The last 20 of N entries", and holds the *Opening balance* row and the same 20 rows, with Debit, Credit and Balance as numbers.
+  - Step 3: the table shows the account from its first entry with no *Opening balance* row; the caption says "The first 100 of N entries"; a line under the rows says more are being read; there is no row for adding a receipt yet.
+  - Step 4: each time the end is reached 100 more entries are added. When all are shown the caption says "All N entries" and the row for adding a receipt follows the last entry.
+  - Step 5: the last balance of the table equals the Statement's closing balance. Back on Account, **Show all** is still chosen.
+  - Step 6: the sheet says "All N entries" and holds every entry, the first row being the account's first entry and the last balance the Statement's closing balance, whether or not the rows had been scrolled to their end.
+  - Step 7: the Account view opens on **Show all**.
+  - Step 8: the Account view opens on **Show 20**.
+  - Step 9: one read shows every entry, "All N entries", with the row for adding a receipt.
+- **Data (HTTP):** `GET /api/v1/customers/{id}/account?last=100&from_start=true&skip=0`, then `skip=100`, and so on: each page's `opening_balance` is the page before's `closing_balance`, and the rows end to end equal `GET /api/v1/customers/{id}/statement` over the whole period. `last=201` and `skip=-1` are a 422.
+
 ### TC-CUST-014 — A parent buyer with three shops; the GST number typed once
 
 *Added 2026-10-13 (backlog 125). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*

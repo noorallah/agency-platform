@@ -204,6 +204,8 @@ class CustomerStatementService:
         *,
         firm_scope: UUID,
         last: int,
+        skip: int = 0,
+        from_start: bool = False,
     ) -> CustomerAccount:
         """Return the newest entries of one customer's account, oldest first.
 
@@ -213,10 +215,20 @@ class CustomerStatementService:
         balance is the statement's own arithmetic and the closing balance is
         what the account stands at.
 
+        The whole account is read a page at a time (backlog 141): with
+        ``from_start`` the pages run from the first entry forward, ``skip``
+        being how many entries the pages before this one held. Each page opens
+        at the balance the one before it closed on, so the pages laid end to
+        end are the account, and the last one closes on what it stands at.
+
         Args:
             customer_id: The account to read.
             firm_scope: The owning firm.
-            last: How many of the newest entries to return.
+            last: How many entries to return.
+            skip: How many entries to pass over first: the newest ones, or
+                the oldest with ``from_start``.
+            from_start: Read forward from the first entry rather than back
+                from the newest.
 
         Returns:
             The entries with their running balance, and how many there are.
@@ -241,23 +253,49 @@ class CustomerStatementService:
         ).one()
         total_entries = int(found[0])
         balance = Decimal(str(found[1] or 0))
-        # Newest first to take the tail, then turned round: the same order a
-        # statement reads in, date before the order things were written.
+        # The same order a statement reads in, date before the order things
+        # were written. Without ``from_start`` it is taken newest first, to
+        # take the tail, and turned round afterwards.
+        columns = (
+            CustomerReceivableTransaction.transaction_date,
+            CustomerReceivableTransaction.created_at,
+            CustomerReceivableTransaction.id,
+        )
+        order = [column.asc() if from_start else column.desc() for column in columns]
         rows = list(
             self._session.scalars(
                 select(CustomerReceivableTransaction)
                 .where(*mine)
-                .order_by(
-                    CustomerReceivableTransaction.transaction_date.desc(),
-                    CustomerReceivableTransaction.created_at.desc(),
-                    CustomerReceivableTransaction.id.desc(),
-                )
+                .order_by(*order)
+                .offset(skip)
                 .limit(last)
             ).all()
         )
-        rows.reverse()
-        shown = sum((Decimal(str(row.outstanding_delta)) for row in rows), ZERO)
-        opening = quantize_ledger(balance - shown)
+        passed = ZERO
+        if skip:
+            # Summed in SQL: the entries passed over can be the whole account
+            # but its last page.
+            before = (
+                select(CustomerReceivableTransaction.outstanding_delta)
+                .where(*mine)
+                .order_by(*order)
+                .limit(skip)
+                .subquery()
+            )
+            passed = Decimal(
+                str(
+                    self._session.scalar(
+                        select(func.coalesce(func.sum(before.c.outstanding_delta), 0))
+                    )
+                    or 0
+                )
+            )
+        if from_start:
+            opening = quantize_ledger(passed)
+        else:
+            rows.reverse()
+            shown = sum((Decimal(str(row.outstanding_delta)) for row in rows), ZERO)
+            opening = quantize_ledger(balance - passed - shown)
         lines, closing = _running_lines(rows, opening)
         today = firm_today(self._session, firm_scope)
         return CustomerAccount(

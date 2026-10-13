@@ -3027,6 +3027,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
+          preferences: widget.preferences,
         ),
       'supplier-statements' => SupplierStatementPage(
           api: widget.api,

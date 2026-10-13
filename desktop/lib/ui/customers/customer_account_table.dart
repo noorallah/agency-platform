@@ -8,9 +8,17 @@
 // A saved row is never edited here; a receipt is reversed from the Receipts
 // screen.
 //
+// **All** shows the whole account from its first entry (backlog 141, F10),
+// read a page at a time as the rows are scrolled, and the row that adds a
+// receipt comes after the last of them. Download writes every row of the
+// choice on show to an Excel sheet, reading the pages not yet on the screen
+// first. How many entries to show is remembered on this machine, per user.
+//
 // Calls: opening it reads the account and, for someone who may record a
 // receipt, the unpaid bills. Changing how many entries show reads the account
-// again. Adding posts once and reads both again. Nothing else is requested.
+// again. Under All, scrolling near the end reads one more page, and Download
+// reads what is left in pages of 200. Adding posts once and reads both again.
+// Nothing else is requested.
 
 import 'dart:async';
 
@@ -19,15 +27,31 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/report_workbook.dart';
 
 /// How many entries the chooser offers; the first is the default.
 const List<int> accountEntryChoices = <int>[20, 50, 100];
+
+/// The choice that shows the whole account, as the chooser keeps it.
+const int accountAllEntries = 0;
+
+/// How many entries one read of the whole account asks for as it is
+/// scrolled, and how many when the rest is read for a download.
+const int accountPageSize = 100;
+const int accountDownloadPageSize = 200;
+
+/// How the page's Download reaches the rows this table holds: the table
+/// names its sheet here while it is on show.
+class CustomerAccountSheet {
+  Future<WorkbookSheet> Function()? build;
+}
 
 /// One customer's account. Keyed by the customer on the page that holds it,
 /// so a different customer is a new state and never shows the last one's rows.
@@ -37,11 +61,20 @@ class CustomerAccountTable extends StatefulWidget {
     required this.api,
     required this.permissions,
     required this.customerId,
+    this.preferences,
+    this.sheet,
   });
 
   final ApiClient api;
   final PermissionService permissions;
   final String customerId;
+
+  /// Where the number of entries chosen is kept; without it the table opens
+  /// on the first choice every time.
+  final DesktopPreferencesService? preferences;
+
+  /// Where the page's Download finds this table's sheet.
+  final CustomerAccountSheet? sheet;
 
   @override
   State<CustomerAccountTable> createState() => _CustomerAccountTableState();
@@ -57,7 +90,19 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
   final TextEditingController _amount = TextEditingController();
   final TextEditingController _reference = TextEditingController();
 
+  /// This screen's own state on this machine: the choice of each user.
+  static const String _stateKey = 'customer_account';
+
   Json? _account;
+
+  /// The entries read so far, oldest first, and how many the account holds.
+  List<dynamic> _lines = <dynamic>[];
+  int _total = 0;
+
+  /// Under All: a further page is being read, or the last one failed.
+  bool _reading = false;
+  String? _moreError;
+
   List<OutstandingInvoice> _bills = const [];
   int _last = accountEntryChoices.first;
   String _against = '';
@@ -78,6 +123,38 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
 
   bool get _mayReceive => widget.permissions.hasPermission('RECEIPT_CREATE');
 
+  bool get _all => _last == accountAllEntries;
+
+  /// Whether rows of the whole account are still to be read.
+  bool get _moreToRead => _all && _lines.length < _total;
+
+  String get _user => widget.permissions.userId ?? '';
+
+  /// What this user chose last time, or the first choice.
+  int _remembered() {
+    final Object? shown =
+        widget.preferences?.workspaceState(_stateKey)['show'];
+    final Object? mine = shown is Map ? shown[_user] : null;
+    return mine is int &&
+            (mine == accountAllEntries || accountEntryChoices.contains(mine))
+        ? mine
+        : accountEntryChoices.first;
+  }
+
+  void _remember() {
+    final DesktopPreferencesService? preferences = widget.preferences;
+    if (preferences == null) return;
+    final Map<String, dynamic> state = preferences.workspaceState(_stateKey);
+    final Object? shown = state['show'];
+    unawaited(preferences.saveWorkspaceState(_stateKey, <String, dynamic>{
+      ...state,
+      'show': <String, dynamic>{
+        if (shown is Map) ...Map<String, dynamic>.from(shown),
+        _user: _last,
+      },
+    }));
+  }
+
   static String _iso(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-'
       '${value.month.toString().padLeft(2, '0')}-'
@@ -86,6 +163,9 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
   @override
   void initState() {
     super.initState();
+    _last = _remembered();
+    widget.sheet?.build = _sheet;
+    _scroll.addListener(_nearTheEnd);
     unawaited(_load(withBills: true));
   }
 
@@ -95,6 +175,8 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
     _amount.dispose();
     _reference.dispose();
     _scroll.dispose();
+    // A table for another customer may already have named its own.
+    if (widget.sheet?.build == _sheet) widget.sheet?.build = null;
     super.dispose();
   }
 
@@ -106,10 +188,17 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
       _loading = true;
       _error = null;
       _account = null;
+      _lines = <dynamic>[];
+      _total = 0;
+      _reading = false;
+      _moreError = null;
     });
     try {
-      final Json account =
-          await widget.api.customerAccount(widget.customerId, last: _last);
+      final Json account = await widget.api.customerAccount(
+        widget.customerId,
+        last: _all ? accountPageSize : _last,
+        fromStart: _all,
+      );
       List<OutstandingInvoice>? bills;
       if (withBills && _mayReceive) {
         try {
@@ -126,6 +215,8 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
       if (!mounted || ask != _ask) return;
       setState(() {
         _account = account;
+        _lines = List<dynamic>.of(_linesOf(account));
+        _total = _totalOf(account, _lines.length);
         if (bills != null) _bills = bills;
         _loading = false;
         _toEnd = true;
@@ -137,6 +228,117 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
         _loading = false;
       });
     }
+  }
+
+  static List<dynamic> _linesOf(Json page) =>
+      page['lines'] as List<dynamic>? ?? const <dynamic>[];
+
+  static int _totalOf(Json page, int otherwise) =>
+      int.tryParse('${page['total_entries'] ?? ''}') ?? otherwise;
+
+  void _nearTheEnd() {
+    if (!mounted) return;
+    if (_scroll.hasClients && _scroll.position.extentAfter < 300) {
+      unawaited(_readMore());
+    }
+  }
+
+  /// Under All, read the page after the rows held. A read that failed is
+  /// not tried again until somebody asks, or scrolling would ask for ever.
+  Future<void> _readMore({bool again = false}) async {
+    if (!_moreToRead || _reading || _loading) return;
+    if (_moreError != null && !again) return;
+    final int ask = _ask;
+    setState(() {
+      _reading = true;
+      _moreError = null;
+    });
+    try {
+      final Json page = await widget.api.customerAccount(
+        widget.customerId,
+        last: accountPageSize,
+        skip: _lines.length,
+        fromStart: true,
+      );
+      // A fresh read of the account since then owns the rows now.
+      if (!mounted || ask != _ask) return;
+      final List<dynamic> more = _linesOf(page);
+      setState(() {
+        _lines.addAll(more);
+        // An empty page is the end, whatever the count said.
+        _total = more.isEmpty ? _lines.length : _totalOf(page, _total);
+        _reading = false;
+      });
+    } on ApiException catch (exception) {
+      if (!mounted || ask != _ask) return;
+      setState(() {
+        _moreError = exception.message;
+        _reading = false;
+      });
+    }
+  }
+
+  /// Every row of the choice on show as a sheet (backlog 141). Under All the
+  /// pages not yet scrolled to are read first, so the sheet is the account.
+  Future<WorkbookSheet> _sheet() async {
+    final Json? account = _account;
+    if (account == null) {
+      throw const ApiException('The account has not been read yet.');
+    }
+    final List<dynamic> lines = List<dynamic>.of(_lines);
+    int total = _total;
+    if (_all) {
+      while (lines.length < total) {
+        final Json page = await widget.api.customerAccount(
+          widget.customerId,
+          last: accountDownloadPageSize,
+          skip: lines.length,
+          fromStart: true,
+        );
+        final List<dynamic> more = _linesOf(page);
+        if (more.isEmpty) break;
+        lines.addAll(more);
+        total = _totalOf(page, total);
+      }
+      if (lines.length != total) total = lines.length;
+    }
+    return WorkbookSheet(
+      title: 'Customer account: ${stringValue(account['customer_name'])}',
+      notes: [_caption(lines.length, total)],
+      headers: const [
+        'Date',
+        'Type',
+        'Reference',
+        'Remarks',
+        'Debit',
+        'Credit',
+        'Balance',
+      ],
+      numeric: const {4, 5, 6},
+      rows: [
+        // Entries older than the ones chosen are folded into this.
+        if (total > lines.length)
+          [
+            null,
+            'Opening balance',
+            null,
+            null,
+            null,
+            null,
+            account['opening_balance'],
+          ],
+        for (final dynamic entry in lines)
+          [
+            stringValue((entry as Map)['transaction_date']),
+            statusInWords(stringValue(entry['transaction_type'])),
+            stringValue(entry['reference_number']),
+            stringValue(entry['remarks']),
+            entry['debit'],
+            entry['credit'],
+            entry['balance'],
+          ],
+      ],
+    );
   }
 
   OutstandingInvoice? get _chosenBill {
@@ -237,18 +439,23 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
         message: _error ?? 'The account could not be read.',
       );
     }
-    final List<dynamic> lines =
-        account['lines'] as List<dynamic>? ?? const <dynamic>[];
-    final int total = int.tryParse('${account['total_entries'] ?? ''}') ??
-        lines.length;
+    final List<dynamic> lines = _lines;
+    final int total = _total;
     final ThemeData theme = Theme.of(context);
     if (_toEnd) {
       _toEnd = false;
+      // The whole account opens on its first entry; the last few open on
+      // the row that adds a receipt.
+      final bool top = _all;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scroll.hasClients) {
-          _scroll.jumpTo(_scroll.position.maxScrollExtent);
+          _scroll.jumpTo(top ? 0 : _scroll.position.maxScrollExtent);
         }
       });
+    }
+    if (_moreToRead) {
+      // A page that does not fill the window cannot be scrolled to its end.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _nearTheEnd());
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -273,10 +480,15 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
                       value: choice,
                       child: Text('Show $choice'),
                     ),
+                  const DropdownMenuItem<int>(
+                    value: accountAllEntries,
+                    child: Text('Show all'),
+                  ),
                 ],
                 onChanged: (value) {
                   if (value == null || value == _last) return;
                   _last = value;
+                  _remember();
                   unawaited(_load(withBills: false));
                 },
               ),
@@ -295,6 +507,7 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _table(account, lines, total, theme),
+                      if (_moreToRead) _more(theme),
                       if (_rowError != null)
                         Padding(
                           padding: const EdgeInsets.all(AppSpacing.md),
@@ -327,12 +540,37 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
     );
   }
 
-  static String _caption(int shown, int total) {
+  String _caption(int shown, int total) {
     if (total == 0) return 'No entries yet';
-    return total <= shown
-        ? (total == 1 ? 'The 1 entry' : 'All $total entries')
+    if (total <= shown) return total == 1 ? 'The 1 entry' : 'All $total entries';
+    return _all
+        ? 'The first $shown of $total entries'
         : 'The last $shown of $total entries';
   }
+
+  /// Under the rows while the whole account is still being read.
+  Widget _more(ThemeData theme) => Padding(
+        key: const ValueKey('account-more'),
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: _moreError == null
+            ? Text('Reading more entries…', style: theme.textTheme.bodySmall)
+            : Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      'The rest could not be read: $_moreError',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.error),
+                    ),
+                  ),
+                  TextButton(
+                    key: const ValueKey('account-more-again'),
+                    onPressed: () => unawaited(_readMore(again: true)),
+                    child: const Text('Try again'),
+                  ),
+                ],
+              ),
+      );
 
   Widget _cell(String text, {bool numeric = false, bool bold = false}) =>
       Padding(
@@ -376,8 +614,9 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
           _cell('Credit', numeric: true, bold: true),
           _cell('Balance', numeric: true, bold: true),
         ]),
-        // Entries older than the ones shown are folded into this.
-        if (total > lines.length)
+        // Entries older than the ones shown are folded into this. The whole
+        // account opens at nothing, so it has no such row.
+        if (!_all && total > lines.length)
           row([
             _cell(''),
             _cell('Opening balance'),
@@ -397,7 +636,8 @@ class _CustomerAccountTableState extends State<CustomerAccountTable> {
             _cell(_plain(entry['credit']), numeric: true),
             _cell(_plain(entry['balance']), numeric: true),
           ]),
-        if (_mayReceive) _entryRow(theme),
+        // Under All the row comes after the last entry, once it is read.
+        if (_mayReceive && !_moreToRead) _entryRow(theme),
       ],
     );
   }
