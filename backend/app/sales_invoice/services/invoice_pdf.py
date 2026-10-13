@@ -929,7 +929,7 @@ class InvoicePdfRenderer:
         )
 
 
-def _settled_paper(
+def settled_paper(
     template: TemplateSettings, document: InvoiceDocument
 ) -> TemplateSettings:
     """Return the template on the paper this document really prints on.
@@ -985,7 +985,7 @@ def render_together(
             "This firm prints on a thermal roll, so print them one at a time."
         )
     items = [
-        (_settled_paper(template, document), document) for template, document in items
+        (settled_paper(template, document), document) for template, document in items
     ]
     papers: dict[str, tuple[tuple[float, float], float]] = {}
     for template, _ in items:

@@ -619,10 +619,20 @@ layout the distribution trade uses: the firm and its licence numbers beside
 the buyer, the lines with MRP, quantity, free goods, rate, discount, GST,
 batch and expiry, a GST summary by rate, and the round-off and net payable.
 About eight lines fit. A bill too long for half a page prints on a full A4
-page by itself; nobody chooses per bill. A customer can have his own paper
-(*Bill paper* on the customer: the firm's setting, half page or full page),
-which outranks the firm's. *Print selected* gives each bill its own paper in
-the one file.
+page by itself. On a firm that prints half pages a customer can have his own
+paper (*Bill paper* on the customer: the firm's setting, half page or full
+page); a firm that prints full pages prints every bill on one and does not
+read it. *Print selected* gives each bill its own paper in the one file.
+
+**The paper is said before a bill prints.** A firm on half pages keeps half
+sheets in the printer's tray, and a full-page bill sent there is cut off. So
+on such a firm *Print* first opens a small box naming the paper this bill
+needs, **Half page** or **Full page**, and why where it is a full page (the
+customer's bills are set to a full page, or the bill is too long for half a
+page). Where the bill fits on half a page the person printing may switch this
+one print between the two; nothing is stored, and the next print is as
+before. A bill too long for half a page is a full page whatever is chosen. A
+firm on full pages, A5 or a roll is not asked anything.
 
 **Sales Returns.** Goods coming back against an invoice. Approving puts the
 stock back into the warehouse (or into a damaged or quarantine bucket) and

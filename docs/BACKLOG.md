@@ -8320,7 +8320,8 @@ any switch between papers.
   takes room and the bill switches sooner, by itself.
 - **A customer's own paper outranks the firm's.** A customer carries *Bill
   paper*: the firm's setting (blank), half page or full page. It applies to
-  his sales bills only.
+  his sales bills only. *Changed on 2026-10-14 (backlog 151): only a firm on
+  half pages reads it.*
 - **A run keeps each bill's paper.** *Print selected* gives one file in which
   a half-page bill is a half page and the long bill, or the full-page
   customer's, is a full one.
@@ -11007,3 +11008,73 @@ a leaf.
 
 **Not asked for, not built:** cheque book tracking (leaf ranges), several
 cheques at once, a stop-payment record, a payment advice.
+
+---
+
+## 151. The paper of a bill, chosen and said at printing (row P1, PRT-2) -- built 2026-10-14
+
+**The owner, 2026-10-13.** The firm chooses full page or half page. Full
+page: every bill prints on a full page and the customer's own paper is not
+asked. Half page: a customer may be set to full page; the person printing may
+switch that one print between half and full; a half-page bill whose lines do
+not fit prints on a full page by itself. Before printing, the screen says
+which paper this bill needs: the customer cuts plain A4 sheets in two and
+keeps the halves in the printer's tray, so a full-page bill sent to a tray of
+half sheets is cut off.
+
+**What was there (backlog 118).** The firm's paper, a customer's paper that
+outranked it both ways, and the switch to a full page by fit. What was
+missing: any choice at the moment of printing, any word on the screen about
+the paper before the sheet moved, and the rule that a full-page firm prints
+full pages for everybody.
+
+**Built.**
+
+- **The firm's paper decides.** `SalesInvoicePrintService._paper`: only a firm
+  whose sales bills are on `HALF` reads anything else: first the choice made
+  at printing, then the customer's *Bill paper*. On A4 (and on A5 and the
+  roll) every bill prints on the firm's paper, whatever the customer is set
+  to. Nothing was removed from the customer: his setting is kept and is read
+  again the day the firm goes to half pages.
+- **The choice at printing.** `GET /api/v1/sales-invoices/{id}/print` takes
+  `paper=HALF` or `paper=A4`, for that print alone; nothing is stored. A bill
+  too long for half a page is a full page whatever is asked. A paper asked of
+  a firm that is not on half pages is refused by name, unless it is the
+  paper the firm prints on anyway.
+- **The paper, said first.** `GET /api/v1/sales-invoices/{id}/print/paper`
+  answers the firm's paper, the customer's (on a half-page firm), the paper
+  the bill prints on when nobody chooses, whether it fits on half a page, and
+  whether there is a choice. Viewing the bill is the permission, as for the
+  print.
+- **Desktop.** On a half-page firm, *Print* on the sales bill list, *Save and
+  print* in the bill window and the counter's print first open a box naming
+  the paper, with the reason where it is a full page, and **Half page / Full
+  page** to switch where the bill fits on half. A firm on any other paper
+  sees no box. *Print selected* and the WhatsApp share are unchanged: a run
+  keeps each bill's own paper, and a shared file is not paper.
+- The customer form's *Bill paper* now says it is read where the firm prints
+  half pages.
+
+**Decided here, each easy to turn round.**
+
+- A firm on A5 or on the roll is treated as a full-page firm is: the
+  customer's paper is not read and nothing is chosen at printing. The
+  owner's rule names two papers; the other two keep one paper for everybody.
+- A firm on full pages is shown no box: its tray holds full sheets and every
+  bill is one.
+- The box costs one extra read per print on a half-page firm, and none on
+  any other firm beyond the same read.
+- The choice is offered only where the bill fits on half a page. Where it
+  does not, the box says so and there is nothing to choose.
+
+**Tested.** `tests/unit/test_print_runs.py`: a full-page firm prints full for
+a customer set to half; a half-page firm prints half, and full for the
+customer set so; either paper when asked, with the next print back to the
+customer's; a long bill full whatever is asked; half asked of a full-page
+firm refused; a run keeps each bill's paper; the route. Desktop:
+`bill_paper_prompt_test.dart`. Case TC-SELL-109.
+
+**Not done.** No screen was clicked and nothing was put through a printer.
+The paper is not chosen per bill in a run. Other documents (the proforma,
+the challan, the credit note) print on their own setting and are not asked.
+

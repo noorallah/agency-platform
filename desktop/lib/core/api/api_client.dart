@@ -22,6 +22,7 @@ import '../../models/customer.dart';
 import '../../models/customer_opening_bill.dart';
 import '../../models/customer_records.dart';
 import '../../models/agency_branding.dart';
+import '../../models/bill_paper.dart';
 import '../../models/backup.dart';
 import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
@@ -12154,10 +12155,29 @@ class ApiClient {
   ///
   /// [referenceCopy] prints a bill with no IRN yet, banner-marked "not a valid
   /// tax invoice", instead of being refused.
-  Future<List<int>> salesInvoicePdf(String id, {bool referenceCopy = false}) =>
+  ///
+  /// [paper] (`HALF` or `A4`) is sent only when the firm is on half pages and
+  /// the person chose; the server refuses it on any other firm.
+  Future<List<int>> salesInvoicePdf(
+    String id, {
+    bool referenceCopy = false,
+    String? paper,
+  }) =>
       downloadBytes(
         '/api/v1/sales-invoices/$id/print',
-        query: referenceCopy ? <String, String>{'reference_copy': 'true'} : null,
+        query: (referenceCopy || paper != null)
+            ? <String, String>{
+                if (referenceCopy) 'reference_copy': 'true',
+                if (paper != null) 'paper': paper,
+              }
+            : null,
+      );
+
+  /// Which paper this bill prints on, and whether the person may choose.
+  Future<BillPaper> salesInvoicePaper(String id) async => BillPaper.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/sales-invoices/$id/print/paper'),
+        ),
       );
 
   /// Several bills as one PDF, in the order given, each with the firm's

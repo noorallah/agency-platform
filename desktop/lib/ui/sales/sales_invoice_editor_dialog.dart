@@ -32,6 +32,7 @@ import '../workspace/price_level_box.dart';
 import '../workspace/printed_document.dart';
 import 'counter_shift_widgets.dart';
 import 'ship_to_field.dart';
+import 'bill_paper_prompt.dart';
 
 part 'sales_invoice_editor_counter.dart';
 part 'sales_invoice_editor_phase2.dart';
@@ -1339,10 +1340,20 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           : stringValue(saved['invoice_number']);
       if (savedId.isNotEmpty) {
         try {
+          final BillPaperChoice? choice = await askBillPaper(
+            context,
+            widget.api,
+            invoiceId: savedId,
+            number: number,
+          );
+          if (choice == null || !mounted) return;
           final List<int>? pdf = await fetchPrintablePdf(
             context,
-            ({bool referenceCopy = false}) => widget.api
-                .salesInvoicePdf(savedId, referenceCopy: referenceCopy),
+            ({bool referenceCopy = false}) => widget.api.salesInvoicePdf(
+              savedId,
+              referenceCopy: referenceCopy,
+              paper: choice.paper,
+            ),
           );
           if (pdf == null || !mounted) return;
           await printDocument(context, bytes: pdf, documentName: number);
@@ -1780,11 +1791,25 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         await widget.api.documentAction('sales-invoices', billId, '/approve');
       }
       if (!mounted) return;
-      final List<int>? pdf = await fetchPrintablePdf(
+      // Cancel on the paper question prints nothing; the bill is saved and
+      // approved either way, so the counter carries on to the next one.
+      final BillPaperChoice? choice = await askBillPaper(
         context,
-        ({bool referenceCopy = false}) =>
-            widget.api.salesInvoicePdf(billId, referenceCopy: referenceCopy),
+        widget.api,
+        invoiceId: billId,
+        number: number,
       );
+      if (!mounted) return;
+      final List<int>? pdf = choice == null
+          ? null
+          : await fetchPrintablePdf(
+              context,
+              ({bool referenceCopy = false}) => widget.api.salesInvoicePdf(
+                billId,
+                referenceCopy: referenceCopy,
+                paper: choice.paper,
+              ),
+            );
       if (!mounted) return;
       if (pdf != null) {
         final printer = widget.printer;

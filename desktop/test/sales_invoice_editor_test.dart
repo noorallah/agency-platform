@@ -12,6 +12,7 @@
 // refused before the round trip, with the remainder named.
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/models/bill_paper.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/phase2/document_page.dart' show documentMoney;
 import 'package:agency_desktop/ui/sales/sales_invoice_editor_dialog.dart';
@@ -89,8 +90,17 @@ class _InvoiceApi extends ApiClient {
   /// a widget test, and the refusal path is the one that must not lose the
   /// bill.
   @override
+  Future<BillPaper> salesInvoicePaper(String id) async => const BillPaper(
+        firmPaper: 'A4',
+        customerPaper: null,
+        paper: 'A4',
+        fitsHalfPage: true,
+        mayChoose: false,
+      );
+
+  @override
   Future<List<int>> salesInvoicePdf(String id,
-      {bool referenceCopy = false}) async {
+      {bool referenceCopy = false, String? paper}) async {
     printed = id;
     throw ApiException('The printer is offline.', statusCode: 503);
   }

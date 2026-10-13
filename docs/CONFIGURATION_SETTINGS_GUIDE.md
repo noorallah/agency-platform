@@ -946,7 +946,7 @@ order. Changing needs `SETTINGS_UPDATE`.
 | UPI ID | None | Sales invoice only: prints a QR code for the amount still owed. |
 | Discount / batch / expiry columns | Discount shown; batch and expiry hidden | Which columns print. |
 | How many copies | One, unlabelled | Up to four labelled copies (Original for recipient, Duplicate for transporter ...). |
-| Page size | A4 | A4, A5, half page (half of A4: a short bill in the trade's half-page layout, a bill too long for it on a full A4 page by itself), or an 80 mm thermal roll. A customer's own *Bill paper* outranks it for his sales bills. |
+| Page size | A4 | A4, A5, half page (half of A4: a short bill in the trade's half-page layout, a bill too long for it on a full A4 page by itself), or an 80 mm thermal roll. Where the firm prints half pages, a customer's own *Bill paper* outranks it for his sales bills and the person printing may switch one print between half and full; on any other paper neither is read. |
 | Margin (mm) | 12 | 5-40. |
 
 **Nothing statutory can be changed or hidden:** GSTINs, HSN per line, tax per

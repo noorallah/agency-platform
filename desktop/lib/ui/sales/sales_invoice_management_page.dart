@@ -20,6 +20,7 @@ import '../../models/document_file.dart';
 import '../purchases/document_attachments_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
+import 'bill_paper_prompt.dart';
 import 'sales_invoice_editor_dialog.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
@@ -599,11 +600,19 @@ class _SalesInvoiceManagementPageState
   Future<void> _printInvoice(Map<String, dynamic> invoice) async {
     final String number = '${invoice['invoice_number'] ?? 'invoice'}';
     try {
+      final BillPaperChoice? choice = await askBillPaper(
+        context,
+        widget.api,
+        invoiceId: invoice['id'] as String,
+        number: number,
+      );
+      if (choice == null || !mounted) return;
       final List<int>? pdf = await fetchPrintablePdf(
         context,
         ({bool referenceCopy = false}) => widget.api.salesInvoicePdf(
           invoice['id'] as String,
           referenceCopy: referenceCopy,
+          paper: choice.paper,
         ),
       );
       if (pdf == null || !mounted) return;
