@@ -416,7 +416,12 @@ class SalesReturnResponse(SalesReturnSchema):
     tax_total: Decimal
     additional_charges: Decimal
     round_off: Decimal
+    #: What the goods coming back are worth as the document states them.
     grand_total: Decimal
+    #: What the customer was credited: nothing until the return completes,
+    #: and nothing for goods no bill had charged, whatever ``grand_total``
+    #: states (D-SELL-90).
+    credited_amount: Decimal = Decimal("0")
     journal_entry_id: UUID | None
     cost_journal_entry_id: UUID | None
     approved_at: datetime | None

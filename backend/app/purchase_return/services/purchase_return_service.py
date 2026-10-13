@@ -158,6 +158,10 @@ def _required_uuid(value: object) -> UUID:
 _RETURNABLE_INVOICE_STATES = frozenset(
     {PurchaseInvoiceStatus.APPROVED.value, PurchaseInvoiceStatus.CLOSED.value}
 )
+#: The return states whose posting stands: completing is what claims.
+_CLAIMING_STATES = frozenset(
+    {PurchaseReturnStatus.COMPLETED.value, PurchaseReturnStatus.CLOSED.value}
+)
 
 
 class PurchaseReturnService(TransactionalDocumentService):
@@ -2254,10 +2258,17 @@ class PurchaseReturnService(TransactionalDocumentService):
         every_line = [line for found in lines.values() for line in found]
         serials = self._serials.named(line.id for line in every_line)
         tracked = self._serials.tracked(line.product_id for line in every_line)
+        # What each took off payables, beside what it states (D-SELL-90):
+        # one read for the page, the completed ones only.
+        claimed = return_billed_amounts(
+            self._session,
+            [row for row in rows if row.status in _CLAIMING_STATES],
+        )
         return [
             self._return_response(
                 row,
                 lines=lines[row.id],
+                claimed=claimed.get(row.id, (ZERO, ZERO))[0],
                 sources=sources[row.id],
                 attachments=attachments[row.id],
                 notes=notes[row.id],
@@ -2275,6 +2286,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         row: PurchaseReturn,
         *,
         lines: list[PurchaseReturnLine],
+        claimed: Decimal,
         sources: list[PurchaseReturnSource],
         attachments: list[PurchaseReturnAttachment],
         notes: list[PurchaseReturnNote],
@@ -2319,6 +2331,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             additional_charges=row.additional_charges,
             round_off=row.round_off,
             grand_total=row.grand_total,
+            claimed_amount=self._q(claimed),
             approved_at=row.approved_at,
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,

@@ -5554,6 +5554,25 @@ redo yours."*
   - Step 8: saved at once; money coming in is never asked about.
   - Step 9: the cash book shows every payment made, and closes below zero by what was confirmed.
 
+### TC-FIN-038 — Part returns, a return of a line typed with GST, and a debit note on a paid bill
+
+*Added 2026-10-14 (D-FIN-28, D-FIN-29, D-SELL-90, D-SELL-97, row G4). Driven over HTTP on a fixture firm; the screens were not clicked.*
+
+- **Covers:** D-FIN-28, D-FIN-29, D-SELL-90, D-SELL-97
+- **Fixture:** `ready-firm`
+- **Also needs:** a product at 100.00 plus 18% local GST with stock; four customers of the case's own, each owing nothing.
+- **Steps**
+  1. First customer: sell 3 at 100.00 with a line discount of 200.00 (a bill of 118.00). Return 1, then 1, then 1 off the bill, completing each.
+  2. Second customer: an order of 500 at **100.00 including GST**; deliver and bill it (50,000.00). Return all 500 off the bill, typing no price.
+  3. Third customer: order and deliver 12 at 100.00 and raise **no** bill. Return all 12 off the delivery note and open the return.
+  4. Fourth customer: sell 24 at 100.00 (2,832.00), take a receipt of 2,832.00 against the bill, return 7 off the bill, then approve a customer debit note of 100.00 before tax on the bill.
+- **Expect**
+  - Step 1: the three returns post 39.33, 39.34 and 39.33 to the customer's account, 118.00 in all; the customer owes 0.00 and holds 0.00, and the bill is not offered in *Record Receipt*.
+  - Step 2: the return is **taken**, reads 42,372.88 + 7,627.12 = 50,000.00, and the customer owes 0.00. It is not refused with "A customer cannot be credited more than they were billed."
+  - Step 3: the return states 1,416.00 and `credited_amount` **0.00**; the customer's account does not move. (The same return off a bill reads `credited_amount` 1,416.00.)
+  - Step 4: after the return the customer holds 826.00. After the debit note the bill still owes nothing, the customer **owes 0.00 and holds 708.00**, and *Customer credits* reads 708.00 held. Cancelling the debit note is refused until the receipt is reversed, naming 118.00.
+- **Leaves:** the customers, their bills, returns, one receipt and one debit note.
+
 ### TC-FIN-032 — The collector's day sheet adds up to the receipts
 
 *Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*

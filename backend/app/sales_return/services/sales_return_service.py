@@ -992,6 +992,9 @@ class SalesReturnService(TransactionalDocumentService):
         ]
         credited_total = self._q(credited_total)
         credited_tax = self._q(credited_tax)
+        # To the paisa, what the bills it comes off read as credited
+        # (D-FIN-28): the journal and the customer's account both take it.
+        on_account = self._credit_on_the_account(row, credited_total)
         # Both postings run before the commit and either may fail the
         # completion. Stock that arrived with no journal behind it is how the
         # inventory control account stops reconciling, which is the whole
@@ -1016,6 +1019,7 @@ class SalesReturnService(TransactionalDocumentService):
                 and SalesWorkflowService(self._session).rounds_bills(firm_scope)
                 else ZERO
             ),
+            account_amount=on_account,
         )
         row.journal_entry_id = None if credit is None else credit.id
         cost_entry = self._posting.post_goods_return_to_stock(
@@ -1031,13 +1035,13 @@ class SalesReturnService(TransactionalDocumentService):
         # A return worth nothing moves no balance either, and the receivable
         # service refuses an amount of zero outright. Nor does one whose goods
         # were never billed: the customer was charged nothing for them.
-        if quantize_ledger(credited_total) > ZERO:
+        if on_account > ZERO:
             self._customers.post_receivable_transaction(
                 row.customer_id,
                 CustomerReceivableTransactionCreate(
                     transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
                     transaction_date=row.return_date,
-                    amount=quantize_ledger(credited_total),
+                    amount=on_account,
                     reference_type="SALES_RETURN",
                     reference_id=row.id,
                     reference_number=row.return_number,
@@ -1075,6 +1079,59 @@ class SalesReturnService(TransactionalDocumentService):
         )
         self._session.commit()
         return row
+
+    def _credit_on_the_account(self, row: SalesReturn, credited: Decimal) -> Decimal:
+        """Return what a completing return takes off the account, to the paisa.
+
+        A document is kept to four places and the ledger to two. Each return
+        rounded on its own left the account a paisa off its bills: a bill of
+        118.00 returned as three thirds posted 39.33 three times, 117.99, and
+        the customer owed 0.01 on no bill; as 5, 5 and 2 of twelve it posted
+        118.01 and they held 0.01 from no source (D-FIN-28).
+
+        What a bill has had credited is a sum over its returns, rounded once
+        (``credited_against``), so the return takes what that reading moves
+        by when it is counted: the three thirds post 39.33, 39.34 and 39.33.
+        The account then follows the bills, which is what Record Receipt and
+        the ageing already read. Returns completed before this are not gone
+        back over.
+
+        Where the bills' reading and the return's own figure are further
+        apart than rounding, the return's own figure stands.
+
+        Args:
+            row: The return, approved and about to complete.
+            credited: Its credit at four places, the billed part only.
+
+        Returns:
+            The amount for the journal and the customer's account.
+
+        """
+        own = quantize_ledger(credited)
+        if own <= ZERO:
+            return own
+        # Imported here: the settlement services import this module's models.
+        from app.settlements.services.customer_credits import bills_taken_off
+        from app.settlements.services.settlement_service import credited_against
+
+        bills = bills_taken_off(self._session, firm_id=row.firm_id, source_ids=[row.id])
+        if not bills:
+            return own
+        before = credited_against(self._session, firm_id=row.firm_id, invoice_ids=bills)
+        # Counted as completed for the one read; the caller sets the status
+        # for good once everything has posted.
+        was = row.status
+        row.status = SalesReturnStatus.COMPLETED.value
+        self._session.flush()
+        after = credited_against(self._session, firm_id=row.firm_id, invoice_ids=bills)
+        row.status = was
+        self._session.flush()
+        moved = sum(
+            (after.get(bill, ZERO) - before.get(bill, ZERO) for bill in bills), ZERO
+        )
+        if moved <= ZERO or abs(moved - own) > _A_PAISA * 3 * len(bills):
+            return own
+        return quantize_ledger(moved)
 
     def _split_against_billing(
         self, row: SalesReturn, lines: Sequence[SalesReturnLine]
@@ -1749,6 +1806,23 @@ class SalesReturnService(TransactionalDocumentService):
                 if taxable > ZERO:
                     left = self._q(on_bills.left)
                     billed_at = self._q(on_bills.billed_at)
+                    if (
+                        taxable > billed_at
+                        and typed_price is None
+                        and charges_amount == ZERO
+                        and spec.get("discount_percent") is None
+                        and spec.get("discount_amount") is None
+                    ):
+                        # Nothing was typed, so the line is worth what the
+                        # bill charged these units and no more. A line typed
+                        # at a rate including GST is billed at the total
+                        # typed with the tax taken out of it, and its rate
+                        # before tax is kept to four places: 500 at 84.7458
+                        # are 42,372.90 where the bill charged 42,372.88,
+                        # and the return of them was refused as crediting
+                        # more than was billed (row F1's left-over).
+                        bill_share = self._q(bill_share + taxable - billed_at)
+                        taxable = billed_at
                     if taxable > billed_at + _ROUNDING_ROOM:
                         raise ValidationError(
                             self._credits_more_than_billed(
@@ -3434,10 +3508,16 @@ class SalesReturnService(TransactionalDocumentService):
                 )
             )
         }
+        # What each credited, beside what it states (D-SELL-90): one read
+        # for the page, the completed ones only.
+        credited = return_billed_amounts(
+            self._session, [row for row in rows if row.status in _RETURNED_STATUSES]
+        )
         answer = [
             self._return_response(
                 row,
                 lines=lines[row.id],
+                credited=credited.get(row.id, (ZERO, ZERO))[0],
                 serials=serials,
                 sources=sources[row.id],
                 attachments=attachments[row.id],
@@ -3457,6 +3537,7 @@ class SalesReturnService(TransactionalDocumentService):
         row: SalesReturn,
         *,
         lines: list[SalesReturnLine],
+        credited: Decimal,
         serials: dict[UUID, list[PickedSerial]],
         sources: list[SalesReturnSource],
         attachments: list[SalesReturnAttachment],
@@ -3497,6 +3578,7 @@ class SalesReturnService(TransactionalDocumentService):
             additional_charges=row.additional_charges,
             round_off=row.round_off,
             grand_total=row.grand_total,
+            credited_amount=self._q(credited),
             journal_entry_id=row.journal_entry_id,
             cost_journal_entry_id=row.cost_journal_entry_id,
             approved_at=row.approved_at,

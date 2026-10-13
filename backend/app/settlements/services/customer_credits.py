@@ -42,9 +42,10 @@ its total. When the bill owes again, the part still on the customer's account
 is no longer money held for them: it is part of what the bill does not owe.
 ``absorb_credit_no_longer_given`` takes it off both of the customer's
 figures -- one ``ADVANCE_APPLY`` row referenced ``customer_credit_absorbed``
-to the source -- whenever a receipt, a refund or an application is reversed,
-so the account goes on agreeing with the bills in whichever order those
-happen (D-PRC-88). Cancelling the source undoes those rows first, as it
+to the source -- whenever a receipt, a refund or an application is reversed
+or a debit note on the bill is approved (D-FIN-29), so the account goes on
+agreeing with the bills in whichever order those happen (D-PRC-88).
+Cancelling the source undoes those rows first, as it
 withdraws its applications.
 """
 
@@ -423,6 +424,17 @@ def _bills_of(
             ).all()
         )
     return sorted((bill for bill in bills if bill is not None), key=str)
+
+
+def bills_taken_off(
+    session: Session, *, firm_id: UUID, source_ids: Sequence[UUID]
+) -> list[UUID]:
+    """Return the bills these returns and credit notes took something off.
+
+    For a caller outside this module: a return completing asks which bills'
+    readings it is about to move (D-FIN-28).
+    """
+    return _bills_of(session, firm_id, source_ids)
 
 
 def _bill_parts(
@@ -1369,9 +1381,10 @@ def absorb_credit_no_longer_given(
     read the customer owed 826.00 and held 826.00, and the 826.00 could be
     paid out in cash (D-PRC-88).
 
-    Called once a receipt, a refund or an application has been reversed:
-    each of those can leave a source holding more on the account than it
-    gives. The excess comes off what the customer owes and off what they
+    Called once a receipt, a refund or an application has been reversed, or
+    a debit note on the bill approved (D-FIN-29): each of those can leave a
+    source holding more on the account than it gives. The excess comes off
+    what the customer owes and off what they
     hold, by one ``ADVANCE_APPLY`` row referenced to the source
     (``ABSORBED``). No journal: receivables did not move. Should the bill be
     settled past its total again nothing is put back -- money arriving then

@@ -379,7 +379,12 @@ class PurchaseReturnResponse(PurchaseReturnSchema):
     tax_total: Decimal
     additional_charges: Decimal
     round_off: Decimal
+    #: What the goods going back are worth as the document states them.
     grand_total: Decimal
+    #: What the return took off what the supplier is owed, in rupees:
+    #: nothing until it completes, and nothing for goods no bill had
+    #: reached, whatever ``grand_total`` states (D-SELL-90).
+    claimed_amount: Decimal = Decimal("0")
     approved_at: datetime | None
     closed_at: datetime | None
     cancel_reason: str | None
