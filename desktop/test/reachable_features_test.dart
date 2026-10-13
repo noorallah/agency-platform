@@ -11,8 +11,10 @@ import 'dart:io';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
+import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:agency_desktop/ui/products/product_management_page.dart';
 import 'package:agency_desktop/models/settlement_direction.dart';
@@ -572,4 +574,47 @@ void main() {
       expect(find.byKey(const ValueKey('selection-copy-as-new')), findsNothing);
     });
   });
+
+  group('a customer can be made a shop of another', () {
+    // Backlog 125: the server took `parent_customer_id`; the form must offer
+    // the field, or no screen reaches it.
+    testWidgets('the customer form offers Shop of', (tester) async {
+      await _sized(
+        tester,
+        CustomerManagementPage(
+          api: _CustomerApi(),
+          permissions: _permissions(const ['CUSTOMER_VIEW', 'CUSTOMER_CREATE']),
+          hasActiveFirm: true,
+        ),
+        phase2: true,
+      );
+      // The empty list offers its own New customer button.
+      await tester.tap(find.text('New customer').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shop of'), findsOneWidget);
+    });
+  });
+}
+
+/// A customer list with nothing in it.
+class _CustomerApi extends ApiClient {
+  _CustomerApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  @override
+  Future<PagedResult<Customer>> customers({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    CustomerQuery filters = const CustomerQuery(),
+  }) async =>
+      PagedResult(items: const <Customer>[], total: 0);
 }

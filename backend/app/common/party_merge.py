@@ -38,6 +38,7 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     delete,
+    func,
     select,
     update,
 )
@@ -285,6 +286,7 @@ class PartyMergeService:
         survivor = self._party(model, survivor_id, firm_id, kind)
         duplicate = self._party(model, data.duplicate_id, firm_id, kind)
         self._refuse_locked(kind, duplicate.id, firm_id)
+        self._refuse_parent(kind, model, duplicate)
 
         moved = kept = 0
         touched: list[str] = []
@@ -344,6 +346,32 @@ class PartyMergeService:
         )
 
     # ---- helpers -------------------------------------------------------
+
+    def _refuse_parent(
+        self,
+        kind: _Kind,
+        model: Any,  # noqa: ANN401 -- the customer or supplier model
+        duplicate: Any,  # noqa: ANN401
+    ) -> None:
+        """Refuse to merge away a parent that still has shops (backlog 125).
+
+        The re-pointing below would hand them to the survivor with the GST
+        number they took from the duplicate still on them, and under a
+        survivor that may be a shop itself. They are moved by hand first.
+        """
+        link = getattr(model, "parent_customer_id", None)
+        if link is None:
+            return
+        shops = self._session.scalar(
+            select(func.count())
+            .select_from(model)
+            .where(link == duplicate.id, model.is_deleted.is_(False))
+        )
+        if shops:
+            raise ValidationError(
+                f"{duplicate.code} is the parent of {shops} shop(s) and cannot "
+                f"be merged away. Move its shops to another {kind.label} first."
+            )
 
     def _party(
         self,

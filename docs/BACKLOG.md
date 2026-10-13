@@ -8857,3 +8857,100 @@ Test case TC-FIN-032.
 - "Bills out with no line" is counted on the bills still out now, so for a
   past day it is a guide, not a record.
 - No screen was clicked in the running app.
+
+## 125. A parent buyer with shops; a GST number held once -- built 2026-10-13
+
+Customer task M7 (`docs/CUSTOMER_BUILD_TASKS.md`): a parent buyer with shops,
+the GST number held once, on the parent. The owner's example is DMart: several
+shops, one name, one GST number (the *Not shown* sheet of the answers
+workbook, 2026-10-12: "the GST number is entered once on the parent; a shop
+with no number of its own takes the parent's; the number is then unique across
+the firm's customers; a shop in another state carries its own number; each
+shop keeps its own address, bills, dues and salesman"). Done when a parent
+with three shops is created and the GST number is refused on a second parent.
+
+**What was there.** Each shop could already be a customer of its own with the
+same name and the same GST number (decision A7, 2026-10-02, which let a GST
+number and a PAN repeat with a warning). Nothing tied the shops together, and
+nothing stopped the number being typed on a customer that had nothing to do
+with them.
+
+**Design.**
+
+- **One column, `customers.parent_customer_id`,** a key to `customers`. A
+  shop names its parent. One level deep: a shop has no shops and a parent has
+  no parent. A customer with neither is as it always was.
+- **The number a shop takes is copied onto the shop's row by the server, and
+  marked** (`customers.gst_number_from_parent`). About twenty readers decide
+  the tax, the place of supply, GSTR-1 and the e-invoice from
+  `customers.gst_number`, several of them in SQL. Leaving a shop's column
+  empty and looking the parent up on every read would bill a registered buyer
+  as unregistered at the first reader that was missed, the mistake this
+  repository records eight times for platform tables. So the column always
+  holds the number the shop is billed under, the marker says whose it is, and
+  no reader changed.
+- **The number is typed once.** `UQ_customers_firm_gst_number_own_active`, a
+  partial unique index, holds a typed number to one live customer of the firm
+  and leaves the marked copies out. The service check stays for the message,
+  which names the holder and says to make the customer its shop.
+- **The copy moves with the number.** When the parent's number or
+  registration type changes, every shop that takes it is rewritten in the
+  same transaction, each with its own audit row. A shop's PAN follows where
+  it was the parent's or blank.
+- **What a write means.** A shop that sends no GST number, or its parent's,
+  or the number its form was shown, takes the parent's. A shop that sends
+  another number keeps it as its own. A customer taken out from under its
+  parent gives the number back; it does not keep a copy as its own.
+- **A PAN still repeats, with a warning** (A7 stands for it): one company has
+  a GST number per state and one PAN.
+- **Existing customers that share a number are made one family by the
+  migration,** because the key cannot be built over them: the oldest becomes
+  the parent and the rest its shops. No number on any row changes, so every
+  bill is taxed as before. On 2026-10-13 that touched two fixture customers
+  (`DM-KKP-URX6`, `DM-MYP-URX6` on `T1012URX6-S`) and nothing else in any
+  store.
+
+**Decided by me, by the industry standard.**
+
+- One level, parent and shops. The common packages (Zoho's parent and
+  sub-customer, QuickBooks' sub-customer, ERPNext's parent customer group)
+  keep the same shape for billing.
+- A shop takes the parent's registration type with the number.
+- A parent with shops cannot be deleted, made a shop, or merged away; its
+  shops are moved first. A shop can be deleted, moved to another parent or
+  taken out.
+- A deleted customer is not restored into a number another customer now
+  holds, nor under a parent that is deleted.
+- A repeated GST number is now refused where A7 warned. The owner's decision
+  of 2026-10-12 says the number is unique once the parent exists.
+- The import file gained a column, **ParentCode**: a customer the firm has,
+  or one on an earlier row of the same file.
+- The family read (`GET /customers/{id}/family`) is the same asked of the
+  parent or of any shop, and gives one total outstanding. It is there for row
+  M8, which spreads one receipt over the shops' bills.
+
+**Built.** Columns `parent_customer_id` and `gst_number_from_parent`, the
+index, the rules in `app/customers/services/buyer_family.py` (`BuyerFamily`),
+called from `CustomerService.stage_create`, `stage_update`, `delete` and
+`restore`; a guard in `app/common/party_merge.py`; five fields on every
+customer answer (`parent_customer_id`, `parent_code`, `parent_name`,
+`gst_number_from_parent`, `shop_count`), read once per page;
+`GET /api/v1/customers/{id}/family`; the `ParentCode` import column;
+migration `20261013_0365`. Desktop: **Shop of** on the customer form, the GST
+box left empty for a shop with a line saying whose number it takes, a
+**Shops** panel with the family and its total outstanding, and a *Parent /
+shops* column on the customer list. Tests:
+`tests/unit/test_customer_parent_and_shops.py`,
+`desktop/test/customer_parent_and_shops_test.dart`. Test case TC-CUST-014.
+
+**Not done.**
+
+- One receipt from the parent spread over its shops' bills (row M8).
+- One shared credit limit for the buyer. Each shop keeps its own limit, and
+  the credit check reads the shop alone.
+- Combined reports and one statement for the whole buyer. The family read
+  gives the total outstanding only.
+- The supplier side (row M9) is separate: a branch there keeps its own number.
+- Nothing prints "shop of" on a bill; a bill prints the shop's name and
+  address as before.
+- No screen was clicked in the running app.

@@ -50,7 +50,12 @@ from app.customers.schemas import (
     CustomerSummary,
     CustomerUpdate,
 )
-from app.customers.schemas.customer import CustomerListFilters, CustomerStatus
+from app.customers.schemas.customer import (
+    CustomerFamily,
+    CustomerListFilters,
+    CustomerStatus,
+)
+from app.customers.services.buyer_family import BuyerFamily, FamilyFacts
 from app.customers.services.cash_customer import (
     assert_cash_customer_stays,
     assert_not_cash_customer,
@@ -90,6 +95,7 @@ class CustomerService:
         self._session = session
         self._repository = CustomerRepository(session)
         self._posting = DocumentPostingService(session)
+        self._family = BuyerFamily(session)
 
     def create(
         self,
@@ -169,6 +175,19 @@ class CustomerService:
                 None, code_column=Customer.code, firm_id=firm_id, actor_id=actor_id
             )
             data = data.model_copy(update={"code": issued})
+        # Settled before the PAN is read off the GSTIN: a shop's number may
+        # be its parent's (backlog 125).
+        family = self._family.resolve(
+            firm_id,
+            customer=None,
+            values={
+                "parent_customer_id": data.parent_customer_id,
+                "gst_number": data.gst_number,
+                "gst_registration_type": data.gst_registration_type,
+            },
+        )
+        from_parent = bool(family.pop("gst_number_from_parent"))
+        data = data.model_copy(update=family)
         pan = self._settled_pan(
             firm_id,
             pan=data.pan_number,
@@ -180,6 +199,7 @@ class CustomerService:
         self._assert_unique(firm_id, data)
         values = self._customer_values(data)
         values["whatsapp_opt_in_at"] = utc_now() if data.whatsapp_opt_in else None
+        values["gst_number_from_parent"] = from_parent
         assert_master_references(
             self._session, values, _CUSTOMER_REFERENCES, firm_id=firm_id
         )
@@ -313,6 +333,16 @@ class CustomerService:
         # client able to empty a field.
         values = self._customer_values(data, partial=True)
         assert_cash_customer_stays(customer, values)
+        # Whose GST number the row holds, settled before the PAN is checked
+        # against it (backlog 125).
+        values.update(
+            self._family.resolve(customer.firm_id, customer=customer, values=values)
+        )
+        identity_before = (
+            customer.gst_number,
+            customer.gst_registration_type,
+            customer.pan_number,
+        )
         # Checked against what the row will hold, and only where the write
         # moves the PAN or the GSTIN: a PAN stored before the check existed
         # does not block an unrelated edit (backlog 53 item 2).
@@ -430,6 +460,9 @@ class CustomerService:
                 actor_id=actor_id,
             )
         customer.updated_by = actor_id
+        self._carry_identity_to_shops(
+            customer, before=identity_before, actor_id=actor_id
+        )
         # Both collections are replaced rather than merged, so reconciling one
         # the caller never sent would soft-delete every row in it -- the defect
         # that destroyed a vendor's addresses, contacts and bank accounts when
@@ -477,6 +510,7 @@ class CustomerService:
         """
         customer = self.get(customer_id, firm_scope=firm_scope)
         assert_not_cash_customer(customer)
+        self._family.assert_no_shops(customer, "be deleted")
         self._assert_account_is_square(customer)
         before = self._audit_snapshot(customer)
         customer.is_deleted = True
@@ -520,6 +554,7 @@ class CustomerService:
                 f"{customer.code} cannot be restored: a live customer now holds "
                 "its code."
             )
+        self._family.assert_restorable(customer)
         self._repost_reversed_opening_balance(customer, actor_id=actor_id)
         customer.is_deleted = False
         customer.deleted_at = None
@@ -855,9 +890,10 @@ class CustomerService:
         """Say which other customers hold this GSTIN or PAN, or None (A7).
 
         One company is often several accounts -- a branch per state shares
-        its PAN, a head office and its outlets may share a GSTIN -- so a
-        repeat is allowed, as Tally and Zoho allow it, and named so a
-        duplicate typed by mistake is caught by whoever saves it.
+        its PAN -- so a repeated PAN is allowed, as Tally and Zoho allow it,
+        and named so a duplicate typed by mistake is caught by whoever saves
+        it. A GST number is held once (backlog 125): its holder is named as
+        the parent to put the customer under, and the save itself refuses.
         """
         holders = self._repository.identity_holders(
             firm_id,
@@ -868,18 +904,72 @@ class CustomerService:
         if not holders:
             return None
         parts: list[str] = []
-        for label, value, field in (
-            ("GSTIN", gst_number, "gst_number"),
-            ("PAN", pan_number, "pan_number"),
-        ):
-            named = [
-                f"{row.code} {row.name}".strip()
-                for row in holders
-                if value and getattr(row, field) == value
-            ]
-            if named:
-                parts.append(f"{label} {value} is also on {', '.join(named[:5])}")
+        held = [
+            f"{row.code} {row.name}".strip()
+            for row in holders
+            if gst_number
+            and row.gst_number == gst_number
+            and not row.gst_number_from_parent
+        ]
+        if held:
+            parts.append(
+                f"GSTIN {gst_number} is held by {held[0]}: make this customer "
+                "a shop of it and leave the GST number blank"
+            )
+        named = [
+            f"{row.code} {row.name}".strip()
+            for row in holders
+            if pan_number and row.pan_number == pan_number
+        ]
+        if named:
+            parts.append(f"PAN {pan_number} is also on {', '.join(named[:5])}")
         return "; ".join(parts) + "." if parts else None
+
+    def family(self, customer_id: UUID, *, firm_scope: UUID | None) -> CustomerFamily:
+        """Return a customer's parent and its shops with what they owe."""
+        return self._family.family(self.get(customer_id, firm_scope=firm_scope))
+
+    def family_facts(self, rows: list[Customer]) -> dict[UUID, FamilyFacts]:
+        """Return each row's parent name and shop count, read once."""
+        return self._family.facts(rows)
+
+    def _carry_identity_to_shops(
+        self,
+        parent: Customer,
+        *,
+        before: tuple[str | None, str | None, str | None],
+        actor_id: UUID,
+    ) -> None:
+        """Write a parent's changed GST number onto the shops that take it.
+
+        The shops hold a copy so every reader bills them under it, and the
+        copy moves in the same transaction as the number it copies. A shop's
+        PAN follows only where it was the parent's or blank. Deleted shops
+        are carried too, so one restored later is not billed under a number
+        its parent gave up.
+        """
+        old_gst, old_type, old_pan = before
+        if (parent.gst_number, parent.gst_registration_type) == (old_gst, old_type):
+            return
+        for shop in self._family.shops(parent.id, include_deleted=True):
+            if not shop.gst_number_from_parent:
+                continue
+            was = self._audit_snapshot(shop)
+            shop.gst_number = parent.gst_number
+            shop.gst_registration_type = parent.gst_registration_type
+            if shop.pan_number in (None, old_pan):
+                shop.pan_number = parent.pan_number
+            shop.updated_by = actor_id
+            record_audit(
+                self._session,
+                action="customer.updated",
+                entity_type="customer",
+                entity_id=shop.id,
+                actor_id=actor_id,
+                firm_id=shop.firm_id,
+                before_data=was,
+                after_data=self._audit_snapshot(shop),
+            )
 
     def _assert_account_manager(
         self,
@@ -1407,6 +1497,14 @@ class CustomerService:
             "whatsapp_opt_in": customer.whatsapp_opt_in,
             # Decides which batch trade rate the customer is sold at (PG-14).
             "trade_class": customer.trade_class,
+            # Whose number the customer is billed under (backlog 125).
+            "gst_number": customer.gst_number,
+            "gst_number_from_parent": customer.gst_number_from_parent,
+            "parent_customer_id": (
+                str(customer.parent_customer_id)
+                if customer.parent_customer_id is not None
+                else None
+            ),
         }
 
     @staticmethod
