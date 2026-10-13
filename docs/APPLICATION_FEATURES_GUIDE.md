@@ -1470,6 +1470,21 @@ worth (7 days' lead time plus 7 safety), order up to 30 days more, in whole
 units. A level typed on a product still wins. The report shows which basis each
 row used and the daily average.
 
+**Plan an order** (*Purchase Orders → "..." → Plan an order...*). A month-end
+order for one company. Choose the warehouse and the company, type how many
+days of sales to read and how many days of stock to hold, and press **Show**.
+Every product of that company's brands is listed, short or not, with what was
+sold in the period, the average a day, what is needed, what is in hand and
+what is already on order. **To order** is one sum: sold ÷ the days read × the
+days of stock wanted, less stock in hand, less what open orders (drafts too)
+still bring, rounded up to a whole unit and to the supplier's pack. Tick the
+rows, type over a quantity where wanted, and **Raise draft orders** raises
+one draft per supplier; **Download** gives the list as an Excel sheet. A
+supplier chosen at the top takes every row; otherwise each product goes to
+its preferred supplier, else the one last billed, else the one its company is
+bought from. Left untyped, the days are the firm's *Reorder planning*
+figures.
+
 Every buying list names the **supplier** in a column and on the bar, and is
 searched by supplier name.
 

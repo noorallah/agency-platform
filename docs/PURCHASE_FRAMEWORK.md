@@ -1308,6 +1308,43 @@ supplier's brands once when the supplier is chosen.
 foreign keys cascade and a soft delete reaches neither. A supplier merge
 re-points the rows and keeps one where both suppliers named the same brand.
 
+## Planning an order for a company (backlog 130, 2026-10-13)
+
+`OrderPlanService` (`app/purchase/services/order_plan.py`) is a
+`ReorderService` asked a different question. *Below reorder level* lists what
+is already short; the plan lists **every** active stocked product of a
+selection with what to order.
+
+- The sum, per product, for one warehouse, in stock units:
+  `needed = sold * cover_days / sales_days`, held to four places;
+  `to order = ceil(max(needed - available - on order, 0))`, then rounded up to
+  the supplier's minimum and multiple where its catalogue row has them.
+  **Multiply before dividing**: 100 / 60 * 30 is 50.000...01 in decimal
+  arithmetic, and the ceiling of that orders one too many.
+- *Sold* is `_sales_by_location` (dispatches less returns, net of reversals,
+  the last `sales_days` days up to `firm_today`). *Available* is the sum of
+  `inventory_records.available_quantity`. *On order* is `incoming(...)` with
+  `OPEN_ORDER_STATUSES`, drafts included.
+- The selection: `company_id` (the products of the brands of that
+  `principals` row), `brand_ids`, or a `vendor_id` alone (the brands
+  `VendorBrandService.brands_of` answers, unless its source is `NONE`).
+  Stockless product types are left out.
+- The supplier: the plan's `vendor_id` for every row; else `_suppliers`
+  (preferred, then last billed); else the active supplier the brand's company
+  names. The rate is the last bill's where that bill was the same supplier's
+  and in the stock unit, else the product's purchase price.
+- `raise_plan_drafts` works the plan out again from the same choices, so a
+  product outside it, a row with nothing to order and a row with no supplier
+  each refuse the batch by name. Orders are staged by
+  `ReorderService._stage_orders`, which *Below reorder level* also uses, and
+  committed once.
+- Routes: `GET /api/v1/purchases/order-plan` and
+  `POST /api/v1/purchases/order-plan/drafts`, declared above `/{order_id}`.
+  The read is not under `/reports/`: it is a working screen, not a catalogue
+  report.
+- The product ids are asked about in chunks of 5,000 where a helper binds
+  them, because a plan with no selection names every product of the firm.
+
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the
