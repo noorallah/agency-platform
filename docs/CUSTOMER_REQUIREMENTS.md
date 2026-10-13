@@ -152,6 +152,7 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | PRT-3 | Boxes and pieces on the print | In the quantity cell as the customer's own bill prints them, with the box size added: **3/5 (x12)**; free goods **0/2**. May be changed later | Planned | L5 |
 | PRT-4 | Full-page bill as the customer's sample | To compare with his sample: manufacture date column, total quantity, where the customer's licence numbers print | Open | |
 | PRT-5 | Bill layout settings | The bill in fixed parts (header, lines, summary, footer), how many lines a page shows, and a rule for long shop and product names | Later | F12 |
+| PRT-6 | A code on the bill to pay by scanning | The firm's UPI ID is entered once (the bill's Print settings, or the bank account marked to print). Every printed bill, full page, half page and roll, then carries a QR code for what the bill still owes; any UPI app reads it with the amount and the bill number filled in. No gateway and no internet. The money is not recorded by itself: the receipt is still typed. A link that marks the bill paid needs a gateway account and is not built (backlog 51 B4) | Built | |
 
 ## 11. Collections and money
 
@@ -166,6 +167,8 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | COL-7 | Discount at collection | The owner waives part of a due as discount, GST unchanged, within a firm ceiling | Built | S10 |
 | COL-8 | Only the firm admin gives it | A permission of its own, held by the firm admin alone | Built | F4 |
 | COL-9 | A collector's phone app | Morning sync, marking during the day with no connection, evening sync back by Wi-Fi, Bluetooth or a file. Office entry stays | Later | F12 |
+| COL-10 | Print a cheque for a supplier's payment | A payment saved with the mode Cheque has **Print cheque**: the date, the supplier's name (another can be typed), the amount in words and in figures, onto the bank's own cheque leaf. Each bank account is lined up once with a test print | Built | |
+| COL-11 | A cheque to any account, the amount typed, dated today or ahead | **Write a cheque**: the bank account it is drawn on, the account it pays (a supplier, a customer for a refund, an expense, any other account), the name on the cheque, the amount, the cheque number and its date. Dated today or before, it is saved as a payment and printed. Dated ahead, it is printed now and held as a post-dated cheque: nothing is posted until its date, when it becomes the payment. A cheque is never printed without a record of it | Planned | F13 |
 
 ## 12. Tax
 
@@ -248,3 +251,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | SUP-3 built (F9): a new branch of the supplier is added from the goods receipt, and from a bill raised against an order, without leaving the document |
 | 2026-10-13 | COL-2 built (F10): the customer's Account view shows the whole account, downloads to Excel and remembers how many entries each user chose |
 | 2026-10-13 | BUY-2 built (F11): Plan an order opens on the last six months of sales, and every suggested quantity can be raised by a percentage at once |
+| 2026-10-13 | PRT-6 and COL-10 added as Built: the owner asked for a pay-by-scan code on the bill and for cheque printing, and both were already there. COL-11 added (the owner): a cheque to any account with the amount typed, post-dated too; row F13 |
