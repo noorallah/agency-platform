@@ -444,6 +444,9 @@ RESET_ORDER: tuple[str, ...] = (
     "serial_numbers",
     "inventories",
     "product_valuations",
+    # What each lot is worth goes with the movements that valued it; the
+    # batch itself survives, as the note above says.
+    "batch_valuations",
     "document_lifecycle_events",
     # The framework's own generic document, numbered from the same series
     # as everything else; nothing seeds it, but a row left behind would

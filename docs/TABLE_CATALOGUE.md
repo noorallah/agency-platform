@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**338 tables**, of which **17** live only in the platform store.
+**340 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -367,6 +367,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `batch_valuations` | firm store ¹ | Hold what one lot is worth, for a firm that costs by lot. | `batches`, `products` |
 | `count_plans` | firm store ¹ | What to count, where, and how often (STK-6, decision A117). | `firms` |
 | `inventories` | firm store ¹ | Persist one firm-scoped inventory projection per product location. | `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `batches`, `business_profiles`, `uoms` |
 | `inventory_transactions` | firm store ¹ | Persist one immutable inventory movement event. | `inventories`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms`, `batches`, `lots`, `serial_numbers` |
@@ -383,6 +384,7 @@ trigger each schema owns its own copy of.
 | `stock_adjustment_requests` | firm store ¹ | An adjustment or write-off above its author's limit, waiting (A108). | `firms`, `products`, `warehouses`, `inventory_transactions` |
 | `stock_attachments` | firm store ¹ | Store one file backing a movement or a count sheet -- never both. | `firms`, `inventory_transactions`, `physical_counts` |
 | `stock_ledger_entries` | firm store ¹ | Persist one immutable stock-ledger row per inventory transaction. | `inventory_transactions`, `inventories`, `batches`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms` |
+| `stock_lot_settings` | firm store ¹ | One firm's costing method, and whether it may bill without stock. |  |
 | `stock_transfer_lines` | firm store ¹ | One product sent, and what became of it at the other end. | `stock_transfers`, `products`, `batches`, `inventory_transactions` |
 | `stock_transfers` | firm store ¹ | Goods sent from one warehouse to another, in two steps (decision A126). | `firms`, `branches`, `warehouses` |
 
@@ -593,7 +595,7 @@ trigger each schema owns its own copy of.
 | `sales_order_attachments` | firm store ¹ | Store sales order attachments. | `sales_orders`, `firms` |
 | `sales_order_lines` | firm store ¹ | Store one sales order line. | `sales_orders`, `firms`, `products`, `uoms`, `packaging_types`, `tax_profiles`, `warehouses`, `warehouse_storage_nodes`, `batches` |
 | `sales_order_notes` | firm store ¹ | Store sales order notes. | `sales_orders`, `firms` |
-| `sales_orders` | firm store ¹ | Store one sales order header. | `firms`, `customers`, `users`, `sales_territories`, `territory_route_profiles`, `branches`, `warehouses`, `business_profiles` |
+| `sales_orders` | firm store ¹ | Store one sales order header. | `firms`, `customers`, `users`, `sales_territories`, `territory_route_profiles`, `branches`, `warehouses`, `business_profiles`, `price_levels` |
 | `sales_workflow_settings` | firm store ¹ | Store which sales stages one firm fills in by hand. | `firms`, `branches`, `warehouses` |
 
 ### `app/sales_return`
