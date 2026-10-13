@@ -29,7 +29,10 @@ from app.business.models import (
     document_attributes,  # noqa: F401
     framework,  # noqa: F401
 )
-from app.collections.models import payment_promise  # noqa: F401
+from app.collections.models import (
+    bill_handover,  # noqa: F401
+    payment_promise,  # noqa: F401
+)
 from app.commission.models import commission  # noqa: F401
 from app.commission.models import payout as _commission_payout  # noqa: F401
 from app.common.audit.models import audit_log  # noqa: F401

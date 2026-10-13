@@ -4,6 +4,11 @@ Reading takes ``RECEIPT_VIEW`` and writing a promise ``RECEIPT_CREATE``: the
 people who take the money in are the people who chase it, and a promise moves
 no money, so it needs no grant of its own.
 
+Handing bills to a collector and taking them back (backlog 122) takes
+``COLLECTION_ASSIGN``, a code of its own: a collector who may record what he
+collected must not be the one who decides which bills he carries. Reading who
+carries what stays on ``RECEIPT_VIEW``.
+
 Every literal path is declared above ``/promises/{promise_id}/withdraw``.
 """
 
@@ -17,15 +22,28 @@ from sqlalchemy.orm import Session
 
 from app.collections.schemas import (
     CollectionSheetRow,
+    HandedFilter,
+    HandoverBillRow,
+    HandoverCreate,
+    HandoverMatching,
+    HandoverResponse,
+    HandoverResult,
+    HandoverState,
+    HandoverTakeBack,
     PaymentPromiseCreate,
     PaymentPromiseResponse,
     PaymentPromiseWithdraw,
     PromiseStatus,
 )
-from app.collections.services import CollectionSheetService, PromiseService
+from app.collections.services import (
+    BillHandoverService,
+    CollectionSheetService,
+    PromiseService,
+)
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.constants.core import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -41,6 +59,9 @@ CollectionViewScope = Annotated[
 ]
 CollectionWriteScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("RECEIPT_CREATE")
+]
+CollectionAssignScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("COLLECTION_ASSIGN")
 ]
 
 
@@ -190,3 +211,110 @@ def collection_sheet_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": 'inline; filename="collection-sheet.pdf"'},
     )
+
+
+@router.get("/handovers/bills", response_model=PaginatedResponse[HandoverBillRow])
+def list_bills_to_hand_out(
+    scope: CollectionViewScope,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+    handed: Annotated[HandedFilter, Query()] = HandedFilter.ALL,
+    collector_id: Annotated[UUID | None, Query()] = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    area: Annotated[str | None, Query(max_length=100)] = None,
+    number_from: Annotated[str | None, Query(max_length=60)] = None,
+    number_to: Annotated[str | None, Query(max_length=60)] = None,
+    customer_id: Annotated[UUID | None, Query()] = None,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[HandoverBillRow]:
+    """List the unpaid bills, each with who carries it, oldest first.
+
+    Narrowed by the bill's date, the customer's area or city, a run of bill
+    numbers of one series, a customer, and whether somebody carries it.
+    """
+    if date_from and date_to and date_to < date_from:
+        raise ValidationError("The last day is before the first.")
+    matching = HandoverMatching.model_construct(
+        date_from=date_from,
+        date_to=date_to,
+        area=(area or "").strip() or None,
+        number_from=(number_from or "").strip() or None,
+        number_to=(number_to or "").strip() or None,
+        customer_id=customer_id,
+    )
+    rows, total = BillHandoverService(db).bills_page(
+        scope.firm_id,
+        page=page,
+        page_size=page_size,
+        handed=handed,
+        collector_id=collector_id,
+        # Passed only when something is named, which is all its own check
+        # asks; the date order is checked above.
+        matching=matching if matching.model_dump(exclude_none=True) else None,
+    )
+    return PaginatedResponse(
+        data=rows,
+        pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
+    )
+
+
+@router.get("/handovers", response_model=PaginatedResponse[HandoverResponse])
+def list_bill_handovers(
+    scope: CollectionViewScope,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+    collector_id: Annotated[UUID | None, Query()] = None,
+    state: Annotated[HandoverState | None, Query()] = None,
+    handed_from: Annotated[date | None, Query()] = None,
+    handed_to: Annotated[date | None, Query()] = None,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[HandoverResponse]:
+    """List the handovers: bills still out first, then newest first."""
+    rows, total = BillHandoverService(db).list_handovers(
+        scope.firm_id,
+        page=page,
+        page_size=page_size,
+        collector_id=collector_id,
+        state=state,
+        handed_from=handed_from,
+        handed_to=handed_to,
+    )
+    return PaginatedResponse(
+        data=rows,
+        pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
+    )
+
+
+@router.post(
+    "/handovers",
+    response_model=ApiResponse[HandoverResult],
+    status_code=status.HTTP_201_CREATED,
+)
+def hand_bills_to_a_collector(
+    data: HandoverCreate,
+    scope: CollectionAssignScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[HandoverResult]:
+    """Hand unpaid bills to a collector: the ones ticked, or a bundle.
+
+    It writes a note beside each bill and nothing else: no journal, no
+    balance and no report changes.
+    """
+    result = BillHandoverService(db).hand_out(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=result, message=f"{result.bills} bill(s) handed out.")
+
+
+@router.post("/handovers/take-back", response_model=ApiResponse[HandoverResult])
+def take_bills_back(
+    data: HandoverTakeBack,
+    scope: CollectionAssignScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[HandoverResult]:
+    """Take handed-out bills back into the office; the record stays."""
+    result = BillHandoverService(db).take_back(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=result, message=f"{result.bills} bill(s) taken back.")

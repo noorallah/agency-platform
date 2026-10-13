@@ -233,10 +233,13 @@ def test_a_cashier_sees_the_till_and_not_the_ledger() -> None:
     # masked (ACC-4); and payment runs to see (BUY-11), approving them being
     # the accountant's; and the collection sheet and payment promises
     # (backlog 87 #8), read on RECEIPT_VIEW because whoever takes the money in
-    # chases it. Still no ledger, journal or chart of accounts.
+    # chases it; and who carries which bill (backlog 122), to read only:
+    # handing bills out takes COLLECTION_ASSIGN, which a cashier does not
+    # hold. Still no ledger, journal or chart of accounts.
     assert openable == {
         "Receipts",
         "Collection Sheet",
+        "Bills with Collectors",
         "Payment Promises",
         "Payments",
         "Payment Runs",

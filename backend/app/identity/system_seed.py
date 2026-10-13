@@ -404,6 +404,11 @@ PERMISSION_GROUPS = {
         "SUPPLIER_GIFT_MANAGE",
         "RECEIPT_CREATE",
         "RECEIPT_VIEW",
+        # Handing unpaid bills to a collector and taking them back (backlog
+        # 122). Apart from `RECEIPT_CREATE` on purpose: a collector who may
+        # record what he collected must not be the one who decides which
+        # bills he carries.
+        "COLLECTION_ASSIGN",
         "LEDGER_VIEW",
         "TRIAL_BALANCE_VIEW",
         "PROFIT_LOSS_VIEW",

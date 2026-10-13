@@ -137,6 +137,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `bill_handovers` | firm store ¹ | Store one bill handed to one collector, and when it came back. | `customers`, `sales_invoices`, `customer_opening_bills` |
 | `payment_promises` | firm store ¹ | Store one promise to pay, against a bill or the customer's account. | `customers`, `sales_invoices` |
 
 ### `app/commission`

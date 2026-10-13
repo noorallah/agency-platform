@@ -7972,6 +7972,99 @@ class ApiClient {
         ),
       );
 
+  // ---- Bills handed to a collector (backlog 122) ---------------------------
+
+  /// One page of the unpaid bills, with who carries each. [handed] is ALL,
+  /// OUT or NOT_OUT. Returns the whole response.
+  Future<Json> handoverBills({
+    int page = 1,
+    int pageSize = 50,
+    String? handed,
+    String? collectorId,
+    String? dateFrom,
+    String? dateTo,
+    String? area,
+    String? numberFrom,
+    String? numberTo,
+    String? customerId,
+  }) =>
+      request(
+        'GET',
+        '/api/v1/collections/handovers/bills',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '$pageSize',
+          if (handed != null) 'handed': handed,
+          if (collectorId != null) 'collector_id': collectorId,
+          if (dateFrom != null) 'date_from': dateFrom,
+          if (dateTo != null) 'date_to': dateTo,
+          if (area != null) 'area': area,
+          if (numberFrom != null) 'number_from': numberFrom,
+          if (numberTo != null) 'number_to': numberTo,
+          if (customerId != null) 'customer_id': customerId,
+        },
+      );
+
+  /// One page of the hand-over history. [state] is OUT or RETURNED.
+  Future<Json> billHandovers({
+    int page = 1,
+    int pageSize = 50,
+    String? collectorId,
+    String? state,
+    String? handedFrom,
+    String? handedTo,
+  }) =>
+      request(
+        'GET',
+        '/api/v1/collections/handovers',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '$pageSize',
+          if (collectorId != null) 'collector_id': collectorId,
+          if (state != null) 'state': state,
+          if (handedFrom != null) 'handed_from': handedFrom,
+          if (handedTo != null) 'handed_to': handedTo,
+        },
+      );
+
+  /// Hand bills to a collector: the ticked [invoiceIds], or every bill that
+  /// fits [matching] (only the keys that are set). Exactly one of the two.
+  /// Returns `{bills, amount, already_out}`.
+  Future<Json> handBillsOut({
+    required String collectorId,
+    String? handedOn,
+    List<String>? invoiceIds,
+    Map<String, String>? matching,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/handovers',
+          body: <String, dynamic>{
+            'collector_id': collectorId,
+            if (handedOn != null) 'handed_on': handedOn,
+            if (invoiceIds != null) 'invoice_ids': invoiceIds,
+            if (matching != null) 'matching': matching,
+          },
+        ),
+      );
+
+  /// Take bills back from a collector. Returns `{bills, amount, already_out}`.
+  Future<Json> takeBillsBack({
+    required List<String> handoverIds,
+    String? note,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/handovers/take-back',
+          body: <String, dynamic>{
+            'handover_ids': handoverIds,
+            if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+          },
+        ),
+      );
+
   // ---- Hold and recall; counter shifts (backlog 87 #7, SG-7) -------------
 
   /// Park a draft bill while the next customer is served. [note] is what
