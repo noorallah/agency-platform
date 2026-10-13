@@ -326,6 +326,24 @@ boxes-and-pieces layout an item with a pack shows the four boxes and an item
 without shows pieces only. There is no switch per item: leaving the Box cell
 blank is typing in pieces.
 
+**Stock, shown as boxes and pieces** (the owner, 2026-10-13: it makes a
+count easy to check against the shelf). Where either of the firm's switches
+is on, every screen and report that states a stock quantity of an item with
+a pack has a toggle, *Show boxes*, remembered per user: stock on hand, the
+stock ledger, the stock statement and valuation, the batch (lot) list and
+the below-reorder list. On, 89 pieces of a 12-pack read **7 x 12 + 5** with
+the 89 kept beside it; an item with no pack reads pieces. The figure is
+worked out for display by the one shared formatter from the quantity the
+screen already holds and the item's pack size today: nothing is stored, no
+call is added, and the Excel download writes boxes, pieces and total as
+three number columns.
+
+**The stock count.** The count sheet prints the expected stock as boxes and
+pieces, and the counted quantity is typed as a pair, Box and Pcs, summed to
+pieces by the same check as a document line. The count keeps the one figure
+in pieces it keeps today; the pair is entry only and is not stored. The
+difference reads both ways ("short 1 x 12 + 3 = 15").
+
 **Prints.** Every document printed by the shared renderer (bill, order
 confirmation, challan, purchase order, credit note, thermal bill):
 
@@ -382,7 +400,7 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
 | 8 | Prints: `InvoiceLineBlock`, full page, half page, roll, challan, purchase order, credit note | No | Print tests on the worked example; a mixed document; a bill that still fits half a page |
 | 9 | The switch on both settings screens; the tick on the customer form, its import column and list filter; the toggle above the lines; the shared two-box cells; sales order, quotation and sales bill editors, with the Free boxes the direct bill lacks | No | Widget tests incl. keyboard order at 800x600; a guard that every line key the desktop sends is declared by the server |
 | 10 | Delivery note, sales return, purchase order, goods receipt, supplier's bill and purchase return editors | No | Widget tests; clicked on a fixture firm |
-| 11 | Pack scan on the counter bill; the split shown on stock screens and registers | No | Counter bill test; report tests |
+| 11 | Pack scan on the counter bill; *Show boxes* on the stock screens, reports and their downloads; the count sheet and the counted pair | No | Counter bill test; report tests; a count typed as a pair comes to the same difference as the same count typed in pieces |
 | 12 | The import's pack from pieces per case; reference docs, user guide, QA cases; driven over HTTP end to end | No | The check file of the round |
 
 ## 7. What is deliberately not in this design
@@ -394,7 +412,9 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
   new size from that date.
 - **Tidying a pair**, and **pairs for rejected, damaged, scrap and to-shelf
   quantities.**
-- **Opening stock, transfers, adjustments and counts typed as a pair.**
+- **Opening stock, transfers and adjustments typed as a pair.** They are
+  shown as boxes and pieces and typed in pieces. A count is typed as a pair
+  (section 4).
 - **Restating old lines.** A line saved in BOX, or in pieces, stays as it is.
 - **A switch per item**, and firm-chosen words for the two column headings.
 - **A mark on the supplier.** Buying follows the firm's switch alone; nobody
