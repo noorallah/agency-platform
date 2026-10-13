@@ -345,7 +345,9 @@ class _RecordExpenseDialogState extends State<RecordExpenseDialog> {
             context: context,
             initialDate: _date,
             firstDate: DateTime(2000),
-            lastDate: DateTime(2100),
+            // D-FIN-33: an expense is money already spent, and the server
+            // refuses one dated ahead.
+            lastDate: DateTime.now(),
           );
           if (picked == null) return;
           setState(() => _date = picked);

@@ -5219,6 +5219,38 @@ redo yours."*
   - Step 11: a new year appears, beginning the day after the last one ends, with twelve months, all open. The year you are in is still open.
   - Step 12: refused: that year is already there and has not begun.
 
+### TC-FIN-035 — The account books: an expense from the form to the books
+
+*Added 2026-10-13 (customer task C4, decision D13). Driven over HTTP on a fixture firm; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** D-FIN-33, the expense form, the ledger, the cash book and the bank book
+- **Fixture:** `ready-firm`
+- **Also needs:** a user holding the rights to manage accounts and to record and cancel an expense. Note the closing balance of *Cash book* and *Bank book* before you begin.
+- **Steps**
+  1. Open *Accounts → Books → Chart of Accounts* and start a new account: group **Indirect Expenses**, code **6800**, name *Packing material*, type **EXPENSE**. Save.
+  2. Change the code to one not used (6810) and save. Open the account again and try to change its code, its type and its group; change its name.
+  3. Open *Accounts → Books → Expenses* and start a new expense. Try to pick tomorrow in **Date**.
+  4. Record 3,200 today: **Expense** *Packing material*, **Paid from** *Bank*, a payee, a bill number, a narration. Save.
+  5. Record 150 today, **Paid from** *Petty Cash*.
+  6. In the search box type *Packing*, then the payee, then the bill number.
+  7. Open *Accounts → Books → Ledgers*, pick *Packing material* and this month.
+  8. Open the report *Bank book* for today, then *Cash book*, then *Day book*.
+  9. On *Expenses* select the first expense and press **Cancel** with no reason, then with one.
+  10. Read *Bank book* and the *Packing material* ledger again.
+  11. Cancel the second expense. Open the account, switch **Active** off and save. Start a new expense.
+- **Expect**
+  - Step 1: refused: an account with this code already exists (6800 is *Bad Debts*).
+  - Step 2: saved. Afterwards the code, the type and the group cannot be changed; the name can. There is no delete.
+  - Step 3: the calendar offers no day after today.
+  - Step 4: saved with a number beginning EXP, posted at once. The row reads *Paid from: Bank*.
+  - Step 5: saved; the row reads *Paid from: Petty Cash*.
+  - Step 6: each search finds the expense it names; the first finds both.
+  - Step 7: Opening 0, Debits 3,350, Credits 0, Closing 3,350, one line per expense with the balance after it.
+  - Step 8: the Bank book has a payment of 3,200 naming *Packing material* and closes 3,200 lower than noted. The Cash book has the 150 with *Petty Cash* as its account and not the 3,200. The Day book lists both.
+  - Step 9: refused without a reason; with one, the expense reads CANCELLED and stays in the list.
+  - Step 10: the Bank book closes where it began. The ledger reads Credits 3,200 and Closing 150.
+  - Step 11: the Cash book closes where it began. *Packing material* is no longer offered in **Expense**.
+
 ### TC-FIN-032 — The collector's day sheet adds up to the receipts
 
 *Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
