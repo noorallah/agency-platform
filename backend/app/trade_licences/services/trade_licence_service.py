@@ -12,7 +12,12 @@ from app.common.firm_metadata import firm_today
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
-from app.products.models import Product, ProductCategory
+from app.products.models import (
+    Product,
+    ProductCategory,
+    ProductCategoryLicenceRequirement,
+    ProductLicenceRequirement,
+)
 from app.trade_licences.models import (
     TradeLicence,
     TradeLicenceSettings,
@@ -234,16 +239,28 @@ class TradeLicenceService:
         # the type are counted here (backlog 54).
         needed_by = (
             self._session.scalar(
-                select(func.count(Product.id)).where(
-                    Product.required_licence_type_id == row.id,
+                select(func.count(Product.id))
+                .join(
+                    ProductLicenceRequirement,
+                    ProductLicenceRequirement.product_id == Product.id,
+                )
+                .where(
+                    ProductLicenceRequirement.licence_type_id == row.id,
+                    ProductLicenceRequirement.is_deleted.is_(False),
                     Product.is_deleted.is_(False),
                 )
             )
             or 0
         ) + (
             self._session.scalar(
-                select(func.count(ProductCategory.id)).where(
-                    ProductCategory.required_licence_type_id == row.id,
+                select(func.count(ProductCategory.id))
+                .join(
+                    ProductCategoryLicenceRequirement,
+                    ProductCategoryLicenceRequirement.category_id == ProductCategory.id,
+                )
+                .where(
+                    ProductCategoryLicenceRequirement.licence_type_id == row.id,
+                    ProductCategoryLicenceRequirement.is_deleted.is_(False),
                     ProductCategory.is_deleted.is_(False),
                 )
             )

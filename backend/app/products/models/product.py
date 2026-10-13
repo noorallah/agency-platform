@@ -1,5 +1,6 @@
 """Firm-scoped product, category, and dynamic-attribute persistence models."""
 
+from collections.abc import Iterable
 from decimal import Decimal
 from typing import ClassVar
 from uuid import UUID
@@ -16,7 +17,8 @@ from sqlalchemy import (
     and_,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
@@ -73,14 +75,6 @@ class ProductCategory(BaseEntity):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
-    #: The trade licence a buyer and seller must hold to trade what this
-    #: category holds -- all Schedule H medicines, say (backlog 54). A
-    #: sub-category without one inherits its parent's.
-    required_licence_type_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(),
-        ForeignKey("trade_licence_types.id", ondelete="RESTRICT"),
-        index=True,
-    )
     #: The goods type a new product filed here takes and stores (backlog
     #: 89). Null is General; a sub-category without one takes its parent's.
     #: Changing it reaches products created afterwards only.
@@ -98,6 +92,28 @@ class ProductCategory(BaseEntity):
         back_populates="parent",
         cascade="save-update, merge",
     )
+    #: The trade licences a buyer and seller must hold to trade what this
+    #: category holds -- all Schedule H medicines, say (backlog 54). Every
+    #: one is asked for (backlog 152); a sub-category naming none inherits
+    #: its parent's.
+    licence_requirements: Mapped[list["ProductCategoryLicenceRequirement"]] = (
+        relationship(
+            cascade="all, delete-orphan",
+            lazy="selectin",
+            order_by="ProductCategoryLicenceRequirement.position",
+        )
+    )
+
+    @property
+    def required_licence_type_ids(self) -> list[UUID]:
+        """Return the licence types this category's goods need, in order."""
+        return [row.licence_type_id for row in self.licence_requirements]
+
+    @required_licence_type_ids.setter
+    def required_licence_type_ids(self, licence_type_ids: Iterable[UUID]) -> None:
+        """Replace the list, keeping the rows of the types that stay."""
+        _replace_requirements(self, licence_type_ids, ProductCategoryLicenceRequirement)
+
     parent: Mapped["ProductCategory | None"] = relationship(
         back_populates="children",
         remote_side="ProductCategory.id",
@@ -167,13 +183,6 @@ class Product(BaseEntity):
     unit_set_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
         ForeignKey("unit_sets.id", name="FK_products_unit_set_id", ondelete="SET NULL"),
-    )
-    #: The trade licence this product needs, overriding its category's; null
-    #: takes the category's (backlog 54).
-    required_licence_type_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(),
-        ForeignKey("trade_licence_types.id", ondelete="RESTRICT"),
-        index=True,
     )
     unit: Mapped[str | None] = mapped_column(String(20))
     brand: Mapped[str | None] = mapped_column(String(120))
@@ -327,6 +336,110 @@ class Product(BaseEntity):
         lazy="selectin",
         order_by="ProductMedia.created_at",
     )
+    #: The trade licences this product needs, overriding its category's; an
+    #: empty list takes the category's (backlog 54). Every one is asked for
+    #: (backlog 152).
+    licence_requirements: Mapped[list["ProductLicenceRequirement"]] = relationship(
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="ProductLicenceRequirement.position",
+    )
+
+    @property
+    def required_licence_type_ids(self) -> list[UUID]:
+        """Return the licence types this product itself names, in order."""
+        return [row.licence_type_id for row in self.licence_requirements]
+
+    @required_licence_type_ids.setter
+    def required_licence_type_ids(self, licence_type_ids: Iterable[UUID]) -> None:
+        """Replace the list, keeping the rows of the types that stay."""
+        _replace_requirements(self, licence_type_ids, ProductLicenceRequirement)
+
+
+class ProductLicenceRequirement(BaseEntity):
+    """One trade licence a product needs; a product may name several."""
+
+    __tablename__ = "product_licence_requirements"
+    __table_args__ = (
+        UniqueConstraint(
+            "product_id",
+            "licence_type_id",
+            name="UQ_product_licence_requirements_product_type",
+        ),
+    )
+
+    product_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    licence_type_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("trade_licence_types.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    #: Where it stands in the list as the firm typed it.
+    position: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+
+
+class ProductCategoryLicenceRequirement(BaseEntity):
+    """One trade licence a category's goods need; it may name several."""
+
+    __tablename__ = "product_category_licence_requirements"
+    __table_args__ = (
+        UniqueConstraint(
+            "category_id",
+            "licence_type_id",
+            name="UQ_product_category_licence_requirements_category_type",
+        ),
+    )
+
+    category_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("product_categories.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    licence_type_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("trade_licence_types.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    #: Where it stands in the list as the firm typed it.
+    position: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+
+
+def _replace_requirements(
+    owner: Product | ProductCategory,
+    licence_type_ids: Iterable[UUID],
+    model: type[ProductLicenceRequirement] | type[ProductCategoryLicenceRequirement],
+) -> None:
+    """Make ``owner`` need exactly these licence types, in this order.
+
+    A type that stays keeps its row, so one flush never deletes and inserts
+    the same pair. Where the list really moves, the owner's row is written
+    too: its ``version`` is what tells a second editor the record changed,
+    and a change to the list alone touches no column of it.
+    """
+    wanted = list(dict.fromkeys(licence_type_ids))
+    if wanted == owner.required_licence_type_ids:
+        return
+    kept = {row.licence_type_id: row for row in owner.licence_requirements}
+    rows = [kept.get(type_id) or model(licence_type_id=type_id) for type_id in wanted]
+    for position, row in enumerate(rows):
+        row.position = position
+    owner.licence_requirements = rows  # type: ignore[assignment]
+    if object_session(owner) is not None:
+        # Read first: an expired attribute cannot be flagged.
+        owner.updated_by = owner.updated_by
+        flag_modified(owner, "updated_by")
 
 
 class ProductMedia(BaseEntity):

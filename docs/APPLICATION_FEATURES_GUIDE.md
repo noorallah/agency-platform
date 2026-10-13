@@ -2190,7 +2190,10 @@ sale*.
 (*Masters → Compliance*) is the register of licences --
 the firm's, a branch's, a customer's or a supplier's, with their validity
 dates -- whose numbers print on invoices and whose expiry is raised on Home; a
-product or category can require one, and the sale (and purchase) then warns or
+product or category can require one or several (**Licences needed**, on the
+product and on the category; the buyer must hold every one, and the check names
+each one missing or lapsed; a product that names its own is judged on those
+alone, not on its category's as well), and the sale (and purchase) then warns or
 blocks as the firm sets. A shop under a parent buyer that holds no licence of
 the kind needed is covered by its parent's, and a supplier's branch by its
 main office's; the check and the document's history say whose was used, and

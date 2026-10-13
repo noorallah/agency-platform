@@ -57,6 +57,11 @@ class ProductStatus(StrEnum):
 ItcEligibility = Literal["ELIGIBLE", "BLOCKED", "INELIGIBLE"]
 
 
+#: How many licences one product or category may name. No rule sets a
+#: number; this only stops a runaway list.
+MAX_LICENCES_NEEDED = 20
+
+
 class ProductSchema(BaseModel):
     """Strict API schema configuration for product module."""
 
@@ -70,9 +75,12 @@ class ProductCategoryCreate(ProductSchema):
     name: str = Field(min_length=1, max_length=200)
     parent_id: UUID | None = None
     is_active: bool = True
-    #: The trade licence its goods need (backlog 54). On an update, absent
-    #: leaves it alone and an explicit null clears it.
-    required_licence_type_id: UUID | None = None
+    #: The trade licences its goods need, every one of them (backlog 54,
+    #: 152). On an update, absent leaves the list alone and an empty
+    #: list clears it.
+    required_licence_type_ids: list[UUID] = Field(
+        default_factory=list, max_length=MAX_LICENCES_NEEDED
+    )
     #: Its goods wait in quarantine on receipt (BUY-9). On an update, absent
     #: leaves it alone.
     inspection_required: bool = False
@@ -108,7 +116,7 @@ class ProductCategoryResponse(ProductSchema):
     level: int
     path: str
     is_active: bool
-    required_licence_type_id: UUID | None = None
+    required_licence_type_ids: list[UUID] = Field(default_factory=list)
     inspection_required: bool = False
     expiry_stop_sale_days: int | None = None
     expiry_alert_days: int | None = None
@@ -156,9 +164,12 @@ class ProductWrite(ProductSchema):
     product_type: ProductType
     category_id: UUID | None = None
     sub_category_id: UUID | None = None
-    #: The trade licence this product needs, overriding its category's;
-    #: null takes the category's (backlog 54).
-    required_licence_type_id: UUID | None = None
+    #: The trade licences this product needs, every one of them, in
+    #: place of its category's; an empty list takes the category's
+    #: (backlog 54, 152).
+    required_licence_type_ids: list[UUID] = Field(
+        default_factory=list, max_length=MAX_LICENCES_NEEDED
+    )
     #: The supplier it is normally bought from; reorder orders from it (A18).
     preferred_vendor_id: UUID | None = None
     unit: str | None = Field(default=None, max_length=20)
@@ -325,7 +336,7 @@ class ProductResponse(ProductSchema):
     goods_type_id: UUID | None = None
     #: The unit set its units were copied from, for reference (backlog 89).
     unit_set_id: UUID | None = None
-    required_licence_type_id: UUID | None = None
+    required_licence_type_ids: list[UUID] = Field(default_factory=list)
     preferred_vendor_id: UUID | None = None
     unit: str | None
     brand: str | None

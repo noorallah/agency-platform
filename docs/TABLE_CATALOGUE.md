@@ -452,11 +452,13 @@ trigger each schema owns its own copy of.
 | `goods_types` | firm store ¹ | One line of goods and the tracking its products start with. |  |
 | `principals` | firm store ¹ | The company whose agency the firm holds -- a distributor's principal. | `firms`, `vendors` |
 | `product_attribute_values` | firm store ¹ | Store one configurable attribute value for a product. | `products`, `firms`, `attribute_definitions` |
-| `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms`, `trade_licence_types`, `goods_types` |
+| `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms`, `goods_types` |
+| `product_category_licence_requirements` | firm store ¹ | One trade licence a category's goods need; it may name several. | `product_categories`, `trade_licence_types` |
 | `product_kit_components` | firm store ¹ | One component of a kit, and how many go into one kit (decision A134). | `firms`, `products` |
+| `product_licence_requirements` | firm store ¹ | One trade licence a product needs; a product may name several. | `products`, `trade_licence_types` |
 | `product_media` | firm store ¹ | Store product images, attachments, and reference documents. | `firms`, `products` |
 | `product_price_revisions` | firm store ¹ | New rates for a product from a date, kept with every earlier one. | `firms`, `products` |
-| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `goods_types`, `unit_sets`, `trade_licence_types`, `brands`, `uoms`, `vendors` |
+| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `goods_types`, `unit_sets`, `brands`, `uoms`, `vendors` |
 
 ### `app/proforma`
 

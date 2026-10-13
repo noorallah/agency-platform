@@ -7,7 +7,7 @@
 // block with no override permission offers only Close, and never approves;
 // a block with the override permission sends the reason it was given as
 // `licence_override_reason`; and the product and category forms send
-// `required_licence_type_id`.
+// `required_licence_type_ids` (a list, P3).
 
 import 'dart:convert';
 import 'dart:io';
@@ -379,7 +379,7 @@ void main() {
       'Calpol',
     );
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('product-licence-type')));
+    await tester.tap(find.byKey(const ValueKey('product-licence-add')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Drug Licence').last);
     await tester.pumpAndSettle();
@@ -387,7 +387,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('product-save')));
     await tester.pumpAndSettle();
 
-    expect(sent?['required_licence_type_id'], 'type-1');
+    expect(sent?['required_licence_type_ids'], ['type-1']);
   });
 
   testWidgets('the category form sends the licence type chosen',
@@ -419,7 +419,7 @@ void main() {
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Name'), 'Medicine');
     await tester.pump();
-    await tester.tap(find.text('DRUG · Drug Licence'));
+    await tester.tap(find.text('DRUG'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Save & Close'));
     await tester.pumpAndSettle();
@@ -427,6 +427,6 @@ void main() {
     expect(api.writes, hasLength(1));
     final (String path, Json body) = api.writes.single;
     expect(path, '/api/v1/products/categories');
-    expect(body['required_licence_type_id'], 'type-1');
+    expect(body['required_licence_type_ids'], ['type-1']);
   });
 }

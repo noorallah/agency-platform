@@ -6372,12 +6372,11 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
         helperText: 'Leave empty for a top-level category.',
       ),
       FieldSpec(
-        key: 'required_licence_type_id',
-        label: 'Licence needed',
+        key: 'required_licence_type_ids',
+        label: 'Licences needed',
         optionsResource: 'trade-licences/types',
-        singleSelection: true,
-        helperText: 'None: a product filed here needs no licence unless it '
-            'or a category above it names one.',
+        helperText: 'Every product filed here needs all of these, unless the '
+            'product names its own.',
       ),
       FieldSpec(
         key: 'goods_type_id',
@@ -6417,7 +6416,7 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
             'code': row.code,
             'name': row.name,
             'parent_id': row.parentId,
-            'required_licence_type_id': row.requiredLicenceTypeId,
+            'required_licence_type_ids': row.requiredLicenceTypeIds.join(','),
             'goods_type_id': row.goodsTypeId,
             'inspection_required': row.inspectionRequired,
             'expiry_stop_sale_days': row.expiryStopSaleDays?.toString() ?? '',
@@ -6434,8 +6433,11 @@ ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
       'name': values['name'],
       'parent_id': _blankToNull(values['parent_id']),
       if (licenceTypesLoaded)
-        'required_licence_type_id':
-            _blankToNull(values['required_licence_type_id']),
+        'required_licence_type_ids': [
+          for (final String id
+              in '${values['required_licence_type_ids'] ?? ''}'.split(','))
+            if (id.trim().isNotEmpty) id.trim(),
+        ],
       // Null is General; sent only once the types were read.
       if (goodsTypesLoaded)
         'goods_type_id': _blankToNull(values['goods_type_id']),

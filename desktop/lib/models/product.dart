@@ -72,7 +72,7 @@ class ProductCategoryRecord {
     required this.level,
     required this.path,
     required this.isActive,
-    this.requiredLicenceTypeId = '',
+    this.requiredLicenceTypeIds = const <String>[],
     this.inspectionRequired = false,
     this.expiryStopSaleDays,
     this.expiryAlertDays,
@@ -92,10 +92,11 @@ class ProductCategoryRecord {
   final String path;
   final bool isActive;
 
-  /// The trade licence a product filed under this category needs, unless the
-  /// product or a nearer category names its own (backlog 54). Empty means
-  /// none -- a category's own is never required by inheriting nothing.
-  final String requiredLicenceTypeId;
+  /// The trade licences a product filed under this category needs, all of
+  /// them, unless the product or a nearer category names its own (backlog 54).
+  /// Empty means none -- a category's own is never required by inheriting
+  /// nothing.
+  final List<String> requiredLicenceTypeIds;
 
   /// Goods of this category wait in quarantine on receipt until inspected
   /// (BUY-9).
@@ -114,7 +115,8 @@ class ProductCategoryRecord {
         level: (json['level'] as num?)?.toInt() ?? 0,
         path: stringValue(json['path']),
         isActive: boolValue(json['is_active'], fallback: true),
-        requiredLicenceTypeId: stringValue(json['required_licence_type_id']),
+        requiredLicenceTypeIds:
+            stringList(json['required_licence_type_ids']),
         inspectionRequired: boolValue(json['inspection_required']),
         expiryStopSaleDays: _optInt(json['expiry_stop_sale_days']),
         expiryAlertDays: _optInt(json['expiry_alert_days']),
@@ -511,7 +513,7 @@ class Product {
     required this.productType,
     required this.categoryId,
     required this.subCategoryId,
-    this.requiredLicenceTypeId = '',
+    this.requiredLicenceTypeIds = const <String>[],
     this.preferredVendorId = '',
     required this.unit,
     this.unitCode = '',
@@ -602,9 +604,9 @@ class Product {
   final String categoryId;
   final String subCategoryId;
 
-  /// The trade licence this product needs, overriding its category's; empty
-  /// takes the category's (backlog 54).
-  final String requiredLicenceTypeId;
+  /// The trade licences this product needs, all of them, replacing its
+  /// category's; empty takes the category's (backlog 54).
+  final List<String> requiredLicenceTypeIds;
 
   /// The supplier reorder orders this from; empty falls back to the supplier
   /// last billed (A18). The server sends the id only, not the name.
@@ -737,7 +739,8 @@ class Product {
         productType: stringValue(json['product_type']),
         categoryId: stringValue(json['category_id']),
         subCategoryId: stringValue(json['sub_category_id']),
-        requiredLicenceTypeId: stringValue(json['required_licence_type_id']),
+        requiredLicenceTypeIds:
+            stringList(json['required_licence_type_ids']),
         preferredVendorId: stringValue(json['preferred_vendor_id']),
         unit: stringValue(json['unit']),
         unitCode: stringValue(json['unit_code']),

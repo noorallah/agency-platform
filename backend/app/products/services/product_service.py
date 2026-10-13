@@ -438,7 +438,7 @@ class ProductService:
             sub_category_id=data.sub_category_id,
         )
         self._validate_tax_profile_group_code(firm_id, data.tax_profile_group_code)
-        self._validate_licence_type(firm_id, data.required_licence_type_id)
+        self._validate_licence_types(firm_id, data.required_licence_type_ids)
         self._validate_preferred_vendor(firm_id, data.preferred_vendor_id)
         self._validate_uom_references(data)
         values = self._product_values(data)
@@ -592,8 +592,14 @@ class ProductService:
             self._validate_tax_profile_group_code(
                 firm_scope, data.tax_profile_group_code
             )
-        if "required_licence_type_id" in values:
-            self._validate_licence_type(firm_scope, data.required_licence_type_id)
+        if "required_licence_type_ids" in values:
+            # Only the ones being added: a type switched off since stays
+            # on a product that already names it.
+            self._validate_licence_types(
+                firm_scope,
+                data.required_licence_type_ids,
+                held=product.required_licence_type_ids,
+            )
         # Only where the write moves it: a supplier that has since gone stays
         # on the record and reorder skips it, so an unrelated edit still saves.
         if (
@@ -996,7 +1002,7 @@ class ProductService:
         self, data: ProductCategoryCreate, *, firm_id: UUID, actor_id: UUID
     ) -> ProductCategory:
         parent = self._validate_category_reference(firm_id, data.parent_id)
-        self._validate_licence_type(firm_id, data.required_licence_type_id)
+        self._validate_licence_types(firm_id, data.required_licence_type_ids)
         GoodsTypeService(self._session).assert_offered(firm_id, data.goods_type_id)
         self._assert_category_free(
             firm_id, code=data.code, name=data.name, parent_id=data.parent_id
@@ -1011,7 +1017,7 @@ class ProductService:
             level=level,
             path=path,
             is_active=data.is_active,
-            required_licence_type_id=data.required_licence_type_id,
+            required_licence_type_ids=data.required_licence_type_ids,
             inspection_required=data.inspection_required,
             expiry_stop_sale_days=data.expiry_stop_sale_days,
             expiry_alert_days=data.expiry_alert_days,
@@ -1101,9 +1107,13 @@ class ProductService:
         row.is_active = data.is_active
         # Absent leaves it alone: a client that predates the field must not
         # clear a licence requirement by saving the category's name.
-        if "required_licence_type_id" in data.model_fields_set:
-            self._validate_licence_type(firm_scope, data.required_licence_type_id)
-            row.required_licence_type_id = data.required_licence_type_id
+        if "required_licence_type_ids" in data.model_fields_set:
+            self._validate_licence_types(
+                firm_scope,
+                data.required_licence_type_ids,
+                held=row.required_licence_type_ids,
+            )
+            row.required_licence_type_ids = data.required_licence_type_ids
         if "inspection_required" in data.model_fields_set:
             row.inspection_required = data.inspection_required
         # Only where the write moves it, so a category whose type the firm has
@@ -1767,21 +1777,33 @@ class ProductService:
         if found is None:
             raise ValidationError("Preferred supplier not found, or not active.")
 
-    def _validate_licence_type(
-        self, firm_id: UUID, licence_type_id: UUID | None
+    def _validate_licence_types(
+        self,
+        firm_id: UUID,
+        licence_type_ids: list[UUID],
+        *,
+        held: list[UUID] | None = None,
     ) -> None:
-        """Refuse a licence type that is not this firm's live, active one."""
-        if licence_type_id is None:
+        """Refuse a licence type that is not this firm's live, active one.
+
+        ``held`` is what the record already names: those are not asked
+        about again, so a type the firm has since switched off does not
+        stop an unrelated edit.
+        """
+        added = set(licence_type_ids) - set(held or ())
+        if not added:
             return
-        found = self._session.scalar(
-            select(TradeLicenceType.id).where(
-                TradeLicenceType.id == licence_type_id,
-                TradeLicenceType.firm_id == firm_id,
-                TradeLicenceType.is_deleted.is_(False),
-                TradeLicenceType.is_active.is_(True),
-            )
+        found = set(
+            self._session.scalars(
+                select(TradeLicenceType.id).where(
+                    TradeLicenceType.id.in_(added),
+                    TradeLicenceType.firm_id == firm_id,
+                    TradeLicenceType.is_deleted.is_(False),
+                    TradeLicenceType.is_active.is_(True),
+                )
+            ).all()
         )
-        if found is None:
+        if found != added:
             raise ValidationError("Licence type not found, or not active.")
 
     def _validate_tax_profile_group_code(
@@ -2117,7 +2139,7 @@ class ProductService:
             "product_type": product.product_type,
             "category_id": product.category_id,
             "sub_category_id": product.sub_category_id,
-            "required_licence_type_id": product.required_licence_type_id,
+            "required_licence_type_ids": list(product.required_licence_type_ids),
             "preferred_vendor_id": product.preferred_vendor_id,
             "unit": product.unit,
             "brand": product.brand,
