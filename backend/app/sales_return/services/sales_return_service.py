@@ -49,7 +49,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.chunks import CHUNK_SIZE
 from app.core.utils.dates import utc_now
-from app.core.utils.money import quantize_ledger
+from app.core.utils.money import quantize_ledger, rupee_round_off
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
 from app.core.utils.quantities import counted_in, plain_quantity
 from app.core.validation.payloads import stage_records
@@ -86,6 +86,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLineTax,
 )
 from app.sales_invoice.schemas import SalesInvoiceStatus
+from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.sales_return.billing import (
     BillBook,
     BillLedger,
@@ -1007,6 +1008,14 @@ class SalesReturnService(TransactionalDocumentService):
             # Reversed per GST head, off the components the lines recorded
             # (backlog 63.3) -- the split 3B's credit-note rows read.
             tax_by_component=billed_tax_by_component(self._session, row.id),
+            # The round-off is in the credit only where a credit was given
+            # at all: goods no bill had charged credit nothing (backlog 134).
+            round_off_amount=(
+                self._q(row.round_off)
+                if credited_total > ZERO
+                and SalesWorkflowService(self._session).rounds_bills(firm_scope)
+                else ZERO
+            ),
         )
         row.journal_entry_id = None if credit is None else credit.id
         cost_entry = self._posting.post_goods_return_to_stock(
@@ -1451,13 +1460,17 @@ class SalesReturnService(TransactionalDocumentService):
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
         row.tax_total = totals["tax_total"]
-        row.grand_total = self._q(
+        worked_out = self._q(
             row.subtotal
             + row.tax_total
             + totals["line_charges_total"]
             + row.additional_charges
-            + row.round_off
         )
+        # A firm that rounds every bill rounds its credit notes the same way,
+        # so a bill returned in full is cancelled to the rupee (backlog 134).
+        if SalesWorkflowService(self._session).rounds_bills(firm_id):
+            row.round_off = rupee_round_off(worked_out)
+        row.grand_total = self._q(worked_out + row.round_off)
         self._session.flush()
         self._refuse_header_charges_past_the_bill(row, self._lines_of(row.id))
         self._replace_attachments(

@@ -125,7 +125,29 @@ void main() {
       'sales_order_approval': true,
       'delivery_note_approval': true,
       'sales_invoice_approval': true,
+      'round_bills_to_rupee': false,
     });
+  });
+
+  testWidgets('rounding every bill to the rupee is off, switched here and sent',
+      (tester) async {
+    // Backlog 134 (F3): the server rounds the bill; nobody types a round-off.
+    final _StagesApi api = _StagesApi(failReads: 0);
+    await _open(tester, api);
+
+    final Finder toggle =
+        find.byKey(const ValueKey('round-bills-to-rupee-switch'));
+    await tester.ensureVisible(toggle);
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+    expect(find.text('Round every bill to the nearest rupee'), findsOneWidget);
+    await tester.tap(find.descendant(of: toggle, matching: find.byType(Switch)));
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.saved.single['round_bills_to_rupee'], isTrue);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the three approval switches load, change and are sent',

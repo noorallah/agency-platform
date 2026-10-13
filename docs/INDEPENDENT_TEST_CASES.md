@@ -4175,6 +4175,32 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   - Step 6: the bill totals 20,000.00, before and after approval, and prints 20,000.00.
 - **Leaves:** draft and approved orders, dispatched delivery notes, draft bills, one approved bill and one quotation.
 
+### TC-SELL-105 — Round every bill to the nearest rupee
+
+*Added 2026-10-13 (customer task F3, backlog 134). Covered by unit tests and a widget test and driven over HTTP on a fixture firm; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 134; the sales settings, the sales bill, the sales return, the journal, the print
+- **Fixture:** `ready-firm`
+- **Also needs:** a user who may change the sales settings and raise, approve and return bills; a product in stock at a price that gives a total with paise (for example 3 at 33.33 with GST 18%); a customer in the firm's own state.
+- **Steps**
+  1. With the switch as it starts (off), raise and approve a bill of the product. Read its total.
+  2. Open *Settings > Selling > Sales Stages* and switch on **Round every bill to the nearest rupee**. Save.
+  3. Raise the same bill again. Read the totals before saving, then save and approve.
+  4. Open the bill's journal.
+  5. Print the bill.
+  6. Raise a sales return of everything on the bill of step 3, approve and complete it.
+  7. Read the customer's statement and the Rounding account in the trial balance.
+  8. Switch the setting off and raise the same bill once more.
+- **Expect**
+  - Step 1: the total has its paise (117.99 in the example) and no *Round off*.
+  - Step 3: the totals show *Round off* 0.01 and a total of 118.00 before saving; the saved bill reads the same.
+  - Step 4: Trade Receivables is debited 118.00; Sales and the GST accounts are credited what the lines came to; **Rounding** is credited 0.01.
+  - Step 5: the print has a *Round off* line of 0.01 above the total of 118.00.
+  - Step 6: the return credits 118.00 with *Round off* 0.01.
+  - Step 7: the bill and its return leave the customer owing nothing for them, and Rounding stands where it stood before step 3.
+  - Step 8: the bill is left as worked out again, 117.99.
+- **Leaves:** three approved bills, one completed sales return, and the setting off.
+
 ### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
 
 *Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` fixture: the full chain and the direct bill, and both refusals. The screens were not clicked.*

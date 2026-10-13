@@ -176,6 +176,7 @@ class SalesWorkflowSettings {
     this.salesOrderApproval = true,
     this.deliveryNoteApproval = true,
     this.salesInvoiceApproval = true,
+    this.roundBillsToRupee = false,
   });
 
   final bool quotationStage;
@@ -213,6 +214,10 @@ class SalesWorkflowSettings {
   final bool deliveryNoteApproval;
   final bool salesInvoiceApproval;
 
+  /// Backlog 134 (F3): whether the server rounds every sales bill and
+  /// credit note to the nearest rupee. Default off.
+  final bool roundBillsToRupee;
+
   /// What a firm gets before anybody configures anything, and what the client
   /// falls back to when the settings cannot be read. Failing open matters: an
   /// unreachable endpoint must not hide screens a firm depends on.
@@ -243,6 +248,7 @@ class SalesWorkflowSettings {
         salesOrderApproval: json['sales_order_approval'] != false,
         deliveryNoteApproval: json['delivery_note_approval'] != false,
         salesInvoiceApproval: json['sales_invoice_approval'] != false,
+        roundBillsToRupee: boolValue(json['round_bills_to_rupee']),
       );
 
   /// The three switches only. No screen here edits the default branch or
@@ -262,6 +268,7 @@ class SalesWorkflowSettings {
         'sales_order_approval': salesOrderApproval,
         'delivery_note_approval': deliveryNoteApproval,
         'sales_invoice_approval': salesInvoiceApproval,
+        'round_bills_to_rupee': roundBillsToRupee,
       };
 
   SalesWorkflowSettings copyWith({
@@ -276,6 +283,7 @@ class SalesWorkflowSettings {
     bool? salesOrderApproval,
     bool? deliveryNoteApproval,
     bool? salesInvoiceApproval,
+    bool? roundBillsToRupee,
   }) =>
       SalesWorkflowSettings(
         quotationStage: quotationStage ?? this.quotationStage,
@@ -297,6 +305,7 @@ class SalesWorkflowSettings {
         salesOrderApproval: salesOrderApproval ?? this.salesOrderApproval,
         deliveryNoteApproval: deliveryNoteApproval ?? this.deliveryNoteApproval,
         salesInvoiceApproval: salesInvoiceApproval ?? this.salesInvoiceApproval,
+        roundBillsToRupee: roundBillsToRupee ?? this.roundBillsToRupee,
       );
 }
 

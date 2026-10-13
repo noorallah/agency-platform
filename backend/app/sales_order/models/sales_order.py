@@ -482,6 +482,13 @@ class SalesWorkflowSettings(BaseEntity):
     sales_invoice_approval: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    #: Whether every sales bill and credit note is rounded to the nearest
+    #: rupee by the server (backlog 134). Off, as it has always been: a
+    #: document carries the round-off somebody typed, or none. On: nobody
+    #: types it, and the difference is posted to the firm's Rounding account.
+    round_bills_to_rupee: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
 
 class PriceFloorSettings(BaseEntity):

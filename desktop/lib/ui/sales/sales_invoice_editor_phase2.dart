@@ -1672,6 +1672,9 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         double.tryParse(stringValue(invoice?['grand_total'])) ?? subtotal;
     final double charges =
         double.tryParse(stringValue(invoice?['charges_total'])) ?? 0;
+    // Backlog 134 (F3): what the server added to reach a whole rupee.
+    final double roundOff =
+        double.tryParse(stringValue(invoice?['round_off'])) ?? 0;
     final bool interstate = _preview?.interstate ?? false;
     return DocumentTotalsBar(
       total: invoice == null ? null : total,
@@ -1693,6 +1696,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           ('CGST', tax / 2),
           ('SGST', tax / 2),
         ],
+        if (roundOff != 0) ('Round off', roundOff),
         ('Total', total),
       ],
     );

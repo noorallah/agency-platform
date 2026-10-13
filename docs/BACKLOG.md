@@ -9653,3 +9653,68 @@ An account already below zero reads "is already 300.00 below zero ... pays
 - The contra voucher still saves first and warns afterwards.
 - No firm setting turns the question off, and none makes it a refusal.
 - No screen was clicked; the two forms are covered by widget tests.
+
+## 134. Round every bill to the nearest rupee, a firm setting -- built 2026-10-13
+
+**Customer task F3**, the owner's answer of 2026-10-13: "A firm setting, Round
+every bill to the nearest rupee, off for every firm until switched on. On, the
+server works the round-off out on every sales bill and credit note and posts
+it to the round-off account; nobody types it, and the bill prints it as its
+own line. Off, a bill is left as worked out, as today. A supplier's bill keeps
+its typed round-off." PR #1475.
+
+**What was there.** A sales bill and a sales return each carry a `round_off`
+somebody may send, added to the total and printed as *Round off*. No screen of
+the new UI types it, so a bill of 9,974.59 stayed 9,974.59. A round-off that
+was sent went into Sales with the rest of the bill, not into an account of
+its own.
+
+**Design.**
+
+- `sales_workflow_settings.round_bills_to_rupee`, NOT NULL, false (migration
+  `20261013_0370`). Read and written with the other sales settings
+  (`GET` / `PUT /api/v1/sales-orders/workflow-settings`); omitted on a write
+  it is left as it is. The switch is on *Settings > Selling > Sales Stages*,
+  **Round every bill to the nearest rupee**.
+- On, every save of a sales bill and of a sales return sets `round_off` to
+  what takes the worked-out total to a whole rupee (`rupee_round_off` in
+  `app/core/utils/money.py`; half a rupee goes up). Whatever the request
+  sent as `round_off` is not kept. The preview goes through the save path,
+  so the screen shows the same figure before saving.
+- On, the round-off is a leg of its own in the journal, on the firm's
+  **Rounding** control account (`ROUNDING`, account 4900 on the seeded
+  chart): credited on a bill rounded up, debited on a bill rounded down, and
+  the other way round on the credit note. `post_sales_invoice` and
+  `post_sales_return` take `round_off_amount` and take it off the Sales and
+  Sales Returns legs. The receivable is the rounded total, as before.
+- Off, nothing changes: no round-off is worked out, and one that was sent
+  stays in Sales as it always has.
+- The prints already had a *Round off* row for a bill that carries one (A4,
+  half page, thermal, the credit note); the e-invoice payload already sends
+  `RndOffAmt`.
+- Desktop: the switch, and a *Round off* figure beside the total on the bill
+  editor and the return editor when the server added one.
+
+**Decided here, by convention.**
+
+- The document is not stamped with the answer. The round-off is worked out
+  when a document is saved and the Rounding leg is posted when it is approved
+  or completed, each on the setting as it stands at that moment. A draft
+  saved before the switch came on is rounded the next time it is saved.
+- "Credit note" is the sales return, the document that carries a round-off
+  and that cancels a bill in full. The credit note for a rate difference
+  (`/api/v1/credit-notes`) states a typed amount and is not rounded.
+- A return whose goods no bill had charged credits nothing, so it posts no
+  round-off either.
+- Orders, quotations, delivery notes and proformas are not rounded: they are
+  not what the customer owes.
+
+**Not built.**
+
+- Part returns of one bill are each rounded on their own, so together they
+  can credit up to half a rupee each more or less than the bill charged. A
+  full return cancels the bill exactly.
+- A bill saved before the switch came on, returned after it: the return is
+  rounded and the bill was not, so the two differ by the paise.
+- A supplier's bill, a purchase return and a debit note are untouched.
+- No screen was clicked; the switch is covered by a widget test.

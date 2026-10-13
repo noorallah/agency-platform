@@ -604,6 +604,15 @@ run takes up to 100. A bill still waiting for its IRN prints as the reference
 copy, marked not a valid tax invoice. A firm that prints on the 80 mm thermal
 roll prints one at a time: every bill on a roll is a page of its own length.
 
+**Rounding every bill to the rupee.** A firm can switch on **Round every
+bill to the nearest rupee** under *Settings > Selling > Sales Stages*. From
+then on every sales bill and sales return is rounded when it is saved: a bill
+that works out to 9,974.59 is 9,975.00, the 0.41 shows as *Round off* beside
+the total and on the print, and goes to the firm's Rounding account. Nobody
+types it. A bill returned in full is credited the same rounded figure. Off,
+which is how every firm starts, a bill is left as worked out. Supplier bills
+are not rounded.
+
 **The half-page bill.** Under *Print settings* a firm can choose **Half page
 (half of A4)** as its paper. A short bill then prints on half a sheet, in the
 layout the distribution trade uses: the firm and its licence numbers beside

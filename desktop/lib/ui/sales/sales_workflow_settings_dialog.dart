@@ -361,6 +361,25 @@ class _SalesWorkflowSettingsDialogState
                     title: const Text('Sales bills wait for approval'),
                   ),
                   const SizedBox(height: AppSpacing.md),
+                  // Backlog 134 (F3): the server rounds, nobody types it.
+                  SwitchListTile(
+                    key: const ValueKey('round-bills-to-rupee-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _settings.roundBillsToRupee,
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings =
+                            _settings.copyWith(roundBillsToRupee: value))
+                        : null,
+                    title: const Text('Round every bill to the nearest rupee'),
+                    subtitle: const Text(
+                      'On: every sales bill and credit note is rounded when '
+                      'it is saved, the difference prints as Round off and '
+                      'goes to the Rounding account. Off: a bill is left as '
+                      'worked out. A change applies to documents saved from '
+                      'then on.',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
                   // STK-12: stock held for an order nobody ships comes back.
                   TextFormField(
                     key: const ValueKey('sales-settings-reservation-lapse'),
