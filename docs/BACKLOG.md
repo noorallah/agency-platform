@@ -9218,6 +9218,8 @@ TC-BUY-103.
 
 ## 129. Company and brand: the brands a supplier may sell -- built 2026-10-13
 
+*Changed by backlog 138 (2026-10-13): a product now always has a brand and a brand always a company, so "a product with no brand" below no longer occurs.*
+
 **Customer task M11**, decision D16, answers A7 to A9. Asked: "a supplier
 names the brands it may sell; the product list on a purchase order and on a
 sale can be narrowed by brand. A stockist is a company of his own with the
@@ -9976,3 +9978,114 @@ against any provider's documents today.**
 medium: one settings table and its screen, one adapter and the sandbox, one
 read endpoint, a button on two forms, the lookup log. No change to the
 ledger, to tax or to any document.
+
+## 138. A product always has a brand, and a brand always belongs to a company -- built 2026-10-13
+
+**Customer task F7**, decision D16, the owner's rule of 2026-10-13: "a
+product always has a brand, and a brand always belongs to a company". It is
+PRD-2 in `docs/CUSTOMER_REQUIREMENTS.md`. Both links were optional (backlog
+129, MST-1).
+
+**What was found.** `products.brand_id` and `brands.principal_id` were both
+optional, and a product also carries its brand as text (`products.brand`),
+which a file and an older client could set with no brand row behind it. In
+the ten local stores on 2026-10-13, 122 of 142 products had no brand row (12
+of them with a brand typed as text) and 4 of 19 brands had no company. One
+screen creates a product (the product form); there is no quick-create from a
+document. A product is also made by the product import (file and JSON), by
+*Copy*, by both seeders and by the fixture script.
+
+**Design.**
+
+- The refusal lives in the services, in one place each, so every way in is
+  covered: `ProductService._settle_brand` for the form, the three import
+  formats, *Copy* and an update; `BrandService.save_brand` for a brand.
+  The two columns stay nullable: a firm store is partly built from the
+  models, and many unit tests build a bare product row.
+- A product names its brand by row (`brand_id`), or by the brand's own name
+  (`brand`), which is matched whatever its case and is how a file says it.
+  A name the firm does not keep is **refused, not made**: a brand needs a
+  company and nothing on a product says which. The text always follows the
+  row's spelling.
+- On an update a brand the caller did not mention is left alone and a blank
+  text never takes the brand off; `brand_id: null` with no name is refused.
+- The product import: **Brand** must name one of the firm's brands on a new
+  product (a blank is reported on the Brand column as *is required*, an
+  unknown name by name); a blank on a product that exists leaves its brand.
+  The template's Lists sheet lists the firm's brands. The heading is not
+  marked required, so a file that only updates prices needs no Brand column.
+- Existing rows, migration `20261013_0373`, per firm and only where needed:
+  a brand with no company goes under the company **General** (code
+  `GENERAL`); a product with no brand row and no text goes under the brand
+  **Unbranded**, made under *General*; a row that has its parent is never
+  touched. Soft-deleted rows are settled too, or a restore would bring back
+  a row the form cannot save. Idempotent; no column, key or index changes.
+- Screens, new UI only. The product form's **Brand** is a required choice
+  (*Choose a brand.*), with no *None*; a firm with no brand is told to add a
+  company and a brand first. The brand form's **Company** is required. The
+  product list's filters have an **Unbranded** chip, which sets the Brand
+  filter to that name: it is how the owner finds what the migration filed
+  and moves it.
+- No new permission, no new route, no new table. Calls are unchanged: the
+  product form already read the brand list once.
+
+**Decided by the standard, not asked.**
+
+- **A product whose brand was typed as text keeps that brand.** The row F7
+  says "every product with no brand under *Unbranded*". A product that had
+  `Acme` typed on it has a brand in every sense but the row, so the
+  migration files it under the firm's brand of that name, and where there
+  is none makes that brand under *General*. Putting it under *Unbranded*
+  would have thrown away what somebody typed. Only a product with nothing
+  typed goes under *Unbranded*.
+- **An import does not make a brand.** Tally and Marg create a missing
+  group on import; here a brand made that way would have no company, which
+  is the very thing this item forbids, unless the file also named one.
+  Categories are refused the same way today. The cost is real for a first
+  load: see *Not built*.
+- *General* and *Unbranded* are ordinary rows. They can be renamed, and
+  deleted once nothing is under them (the guards that were there refuse
+  before that). Nothing in the code looks for them by name except the
+  seeders' `ensure_brand`, which a person cannot reach.
+- A new firm starts with no company and no brand, and must add one of each
+  before its first product. The migration makes them "only where needed",
+  and a firm with no product needs none.
+- The shared editor now checks a required choice among options before it
+  sends (it checked only text boxes). That is what makes *Company* on the
+  brand form required, and it applies to every such field the editor has;
+  the forms that have one were run.
+
+**Built.** Server: `backend/app/products/services/brands.py`
+(`save_brand`, `brand_named`, `ensure_brand`),
+`backend/app/products/services/product_service.py` (`_settle_brand`),
+`backend/app/products/services/product_import.py`, migration
+`backend/alembic/versions/20261013_0373_product_brand_and_company_always.py`.
+Seeders and fixtures: `backend/scripts/generate_sample_data.py`,
+`backend/scripts/seed_multi_firm_demo.py` (which also files a product
+seeded before this, only where the row is missing),
+`backend/scripts/test_fixture.py` (`fixture_brand`) and
+`docs/qa/checks/common.py` (`check_brand`). Desktop:
+`desktop/lib/ui/products/product_management_page.dart`,
+`desktop/lib/ui/desktop_shell.dart`,
+`desktop/lib/ui/resource_management_page.dart`. Tests:
+`backend/tests/unit/test_principal_brand.py`,
+`backend/tests/unit/test_product_import_file.py`,
+`backend/tests/unit/test_product_brand_backfill.py`,
+`desktop/test/principal_brand_test.dart`,
+`desktop/test/phase2_products_page_test.dart`. Case: TC-MAST-033. PR #1479.
+
+**Not built.**
+
+- **An import of companies and brands.** A firm coming from other software
+  has its brands in a file and must type them before its products can be
+  imported (`docs/SWATHI_IMPORT_PLAN.md`, gap G3, already open). Until then
+  a first load makes the companies and brands by hand or through the
+  services.
+- A brand that is switched off (*Active* unticked) can still be named on a
+  product by a file; the form does not offer it.
+- The *Unbranded* chip filters on the brand's name. A firm that renames the
+  brand has to type the new name in the Brand filter.
+
+**Supersedes** in backlog 129: "a product with no brand is offered only when
+no brand is chosen" no longer describes anything, since no product is
+without a brand; the Brand box on a bill now finds every product.

@@ -36,6 +36,7 @@ Product _product({String preferred = ''}) => Product.fromJson({
       'code': 'PARA',
       'name': 'Paracetamol',
       'product_type': 'STOCK_ITEM',
+      'brand': 'Acme',
       'status': 'ACTIVE',
       if (preferred.isNotEmpty) 'preferred_vendor_id': preferred,
     });
@@ -80,6 +81,10 @@ Future<void> _open(
     await tester.enterText(
       find.widgetWithText(TextField, 'Product name *'),
       'Paracetamol',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Brand *'),
+      'Acme',
     );
   }
 }

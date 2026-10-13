@@ -1757,7 +1757,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
       onSelected: _locked(field)
           ? null
           : (bool value) {
-              _markDirty();
+              _fieldEdited(field.key);
               setState(() {
                 if (value) {
                   if (field.singleSelection) {
@@ -2171,6 +2171,24 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
       });
     }
     if (!_formKey.currentState!.validate()) return;
+    // A required choice among options has no text box to carry a validator,
+    // so it is asked here, by name, before the request.
+    final Map<String, String> missingChoices = {
+      for (final FieldSpec field in widget.fields)
+        if (field.required &&
+            field.optionsResource != null &&
+            _isVisible(field) &&
+            !_locked(field) &&
+            (_selections[field.key]?.isEmpty ?? false))
+          field.key: _options[field.key]?.isEmpty ?? true
+              ? '${field.label} is required: there is none to choose yet, '
+                  'add one first.'
+              : '${field.label} is required: choose one.',
+    };
+    if (missingChoices.isNotEmpty) {
+      setState(() => _fieldErrors = missingChoices);
+      return;
+    }
     setState(() => _saving = true);
     final Map<String, dynamic> values = {
       for (final MapEntry<String, TextEditingController> entry

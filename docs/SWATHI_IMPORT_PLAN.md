@@ -83,7 +83,7 @@ hand-written importer.
 | --- | --- | --- | --- |
 | 1. Firm set-up | `firm`, `company` | Firm, financial year, bill series | By hand on the Firms screen |
 | 2. Small masters | `beatman`, `codehead`, `company` | Routes (beats), customer segments (outlet types), salesmen, brands, principals | No import for these (G3) |
-| 3. Goods | `item` | Products import | Yes, after a unit is chosen per item (G4) |
+| 3. Goods | `item` | Products import | Yes, after a unit is chosen per item (G4), and only once every brand of step 2 is there: a product is refused without a brand the firm keeps, and the import does not make one (backlog 138) |
 | 4. Customers | `codes` heads 8, 28 | Customers import | Yes, less beat and licence (G5) |
 | 5. Suppliers | `codes` heads 9, 27, 29 | Suppliers import | Yes; about half the rows under these heads are tax and display accounts and go to step 6 |
 | 6. Accounts | `codes` other heads, `acchead` | Chart of accounts | No import; mapped by hand once (G6) |

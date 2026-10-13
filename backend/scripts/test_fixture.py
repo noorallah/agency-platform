@@ -472,6 +472,7 @@ def stocked_product(
         "/api/v1/products",
         {
             "code": f"{tag}-P",
+            "brand_id": fixture_brand(admin),
             "name": f"Fixture Product {built.suffix}",
             "hsn_sac": hsn,
             "product_type": "STOCK_ITEM",
@@ -618,6 +619,33 @@ def by_code(admin: Api, path: str, code: str) -> Json:
     return dict(match)
 
 
+def fixture_brand(admin: Api) -> str:
+    """Return the id of the firm's fixture brand, making it where absent.
+
+    A product always has a brand and a brand a company (backlog 138), so
+    every product a fixture makes is filed under this one. Found by name on
+    a re-run: one brand and one company per firm, however many runs.
+    """
+    brands = admin.call("GET", "/api/v1/products/brands")
+    kept = next((row for row in brands if row.get("name") == "Fixture Brand"), None)
+    if kept is not None:
+        return str(kept["id"])
+    companies = admin.call("GET", "/api/v1/products/principals")
+    company = next((row for row in companies if row.get("code") == "FIXTURE"), None)
+    if company is None:
+        company = admin.call(
+            "POST",
+            "/api/v1/products/principals",
+            {"code": "FIXTURE", "name": "Fixture Company"},
+        )
+    made = admin.call(
+        "POST",
+        "/api/v1/products/brands",
+        {"name": "Fixture Brand", "principal_id": company["id"]},
+    )
+    return str(made["id"])
+
+
 def run_places(built: Built, admin: Api) -> tuple[Json, Json, Json, Json]:
     """Make a state, district and city of this run's own under India.
 
@@ -687,6 +715,7 @@ def purchase_chain(built: Built, stage: str) -> dict[str, str]:
         "/api/v1/products",
         {
             "code": f"{tag}-B",
+            "brand_id": fixture_brand(admin),
             "name": f"Bought Item {built.suffix}",
             "product_type": "STOCK_ITEM",
             "tax_profile_group_code": "GST_18_LOCAL",
@@ -1460,6 +1489,7 @@ def build_product_master(built: Built) -> None:
         "/api/v1/products",
         {
             "code": f"{tag}-PM",
+            "brand_id": fixture_brand(admin),
             "name": f"Slot Check {built.suffix}",
             "product_type": "STOCK_ITEM",
             "category_id": category["id"],
@@ -1599,6 +1629,7 @@ def build_config_firm(built: Built) -> None:
         "/api/v1/products",
         {
             "code": f"{tag}-DET",
+            "brand_id": fixture_brand(admin),
             "name": f"Detergent 1kg {built.suffix}",
             "product_type": "STOCK_ITEM",
             "tax_profile_group_code": "GST_18_LOCAL",
@@ -1713,6 +1744,7 @@ def build_pharma_firm(built: Built) -> None:
                 "/api/v1/products",
                 {
                     "code": code,
+                    "brand_id": fixture_brand(admin),
                     "name": name,
                     "product_type": "STOCK_ITEM",
                     "tax_profile_group_code": "GST_12_LOCAL",
@@ -1811,6 +1843,7 @@ def build_electronics_firm(built: Built) -> None:
         "/api/v1/products",
         {
             "code": f"{tag}-MIX",
+            "brand_id": fixture_brand(admin),
             "name": f"Mixer Grinder {built.suffix}",
             "product_type": "STOCK_ITEM",
             "tax_profile_group_code": "GST_18_LOCAL",
@@ -1917,6 +1950,7 @@ def build_selling_firm(built: Built) -> None:
         "/api/v1/products",
         {
             "code": f"{tag}-DET",
+            "brand_id": fixture_brand(admin),
             "name": f"Detergent 1kg {built.suffix}",
             "product_type": "STOCK_ITEM",
             "tax_profile_group_code": "GST_18_LOCAL",
@@ -2537,6 +2571,7 @@ def build_commission_firm(built: Built) -> None:
         "/api/v1/products",
         {
             "code": f"{tag}-Q",
+            "brand_id": fixture_brand(admin),
             "name": f"Other Product {built.suffix}",
             "product_type": "STOCK_ITEM",
             "tax_profile_group_code": "GST_18_LOCAL",

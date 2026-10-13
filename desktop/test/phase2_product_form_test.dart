@@ -24,6 +24,7 @@ final Product _product = Product.fromJson(const {
   'code': 'PROD-001',
   'name': 'Pain Relief',
   'product_type': 'STOCK_ITEM',
+  'brand': 'Acme',
   'status': 'ACTIVE',
   'unit': 'BOX',
   'purchase_price': '80',
@@ -90,6 +91,7 @@ void main() {
       'code': 'BOX-10',
       'name': 'Carton, 10 kg',
       'product_type': 'STOCK_ITEM',
+      'brand': 'Acme',
       'status': 'DISCONTINUED',
       'unit': 'NOS',
       'not_for_sale': false,
@@ -147,6 +149,7 @@ void main() {
             'code': 'PROD-001',
             'name': 'Pain Relief',
             'product_type': 'STOCK_ITEM',
+            'brand': 'Acme',
             'status': 'ACTIVE',
             'track_expiry': true,
           }),
@@ -219,6 +222,10 @@ void main() {
       await tester.enterText(
         find.widgetWithText(TextField, 'Product name *'),
         'Cough Syrup',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Brand *'),
+        'Acme',
       );
       await tester.tap(find.byKey(const ValueKey('product-save')));
       await tester.pumpAndSettle();

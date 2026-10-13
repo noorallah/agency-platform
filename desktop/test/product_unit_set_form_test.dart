@@ -98,6 +98,7 @@ final Product _stored = Product.fromJson(const {
   'code': 'P-9',
   'name': 'Stored',
   'product_type': 'STOCK_ITEM',
+  'brand': 'Acme',
   'status': 'ACTIVE',
 });
 
@@ -169,6 +170,10 @@ Future<void> _save(WidgetTester tester) async {
   await tester.enterText(
     find.widgetWithText(TextField, 'Product name *'),
     'Cough Syrup',
+  );
+  await tester.enterText(
+    find.widgetWithText(TextField, 'Brand *'),
+    'Acme',
   );
   await tester.tap(find.byKey(const ValueKey('product-save')));
   await tester.pumpAndSettle();
@@ -303,6 +308,7 @@ void main() {
       'code': 'PROD-001',
       'name': 'Pain Relief',
       'product_type': 'STOCK_ITEM',
+      'brand': 'Acme',
       'status': 'ACTIVE',
       'base_uom_id': 'uom-strip',
       'purchase_uom_id': 'uom-box',

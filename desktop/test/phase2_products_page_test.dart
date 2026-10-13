@@ -204,6 +204,17 @@ void main() {
     expect(api.asked.last.toQuery().containsKey('goods_type_id'), isFalse);
   });
 
+  testWidgets('the Unbranded chip filters on the brand named Unbranded',
+      (tester) async {
+    final _Api api = await _pump(tester);
+    await tester.tap(find.byKey(const ValueKey('phase2-filters')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('product-filter-unbranded')));
+    await applied(tester, api, 2);
+    expect(api.asked.last.brand, 'Unbranded');
+  });
+
   testWidgets('a firm with no goods type is not offered the filter',
       (tester) async {
     await _pump(tester);

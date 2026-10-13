@@ -39,6 +39,7 @@ from app.products.api.router import create_product, update_product
 from app.products.models import Product
 from app.products.schemas import ProductCreate, ProductResponse, ProductUpdate
 from app.products.services import ProductService
+from app.products.services.brands import BrandService
 from app.tax.models import TaxProfile, TaxSystem
 from app.uom.models import Uom
 from app.vendors.api.router import create_vendor, get_vendor, update_vendor
@@ -84,6 +85,9 @@ def _firm(session: Session, code: str) -> Firm:
             default_settings={},
         )
     )
+    session.commit()
+    # A product always has a brand, so every firm here keeps one by name.
+    BrandService(session).ensure_brand("Test Brand", firm_id=firm.id, actor_id=firm.id)
     session.commit()
     return firm
 
@@ -158,6 +162,7 @@ def _product_body(
         "code": "DUTY-1",
         "name": "Dutiful product",
         "product_type": "STOCK_ITEM",
+        "brand": "Test Brand",
         "base_uom_id": unit.id,
         "sales_uom_id": unit.id,
         "purchase_price": "60",

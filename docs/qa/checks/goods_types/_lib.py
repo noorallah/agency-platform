@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from common import Api, all_rows, data, message, suffix  # noqa: E402,F401
+from common import Api, all_rows, check_brand, data, message, suffix  # noqa: E402,F401
 
 
 def uom(api: Api, code: str = "PIECE") -> str:
@@ -33,6 +33,7 @@ def product(api: Api, code: str, **extra: object) -> tuple[int, object]:
         "purchase_uom_id": piece,
     }
     body.update(extra)
+    body.setdefault("brand_id", check_brand(api))
     return api.post("/api/v1/products", body)
 
 

@@ -2103,7 +2103,17 @@ sale*.
   yet tested by hand.*
 - *Principals* and *Brands*: the brand owners the firm
   distributes for and their brands; brand and principal are also ways to slice
-  Sales Analysis.
+  Sales Analysis. **A brand always belongs to a company and a product always
+  has a brand**: the brand form will not save without its *Company*, and the
+  product form will not save until a **Brand** is chosen, so a new firm adds
+  a company, then a brand, then its products. A product file names the brand
+  in its *Brand* column, one of the brands the firm already keeps (the
+  template's *Lists* sheet shows them); the import does not make a brand.
+  Products saved before this rule with no brand were put under a brand named
+  *Unbranded*, and brands with no company under a company named *General*:
+  on the product list open *Filters* and press **Unbranded** to see them,
+  then open each and choose its real brand. *Added on 2026-10-13, not yet
+  tested by hand.*
 - *Units of Measure*, *UOM Groups*, *Conversion Rules*: a product can be
   bought by the carton, held in boxes and sold in pieces; the conversion is
   applied on every document line.

@@ -215,6 +215,26 @@ def data(body: Any) -> Any:
     return body.get("data", body) if isinstance(body, dict) else body
 
 
+def check_brand(api: "Api") -> str:
+    """Return the id of the firm's brand for check products, made where absent.
+
+    A product always has a brand and a brand a company (backlog 138). Found
+    by name on a re-run, so a firm holds one of each however many runs.
+    """
+    brands = data(api.get("/api/v1/products/brands")[1])
+    kept = next((row for row in brands if row.get("name") == "Check Brand"), None)
+    if kept is not None:
+        return str(kept["id"])
+    companies = data(api.get("/api/v1/products/principals")[1])
+    company = next((row for row in companies if row.get("code") == "CHECKS"), None)
+    if company is None:
+        company = data(
+            api.post("/api/v1/products/principals", {"code": "CHECKS", "name": "Check Company"})[1]
+        )
+    made = api.post("/api/v1/products/brands", {"name": "Check Brand", "principal_id": company["id"]})
+    return str(data(made[1])["id"])
+
+
 def message(body: Any) -> str:
     """Return what the server said in a refusal, details included."""
     if not isinstance(body, dict):

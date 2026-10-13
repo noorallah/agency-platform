@@ -13,6 +13,7 @@ from common import (  # noqa: E402,F401
     Api,
     Check,
     all_rows,
+    check_brand,
     client,
     data,
     message,
@@ -119,6 +120,7 @@ class World:
             "purchase_uom_id": self.piece,
         }
         body.update(extra)
+        body.setdefault("brand_id", check_brand(self.admin))
         return must(self.admin.post("/api/v1/products", body), f"product {code}")
 
     UPDATE_FIELDS = (

@@ -4,12 +4,17 @@ A product names its brand by row (``products.brand_id``); its free-text
 ``brand`` is kept in step with the row's name, so prints and search that read
 the text still read the brand. A brand belongs to a principal -- the company
 whose agency the firm holds -- and a principal may be a supplier.
+
+Neither link is optional (backlog 138): a brand is saved under a company and a
+product under a brand, and the refusal lives here because the columns stay
+nullable -- ``20261013_0373`` files what was there before under *General* and
+*Unbranded*, and ``ensure_brand`` is how a seeder makes the brand it names.
 """
 
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
@@ -17,6 +22,12 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError, Validation
 from app.core.utils.dates import utc_now
 from app.products.models import Product
 from app.products.models.brand import Brand, Principal
+
+#: Where a brand is filed when nobody has said whose it is, and a product
+#: when nobody has said which brand: the rows ``20261013_0373`` makes.
+GENERAL_COMPANY_CODE = "GENERAL"
+GENERAL_COMPANY_NAME = "General"
+UNBRANDED_NAME = "Unbranded"
 
 
 class PrincipalWrite(BaseModel):
@@ -182,8 +193,11 @@ class BrandService:
         )
         if clash is not None and clash != brand_id:
             raise ConflictError(f"There is already a brand {name}.")
-        if data.principal_id is not None:
-            self._principal(data.principal_id, firm_id)
+        if data.principal_id is None:
+            raise ValidationError(
+                "A brand belongs to a company: choose the company it is under."
+            )
+        self._principal(data.principal_id, firm_id)
         if brand_id is None:
             row = Brand(
                 firm_id=firm_id,
@@ -247,6 +261,66 @@ class BrandService:
         if brand_id is None:
             return None
         return self._brand(brand_id, firm_id).name
+
+    def brand_named(self, name: str, *, firm_id: UUID) -> Brand | None:
+        """Return the firm's live brand of this name, whatever its case."""
+        return self._session.scalars(
+            select(Brand)
+            .where(
+                Brand.firm_id == firm_id,
+                func.lower(Brand.name) == name.strip().lower(),
+                Brand.is_deleted.is_(False),
+            )
+            .order_by(Brand.created_at.asc(), Brand.id.asc())
+        ).first()
+
+    def ensure_brand(
+        self,
+        name: str,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        company_code: str = GENERAL_COMPANY_CODE,
+        company_name: str = GENERAL_COMPANY_NAME,
+    ) -> Brand:
+        """Return the brand of this name, making it and its company if absent.
+
+        For the seeders, which name a brand as text: staged, never committed,
+        and a brand that is there is returned as it stands. Not reachable
+        over HTTP -- a person makes a brand under a company they chose.
+        """
+        found = self.brand_named(name, firm_id=firm_id)
+        if found is not None:
+            return found
+        code = company_code.strip().upper()
+        company = self._session.scalars(
+            select(Principal).where(
+                Principal.firm_id == firm_id,
+                Principal.code == code,
+                Principal.is_deleted.is_(False),
+            )
+        ).first()
+        if company is None:
+            company = Principal(
+                firm_id=firm_id,
+                code=code,
+                name=company_name,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            self._session.add(company)
+            self._session.flush()
+        brand = Brand(
+            firm_id=firm_id,
+            name=name.strip(),
+            principal_id=company.id,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(brand)
+        self._session.flush()
+        self._audit("brand.saved", "brand", brand.id, firm_id, actor_id, brand.name)
+        return brand
 
     def _brand_responses(self, rows: list[Brand]) -> list[BrandResponse]:
         """Shape brands, naming principals in one read."""

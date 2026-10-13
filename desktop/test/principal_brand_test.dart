@@ -9,6 +9,7 @@ import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/desktop_shell.dart';
 import 'package:agency_desktop/ui/products/product_management_page.dart';
+import 'package:agency_desktop/ui/resource_management_page.dart';
 import 'package:agency_desktop/ui/sales/sales_analysis_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
@@ -147,21 +148,15 @@ void main() {
     expect(sent?['brand'], 'Surf Excel');
   });
 
-  testWidgets('without the brand list no brand_id is sent', (tester) async {
+  Future<void> pumpForm(
+    WidgetTester tester, {
+    required Product product,
+    required Future<Product> Function(Json) onSave,
+    List<BrandRecord>? brands,
+  }) async {
     tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    Json? sent;
-    final Product product = Product.fromJson(const {
-      'id': 'product-1',
-      'code': 'PROD-001',
-      'name': 'Detergent',
-      'product_type': 'STOCK_ITEM',
-      'status': 'ACTIVE',
-      'unit': 'BOX',
-      'brand_id': 'b-1',
-      'brand': 'Surf Excel',
-    });
     await tester.pumpWidget(MaterialApp(
       builder: (context, child) => Phase2Scope(child: child!),
       home: Scaffold(
@@ -170,22 +165,134 @@ void main() {
           product: product,
           categories: const [],
           uoms: const [],
+          brands: brands,
           definitions: const [],
           metadata: _metadata,
           initialTab: 'general',
           onMetadataForCategory: (_) async => _metadata,
-          onSave: (payload) async {
-            sent = payload;
-            return product;
-          },
+          onSave: onSave,
           onTabChanged: (_) {},
         ),
       ),
     ));
     await tester.pumpAndSettle();
+  }
+
+  const BrandRecord surf = BrandRecord(
+    id: 'b-1',
+    name: 'Surf Excel',
+    principalId: 'p-1',
+    principalName: 'Hindustan Unilever',
+    isActive: true,
+  );
+
+  Product productWith(Map<String, dynamic> extra) => Product.fromJson({
+        'id': 'product-1',
+        'code': 'PROD-001',
+        'name': 'Detergent',
+        'product_type': 'STOCK_ITEM',
+        'status': 'ACTIVE',
+        'unit': 'BOX',
+        ...extra,
+      });
+
+  testWidgets('without the brand list the brand text stands in',
+      (tester) async {
+    Json? sent;
+    final Product product = productWith(
+        const {'brand_id': 'b-1', 'brand': 'Surf Excel'});
+    await pumpForm(tester, product: product, onSave: (payload) async {
+      sent = payload;
+      return product;
+    });
     await tester.tap(find.byKey(const ValueKey('product-save')));
     await tester.pumpAndSettle();
     expect(sent?.containsKey('brand_id'), isFalse);
+    expect(sent?['brand'], 'Surf Excel');
+  });
+
+  testWidgets('without the brand list a blank brand is refused',
+      (tester) async {
+    int calls = 0;
+    final Product product = productWith(const {});
+    await pumpForm(tester, product: product, onSave: (payload) async {
+      calls++;
+      return product;
+    });
+    await tester.tap(find.byKey(const ValueKey('product-save')));
+    await tester.pumpAndSettle();
+    expect(calls, 0);
+    expect(find.text('Choose a brand.'), findsWidgets);
+  });
+
+  testWidgets('a product with no brand chosen is refused and sends nothing',
+      (tester) async {
+    int calls = 0;
+    final Product product = productWith(const {});
+    await pumpForm(tester, product: product, brands: const [surf],
+        onSave: (payload) async {
+      calls++;
+      return product;
+    });
+    expect(find.text('Brand *'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('product-save')));
+    await tester.pumpAndSettle();
+    expect(calls, 0);
+    expect(find.text('Choose a brand.'), findsWidgets);
+  });
+
+  testWidgets('a firm with no brands is told where to make one',
+      (tester) async {
+    final Product product = productWith(const {});
+    await pumpForm(tester, product: product, brands: const [],
+        onSave: (payload) async => product);
+    expect(
+      find.text(
+          'No brands yet: add a company and a brand under Masters first.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a brand since deactivated is sent back unchanged',
+      (tester) async {
+    Json? sent;
+    final Product product =
+        productWith(const {'brand_id': 'b-9', 'brand': 'Retired'});
+    await pumpForm(tester, product: product, brands: const [surf],
+        onSave: (payload) async {
+      sent = payload;
+      return product;
+    });
+    expect(find.text('Set to a brand no longer active'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('product-save')));
+    await tester.pumpAndSettle();
+    expect(sent?['brand_id'], 'b-9');
+  });
+
+  testWidgets('the brand editor refuses a blank company', (tester) async {
+    tester.view.physicalSize = const Size(1366, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _EmptyApi api = _EmptyApi();
+    final definition = brandDefinition(api, PermissionService());
+    int saved = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CrudWorkspaceDialog(
+          title: 'New brand',
+          fields: definition.fields,
+          values: const <String, dynamic>{'name': 'Surf Excel'},
+          api: api,
+          mode: CrudDialogMode.create,
+          onSave: (_) async => saved++,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save & Close'));
+    await tester.pumpAndSettle();
+    expect(saved, 0);
+    expect(find.textContaining('Company is required'), findsWidgets);
   });
 
   testWidgets('sales analysis offers Brand and Principal', (tester) async {

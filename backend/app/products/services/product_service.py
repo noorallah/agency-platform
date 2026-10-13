@@ -442,7 +442,7 @@ class ProductService:
         self._validate_preferred_vendor(firm_id, data.preferred_vendor_id)
         self._validate_uom_references(data)
         values = self._product_values(data)
-        self._brand_text(values, firm_id=firm_id)
+        self._settle_brand(values, firm_id=firm_id, current=None)
         goods_type_id = self._goods_type_of(firm_id, category, data.sub_category_id)
         # The line the product belongs to fills what the caller left unsaid
         # (backlog 89); from here on the product's own switches are the rule.
@@ -563,7 +563,7 @@ class ProductService:
         whole file once, exactly as ``stage_product`` does for a create.
         """
         values = self._product_values(data, partial=True)
-        self._brand_text(values, firm_id=firm_scope)
+        self._settle_brand(values, firm_id=firm_scope, current=product)
         if not may_write_cost_price:
             values.pop("purchase_price", None)
         self._assert_unique_code(firm_scope, data.code, current_id=product.id)
@@ -1886,15 +1886,52 @@ class ProductService:
             payload["issue_rule"] = str(payload["issue_rule"])
         return payload
 
-    def _brand_text(self, values: dict[str, object], *, firm_id: UUID) -> None:
-        """Keep the text brand in step with a brand row named (MST-1)."""
-        if values.get("brand_id") is None:
-            return
+    def _settle_brand(
+        self, values: dict[str, object], *, firm_id: UUID, current: Product | None
+    ) -> None:
+        """Give the product its brand row, and its text the row's name.
+
+        A product always has a brand (backlog 138), so the form, the three
+        import formats and a duplicate are all refused here without one. The
+        row is named by id, or by the brand's own name -- which is how a file
+        and a client that could not read the brand list say it. A name the
+        firm does not keep is refused rather than made: a brand belongs to a
+        company, and nothing here knows which.
+
+        On an update a brand the caller did not mention is left alone, and a
+        blank text never takes the row off; an explicit ``brand_id: null``
+        with no name beside it is the refusal.
+
+        Raises:
+            ValidationError: If the product would be left with no brand, or
+                names one the firm does not keep.
+
+        """
         from app.products.services.brands import BrandService
 
-        values["brand"] = BrandService(self._session).brand_name(
-            self._as_uuid(values["brand_id"]), firm_id=firm_id
-        )
+        brands = BrandService(self._session)
+        brand_id = self._as_uuid(values.get("brand_id"))
+        if brand_id is None:
+            named = str(values.get("brand") or "").strip()
+            if named:
+                found = brands.brand_named(named, firm_id=firm_id)
+                if found is None:
+                    raise ValidationError(
+                        f"'{named}' is not one of the firm's brands; add it "
+                        "under its company first."
+                    )
+                brand_id = found.id
+            elif (
+                current is not None
+                and current.brand_id is not None
+                and "brand_id" not in values
+            ):
+                values.pop("brand", None)
+                return
+            else:
+                raise ValidationError("A product needs a brand: choose one.")
+        values["brand_id"] = brand_id
+        values["brand"] = brands.brand_name(brand_id, firm_id=firm_id)
 
     def _goods_type_of(
         self,

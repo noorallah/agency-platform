@@ -127,6 +127,7 @@ from app.products.schemas import (
     ProductCreate,
 )
 from app.products.schemas.product import ProductStatus, ProductType
+from app.products.services.brands import BrandService
 from app.products.services.goods_types import GoodsTypeService
 from app.products.services.product_service import ProductService
 from app.purchase.models import (
@@ -3047,6 +3048,13 @@ def _seed_products(
                 )
                 tax_code = _product_tax_code(product_counter)
                 tax_profile = context.tax_profiles[tax_code or default_tax_code]
+                # A product always has a brand (backlog 138): made once per
+                # firm under the company General, then found by its name.
+                brand = BrandService(session).ensure_brand(
+                    BRANDS[(index + context_index) % len(BRANDS)],
+                    firm_id=context.firm.id,
+                    actor_id=actor_id,
+                )
                 attributes = [
                     ProductAttributeInput(
                         attribute_definition_id=definition.id,
@@ -3070,7 +3078,7 @@ def _seed_products(
                             category_id=category.id,
                             sub_category_id=None,
                             unit=unit.upper(),
-                            brand=BRANDS[(index + context_index) % len(BRANDS)],
+                            brand_id=brand.id,
                             model=f"M{context_index}{product_counter:03d}",
                             hsn_sac=hsn,
                             tax_profile_group_code=tax_profile.group_code
