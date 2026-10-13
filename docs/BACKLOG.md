@@ -10715,10 +10715,13 @@ built in the purchasing audit (section 86).
 
 **Not known.**
 
-1. What the customer scans with: a flatbed scanner, a printer with a
+1. **Answered by the owner, 2026-10-13.** What the customer scans with: a flatbed scanner, a printer with a
    scanner, or only a phone (question N8 in
    `dist\customer\OPEN_QUESTIONS_2026-10-12.md`). A photo taken on a phone
-   is a different piece of work from a scanner on the computer.
+   is a different piece of work from a scanner on the computer. The answer:
+   a scanner, or a printer with a scanner, on the computer. The user chooses
+   it in the application from the scanners Windows knows, and the choice is
+   remembered. No phone, and the customer is not asked.
 2. Whether several pages as one PDF is what he wants (assumed yes; the owner
    has not said).
 3. The largest file a scan may be, and whether pages are stored in colour or
@@ -10726,3 +10729,77 @@ built in the purchasing audit (section 86).
 
 **Size.** Medium: one desktop control, a test with a real scanner, and the
 guide and test cases.
+
+## 146. Printing in text mode for a dot matrix printer -- open, not built
+
+**The owner, 2026-10-13**, going through the customer question list: do we
+support every kind of printer, and what changes for a dot matrix printer.
+Logged for a later customer. **The first customer does not need it**: he
+cuts plain A4 sheets in two and prints on a sheet printer.
+
+**Nothing is built by this entry.**
+
+**What we do today.** The server draws every bill as a PDF and the desktop
+sends it to the printer the user picks from those Windows knows. So nothing
+is supported by make or model: a laser or inkjet printer on A4, A5 or half
+of A4, and a receipt printer on the 80 mm roll, which has a layout of its
+own, all print as they are.
+
+**Why a dot matrix printer is different.** Windows will send it the same
+PDF, and it prints, but as a picture drawn dot by dot: slow (a bill that
+takes seconds in text takes a minute or more), with small type and thin
+table lines faint or broken. And these printers are used with continuous
+paper with holes at the side, 10 x 6 or 10 x 12 inches, often with carbon
+copies, which none of our layouts is sized for.
+
+**What a build would do.**
+
+- A second way of printing a bill: plain characters in fixed columns sent
+  straight to the printer, with no fonts and no drawn lines, as the older
+  billing programs print.
+- A paper of its own in *Print settings* for each continuous size, with the
+  number of lines to a form, so a long bill runs on to the next form.
+- The same content as the PDF layouts in the same order; fewer columns
+  where the width does not hold them.
+- Bills first; other documents when asked for.
+
+**Not known.** Which printer models and which paper sizes, whether the
+carbon copies need the copy name printed, and whether a firm prints some
+documents on a sheet printer and others on the dot matrix.
+
+**Size.** Medium, and it needs a real printer to try it on.
+
+## 147. Old years archived when they grow, and opened again when needed -- open, not built
+
+**The owner, 2026-10-13**, on deciding that the working year is a filter and
+not a wall (IMP-3, row P6 of `docs/CUSTOMER_BUILD_TASKS.md`): when the years
+grow, old records should be archived, and opened again when they are
+needed.
+
+**Nothing is built by this entry**, and nothing needs it yet. The first
+customer's larger firm writes about 2,400 bills in half a year; the
+application has been timed with 110,000 bills in one firm
+(`docs/PERFORMANCE_AT_VOLUME.md`).
+
+**What we do today.** Every year of a firm is in the firm's own store. A
+closed year is locked: nothing in it changes without the right to reopen it
+and a reason. Lists and reports read by date.
+
+**What a build would have to keep.**
+
+- An archived year stays readable and printable, for audit and inspection:
+  a bill found by its number, a customer's old account, the year's
+  statements.
+- Whatever the running year still stands on is never archived away: unpaid
+  bills, stock lots still in hand, a bill a return may yet name, the
+  opening figures.
+- Opening an archived year again is an action of the firm's admin, and the
+  trail records it.
+- The backup of a firm still holds everything, archived years too.
+
+**Not known.** At what size it is worth doing, whether "archived" means
+moved to another place or only left out of the everyday lists, and how the
+history bills brought from an old program (`docs/SWATHI_IMPORT_PLAN.md`)
+sit beside it.
+
+**Size.** Large; a design note first.

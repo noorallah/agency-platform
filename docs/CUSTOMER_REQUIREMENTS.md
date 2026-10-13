@@ -80,7 +80,7 @@ name, GST number or bank detail is written in this file.
 | LIC-3 | Warn or stop | A firm setting: off, warn, or block. A blocked sale can be passed by someone with the right, giving a reason | Built | S11 |
 | LIC-4 | The firm's own licence numbers on the bill | Printed under the firm's address | Built | S11 |
 | LIC-5 | Shops under a parent | A shop's own licence first; where it has none of that type, its parent's counts and the check says so. A shop that holds one of its own, even a lapsed one, is checked on its own. A firm setting, *A shop must hold its own licence*, makes each shop hold its own. Suppliers' branches the same way | Built | F8 |
-| LIC-6 | A product needing two licences | Whether a medicine needs two separate licences both valid | Open | |
+| LIC-6 | A product needing several licences | A product, or its category, names a list of licence types, with no fixed size. The customer must hold every one, each valid on the bill's date; the check names each one missing. A shop's two drug licences are two entries on the customer | Planned | P3 |
 
 ## 6. Buying
 
@@ -90,7 +90,7 @@ name, GST number or bank detail is written in this file.
 | BUY-2 | The plan reads six months by default and can be raised | Opens on the last six months (180 days); one month, three months and a year one click away; quantities raised line by line or all at once by a percentage, rounded up to the supplier's pack | Built | F11 |
 | BUY-3 | Narrow the product list by brand | A Brand box on the purchase order, starting at the supplier's brands | Built | M11 |
 | BUY-4 | Every purchase line is a lot | See section 7 | Building | L2 |
-| BUY-5 | Scan a paper from the scanner and keep it with the document | A **Scan** button where a file is attached: the pages are taken from the scanner and kept as one PDF. Mostly for a supplier's bill, and for the firm's own bill after the customer has signed it. Today a file is attached from a folder after scanning it apart. Backlog 145 | Later | |
+| BUY-5 | Scan a paper from the scanner and keep it with the document | A **Scan** button where a file is attached: the pages are taken from the scanner and kept as one PDF. Mostly for a supplier's bill, and for the firm's own bill after the customer has signed it. Today a file is attached from a folder after scanning it apart. The scanner is one on the computer, chosen in the application from those Windows knows. Backlog 145 | Later | |
 
 ## 7. Stock and lots
 
@@ -149,11 +149,12 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | No. | Requirement | How it works | Status | Row |
 | --- | --- | --- | --- | --- |
 | PRT-1 | Half-page bill as the customer's sample | Half of A4; MRP, quantity, free, rate, discount, GST, net amount, batch and expiry; a GST summary and round-off | Built | S13 |
-| PRT-2 | Half or full page | The firm chooses. Full page: every bill is a full page. Half page: a customer may be set to full page, the person printing may switch that one print, and a bill that does not fit moves to a full page by itself | Built, but for the choice at printing, which is Planned | S13, P1 |
+| PRT-2 | Half or full page | The firm chooses. Full page: every bill is a full page. Half page: a customer may be set to full page, the person printing may switch that one print, and a bill that does not fit moves to a full page by itself. The screen says which paper the bill needs before it prints, since the tray holds half sheets | Built, but for the choice at printing, which is Planned | S13, P1 |
 | PRT-3 | Boxes and pieces on the print | In the quantity cell as the customer's own bill prints them, with the box size added: **3/5 (x12)**; free goods **0/2**. May be changed later | Planned | L5 |
 | PRT-4 | Full-page bill as the customer's sample | A manufacture date column, filled only where the lot has one; the total quantity under the lines; the firm's terms at the foot; Order By (the salesman) and Market (the route). The customer's licence numbers stay under his details at the top. The interest line of the sample is words in the terms: no interest is worked out. The sample's discount boxes D1, D2 and D3 wait for the customer | Planned | P2 |
 | PRT-7 | The bill number | One series for the whole firm, as the sample: the series word and a running number. The customer confirms it | Decided | |
 | PRT-9 | Print from each row of the bill list | A **Print** on every row of the list of bills, where today printing is reached from the bar above the list or from the open bill. Low priority (the owner, 2026-10-13): which other lists get it is decided at the end | Later | |
+| PRT-10 | A dot matrix printer | Not needed by this customer, who prints on cut A4 sheets. For a later customer: printing in plain text, sized for continuous paper. Backlog 146 | Later | |
 | PRT-8 | Order By | The bill's salesman. The salesman list also holds entries such as *Phone order* and *Company staff*, which earn no commission | Decided | P2 |
 | PRT-5 | Bill layout settings | The bill in fixed parts (header, lines, summary, footer), how many lines a page shows, and a rule for long shop and product names | Later | F12 |
 | PRT-6 | A code on the bill to pay by scanning | The firm's UPI ID is entered once (the bill's Print settings, or the bank account marked to print). Every printed bill, full page, half page and roll, then carries a QR code for what the bill still owes; any UPI app reads it with the amount and the bill number filled in. No gateway and no internet. The money is not recorded by itself: the receipt is still typed. A link that marks the bill paid needs a gateway account and is not built (backlog 51 B4) | Built | |
@@ -173,6 +174,8 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | COL-9 | A collector's phone app | Morning sync, marking during the day with no connection, evening sync back by Wi-Fi, Bluetooth or a file. Office entry stays | Later | F12 |
 | COL-10 | Print a cheque for a supplier's payment | A payment saved with the mode Cheque has **Print cheque**: the date, the supplier's name (another can be typed), the amount in words and in figures, onto the bank's own cheque leaf. Each bank account is lined up once with a test print | Built | |
 | COL-11 | A cheque to any account, the amount typed, dated today or ahead | **Write a cheque**: the bank account it is drawn on, the account it pays (a supplier, a customer for a refund, an expense, any other account), the name on the cheque, the amount, the cheque number and its date. Dated today or before, it is saved as a payment and printed. Dated ahead, it is printed now and held as a post-dated cheque: nothing is posted until its date, when it becomes the payment. A cheque is never printed without a record of it | Planned | F13 |
+| COL-12 | One customer pays another customer's bill | Two independent shops. The receipt has **Paid by**: the bill is closed, the bill's customer's account reads *Paid by* the other and the payer's reads *Paid for* this one. A customer's money on account can be used for another's bill the same way | Planned | P5 |
+| COL-13 | Who pays for a shop under a parent | Either: the parent office for its shops (COL-6), or the shop for itself. To be tried on a running firm | Built, to be checked | C5 |
 
 ## 12. Tax
 
@@ -201,7 +204,7 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | --- | --- | --- | --- | --- |
 | USR-1 | A collector sees only his bills | His own screen only (COL-4). Limiting every list and report to a user's own customers is not built | Built | M5 |
 | USR-2 | What each role must not see or do | Not yet described by the customer | Open | |
-| USR-3 | An account per employee for salary and advances | Not yet described by the customer | Open | |
+| USR-3 | An account per employee for salary advances | No payroll. Each employee has an account under *Staff advances*; an advance is paid from cash or a bank, recovered when the salary is paid, and a list shows what each still owes | Planned | P4 |
 
 ## 16. Coming from the old program
 
@@ -213,7 +216,7 @@ customer to agree, and the smaller firm goes first.
 | IMP-1 | Masters and opening figures brought across | Products, customers, suppliers, opening bills, opening stock by lot, opening balances | Later | |
 | IMP-2 | Old bills kept for reference | As history bills: stored as issued, moving no stock and no books. Wanted as a record for audit; how many years is the customer's to say | Later | |
 | IMP-4 | The start date | Not fixed (the owner, 2026-10-13): the application is tested first, then the import, then the customer tries it. A start in the middle of a year is possible: the year's bills up to that day come in as history and the books open from that day's figures | Open | |
-| IMP-3 | Working financial year selector | A wall between years, or a filter | Open | |
+| IMP-3 | The working year | A filter, not a wall: all years in one place, every list opens on the current year, an older bill is reached by widening the dates. Old years archived when they grow is backlog 147 | Planned | P6 |
 
 ## 17. Open questions
 
@@ -221,19 +224,16 @@ customer to agree, and the smaller firm goes first.
 
 | For | Question |
 | --- | --- |
-| LIC-6 | The bill to a medical shop prints two drug licence numbers. Two licences that must both be valid, or one licence with two numbers? |
-| LIC-5 | May a parent's licence cover a shop for medicines, where a licence is for one premises? |
-| TAX-2 | How reverse charge should be set up |
-| REP-2 | Which statements the accountant wants at year end, and in what layout |
-| USR-2 | What each role must not see or do |
-| USR-3 | Whether each employee needs an account for salary and advances |
-| IMP-3 | Whether the working year is a wall or a filter |
 | PRT-4 | On the sample bill: what the boxes D1, D2 and D3 mean and when each is filled; what the letter B under the lines of one bill and the nought near Net Payable are |
 | PRT-7 | Whether one series in the present form is right, or the year should be inside the number |
-| BUY-5 | What he scans with: a flatbed scanner, a printer with a scanner, or a phone |
 | IMP-2 | What he needs from the old years, how many years back, and whether the other backups and a fresh one can be given |
 | IMP-1 | Two printouts from the old program for the larger firm: the opening trial balance and the customers' outstanding, because the opening figures in the backup do not agree |
-| PRT-5 | Plain paper or pre-printed, and which printer. How many lines on a half page and on a full page, and what a longer bill does. How a long shop or product name should print |
+| REP-2 | Samples of the reports he takes every day, and what the accountant asks for each month |
+| REP-2 | Whether the accountant works in Tally; what he needs at the year's end (which statements, in what form), and whether he wants a closing statement |
+| TAX-2 | Which bills he means by reverse charge: transport, or goods he sells |
+| USR-2 | What each kind of staff must not see or do: cost and margin, discount, editing or cancelling a bill, the books, receipts and cash, prices and masters |
+| SET | Notifications: who should be told about what (low stock, overdue bills, expiry). Nothing waits on it |
+| PRT-5 | How many lines on a half page and on a full page, and how a long shop or product name should print. Answered already: plain A4 cut in two, on a sheet printer |
 | COL-9 | Which phones the collectors carry, whether they may join the office Wi-Fi, and whether a receipt is handed over at the shop |
 
 **For the accountant**
@@ -250,6 +250,8 @@ customer to agree, and the smaller firm goes first.
 | IMP-4 | The start date, once the application and the import are tested |
 | CUS-8 | Which GST provider, at what price |
 | COL-9 | The go-ahead to write the design note for the collector's phone app |
+| COL-12 | That paying for another customer needs no right of its own, only a question on the screen |
+| BUY-5 | The word to build the Scan button |
 
 ## 18. Changes to this document
 
@@ -267,3 +269,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | PRT-6 and COL-10 added as Built: the owner asked for a pay-by-scan code on the bill and for cheque printing, and both were already there. COL-11 added (the owner): a cheque to any account with the amount typed, post-dated too; row F13 |
 | 2026-10-13 | PRT-5 and COL-9 logged (F12) as backlog 143 and 144, open and not built. PRT-5 waits on the customer's answers about his paper and printer; COL-9 needs a design note first. Both stay Later |
 | 2026-10-13 | The walk through of the sample bills and the backups with the owner: PRT-2 restated (the firm chooses; the choice at printing is row P1), PRT-4 decided and Planned (row P2), PRT-7, PRT-8, BUY-5 (backlog 145), PRT-9 (low priority) and IMP-4 added, IMP-2 is for audit. Five questions for the customer added to section 17 |
+| 2026-10-13 | The customer question list gone through with the owner. Decided by him: LIC-6 a product may need several licences (row P3); USR-3 an account per employee for advances (P4); COL-12 one customer pays another's bill (P5); IMP-3 the working year is a filter (P6); COL-13 a shop or its parent pays (check C5); the scanner is one on the computer (BUY-5); PRT-10 a dot matrix printer logged as backlog 146, old years archived as backlog 147. Section 17 holds only what is still the customer's |
