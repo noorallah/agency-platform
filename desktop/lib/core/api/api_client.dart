@@ -11344,13 +11344,20 @@ class ApiClient {
     required String id,
     required String invoiceId,
     required String amount,
+    String? paidForCustomerId,
   }) async =>
       Settlement.fromJson(
         _unwrapMap(
           await request(
             'POST',
             '/api/v1/receipts/$id/allocate',
-            body: <String, dynamic>{'invoice_id': invoiceId, 'amount': amount},
+            body: <String, dynamic>{
+              'invoice_id': invoiceId,
+              'amount': amount,
+              // Only where the bill is another customer's.
+              if (paidForCustomerId != null)
+                'paid_for_customer_id': paidForCustomerId,
+            },
           ),
         ),
       );

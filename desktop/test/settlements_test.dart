@@ -231,6 +231,7 @@ class _SettlementApi extends ApiClient {
     required String id,
     required String invoiceId,
     required String amount,
+    String? paidForCustomerId,
   }) async {
     final String? refusal = allocateRefusal;
     if (refusal != null) throw ApiException(refusal, statusCode: 422);
@@ -238,6 +239,7 @@ class _SettlementApi extends ApiClient {
       'id': id,
       'invoice_id': invoiceId,
       'amount': amount,
+      if (paidForCustomerId != null) 'paid_for_customer_id': paidForCustomerId,
     };
     return rows.first;
   }

@@ -72,6 +72,10 @@ class SettlementAllocateRequest(SettlementSchema):
 
     invoice_id: UUID
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    #: On a receipt only: the customer whose bill this is, where the money
+    #: is another customer's (row P5). Blank reaches the receipt's own
+    #: customer's bills, and a parent's shops'.
+    paid_for_customer_id: UUID | None = None
 
 
 class SettlementReverseRequest(SettlementSchema):
@@ -104,6 +108,11 @@ class SettlementCreate(SettlementSchema):
     #: being paid back (D-PRC-75). Blank takes the oldest credit the
     #: customer holds on account first.
     credit_source_id: UUID | None = None
+    #: On a receipt only: the customer whose bills this money pays, where
+    #: it is not ``party_id``'s own (row P5). ``party_id`` stays the one who
+    #: paid; the allocations may then name this customer's bills. Blank
+    #: reaches the payer's own bills, and a parent's shops'.
+    paid_for_customer_id: UUID | None = None
     allocations: list[SettlementAllocationWrite] = Field(default_factory=list)
     #: Sent ``true`` by a screen whose user answered *Save anyway?* (row F2):
     #: paying out of a cash account more than it holds is answered with a

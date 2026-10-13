@@ -896,7 +896,9 @@ class _SettlementsPageState extends State<SettlementsPage> {
       withBranches: !isReceipt,
     );
     if (!mounted) return;
-    if (invoices.isEmpty) {
+    // A receipt may still be set against another customer's bill, so an
+    // empty list of its own customer's bills does not end it.
+    if (invoices.isEmpty && !isReceipt) {
       NotificationService.show(
         context,
         '${row.partyName} has no unpaid ${document}s to apply this to.',
@@ -916,6 +918,9 @@ class _SettlementsPageState extends State<SettlementsPage> {
         invoiceLabel: isReceipt ? 'Invoice' : 'Bill',
         invoices: invoices,
         ownerId: row.partyId,
+        payerName: row.partyName,
+        // Receipts only: a payment is never set against another party's bill.
+        onPickOther: isReceipt ? _billsOfAnotherCustomer : null,
         // The dialog runs the call and stays open on a refusal, the bill
         // and the amount kept (D-UI-70).
         onSave: (_Application application) => isReceipt
@@ -923,6 +928,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
                 id: row.id,
                 invoiceId: application.invoiceId,
                 amount: application.amount,
+                paidForCustomerId: application.paidForCustomerId,
               )
             : widget.api.allocatePayment(
                 id: row.id,
@@ -940,8 +946,33 @@ class _SettlementsPageState extends State<SettlementsPage> {
     await _load();
   }
 
+  /// Another customer, and that customer's own unpaid bills. The customer
+  /// list is read when this is pressed and the bills when one is chosen;
+  /// nothing is read before.
+  Future<_OtherCustomerBills?> _billsOfAnotherCustomer() async {
+    final PartyOption? customer = await _pickVendor(title: 'Whose bill?');
+    if (customer == null || !mounted) return null;
+    try {
+      final List<OutstandingInvoice> bills =
+          await widget.api.outstandingInvoices(
+        direction: SettlementDirection.receipt,
+        partyId: customer.id,
+      );
+      return _OtherCustomerBills(customer, bills);
+    } on ApiException catch (exception) {
+      if (mounted) {
+        NotificationService.show(
+          context,
+          refusalMessage(exception),
+          kind: AppNotificationKind.error,
+        );
+      }
+      return null;
+    }
+  }
+
   /// Ask whose credit, from the money screens' own supplier list.
-  Future<PartyOption?> _pickVendor() async {
+  Future<PartyOption?> _pickVendor({String title = 'Whose credit?'}) async {
     setState(() => _loading = true);
     List<PartyOption> parties = const [];
     try {
@@ -957,7 +988,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
     return showDialog<PartyOption>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
-        title: const Text('Whose credit?'),
+        title: Text(title),
         children: [
           for (final PartyOption party in parties)
             SimpleDialogOption(
@@ -1371,13 +1402,25 @@ class _CustomerCreditsDialog extends StatelessWidget {
       );
 }
 
+/// Another customer and the bills of theirs that still owe something.
+class _OtherCustomerBills {
+  const _OtherCustomerBills(this.customer, this.bills);
+
+  final PartyOption customer;
+  final List<OutstandingInvoice> bills;
+}
+
 /// What somebody chose to apply, and to which bill.
 class _Application {
   const _Application({
     required this.invoiceId,
     required this.invoiceNumber,
     required this.amount,
+    this.paidForCustomerId,
   });
+
+  /// Set only when the bill is another customer's.
+  final String? paidForCustomerId;
 
   final String invoiceId;
   final String invoiceNumber;
@@ -1395,7 +1438,16 @@ class _ApplyDialog extends StatefulWidget {
     required this.invoices,
     this.onSave,
     this.ownerId = '',
+    this.payerName = '',
+    this.onPickOther,
   });
+
+  /// Receipts only: choose another customer and read their unpaid bills.
+  final Future<_OtherCustomerBills?> Function()? onPickOther;
+
+  /// Who the money is from, named in the question asked before it is set
+  /// against another customer's bill.
+  final String payerName;
 
   /// The customer the money is from. A bill of another party is named after
   /// its number, so a shop's bill is told from the customer's own.
@@ -1424,7 +1476,57 @@ class _ApplyDialogState extends State<_ApplyDialog>
     with SaveInDialog<_ApplyDialog> {
   late final TextEditingController _amount =
       TextEditingController(text: widget.available);
-  late String _invoiceId = widget.invoices.first.invoiceId;
+  late String _invoiceId =
+      widget.invoices.isEmpty ? '' : widget.invoices.first.invoiceId;
+
+  /// A bill of another customer: who, and what they still owe.
+  _OtherCustomerBills? _other;
+
+  List<OutstandingInvoice> get _shown =>
+      _other == null ? widget.invoices : _other!.bills;
+
+  Future<void> _pickOther() async {
+    final _OtherCustomerBills? picked = await widget.onPickOther!();
+    if (picked == null || !mounted) return;
+    setState(() {
+      _other = picked;
+      saveError = null;
+      _invoiceId = picked.bills.isEmpty ? '' : picked.bills.first.invoiceId;
+    });
+  }
+
+  void _backToOwn() => setState(() {
+        _other = null;
+        saveError = null;
+        _invoiceId =
+            widget.invoices.isEmpty ? '' : widget.invoices.first.invoiceId;
+      });
+
+  Future<bool> _confirmOther() async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (BuildContext confirmContext) => AlertDialog(
+          title: Text(
+              'Paid by ${widget.payerName} for ${_other!.customer.name}?'),
+          content: Text(
+            'The bill will show as paid by ${widget.payerName}. Both '
+            'accounts will show it.',
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey('apply-other-cancel'),
+              onPressed: () => Navigator.of(confirmContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey('apply-other-confirm'),
+              onPressed: () => Navigator.of(confirmContext).pop(true),
+              child: const Text('Apply'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
 
   @override
   void dispose() {
@@ -1435,7 +1537,7 @@ class _ApplyDialogState extends State<_ApplyDialog>
   }
 
   OutstandingInvoice get _chosen =>
-      widget.invoices.firstWhere((invoice) => invoice.invoiceId == _invoiceId);
+      _shown.firstWhere((invoice) => invoice.invoiceId == _invoiceId);
 
   @override
   Widget build(BuildContext context) => AlertDialog(
@@ -1452,12 +1554,50 @@ class _ApplyDialogState extends State<_ApplyDialog>
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: AppSpacing.md),
-              DropdownButtonFormField<String>(
+              if (widget.onPickOther != null) ...[
+                if (_other == null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      key: const ValueKey('apply-other-customer'),
+                      onPressed: saving ? null : () => unawaited(_pickOther()),
+                      child: const Text('Bill of another customer'),
+                    ),
+                  )
+                else
+                  Row(children: [
+                    Expanded(
+                      child: Text(
+                        'Bills of ${_other!.customer.label}',
+                        key: const ValueKey('apply-other-name'),
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    TextButton(
+                      key: const ValueKey('apply-other-back'),
+                      onPressed: saving ? null : _backToOwn,
+                      child: Text('Back to ${widget.payerName}'),
+                    ),
+                  ]),
+              ],
+              if (_shown.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  child: Text(
+                    _other == null
+                        ? '${widget.payerName} has no unpaid invoices.'
+                        : '${_other!.customer.name} has no unpaid invoices.',
+                    key: const ValueKey('apply-no-bills'),
+                  ),
+                )
+              else
+                DropdownButtonFormField<String>(
+                key: ValueKey('apply-bill-${_other?.customer.id ?? ''}'),
                 isExpanded: true,
                 initialValue: _invoiceId,
                 decoration: InputDecoration(labelText: widget.invoiceLabel),
                 items: [
-                  for (final OutstandingInvoice invoice in widget.invoices)
+                  for (final OutstandingInvoice invoice in _shown)
                     DropdownMenuItem<String>(
                       value: invoice.invoiceId,
                       child: Text(
@@ -1482,8 +1622,10 @@ class _ApplyDialogState extends State<_ApplyDialog>
                 controller: _amount,
                 decoration: InputDecoration(
                   labelText: 'Amount',
-                  helperText: '${widget.available} ${widget.availableLabel}, '
-                      '${_chosen.outstandingAmount} still owed',
+                  helperText: _shown.isEmpty
+                      ? '${widget.available} ${widget.availableLabel}'
+                      : '${widget.available} ${widget.availableLabel}, '
+                          '${_chosen.outstandingAmount} still owed',
                 ),
               ),
             ],
@@ -1495,9 +1637,9 @@ class _ApplyDialogState extends State<_ApplyDialog>
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: saving
+            onPressed: saving || _shown.isEmpty
                 ? null
-                : () {
+                : () async {
                     final String amount = _amount.text.trim();
                     // Said here: the server's answer to 0 is only "The
                     // request validation failed." (D-UI-70).
@@ -1507,11 +1649,14 @@ class _ApplyDialogState extends State<_ApplyDialog>
                       );
                       return;
                     }
+                    if (_other != null && !await _confirmOther()) return;
+                    if (!mounted) return;
                     unawaited(submit<_Application>(
                       _Application(
                         invoiceId: _invoiceId,
                         invoiceNumber: _chosen.invoiceNumber,
                         amount: amount,
+                        paidForCustomerId: _other?.customer.id,
                       ),
                       widget.onSave,
                     ));

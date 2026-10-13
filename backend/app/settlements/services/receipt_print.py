@@ -67,6 +67,7 @@ class ReceiptPrintService:
         mode = _MODES.get(row.payment_mode or row.method, row.method.title())
         if row.instrument_reference:
             mode = f"{mode} -- {row.instrument_reference}"
+        paid_for = self._paid_for(row)
         parts: list[object] = [
             Paragraph(firm.name or "", styles["Title"]),
             Paragraph(
@@ -79,6 +80,8 @@ class ReceiptPrintService:
                     ["Receipt no.", row.settlement_number],
                     ["Date", row.settlement_date.strftime("%d %b %Y")],
                     ["Received from", customer.name if customer else ""],
+                    # Money one customer paid for another's bill (row P5).
+                    *([["Paid for", ", ".join(paid_for)]] if paid_for else []),
                     ["Amount", f"{amount:,.2f}"],
                     ["In words", Paragraph(amount_in_words(amount), styles["Normal"])],
                     ["Paid by", mode],
@@ -112,6 +115,30 @@ class ReceiptPrintService:
         ).build(parts)
         safe = row.settlement_number.replace("/", "-").replace(" ", "-")
         return buffer.getvalue(), f"{safe}.pdf"
+
+    def _paid_for(self, row: Settlement) -> list[str]:
+        """Return the other customers whose bills the receipt cleared, by name.
+
+        A shop under the payer (backlog 126) or a customer it paid for (row
+        P5); empty where every bill was the payer's own.
+        """
+        return list(
+            self._session.scalars(
+                select(Customer.name)
+                .join(SalesInvoice, SalesInvoice.customer_id == Customer.id)
+                .join(
+                    SettlementAllocation,
+                    SettlementAllocation.sales_invoice_id == SalesInvoice.id,
+                )
+                .where(
+                    SettlementAllocation.settlement_id == row.id,
+                    SettlementAllocation.is_deleted.is_(False),
+                    Customer.id != row.customer_id,
+                )
+                .distinct()
+                .order_by(Customer.name.asc())
+            )
+        )
 
     def _settled(self, settlement_id: UUID) -> list[tuple[str, Decimal]]:
         """Return the bills the receipt was set against, by number."""

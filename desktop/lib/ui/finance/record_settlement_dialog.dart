@@ -93,6 +93,22 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   final FocusNode _partyFocus = FocusNode();
 
   String _partyId = '';
+
+  /// Receipts only: another customer who paid this customer's bills. Null is
+  /// the usual case, the bill's own customer paying.
+  PartyOption? _payer;
+
+  bool get _paidByOther =>
+      widget.direction == SettlementDirection.receipt &&
+      _payer != null &&
+      _payer!.id != _partyId;
+
+  String get _customerName => widget.parties
+      .where((PartyOption party) => party.id == _partyId)
+      .map((PartyOption party) => party.name)
+      .firstOrNull ??
+      'the customer';
+
   /// The order a deposit came in against, where it came in against one. A
   /// note about why the money arrived, not a ring-fence: cancelling the order
   /// does not make the deposit vanish.
@@ -238,7 +254,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       final List<OutstandingInvoice> rows = await widget.api.outstandingInvoices(
         direction: widget.direction,
         partyId: partyId,
-        withShops: widget.direction == SettlementDirection.receipt,
+        // A stranger's money reaches only the customer's own bills.
+        withShops:
+            widget.direction == SettlementDirection.receipt && !_paidByOther,
         withBranches: widget.direction == SettlementDirection.payment,
       );
       if (!mounted) return;
@@ -262,6 +280,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
 
   Future<void> _loadCashDiscounts() async {
     if (widget.direction != SettlementDirection.receipt) return;
+    // The terms are the saved party's; another customer's money earns none.
+    if (_paidByOther) return;
     final String partyId = _partyId;
     if (partyId.isEmpty) return;
     try {
@@ -641,6 +661,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     }
     final double deducted =
         _foreignPayment ? 0 : double.tryParse(_tds.text.trim()) ?? 0;
+    if (_paidByOther && !await _confirmPaidBy()) return;
+    if (!mounted) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -653,10 +675,13 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         data: <String, dynamic>{
           // Sent only after the person answered the server's question.
           if (confirmed) 'cash_below_zero_confirmed': true,
-          'party_id': _partyId,
+          // The payer when another customer paid; the customer whose bills
+          // they are is then named separately.
+          'party_id': _paidByOther ? _payer!.id : _partyId,
+          if (_paidByOther) 'paid_for_customer_id': _partyId,
           // Only where one was named: blank is "no particular order", which
           // is what most receipts are.
-          if (_orderId.isNotEmpty) 'sales_order_id': _orderId,
+          if (_orderId.isNotEmpty && !_paidByOther) 'sales_order_id': _orderId,
           if (widget.direction == SettlementDirection.refund &&
               _creditSourceId.isNotEmpty)
             'credit_source_id': _creditSourceId,
@@ -816,6 +841,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                 const SizedBox(width: AppSpacing.md),
                 SizedBox(width: 150, child: _methodPicker()),
               ]),
+              if (widget.direction == SettlementDirection.receipt &&
+                  _partyId.isNotEmpty)
+                _paidByRow(context),
               if (_foreignCurrencies.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.md),
                 _currencyRow(context),
@@ -857,7 +885,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
               ],
               if (widget.direction == SettlementDirection.receipt) ...[
                 const SizedBox(height: AppSpacing.md),
-                _orderPicker(),
+                // The order is the customer's; another customer's money
+                // is not a deposit against it.
+                if (!_paidByOther) _orderPicker(),
                 _tcsNotice(context),
                 _customerCreditNotice(context),
               ],
@@ -898,6 +928,114 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     );
   }
 
+  static final ButtonStyle _compactLink = TextButton.styleFrom(
+    visualDensity: VisualDensity.compact,
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    minimumSize: const Size(0, 28),
+  );
+
+  /// Who paid: the bill's own customer unless another customer is picked.
+  Widget _paidByRow(BuildContext context) {
+    final String payerName = _paidByOther ? _payer!.name : _customerName;
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.xs),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Text(
+              'Paid by: $payerName',
+              key: const ValueKey('settlement-paid-by'),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            TextButton(
+              key: const ValueKey('settlement-paid-by-change'),
+              style: _compactLink,
+              onPressed: () => unawaited(_pickPayer()),
+              child: const Text('Another customer paid'),
+            ),
+            if (_paidByOther)
+              TextButton(
+                key: const ValueKey('settlement-paid-by-clear'),
+                style: _compactLink,
+                onPressed: () => _setPayer(null),
+                child: Text('Back to $_customerName'),
+              ),
+          ]),
+          if (_paidByOther)
+            Text(
+              'Recorded as money from $payerName. $_customerName\'s bills '
+              'below are marked paid by $payerName; anything not set '
+              'against a bill stays on $payerName\'s account.',
+              key: const ValueKey('settlement-paid-by-note'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The customers are already in hand (the parties the dialog opened with),
+  /// so opening this reads nothing.
+  Future<void> _pickPayer() async {
+    final PartyOption? picked = await showDialog<PartyOption>(
+      context: context,
+      builder: (BuildContext dialogContext) =>
+          _PayerPickerDialog(parties: widget.parties, customerId: _partyId),
+    );
+    if (picked == null || !mounted) return;
+    _setPayer(picked.id == _partyId ? null : picked);
+  }
+
+  /// Another payer changes whose bills may be listed, and what is worked out
+  /// from the saved party's own terms.
+  void _setPayer(PartyOption? payer) {
+    final bool before = _paidByOther;
+    setState(() {
+      _payer = payer;
+      _error = null;
+      if (_paidByOther) {
+        _offers = const <Json>[];
+        _tcs = null;
+        _orderId = '';
+        _discount.clear();
+      }
+    });
+    if (before == _paidByOther) return;
+    unawaited(_loadInvoices(_partyId));
+    if (!_paidByOther) {
+      unawaited(_loadCashDiscounts());
+      unawaited(_loadTcs());
+    }
+  }
+
+  /// "Paid by X for Y?" before money from one customer settles another's bills.
+  Future<bool> _confirmPaidBy() async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (BuildContext confirmContext) => AlertDialog(
+          title: Text('Paid by ${_payer!.name} for $_customerName?'),
+          content: Text(
+            'Both accounts will show it: ${_payer!.name} paid, and '
+            '$_customerName\'s bills are cleared.',
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey('settlement-paid-by-cancel'),
+              onPressed: () => Navigator.of(confirmContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey('settlement-paid-by-confirm'),
+              onPressed: () => Navigator.of(confirmContext).pop(true),
+              child: Text('Record ${widget.direction.noun}'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
   /// The customer's live orders, so a deposit can say which one it is for.
   Future<void> _loadOrders(String partyId) async {
     try {
@@ -930,7 +1068,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   /// none, which is most firms.
   Future<void> _loadTcs() async {
     final double amount = _amountEntered;
-    if (_partyId.isEmpty || amount <= 0) {
+    // Tax collected at source is worked out for the payer, not the bill's
+    // customer; no hint is better than the wrong one.
+    if (_partyId.isEmpty || amount <= 0 || _paidByOther) {
       if (mounted) setState(() => _tcs = null);
       return;
     }
@@ -1182,6 +1322,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                     onPressed: () => setState(() {
                       field.clear();
                       _partyId = '';
+                      _payer = null;
                     }),
                   ),
           ),
@@ -1248,6 +1389,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   void _choosePartyOption(PartyOption party) {
     setState(() {
       _partyId = party.id;
+      _payer = null;
       // The previous customer's orders and tax are not this one's.
       _orderId = '';
       _orders = const <Json>[];
@@ -1603,4 +1745,73 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       widget.direction != SettlementDirection.refund &&
       invoice.partyId.isNotEmpty &&
       invoice.partyId != _partyId;
+}
+
+/// Pick the customer who paid, from the list the dialog already holds.
+class _PayerPickerDialog extends StatefulWidget {
+  const _PayerPickerDialog({required this.parties, required this.customerId});
+
+  final List<PartyOption> parties;
+
+  /// The bill's own customer, left out: picking them is not "another".
+  final String customerId;
+
+  @override
+  State<_PayerPickerDialog> createState() => _PayerPickerDialogState();
+}
+
+class _PayerPickerDialogState extends State<_PayerPickerDialog> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final String query = _query.trim().toLowerCase();
+    final List<PartyOption> shown = [
+      for (final PartyOption party in widget.parties)
+        if (party.id != widget.customerId &&
+            (query.isEmpty ||
+                party.code.toLowerCase().contains(query) ||
+                party.name.toLowerCase().contains(query)))
+          party,
+    ];
+    return AlertDialog(
+      title: const Text('Who paid?'),
+      content: SizedBox(
+        width: 420,
+        height: 320,
+        child: Column(children: [
+          TextField(
+            key: const ValueKey('settlement-payer-search'),
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Type a code or a name',
+              prefixIcon: Icon(Icons.search),
+            ),
+            onChanged: (String value) => setState(() => _query = value),
+          ),
+          Expanded(
+            child: shown.isEmpty
+                ? const Center(child: Text('Nobody matches that.'))
+                : ListView.builder(
+                    itemCount: shown.length,
+                    itemBuilder: (BuildContext context, int index) =>
+                        ListTile(
+                      dense: true,
+                      key: ValueKey('settlement-payer-${shown[index].id}'),
+                      title: Text(shown[index].label,
+                          overflow: TextOverflow.ellipsis),
+                      onTap: () => Navigator.of(context).pop(shown[index]),
+                    ),
+                  ),
+          ),
+        ]),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
 }
