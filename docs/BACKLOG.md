@@ -4258,6 +4258,8 @@ TDS Payable; or debit TDS Receivable, credit the customer.
 
 ## 54. Trade licences: the firm's, the customer's, and the goods that need them -- built 2026-09-30
 
+*2026-10-13: a shop under a parent buyer, and a supplier's branch, may be covered by the parent's licence; see backlog 139.*
+
 **Status, 2026-10-01: all five steps built.** Licence types, the register for firm/branch, customers and suppliers, printing, the Home expiry alert and the desktop screens (#839); the required licence on category and product, the sale check (warn by default, block by policy, override permission with a reason) and the purchase check (#840).
 
 **Priority (owner, 2026-09-27): high, depending on the trade of the first
@@ -10089,3 +10091,87 @@ seeded before this, only where the row is missing),
 **Supersedes** in backlog 129: "a product with no brand is offered only when
 no brand is chosen" no longer describes anything, since no product is
 without a brand; the Brand box on a bill now finds every product.
+
+## 139. The licence check for a shop under a parent -- built 2026-10-13
+
+Customer task F8 (`docs/CUSTOMER_BUILD_TASKS.md`), decision D2, the owner on
+2026-10-13; LIC-5 in `docs/CUSTOMER_REQUIREMENTS.md`. Backlog 54 built the
+check and backlog 125 the parent buyer with shops. Until now the two did not
+know of each other: a shop was asked for a licence as any customer is, so a
+chain that holds one licence on the parent had every shop's bill warned about
+or, under *Block*, refused.
+
+**The rule.**
+
+- A shop's **own** licence of the type a line needs is used first. A shop
+  that holds one of that type, valid or not, is judged on its own alone.
+- Where the shop holds **none of that type**, its parent's counts, judged on
+  the document's date as any licence is. Nothing is short, so there is no
+  finding: the check answers with a separate list, `covered_by_parent`, one
+  entry per licence type, naming the shop, the parent, the number used and
+  the lines, in a sentence such as *Line 1 (Item): Shop holds no Drug
+  licence; its parent Parent's Drug licence DL-1 was used.*
+- The parent's lapsed or not-yet-valid licence is a finding in the shop's
+  name that names the parent (`parent_name` on the finding) and carries the
+  parent's number and date. Neither holding one reads *Shop holds no ...,
+  and neither does its parent Parent.*
+- A firm setting, **A shop must hold its own licence**
+  (`trade_licence_settings.shop_needs_own_licence`), off to start. On, the
+  parent is not looked at and the shop is judged as before this entry.
+- **Suppliers' branches the same way** on the buying check: a branch with
+  none of the type is covered by its main office's. The one setting governs
+  both sides.
+- Nothing else about the check moved: it is per line, a line that needs no
+  licence is never checked, the requirement stays on the product and its
+  category, Warn and Block and the override are as they were, and the buying
+  side still only warns.
+
+**At approval.** A covered line stops nothing, under Warn or Block. The
+approval's timeline entry says whose licence was used: the sentence in its
+remark, and the entries under `licence_parent_cover` in its details. Where a
+document has a finding as well, the warning or the override records both.
+
+**On the bill.** The buyer's licence numbers on a bill to a shop are its own
+valid ones and, for a type it holds none of, its parent's valid ones; with
+the setting on, its own only. A type the shop holds a lapsed licence of
+prints neither, as the check found it short.
+
+**Decided by the loop.**
+
+- *None of that type* means no licence row of the type at all. A shop whose
+  own licence has lapsed is not rescued by its parent's: a shop that was
+  issued a licence of its own is licensed per premises, and its lapse is the
+  thing to renew. The row's words are "where it holds none of that type".
+- A covered line opens no dialog on the desktop. Nothing is short, and a
+  prompt on every bill of a chain would be pressed through unread. Where the
+  dialog opens for another finding, the covered lines are listed under it.
+- One switch for buyers and suppliers, named as the owner named it.
+- The switch is optional on the settings write: a client that sends only the
+  two policies leaves it as it is.
+- One level, as the families are (backlog 125 and 136): a parent has no
+  parent.
+
+**Built.** `backend/app/trade_licences/services/licence_check.py`
+(`_Holder.parent_licences`, `_parent`, `_judge`, `enforce`),
+`backend/app/trade_licences/services/trade_licence_service.py`
+(`valid_numbers`), the column and the two response shapes
+(`LicenceParentCover`, `parent_name` on `LicenceFinding`,
+`covered_by_parent` on the check's answer), migration
+`backend/alembic/versions/20261013_0374_shop_licence_under_parent.py`
+(one column, off for every firm). Desktop: the switch on *Licence Check*
+(`desktop/lib/ui/trade_licences/licence_check_settings_page.dart`), the
+covered lines in `desktop/lib/ui/trade_licences/licence_check_dialog.dart`.
+Tests: `backend/tests/unit/test_licence_under_parent.py`,
+`desktop/test/licence_under_parent_test.dart`. Case: TC-SELL-106. PR #1480.
+
+**Not built.**
+
+- The bill does not say that a number is the parent's; it prints the type
+  and the number, as for any licence.
+- The customer and supplier forms do not show that a shop is covered by its
+  parent's licence; the register lists each licence under its holder only.
+- The Home expiry alert names the holder. A parent's licence that is about
+  to lapse does not say how many shops lean on it.
+- Whether the law lets a parent's drug licence cover a shop at another
+  premises is the customer's question (LIC-5 in section 16 of the
+  requirements document). The setting is how a firm answers it.

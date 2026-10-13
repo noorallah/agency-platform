@@ -156,3 +156,9 @@ class TradeLicenceSettings(BaseEntity):
     purchase_enforcement: Mapped[str] = mapped_column(
         String(10), nullable=False, default="WARN", server_default="WARN"
     )
+    #: Row F8. Off (the default), a shop under a parent buyer that holds no
+    #: licence of a type is covered by its parent's, and a supplier's branch
+    #: by its main office's. On, each is judged on its own alone.
+    shop_needs_own_licence: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )

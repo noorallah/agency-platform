@@ -3,7 +3,7 @@
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch
@@ -13,7 +13,11 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError, Validation
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.products.models import Product, ProductCategory
-from app.trade_licences.models import TradeLicence, TradeLicenceType
+from app.trade_licences.models import (
+    TradeLicence,
+    TradeLicenceSettings,
+    TradeLicenceType,
+)
 from app.trade_licences.schemas import (
     LicenceHolderType,
     LicenceStanding,
@@ -549,6 +553,10 @@ class TradeLicenceService:
         that branch's) or a customer's. A licence that has run out, or has
         not started, is not printed -- a document states what was valid when
         it was made.
+
+        A shop under a parent buyer prints the licence the check used (row
+        F8): its own, and for a type it holds none of, its parent's -- unless
+        the firm asks each shop for its own.
         """
         query = (
             select(TradeLicence, TradeLicenceType)
@@ -561,14 +569,40 @@ class TradeLicenceService:
                 TradeLicence.is_deleted.is_(False),
             )
         )
-        if customer_id is not None:
-            query = query.where(TradeLicence.customer_id == customer_id)
-        else:
+        if customer_id is None:
             query = query.where(TradeLicence.holder_type == "FIRM")
             query = query.where(
                 (TradeLicence.branch_id.is_(None))
                 | (TradeLicence.branch_id == branch_id)
             )
+            return self._printable(query, on=on)
+        own = query.where(TradeLicence.customer_id == customer_id)
+        printed = self._printable(own, on=on)
+        parent_id = self._session.scalar(
+            select(Customer.parent_customer_id).where(Customer.id == customer_id)
+        )
+        if parent_id is None or self._shops_hold_their_own(firm_id):
+            return printed
+        # Own first: a type the shop holds at all, lapsed or not, is the
+        # shop's to answer for, so the parent's of that type is not printed.
+        held = set(
+            self._session.scalars(
+                select(TradeLicence.licence_type_id).where(
+                    TradeLicence.firm_id == firm_id,
+                    TradeLicence.is_deleted.is_(False),
+                    TradeLicence.customer_id == customer_id,
+                )
+            ).all()
+        )
+        from_parent = query.where(TradeLicence.customer_id == parent_id)
+        if held:
+            from_parent = from_parent.where(TradeLicence.licence_type_id.not_in(held))
+        return sorted(printed + self._printable(from_parent, on=on))
+
+    def _printable(
+        self, query: Select[tuple[TradeLicence, TradeLicenceType]], *, on: date
+    ) -> list[tuple[str, str]]:
+        """Return ``(type name, number)`` of the licences valid on a day."""
         printed: list[tuple[str, str]] = []
         for licence, licence_type in self._session.execute(query).tuples():
             standing, _ = standing_of(licence, licence_type, on=on)
@@ -576,3 +610,14 @@ class TradeLicenceService:
                 continue
             printed.append((licence_type.name, licence.licence_number))
         return sorted(printed)
+
+    def _shops_hold_their_own(self, firm_id: UUID) -> bool:
+        """Say whether the firm asks each shop for its own licence."""
+        return bool(
+            self._session.scalar(
+                select(TradeLicenceSettings.shop_needs_own_licence).where(
+                    TradeLicenceSettings.firm_id == firm_id,
+                    TradeLicenceSettings.is_deleted.is_(False),
+                )
+            )
+        )

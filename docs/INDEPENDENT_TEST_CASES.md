@@ -4240,6 +4240,37 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   - Step 8: the bill is left as worked out again, 117.99.
 - **Leaves:** three approved bills, one completed sales return, and the setting off.
 
+
+### TC-SELL-106 — A shop under a parent is covered by the parent's licence
+
+*Added 2026-10-13 (customer task F8, backlog 139). Covered by unit tests and widget tests and driven over HTTP on a fixture firm; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 139; LIC-5; the licence check, *Licence Check* under Settings, the sales order, the purchase order
+- **Fixture:** `ready-firm`
+- **Also needs:** a licence type (for example *Drug licence*); a product category that needs it and a product in that category, in stock; a second product that needs no licence; a parent customer with two shops under it (TC-CUST-014 makes them), none of the three holding a licence; the firm's own licence of the type, valid; a supplier with a branch (TC-BUY-106 makes them). A user who may change the licence settings, record licences and approve orders.
+- **Steps**
+  1. Open *Settings > Set up > Party lists > Licence Check*. Read the switch **A shop must hold its own licence**. Set Sale to **Block**. Save.
+  2. Raise a sales order of the licensed product for the first shop. Approve it.
+  3. On *Trade Licences* record a valid licence of the type for the **parent**. Approve the order of step 2 and read its history.
+  4. Switch **A shop must hold its own licence** on. Save. Raise the same order again and approve it.
+  5. Switch it off again. Change the parent's licence so that it ended yesterday. Approve the order of step 4.
+  6. Make the parent's licence valid again. Record a licence of the type for the **shop** that ended yesterday. Approve the order.
+  7. Make the shop's licence valid. Approve the order.
+  8. Raise an order of the product that needs no licence for the second shop and approve it.
+  9. Record a valid licence of the type for the supplier's **main office**. Raise a purchase order of the licensed product on the supplier's **branch** and approve it; read its history.
+  10. Put the policy back as it was.
+- **Expect**
+  1. The switch is there and off.
+  2. Refused: the shop holds no licence of the type, *and neither does its parent*, named.
+  3. Approved with no prompt. The history's approval entry says the shop holds none and that its parent's licence, by number, *was used*.
+  4. Refused: the shop holds no licence of the type. The parent is not mentioned.
+  5. Refused: the shop holds none; its parent's licence, by number, expired on yesterday's date.
+  6. Refused: the **shop's** licence, by number, expired yesterday. The parent's valid one does not cover it.
+  7. Approved with no prompt, and the history does not mention the parent.
+  8. Approved; no licence is asked of anybody.
+  9. Approved. The history says the branch holds none and that its main office's licence was used.
+- **Leaves:** the licences, the orders. The policy as it was found.
+
 ### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
 
 *Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` fixture: the full chain and the direct bill, and both refusals. The screens were not clicked.*

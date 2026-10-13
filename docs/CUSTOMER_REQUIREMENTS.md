@@ -79,7 +79,7 @@ name, GST number or bank detail is written in this file.
 | LIC-2 | Licence expiry | Judged on the bill's own date when an order, delivery note or bill is approved | Built | S11 |
 | LIC-3 | Warn or stop | A firm setting: off, warn, or block. A blocked sale can be passed by someone with the right, giving a reason | Built | S11 |
 | LIC-4 | The firm's own licence numbers on the bill | Printed under the firm's address | Built | S11 |
-| LIC-5 | Shops under a parent | A shop's own licence first; where it has none of that type, its parent's counts and the check says so. A firm setting makes each shop hold its own | Planned | F8 |
+| LIC-5 | Shops under a parent | A shop's own licence first; where it has none of that type, its parent's counts and the check says so. A shop that holds one of its own, even a lapsed one, is checked on its own. A firm setting, *A shop must hold its own licence*, makes each shop hold its own. Suppliers' branches the same way | Built | F8 |
 | LIC-6 | A product needing two licences | Whether a medicine needs two separate licences both valid | Open | |
 
 ## 6. Buying
@@ -244,3 +244,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | SUP-4 built (F5): a supplier's GST number is held once; a branch takes its main office's or types its own |
 | 2026-10-13 | CUS-8 logged (F6) as backlog 137, open and not built: it waits on the provider and its price, which are the owner's to choose. Status stays Later |
 | 2026-10-13 | PRD-2 built (F7): a product cannot be saved without a brand, nor a brand without a company; what was there before is filed under *Unbranded* and *General* |
+| 2026-10-13 | LIC-5 built (F8): a shop with no licence of the kind needed is covered by its parent's and the check says so; a firm setting makes each shop hold its own. The question to the customer stays open: the setting is how the firm answers it |
