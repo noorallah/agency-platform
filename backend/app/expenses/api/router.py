@@ -9,6 +9,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
@@ -28,6 +29,7 @@ from app.expenses.schemas import (
 )
 from app.expenses.services import ExpenseService
 from app.finance.models import LedgerAccount
+from app.settlements.services.cheque_print import ChequeService
 
 router = APIRouter(
     prefix="/api/v1/expenses",
@@ -141,6 +143,29 @@ def expense_account_choices(
                 for row in service.paid_from_accounts(scope.firm_id)
             ],
         )
+    )
+
+
+@router.get("/{expense_id}/cheque", response_class=StreamingResponse)
+def expense_cheque(
+    expense_id: UUID,
+    scope: ExpenseCreateScope,
+    payee: Annotated[str | None, Query(max_length=120)] = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Print an expense paid from a bank account onto a cheque leaf (row F13).
+
+    Writing a cheque is paying, so it needs the right to record an expense,
+    not only to read one. An expense paid in cash has no cheque. ``payee``
+    names who it is made out to where the expense does not.
+    """
+    pdf, filename = ChequeService(db).expense_cheque(
+        expense_id, firm_id=scope.firm_id, payee=payee
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 

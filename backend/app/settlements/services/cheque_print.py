@@ -11,10 +11,16 @@ the rounding and discount it settled without moving money. The payee is the
 supplier's legal name, which is what their bank account is held in, and can be
 overridden for a cheque made out to someone else. A reversed payment, a cash
 payment and one recorded as UPI or a transfer have no cheque to print.
+
+**A cheque is printed from a record, never from a form** (row F13, COL-11).
+Besides a supplier's payment that is a refund to a customer, an expense paid
+from a bank account, and any cheque in the register of cheques the firm has
+written -- which carries its own date, so one dated ahead prints with it.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -30,9 +36,20 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.customers.models import Customer
+from app.expenses.models import Expense, ExpenseStatus
 from app.finance.models.finance import LedgerAccount
+from app.finance.services.control_accounts import (
+    ControlAccountPurpose,
+    ControlAccountService,
+)
+from app.finance.services.money_accounts import KIND_BANK, money_accounts
 from app.sales_invoice.services.invoice_pdf import amount_in_words
 from app.settlements.models.cheque_layout import ChequeLayout
+from app.settlements.models.post_dated_cheque import (
+    PostDatedCheque,
+    PostDatedChequeStatus,
+)
 from app.settlements.models.settlement import (
     Settlement,
     SettlementDirection,
@@ -285,19 +302,33 @@ class ChequeService:
         )
 
     def payment_cheque(
-        self, payment_id: UUID, *, firm_id: UUID, payee: str | None = None
+        self,
+        payment_id: UUID,
+        *,
+        firm_id: UUID,
+        payee: str | None = None,
+        direction: SettlementDirection = SettlementDirection.PAYMENT,
     ) -> tuple[bytes, str]:
-        """Return the cheque PDF for a bank payment, and its file name."""
+        """Return the cheque PDF for a bank payment, and its file name.
+
+        ``direction`` is ``REFUND`` for money handed back to a customer,
+        which is a cheque like any other; a receipt has none to print.
+        """
+        is_refund = direction == SettlementDirection.REFUND
+        if direction == SettlementDirection.RECEIPT:
+            raise ValueError("A receipt is not paid by the firm's cheque.")
         row = self._session.scalar(
             select(Settlement).where(
                 Settlement.id == payment_id,
                 Settlement.firm_id == firm_id,
-                Settlement.direction == SettlementDirection.PAYMENT.value,
+                Settlement.direction == direction.value,
                 Settlement.is_deleted.is_(False),
             )
         )
         if row is None:
-            raise ResourceNotFoundError("Payment not found.")
+            raise ResourceNotFoundError(
+                "Refund not found." if is_refund else "Payment not found."
+            )
         content = self.cheque_content(row, payee=payee)
         layout = self.layout_for(row.ledger_account_id, firm_id=firm_id)
         pdf = self._renderer(layout).render(content)
@@ -307,14 +338,15 @@ class ChequeService:
         self, row: Settlement, *, payee: str | None = None
     ) -> ChequeContent:
         """Return what a payment's cheque says, refusing one with no cheque."""
+        what = "refund" if row.customer_id is not None else "payment"
         if row.status != SettlementStatus.POSTED.value:
-            raise ValidationError("A reversed payment has no cheque to print.")
+            raise ValidationError(f"A reversed {what} has no cheque to print.")
         if row.method != SettlementMethod.BANK.value:
-            raise ValidationError("A cash payment has no cheque to print.")
+            raise ValidationError(f"A cash {what} has no cheque to print.")
         mode = row.payment_mode
         if mode is not None and mode != "CHEQUE":
             raise ValidationError(
-                f"This payment was made by {mode.replace('_', ' ')}" ", not by cheque."
+                f"This {what} was made by {mode.replace('_', ' ')}, not by cheque."
             )
         moved = (
             row.amount
@@ -325,13 +357,115 @@ class ChequeService:
         )
         name = payee
         if not name:
-            vendor = self._session.get(Vendor, row.vendor_id)
-            name = (vendor.legal_name or vendor.name) if vendor is not None else ""
+            name = self._party_name(row.vendor_id, row.customer_id)
         return ChequeContent(
             payee=name,
             amount=moved,
             cheque_date=row.instrument_date or row.settlement_date,
         )
+
+    def expense_cheque(
+        self, expense_id: UUID, *, firm_id: UUID, payee: str | None = None
+    ) -> tuple[bytes, str]:
+        """Return the cheque PDF for an expense paid from a bank account.
+
+        What goes on it is what left the bank: the expense less the TDS
+        deducted. The payee is the one the expense names, or ``payee``.
+
+        Raises:
+            ResourceNotFoundError: If the firm has no such expense.
+            ValidationError: If it is cancelled, or was paid in cash.
+
+        """
+        row = self._session.scalar(
+            select(Expense).where(
+                Expense.id == expense_id,
+                Expense.firm_id == firm_id,
+                Expense.is_deleted.is_(False),
+            )
+        )
+        if row is None:
+            raise ResourceNotFoundError("Expense not found.")
+        if row.status != ExpenseStatus.POSTED.value:
+            raise ValidationError("A cancelled expense has no cheque to print.")
+        kinds = {
+            account.id: kind for account, kind in money_accounts(self._session, firm_id)
+        }
+        if kinds.get(row.paid_from_account_id) != KIND_BANK:
+            raise ValidationError(
+                "This expense was not paid from a bank account, so it has no "
+                "cheque to print."
+            )
+        layout = self.layout_for(row.paid_from_account_id, firm_id=firm_id)
+        pdf = self._renderer(layout).render(
+            ChequeContent(
+                payee=payee or row.payee or "",
+                amount=row.amount - row.tds_amount,
+                cheque_date=row.expense_date,
+            )
+        )
+        return pdf, f"cheque-{row.expense_number}.pdf"
+
+    def written_cheque(
+        self, cheque_id: UUID, *, firm_id: UUID, payee: str | None = None
+    ) -> tuple[bytes, str]:
+        """Return the PDF of a cheque in the register of cheques written.
+
+        It prints with its own date, so one dated ahead is printed now and
+        handed over. A cancelled or returned cheque is not printed again.
+
+        Raises:
+            ResourceNotFoundError: If the firm wrote no such cheque.
+            ValidationError: If it is cancelled or was returned.
+
+        """
+        row = self._session.scalar(
+            select(PostDatedCheque).where(
+                PostDatedCheque.id == cheque_id,
+                PostDatedCheque.firm_id == firm_id,
+                PostDatedCheque.direction == SettlementDirection.PAYMENT.value,
+                PostDatedCheque.is_deleted.is_(False),
+            )
+        )
+        if row is None:
+            raise ResourceNotFoundError("Cheque not found.")
+        if row.status in (
+            PostDatedChequeStatus.CANCELLED.value,
+            PostDatedChequeStatus.BOUNCED.value,
+        ):
+            raise ValidationError(
+                f"Cheque {row.cheque_number} is {row.status.lower()}, so it "
+                "is not printed again."
+            )
+        bank_account_id = row.bank_account_id or ControlAccountService(
+            self._session
+        ).resolve(firm_id, ControlAccountPurpose.BANK)
+        layout = self.layout_for(bank_account_id, firm_id=firm_id)
+        pdf = self._renderer(layout).render(
+            ChequeContent(
+                payee=payee
+                or row.payee_name
+                or self._party_name(row.vendor_id, row.customer_id),
+                amount=row.amount,
+                cheque_date=row.cheque_date,
+            )
+        )
+        number = re.sub(r"[^A-Za-z0-9-]", "", row.cheque_number) or "written"
+        return pdf, f"cheque-{number}.pdf"
+
+    def _party_name(self, vendor_id: UUID | None, customer_id: UUID | None) -> str:
+        """Return the name a cheque to a supplier or a customer is made out in.
+
+        A supplier's legal name, which is what their bank account is held
+        in; a customer keeps one name.
+        """
+        if vendor_id is not None:
+            vendor = self._session.get(Vendor, vendor_id)
+            return (vendor.legal_name or vendor.name) if vendor is not None else ""
+        if customer_id is not None:
+            customer = self._session.get(Customer, customer_id)
+            return customer.name if customer is not None else ""
+        return ""
 
     def _account(self, ledger_account_id: UUID, *, firm_id: UUID) -> LedgerAccount:
         """Return the firm's ledger account or raise."""

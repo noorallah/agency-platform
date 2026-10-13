@@ -2949,6 +2949,76 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_cheque_payment(
+        self,
+        *,
+        firm_id: UUID,
+        cheque_id: UUID,
+        reference: str,
+        paid_on: date,
+        bank_account_id: UUID,
+        paid_account_id: UUID,
+        amount: Decimal,
+        description: str,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post a cheque paid to a ledger account (row F13): a payment voucher.
+
+        Dr the account paid, Cr the bank the cheque is drawn on. Two legs, no
+        party and no tax: a loan instalment, a deposit, the owner's drawings.
+        A cheque to a supplier, a customer or an expense account is recorded
+        by the payment, the refund or the expense it becomes, never here; the
+        caller has checked the account is none of those and that the other
+        is one of the firm's bank accounts.
+
+        Args:
+            firm_id: The owning firm.
+            cheque_id: The cheque in the register.
+            reference: The journal reference, unique in the firm.
+            paid_on: The day the cheque was presented.
+            bank_account_id: The bank account credited.
+            paid_account_id: The ledger account debited.
+            amount: What the cheque is for.
+            description: The narration both legs carry.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If no open period covers the date.
+
+        """
+        context = self.context_for(firm_id, paid_on)
+        value = quantize_ledger(quantize_money(amount))
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=paid_on,
+            reference_number=reference,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=paid_account_id,
+                    debit_amount=value,
+                    credit_amount=ZERO,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=bank_account_id,
+                    debit_amount=ZERO,
+                    credit_amount=value,
+                    description=description,
+                ),
+            ],
+            source_module="cheque_payment",
+            source_id=cheque_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_commission_accrual(
         self,
         *,

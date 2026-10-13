@@ -10903,3 +10903,80 @@ firm; whether the GST calculator also takes a discount and a quantity.
 
 **Size.** Small.
 
+## 150. A cheque to any account, the amount typed, dated today or ahead (row F13, COL-11) -- the server is built; the screen is not
+
+**The owner, 2026-10-13:** a cheque printed to any account -- a supplier, a
+customer, an expense, any other account -- with the amount typed, dated
+today or ahead. Until now a cheque printed only from a saved supplier
+payment (ACC-12), and a post-dated cheque the firm issued named a supplier
+only (ACC-2).
+
+**Built on 2026-10-14 (the server).**
+
+- **The register of the firm's cheques holds every payee.**
+  `post_dated_cheques` gained `paid_to_kind` (SUPPLIER, CUSTOMER, EXPENSE,
+  ACCOUNT), the ledger account paid, the bank account drawn on, the name on
+  the cheque and what the cheque became (migration `20261014_0376`). Cheques
+  already issued are marked SUPPLIER.
+- **Write a cheque** is `POST /api/v1/post-dated-cheques/issued/write`: the
+  bank account, exactly one of a supplier, a customer and a ledger account,
+  the name on the cheque (blank takes the account's), the amount, the cheque
+  number, the cheque date and a note. An expense account makes it an
+  expense; any other account makes it a payment voucher.
+- **Dated today or before**, it is recorded in the same transaction through
+  the service that already records that payment: a supplier's payment on
+  account, a customer's refund, an expense, or for any other account a
+  journal of Dr the account, Cr the bank (`post_cheque_payment`, source
+  module `cheque_payment`). If that payment is refused, no cheque is left
+  behind. **Dated ahead**, it is held and posts nothing until it is
+  presented, when it becomes the same payment.
+- **A returned cheque takes back what it became**: the settlement's own
+  reversal, the expense's cancellation, or a mirror of the voucher; the
+  bank's fee posts as before.
+- **Printing is always from a record.** `GET .../issued/{id}/print` prints a
+  cheque in the register with its own date; `GET /api/v1/refunds/{id}/cheque`
+  and `GET /api/v1/expenses/{id}/cheque` print a refund and an expense paid
+  from a bank account. A cash expense, a UPI refund, a cancelled or returned
+  cheque has none.
+- **The right is the one the payment already needs**: `PAYMENT_CREATE` for
+  a supplier or a customer, `EXPENSE_CREATE` for an expense, `JOURNAL_POST`
+  for any other account; returning one needs `PAYMENT_CREATE`,
+  `EXPENSE_CANCEL` or `JOURNAL_REVERSE`. No new permission code.
+- `GET .../issued/accounts` lists what the form offers, and it is the list
+  the save holds a cheque to.
+
+**Decided in the build, each easy to turn round.**
+
+- Every cheque written this way is in the register, dated today or not,
+  already presented where it is not dated ahead. That is what "never printed
+  without a record" means here, and it is where the cheque number of an
+  expense lives.
+- A cheque number is written once on a bank account (among cheques not
+  cancelled or returned).
+- A cheque to a supplier or a customer may be drawn on any of the firm's
+  bank accounts; the payment or refund it becomes moves that account. A
+  payment typed on the Payments screen still moves the firm's Bank account.
+- "Any other account" is an active ledger account that no document keeps: a
+  loan, a deposit, capital, drawings, a fixed asset. Cash and the bank
+  accounts are refused (that is a contra entry), and so is any account a
+  control purpose claims -- receivables, payables, stock, tax -- because a
+  cheque straight to it would move the ledger and no party's account.
+- A cheque to a supplier written here is a payment on account; it clears
+  bills when it is presented with the bills named, or later like any
+  advance.
+- A held cheque to a customer is checked against what the customer holds on
+  account when it is presented, not when it is written.
+- A returned expense cheque is cancelled on the day it is recorded as
+  returned, as any expense is; the settlement and the voucher are reversed
+  on the day the bank returned them.
+
+**Still to build (the second half of row F13).** The **Write a cheque**
+screen under *Accounting* in the new UI; **Print cheque** on a saved
+expense, a refund and a cheque issued; the register showing who each cheque
+pays. Nothing in the desktop calls the five routes above yet, and
+`tests/unit/test_routes_have_a_caller.py` does not say so: it matches the
+shape of a path, and each of these has a sibling the desktop already calls.
+The test cases and the user guide come with the screen.
+
+**Not asked for, not built:** cheque book tracking (leaf ranges), several
+cheques at once, a stop-payment record, a payment advice.
