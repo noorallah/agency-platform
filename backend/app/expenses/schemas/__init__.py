@@ -35,6 +35,11 @@ class ExpenseCreate(ExpenseSchema):
     tds_section: str | None = Field(default=None, max_length=10)
     #: The payee's PAN, which the TDS return names the deductee by.
     payee_pan: str | None = Field(default=None, max_length=10)
+    #: Sent ``true`` by a screen whose user answered *Save anyway?* (row F2):
+    #: paying out of a cash account more than it holds is answered with a
+    #: question first, and saved when the same request arrives confirmed.
+    #: It confirms that one question and permits nothing else.
+    cash_below_zero_confirmed: bool = False
 
     @field_validator("payee_pan")
     @classmethod

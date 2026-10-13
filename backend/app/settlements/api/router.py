@@ -766,9 +766,20 @@ def record_refund(
     scope: RefundCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SettlementResponse]:
-    """Hand money back to a customer and post it to the ledger."""
+    """Hand money back to a customer and post it to the ledger.
+
+    Paid in cash where the cash account would stand below zero, it answers
+    409 with `details.reason` `cash_below_zero` and saves nothing; the same
+    body with `cash_below_zero_confirmed` saves it. A bank payment is never
+    asked about.
+    """
     service = RefundService(db)
-    row = service.create(payload, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    row = service.create(
+        payload,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        ask_before_cash_below_zero=not payload.cash_below_zero_confirmed,
+    )
     db.commit()
     db.refresh(row)
     return ApiResponse(
@@ -1166,9 +1177,20 @@ def record_payment(
     scope: PaymentCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SettlementResponse]:
-    """Record money paid to a vendor and post it to the ledger."""
+    """Record money paid to a vendor and post it to the ledger.
+
+    Paid in cash where the cash account would stand below zero, it answers
+    409 with `details.reason` `cash_below_zero` and saves nothing; the same
+    body with `cash_below_zero_confirmed` saves it. A bank payment is never
+    asked about.
+    """
     service = PaymentService(db)
-    row = service.create(payload, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    row = service.create(
+        payload,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        ask_before_cash_below_zero=not payload.cash_below_zero_confirmed,
+    )
     db.commit()
     db.refresh(row)
     return ApiResponse(

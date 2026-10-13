@@ -9601,3 +9601,55 @@ failed 19 checks on the old code.
   halves the ledger rounds, it is the figure typed in every case tried. A
   case where the two halves round a paisa apart was not looked for.
 - No screen was clicked. The editors' own running totals were not read.
+
+## 133. Paying out of cash that is not there is asked about -- built 2026-10-13
+
+**Customer task F2**, the owner's answer of 2026-10-13: "Paying out of Cash or
+Petty Cash more than it holds: the server answers a warning the screen must
+confirm, and on yes it saves. Never a block. Expenses, payments to suppliers,
+refunds. A bank account is never warned." PR #1473.
+
+**What was there.** An expense, a payment and a refund paid out of a cash
+account with nothing in it saved without a word, and the cash book showed a
+balance below zero that no cash box can hold. Only the contra voucher said
+anything, and it said it after saving.
+
+**Design.** The question is the server's, so every client gets it and none
+can skip it by accident:
+
+- `POST /api/v1/expenses`, `/api/v1/payments` and `/api/v1/refunds` answer
+  **409** with `details.reason` = `cash_below_zero` when the money account is
+  cash and would stand below zero at the end of the document's own date.
+  `details` also carries `account_name`, `holds`, `paying` and `on`; the
+  message is the sentence to show. **Nothing is saved**: the document and its
+  journal were staged to work the figure out and are rolled back.
+- The same body with `cash_below_zero_confirmed: true` saves and posts. The
+  field confirms that one question and permits nothing else.
+- The check runs after the journal is staged, on the posting itself, so the
+  amount judged is what really left the account: an expense less its TDS, a
+  payment abroad in rupees. No caller works it out a second time.
+- Which account is cash: the firm's CASH control account, and any other money
+  account beside it (Petty Cash) by the rule the contra voucher already used.
+  That rule and `balance_on` moved to
+  `app/finance/services/money_accounts.py`, and the contra service calls it.
+- The question is asked only when the router passes
+  `ask_before_cash_below_zero`. A service called by another service (a
+  payment run, a bill's *received now*) is not asked anything.
+- Desktop: `saveAskingAboutCash` in
+  `desktop/lib/ui/workspace/cash_below_zero_prompt.dart` runs the save, shows
+  the server's sentence with **Go back** and **Save anyway**, and sends the
+  confirmed request on yes. The expense form and the money form (payment,
+  refund) use it.
+
+**Decided here, by convention.** The day judged is the document's date (the
+contra voucher's rule; Tally's negative cash warning is by voucher date too).
+An account already below zero reads "is already 300.00 below zero ... pays
+1.00 more out of it" and not "holds -300.00".
+
+**Not built.**
+
+- A payment run, a commission payout, a fixed asset bought for cash, a GST
+  challan and the cancel of a receipt can still take cash below zero unasked.
+- The contra voucher still saves first and warns afterwards.
+- No firm setting turns the question off, and none makes it a refusal.
+- No screen was clicked; the two forms are covered by widget tests.

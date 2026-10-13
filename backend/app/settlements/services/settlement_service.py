@@ -77,6 +77,7 @@ from app.finance.services.control_accounts import (
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
+from app.finance.services.money_accounts import ask_before_cash_goes_below_zero
 from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.purchase_invoice.models import PurchaseInvoice
@@ -1329,6 +1330,7 @@ class SettlementService(TransactionalDocumentService):
         firm_id: UUID,
         actor_id: UUID,
         may_give_clearance_discount: bool = False,
+        ask_before_cash_below_zero: bool = False,
     ) -> Settlement:
         """Record one settlement, allocate it, and post it to the ledger.
 
@@ -1336,6 +1338,11 @@ class SettlementService(TransactionalDocumentService):
         ``PARTY_ADJUSTMENT_APPROVE``. Without it a receipt's discount stops at
         the cash discount the customer's terms earn on the bills it clears
         (backlog 115); the router passes it from the principal.
+
+        ``ask_before_cash_below_zero`` is passed by the router for a payment
+        or a refund not yet confirmed: one that leaves the cash account
+        below zero is answered with a question and nothing is saved (row
+        F2). Money coming in is never asked about.
         """
         is_receipt = self.DIRECTION == SettlementDirection.RECEIPT
         is_refund = self.DIRECTION == SettlementDirection.REFUND
@@ -1710,6 +1717,14 @@ class SettlementService(TransactionalDocumentService):
                 ),
                 firm_id=firm_id,
                 actor_id=actor_id,
+            )
+        if ask_before_cash_below_zero and not is_receipt:
+            ask_before_cash_goes_below_zero(
+                self._session,
+                firm_id=firm_id,
+                account_id=money_account_id,
+                journal_entry_id=entry.id,
+                on=data.settlement_date,
             )
         return row
 

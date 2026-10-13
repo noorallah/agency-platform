@@ -35,6 +35,7 @@ from app.finance.models import AccountType, FirmControlAccount, LedgerAccount
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
+from app.finance.services.money_accounts import ask_before_cash_goes_below_zero
 
 #: The control purposes a paid-from account may carry. Cash and bank are what
 #: money is paid out of; every other purpose belongs to the documents that
@@ -266,8 +267,20 @@ class ExpenseService(TransactionalDocumentService):
     # Writes
     # ------------------------------------------------------------------
 
-    def create(self, data: ExpenseCreate, *, firm_id: UUID, actor_id: UUID) -> Expense:
-        """Record one expense and post its journal. Staged; the caller commits."""
+    def create(
+        self,
+        data: ExpenseCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        ask_before_cash_below_zero: bool = False,
+    ) -> Expense:
+        """Record one expense and post its journal. Staged; the caller commits.
+
+        ``ask_before_cash_below_zero`` is passed by the router for a request
+        not yet confirmed: an expense that leaves a cash account below zero
+        is then answered with a question and nothing is saved (row F2).
+        """
         expense_account = self._require_account(
             data.expense_account_id,
             firm_id=firm_id,
@@ -376,6 +389,14 @@ class ExpenseService(TransactionalDocumentService):
             },
         )
         self._session.flush()
+        if ask_before_cash_below_zero:
+            ask_before_cash_goes_below_zero(
+                self._session,
+                firm_id=firm_id,
+                account_id=paid_from.id,
+                journal_entry_id=entry.id,
+                on=data.expense_date,
+            )
         return row
 
     def cancel(

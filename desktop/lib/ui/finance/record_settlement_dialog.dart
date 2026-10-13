@@ -9,6 +9,7 @@ import '../../models/settlement.dart';
 import '../../models/tds.dart';
 import '../../models/settlement_direction.dart';
 import '../../models/vendor.dart';
+import '../workspace/cash_below_zero_prompt.dart';
 import '../workspace/desktop_framework.dart';
 
 /// Validate what is about to be sent, in the words a cashier would use.
@@ -645,9 +646,13 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       _error = null;
     });
     try {
-      final Settlement saved = await widget.api.recordSettlement(
+      final Settlement? saved = await saveAskingAboutCash<Settlement>(
+          context,
+          (bool confirmed) => widget.api.recordSettlement(
         direction: widget.direction,
         data: <String, dynamic>{
+          // Sent only after the person answered the server's question.
+          if (confirmed) 'cash_below_zero_confirmed': true,
           'party_id': _partyId,
           // Only where one was named: blank is "no particular order", which
           // is what most receipts are.
@@ -694,8 +699,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
               {'invoice_id': entry.key, 'amount': entry.value},
           ],
         },
-      );
-      if (!mounted) return;
+      ));
+      // Went back from the question: the form stays as typed.
+      if (!mounted || saved == null) return;
       Navigator.of(context).pop(saved);
     } on ApiException catch (exception) {
       if (!mounted) return;

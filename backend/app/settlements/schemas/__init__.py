@@ -105,6 +105,11 @@ class SettlementCreate(SettlementSchema):
     #: customer holds on account first.
     credit_source_id: UUID | None = None
     allocations: list[SettlementAllocationWrite] = Field(default_factory=list)
+    #: Sent ``true`` by a screen whose user answered *Save anyway?* (row F2):
+    #: paying out of a cash account more than it holds is answered with a
+    #: question first, and saved when the same request arrives confirmed.
+    #: It confirms that one question and permits nothing else.
+    cash_below_zero_confirmed: bool = False
     #: Tax deducted at source out of ``amount`` (backlog 53.1). ``amount`` is
     #: what settles the party -- the bill's full value -- and the cash or bank
     #: moves ``amount - tds_amount``: on a payment the firm deducted the rest
