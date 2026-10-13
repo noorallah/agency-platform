@@ -209,10 +209,11 @@ class BrandService:
         return self._brand_responses([row])[0]
 
     def delete_brand(self, brand_id: UUID, *, firm_id: UUID, actor_id: UUID) -> None:
-        """Remove a brand no live product names.
+        """Remove a brand no live product and no supplier names.
 
         Raises:
-            ValidationError: If a product still carries it.
+            ValidationError: If a product still carries it, or a supplier
+                still names it as one it may sell.
 
         """
         row = self._brand(brand_id, firm_id)
@@ -224,6 +225,16 @@ class BrandService:
         if held is not None:
             raise ValidationError(
                 f"{row.name} is still the brand of {held}; change those products first."
+            )
+        # A supplier's list of brands is not a foreign key a soft delete
+        # reaches, so the refusal lives here (backlog 129).
+        from app.vendors.services.vendor_brands import VendorBrandService
+
+        supplier = VendorBrandService(self._session).supplier_naming(brand_id)
+        if supplier is not None:
+            raise ValidationError(
+                f"{row.name} is still named as a brand of supplier {supplier}; "
+                "take it off that supplier first."
             )
         row.is_deleted = True
         row.deleted_at = utc_now()

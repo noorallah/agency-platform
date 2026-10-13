@@ -20,6 +20,7 @@ import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
+import '../workspace/brand_filter.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/party_place.dart';
@@ -229,6 +230,23 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
 
   List<Customer> _customers = const [];
   List<Product> _products = const [];
+
+  /// Backlog 129: the Brand box narrows what the product boxes offer. Blank is
+  /// every product, `company:` and a company id, its brands, else one brand's id.
+  /// Nothing about it is stored or sent. [_brandEpoch] builds the product
+  /// boxes again when it changes.
+  List<BrandRecord> _brandRecords = const [];
+  String _brandChoice = '';
+  int _brandEpoch = 0;
+
+  Future<void> _readBrands() async {
+    try {
+      final List<BrandRecord> read = await widget.api.brands();
+      if (mounted) setState(() => _brandRecords = read);
+    } on Object {
+      // Brands come from the products alone, with no company entries.
+    }
+  }
   List<BranchRecord> _branches = const [];
   List<WarehouseRecord> _warehouses = const [];
 
@@ -486,6 +504,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       });
       // After the order, so a correction opens with its stored values.
       unawaited(_customFields.start());
+      if (_products.isNotEmpty) unawaited(_readBrands());
       _ensureUnitCodes();
       // Phase 2 prices what was loaded straight away.
       _schedulePreview();

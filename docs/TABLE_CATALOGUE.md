@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**334 tables**, of which **17** live only in the platform store.
+**338 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -138,7 +138,7 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `bill_handovers` | firm store ¹ | Store one bill handed to one collector, and when it came back. | `customers`, `sales_invoices`, `customer_opening_bills` |
-| `collection_returns` | firm store ¹ | Store one day's outcome on one bill handed to a collector: collected, part, promised or not collected, the receipt that took its money into the books and the promise taken with it. | `bill_handovers`, `settlements`, `payment_promises` |
+| `collection_returns` | firm store ¹ | Store one day's outcome on one bill handed to a collector. | `bill_handovers`, `settlements`, `payment_promises` |
 | `payment_promises` | firm store ¹ | Store one promise to pay, against a bill or the customer's account. | `customers`, `sales_invoices` |
 
 ### `app/commission`
@@ -147,7 +147,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `commission_clawbacks` | firm store ¹ | What one payout recovered from one earlier, paid payout. | `commission_payouts` |
 | `commission_payouts` | firm store ¹ | One period's commission for one salesman, from accrual to payment. | `users`, `ledger_accounts`, `journal_entries` |
-| `commission_rule_slabs` | firm store ¹ | One rung of a rule's ladder: a band of value, and the percentage or the fixed amount it pays. | `commission_rules` |
+| `commission_rule_slabs` | firm store ¹ | One rung of a rule's ladder: a band of value, and what it pays. | `commission_rules` |
 | `commission_rules` | firm store ¹ | Store one flat commission percentage, scoped and effective-dated. | `users`, `products`, `product_categories` |
 
 ### `app/common`
@@ -698,6 +698,7 @@ trigger each schema owns its own copy of.
 | `vendor_attachments` | firm store ¹ | Represent one vendor attachment metadata row. | `vendors` |
 | `vendor_attribute_values` | firm store ¹ | Store one configurable attribute value for a vendor. | `vendors`, `firms`, `attribute_definitions` |
 | `vendor_bank_accounts` | firm store ¹ | Represent one vendor bank account. | `vendors` |
+| `vendor_brands` | firm store ¹ | One brand one supplier may sell. | `firms`, `vendors`, `brands` |
 | `vendor_categories` | firm store ¹ | Persist a reusable vendor category per firm. | `firms` |
 | `vendor_contacts` | firm store ¹ | Represent one vendor contact person. | `vendors` |
 | `vendor_notes` | firm store ¹ | Represent one vendor note/history item. | `vendors` |

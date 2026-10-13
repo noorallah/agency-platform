@@ -2377,6 +2377,32 @@ of 2026-10-05 and, like the rest, have not been run by hand.
   - Step 7: the bill is shown again with the new supplier chosen.
   - Step 8: there is no **New vendor** button.
 
+### TC-BUY-104 — A purchase order for one brand offers only that brand's products
+
+*Added 2026-10-13 (backlog 129). The server steps were driven over HTTP; the screens are covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 129 (customer task M11)
+- **Fixture:** `ready-firm`
+- **Also needs:** two companies under *Set up → Item lists → Principals*, `HUL` and `PG`; three brands under *Brands*: `Surf` and `Lux` of HUL, `Tide` of PG; a product of each brand and one product with no brand; two suppliers, `A` and `B`.
+- **Steps**
+  1. Open *Buy → Suppliers*, open supplier `A`. In **Brands this supplier sells** tick `Surf` and press **Save brands**.
+  2. Open *Buy → Purchase Orders* → new and choose supplier `A`. Open the product box of the first line.
+  3. In the **Brand** box choose **Every product**. Open the product box again.
+  4. Choose the `Tide` product on the line, then set the **Brand** box back to **All brands of this supplier**.
+  5. Choose supplier `B`, which has no brand ticked. Open the product box.
+  6. On supplier `B` tick `Surf` and `Tide` and save. Open a new order for `B` and choose `Tide` in the **Brand** box.
+  7. Open *Set up → Item lists → Brands* and delete `Surf`.
+  8. Open *Sell → Sales Orders* → new. In the **Brand** box choose the entry for company HUL. Open the product box.
+- **Expect**
+  - Step 1: the tick is kept when the supplier is opened again.
+  - Step 2: the **Brand** box reads *All brands of this supplier*. The product box lists only the `Surf` product.
+  - Step 3: the product box lists every product, the one with no brand too.
+  - Step 4: the line still shows the `Tide` product. A new line's product box lists only the `Surf` product.
+  - Step 5: the **Brand** box reads *All products* and the product box lists every product.
+  - Step 6: the product box lists only the `Tide` product. Supplier `B` holds brands of two companies.
+  - Step 7: refused: the brand is still on a product, and when no product carries it, still named on a supplier. The message names the supplier.
+  - Step 8: the product box lists only the `Surf` and `Lux` products.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked

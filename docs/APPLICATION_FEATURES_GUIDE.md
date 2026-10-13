@@ -1092,6 +1092,25 @@ the document with the new supplier chosen and everything typed still there;
 may add suppliers. A goods receipt takes its supplier from the purchase
 order, so it has no such button.
 
+**The brands a supplier sells.** Companies and their brands are kept under
+*Set up → Item lists → Principals* and *Brands*, and a product names its
+brand. On a supplier's form, **Brands this supplier sells** lists the firm's
+brands with a tick box each; tick the ones this supplier may sell and press
+**Save brands**. A stockist who sells several companies' brands is one
+supplier with all of those brands ticked. A supplier with no brand ticked
+takes the brands of the company bought from it (the supplier named on the
+company under *Principals*); a branch with none ticked takes its main
+office's; a supplier none of these answers for sells everything. On a
+purchase order the **Brand** box above the lines starts at *All brands of
+this supplier*, and the product box of each line then offers only those
+brands' products. Choose one brand to order that brand alone, or *Every
+product* to see the rest. This only shortens the list: a product outside the
+supplier's brands can still be ordered, and a product already on a line
+stays there. A sales order and a sales bill have the same **Brand** box, with
+the firm's companies and brands, to shorten the product list while typing;
+the counter bill does not. A
+brand cannot be deleted while a supplier has it ticked.
+
 ## 6.2 Documents
 
 *Purchase Orders, Goods Receipts* and *Purchase Invoices* are in the Buy

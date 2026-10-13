@@ -25,6 +25,7 @@ import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import 'supplier_catalogue_section.dart';
+import 'vendor_brands_section.dart';
 import 'vendor_ratings_section.dart';
 import '../../phase2/document_page.dart';
 
@@ -230,6 +231,11 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
                   widget.permissions.hasPermission('VENDOR_UPDATE'),
               canImportCatalogue:
                   widget.permissions.hasPermission('VENDOR_IMPORT'),
+              showBrands: vendor != null &&
+                  (widget.permissions.hasPermission('VENDOR_VIEW') ||
+                      widget.permissions.hasPermission('PURCHASE_VIEW')),
+              canManageBrands:
+                  widget.permissions.hasPermission('VENDOR_UPDATE'),
               loadRatings: vendor != null &&
                       (widget.permissions.hasPermission('VENDOR_VIEW') ||
                           widget.permissions.hasPermission('PURCHASE_VIEW'))
@@ -753,6 +759,8 @@ class _VendorEditorDialog extends StatefulWidget {
     this.showCatalogue = false,
     this.canManageCatalogue = false,
     this.canImportCatalogue = false,
+    this.showBrands = false,
+    this.canManageBrands = false,
     this.loadRatings,
     this.onRate,
     this.onWithdrawRating,
@@ -810,6 +818,12 @@ class _VendorEditorDialog extends StatefulWidget {
   final bool showCatalogue;
   final bool canManageCatalogue;
   final bool canImportCatalogue;
+
+  /// The brands this supplier may sell (backlog 129), phase 2 only: shown for
+  /// a saved supplier to somebody holding `VENDOR_VIEW` or `PURCHASE_VIEW`;
+  /// ticking and saving needs `VENDOR_UPDATE`.
+  final bool showBrands;
+  final bool canManageBrands;
 
   /// What people think of this supplier (BUY-15). Null hides the section for
   /// a user who can read neither `VENDOR_VIEW` nor `PURCHASE_VIEW`; a new
@@ -966,6 +980,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       'Licences',
       'Opening bills',
       'Catalogue',
+      'Brands',
       'Ratings',
     ])
       section: GlobalKey(),
