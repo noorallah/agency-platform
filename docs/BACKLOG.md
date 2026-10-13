@@ -8365,3 +8365,97 @@ one that clears it, a paper nobody knows refused with 422.
 - The sample prints one discount column. Here it is the discount amount of
   the line; the sample's may be a percentage.
 - The customer import does not carry the bill paper.
+
+---
+
+## 119. Approval per document type, sales side -- built 2026-10-13
+
+Customer task M1 (`docs/CUSTOMER_BUILD_TASKS.md`). The owner's decision of
+2026-10-12: approval is set per document type; the firm chooses from the steps
+a document already has; where only the final step is in use, saving does
+everything in one click, with the checks made at approval made at save; a
+change applies to documents made from that day on.
+
+**What was there.** A firm already chose which documents its people type
+(*Sales Stages*: quotation, order, delivery note), and a bill typed straight
+in raised and approved the order and the note behind it. The phase 2 windows
+already had **Save & approve**, one click for somebody holding `SALES_APPROVE`.
+What was missing: a switch for approval itself. Every order, note and bill
+stopped as a draft until a holder of the approve code approved it, so a
+salesman or a counter clerk in a firm of one owner could save a bill and not
+finish it.
+
+**Decided.**
+
+- **A switch per document, not one for the firm**: *Sales orders wait for
+  approval*, *Delivery notes wait for approval*, *Sales bills wait for
+  approval*, in `sales_workflow_settings`. All on for every firm until
+  somebody switches one off, so nothing changed for an existing firm.
+- **The answer is stamped on the document as it is raised**
+  (`approval_step`). Switching the setting never changes a document already
+  made: a draft raised while approval was a step still waits for an approver,
+  and one raised while it was not is still its author's to complete.
+- **Off does not remove the approval; it says who gives it.** Whoever raised
+  the document approves it under the code they raised it with. Anybody else's
+  still needs the approve code. The stamp is the server's, read from the
+  firm's setting; no request can carry it.
+- **Every check approval makes is still made**: the credit limit, the licence
+  check, the price floor, the discount limit of the person's role, stock at
+  dispatch. Under a blocking policy the document stays a draft with the
+  refusal shown, and somebody allowed to override approves it.
+- **One Save on the screen, two requests to the server.** The window saves
+  the draft and at once asks for the approval, which is what *Save & approve*
+  always did. It was kept that way so that the questions asked before an
+  approval (credit, licences, price floor, each of which may take a reason)
+  are asked of a saved document, as they are today. A bill refused at approval
+  is left as a saved draft, not lost.
+- **Dispatch stays an act of its own.** On a delivery note the switch covers
+  approval only; goods leaving the warehouse is an event, with batches and
+  serial numbers to name. A bill typed straight in still dispatches its own
+  note when it is approved, so a firm with every stage and every approval off
+  bills, ships and posts in one Save.
+- **The quotation has no switch**: it has no approval step, only sent,
+  accepted and declined.
+
+**Built.**
+
+- Migration `20261013_0360` (firm-owned, idempotent): three columns on
+  `sales_workflow_settings`, `approval_step` on `sales_orders`,
+  `delivery_notes` and `sales_invoices`, all true by default.
+- `assert_may_approve` in `app/common/scope.py`, beside
+  `assert_may_edit_draft` and of the same shape; the three single-document
+  approve routes admit the create code and narrow it with that. Bulk approve
+  still needs the approve code.
+- The three answers carry `approval_step`; the delivery note's answer gained
+  `created_by`.
+- Desktop: an **Approval** section with the three switches on *Sales Stages*;
+  the order, note and bill windows show one **Save** that completes the
+  document where approval is not a step; the Approve step in lists and
+  windows is offered to the author of such a document.
+
+**D5, a sales bill typed directly with the other stages off: how many
+clicks.** One: **Save**, with the three stages and *Sales bills wait for
+approval* switched off. The bill is approved, the goods leave and the sale is
+posted. With approval left on it is still one click, **Save & approve**, for
+somebody holding the approve code, and a save followed by another person's
+approval for anybody else.
+
+**Tested.** `tests/unit/test_sales_approval_per_document.py` (9): the
+defaults, an omitted switch left alone, no request carrying the stamp, a clerk
+with the create code alone completing his own bill with the goods dispatched,
+a firm with approval on stopped at it, only the author let through, a document
+keeping the steps it was made under, a bill beyond the stock still refused,
+the order and the note each on its own switch. Desktop:
+`sales_approval_per_document_test.dart` and
+`sales_workflow_settings_dialog_test.dart`. Driven over HTTP on a fixture
+firm with a second user holding the Sales Executive role (42 checks).
+
+**Not done.**
+
+- The delivery note window's single Save and its list's Approve for the
+  author have no widget test (the order's and the bill's have).
+- Sales returns and credit notes keep their approval as it is: no switch.
+- The buying side is customer task M2.
+- No screen was clicked in the running app.
+- The Counter Sales (point of sale) screen was not changed; it completes a
+  bill in its own way and its user needs what it needed before.

@@ -156,6 +156,17 @@ DocumentStep<Json> _plainStep(
 
 bool _held(Json row) => row['is_on_hold'] == true;
 
+/// Backlog 119: a document raised where approval is not a step of its own
+/// is approved by whoever raised it, without the approve code. The server
+/// makes the same test on `approval_step` and `created_by`.
+bool Function(Json row) _ownUnstepped(PermissionService permissions) =>
+    (Json row) {
+      final String? me = permissions.userId;
+      return row['approval_step'] == false &&
+          me != null &&
+          '${row['created_by'] ?? ''}' == me;
+    };
+
 /// A sales order's next steps: Approve, Hold or Release, Reserve again,
 /// Cancel, Close.
 List<DocumentStep<Json>> salesOrderSteps(
@@ -174,6 +185,7 @@ List<DocumentStep<Json>> salesOrderSteps(
       forward: true,
       afterSave: 'Save & approve',
       permitted: approver,
+      rowPermitted: _ownUnstepped(permissions),
       allows: (row) => DocumentStatusGate.salesOrder
           .allows(DocumentLifecycleAction.approve, '${row['status'] ?? ''}'),
       run: (context, row) => _approveSale(
@@ -278,6 +290,7 @@ List<DocumentStep<Json>> salesInvoiceSteps(
       forward: true,
       afterSave: 'Save & approve',
       permitted: approver,
+      rowPermitted: _ownUnstepped(permissions),
       allows: (row) => DocumentStatusGate.salesInvoice
           .allows(DocumentLifecycleAction.approve, '${row['status'] ?? ''}'),
       run: (context, row) => _approveSale(

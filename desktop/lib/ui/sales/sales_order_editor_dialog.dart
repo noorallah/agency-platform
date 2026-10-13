@@ -14,6 +14,7 @@ import '../../models/entities.dart';
 import '../../models/firm_member.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
+import '../../models/sales_invoice.dart';
 import '../../models/uom_packaging.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
@@ -356,6 +357,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// saved by this window; null for a new order not yet saved.
   Json? _record;
 
+  /// Backlog 119: the firm does not make approval a step of its own for
+  /// sales orders, so saving a new one completes it.
+  bool _approvalOff = false;
+
   /// Whether this window has written the order, so closing it tells the list
   /// to read itself again.
   bool _wrote = false;
@@ -440,17 +445,23 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       // The firm's default for a new order's switch. Unreadable settings
       // leave it off, which is what the order always did.
       bool firmDefault = false;
+      bool approvalOff = false;
       if (id == null && _phase2) {
         try {
-          firmDefault = (await widget.api.salesWorkflowSettings())
-              .rateIncludesTax;
+          final SalesWorkflowSettings stages =
+              await widget.api.salesWorkflowSettings();
+          firmDefault = stages.rateIncludesTax;
+          approvalOff = !stages.salesOrderApproval;
         } on ApiException {
           firmDefault = false;
         }
       }
       if (!mounted) return;
       setState(() {
-        if (existing == null) _rateIncludesTax = firmDefault;
+        if (existing == null) {
+          _rateIncludesTax = firmDefault;
+          _approvalOff = approvalOff;
+        }
         _customers = (loaded[0] as List<dynamic>).cast<Customer>();
         _products = (loaded[1] as List<dynamic>).cast<Product>();
         _branches = (loaded[2] as List<dynamic>).cast<BranchRecord>();

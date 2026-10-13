@@ -114,7 +114,9 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     }
     final String number = stringValue(_preview?.invoice['invoice_number']);
     // Save & approve (D-BUY-22), beside the save.
-    final DocumentStep<Json>? approve = stepAfterSave(widget.steps);
+    final DocumentStep<Json>? sole = soleSaveStep(widget.steps,
+        settingOff: !_stages.salesInvoiceApproval, existing: _existing);
+    final DocumentStep<Json>? approve = sole ?? stepAfterSave(widget.steps);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
@@ -193,10 +195,18 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   ),
                   ...saveButtons(
                     saveKey: const ValueKey('sales-invoice-save'),
-                    saveLabel: _editing ? 'Save invoice' : 'Save draft',
-                    onSave: _saving ? null : () => unawaited(_save()),
+                    saveLabel: sole != null
+                        ? 'Save'
+                        : _editing
+                            ? 'Save invoice'
+                            : 'Save draft',
+                    onSave: _saving
+                        ? null
+                        : sole != null
+                            ? () => unawaited(_saveAndStep(sole))
+                            : () => unawaited(_save()),
                     stepKey: const ValueKey('sales-invoice-save-approve'),
-                    stepLabel: approve?.afterSave,
+                    stepLabel: sole != null ? null : approve?.afterSave,
                     onStep: _saving || approve == null
                         ? null
                         : () => unawaited(_saveAndStep(approve)),

@@ -344,6 +344,10 @@ class SalesOrderResponse(SalesOrderSchema):
     #: Who raised it. The desktop offers Edit on a draft to its author when
     #: they hold the create code and not `SALES_UPDATE` (D-ROLE-2).
     created_by: UUID | None = None
+    #: Whether approval is a step of its own on this document (backlog
+    #: 119). False: whoever raised it may approve it without the approve
+    #: code, so the desktop's Save completes it.
+    approval_step: bool = True
     firm_id: UUID
     customer_id: UUID
     #: Who the order is for, by name, so a picker of orders -- the
@@ -568,6 +572,11 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     new_outlets_need_approval: bool = False
     #: Days before an unshipped order's stock hold lapses; null never (STK-12).
     reservation_lapse_days: int | None = None
+    #: Whether approval is a step of its own on each document (backlog
+    #: 119). Off: whoever raises one completes it in the same Save.
+    sales_order_approval: bool = True
+    delivery_note_approval: bool = True
+    sales_invoice_approval: bool = True
     is_configured: bool
 
 
@@ -603,6 +612,12 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     new_outlets_need_approval: bool | None = None
     #: Omitted is left as it is; an explicit null switches lapsing off.
     reservation_lapse_days: int | None = Field(default=None, ge=1, le=365)
+    #: Approval as a step of its own, per document (backlog 119). Omitted
+    #: is left as it is: an editor that never showed them must not switch
+    #: a control off. A change reaches documents raised from then on.
+    sales_order_approval: bool | None = None
+    delivery_note_approval: bool | None = None
+    sales_invoice_approval: bool | None = None
 
 
 class SalesOrderPreview(SalesOrderSchema):

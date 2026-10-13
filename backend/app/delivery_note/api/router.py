@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.batch_serial.schemas import DispatchBatchCheck
 from app.common.scope import (
     ResolvedFirmScope,
+    assert_may_approve,
     firm_any_permission_scope,
     firm_permission_scope,
 )
@@ -131,6 +132,18 @@ DeliveryNoteUpdateScope = Annotated[
 DeliveryNoteApproveScope = Annotated[
     ResolvedFirmScope,
     firm_any_permission_scope("SALES_APPROVE", "DELIVERY_NOTE_DISPATCH"),
+]
+#: Approving one note also admits the codes that raise one: where the firm
+#: has made approval no step of its own, the author completes the note
+#: (backlog 119). The handler narrows it with `assert_may_approve`.
+DeliveryNoteApproveOneScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope(
+        "SALES_APPROVE",
+        "DELIVERY_NOTE_DISPATCH",
+        "SALES_CREATE",
+        "DELIVERY_NOTE_CREATE",
+    ),
 ]
 DeliveryNoteCancelScope = Annotated[
     ResolvedFirmScope,
@@ -501,12 +514,24 @@ def update_delivery_note(
 @router.post("/{note_id}/approve", response_model=ApiResponse[DeliveryNoteResponse])
 def approve_delivery_note(
     note_id: UUID,
-    scope: DeliveryNoteApproveScope,
+    scope: DeliveryNoteApproveOneScope,
     db: Session = Depends(get_db),
     licence_override_reason: LicenceOverrideReason = None,
 ) -> ApiResponse[DeliveryNoteResponse]:
-    """Approve one delivery note."""
+    """Approve one delivery note.
+
+    Under an approve code, or by whoever raised it where the firm has made
+    approval no step of its own (backlog 119). Dispatch stays its own act.
+    """
     service = DeliveryNoteService(db)
+    current = service.get_note(note_id, firm_scope=scope.firm_id)
+    assert_may_approve(
+        scope,
+        created_by=current.created_by,
+        approval_step=current.approval_step,
+        approve_codes=("SALES_APPROVE", "DELIVERY_NOTE_DISPATCH"),
+        document="delivery note",
+    )
     row = service.approve_note(
         note_id,
         firm_scope=scope.firm_id,

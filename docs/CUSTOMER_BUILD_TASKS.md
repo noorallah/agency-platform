@@ -32,7 +32,7 @@ The Swathi import is **not** in this list. It is kept in
 5. Reference doc, user guide and QA test cases in the same work.
 6. One pull request per row; merge on targeted tests; migrate every store
    and restart the backend if a migration landed.
-7. Give the item its entry in `docs/BACKLOG.md` (next free number 119) and
+7. Give the item its entry in `docs/BACKLOG.md` (next free number 120) and
    write Status here: `DONE #PR`, or `STOPPED: reason`.
 8. A row marked WAITS or DESIGN is skipped. If a READY row turns out to need
    an answer nobody has given, write the question in the Status column, mark
@@ -60,7 +60,7 @@ The Swathi import is **not** in this list. It is kept in
 
 | # | Item | Done when | Try | Status |
 | --- | --- | --- | --- | --- |
-| M1 | Approval per document type, taken from the steps the document already has. With only the final step switched on, Save does every step. Sales side | A firm with all steps off bills in one save; a firm with approval on is stopped at it | D5 | READY |
+| M1 | Approval per document type, taken from the steps the document already has. With only the final step switched on, Save does every step. Sales side | A firm with all steps off bills in one save; a firm with approval on is stopped at it | D5 | DONE (backlog 119). *Sales Stages* has a new part, **Approval**, with a switch each for sales orders, delivery notes and sales bills: *wait for approval*, on for every firm until switched off. Off, the window shows one **Save** that saves and completes the document, and whoever raised it is who approves it, without the approve permission; somebody else's still needs it. Each document keeps the answer it was raised under, so a change reaches new documents only. The checks made at approval (credit limit, licences, price floor, discount limit, stock) are all still made. A delivery note's dispatch stays its own step; a bill typed straight in still ships its goods when completed. Stores by migration `20261013_0360`. Tried over HTTP on a fixture firm with a Sales Executive as the second person: 42 checks. D5: with the stages and the bill's approval off, a bill is one click, **Save**. Not covered: sales returns and credit notes; the Counter Sales screen |
 | M2 | The same for the buying side | As M1, on a purchase order through to the supplier's bill | | READY after M1 |
 | M3 | Customer account table: the account as rows, adding a row is a new receipt, for the customer or against one bill, the last X entries shown | A receipt added from the table closes the bill and appears in the ledger | | READY |
 | M4 | Bills handed to a collector: a separate bill-and-collector table that never touches the books. Assign by date, area, a run of bill numbers, or by ticking | Assigning and taking back change no balance and no report | | READY |

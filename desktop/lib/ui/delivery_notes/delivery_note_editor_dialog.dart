@@ -13,6 +13,7 @@ import '../../models/entities.dart';
 import '../../models/gst_documents.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
+import '../../models/sales_invoice.dart';
 import '../../models/transporter.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
@@ -306,6 +307,10 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   /// the approval did not happen. The window then holds that draft: it
   /// cannot raise a second note, and its steps act on the one saved.
   Json? _saved;
+
+  /// Backlog 119: the firm does not make approval a step of its own for
+  /// delivery notes, so saving a new one completes it.
+  bool _approvalOff = false;
   bool _loadingLines = false;
   String? _error;
 
@@ -324,6 +329,20 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   void initState() {
     super.initState();
     unawaited(_customFields.start());
+    unawaited(_readApprovalSetting());
+  }
+
+  /// One read when the window opens. Unreadable settings leave approval a
+  /// step of its own, which is what a note always was.
+  Future<void> _readApprovalSetting() async {
+    try {
+      final SalesWorkflowSettings stages =
+          await widget.api.salesWorkflowSettings();
+      if (!mounted || stages.deliveryNoteApproval) return;
+      setState(() => _approvalOff = true);
+    } on Object {
+      // Left as it was.
+    }
   }
 
   @override

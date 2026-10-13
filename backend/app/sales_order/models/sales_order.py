@@ -97,6 +97,12 @@ class SalesOrder(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default="DRAFT"
     )
+    #: Whether approval was a step of its own when this order was raised
+    #: (backlog 119), stamped from the firm's sales workflow setting. False
+    #: lets whoever raised it approve it; the checks approval runs still run.
+    approval_step: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     #: A discount on the whole document, negotiated once rather than typed on
     #: every line. It comes off what the lines discounted to, and each line
     #: carries its share so the tax is charged on the discounted value.
@@ -450,6 +456,20 @@ class SalesWorkflowSettings(BaseEntity):
     #: (backlog 64 row 4). Only the default: each bill carries its own switch.
     rate_includes_tax: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Whether approval is a step of its own on each document (backlog 119).
+    #: On, as it has always been: a draft waits for somebody who holds the
+    #: approve code. Off: whoever raised the document completes it, so one
+    #: Save does both. Each new document is stamped with the answer
+    #: (``approval_step``), so switching it never changes one already made.
+    sales_order_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    delivery_note_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    sales_invoice_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
 
 

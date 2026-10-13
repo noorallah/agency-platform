@@ -93,8 +93,12 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     final String number = stringValue(_preview?.order['order_number']);
     // Save & approve (D-BUY-22) on a draft, beside the save; a saved order's
     // other steps -- hold, cancel, close -- through the shared strip.
+    final DocumentStep<Json>? sole = _locked
+        ? null
+        : soleSaveStep(widget.steps,
+            settingOff: _approvalOff, existing: _record);
     final DocumentStep<Json>? approve =
-        _locked ? null : stepAfterSave(widget.steps);
+        _locked ? null : sole ?? stepAfterSave(widget.steps);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
@@ -155,10 +159,18 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                   if (!_locked)
                     ...saveButtons(
                       saveKey: const ValueKey('sales-order-save'),
-                      saveLabel: _editing ? 'Save order' : 'Save draft',
-                      onSave: _saving ? null : () => unawaited(_save()),
+                      saveLabel: sole != null
+                          ? 'Save'
+                          : _editing
+                              ? 'Save order'
+                              : 'Save draft',
+                      onSave: _saving
+                          ? null
+                          : sole != null
+                              ? () => unawaited(_saveAndStep(sole))
+                              : () => unawaited(_save()),
                       stepKey: const ValueKey('sales-order-save-approve'),
-                      stepLabel: approve?.afterSave,
+                      stepLabel: sole != null ? null : approve?.afterSave,
                       onStep: _saving || approve == null
                           ? null
                           : () => unawaited(_saveAndStep(approve)),

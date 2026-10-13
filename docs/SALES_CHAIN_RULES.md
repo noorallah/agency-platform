@@ -473,6 +473,21 @@ A column per stage rather than a mode, because a firm grows: an enum needs a
 new value for every combination on that path. The switch governs **new**
 documents only, so turning a stage on never strands work in flight.
 
+**Approval is a step a firm may leave to the author, per document** (backlog
+119, 2026-10-13). `sales_order_approval`, `delivery_note_approval` and
+`sales_invoice_approval` on the same row, all on by default. The answer is
+**stamped on the document as it is raised** (`approval_step`), never read
+live, so a draft raised under approval still waits for an approver after the
+switch goes off, and no request can carry the stamp. Off does not remove the
+approval; it says who gives it: `assert_may_approve` (`app/common/scope.py`)
+lets whoever raised the document approve it under the create code, and
+nobody else without the approve code. The service is the same
+`stage_approval`, so every check it makes is still made. Creating does not
+approve: the window saves and then asks for the approval, because the
+questions asked before an approval are asked of a saved document. Dispatch is
+not covered: goods leaving is an event, not a sign-off. Bulk approve still
+needs the approve code.
+
 **A draft bill ships nothing** (D-SELL-13, 2026-09-19). The note the chain
 raises for a bill is approved and left waiting; the bill's **approval**
 dispatches it, in the approval's own transaction, and costs the bill's lines

@@ -371,6 +371,13 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     attached_file_count: int = 0
 
     id: UUID
+    #: Who raised it: with approval not a step of its own, the author is
+    #: who may approve it (backlog 119).
+    created_by: UUID | None = None
+    #: Whether approval is a step of its own on this document (backlog
+    #: 119). False: whoever raised it may approve it without the approve
+    #: code, so the desktop's Save completes it.
+    approval_step: bool = True
     #: The optimistic-concurrency version, published so a client can send
     #: it back as ``If-Match``. It rides in the body as well as the ETag
     #: header because a list carries many records and a header carries
