@@ -4456,6 +4456,34 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Also:** while an edit is typed the credit is not worked out again; the window says it is worked out on saving (D-UI-99). A return against several documents, or with a line typed in another unit, is not opened for Edit and the screen says why.
 - **Leaves:** a return, a quotation and two offers.
 
+### TC-SELL-108 — Orders approved together say what stays on back order, and a list under a document reads itself again
+
+*Added 2026-10-14 (D-UI-26, D-UI-60 to 63, row G7). The back-order report was driven over HTTP on a fixture firm; everything on screen is covered by widget tests only and **no screen was clicked**, so those steps are written from the build.*
+
+- **Covers:** D-UI-26, D-UI-60, D-UI-61, D-UI-62, D-UI-63
+- **Fixture:** `ready-firm`
+- **Also needs:** a product with **no stock** in the warehouse used; a customer; three Draft sales orders, two for that product (10 and 7) and one for a product in stock; a second user signed in on another machine or window who can raise a sales order.
+- **Steps**
+  1. Sell > Sales Orders. Tick the three Draft orders. Press **Approve selected**. Close the result.
+  2. Select one Draft order for the product with no stock (raise another) and press **Approve**.
+  3. Open an order in **Edit**, so it is a tab beside the list. Have the second user raise a new order. Click the **Sales Orders** tab.
+  4. With the list on show and no document open, have the second user raise another order. Click the **Sales Orders** tab again, or pick Sales Orders from the menu.
+  5. In a new order, click into the **Customer** drop-down and leave its list closed. Type nothing. Press **Esc**. Then type a remark, click into the drop-down again and press **Esc**.
+  6. Open the drop-down's list and press **Esc** once, then again.
+  7. Pricing > Promotions > Offers > **New**. Flip one switch and nothing else. Press **Cancel**. Choose *Keep editing*, flip it back, press **Cancel**.
+  8. Buy > Principal claims: open **Record payment** on a claim, choose an account, press **Cancel**.
+- **Expect**
+  1. *Approved 3 of 3*. Then one warning: *Not in stock, and staying on back order.* naming the two orders by number, each with *10 of 10* and *7 of 7* of the product. The order in stock is not named.
+  2. The order is approved and the warning names what is short on that order alone.
+  3. The list shows the second user's order without Refresh being pressed.
+  4. The same: the new order is there.
+  5. The first Esc closes the order at once. The second asks **Close without saving?**
+  6. The first Esc closes the list and the order stays; the second asks, or closes an untouched order.
+  7. The question is asked after the switch alone. With the switch back as it was, Cancel closes without asking.
+  8. The question is asked.
+- **Also:** `GET /api/v1/sales-orders/reports/back-orders?order_id=<id>&order_id=<id>` answers those orders' rows alone, each equal to its rows of the whole report; 201 ids is a 422. A screen that draws its own Refresh button is not read again in steps 3 and 4 (D-UI-101).
+- **Leaves:** approved orders on back order and whatever was saved.
+
 ## Pricing, promotions and incentives
 
 Price Lists, Promotions, Commission and Targets are under **Sales**; Loyalty

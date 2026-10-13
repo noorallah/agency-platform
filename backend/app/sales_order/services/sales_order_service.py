@@ -1821,7 +1821,34 @@ class SalesOrderService(TransactionalDocumentService):
         )
         return records
 
-    def back_orders(self, *, firm_scope: UUID) -> list[SalesOrderBackOrderRecord]:
+    def _products_on_orders(
+        self, *, firm_scope: UUID, order_ids: Sequence[UUID]
+    ) -> set[UUID]:
+        """Return the products the named orders of this firm carry.
+
+        An order of another firm, or one that does not exist, carries none
+        here. Asked in chunks: the list is the caller's.
+        """
+        found: set[UUID] = set()
+        for chunk in chunks(order_ids):
+            found.update(
+                self._session.scalars(
+                    select(SalesOrderLine.product_id)
+                    .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+                    .where(
+                        SalesOrder.firm_id == firm_scope,
+                        SalesOrder.is_deleted.is_(False),
+                        SalesOrder.id.in_(chunk),
+                        SalesOrderLine.is_deleted.is_(False),
+                    )
+                    .distinct()
+                ).all()
+            )
+        return found
+
+    def back_orders(
+        self, *, firm_scope: UUID, order_ids: Sequence[UUID] | None = None
+    ) -> list[SalesOrderBackOrderRecord]:
         """List the open order lines the warehouse cannot fill today.
 
         A back order is a live shortfall. The stock on hand of each product in
@@ -1835,7 +1862,26 @@ class SalesOrderService(TransactionalDocumentService):
         typed, for ever (D-RPT-8: five WHOLE01 rows on one CLOSED, one
         CANCELLED, one DELIVERED and two DRAFT orders; a cancelled draft for 45
         against 40 still listed 5 short).
+
+        ``order_ids`` asks about those orders alone, and the answer for each
+        is its rows of the whole report. What an order is short of depends on
+        the older open orders that take the same stock first, so every open
+        line of the **products** those orders carry is still read and the
+        stock handed out in the same order; only the other products are left
+        out, and only the named orders' rows returned. The desktop read the
+        whole firm's report after every approval to say what one order had on
+        back order (D-UI-60). ``None`` is the whole report; an empty list, or
+        ids of another firm, is nothing.
         """
+        wanted: set[UUID] | None = None
+        only_products: set[UUID] | None = None
+        if order_ids is not None:
+            wanted = set(order_ids)
+            only_products = self._products_on_orders(
+                firm_scope=firm_scope, order_ids=list(wanted)
+            )
+            if not only_products:
+                return []
         rows = list(
             self._session.execute(
                 select(SalesOrderLine, SalesOrder)
@@ -1850,6 +1896,11 @@ class SalesOrderService(TransactionalDocumentService):
                         ]
                     ),
                     SalesOrderLine.is_deleted.is_(False),
+                    *(
+                        [SalesOrderLine.product_id.in_(only_products)]
+                        if only_products is not None
+                        else []
+                    ),
                 )
                 .order_by(
                     SalesOrder.order_date.asc(),
@@ -1971,6 +2022,9 @@ class SalesOrderService(TransactionalDocumentService):
                     break
             short = self._q(owed - taken)
             if short <= ZERO:
+                continue
+            if wanted is not None and order.id not in wanted:
+                # It took its share of the stock above; its row was not asked.
                 continue
             product = products.get(line.product_id)
             result.append(

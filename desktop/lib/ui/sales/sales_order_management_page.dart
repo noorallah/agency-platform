@@ -352,13 +352,23 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
 
   Future<void> _bulkApprove() async {
     final List<BulkRow> rows = _bulkRows();
-    await runBulkAction(
+    final List<String> approved = await runBulkAction(
       context,
       verb: 'Approved',
       rows: rows,
       send: widget.api.bulkApproveSalesOrders,
     );
+    // One read for all of them, after the approvals: what the single
+    // Approve says of its order, said of every order put through (D-UI-61).
+    final String? shortage =
+        await bulkApprovedShortfall(widget.api, approved);
     await _afterBulk();
+    if (shortage == null || !mounted) return;
+    NotificationService.show(
+      context,
+      shortage,
+      kind: AppNotificationKind.warning,
+    );
   }
 
   Future<void> _bulkCancel() async {

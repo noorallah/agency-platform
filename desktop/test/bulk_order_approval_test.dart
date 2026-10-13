@@ -61,6 +61,10 @@ class _BulkApi extends ApiClient {
   /// Every bulk call: its path and body.
   final List<(String, Json)> bulkCalls = <(String, Json)>[];
 
+  /// What the back-order report holds, and each read of it.
+  List<Json> backOrders = <Json>[];
+  final List<String> backOrderReads = <String>[];
+
   @override
   Future<Json> request(
     String method,
@@ -90,6 +94,10 @@ class _BulkApi extends ApiClient {
           ],
         },
       };
+    }
+    if (path.contains('/reports/back-orders')) {
+      backOrderReads.add(path);
+      return <String, dynamic>{'data': backOrders};
     }
     if (path.endsWith('/summary')) {
       return <String, dynamic>{
@@ -236,6 +244,55 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('bulk-close')));
     await tester.pumpAndSettle();
     expect(_barSays('2 selected'), findsNothing);
+    // Nothing short, so nothing more is said; the report was read once,
+    // for the two orders that went through -- the retried one included.
+    expect(api.backOrderReads, hasLength(1));
+    expect(
+      Uri.parse(api.backOrderReads.single).queryParametersAll['order_id'],
+      unorderedEquals(<String>['so-1', 'so-2']),
+    );
+  });
+
+  testWidgets('sales: approve selected says what stays on back order',
+      (tester) async {
+    // D-UI-61: only the single Approve said it.
+    final _BulkApi api = _BulkApi(
+      listPath: '/api/v1/sales-orders',
+      rows: [_salesRow(1), _salesRow(2), _salesRow(3)],
+    )..backOrders = <Json>[
+        <String, dynamic>{
+          'order_id': 'so-1',
+          'order_number': 'SO-1',
+          'product_name': 'Shampoo 180ml',
+          'requested_quantity': '500.0000',
+          'back_order_quantity': '418.0000',
+        },
+      ];
+    await _pumpSales(tester, api, salesCodes);
+    await _tick(tester, 2);
+    await tester.tap(find.text('Approve selected'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('bulk-close')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Only the order that went through is asked about: the other was
+    // refused and nothing was approved of it.
+    expect(
+      Uri.parse(api.backOrderReads.single).queryParametersAll['order_id'],
+      <String>['so-1'],
+    );
+    expect(
+      find.textContaining(
+        'Not in stock, and staying on back order. '
+        'SO-1: 418 of 500 of Shampoo 180ml.',
+        findRichText: true,
+      ),
+      findsOneWidget,
+    );
+    // Let the toast go, so no timer outlives the test.
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('sales: cancel selected sends the typed reason', (tester) async {
@@ -256,6 +313,8 @@ void main() {
     expect(api.bulkCalls.single.$1, '/api/v1/sales-orders/bulk-cancel');
     expect(api.bulkCalls.single.$2['reason'], 'Customer withdrew.');
     expect(find.text('Cancelled 2 of 2'), findsOneWidget);
+    // A cancel has nothing on back order to speak of.
+    expect(api.backOrderReads, isEmpty);
   });
 
   testWidgets('sales: a cancel with no reason is not sent', (tester) async {

@@ -16,28 +16,35 @@ import '../../models/bulk_action.dart';
 /// now seen the current state in the result.
 ///
 /// [verb] is the past tense the result heading uses ("Approved",
-/// "Cancelled"). The caller reloads its list afterwards.
-Future<void> runBulkAction(
+/// "Cancelled"). The caller reloads its list afterwards. Answers the ids of
+/// the rows that went through, retries included, for a caller with something
+/// to say about them (D-UI-61).
+Future<List<String>> runBulkAction(
   BuildContext context, {
   required String verb,
   required List<BulkRow> rows,
   required Future<BulkActionResult> Function(List<BulkRow> rows) send,
 }) async {
   List<BulkRow> pending = rows;
+  final List<String> done = <String>[];
   while (true) {
     final BulkActionResult result;
     try {
       result = await send(pending);
     } on ApiException catch (error) {
-      if (!context.mounted) return;
+      if (!context.mounted) return done;
       NotificationService.show(
         context,
         error.message,
         kind: AppNotificationKind.error,
       );
-      return;
+      return done;
     }
-    if (!context.mounted) return;
+    done.addAll([
+      for (final BulkRowResult row in result.results)
+        if (row.done) row.id,
+    ]);
+    if (!context.mounted) return done;
     final bool retry = await showDialog<bool>(
           context: context,
           builder: (_) => BulkResultDialog(
@@ -47,12 +54,12 @@ Future<void> runBulkAction(
           ),
         ) ??
         false;
-    if (!retry) return;
+    if (!retry) return done;
     pending = [
       for (final BulkRowResult row in result.refusedRows)
         (id: row.id, version: null),
     ];
-    if (pending.isEmpty) return;
+    if (pending.isEmpty) return done;
   }
 }
 

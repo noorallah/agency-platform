@@ -75,8 +75,18 @@ class _Api extends ApiClient {
   }) async {
     calls.add('$method $path');
     if (path.endsWith('/approve')) return _approved();
-    if (path == '/api/v1/sales-orders/reports/back-orders' && !reportRefused) {
-      return <String, dynamic>{'data': backOrders};
+    // The report answers for the orders it is asked about, as the server's
+    // does (D-UI-60): a row of another order never comes back.
+    final Uri asked = Uri.parse(path);
+    if (asked.path == '/api/v1/sales-orders/reports/back-orders' &&
+        !reportRefused) {
+      final List<String> only = asked.queryParametersAll['order_id'] ?? [];
+      return <String, dynamic>{
+        'data': <Json>[
+          for (final Json row in backOrders)
+            if (only.isEmpty || only.contains(row['order_id'])) row,
+        ],
+      };
     }
     // Every advisory check (licences, price floors) cannot run: approval goes on.
     throw const ApiException('not here', statusCode: 404);
@@ -160,8 +170,80 @@ void main() {
       api.calls.skipWhile((String call) => !call.endsWith('/approve')).toList(),
       <String>[
         'POST /api/v1/sales-orders/so-1/approve',
-        'GET /api/v1/sales-orders/reports/back-orders',
+        // Asked about the order approved, not the whole firm (D-UI-60).
+        'GET /api/v1/sales-orders/reports/back-orders?order_id=so-1',
       ],
+    );
+  });
+
+  test('several orders approved at once are each named (D-UI-61)', () {
+    expect(
+      approvedOrdersShortfallNotice(
+        <Json>[
+          _backOrder(short: '18.0000', requested: '100.0000'),
+          _backOrder(product: 'Detergent 1kg', short: '5.0000'),
+          _backOrder(orderId: 'so-2', product: 'Soap', short: '9.0000')
+            ..['order_number'] = 'SO-2',
+          // Not one of the orders approved: left out.
+          _backOrder(orderId: 'so-9', product: 'Oil', short: '3.0000'),
+          // Approved and fully covered: nothing to say of it.
+          _backOrder(orderId: 'so-3', short: '0.0000'),
+        ],
+        <String>['so-1', 'so-2', 'so-3'],
+      ),
+      'Not in stock, and staying on back order. '
+      'SO-1: 18 of 100 of Shampoo 180ml, 5 of 500 of Detergent 1kg; '
+      'SO-2: 9 of 500 of Soap.',
+    );
+  });
+
+  test('a long batch names five orders and counts the rest', () {
+    final String? said = approvedOrdersShortfallNotice(
+      <Json>[
+        for (int i = 1; i <= 7; i++)
+          _backOrder(orderId: 'so-$i')..['order_number'] = 'SO-$i',
+      ],
+      <String>[for (int i = 1; i <= 7; i++) 'so-$i'],
+    );
+    expect(said, contains('SO-5: 418 of 500 of Shampoo 180ml'));
+    expect(said, isNot(contains('SO-6')));
+    expect(said, endsWith('; and 2 more orders.'));
+  });
+
+  test('a batch with nothing short says nothing', () {
+    expect(
+      approvedOrdersShortfallNotice(const <Json>[], <String>['so-1']),
+      isNull,
+    );
+    expect(approvedOrdersShortfallNotice(null, <String>['so-1']), isNull);
+  });
+
+  test('a bulk approve reads the report once, for its orders alone',
+      () async {
+    final _Api api = _Api(<Json>[
+      _backOrder(),
+      _backOrder(orderId: 'so-9', product: 'Oil'),
+    ]);
+    expect(
+      await bulkApprovedShortfall(api, <String>['so-1', 'so-2']),
+      'Not in stock, and staying on back order. '
+      'SO-1: 418 of 500 of Shampoo 180ml.',
+    );
+    expect(api.calls, <String>[
+      'GET /api/v1/sales-orders/reports/back-orders'
+          '?order_id=so-1&order_id=so-2',
+    ]);
+    // None approved: nothing is read at all.
+    api.calls.clear();
+    expect(await bulkApprovedShortfall(api, const <String>[]), isNull);
+    expect(api.calls, isEmpty);
+    // An unreadable report costs the sentence and nothing else.
+    expect(
+      await bulkApprovedShortfall(
+        _Api(<Json>[_backOrder()], reportRefused: true),
+        <String>['so-1'],
+      ),
+      isNull,
     );
   });
 
@@ -193,6 +275,6 @@ void main() {
     final _Api api = _Api(<Json>[_backOrder()]);
     await _run(tester, salesInvoiceSteps(api, _permissions()));
     expect(api.calls, contains(endsWith('/approve')));
-    expect(api.calls, isNot(contains(endsWith('/reports/back-orders'))));
+    expect(api.calls, isNot(contains(contains('/reports/back-orders'))));
   });
 }

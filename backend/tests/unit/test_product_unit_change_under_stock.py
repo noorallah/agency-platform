@@ -232,3 +232,102 @@ def test_naming_a_unit_for_a_product_that_had_none_is_not_a_change_of_unit() -> 
     saved = setup.save(base_uom_id=setup.piece.id, inventory_uom_id=setup.piece.id)
 
     assert _id(saved.base_uom_id) == setup.piece.id
+
+
+def test_a_body_naming_three_fields_is_not_tracking_off_and_units_cleared() -> None:
+    """Code, name and type alone leave a stocked, batch-tracked product whole.
+
+    The guard read the whole write model, so every field the caller left out
+    arrived at its schema default -- tracking off, no units -- and the save was
+    refused as a change to the batch tracking and the units of a product in
+    stock (D-MST-22).
+    """
+    setup = _Setup()
+    setup.save(
+        track_batch=True,
+        require_batch_on_issue=True,
+        purchase_uom_id=setup.box.id,
+        selling_price="12.50",
+        hsn_sac="3401",
+    )
+    setup.stock("50", reserved="1")
+    setup.session.refresh(setup.product)
+    before = {
+        column.name: getattr(setup.product, column.name)
+        for column in Product.__table__.columns
+    }
+
+    saved = setup.service.update_product(
+        setup.product.id,
+        ProductUpdate.model_validate(
+            {"code": "UNIT-P", "name": "Renamed", "product_type": "STOCK_ITEM"}
+        ),
+        firm_scope=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    setup.session.refresh(saved)
+    after = {
+        column.name: getattr(saved, column.name) for column in Product.__table__.columns
+    }
+    moved = {name for name in before if before[name] != after[name]}
+    assert moved - {"updated_at"} == {"name", "version", "updated_by"}
+    assert saved.name == "Renamed"
+    assert saved.track_batch is True
+    assert saved.require_batch_on_issue is True
+    assert _id(saved.base_uom_id) == setup.piece.id
+    assert _id(saved.inventory_uom_id) == setup.piece.id
+    assert _id(saved.purchase_uom_id) == setup.box.id
+
+
+@pytest.mark.parametrize(
+    ("change", "label"),
+    [
+        ({"track_batch": False}, "batch tracking"),
+        ({"require_batch_on_issue": False}, "batch-on-issue rule"),
+        ({"base_uom_id": None}, "base unit"),
+        ({"inventory_uom_id": None}, "inventory unit"),
+    ],
+)
+def test_saying_off_or_null_is_still_a_change_under_stock(
+    change: dict[str, object], label: str
+) -> None:
+    """Leaving a field out is silence; ``false`` and ``null`` are instructions."""
+    setup = _Setup()
+    setup.save(track_batch=True, require_batch_on_issue=True)
+    setup.stock("50")
+
+    with pytest.raises(ValidationError, match=label):
+        setup.service.update_product(
+            setup.product.id,
+            ProductUpdate.model_validate(
+                {
+                    "code": "UNIT-P",
+                    "name": "Counted",
+                    "product_type": "STOCK_ITEM",
+                    **change,
+                }
+            ),
+            firm_scope=setup.firm.id,
+            actor_id=uuid4(),
+        )
+    setup.session.rollback()
+    setup.session.refresh(setup.product)
+    assert setup.product.track_batch is True
+    assert _id(setup.product.base_uom_id) == setup.piece.id
+
+
+def test_the_whole_form_with_tracking_left_off_is_refused_as_before() -> None:
+    """A client that sends every field still switches off what it sends off."""
+    setup = _Setup()
+    setup.save(track_batch=True)
+    setup.stock("50")
+    whole = ProductUpdate.model_validate(setup.fields).model_dump(mode="json")
+
+    with pytest.raises(ValidationError, match="batch tracking"):
+        setup.service.update_product(
+            setup.product.id,
+            ProductUpdate.model_validate(whole),
+            firm_scope=setup.firm.id,
+            actor_id=uuid4(),
+        )

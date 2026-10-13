@@ -82,6 +82,10 @@ from app.trade_licences.api.override import (
     authorised_override,
 )
 
+#: How many orders one back-order read may name; more is a 422, and a caller
+#: with more than this wants the whole report.
+MAX_BACK_ORDER_IDS = 200
+
 router = APIRouter(
     prefix="/api/v1/sales-orders",
     tags=["Sales Orders"],
@@ -744,10 +748,20 @@ def pending_sales_orders(
 )
 def back_order_report(
     scope: SalesOrderReportScope,
+    order_id: Annotated[list[UUID] | None, Query(max_length=MAX_BACK_ORDER_IDS)] = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderBackOrderRecord]]:
-    """Return the back order report for the visible firm scope."""
-    return ApiResponse(data=SalesOrderService(db).back_orders(firm_scope=scope.firm_id))
+    """Return the back order report for the visible firm scope.
+
+    ``order_id``, repeated, asks about those orders alone: each one's rows
+    are its rows of the whole report, read without the rest of the firm's
+    products (D-UI-60). An id of another firm, or of no order, has no rows.
+    """
+    return ApiResponse(
+        data=SalesOrderService(db).back_orders(
+            firm_scope=scope.firm_id, order_ids=order_id
+        )
+    )
 
 
 @router.get(

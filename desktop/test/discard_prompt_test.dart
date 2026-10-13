@@ -166,6 +166,39 @@ void main() {
     expect(find.text('Busy dialog'), findsOneWidget);
   });
 
+  testWidgets('a switch flipped alone is a change the wrapper sees (D-UI-63)',
+      (tester) async {
+    bool on = false;
+    await _open(
+      tester,
+      StatefulBuilder(
+        builder: (BuildContext context, StateSetter setState) =>
+            AskBeforeClosing(
+          touched: () => false,
+          what: 'record has not been saved',
+          child: AlertDialog(
+            title: const Text('Switch dialog'),
+            content: Switch(
+              value: on,
+              onChanged: (bool value) => setState(() => on = value),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Close without saving?'), findsOneWidget);
+  });
+
   testWidgets('a new coupon opens with no offer chosen, and a code alone '
       'is not saved', (tester) async {
     final _Api api = _Api();

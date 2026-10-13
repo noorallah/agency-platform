@@ -8,7 +8,9 @@ import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/core/theme/theme_manager.dart';
 import 'package:agency_desktop/phase2/home_page.dart';
+import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/desktop_shell.dart';
+import 'package:agency_desktop/ui/resource_management_page.dart';
 import 'package:agency_desktop/phase2/app_menu_bar.dart';
 import 'package:agency_desktop/ui/workspace/enterprise_sidebar.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
@@ -171,6 +173,41 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byKey(const ValueKey('setup-card-administration/firms')),
         findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
+  testWidgets('a screen kept built is told when it is shown again',
+      (tester) async {
+    // D-UI-26. A screen switched to is built afresh and reads itself; the
+    // one already built -- picked again from its tab here -- has only this
+    // signal to tell it, and the list layout answers it with Refresh.
+    await _pumpShell(tester);
+    ShownAgainSignal signal() => tester
+        .widget<ScreenShownAgain>(find.byType(ScreenShownAgain))
+        .signal;
+    final Finder users = find.byWidgetPredicate(
+        (widget) => widget is ResourceManagementPage<PlatformUser>);
+    final State<StatefulWidget> first = tester.state(users);
+    expect(signal().serial, 0);
+
+    // Another screen: nothing fires, and Users is built again on return.
+    await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(users, findsNothing);
+    await tester
+        .tap(find.byKey(const ValueKey('open-screen-administration/users')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(signal().serial, 0);
+    final State<StatefulWidget> second = tester.state(users);
+    expect(identical(first, second), isFalse);
+
+    // The screen on show, picked again: kept, so it is told.
+    await tester
+        .tap(find.byKey(const ValueKey('open-screen-administration/users')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(signal().serial, 1);
+    expect(identical(tester.state(users), second), isTrue);
     expect(tester.takeException(), isNull);
     await _unmount(tester);
   });

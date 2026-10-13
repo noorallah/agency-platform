@@ -20,6 +20,44 @@ class Phase2Scope extends InheritedWidget {
   bool updateShouldNotify(Phase2Scope oldWidget) => false;
 }
 
+/// Says a screen that was kept built has been put on show again (D-UI-26).
+///
+/// A screen switched to is built afresh and reads itself as it opens. One
+/// kept built is not: the list under a document tab, or the screen picked
+/// again from the menu or its own tab while it is already there. The shell
+/// calls [fire] for those, and every list reads itself again as its Refresh
+/// would (see `_Phase2ManagementLayoutState`).
+class ShownAgainSignal extends ChangeNotifier {
+  /// How many times it has fired.
+  int get serial => _serial;
+  int _serial = 0;
+
+  void fire() {
+    _serial++;
+    notifyListeners();
+  }
+}
+
+/// Puts a [ShownAgainSignal] above the screen on show. It is around the
+/// screen alone, not the documents open beside it: a document is not a list
+/// to be read again.
+class ScreenShownAgain extends InheritedWidget {
+  const ScreenShownAgain({
+    super.key,
+    required this.signal,
+    required super.child,
+  });
+
+  final ShownAgainSignal signal;
+
+  static ShownAgainSignal? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ScreenShownAgain>()?.signal;
+
+  @override
+  bool updateShouldNotify(ScreenShownAgain oldWidget) =>
+      signal != oldWidget.signal;
+}
+
 /// What a page frame hands to the one line of its list (4.5).
 ///
 /// Phase 1 stacks a title band, a row of summary cards and a search row.

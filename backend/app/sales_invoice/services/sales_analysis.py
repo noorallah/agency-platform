@@ -126,6 +126,16 @@ class SalesAnalysis:
 
 
 @dataclass(frozen=True)
+class InvoiceBehindCell:
+    """What the list behind a cell shows of an invoice: these and no more."""
+
+    id: UUID
+    invoice_number: str
+    invoice_date: date
+    customer_id: UUID
+
+
+@dataclass(frozen=True)
 class AnalysisFilters:
     """Narrow the analysis to some values of any dimension."""
 
@@ -348,32 +358,61 @@ class SalesAnalysisService:
         from_date: date,
         to_date: date,
         filters: AnalysisFilters | None = None,
-    ) -> list[tuple[SalesInvoice, Decimal]]:
+    ) -> list[tuple[InvoiceBehindCell, Decimal]]:
         """List the invoices behind a cell, with what each contributed.
 
         The desktop narrows the filters and the dates to the cell clicked;
         the invoices are exactly the ones whose lines that cell summed.
+
+        Four columns and a sum, and a master joined only where a filter reads
+        it. This selected the whole invoice and built an ORM row of every
+        column for each one, to show four of them, and joined the product, its
+        brand and the customer to every line whether or not anything asked
+        about them: 3 s for a year of the volume firm (D-PERF-5). Leaving a
+        join out drops no line -- a line's product and an invoice's customer
+        are NOT NULL foreign keys, and the brand was an outer join.
         """
         filters = filters or AnalysisFilters()
-        line_net = func.sum(SalesInvoiceLine.net_amount)
+        shown = (
+            SalesInvoice.id,
+            SalesInvoice.invoice_number,
+            SalesInvoice.invoice_date,
+            SalesInvoice.customer_id,
+        )
+        query = select(*shown, func.sum(SalesInvoiceLine.net_amount)).join(
+            SalesInvoiceLine, SalesInvoiceLine.sales_invoice_id == SalesInvoice.id
+        )
+        by_principal = filters.principal_id is not None
+        if by_principal or any(
+            value is not None
+            for value in (filters.category_id, filters.goods_type_id, filters.brand_id)
+        ):
+            query = query.join(Product, Product.id == SalesInvoiceLine.product_id)
+        if by_principal:
+            query = query.outerjoin(Brand, Brand.id == Product.brand_id)
+        if filters.customer_group_id is not None:
+            query = query.join(Customer, Customer.id == SalesInvoice.customer_id)
         query = (
-            select(SalesInvoice, line_net)
-            .join(
-                SalesInvoiceLine, SalesInvoiceLine.sales_invoice_id == SalesInvoice.id
-            )
-            .join(Product, Product.id == SalesInvoiceLine.product_id)
-            .outerjoin(Brand, Brand.id == Product.brand_id)
-            .join(Customer, Customer.id == SalesInvoice.customer_id)
-            .where(
+            query.where(
                 *self._invoice_scope(firm_id, from_date, to_date),
                 *self._filter_clauses("invoice", filters),
             )
-            .group_by(SalesInvoice.id)
+            .group_by(*shown)
             .order_by(SalesInvoice.invoice_date, SalesInvoice.invoice_number)
         )
         return [
-            (invoice, Decimal(str(net or 0)))
-            for invoice, net in self._session.execute(query).all()
+            (
+                InvoiceBehindCell(
+                    id=invoice_id,
+                    invoice_number=number,
+                    invoice_date=dated,
+                    customer_id=customer_id,
+                ),
+                Decimal(str(net or 0)),
+            )
+            for invoice_id, number, dated, customer_id, net in self._session.execute(
+                query
+            ).all()
         ]
 
     # ------------------------------------------------------------------
