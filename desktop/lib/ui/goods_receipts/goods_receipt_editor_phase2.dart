@@ -295,6 +295,43 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
           },
         ),
       ),
+      if (_offices != null)
+        DocumentField(
+          label: 'Received from',
+          width: 280,
+          below: Text(
+            'The office of this supplier the goods came from',
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 11,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          child: DropdownMenu<String>(
+            key: const ValueKey('goods-receipt-received-from'),
+            initialSelection: _receivedFromId,
+            width: 280,
+            enabled: !_saving,
+            inputDecorationTheme: InputDecorationTheme(
+              isDense: true,
+              filled: true,
+              fillColor: scheme.surfaceContainerLowest,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              constraints: const BoxConstraints(maxHeight: 36),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(5)),
+            ),
+            dropdownMenuEntries: [
+              for (final VendorFamilyMember office in _offices!)
+                DropdownMenuEntry<String>(
+                  value: office.id,
+                  label: _GoodsReceiptEditorDialogState._officeLabel(office),
+                ),
+            ],
+            onSelected: (value) =>
+                _setState(() => _receivedFromId = value ?? ''),
+          ),
+        ),
       DocumentField(
         label: 'Receipt date',
         auto: !_isEditing,

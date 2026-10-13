@@ -11,6 +11,7 @@ import '../../models/entities.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
+import '../../models/vendor.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
@@ -241,6 +242,38 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
   /// Phase 2: the line the side panel follows.
   int _current = 0;
 
+  /// The offices of the order's supplier company, where it has branches or a
+  /// main office; null for a supplier on its own, which shows and sends
+  /// nothing new. One read per order chosen.
+  VendorFamily? _family;
+
+  /// The office the goods came from; defaults to the order's supplier.
+  String _receivedFromId = '';
+
+  Future<void> _loadFamily(PurchaseOrder order) async {
+    if (order.vendorId.isEmpty) return;
+    try {
+      final VendorFamily family = await widget.api.vendorFamily(order.vendorId);
+      if (!mounted || _order?.id != order.id) return;
+      if (family.members.length < 2) return;
+      setState(() => _family = family);
+    } on Object {
+      // A family that cannot be read costs the choice, not the receipt: the
+      // goods are taken as from the order's supplier.
+    }
+  }
+
+  /// "Received from": the offices of the order's supplier company. Null when
+  /// the supplier has no branches and no main office.
+  List<VendorFamilyMember>? get _offices {
+    final VendorFamily? family = _family;
+    return family == null || family.members.length < 2 ? null : family.members;
+  }
+
+  static String _officeLabel(VendorFamilyMember member) =>
+      '${member.code}  ${member.name}'
+      '${member.isParent ? '  (main office)' : ''}';
+
   void _setState(VoidCallback change) => setState(change);
 
   /// The draft this window has saved itself, where *Save & complete* saved
@@ -341,7 +374,13 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       _order = order;
       _loadingLines = true;
       _error = null;
+      _family = null;
+      // A draft being corrected keeps the office it was recorded from.
+      _receivedFromId = _record != null && _record!.purchaseOrderId == order.id
+          ? (_record!.vendorId.isEmpty ? order.vendorId : _record!.vendorId)
+          : order.vendorId;
     });
+    unawaited(_loadFamily(order));
     final Map<String, double> received = <String, double>{};
     // Free goods already in, per order line, so a new receipt starts at the
     // free goods still owed (D-BUY-33).
@@ -605,6 +644,10 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       final List<GoodsReceiptDraftLine> sending = _sendableLines();
       final Json payload = {
         'purchase_order_id': _order!.id,
+        // Only for a supplier company with offices to choose between; a
+        // supplier on its own sends nothing new.
+        if (_offices != null && _receivedFromId.isNotEmpty)
+          'vendor_id': _receivedFromId,
         'receipt_date': _receiptDate,
         if (_invoiceReference.trim().isNotEmpty)
           'invoice_reference': _invoiceReference.trim(),
@@ -767,6 +810,33 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
                     },
             ),
           ),
+          if (_offices != null)
+            SizedBox(
+              width: AppDimensions.documentPickerWidth,
+              child: DropdownButtonFormField<String>(
+                key: const ValueKey('goods-receipt-received-from'),
+                initialValue: _receivedFromId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Received from',
+                  helperText: 'The office of this supplier the goods came from',
+                ),
+                items: [
+                  for (final VendorFamilyMember office in _offices!)
+                    DropdownMenuItem<String>(
+                      value: office.id,
+                      child: Text(
+                        _officeLabel(office),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: _saving
+                    ? null
+                    : (value) =>
+                        setState(() => _receivedFromId = value ?? ''),
+              ),
+            ),
           _text('Receipt Date *', _receiptDate,
               (value) => _receiptDate = value, 'YYYY-MM-DD'),
           _text('Supplier Invoice Reference', _invoiceReference,

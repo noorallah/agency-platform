@@ -1252,6 +1252,26 @@ optional other product given free, a period, and either one supplier or none
   applied" for each line a scheme filled.
 - **QA.** TC-BUY-066 to TC-BUY-069.
 
+## A supplier company with branches (backlog 127, 2026-10-13)
+
+`vendors.parent_vendor_id` puts a branch under its main office, one level
+deep. `app/vendors/services/supplier_family.py` holds the rules and the three
+questions the documents ask: `company_of` (the main office each supplier
+belongs to), `same_company` and `assert_office_of`.
+
+| Document | Whose it is | Rule |
+| --- | --- | --- |
+| Purchase order | The office it was placed on | Unchanged |
+| Goods receipt | The office the goods came from: `vendor_id` on the write, the order's supplier when left out | An office of the order's supplier's company, or refused (`GoodsReceiptService._received_from`) |
+| Supplier bill | The office that sent the bill | An office of the company its receipts are from (`PurchaseInvoiceService._billing_office`, on create and on edit) |
+| Payment | The office that was paid | A main office's payment may name its branches' bills; a branch's only its own (`SettlementService.shop_ids`) |
+| Purchase return, debit note | The supplier on the document they come from | Unchanged |
+
+The order is counted received from its receipts whoever sent them. Nothing
+is copied between offices: a branch's GST number is its own, and the tax on a
+bill is worked out from the office on the bill. What a main office's payment
+does to a branch's account is in `docs/LEDGER_POSTING_RULES.md`.
+
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the

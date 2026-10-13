@@ -55,6 +55,7 @@ class _Api extends ApiClient {
     required SettlementDirection direction,
     required String partyId,
     bool withShops = false,
+    bool withBranches = false,
   }) async =>
       [
         OutstandingInvoice.fromJson({

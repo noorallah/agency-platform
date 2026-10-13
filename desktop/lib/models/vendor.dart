@@ -346,9 +346,22 @@ class Vendor {
     this.taxDetails = const [],
     this.notes = const [],
     this.attributes = const [],
+    this.parentVendorId,
+    this.parentCode,
+    this.parentName,
+    this.branchCount = 0,
   });
 
   final String id;
+
+  /// The main office this supplier is a branch of, or null for a supplier on
+  /// its own.
+  final String? parentVendorId;
+  final String? parentCode;
+  final String? parentName;
+
+  /// How many live branches sit under this supplier.
+  final int branchCount;
 
   /// The optimistic-concurrency version this record was read at, sent back
   /// as `If-Match` on save so a concurrent edit is refused rather than
@@ -510,6 +523,73 @@ class Vendor {
         attributes: _objects(json['attributes'])
             .map(ProductAttributeValueRecord.fromJson)
             .toList(),
+        parentVendorId: json['parent_vendor_id'] as String?,
+        parentCode: json['parent_code'] as String?,
+        parentName: json['parent_name'] as String?,
+        branchCount: (json['branch_count'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// One office of a supplier company: the main office or one of its branches.
+class VendorFamilyMember {
+  const VendorFamilyMember({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.isParent,
+    required this.gstin,
+    required this.status,
+    required this.place,
+    required this.balance,
+  });
+
+  final String id;
+  final String code;
+  final String name;
+  final bool isParent;
+  final String gstin;
+  final String status;
+
+  /// "Area, City", or empty.
+  final String place;
+
+  /// What the firm owes this office; negative when paid ahead.
+  final String balance;
+
+  factory VendorFamilyMember.fromJson(Json json) => VendorFamilyMember(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        isParent: boolValue(json['is_parent']),
+        gstin: stringValue(json['gstin']),
+        status: stringValue(json['status']),
+        place: stringValue(json['place']),
+        balance: stringValue(json['balance']).isEmpty
+            ? '0.00'
+            : stringValue(json['balance']),
+      );
+}
+
+/// A supplier company as `GET /vendors/{id}/family` answers: the same family
+/// whichever office is asked about, the main office first.
+class VendorFamily {
+  const VendorFamily({
+    required this.parentId,
+    required this.members,
+    required this.totalBalance,
+  });
+
+  final String parentId;
+  final List<VendorFamilyMember> members;
+  final String totalBalance;
+
+  factory VendorFamily.fromJson(Json json) => VendorFamily(
+        parentId: stringValue(json['parent_id']),
+        members:
+            _objects(json['members']).map(VendorFamilyMember.fromJson).toList(),
+        totalBalance: stringValue(json['total_balance']).isEmpty
+            ? '0.00'
+            : stringValue(json['total_balance']),
       );
 }
 

@@ -177,6 +177,9 @@ class VendorWrite(VendorSchema):
     #: Why the supplier is BLOCKED; required with that status, cleared with it.
     blocked_reason: str | None = Field(default=None, max_length=500)
     business_profile_id: UUID | None = None
+    #: The main office this supplier is a branch of (backlog 127). A branch
+    #: keeps its own GST number; nothing is copied from the main office.
+    parent_vendor_id: UUID | None = None
     gst_registration: bool = False
     gstin: str | None = Field(default=None, max_length=32)
     #: What the supplier is under GST (backlog 78 row 2). None reads it off
@@ -507,6 +510,13 @@ class VendorResponse(VendorSchema):
     status: VendorStatus
     blocked_reason: str | None = None
     business_profile_id: UUID | None
+    #: The main office this branch sits under, with its code and name for a
+    #: list (backlog 127).
+    parent_vendor_id: UUID | None = None
+    parent_code: str | None = None
+    parent_name: str | None = None
+    #: How many live branches sit under this supplier; a main office has some.
+    branch_count: int = 0
     gst_registration: bool
     gstin: str | None
     gst_registration_type: str | None = None
@@ -543,6 +553,34 @@ class VendorResponse(VendorSchema):
     tax_details: list[VendorTaxResponse]
     attachments: list[VendorAttachmentResponse]
     notes: list[VendorNoteResponse]
+
+
+class VendorFamilyMember(VendorSchema):
+    """One office of a supplier company: the main office, or a branch."""
+
+    id: UUID
+    code: str
+    name: str
+    is_parent: bool
+    gstin: str | None = None
+    status: str
+    #: Area and city of the office's main address, to tell branches apart.
+    place: str | None = None
+    #: What the firm owes this office today, off the payables ledger.
+    #: Negative is money paid ahead or a credit the office owes back.
+    balance: Decimal
+
+
+class VendorFamily(VendorSchema):
+    """A supplier company: its main office and branches, and what it is owed.
+
+    Asked of the main office or of any branch, the answer is the same
+    company. A supplier with neither is a company of one.
+    """
+
+    parent_id: UUID
+    members: list[VendorFamilyMember]
+    total_balance: Decimal
 
 
 class VendorSummary(VendorSchema):

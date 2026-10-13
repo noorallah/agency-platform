@@ -32,6 +32,16 @@ it), so a cancellation appears on the statement on the day it happened, as a
 ``*_REVERSAL`` line, and the two net to nothing. Hand journals are refused on
 payables (D-FIN-11), so nothing else can move the account.
 
+**A payment to a main office that clears a branch's bill** (backlog 127)
+posts one journal, in the main office's name. The branch's account comes down
+all the same: each such allocation is read as a pair of ``PAYMENT_TRANSFER``
+lines, a debit on the branch and a credit on the main office for the same
+amount on the day the money met the bill. The pair nets to nothing on the
+payables account, so the property below still holds, and it is derived from
+the allocation rather than stored, as the rest of this statement is. A
+reversed payment keeps its pair and gains the opposite one on the day it was
+reversed (``PAYMENT_TRANSFER_REVERSAL``).
+
 Two properties follow and are what the tests hold it to. The supplier's
 closing balance **is** the payables ledger's balance for that supplier, by
 construction -- every supplier's closing balance sums to the account. And the
@@ -58,6 +68,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
+from app.core.database.types import UUIDType
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.money import ZERO, quantize_ledger
 from app.debit_note.models import DebitNote
@@ -69,7 +80,13 @@ from app.finance.services.control_accounts import (
 from app.party_adjustments.models import PartyAdjustment
 from app.purchase_invoice.models import PurchaseInvoice
 from app.purchase_return.models import PurchaseReturn
-from app.settlements.models import Settlement, SupplierCreditRefund
+from app.settlements.models import (
+    Settlement,
+    SettlementAllocation,
+    SettlementDirection,
+    SettlementStatus,
+    SupplierCreditRefund,
+)
 from app.vendors.models import Vendor, VendorOpeningBill
 from app.vendors.schemas.statement import SupplierStatement, SupplierStatementLine
 
@@ -85,7 +102,13 @@ SUPPLIER_SOURCES: tuple[tuple[str, Any, str], ...] = (
     ("supplier_credit_refund", SupplierCreditRefund, "REFUND"),
 )
 
-_LINE_TYPES = {module: label for module, _, label in SUPPLIER_SOURCES}
+#: What a main office's payment cleared on a branch (backlog 127): not a
+#: journal, but read as one line on each of the two accounts.
+_TRANSFER = "payment_transfer"
+
+_LINE_TYPES = {module: label for module, _, label in SUPPLIER_SOURCES} | {
+    _TRANSFER: "PAYMENT_TRANSFER"
+}
 
 #: A posted journal counts; so does one later reversed, because its mirror
 #: (POSTED) is what takes it back and both belong on the statement.
@@ -158,7 +181,101 @@ class SupplierStatementService:
             if vendor_id is not None:
                 branch = branch.where(model.vendor_id == vendor_id)
             branches.append(branch)
+        branches.extend(self._transfers(firm_id, vendor_id))
         return union_all(*branches)
+
+    @staticmethod
+    def _transfers(firm_id: UUID, vendor_id: UUID | None) -> list[Any]:
+        """Select what a main office's payments cleared on its branches.
+
+        One allocation of a payment to a bill of another supplier -- which
+        only a main office's payment to a branch's bill can be -- is two
+        lines: the branch owes less, and the main office's payment counts
+        for less on its own account. A reversed payment adds the opposite
+        pair, dated by the journal that reversed it.
+        """
+        selects: list[Any] = []
+        mirror = JournalEntry.__table__.alias("reversal_journal")
+        for bill, bill_column, numbered in (
+            (
+                PurchaseInvoice,
+                SettlementAllocation.purchase_invoice_id,
+                PurchaseInvoice.invoice_number,
+            ),
+            (
+                VendorOpeningBill,
+                SettlementAllocation.vendor_opening_bill_id,
+                VendorOpeningBill.bill_number,
+            ),
+        ):
+            for undone in (False, True):
+                for on_branch in (True, False):
+                    owner = bill.vendor_id if on_branch else Settlement.vendor_id
+                    # The branch is debited and the main office credited;
+                    # the pair that undoes it is the other way round.
+                    debit_side = on_branch != undone
+                    amount = SettlementAllocation.amount
+                    nothing = literal(0)
+                    statement = (
+                        select(
+                            owner.label("vendor_id"),
+                            (
+                                mirror.c.journal_date
+                                if undone
+                                else func.coalesce(
+                                    SettlementAllocation.allocated_on,
+                                    Settlement.settlement_date,
+                                )
+                            ).label("journal_date"),
+                            (
+                                mirror.c.created_at
+                                if undone
+                                else SettlementAllocation.created_at
+                            ).label("created_at"),
+                            (
+                                mirror.c.id if undone else Settlement.journal_entry_id
+                            ).label("entry_id"),
+                            cast(Settlement.settlement_number, String(80)).label(
+                                "reference_number"
+                            ),
+                            (
+                                literal(
+                                    "Paid by the main office, bill "
+                                    if on_branch
+                                    else "Paid for a branch, bill "
+                                )
+                                + cast(numbered, String(120))
+                            ).label("description"),
+                            literal(_TRANSFER).label("source_module"),
+                            (mirror.c.id if undone else cast(null(), UUIDType())).label(
+                                "reversal_of_id"
+                            ),
+                            (amount if debit_side else nothing).label("debit"),
+                            (nothing if debit_side else amount).label("credit"),
+                            cast(null(), String(80)).label("party_reference"),
+                        )
+                        .select_from(SettlementAllocation)
+                        .join(
+                            Settlement,
+                            Settlement.id == SettlementAllocation.settlement_id,
+                        )
+                        .join(bill, bill.id == bill_column)
+                        .where(
+                            SettlementAllocation.firm_id == firm_id,
+                            SettlementAllocation.is_deleted.is_(False),
+                            Settlement.direction == SettlementDirection.PAYMENT.value,
+                            Settlement.vendor_id.is_not(None),
+                            bill.vendor_id != Settlement.vendor_id,
+                        )
+                    )
+                    if undone:
+                        statement = statement.join(
+                            mirror, mirror.c.id == Settlement.reversal_journal_entry_id
+                        ).where(Settlement.status == SettlementStatus.REVERSED.value)
+                    if vendor_id is not None:
+                        statement = statement.where(owner == vendor_id)
+                    selects.append(statement)
+        return selects
 
     def statement(
         self,

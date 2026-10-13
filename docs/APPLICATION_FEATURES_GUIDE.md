@@ -1068,6 +1068,20 @@ nothing. Typing a percentage replaces it and typing 0 removes it.
 | **Purchase return** | Goods sent back | **Takes the stock back out**, and reduces what is owed |
 | **Payment** | Money paid to the supplier | **Books the cash or bank**, and reduces what is owed |
 
+**A supplier company with branches.** A supplier that has branches is entered
+as one supplier for the main office and one for each branch, and each branch
+names the main office under **Branch of**. A branch keeps its own GST number,
+address and bank account. The main office's form lists its offices under
+**Branches** with what each is owed and one total, and the supplier list shows
+*Branch of* or the number of branches. An order placed on the main office can
+be received from a branch: on the goods receipt choose the office under
+**Received from**. The bill is then raised in that branch's name, and the
+order stays on the main office. A payment to the main office lists the bills
+of its branches too, each with the branch's name; a payment to a branch lists
+only that branch's bills. Each office has its own statement: a branch's bill
+paid by the main office shows there as *Paid by the main office*. A main
+office cannot be deleted while it has branches.
+
 ## 6.2 Documents
 
 *Purchase Orders, Goods Receipts* and *Purchase Invoices* are in the Buy

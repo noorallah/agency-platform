@@ -934,12 +934,24 @@ def cheque_test_print(
 def vendor_outstanding_invoices(
     vendor_id: UUID,
     scope: PaymentViewScope,
+    with_branches: Annotated[bool, Query()] = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[OutstandingInvoiceRecord]]:
-    """Return the vendor's invoices that still owe something."""
-    rows = PaymentService(db).outstanding_invoices(
-        firm_id=scope.firm_id, party_id=vendor_id
-    )
+    """Return the vendor's invoices that still owe something.
+
+    ``with_branches`` adds the bills of the branches under a supplier's main
+    office, each row naming whose it is: what one payment to the main office
+    may clear (backlog 127). For a supplier with no branches it changes
+    nothing but the names.
+    """
+    service = PaymentService(db)
+    if with_branches:
+        return ApiResponse(
+            data=service.family_outstanding_invoices(
+                firm_id=scope.firm_id, party_id=vendor_id
+            )
+        )
+    rows = service.outstanding_invoices(firm_id=scope.firm_id, party_id=vendor_id)
     return ApiResponse(data=rows)
 
 

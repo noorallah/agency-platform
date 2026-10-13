@@ -15,6 +15,7 @@ from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService, RecordKind
 from app.common.audit.services import record_audit, record_change, row_state
 from app.common.display_names import display_name_after_edit
+from app.common.firm_metadata import firm_today
 from app.common.master_code_series import MasterCodeNumbering
 from app.common.master_codes import assert_codes_free
 from app.common.master_references import (
@@ -56,6 +57,8 @@ from app.vendors.schemas import (
     VendorCategoryWrite,
     VendorContactInput,
     VendorCreate,
+    VendorFamily,
+    VendorFamilyMember,
     VendorListFilters,
     VendorNoteInput,
     VendorStatus,
@@ -64,6 +67,7 @@ from app.vendors.schemas import (
     VendorTypeWrite,
     VendorUpdate,
 )
+from app.vendors.services.supplier_family import SupplierFamily, SupplierFamilyFacts
 
 #: The masters a vendor names by id. A category or a type must be a live row
 #: of the vendor's own firm; a business profile has no firm and is shared by
@@ -77,6 +81,18 @@ _VENDOR_REFERENCES: MasterReferences = {
 
 #: A vendor write of either kind, kept as the kind it came in as.
 _Write = TypeVar("_Write", VendorCreate, VendorUpdate)
+
+
+def _office_place(
+    vendor: Vendor, places: dict[UUID, tuple[str | None, str | None]]
+) -> str | None:
+    """Return the area and city of a supplier's main address."""
+    live = [row for row in vendor.addresses if not row.is_deleted]
+    if not live:
+        return None
+    chosen = next((row for row in live if row.is_primary), live[0])
+    city, area = places.get(chosen.id, (None, None))
+    return ", ".join(part for part in (area, city) if part) or None
 
 
 def _settle_block(vendor: Vendor) -> None:
@@ -105,6 +121,7 @@ class VendorService:
         """Bind the service to the request unit of work."""
         self._session = session
         self._repository = VendorRepository(session)
+        self._family = SupplierFamily(session)
 
     def create(
         self,
@@ -220,6 +237,10 @@ class VendorService:
         vendor's new GSTIN is refused by the uniqueness check.
         """
         data = self._with_settled_identity(data, current=vendor)
+        if "parent_vendor_id" in data.model_fields_set:
+            self._family.assert_parent(
+                vendor.firm_id, vendor=vendor, parent_id=data.parent_vendor_id
+            )
         banking = self._banking_to_write(
             vendor,
             data.banking,
@@ -289,6 +310,7 @@ class VendorService:
     ) -> None:
         """Soft delete a vendor whose account is settled."""
         vendor = self.get(vendor_id, firm_scope=firm_scope)
+        self._family.assert_no_branches(vendor, "be deleted")
         self._assert_account_is_square(vendor)
         before = self._audit_snapshot(vendor)
         vendor.is_deleted = True
@@ -676,6 +698,7 @@ class VendorService:
                 f"{vendor.code} cannot be restored: a live vendor now holds its "
                 "code or GSTIN."
             )
+        self._family.assert_restorable(vendor)
 
     def list_categories(
         self,
@@ -960,6 +983,9 @@ class VendorService:
             )
             data = data.model_copy(update={"code": issued})
         data = self._with_settled_identity(data, current=None)
+        self._family.assert_parent(
+            firm_id, vendor=None, parent_id=data.parent_vendor_id
+        )
         self._assert_unique(firm_id, data)
         self._assert_drug_license_allowed(firm_id, data)
         values = self._vendor_values(data)
@@ -1169,6 +1195,48 @@ class VendorService:
             owner: [AttributeValueResponse.model_validate(row) for row in rows]
             for owner, rows in grouped.items()
         }
+
+    def family_facts(self, rows: list[Vendor]) -> dict[UUID, SupplierFamilyFacts]:
+        """Return each row's main office and branch count, read once."""
+        return self._family.facts(rows)
+
+    def family(self, vendor_id: UUID, *, firm_scope: UUID | None) -> VendorFamily:
+        """Return a supplier's company: main office, branches, what is owed.
+
+        Each office's balance is its own closing balance on the payables
+        ledger today, the figure its statement ends on, so the total is what
+        the firm owes the whole company.
+        """
+        # Imported here: the statement reads the documents, which read this.
+        from app.vendors.services.statement_service import SupplierStatementService
+
+        vendor = self.get(vendor_id, firm_scope=firm_scope)
+        rows = self._family.members(vendor)
+        statements = SupplierStatementService(self._session)
+        today = firm_today(self._session, vendor.firm_id)
+        places = self.address_places(rows)
+        members: list[VendorFamilyMember] = []
+        for row in rows:
+            balance = statements.balances(
+                firm_scope=vendor.firm_id, as_of=today, vendor_id=row.id
+            ).get(row.id, Decimal("0"))
+            members.append(
+                VendorFamilyMember(
+                    id=row.id,
+                    code=row.code,
+                    name=row.name,
+                    is_parent=row.id == rows[0].id,
+                    gstin=row.gstin,
+                    status=row.status,
+                    place=_office_place(row, places),
+                    balance=balance,
+                )
+            )
+        return VendorFamily(
+            parent_id=rows[0].id,
+            members=members,
+            total_balance=sum((item.balance for item in members), Decimal("0")),
+        )
 
     def address_places(
         self, vendors: list[Vendor]
@@ -1556,6 +1624,12 @@ class VendorService:
             "tds_applicable": vendor.tds_applicable,
             # What a new bill from it starts in (PG-12).
             "currency_code": vendor.currency_code,
+            # The main office it is a branch of (backlog 127).
+            "parent_vendor_id": (
+                str(vendor.parent_vendor_id)
+                if vendor.parent_vendor_id is not None
+                else None
+            ),
             "contact_count": sum(not item.is_deleted for item in vendor.contacts),
             "address_count": sum(not item.is_deleted for item in vendor.addresses),
             "bank_count": sum(not item.is_deleted for item in vendor.bank_accounts),

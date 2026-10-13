@@ -20,6 +20,8 @@ import 'package:agency_desktop/ui/products/product_management_page.dart';
 import 'package:agency_desktop/models/settlement_direction.dart';
 import 'package:agency_desktop/ui/customers/loyalty_page.dart';
 import 'package:agency_desktop/models/settlement.dart';
+import 'package:agency_desktop/models/vendor.dart';
+import 'package:agency_desktop/ui/vendors/vendor_management_page.dart';
 import 'package:agency_desktop/ui/finance/record_settlement_dialog.dart';
 import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_management_page.dart';
 import 'package:agency_desktop/ui/purchase_returns/purchase_return_management_page.dart';
@@ -595,6 +597,49 @@ void main() {
       expect(find.text('Shop of'), findsOneWidget);
     });
   });
+
+  group('a supplier can be made a branch of another', () {
+    // Backlog 127: the server took `parent_vendor_id`; the form must offer
+    // the field, or no screen reaches it.
+    testWidgets('the supplier form offers Branch of',
+        (tester) async {
+      await _sized(
+        tester,
+        VendorManagementPage(
+          api: _VendorApi(),
+          permissions: _permissions(const ['VENDOR_VIEW', 'VENDOR_CREATE']),
+          hasActiveFirm: true,
+        ),
+        phase2: true,
+      );
+      // The empty list offers its own New vendor button.
+      await tester.tap(find.text('New vendor').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Branch of'), findsOneWidget);
+    });
+  });
+}
+
+/// A supplier list with nothing in it.
+class _VendorApi extends ApiClient {
+  _VendorApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  @override
+  Future<PagedResult<Vendor>> vendors({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    VendorQuery filters = const VendorQuery(),
+  }) async =>
+      PagedResult(items: const <Vendor>[], total: 0);
 }
 
 /// A customer list with nothing in it.

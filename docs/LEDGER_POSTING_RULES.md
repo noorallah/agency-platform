@@ -1747,3 +1747,30 @@ The shift's cash account defaults to the firm's `CASH` control account, and
 that is where every cash receipt is booked. A shift that names another asset
 account posts only its difference against that account -- routing the
 receipts themselves per till is not built.
+
+## A main office's payment posts once; a branch's account moves by a derived line (backlog 127, 2026-10-13)
+
+One payment to a supplier's main office may clear the bills of the branches
+under it. The payment is the main office's and posts one journal for the
+whole amount (`Dr payables / Cr cash or bank`). A supplier has no balance
+row: its statement is the payables lines of the ledger, each traced to a
+supplier through the document that posted it
+(`app/vendors/services/statement_service.py`). Left at that, the branch
+would show its bill owed for ever and the main office the same money paid
+ahead. So:
+
+- Each allocation of a payment to a bill of **another** supplier, which only
+  a main office's payment to a branch's bill can be, is read as two
+  `PAYMENT_TRANSFER` lines for the allocated amount, dated the day the money
+  met the bill: a debit on the branch (*Paid by the main office*) and a
+  credit on the main office (*Paid for a branch*).
+- The pair is **derived from `settlement_allocations` on every read and
+  stored nowhere**. It posts no journal and nets to nothing on the payables
+  account, so every supplier's closing balance still sums to the account.
+- Applying money paid ahead to a branch's bill later is the same pair, on
+  the date of that allocation. No journal, as for any Apply.
+- A reversed payment keeps its allocations and its pair, and gains the
+  opposite pair (`PAYMENT_TRANSFER_REVERSAL`) on the date of the journal
+  that reversed it, beside the `PAYMENT_REVERSAL` line on the main office.
+- What a bill still owes is read from the allocations as before, so the
+  branch's open bills and its statement agree.

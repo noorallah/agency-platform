@@ -115,6 +115,7 @@ class Vendor(BaseEntity):
         ),
         Index("IX_vendors_firm_name", "firm_id", "name"),
         Index("IX_vendors_firm_status", "firm_id", "status"),
+        Index("IX_vendors_parent_vendor_id", "parent_vendor_id"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -124,6 +125,18 @@ class Vendor(BaseEntity):
     #: which is soft-deleted, so its history points at the survivor.
     merged_into_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("vendors.id", ondelete="SET NULL")
+    )
+    #: The main office this supplier is a branch of (backlog 127): a supplier
+    #: company is one main office with a supplier per branch under it, one
+    #: level deep. A branch keeps its own GST number, address, bills and
+    #: bank account.
+    parent_vendor_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "vendors.id",
+            name="FK_vendors_parent_vendor_id",
+            ondelete="RESTRICT",
+        ),
     )
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
