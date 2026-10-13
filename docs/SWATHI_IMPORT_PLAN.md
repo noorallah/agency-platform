@@ -232,7 +232,7 @@ done; it needs more checking by the firm.
 | G9 | Free quantity in fractions on a bill line | Daily billing | Fixed in PR #1425, not merged |
 | G10 | Discount given at collection | Daily billing, step 10 | Decided 2026-10-12; whether it is built is not yet checked |
 | G11 | Bills handed to a collector for a day | Daily work | Open; the bill-and-collector point of 2026-10-12 |
-| G12 | Parent buyer with several shops under one GST number | Step 4 (six GST numbers are shared) | Open; import works today, with a warning |
+| G12 | Parent buyer with several shops under one GST number | Step 4 (six GST numbers are shared) | Built 2026-10-13 (backlog 125). A shared number is now refused on a second customer: the file names the parent in a **ParentCode** column and leaves the shop's GSTIN blank |
 | G13 | Half-page bill print with MRP, PTR, free, batch and expiry columns | Daily billing | Open; the sample bill has now arrived |
 | G14 | Working financial year selector | Looking at old years | Not decided |
 | G15 | Two firms, where the requirement sheet says one | Set-up | Answered 2026-10-12: both move, the smaller first |

@@ -95,12 +95,30 @@ class Customer(BaseEntity):
             postgresql_where=text("is_deleted = false"),
             sqlite_where=text("is_deleted = 0"),
         ),
-        # Not unique (decision A7, 2026-10-02): one company is several
-        # customer accounts -- a branch per state, a head office and its
-        # outlets -- sharing a PAN and sometimes a GSTIN. A save that repeats
-        # one is warned about by name; these only make the lookup cheap.
+        # A PAN is not unique (decision A7, 2026-10-02): one company is
+        # several customer accounts, a branch per state, sharing it. A save
+        # that repeats one is warned about by name.
         Index("IX_customers_firm_gst_number", "firm_id", "gst_number"),
         Index("IX_customers_firm_pan_number", "firm_id", "pan_number"),
+        # A GST number is held once (backlog 125): by the one customer it
+        # was typed on. A shop that takes its parent's number carries a copy
+        # the server wrote, marked ``gst_number_from_parent``, which is what
+        # keeps the copies out of this key.
+        Index(
+            "UQ_customers_firm_gst_number_own_active",
+            "firm_id",
+            "gst_number",
+            unique=True,
+            postgresql_where=text(
+                "gst_number IS NOT NULL AND gst_number <> '' "
+                "AND gst_number_from_parent = false AND is_deleted = false"
+            ),
+            sqlite_where=text(
+                "gst_number IS NOT NULL AND gst_number <> '' "
+                "AND gst_number_from_parent = 0 AND is_deleted = 0"
+            ),
+        ),
+        Index("IX_customers_parent_customer_id", "parent_customer_id"),
         Index("IX_customers_firm_name", "firm_id", "name"),
         Index("IX_customers_firm_status", "firm_id", "status"),
         # One supplier record is one customer's other side (ACC-11): two
@@ -132,6 +150,23 @@ class Customer(BaseEntity):
     #: which is soft-deleted, so its history points at the survivor.
     merged_into_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("customers.id", ondelete="SET NULL")
+    )
+    #: The buyer this customer is a shop of (backlog 125): a chain is one
+    #: parent with a customer per shop under it, one level deep. Each shop
+    #: keeps its own address, bills, dues and salesman.
+    parent_customer_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "customers.id",
+            name="FK_customers_parent_customer_id",
+            ondelete="RESTRICT",
+        ),
+    )
+    #: The shop's GST number and registration type are its parent's, copied
+    #: here by the server so every reader of ``gst_number`` bills the shop
+    #: under it without knowing about parents. Never written by a client.
+    gst_number_from_parent: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     customer_type: Mapped[str] = mapped_column(String(20), nullable=False)

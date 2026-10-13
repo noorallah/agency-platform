@@ -114,8 +114,9 @@ def test_the_customer_report_lists_only_customers_needing_attention() -> None:
 
     customer("C1", "ABCDE1234F", GSTIN)
     customer("C2", None, None)
-    customer("C3", None, GSTIN)
-    customer("C4", "ZZZZZ9999Z", GSTIN)
+    # A GST number is on one customer (backlog 125): the same PAN, other states.
+    customer("C3", None, "27" + GSTIN[2:])
+    customer("C4", "ZZZZZ9999Z", "24" + GSTIN[2:])
     customer("C5", None, None, deleted=True)
     customer("C6", None, None, firm_id=other.id)
     session.commit()

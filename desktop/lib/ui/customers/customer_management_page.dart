@@ -364,6 +364,15 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
                               if (level.isActive) level,
                           ])
                   : null,
+          // "Shop of" (backlog 125): the buyer this customer is a shop of.
+          searchParents: (text) => widget.api
+              .customers(search: text, pageSize: 20)
+              .then((page) => page.items),
+          // The parent and its shops; the form asks only for a record that
+          // has a parent or shops.
+          loadFamily: customer == null
+              ? null
+              : () => widget.api.customerFamily(customer.id),
           // The server refuses a moved limit without it; the form says so first.
           mayChangeCreditLimit:
               widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
@@ -940,6 +949,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           columns: [
             _column('Code', 'code'),
             _column('Name', 'name'),
+            const GridColumn(key: 'family', label: 'Parent / shops'),
             const GridColumn(key: 'gst', label: 'GST'),
             const GridColumn(key: 'phone', label: 'Phone'),
             const GridColumn(key: 'city', label: 'Area, city'),
@@ -953,6 +963,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           cells: (customer) => [
             customer.code,
             customer.name,
+            _familyCell(customer),
             customer.gstNumber,
             customer.phone,
             customerPlace(customer),
@@ -1099,6 +1110,8 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadMembers,
     this.loadVendors,
     this.loadPriceLevels,
+    this.searchParents,
+    this.loadFamily,
     this.mayChangeCreditLimit = true,
     this.mayChangeStandingDiscount = true,
     this.onApprove,
@@ -1155,6 +1168,15 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// The firm's active price levels, for the "Price level" picker; null for a
   /// user without PRICE_LIST_VIEW, which hides the picker.
   final Future<List<PriceLevelRecord>> Function()? loadPriceLevels;
+
+  /// Finds customers by what was typed, for the "Shop of" field (backlog
+  /// 125). Null omits the field, and then `parent_customer_id` is not sent at
+  /// all, so a save cannot clear a link the form never showed.
+  final Future<List<Customer>> Function(String text)? searchParents;
+
+  /// The parent and its shops. Asked once on opening, and only for a record
+  /// that has a parent or shops; null omits the Shops panel.
+  final Future<CustomerFamily> Function()? loadFamily;
 
   /// Whether the user holds `CUSTOMER_MANAGE_SETTINGS`. A credit limit is a
   /// credit control, so moving an existing customer's limit takes the code
@@ -1246,7 +1268,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     'code': _controller(widget.customer?.code),
     'name': _controller(widget.customer?.name),
     'display_name': _controller(widget.customer?.displayName),
-    'gst_number': _controller(widget.customer?.gstNumber),
+    // A number the server copied from the parent is not this shop's own, so
+    // the box opens empty rather than turning the copy into a typed one.
+    'gst_number': _controller(widget.customer?.gstNumberFromParent == true
+        ? ''
+        : widget.customer?.gstNumber),
     'pan_number': _controller(widget.customer?.panNumber),
     'tan_number': _controller(widget.customer?.tanNumber),
     'email': _controller(widget.customer?.email),
@@ -1310,6 +1336,17 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   late String _tradeClass = widget.customer?.tradeClass ?? '';
   List<PriceLevelRecord> _priceLevels = const [];
   bool _priceLevelsLoaded = false;
+  // The buyer this customer is a shop of; empty is "on its own", sent as
+  // null. Sent only when the form offers the field (`searchParents`).
+  late String _parentId = widget.customer?.parentCustomerId ?? '';
+  late String _parentLabel = _parentCaption(
+      widget.customer?.parentCode, widget.customer?.parentName);
+  // The parent's own GST number when it is known, for the helper under the
+  // GST box. Never put into the box.
+  late String _parentGst = widget.customer?.gstNumberFromParent == true
+      ? widget.customer!.gstNumber
+      : '';
+  CustomerFamily? _family;
   late final CustomFieldsController? _customFields =
       widget.loadAttributes == null
           ? null
@@ -1359,6 +1396,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     _loadMembers();
     _loadVendors();
     _loadPriceLevels();
+    unawaited(_loadFamily());
     for (final TextEditingController controller in _fields.values) {
       controller.addListener(_markDirty);
     }
@@ -1510,6 +1548,203 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
                 _priceLevelId = value ?? '';
                 _dirty = true;
               }),
+    );
+  }
+
+  static String _parentCaption(String? code, String? name) {
+    final String joined = [
+      for (final String? part in [code, name])
+        if (part != null && part.isNotEmpty) part,
+    ].join(' - ');
+    return joined;
+  }
+
+  /// Whether the record being opened belongs to a family at all.
+  bool get _hasFamily {
+    final Customer? customer = widget.customer;
+    return customer != null &&
+        (customer.parentCustomerId != null || customer.shopCount > 0);
+  }
+
+  /// Reads the parent and its shops, once per open and only for a record
+  /// that has a parent or shops: a customer with neither makes no call.
+  Future<void> _loadFamily() async {
+    if (widget.loadFamily == null || !_hasFamily) return;
+    try {
+      final CustomerFamily family = await widget.loadFamily!();
+      if (!mounted) return;
+      setState(() {
+        _family = family;
+        if (_parentGst.isEmpty) {
+          for (final CustomerFamilyMember member in family.members) {
+            if (member.isParent && member.id != widget.customer?.id) {
+              _parentGst = member.gstNumber;
+            }
+          }
+        }
+      });
+    } on Object {
+      // A family that cannot be read costs the Shops panel, not the form.
+    }
+  }
+
+  /// Customers the "Shop of" field offers: never the one being edited, a
+  /// shop itself (shops sit one level under a parent), or the walk-in
+  /// customer.
+  Future<Iterable<Customer>> _findParents(TextEditingValue value) async {
+    final String text = value.text.trim();
+    if (text.length < 2 || widget.searchParents == null) {
+      return const <Customer>[];
+    }
+    try {
+      final List<Customer> found = await widget.searchParents!(text);
+      return [
+        for (final Customer row in found)
+          if (row.id != widget.customer?.id &&
+              row.parentCustomerId == null &&
+              !row.isCashSale)
+            row,
+      ];
+    } on Object {
+      return const <Customer>[];
+    }
+  }
+
+  String _parentOption(Customer customer) => withPlace(
+      '${customer.code} - ${customer.name}', customerPlace(customer));
+
+  /// The "Shop of" field. A parent with shops cannot itself become a shop, so
+  /// the field is disabled and says why.
+  Widget _parentField() {
+    final int shops = widget.customer?.shopCount ?? 0;
+    if (shops > 0) {
+      return TextFormField(
+        key: const ValueKey('customer-parent'),
+        enabled: false,
+        decoration: InputDecoration(
+          labelText: 'Shop of',
+          helperText: 'This customer is the parent of $shops '
+              '${shops == 1 ? 'shop' : 'shops'}.',
+          helperMaxLines: 2,
+        ),
+      );
+    }
+    return Autocomplete<Customer>(
+      key: const ValueKey('customer-parent'),
+      initialValue: TextEditingValue(text: _parentLabel),
+      optionsBuilder: _findParents,
+      displayStringForOption: _parentOption,
+      onSelected: (customer) => setState(() {
+        _parentId = customer.id;
+        _parentLabel = '${customer.code} - ${customer.name}';
+        _parentGst = customer.gstNumber;
+        _dirty = true;
+      }),
+      fieldViewBuilder: (context, controller, focusNode, onSubmitted) =>
+          TextField(
+        key: const ValueKey('customer-parent-box'),
+        controller: controller,
+        focusNode: focusNode,
+        readOnly: _readOnly,
+        decoration: InputDecoration(
+          labelText: 'Shop of',
+          helperText: 'The buyer this customer is a shop of. Leave blank for '
+              'a buyer on its own.',
+          helperMaxLines: 2,
+          suffixIcon: _parentId.isEmpty || _readOnly
+              ? null
+              : IconButton(
+                  key: const ValueKey('customer-parent-clear'),
+                  tooltip: 'Clear',
+                  icon: const Icon(Icons.clear, size: 18),
+                  onPressed: () {
+                    controller.clear();
+                    setState(() {
+                      _parentId = '';
+                      _parentLabel = '';
+                      _parentGst = '';
+                      _dirty = true;
+                    });
+                  },
+                ),
+        ),
+        // Emptying the box takes the customer out from under its parent.
+        onChanged: (text) {
+          if (text.isEmpty && _parentId.isNotEmpty) {
+            setState(() {
+              _parentId = '';
+              _parentLabel = '';
+              _parentGst = '';
+              _dirty = true;
+            });
+          }
+        },
+        onSubmitted: (_) => onSubmitted(),
+      ),
+    );
+  }
+
+  /// The words under the GST box once a parent is chosen.
+  String? get _gstHelper {
+    if (widget.searchParents == null || _parentId.isEmpty) return null;
+    return _parentGst.isEmpty
+        ? "Blank takes the parent's GST number. Type one only for a shop "
+            'registered in another state.'
+        : "Blank takes the parent's GST number ($_parentGst). Type one only "
+            'for a shop registered in another state.';
+  }
+
+  /// The parent and its shops, one row each, with what they owe together.
+  Widget _shopsPanel() {
+    final CustomerFamily? family = _family;
+    if (family == null || family.members.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final ThemeData theme = Theme.of(context);
+    return Column(
+      key: const ValueKey('customer-shops'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 16),
+        Text('Shops', style: theme.textTheme.titleSmall),
+        Card(
+          child: Column(
+            children: [
+              for (final CustomerFamilyMember member in family.members)
+                ListTile(
+                  key: ValueKey('customer-shop-${member.code}'),
+                  dense: true,
+                  title: Text(
+                    '${member.code}  ${member.name}'
+                    '${member.isParent ? '  (parent)' : ''}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    [
+                      if (member.place.isNotEmpty) member.place,
+                      if (member.gstNumber.isNotEmpty)
+                        member.gstNumberFromParent
+                            ? "${member.gstNumber} (parent's)"
+                            : member.gstNumber,
+                    ].join(' · '),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Text(_money(member.currentOutstanding)),
+                ),
+              ListTile(
+                key: const ValueKey('customer-shops-total'),
+                dense: true,
+                title: Text('Total outstanding',
+                    style: theme.textTheme.titleSmall),
+                trailing: Text(
+                  _money(family.totalOutstanding),
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1830,6 +2065,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         // alone" and null clears it.
         if (widget.loadVendors != null && _vendorsLoaded)
           'linked_vendor_id': _linkedVendorId.isEmpty ? null : _linkedVendorId,
+        // Only when the form offers the field: absent means "leave the parent
+        // alone" and null takes the customer out from under it. A parent with
+        // shops cannot become a shop, so it sends the stored (empty) answer.
+        if (widget.searchParents != null)
+          'parent_customer_id': _parentId.isEmpty ? null : _parentId,
         // Only once the levels arrived: absent means "leave the level alone"
         // and null clears it. Without the settings code a new customer sends
         // none, and an edit sends back the stored level, which the server
@@ -1995,7 +2235,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               _collectorDropdown(),
             if (widget.loadVendors != null && _vendorsLoaded)
               _linkedVendorDropdown(),
-            _text('gst_number', 'GST number'),
+            if (widget.searchParents != null) _parentField(),
+            _text('gst_number', 'GST number', helper: _gstHelper),
             _gstTypePicker(),
             _text('pan_number', 'PAN number'),
             _text(
@@ -2027,6 +2268,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             _text('website', 'Website'),
           ]),
           _text('notes', 'Notes', lines: 4, fullWidth: true),
+          if (widget.loadFamily != null) _shopsPanel(),
         ]),
       );
 
@@ -3218,6 +3460,18 @@ const Map<String, String> _gstTypes = {
 };
 
 /// A status as the grid shows it: PENDING reads "Pending approval".
+/// "Shop of CODE" for a shop, "N shops" for a parent, from the row alone.
+String _familyCell(Customer customer) {
+  final String? parent = customer.parentCode;
+  if (customer.parentCustomerId != null) {
+    return parent == null || parent.isEmpty ? 'Shop' : 'Shop of $parent';
+  }
+  if (customer.shopCount > 0) {
+    return '${customer.shopCount} ${customer.shopCount == 1 ? 'shop' : 'shops'}';
+  }
+  return '';
+}
+
 String _statusCell(String status) =>
     status == 'PENDING' ? 'PENDING_APPROVAL' : status;
 

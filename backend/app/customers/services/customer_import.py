@@ -99,8 +99,17 @@ COLUMNS: tuple[Column, ...] = (
         "GSTIN",
         ("gstnumber", "gstno", "gst", "gstinuin"),
         False,
-        "GST number. Several accounts of one company may share it.",
+        "GST number, entered on one customer only. A shop with a ParentCode "
+        "leaves it blank and takes its parent's.",
         "33AAAPL1234C1Z5",
+    ),
+    Column(
+        "ParentCode",
+        ("parentcode", "parentcustomer", "parentcustomercode", "headoffice"),
+        False,
+        "The code of the buyer this customer is a shop of: a customer the "
+        "firm already has, or one on an earlier row of this file.",
+        "",
     ),
     Column(
         "GstType",
@@ -249,6 +258,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "customer_type": "Type",
     "customer_group_id": "Segment",
     "gst_number": "GSTIN",
+    "parent_customer_id": "ParentCode",
     "gst_registration_type": "GstType",
     "pan_number": "PAN",
     "tan_number": "TAN",
@@ -320,8 +330,10 @@ class CustomerFileImporter(FileImporter[Customer]):
         self._groups: list[CustomerGroup] = []
         self._currency = "INR"
         self._members: list[FirmMember] = []
+        self._firm_id: UUID | None = None
 
     def _prepare(self, firm_id: UUID) -> None:
+        self._firm_id = firm_id
         self._groups = firm_segments(self._session, firm_id)
         reader = FirmMetadataReader(self._session)
         self._currency = reader.get(firm_id).currency_code or "INR"
@@ -454,6 +466,25 @@ class CustomerFileImporter(FileImporter[Customer]):
         gst_type = reader.text("GstType").upper().replace(" ", "_")
         if gst_type:
             values["gst_registration_type"] = gst_type
+        parent_code = reader.text("ParentCode").upper()
+        if parent_code:
+            # Read from the store at this row, so a parent staged by an
+            # earlier row of the same file is found (backlog 125).
+            parent_id = self._session.scalar(
+                select(Customer.id).where(
+                    Customer.firm_id == self._firm_id,
+                    Customer.is_deleted.is_(False),
+                    Customer.code == parent_code,
+                )
+            )
+            if parent_id is None:
+                reader.fail(
+                    "ParentCode",
+                    f"'{parent_code}' is not a customer of the firm, nor on an "
+                    "earlier row of this file.",
+                )
+            else:
+                values["parent_customer_id"] = parent_id
         email = reader.email("Email")
         if email:
             values["email"] = email

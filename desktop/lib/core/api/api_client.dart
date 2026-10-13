@@ -1369,6 +1369,13 @@ class ApiClient {
     return message is String && message.isNotEmpty ? message : null;
   }
 
+  /// A buyer's family (backlog 125): the parent and its shops, asked of any
+  /// member. Read only for a customer that has a parent or shops.
+  Future<CustomerFamily> customerFamily(String id) async =>
+      CustomerFamily.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/customers/$id/family')),
+      );
+
   /// Customers that look like the one being typed (MST-3): the same GSTIN,
   /// phone or name. A warning, never a refusal. [excluding] is the record
   /// being edited.

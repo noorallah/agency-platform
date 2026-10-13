@@ -652,6 +652,19 @@ sale; a buyer's name is refused on a bill to any other customer. The *Cash
 sale* customer cannot be deleted, given a credit limit or a GSTIN, or made
 inactive.
 
+**A buyer with several shops.** A chain such as a supermarket with a shop in
+each area is kept as one **parent** customer and one customer per shop. On a
+shop's form choose the parent under **Shop of** and leave the **GST number**
+blank: the shop takes the parent's number, and the form says whose number it
+is. A shop registered in another state types its own. A GST number can be
+typed on one customer only; typing it on a second is refused with the name of
+the customer that holds it. Each shop keeps its own address, bills, dues,
+credit limit and salesman. The parent's form lists its shops under **Shops**
+with what each owes and one total, and the customer list shows *Shop of* or
+the number of shops. Changing the parent's GST number changes it on its shops.
+A parent cannot be deleted while it has shops. In a customer file, the column
+**ParentCode** names the parent.
+
 **Service invoices.** A product whose type is *Service* (installation,
 freight, a repair) is put on a quotation, order, delivery note, bill or
 return like any other line and is billed with its SAC. It **moves no stock**:

@@ -1,11 +1,14 @@
-"""Decision A7 (with B5): a GSTIN or PAN may repeat across customers, warned.
+"""Decision A7 (with B5): a PAN may repeat across customers, warned.
 
 One company is often several customer accounts: a branch per state shares its
-PAN, a head office and its outlets may share a GSTIN. Both were unique among a
-firm's live customers, which refused the second account (or, for a PAN filled
-from a GSTIN, left it blank). Now only the code is unique; a save that repeats
-a GSTIN or PAN is allowed and the response names the other account, and the
+PAN. It was unique among a firm's live customers, which refused the second
+account (or, for a PAN filled from a GSTIN, left it blank). A save that
+repeats a PAN is allowed and the response names the other account, and the
 form can ask beforehand through ``GET /customers/identity-check``.
+
+A7 let a GSTIN repeat too. Backlog 125 took that back: a GST number is held
+by one customer and its shops take it from that parent
+(``test_customer_parent_and_shops.py``).
 """
 
 from uuid import uuid4
@@ -62,24 +65,24 @@ def _scope() -> tuple[object, object]:
     return session, _firm_scope(principal, session, firm.id)
 
 
-def test_a_repeated_gstin_and_pan_are_saved_and_named() -> None:
-    """The second account saves, and the response says who else holds them."""
+def test_a_repeated_pan_is_saved_and_named_and_a_repeated_gstin_refused() -> None:
+    """The second account saves under the PAN; the GSTIN names its holder."""
     session, scope = _scope()
     first = create_customer(
         _data("HO", gst_number=GSTIN), scope, session  # type: ignore[arg-type]
     )
     assert first.message is None
 
+    with pytest.raises(ConflictError, match="held by HO Customer HO"):
+        create_customer(
+            _data("OUTLET", gst_number=GSTIN), scope, session  # type: ignore[arg-type]
+        )
     second = create_customer(
-        _data("OUTLET", gst_number=GSTIN), scope, session  # type: ignore[arg-type]
+        _data("OUTLET", pan_number=PAN), scope, session  # type: ignore[arg-type]
     )
 
-    assert second.data.gst_number == GSTIN
     assert second.data.pan_number == PAN
-    assert second.message == (
-        f"GSTIN {GSTIN} is also on HO Customer HO; PAN {PAN} is also on HO "
-        "Customer HO."
-    )
+    assert second.message == f"PAN {PAN} is also on HO Customer HO."
 
 
 def test_the_form_can_ask_before_it_saves() -> None:
@@ -133,7 +136,7 @@ def test_an_edit_that_takes_another_accounts_pan_is_named_too() -> None:
 
 
 def test_the_code_is_still_unique() -> None:
-    """Only the GSTIN and PAN were relaxed; a repeated code is refused by name."""
+    """Only the PAN was relaxed; a repeated code is refused by name."""
     session, scope = _scope()
     create_customer(_data("SAME"), scope, session)  # type: ignore[arg-type]
 

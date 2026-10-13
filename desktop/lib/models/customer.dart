@@ -181,6 +181,11 @@ class Customer {
     this.tradeClass,
     this.collectorId,
     this.isCashSale = false,
+    this.parentCustomerId,
+    this.parentCode,
+    this.parentName,
+    this.gstNumberFromParent = false,
+    this.shopCount = 0,
   });
 
   final String id;
@@ -289,6 +294,17 @@ class Customer {
   /// The firm's one built-in *Cash sale* customer, who a walk-in bill names.
   final bool isCashSale;
 
+  /// The buyer this customer is a shop of, or null for a buyer on its own.
+  final String? parentCustomerId;
+  final String? parentCode;
+  final String? parentName;
+
+  /// True when [gstNumber] is the parent's, copied by the server.
+  final bool gstNumberFromParent;
+
+  /// How many live shops sit under this customer.
+  final int shopCount;
+
   String get city {
     final Iterable<CustomerAddress> defaults =
         addresses.where((address) => address.isDefaultBilling);
@@ -363,6 +379,88 @@ class Customer {
         tradeClass: json['trade_class'] as String?,
         collectorId: json['collector_id'] as String?,
         isCashSale: boolValue(json['is_cash_sale']),
+        parentCustomerId: json['parent_customer_id'] as String?,
+        parentCode: json['parent_code'] as String?,
+        parentName: json['parent_name'] as String?,
+        gstNumberFromParent: boolValue(json['gst_number_from_parent']),
+        shopCount: (json['shop_count'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// One member of a buyer's family: the parent or one of its shops.
+class CustomerFamilyMember {
+  const CustomerFamilyMember({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.isParent,
+    required this.gstNumber,
+    required this.gstNumberFromParent,
+    required this.status,
+    required this.place,
+    required this.currentOutstanding,
+    required this.unappliedAdvanceBalance,
+  });
+
+  final String id;
+  final String code;
+  final String name;
+  final bool isParent;
+  final String gstNumber;
+  final bool gstNumberFromParent;
+  final String status;
+
+  /// "Area, City", or empty.
+  final String place;
+  final String currentOutstanding;
+  final String unappliedAdvanceBalance;
+
+  factory CustomerFamilyMember.fromJson(Json json) => CustomerFamilyMember(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        isParent: boolValue(json['is_parent']),
+        gstNumber: stringValue(json['gst_number']),
+        gstNumberFromParent: boolValue(json['gst_number_from_parent']),
+        status: stringValue(json['status']),
+        place: stringValue(json['place']),
+        currentOutstanding: stringValue(json['current_outstanding']).isEmpty
+            ? '0.00'
+            : stringValue(json['current_outstanding']),
+        unappliedAdvanceBalance:
+            stringValue(json['unapplied_advance_balance']).isEmpty
+                ? '0.00'
+                : stringValue(json['unapplied_advance_balance']),
+      );
+}
+
+/// A parent and its shops, as `GET /customers/{id}/family` answers: the same
+/// family whichever member is asked about, the parent first.
+class CustomerFamily {
+  const CustomerFamily({
+    required this.parentId,
+    required this.members,
+    required this.totalOutstanding,
+    required this.totalUnappliedAdvance,
+  });
+
+  final String parentId;
+  final List<CustomerFamilyMember> members;
+  final String totalOutstanding;
+  final String totalUnappliedAdvance;
+
+  factory CustomerFamily.fromJson(Json json) => CustomerFamily(
+        parentId: stringValue(json['parent_id']),
+        members: _objects(json['members'])
+            .map(CustomerFamilyMember.fromJson)
+            .toList(),
+        totalOutstanding: stringValue(json['total_outstanding']).isEmpty
+            ? '0.00'
+            : stringValue(json['total_outstanding']),
+        totalUnappliedAdvance:
+            stringValue(json['total_unapplied_advance']).isEmpty
+                ? '0.00'
+                : stringValue(json['total_unapplied_advance']),
       );
 }
 

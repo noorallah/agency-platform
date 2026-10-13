@@ -509,6 +509,37 @@ that an edit changes what it names and nothing else.
   - Step 8: the statement's closing balance equals the last balance of the table.
   - Step 9: the rows are shown and the last row for adding a receipt is not.
 
+### TC-CUST-014 — A parent buyer with three shops; the GST number typed once
+
+*Added 2026-10-13 (backlog 125). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 125 (customer task M7)
+- **Fixture:** `ready-firm`
+- **Also needs:** a valid GST number nobody on the firm holds (say `36AAACD1234M1Z5`), and a second one for another state (`29AAACD1234M1Z3`).
+- **Steps**
+  1. Open *Masters → Customers* → **New customer**. Code `DMART`, name *DMart*, GST number the first one. Save.
+  2. **New customer**: code `DM-KUK`, name *DMart*. Under **Shop of** choose `DMART`. Leave the GST number blank. Save. Do the same for `DM-MIY` and `DM-GAC`.
+  3. Open `DM-KUK` again and look at the GST number box and the line under it.
+  4. **New customer**: code `DMART2`, name *DMart*, the same GST number, no parent. Save.
+  5. **New customer**: code `DM-BLR`, **Shop of** `DMART`, GST number the second one. Save.
+  6. Open `DMART` and look at **Shop of** and at **Shops**.
+  7. On `DMART` change the GST number to another valid number and save. Open `DM-KUK` and `DM-BLR`.
+  8. On the customer list, look at the *Parent / shops* column.
+  9. **New customer**: code `DEEP`, **Shop of**: search for `DM-KUK`.
+  10. Delete `DMART`.
+  11. Open `DM-GAC`, clear **Shop of**, save, and open it again.
+- **Expect**
+  - Step 2: each shop saves.
+  - Step 3: the box is empty and the line reads "Blank takes the parent's GST number (…)" with the parent's number.
+  - Step 4: refused. The message says the number is held by `DMART DMart` and to make this customer a shop of `DMART` with the GST number left blank. Nothing is saved.
+  - Step 5: saved with its own number.
+  - Step 6: **Shop of** cannot be changed and says the customer is the parent of 4 shops. **Shops** lists `DMART` marked as the parent and the four shops, three with the number marked as the parent's and `DM-BLR` with its own, each with what it owes, and a last line *Total outstanding*.
+  - Step 7: `DM-KUK` is billed under the new number (its box is still empty and the line names the new number); `DM-BLR` keeps its own.
+  - Step 8: `DMART` reads "4 shops"; each shop reads "Shop of DMART".
+  - Step 9: `DM-KUK` is not offered, because it is a shop itself.
+  - Step 10: refused: `DMART` is the parent of 4 shops.
+  - Step 11: `DM-GAC` has no parent and no GST number.
+
 ### TC-CUST-005 — Statement and ageing agree with the account
 
 - **Covers:** plan 4.7, 4.8
