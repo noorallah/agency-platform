@@ -2060,10 +2060,24 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
   /// The search box's focus as last built: the screen's own, or ours.
   FocusNode? _searchFocus;
 
+  /// What says this list's screen has been put on show again (D-UI-26).
+  ShownAgainSignal? _shownAgain;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _bar = Phase2PageBar.of(context);
+    final ShownAgainSignal? signal = ScreenShownAgain.of(context);
+    if (signal != _shownAgain) {
+      _shownAgain?.removeListener(_readAgain);
+      _shownAgain = signal?..addListener(_readAgain);
+    }
+  }
+
+  /// The screen was kept built and is on show again: read the list as its
+  /// Refresh would, where the screen offers one and it is enabled.
+  void _readAgain() {
+    if (mounted) _run(ToolbarAction.refresh);
   }
 
   @override
@@ -2078,6 +2092,7 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onKey);
+    _shownAgain?.removeListener(_readAgain);
     _bar?.release(this);
     _ownSearchFocus.dispose();
     super.dispose();

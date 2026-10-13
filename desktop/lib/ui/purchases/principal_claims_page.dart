@@ -1008,6 +1008,18 @@ class _RecordClaimPaymentDialogState extends State<RecordClaimPaymentDialog>
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    return AskBeforeClosing(
+      touched: () =>
+          _accountId != null ||
+          _reference.text.trim().isNotEmpty ||
+          _amount.text.trim() != _money(widget.claim.outstanding),
+      what: 'payment has not been recorded',
+      busy: saving,
+      child: _dialog(theme),
+    );
+  }
+
+  Widget _dialog(ThemeData theme) {
     return AlertDialog(
       title: Text('Payment for ${widget.claim.claimNumber}'),
       content: SizedBox(
@@ -1334,6 +1346,18 @@ class _SettleClaimDialogState extends State<SettleClaimDialog>
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    return AskBeforeClosing(
+      touched: () =>
+          _reason.text.trim() !=
+              'Principal credit note for ${widget.claim.claimNumber}' ||
+          _boxes.values.any((box) => box.text.trim().isNotEmpty),
+      what: 'settlement has not been recorded',
+      busy: saving,
+      child: _dialog(theme),
+    );
+  }
+
+  Widget _dialog(ThemeData theme) {
     return AlertDialog(
       title: Text('Settle claim ${widget.claim.claimNumber}'),
       content: SizedBox(
@@ -1946,6 +1970,20 @@ class _NewPriceCutClaimDialogState extends State<NewPriceCutClaimDialog>
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final bool busy = saving || _previewing;
+    return AskBeforeClosing(
+      touched: () =>
+          _principalId != null ||
+          _effective != null ||
+          _started ||
+          _rows.isNotEmpty ||
+          _remarks.text.trim().isNotEmpty,
+      what: 'claim has not been raised',
+      busy: saving,
+      child: _dialog(theme, busy),
+    );
+  }
+
+  Widget _dialog(ThemeData theme, bool busy) {
     return AlertDialog(
       title: const Text('Claim a price cut on stock in hand'),
       content: SizedBox(

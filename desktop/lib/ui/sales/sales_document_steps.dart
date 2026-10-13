@@ -88,10 +88,80 @@ Future<DocumentStepDone?> _approveSale(
 /// connection, no leave to read it) costs the notice and nothing else.
 Future<String?> _shortfallOf(ApiClient api, String orderId) async {
   try {
-    return approvedShortfallNotice(await api.salesOrderBackOrders(), orderId);
+    return approvedShortfallNotice(
+      await api.salesOrderBackOrders(orderIds: [orderId]),
+      orderId,
+    );
   } on Object {
     return null;
   }
+}
+
+/// What the back-order report says of the orders a bulk approve put
+/// through: one read for all of them, asked about those orders alone
+/// (D-UI-61). Null where every line was covered, where none was approved,
+/// or where the report cannot be read -- the approvals are done by then.
+Future<String?> bulkApprovedShortfall(
+  ApiClient api,
+  List<String> orderIds,
+) async {
+  if (orderIds.isEmpty) return null;
+  try {
+    return approvedOrdersShortfallNotice(
+      await api.salesOrderBackOrders(orderIds: orderIds),
+      orderIds,
+    );
+  } on Object {
+    return null;
+  }
+}
+
+/// How many orders a bulk approve's back-order sentence names before it
+/// says "and N more": the sentence is a toast, not a report.
+const int _ordersNamedOnBackOrder = 5;
+
+/// The back-order sentence for several orders approved at once: each order
+/// with something short is named by its number, with its lines as the single
+/// approve states them. One order short among the several still names it --
+/// the person approved a batch and has to know which.
+String? approvedOrdersShortfallNotice(
+  Object? backOrders,
+  List<String> orderIds,
+) {
+  if (backOrders is! List) return null;
+  final Set<String> approved = orderIds.toSet();
+  final Map<String, List<String>> short = <String, List<String>>{};
+  final Map<String, String> numbers = <String, String>{};
+  for (final Object? line in backOrders) {
+    if (line is! Map || !approved.contains('${line['order_id']}')) continue;
+    final String? stated = _shortLine(line);
+    if (stated == null) continue;
+    final String id = '${line['order_id']}';
+    short.putIfAbsent(id, () => <String>[]).add(stated);
+    numbers[id] = '${line['order_number'] ?? ''}'.trim();
+  }
+  if (short.isEmpty) return null;
+  final List<String> named = [
+    for (final MapEntry<String, List<String>> order
+        in short.entries.take(_ordersNamedOnBackOrder))
+      '${numbers[order.key]!.isEmpty ? 'An order' : numbers[order.key]}: '
+          '${order.value.join(', ')}',
+  ];
+  final int more = short.length - named.length;
+  return 'Not in stock, and staying on back order. ${named.join('; ')}'
+      '${more > 0 ? '; and $more more ${more == 1 ? 'order' : 'orders'}' : ''}.';
+}
+
+/// One back-order row as the sentence states it, "418 of 500 of Shampoo",
+/// or null where the row has nothing short.
+String? _shortLine(Map<Object?, Object?> line) {
+  final double? need = double.tryParse('${line['requested_quantity']}');
+  final double? missing = double.tryParse('${line['back_order_quantity']}');
+  if (need == null || missing == null || missing <= 0) return null;
+  String figure(double value) => documentQuantity(value.toStringAsFixed(4));
+  final String name = '${line['product_name'] ?? ''}'.trim();
+  return '${figure(missing)} of ${figure(need)}'
+      '${name.isEmpty ? '' : ' of $name'}';
 }
 
 /// What the back-order rows say about the stock an approved order could not
@@ -111,15 +181,8 @@ String? approvedShortfallNotice(Object? backOrders, String orderId) {
   final List<String> short = <String>[];
   for (final Object? line in backOrders) {
     if (line is! Map || '${line['order_id']}' != orderId) continue;
-    final double? need = double.tryParse('${line['requested_quantity']}');
-    final double? missing = double.tryParse('${line['back_order_quantity']}');
-    if (need == null || missing == null || missing <= 0) continue;
-    String figure(double value) => documentQuantity(value.toStringAsFixed(4));
-    final String name = '${line['product_name'] ?? ''}'.trim();
-    short.add(
-      '${figure(missing)} of ${figure(need)}'
-      '${name.isEmpty ? '' : ' of $name'}',
-    );
+    final String? stated = _shortLine(line);
+    if (stated != null) short.add(stated);
   }
   if (short.isEmpty) return null;
   final String what = short.length == 1

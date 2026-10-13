@@ -319,6 +319,78 @@ class DocumentNavigator extends StatefulWidget {
 
 class _DocumentNavigatorState extends State<DocumentNavigator> {
   @override
+  void initState() {
+    super.initState();
+    FocusManager.instance.addEarlyKeyEventHandler(_escapeThroughClosedPicker);
+  }
+
+  @override
+  void dispose() {
+    FocusManager.instance
+        .removeEarlyKeyEventHandler(_escapeThroughClosedPicker);
+    super.dispose();
+  }
+
+  /// Esc on a drop-down whose list is closed belongs to the document
+  /// (D-UI-62).
+  ///
+  /// A `DropdownMenu` wraps its text box in a `MenuAnchor`, whose own
+  /// shortcuts turn Esc into a dismissal that is "enabled" whether or not the
+  /// list is open -- so the key stopped there and never reached the editor's
+  /// Esc binding, and the editor did not ask to close until the focus was
+  /// elsewhere. With the list open the key is left alone, so it closes the
+  /// list as before; with the list closed it is handed to the nearest Esc
+  /// binding above the picker, which is the editor's `leaveDocument`.
+  KeyEventResult _escapeThroughClosedPicker(KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.escape ||
+        HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isShiftPressed ||
+        HardwareKeyboard.instance.isAltPressed ||
+        HardwareKeyboard.instance.isMetaPressed) {
+      return KeyEventResult.ignored;
+    }
+    final BuildContext? focused = FocusManager.instance.primaryFocus?.context;
+    if (focused == null || !focused.mounted) return KeyEventResult.ignored;
+    if (focused.findAncestorStateOfType<_DocumentNavigatorState>() != this) {
+      return KeyEventResult.ignored;
+    }
+    bool pickerClosed = false;
+    VoidCallback? leave;
+    focused.visitAncestorElements((Element element) {
+      final Widget widget = element.widget;
+      if (widget is MenuAnchor) {
+        if (widget.controller?.isOpen ?? true) return false;
+        pickerClosed = true;
+      } else if (!pickerClosed &&
+          widget.runtimeType.toString().startsWith('DropdownMenu<')) {
+        // The focus sits on the menu's own hidden node, which is beside the
+        // text box and not under its anchor: read the anchor from below.
+        bool open = true;
+        void find(Element child) {
+          final Widget below = child.widget;
+          if (below is MenuAnchor) {
+            open = below.controller?.isOpen ?? true;
+          } else {
+            child.visitChildren(find);
+          }
+        }
+
+        element.visitChildren(find);
+        if (open) return false;
+        pickerClosed = true;
+      } else if (pickerClosed && widget is CallbackShortcuts) {
+        leave = widget.bindings[const SingleActivator(LogicalKeyboardKey.escape)];
+        if (leave != null) return false;
+      }
+      return true;
+    });
+    if (!pickerClosed || leave == null) return KeyEventResult.ignored;
+    leave!();
+    return KeyEventResult.handled;
+  }
+
+  @override
   Widget build(BuildContext context) => Navigator(
         onGenerateInitialRoutes: (navigator, _) => [
           PageRouteBuilder<void>(

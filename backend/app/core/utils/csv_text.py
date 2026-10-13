@@ -8,6 +8,9 @@ exporting tool follows is to put an apostrophe in front, which a spreadsheet
 shows as the text that was typed.
 """
 
+from collections.abc import Iterable
+from decimal import Decimal
+
 #: What a spreadsheet reads as the start of a formula, and the two control
 #: characters that let one begin after a harmless-looking prefix.
 _FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
@@ -37,3 +40,22 @@ def csv_text(value: object) -> str:
     if any(mark in text for mark in (",", '"', "\n", "\r")):
         return '"' + text.replace('"', '""') + '"'
     return text
+
+
+def csv_line(cells: Iterable[object]) -> str:
+    """Return one CSV record from its cells, each one made safe.
+
+    Every hand-built export joins its cells here rather than with
+    ``",".join``, which neither quoted a comma nor guarded a formula
+    (D-MST-22). A number is written as it is: ``-5`` is a quantity, not the
+    start of a formula, and an apostrophe in front would turn it into text.
+    ``None`` is an empty cell.
+    """
+    return ",".join(
+        (
+            str(cell)
+            if isinstance(cell, int | float | Decimal) and not isinstance(cell, bool)
+            else csv_text(cell)
+        )
+        for cell in cells
+    )

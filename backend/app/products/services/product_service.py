@@ -602,7 +602,10 @@ class ProductService:
         ):
             self._validate_preferred_vendor(firm_scope, data.preferred_vendor_id)
         self._validate_uom_references(data)
-        self._assert_stock_shape_unchanged(product, self._product_values(data))
+        # What was sent, not the whole model: a field the caller left out is
+        # not "switched off" or "cleared", and its schema default must not be
+        # read as a change to a stocked product (D-MST-22).
+        self._assert_stock_shape_unchanged(product, values)
         self._assert_price_within_mrp(product, values)
         before: dict[str, object] = {
             "code": product.code,

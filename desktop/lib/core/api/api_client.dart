@@ -2003,15 +2003,31 @@ class ApiClient {
         ),
       );
 
-  /// The open order lines the warehouse cannot fill today, firm-wide: the
-  /// back-order report's rows as the server sends them (`order_id`,
+  /// The open order lines the warehouse cannot fill today: the back-order
+  /// report's rows as the server sends them (`order_id`, `order_number`,
   /// `product_name`, `requested_quantity`, `back_order_quantity`). What an
   /// approval reads to say an order went through for more than the stock
   /// (D-UI-48); the approve response itself cannot say it.
-  Future<List<Json>> salesOrderBackOrders() async => _unwrapList(
-        await request('GET', '/api/v1/sales-orders/reports/back-orders'),
-        (Json row) => row,
-      );
+  ///
+  /// [orderIds] asks about those orders alone, which is all an approval
+  /// wants (D-UI-60); with none it is the whole firm's report. The ids go
+  /// as a repeated `order_id`, which a map of query values cannot spell.
+  Future<List<Json>> salesOrderBackOrders({
+    List<String> orderIds = const <String>[],
+  }) async {
+    final String only = [
+      for (final String id in orderIds)
+        'order_id=${Uri.encodeQueryComponent(id)}',
+    ].join('&');
+    return _unwrapList(
+      await request(
+        'GET',
+        '/api/v1/sales-orders/reports/back-orders'
+        '${only.isEmpty ? '' : '?$only'}',
+      ),
+      (Json row) => row,
+    );
+  }
 
   /// The same for a sales invoice.
   Future<PriceFloorCheck> salesInvoicePriceCheck(String id) async =>

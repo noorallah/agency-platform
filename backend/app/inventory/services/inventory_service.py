@@ -26,7 +26,7 @@ from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import chunks
-from app.core.utils.csv_text import csv_text, sheet_text
+from app.core.utils.csv_text import csv_line, sheet_text
 from app.core.utils.money import quantize_money
 from app.core.validation.payloads import parse_payload
 from app.finance.services.control_accounts import ControlAccountPurpose
@@ -4644,21 +4644,21 @@ class InventoryService:
         # to be rebuilt for every column, eleven look-ups each time.
         for item, response in zip(rows, self.inventory_responses(rows), strict=True):
             output.append(
-                ",".join(
+                csv_line(
                     [
-                        self._csv(response, "product_code"),
-                        self._csv(response, "product_name"),
-                        self._csv(response, "branch_code"),
-                        self._csv(response, "warehouse_code"),
-                        self._csv(response, "storage_node_code"),
-                        str(item.current_quantity),
-                        str(item.available_quantity),
-                        str(item.reserved_quantity),
-                        str(item.blocked_quantity),
-                        str(item.damaged_quantity),
-                        str(item.quarantine_quantity),
-                        str(item.in_transit_quantity),
-                        str(item.reorder_level or ""),
+                        response.product_code,
+                        response.product_name,
+                        response.branch_code,
+                        response.warehouse_code,
+                        response.storage_node_code,
+                        item.current_quantity,
+                        item.available_quantity,
+                        item.reserved_quantity,
+                        item.blocked_quantity,
+                        item.damaged_quantity,
+                        item.quarantine_quantity,
+                        item.in_transit_quantity,
+                        item.reorder_level or "",
                         item.status,
                     ]
                 )
@@ -4728,22 +4728,22 @@ class InventoryService:
         ]
         for item in rows:
             output.append(
-                ",".join(
+                csv_line(
                     [
                         item.transaction_date.isoformat(),
                         item.transaction_type,
-                        csv_text(item.reference_number),
-                        csv_text(labels.product_code(item.product_id)),
-                        csv_text(labels.warehouse_code(item.warehouse_id)),
-                        str(item.quantity),
-                        str(item.current_quantity_delta),
-                        str(item.reserved_quantity_delta),
-                        str(item.blocked_quantity_delta),
-                        str(item.damaged_quantity_delta),
-                        str(item.quarantine_quantity_delta),
-                        str(item.in_transit_quantity_delta),
-                        str(item.new_current_quantity),
-                        str(item.new_available_quantity),
+                        item.reference_number,
+                        labels.product_code(item.product_id),
+                        labels.warehouse_code(item.warehouse_id),
+                        item.quantity,
+                        item.current_quantity_delta,
+                        item.reserved_quantity_delta,
+                        item.blocked_quantity_delta,
+                        item.damaged_quantity_delta,
+                        item.quarantine_quantity_delta,
+                        item.in_transit_quantity_delta,
+                        item.new_current_quantity,
+                        item.new_available_quantity,
                     ]
                 )
             )
@@ -6043,9 +6043,6 @@ class InventoryService:
             select(BusinessProfile.code).where(BusinessProfile.id == profile_id)
         )
         return str(value) if value is not None else None
-
-    def _csv(self, response: InventoryResponse, attribute: str) -> str:
-        return csv_text(getattr(response, attribute, None))
 
     def _commit(self) -> None:
         try:

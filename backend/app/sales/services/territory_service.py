@@ -22,6 +22,7 @@ from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.utils.csv_text import csv_line
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer, CustomerAddress
 from app.identity.models import User
@@ -2910,12 +2911,12 @@ class SalesTerritoryService:
         )
         for row in rows:
             output.append(
-                ",".join(
+                csv_line(
                     [
-                        str(row[0]),
-                        str(row[1]),
+                        row[0],
+                        row[1],
                         str(row[2]),
-                        str(row[3] or ""),
+                        row[3] or "",
                         "true" if bool(row[4]) else "false",
                     ]
                 )
@@ -2947,10 +2948,10 @@ class SalesTerritoryService:
         )
         for row in rows:
             output.append(
-                ",".join(
+                csv_line(
                     [
-                        str(row[0]),
-                        str(row[1]),
+                        row[0],
+                        row[1],
                         str(row[2]),
                         "true" if bool(row[3]) else "false",
                         "true" if bool(row[4]) else "false",

@@ -32,6 +32,7 @@ from app.common.report_names import (
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.csv_text import csv_line
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import continued_amount, inherited_line_discount
 from app.core.utils.quantities import plain_quantity
@@ -1623,7 +1624,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         ]
         for row in rows:
             lines.append(
-                ",".join(
+                csv_line(
                     [
                         row.grn_number,
                         row.receipt_date.isoformat(),
@@ -1632,9 +1633,9 @@ class GoodsReceiptService(TransactionalDocumentService):
                         str(row.branch_id),
                         str(row.warehouse_id),
                         row.status,
-                        str(row.subtotal),
-                        str(row.tax_total),
-                        str(row.grand_total),
+                        row.subtotal,
+                        row.tax_total,
+                        row.grand_total,
                     ]
                 )
             )

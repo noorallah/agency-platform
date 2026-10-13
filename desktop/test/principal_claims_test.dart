@@ -387,6 +387,82 @@ void main() {
     expect(api.requested, contains('POST /api/v1/principal-claims/c-1/receipts'));
   });
 
+  group('the close question (D-UI-63)', () {
+    Future<void> openPayment(WidgetTester tester) async {
+      await _pump(tester, _Api(claims: [_claim()]));
+      await _select(tester, 'PC-c-1');
+      await tester.tap(find.byKey(const ValueKey('selection-record-payment')));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openSettle(WidgetTester tester) async {
+      await _pump(tester, _Api(claims: [_claim()]));
+      await _select(tester, 'PC-c-1');
+      await tester.tap(find.byKey(const ValueKey('selection-settle-claim')));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> cancel(WidgetTester tester) async {
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a payment with a reference typed asks before closing',
+        (tester) async {
+      await openPayment(tester);
+      await tester.enterText(
+          find.byKey(const ValueKey('claim-payment-reference')), 'UTR123');
+      await cancel(tester);
+      expect(find.text('Close without saving?'), findsOneWidget);
+    });
+
+    testWidgets('an untouched payment closes without a question',
+        (tester) async {
+      await openPayment(tester);
+      await cancel(tester);
+      expect(find.text('Close without saving?'), findsNothing);
+      expect(find.byKey(const ValueKey('claim-payment-save')), findsNothing);
+    });
+
+    testWidgets('a settlement with an amount typed asks before closing',
+        (tester) async {
+      await openSettle(tester);
+      await tester.enterText(
+          find.byKey(const ValueKey('settle-bill-b-1')), '1000');
+      await cancel(tester);
+      expect(find.text('Close without saving?'), findsOneWidget);
+    });
+
+    testWidgets('an untouched settlement closes without a question',
+        (tester) async {
+      await openSettle(tester);
+      await cancel(tester);
+      expect(find.text('Close without saving?'), findsNothing);
+      expect(find.byKey(const ValueKey('settle-save')), findsNothing);
+    });
+
+    testWidgets('a price cut with a principal chosen asks before closing',
+        (tester) async {
+      await _pump(tester, _CutApi());
+      await _openCut(tester);
+      await tester.tap(find.byKey(const ValueKey('pc-principal')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hindustan Foods').last);
+      await tester.pumpAndSettle();
+      await cancel(tester);
+      expect(find.text('Close without saving?'), findsOneWidget);
+    });
+
+    testWidgets('an untouched price cut closes without a question',
+        (tester) async {
+      await _pump(tester, _CutApi());
+      await _openCut(tester);
+      await cancel(tester);
+      expect(find.text('Close without saving?'), findsNothing);
+      expect(find.byKey(const ValueKey('pc-preview')), findsNothing);
+    });
+  });
+
   testWidgets('a posted payment can be reversed', (tester) async {
     final _Api api = _Api(claims: [
       _claim(status: 'PART_SETTLED', receipts: [_receipt('r-1')]),

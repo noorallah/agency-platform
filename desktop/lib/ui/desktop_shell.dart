@@ -325,6 +325,10 @@ class _DesktopShellState extends State<DesktopShell> {
   /// Documents open as tabs beside the screens (4.8), and the one on show,
   /// if a document rather than a screen is.
   final DocumentTabsController _documents = DocumentTabsController();
+
+  /// Fired when a screen that was kept built is put on show again, so its
+  /// list reads itself (D-UI-26).
+  final ShownAgainSignal _shownAgain = ShownAgainSignal();
   String? _activeDocument;
 
   /// "Open this screen showing that" -- Home's to-do lines land on exactly
@@ -513,6 +517,7 @@ class _DesktopShellState extends State<DesktopShell> {
   void dispose() {
     _statusLeft.dispose();
     _documents.dispose();
+    _shownAgain.dispose();
     _favourites.dispose();
     _healthTimer?.cancel();
     widget.session.removeListener(_sessionChanged);
@@ -814,6 +819,9 @@ class _DesktopShellState extends State<DesktopShell> {
       unawaited(_openSettingDialog(item));
       return;
     }
+    // A view asked for is read by the list itself; without one, a screen
+    // already built has nothing telling it to read again (D-UI-26).
+    final bool kept = view == null && _screenIsKept(item.path);
     _activeDocument = null;
     _viewRequest = view == null
         ? null
@@ -824,7 +832,14 @@ class _DesktopShellState extends State<DesktopShell> {
     _router.navigate(location.module, tab: location.tab);
     unawaited(_saveShellState());
     setState(() {});
+    if (kept) _shownAgain.fire();
   }
+
+  /// Whether showing [path] shows a screen that is already built: the one
+  /// under a document tab, or the one on show. Any other screen is built
+  /// afresh and reads itself as it opens.
+  bool _screenIsKept(String path) =>
+      widget.phase2 && path == _router.current.path;
 
   /// Opens the screen a bell line is about, when this user is offered it;
   /// otherwise the popup simply closes.
@@ -857,11 +872,13 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   void _showScreen(String path) {
+    final bool kept = _screenIsKept(path);
     _viewRequest = null;
     if (_activeDocument != null) setState(() => _activeDocument = null);
     final WorkspaceLocation location = WorkspaceLocation.parse(path);
     _shownPath = path;
     _router.navigate(location.module, tab: location.tab);
+    if (kept) _shownAgain.fire();
   }
 
   void _closeScreen(String path) {
@@ -1311,7 +1328,7 @@ class _DesktopShellState extends State<DesktopShell> {
                       child: IndexedStack(
                         index: activeIndex,
                         children: [
-                          page,
+                          ScreenShownAgain(signal: _shownAgain, child: page),
                           for (final OpenDocument document in documents)
                             DocumentNavigator(
                               key: ValueKey(document.id),
