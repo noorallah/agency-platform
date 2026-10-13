@@ -39,6 +39,7 @@ from app.collections.schemas import (
     HandoverResult,
     HandoverState,
     HandoverTakeBack,
+    MyBillRow,
 )
 from app.collections.services.promises import FORMER_MEMBER, member_names
 from app.common.audit.services import record_audit
@@ -245,6 +246,88 @@ class BillHandoverService:
         rows = self.bills(
             firm_id, handed=handed, collector_id=collector_id, matching=matching
         )
+        start = (page - 1) * page_size
+        return rows[start : start + page_size], len(rows)
+
+    def my_bills(
+        self, firm_id: UUID, *, collector_id: UUID, today: date | None = None
+    ) -> list[MyBillRow]:
+        """Return the unpaid bills a collector carries, and their neighbours.
+
+        The bills handed to ``collector_id`` and still out, and beside each
+        customer's the other unpaid bills of that customer, marked as not
+        handed to them. Nothing of a customer none of whose bills they carry.
+        By customer, the bills in the bag first, then oldest first.
+
+        A bill paid in full while it is out owes nothing and is not listed;
+        the office still sees it in the handover history and takes it back.
+
+        Args:
+            firm_id: The firm whose bills to read.
+            collector_id: Whose bag it is. The caller, taken from the token
+                by the route and never from the request.
+            today: The day the overdue count is for; the firm's own today
+                when omitted.
+
+        """
+        carried = self._session.scalar(
+            select(func.count())
+            .select_from(BillHandover)
+            .where(
+                BillHandover.firm_id == firm_id,
+                BillHandover.collector_id == collector_id,
+                BillHandover.is_deleted.is_(False),
+                BillHandover.returned_at.is_(None),
+            )
+        )
+        if not carried:
+            return []
+        bills = self.bills(firm_id, today=today)
+        customers = {
+            bill.customer_id for bill in bills if bill.collector_id == collector_id
+        }
+        rows = [
+            MyBillRow(
+                invoice_id=bill.invoice_id,
+                invoice_number=bill.invoice_number,
+                invoice_date=bill.invoice_date,
+                due_date=bill.due_date,
+                days_overdue=bill.days_overdue,
+                is_opening_bill=bill.is_opening_bill,
+                customer_id=bill.customer_id,
+                customer_code=bill.customer_code,
+                customer_name=bill.customer_name,
+                customer_place=bill.customer_place,
+                invoice_total=bill.invoice_total,
+                outstanding=bill.outstanding,
+                handed_to_me=bill.collector_id == collector_id,
+                # Whose bag another bill is in is not this reader's to know.
+                handover_id=(
+                    bill.handover_id if bill.collector_id == collector_id else None
+                ),
+                handed_on=(
+                    bill.handed_on if bill.collector_id == collector_id else None
+                ),
+            )
+            for bill in bills
+            if bill.customer_id in customers
+        ]
+        rows.sort(
+            key=lambda row: (
+                row.customer_name.casefold(),
+                str(row.customer_id),
+                not row.handed_to_me,
+                row.invoice_date,
+                row.invoice_number,
+            )
+        )
+        return rows
+
+    def my_bills_page(
+        self, firm_id: UUID, *, collector_id: UUID, page: int, page_size: int
+    ) -> tuple[list[MyBillRow], int]:
+        """Return one page of a collector's own list and its length."""
+        rows = self.my_bills(firm_id, collector_id=collector_id)
         start = (page - 1) * page_size
         return rows[start : start + page_size], len(rows)
 

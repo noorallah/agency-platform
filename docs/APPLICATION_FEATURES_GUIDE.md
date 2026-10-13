@@ -756,6 +756,18 @@ report: it only records who carries the bill. The buttons are shown to
 whoever may hand bills out (the firm's administrator, manager and
 accountant); everybody who reads receipts sees the list.
 
+**My Bills to Collect and the Bill Collector job** (added 2026-10-13, not yet
+tested by hand). Hire the person who carries bills from the **Bill Collector**
+job. When he signs in he is offered one screen, **My Bills to Collect**: the
+unpaid bills handed to him, by customer, each marked **With me** with the day
+it was handed over and what it still owes. Under each customer the screen
+also lists that customer's other unpaid bills, marked **Not handed to me**,
+so he can ask for them at the same door; it does not say who carries those.
+He sees no other customer, no other collector's bills, no receipts and no
+accounts, and the screen has no buttons that change anything. A bill taken
+back in the office leaves his list. The firm's administrator, manager and
+accountant have the same screen for bills handed to them.
+
 **Collection Sheet and Payment Promises** (added 2026-10-05, not yet tested by
 hand). The **Collection Sheet** lists every customer's open bills, opening
 bills included, with days overdue, the latest promise and the **collector**,

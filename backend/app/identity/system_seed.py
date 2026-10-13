@@ -29,6 +29,7 @@ SYSTEM_ROLE_CODES = (
     "BILLING_EXECUTIVE",
     "CUSTOMER_SUPPORT",
     "VIEWER",
+    "BILL_COLLECTOR",
 )
 HIDDEN_SYSTEM_ROLE_CODES = frozenset({"SUPPORT_ADMIN"})
 
@@ -409,6 +410,10 @@ PERMISSION_GROUPS = {
         # record what he collected must not be the one who decides which
         # bills he carries.
         "COLLECTION_ASSIGN",
+        # Reading the bills handed to oneself (backlog 123), and nobody
+        # else's: the route takes the collector from the token. Apart from
+        # `RECEIPT_VIEW`, which reads every unpaid bill of the firm.
+        "COLLECTION_OWN_VIEW",
         "LEDGER_VIEW",
         "TRIAL_BALANCE_VIEW",
         "PROFIT_LOSS_VIEW",
@@ -900,6 +905,11 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "SETTINGS_VIEW",
         }
     ),
+    # The person who carries unpaid bills to customers (backlog 123). One
+    # code and nothing beside it: `RECEIPT_VIEW` or `CUSTOMER_VIEW` would show
+    # him every bill and every customer of the firm, and his screen is the
+    # bills handed to him.
+    "BILL_COLLECTOR": frozenset({"COLLECTION_OWN_VIEW"}),
 }
 
 #: What each seeded role grants: the table above, less the designation-only
@@ -982,6 +992,12 @@ SYSTEM_USER_TEMPLATES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         "Customer Support",
         "Answers for customers: their orders, their bills, their balances.",
         ("CUSTOMER_SUPPORT",),
+    ),
+    (
+        "bill-collector",
+        "Bill Collector",
+        "Carries unpaid bills to customers: sees the bills handed to them.",
+        ("BILL_COLLECTOR",),
     ),
     (
         "read-only",

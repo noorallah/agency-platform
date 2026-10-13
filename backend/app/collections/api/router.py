@@ -9,6 +9,11 @@ Handing bills to a collector and taking them back (backlog 122) takes
 collected must not be the one who decides which bills he carries. Reading who
 carries what stays on ``RECEIPT_VIEW``.
 
+A collector's own list (backlog 123) takes ``COLLECTION_OWN_VIEW`` and reads
+the bills handed to **the caller**: whose bag it is comes from the token and
+no parameter names anybody else. It is the one route here a person holding
+neither receipt code can call.
+
 Every literal path is declared above ``/promises/{promise_id}/withdraw``.
 """
 
@@ -30,6 +35,7 @@ from app.collections.schemas import (
     HandoverResult,
     HandoverState,
     HandoverTakeBack,
+    MyBillRow,
     PaymentPromiseCreate,
     PaymentPromiseResponse,
     PaymentPromiseWithdraw,
@@ -62,6 +68,9 @@ CollectionWriteScope = Annotated[
 ]
 CollectionAssignScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("COLLECTION_ASSIGN")
+]
+CollectionOwnScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("COLLECTION_OWN_VIEW")
 ]
 
 
@@ -210,6 +219,30 @@ def collection_sheet_pdf(
         iter([content]),
         media_type="application/pdf",
         headers={"Content-Disposition": 'inline; filename="collection-sheet.pdf"'},
+    )
+
+
+@router.get("/my-bills", response_model=PaginatedResponse[MyBillRow])
+def list_my_bills(
+    scope: CollectionOwnScope,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[MyBillRow]:
+    """List the unpaid bills handed to the caller, by customer.
+
+    Beside each customer's, that customer's other unpaid bills, marked as not
+    handed to the caller. Nothing of any other customer.
+    """
+    rows, total = BillHandoverService(db).my_bills_page(
+        scope.firm_id,
+        collector_id=scope.actor_id,
+        page=page,
+        page_size=page_size,
+    )
+    return PaginatedResponse(
+        data=rows,
+        pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
     )
 
 

@@ -308,6 +308,8 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.accounting, 'bills-with-collectors',
             'Bills with Collectors'),
         MenuItemSpec(
+            AppModule.accounting, 'my-bills', 'My Bills to Collect'),
+        MenuItemSpec(
             AppModule.accounting, 'payment-promises', 'Payment Promises'),
         MenuItemSpec(
             AppModule.accounting, 'pdc-received', 'Post-dated Cheques'),
