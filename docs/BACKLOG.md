@@ -10803,3 +10803,63 @@ history bills brought from an old program (`docs/SWATHI_IMPORT_PLAN.md`)
 sit beside it.
 
 **Size.** Large; a design note first.
+
+## 148. Settings: one screen per subject, its items as tabs in set-up order, with a Start here tab -- open, design agreed in outline, not built
+
+**The owner, 2026-10-13.** Every setting is a menu item of its own and
+nothing says where to start: under Tax a user sees Tax Configuration, Tax
+Rules, Rule Simulator, Execution Log, Tax Settings, GST Documents and TDS
+and cannot tell which comes first. His idea: one entry per subject; inside
+it the items as tabs in the order they are set up, and a first page saying
+what to create first, what next and how they connect. To be looked at for
+every section of Settings. **Design only for now; nothing is changed.**
+
+**What is there today.** The Settings page (`desktop/lib/phase2/menu_layout.dart`,
+`MenuLayout.settings`) has 17 sections and about 75 items; each item opens
+as a screen of its own, in an order nobody chose for set-up. Checking tools
+(the rule simulator, the execution log) sit among the things to set up.
+Most items are optional switches, and a new firm already has its GST rates
+and rules from the GST template, but the page says neither.
+
+**Chosen by the owner: way B** of three (A, tabs in order only; B, tabs in
+order with a Start here tab; C, one guided walk across every section, which
+can be added on top of B later).
+
+**The design in outline.**
+
+- The Settings page shows **one card per subject** with where the firm
+  stands: Ready, some steps to do, or Optional. Search still finds each
+  item by its own name.
+- A subject opens as **one screen**. Its first tab, **Start here**, lists
+  the steps in order: what the step is in one line, its state (Done, To do,
+  Optional), where a ready-made one came from, and a button to its tab. A
+  short line shows how the steps connect.
+- The steps follow as **numbered tabs**. Each is today's screen, unchanged,
+  with one line on top saying what it needs from the step before.
+- **Checking tools sit apart**, at the end of the tabs.
+- "To do" is only for a step without which the next thing cannot be saved.
+- The first tab asks the server **once** for the counts of its section, and
+  only when the section is opened.
+- The framework already shows several tabs as one entry with a strip inside
+  (a tab's `group`), so the new work is the Start here tab, the states and
+  the order per section.
+
+**Wireframes** (not in the repository): `dist\windows\Design\Settings
+sections wireframes.html`, five views: the Settings page today and
+proposed, Tax (Start here, and inside a step), Item lists (Start here), and
+the eight assumptions to confirm.
+
+**Not decided.**
+
+1. The owner's word on the wireframes, and on the eight assumptions listed
+   in them (short names on the tabs among them).
+2. The order of the steps in each section, and which are required. The
+   order drawn for Tax and Item lists is a reading of the screens and is
+   checked against each one before building. To be settled section by
+   section with the owner.
+3. Whether Tax is built first as a trial, as recommended.
+4. Where a step belongs that two subjects need (goods types and licence
+   types are examples).
+
+**Size.** Medium for the first section, small for each one after it.
+
