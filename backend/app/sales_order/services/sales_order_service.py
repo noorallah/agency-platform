@@ -123,7 +123,7 @@ from app.sales_order.services.discount_limit import (
     DiscountLimitService,
     order_discounts,
 )
-from app.sales_order.services.offer_echoes import echoes_of_what_an_offer_gave
+from app.sales_order.services.offer_echoes import without_what_an_offer_gave
 from app.sales_order.services.price_floor import PriceFloorService, order_lines
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.settlements.models import Settlement
@@ -2282,29 +2282,7 @@ class SalesOrderService(TransactionalDocumentService):
         the engine's line is still the refusal it always was (D-SELL-41),
         which is how the desktop sends one.
         """
-        kept: list[SalesOrderLineWrite] = []
-        returned: set[UUID] = set()
-        echoes = echoes_of_what_an_offer_gave(lines, existing.values())
-        for index, item in enumerate(lines):
-            stored = echoes.get(index)
-            if stored is not None:
-                if stored.quantity == ZERO:
-                    returned.add(item.product_id)
-                    continue
-                item = item.model_copy(update={"free_quantity": None})
-            kept.append(item)
-        if not returned:
-            return kept
-        return [
-            (
-                item.model_copy(update={"free_quantity": None})
-                if item.product_id in returned
-                and item.quantity > ZERO
-                and item.free_quantity == ZERO
-                else item
-            )
-            for item in kept
-        ]
+        return without_what_an_offer_gave(lines, existing.values())
 
     def _gift_lines(
         self,

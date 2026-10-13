@@ -501,6 +501,10 @@ class _PromotionPageState extends State<PromotionPage> {
     );
   }
 
+  /// The edit form's own words for the switch, so the list, the bar and the
+  /// offer's window say what the form says.
+  static const String _onlyWithACoupon = 'Only with a coupon';
+
   SelectionSummary? _selectionSummary() {
     if (_showingCoupons) {
       final PromotionCouponRecord? coupon = _selectedCoupon;
@@ -518,7 +522,11 @@ class _PromotionPageState extends State<PromotionPage> {
         ? null
         : SelectionSummary.record(
             name: offer.name,
-            facts: [offer.code, _benefitLabel(offer)],
+            facts: [
+              offer.code,
+              _benefitLabel(offer),
+              if (offer.requiresCoupon) _onlyWithACoupon,
+            ],
             status: offer.status,
             onClear: () => setState(() => _selected = null),
           );
@@ -571,6 +579,8 @@ class _PromotionPageState extends State<PromotionPage> {
         GridColumn(key: 'name', label: 'Name'),
         GridColumn(key: 'gives', label: 'Gives'),
         GridColumn(key: 'stacks', label: 'Stacks'),
+        // Who reaches the offer was on the edit form alone (D-UI-56).
+        GridColumn(key: 'coupon', label: 'Coupon'),
         GridColumn(key: 'window', label: 'In force'),
         GridColumn(key: 'status', label: 'Status'),
       ],
@@ -581,6 +591,7 @@ class _PromotionPageState extends State<PromotionPage> {
         row.name,
         _benefitLabel(row),
         row.allowStacking ? 'Yes' : 'Ends here',
+        row.requiresCoupon ? _onlyWithACoupon : 'Not needed',
         _windowLabel(row),
         row.status,
       ],
@@ -763,6 +774,15 @@ class _PromotionPageState extends State<PromotionPage> {
               ),
           ],
           const SizedBox(height: AppSpacing.md),
+          if (row.requiresCoupon) ...[
+            Text(
+              '$_onlyWithACoupon: a document is given this offer only where '
+              'one of its coupons is presented.',
+              key: const ValueKey('promotion-coupon-only'),
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           Text(
             row.allowStacking
                 ? 'Other promotions may still apply after this one. '

@@ -107,7 +107,8 @@ class _PurchaseInvoiceManagementPageState
   /// Failing here leaves the create action disabled rather than taking the
   /// workspace down; the list of invoices is still readable without it.
   Future<void> _loadReferenceData() async {
-    if (!widget.hasActiveFirm || !_canCreate) return;
+    // Whoever may only change a draft needs the same lists (D-UI-39).
+    if (!widget.hasActiveFirm || !(_canCreate || _canUpdate)) return;
     try {
       // Every page, not the newest hundred: past a hundred completed receipts
       // an older one could not be billed from here at all (D-BUY-11).
@@ -207,27 +208,7 @@ class _PurchaseInvoiceManagementPageState
     final Object? outcome = await showDocument<Object>(
       context,
       title: 'New purchase invoice',
-      builder: (_) => PurchaseInvoiceEditorDialog(
-        api: widget.api,
-        receipts: _billableReceipts,
-        products: _products,
-        stages: _stages,
-        orders: _billableOrders,
-        vendors: _vendors,
-        canAddVendor: _canAddVendor,
-        onVendorAdded: (Vendor added) {
-          if (mounted) setState(() => _vendors = [..._vendors, added]);
-        },
-        canAttach: widget.permissions.hasAnyPermission(
-            const ['PURCHASE_CREATE', 'PURCHASE_UPDATE']),
-        steps: [
-          for (final DocumentStep<DocumentRef> step
-              in purchaseInvoiceSteps(widget.api, widget.permissions))
-            step.on<Json>(
-              (json) => DocumentRef.fromJson(json, numberKey: 'invoice_number'),
-            ),
-        ],
-      ),
+      builder: (_) => _billEditor(),
     );
     if (await _afterWindow(outcome)) return;
     final Json? saved = outcome is Json ? outcome : null;
@@ -244,6 +225,91 @@ class _PurchaseInvoiceManagementPageState
       'draft. Approving it is what posts it to the books.'
       '${irnWarning.isEmpty ? '' : ' $irnWarning'}',
       kind: irnWarning.isEmpty
+          ? AppNotificationKind.success
+          : AppNotificationKind.warning,
+    );
+  }
+
+  /// The bill window: a new bill, or [existing] -- a Draft as the server
+  /// answered it -- to change.
+  Widget _billEditor({Json? existing}) => PurchaseInvoiceEditorDialog(
+        api: widget.api,
+        receipts: _billableReceipts,
+        products: _products,
+        stages: _stages,
+        orders: _billableOrders,
+        vendors: _vendors,
+        existing: existing,
+        canAddVendor: _canAddVendor,
+        onVendorAdded: (Vendor added) {
+          if (mounted) setState(() => _vendors = [..._vendors, added]);
+        },
+        canAttach: widget.permissions.hasAnyPermission(
+            const ['PURCHASE_CREATE', 'PURCHASE_UPDATE']),
+        steps: [
+          for (final DocumentStep<DocumentRef> step
+              in purchaseInvoiceSteps(widget.api, widget.permissions))
+            step.on<Json>(
+              (json) => DocumentRef.fromJson(json, numberKey: 'invoice_number'),
+            ),
+        ],
+      );
+
+  /// `PUT /purchase-invoices/{id}` is gated on `PURCHASE_UPDATE`.
+  bool get _canUpdate => widget.permissions.hasPermission('PURCHASE_UPDATE');
+
+  /// Open a Draft bill in the bill window, to change it (D-UI-39).
+  ///
+  /// A Draft offered Open, Approve, Cancel and Record IRN and no Edit, so a
+  /// wrong quantity could only be put right by cancelling the bill and
+  /// typing it again, while the server had the route all along. The bill is
+  /// read again here rather than taken from the list row: the window sends
+  /// back the version it was opened at, and the row may be a minute old.
+  Future<void> _editInvoice(_PurchaseInvoiceRecord record) async {
+    final Json bill;
+    try {
+      bill = await widget.api.purchaseInvoiceDetail(record.id);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        refusalMessage(error),
+        kind: AppNotificationKind.error,
+      );
+      return;
+    }
+    if (!mounted) return;
+    if (stringValue(bill['status']) != 'DRAFT') {
+      // Approved or cancelled by somebody else since the list was read.
+      await _load();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${record.invoiceNumber} is no longer a draft, so it cannot be '
+        'changed.',
+        kind: AppNotificationKind.warning,
+      );
+      return;
+    }
+    final Object? outcome = await showDocument<Object>(
+      context,
+      title: 'Edit ${record.invoiceNumber}',
+      builder: (_) => _billEditor(existing: bill),
+    );
+    if (await _afterWindow(outcome)) return;
+    final Json? saved = outcome is Json ? outcome : null;
+    if (saved == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    final String warning = [
+      stringValue(saved['irn_warning']),
+      stringValue(saved['credit_time_limit_warning']),
+    ].where((String text) => text.isNotEmpty).join(' ');
+    NotificationService.show(
+      context,
+      'Purchase invoice ${record.invoiceNumber} saved.'
+      '${warning.isEmpty ? '' : ' $warning'}',
+      kind: warning.isEmpty
           ? AppNotificationKind.success
           : AppNotificationKind.warning,
     );
@@ -568,9 +634,16 @@ class _PurchaseInvoiceManagementPageState
         actions: const [
           ToolbarAction.newItem,
           ToolbarAction.view,
+          ToolbarAction.edit,
           ToolbarAction.refresh,
         ],
-        isVisible: (action) => action != ToolbarAction.newItem || _canCreate,
+        isVisible: (action) => switch (action) {
+          ToolbarAction.newItem => _canCreate,
+          // D-UI-39. The bill window edits in the phase 2 layout only, and
+          // only for somebody the server would let save.
+          ToolbarAction.edit => Phase2Scope.of(context) && _canUpdate,
+          _ => true,
+        },
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
@@ -579,6 +652,12 @@ class _PurchaseInvoiceManagementPageState
               // is a disabled button rather than an empty dialog.
               ToolbarAction.newItem => _canCreate && _canStartBill,
               ToolbarAction.view => _selected != null && !_bulkMode,
+              // Only a Draft: an approved bill is in the books, and the
+              // server refuses the edit.
+              ToolbarAction.edit => _canUpdate &&
+                  !_bulkMode &&
+                  _selected != null &&
+                  _selected!.status == 'DRAFT',
               ToolbarAction.refresh => true,
               _ => false,
             },
@@ -589,6 +668,9 @@ class _PurchaseInvoiceManagementPageState
             case ToolbarAction.view:
               final _PurchaseInvoiceRecord? selected = _selected;
               if (selected != null) unawaited(_openInvoice(selected));
+            case ToolbarAction.edit:
+              final _PurchaseInvoiceRecord? draft = _selected;
+              if (draft != null) unawaited(_editInvoice(draft));
             case ToolbarAction.refresh:
               unawaited(_load());
             default:
