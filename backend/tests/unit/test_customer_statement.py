@@ -597,3 +597,90 @@ def test_a_charge_that_no_bill_carries_is_named_too() -> None:
 
     assert row.unapplied_credits == Decimal("0")
     assert row.charges_not_billed == Decimal("100.00")
+
+
+def _account(books: _Books, last: int = 20) -> object:
+    """Read the newest entries of the customer's account."""
+    return CustomerStatementService(books.session).account(
+        books.customer.id, firm_scope=books.firm.id, last=last
+    )
+
+
+def test_the_account_shows_the_last_entries_oldest_first() -> None:
+    """The tail of the account, in the order a statement reads (backlog 121).
+
+    The opening balance is everything before the first entry shown, so the
+    last line's balance is what the account stands at however few are shown.
+    """
+    books = _Books(_session_factory()())
+    books.movement("INVOICE", "2500", date(2026, 3, 1))
+    books.movement("RECEIPT", "-500", date(2026, 3, 20))
+    books.movement("INVOICE", "1000", date(2026, 4, 10))
+    books.movement("RECEIPT", "-250", date(2026, 4, 12))
+
+    answer = _account(books, last=2)
+
+    assert answer.total_entries == 4
+    assert [line.transaction_date for line in answer.lines] == [
+        date(2026, 4, 10),
+        date(2026, 4, 12),
+    ]
+    assert answer.opening_balance == Decimal("2000.00")
+    assert [str(line.balance) for line in answer.lines] == ["3000.00", "2750.00"]
+    assert answer.closing_balance == Decimal("2750.00")
+    assert (answer.from_date, answer.to_date) == (
+        date(2026, 4, 10),
+        date(2026, 4, 12),
+    )
+
+
+def test_the_account_takes_its_tail_by_date_not_by_when_it_was_written() -> None:
+    """A backdated receipt is not among the newest entries.
+
+    Written last and dated first, it belongs before the bills: it is part of
+    the opening balance, not the last row of the table.
+    """
+    books = _Books(_session_factory()())
+    books.movement("INVOICE", "1000", date(2026, 4, 10), outstanding_after="99999")
+    books.movement("INVOICE", "300", date(2026, 4, 15), outstanding_after="99999")
+    books.movement("RECEIPT", "-400", date(2026, 4, 5), outstanding_after="88888")
+
+    answer = _account(books, last=2)
+
+    assert [line.transaction_type for line in answer.lines] == ["INVOICE", "INVOICE"]
+    assert answer.opening_balance == Decimal("-400.00")
+    assert answer.closing_balance == Decimal("900.00")
+
+
+def test_the_whole_account_fits_and_opens_at_nothing() -> None:
+    """Asked for more than there is, every entry is shown from zero."""
+    books = _Books(_session_factory()())
+    books.movement("INVOICE", "1000", date(2026, 4, 10))
+
+    answer = _account(books)
+
+    assert answer.total_entries == 1
+    assert answer.opening_balance == Decimal("0.00")
+    assert answer.closing_balance == Decimal("1000.00")
+
+
+def test_an_account_with_no_entries_is_an_empty_table() -> None:
+    """A new customer has rows to add, not an error."""
+    books = _Books(_session_factory()())
+
+    answer = _account(books)
+
+    assert answer.total_entries == 0
+    assert answer.lines == []
+    assert answer.closing_balance == Decimal("0.00")
+    assert answer.from_date == answer.to_date
+
+
+def test_another_firm_s_customer_has_no_account_here() -> None:
+    """The firm scope decides, as it does for the statement."""
+    books = _Books(_session_factory()())
+
+    with pytest.raises(ResourceNotFoundError):
+        CustomerStatementService(books.session).account(
+            books.customer.id, firm_scope=uuid4(), last=20
+        )

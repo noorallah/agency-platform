@@ -480,6 +480,35 @@ that an edit changes what it names and nothing else.
 - **Data (HTTP):** `GET /api/v1/vendors?search=…` → each address carries `city` and `area` beside `city_id` and `locality_id`; sending either back on `PUT /api/v1/vendors/{id}` is a 422. `GET /api/v1/receipts/parties?search=…` and `/payments/parties`, `/refunds/parties` → `place: "Abids, Hyderabad"`, or `null` with no address. Nothing is written by any of these reads.
 - **Leaves:** two customers and three suppliers.
 
+
+### TC-CUST-013 — The customer account as a table: the last entries, and a receipt added as a row
+
+*Added 2026-10-13 (backlog 121). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 121 (customer task M3)
+- **Fixture:** `ready-firm`
+- **Also needs:** a customer with two approved sales bills, both unpaid (say 118.00 and 236.00), and a user who holds `CUSTOMER_VIEW` without `RECEIPT_CREATE`.
+- **Steps**
+  1. Open *Sell → Customer Statements*, double-click the customer in the ageing, then choose **Account**.
+  2. In the last row leave the date, choose the first bill under **Against**, and look at the amount.
+  3. Press **Add**.
+  4. Open *Sell → Receipts* and find the receipt; open its journal entry from the ledger.
+  5. Back on the account, choose **Show 50**, then **Show 20**.
+  6. In the last row choose the second bill, type an amount larger than it owes and press **Add**.
+  7. Choose **On account**, type 50 and press **Add**.
+  8. Choose **Statement** for the same customer over a period that holds every entry.
+  9. Sign in as the user without `RECEIPT_CREATE` and open the same customer's **Account**.
+- **Expect**
+  - Step 1: the two bills as rows, oldest first, each with its balance; the caption says "All 2 entries"; no *Opening balance* row.
+  - Step 2: the amount fills with what the bill owes (118.00).
+  - Step 3: a message names the receipt; the receipt is the last row with 118.00 under Credit and the balance at 236.00; the first bill is no longer offered under **Against**.
+  - Step 4: the receipt is listed against the first bill, and its journal entry is posted for 118.00.
+  - Step 5: the table is read again each time and shows the same rows.
+  - Step 6: a line by the row says the bill owes 236.00 and the amount cannot be applied; nothing is recorded and what was typed stays.
+  - Step 7: one more row, 50.00 under Credit; the second bill still owes 236.00.
+  - Step 8: the statement's closing balance equals the last balance of the table.
+  - Step 9: the rows are shown and the last row for adding a receipt is not.
+
 ### TC-CUST-005 — Statement and ageing agree with the account
 
 - **Covers:** plan 4.7, 4.8

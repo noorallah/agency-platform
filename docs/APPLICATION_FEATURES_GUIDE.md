@@ -822,10 +822,19 @@ move, the books do not. A credit that was refunded cannot be set against a
 bill as well (reverse the refund first), and a bill with credit set against
 it cannot be cancelled until the credit is taken off.
 
-**Customer Statements.** Two views:
+**Customer Statements.** Three views:
 
 - **Ageing**: every customer's outstanding split by how old it is (0–30,
   31–60, 61–90, over 90 days).
+- **Account**: the customer's account as a table, the last 20 entries (or 50,
+  or 100) with a running balance, whatever their dates. The last row of the
+  table adds a receipt: a date, *On account* or one unpaid bill, a reference,
+  how the money came and the amount, then **Add**. It is an ordinary receipt:
+  it closes the bill it names, appears in Receipts and in the ledger. A saved
+  row is not changed here; reverse the receipt from Receipts. A discount, TDS
+  or one receipt for several bills is recorded on the Receipts screen. The
+  row is shown to whoever may record a receipt. Open a customer from the
+  ageing, then choose **Account**.
 - **Statement**: double-click a customer for their account over a period:
   opening balance, every invoice, return, credit note and receipt in date
   order with a running balance, and the closing balance. Printable to send to

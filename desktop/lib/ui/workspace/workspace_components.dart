@@ -4198,7 +4198,8 @@ class WorkspaceStatusBar extends StatelessWidget {
             Text('$total record${total == 1 ? '' : 's'}'),
             if (selected) Text('  |  ${selectedCount ?? 1} selected'),
             const Spacer(),
-            if (message != null) Text(message!),
+            if (message != null)
+              Flexible(child: Text(message!, overflow: TextOverflow.ellipsis)),
           ]),
         ),
       );

@@ -29,6 +29,7 @@ from app.core.utils.money import ZERO, quantize_ledger
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas.statement import (
     AgeingBucket,
+    CustomerAccount,
     CustomerAgeing,
     CustomerStatement,
     CustomerStatementLine,
@@ -45,6 +46,41 @@ BUCKET_BOUNDS: tuple[int, ...] = (0, 30, 60, 90)
 #: Invoice statuses that represent a real debt. A draft is not a sale and a
 #: cancelled one has been undone, so neither is owed.
 _LIVE_INVOICE_STATUSES = ("APPROVED", "CLOSED")
+
+
+def _running_lines(
+    rows: list[CustomerReceivableTransaction], opening: Decimal
+) -> tuple[list[CustomerStatementLine], Decimal]:
+    """Turn movements already in date order into lines with a running balance.
+
+    Args:
+        rows: The movements, oldest first.
+        opening: What the account stood at before the first of them.
+
+    Returns:
+        The lines, and the balance after the last one.
+
+    """
+    running = opening
+    lines: list[CustomerStatementLine] = []
+    for row in rows:
+        delta = Decimal(str(row.outstanding_delta))
+        running += delta
+        lines.append(
+            CustomerStatementLine(
+                transaction_date=row.transaction_date,
+                transaction_type=row.transaction_type,
+                reference_number=row.reference_number,
+                remarks=row.remarks,
+                # A debit is what the customer owes more of; a credit is
+                # what they owe less of. Split from one signed delta so
+                # the statement reads the way a ledger does.
+                debit=quantize_ledger(delta) if delta > ZERO else ZERO,
+                credit=quantize_ledger(-delta) if delta < ZERO else ZERO,
+                balance=quantize_ledger(running),
+            )
+        )
+    return lines, quantize_ledger(running)
 
 
 class CustomerStatementService:
@@ -124,25 +160,7 @@ class CustomerStatementService:
             ).all()
         )
 
-        running = opening
-        lines: list[CustomerStatementLine] = []
-        for row in rows:
-            delta = Decimal(str(row.outstanding_delta))
-            running += delta
-            lines.append(
-                CustomerStatementLine(
-                    transaction_date=row.transaction_date,
-                    transaction_type=row.transaction_type,
-                    reference_number=row.reference_number,
-                    remarks=row.remarks,
-                    # A debit is what the customer owes more of; a credit is
-                    # what they owe less of. Split from one signed delta so
-                    # the statement reads the way a ledger does.
-                    debit=quantize_ledger(delta) if delta > ZERO else ZERO,
-                    credit=quantize_ledger(-delta) if delta < ZERO else ZERO,
-                    balance=quantize_ledger(running),
-                )
-            )
+        lines, running = _running_lines(rows, opening)
 
         from app.customers.services.payment_terms import PaymentTermsService
 
@@ -171,13 +189,88 @@ class CustomerStatementService:
             from_date=from_date,
             to_date=to_date,
             opening_balance=opening,
-            closing_balance=quantize_ledger(running),
+            closing_balance=running,
             # What is held on account and not yet applied to any bill. Beside
             # the closing balance rather than folded into it: they are
             # different money, and netting them hides an advance a customer is
             # entitled to have applied.
             unapplied_advance=quantize_ledger(customer.unapplied_advance_balance),
             lines=lines,
+        )
+
+    def account(
+        self,
+        customer_id: UUID,
+        *,
+        firm_scope: UUID,
+        last: int,
+    ) -> CustomerAccount:
+        """Return the newest entries of one customer's account, oldest first.
+
+        The account read as a table (backlog 121): the last ``last`` movements
+        whatever their dates, where a statement asks for a period. The opening
+        balance is everything before the first entry shown, so the running
+        balance is the statement's own arithmetic and the closing balance is
+        what the account stands at.
+
+        Args:
+            customer_id: The account to read.
+            firm_scope: The owning firm.
+            last: How many of the newest entries to return.
+
+        Returns:
+            The entries with their running balance, and how many there are.
+
+        Raises:
+            ResourceNotFoundError: If the customer is not this firm's.
+
+        """
+        customer = self._customer(customer_id, firm_scope=firm_scope)
+        mine = (
+            CustomerReceivableTransaction.customer_id == customer_id,
+            CustomerReceivableTransaction.firm_id == firm_scope,
+            CustomerReceivableTransaction.is_deleted.is_(False),
+        )
+        found = self._session.execute(
+            select(
+                func.count(CustomerReceivableTransaction.id),
+                func.coalesce(
+                    func.sum(CustomerReceivableTransaction.outstanding_delta), 0
+                ),
+            ).where(*mine)
+        ).one()
+        total_entries = int(found[0])
+        balance = Decimal(str(found[1] or 0))
+        # Newest first to take the tail, then turned round: the same order a
+        # statement reads in, date before the order things were written.
+        rows = list(
+            self._session.scalars(
+                select(CustomerReceivableTransaction)
+                .where(*mine)
+                .order_by(
+                    CustomerReceivableTransaction.transaction_date.desc(),
+                    CustomerReceivableTransaction.created_at.desc(),
+                    CustomerReceivableTransaction.id.desc(),
+                )
+                .limit(last)
+            ).all()
+        )
+        rows.reverse()
+        shown = sum((Decimal(str(row.outstanding_delta)) for row in rows), ZERO)
+        opening = quantize_ledger(balance - shown)
+        lines, closing = _running_lines(rows, opening)
+        today = firm_today(self._session, firm_scope)
+        return CustomerAccount(
+            customer_id=customer.id,
+            customer_code=customer.code,
+            customer_name=customer.name,
+            from_date=rows[0].transaction_date if rows else today,
+            to_date=rows[-1].transaction_date if rows else today,
+            opening_balance=opening,
+            closing_balance=closing,
+            unapplied_advance=quantize_ledger(customer.unapplied_advance_balance),
+            lines=lines,
+            total_entries=total_entries,
         )
 
     def ageing(

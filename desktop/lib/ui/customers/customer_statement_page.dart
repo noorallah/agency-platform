@@ -22,9 +22,10 @@ import '../settings/send_message_dialog.dart';
 import '../workspace/remind_dialog.dart';
 import '../workspace/report_workbook.dart';
 import '../workspace/whatsapp_share.dart';
+import 'customer_account_table.dart';
 
 /// Which of the two questions is on screen.
-enum _View { statement, ageing, combined }
+enum _View { statement, ageing, combined, account }
 
 /// Show one customer's account, and the firm's receivables ageing.
 class CustomerStatementPage extends StatefulWidget {
@@ -65,6 +66,10 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
   /// statement is offered only then.
   bool _hasLinkedSupplier = false;
   String? _selectedCustomerId;
+
+  /// Bumped to read the account table again; it is keyed on this and the
+  /// customer, so a new key is a fresh read and an emptied pane.
+  int _accountReads = 0;
   String? _error;
   bool _loading = false;
 
@@ -217,6 +222,8 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
         _View.ageing => _ageing.isNotEmpty,
         _View.statement => _statement != null,
         _View.combined => _combined != null,
+        // The Statement view's Download is the sheet for one customer.
+        _View.account => false,
       };
 
   String _sheetName() => switch (_view) {
@@ -233,6 +240,8 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
             _from.text,
             _to.text,
           ]),
+        _View.account =>
+          workbookFileName(['customer-account', _selectedCustomerName]),
       };
 
   /// The view on show as a sheet (backlog 117): the ageing with a column
@@ -241,6 +250,9 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
   WorkbookSheet _sheet() {
     final String period = 'From ${_from.text.trim()} to ${_to.text.trim()}';
     switch (_view) {
+      case _View.account:
+        // Never offered: the download is disabled on this view.
+        return const WorkbookSheet(title: 'Customer account', headers: [], rows: []);
       case _View.ageing:
         final List<dynamic> bands =
             _ageing.first['buckets'] as List<dynamic>? ?? const [];
@@ -427,6 +439,10 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
       unawaited(_loadCombined());
       return;
     }
+    if (_view == _View.account) {
+      setState(() => _accountReads++);
+      return;
+    }
     final String? id = _selectedCustomerId;
     if (id != null) _loadStatement(id);
   }
@@ -465,7 +481,10 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
                           period.from == null ? '' : _iso(period.from!);
                       _to.text = period.to == null ? '' : _iso(period.to!);
                     });
-                    if (_view != _View.ageing) _refresh();
+                    // The account shows the last entries, not a period.
+                    if (_view != _View.ageing && _view != _View.account) {
+                      _refresh();
+                    }
                   },
                 ),
                 WorkbookDownloadButton(
@@ -556,6 +575,10 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
       viewBar: SegmentedButton<_View>(
         segments: const [
           ButtonSegment(value: _View.ageing, label: Text('Ageing')),
+          ButtonSegment(
+            value: _View.account,
+            label: Text('Account', key: ValueKey('view-account')),
+          ),
           ButtonSegment(value: _View.statement, label: Text('Statement')),
         ],
         selected: {_view == _View.combined ? _View.statement : _view},
@@ -571,7 +594,9 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
             ? _ageing.length
             : _view == _View.combined
                 ? _combinedLines().length
-                : _lines().length,
+                : _view == _View.account
+                    ? 0
+                    : _lines().length,
         selected: false,
         message: _view == _View.ageing
             ? 'What each bill still owes, off the receipts against it.'
@@ -730,7 +755,26 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
   List<dynamic> _lines() =>
       _statement?['lines'] as List<dynamic>? ?? const <dynamic>[];
 
+  /// The last entries of the selected customer's account, and a row to add a
+  /// receipt to it. Reads for itself; this page only says which customer.
+  Widget _accountView() {
+    final String? id = _selectedCustomerId;
+    if (id == null) {
+      return const WorkspaceEmptyState(
+        title: 'Choose a customer',
+        message: 'Pick one from the ageing to read their account.',
+      );
+    }
+    return CustomerAccountTable(
+      key: ValueKey('account-$id-$_accountReads'),
+      api: widget.api,
+      permissions: widget.permissions,
+      customerId: id,
+    );
+  }
+
   Widget _content() {
+    if (_view == _View.account) return _accountView();
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return WorkspaceEmptyState(
