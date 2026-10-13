@@ -1092,7 +1092,13 @@ names the supplier that holds it. The main office's form lists its offices under
 *Branch of* or the number of branches. An order placed on the main office can
 be received from a branch: on the goods receipt choose the office under
 **Received from**. The bill is then raised in that branch's name, and the
-order stays on the main office. A payment to the main office lists the bills
+order stays on the main office. A branch that has not been entered yet is
+added from the receipt itself: **New branch**, shown once the order is
+chosen to a person who may add suppliers, opens the supplier form with
+**Branch of** already filled; saving it comes back to the receipt with the
+new branch chosen and nothing typed lost. A firm that bills an order
+without typing a receipt has the same button on the bill, beside
+**Billed by**, which lists the supplier's offices. A payment to the main office lists the bills
 of its branches too, each with the branch's name; a payment to a branch lists
 only that branch's bills. Each office has its own statement: a branch's bill
 paid by the main office shows there as *Paid by the main office*. A main

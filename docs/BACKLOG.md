@@ -9210,7 +9210,9 @@ TC-BUY-103.
 
 **Not done.**
 
-- No button on the Goods Receipt screen: it has no supplier box.
+- No button on the Goods Receipt screen: it has no supplier box. *(Backlog
+  140, 2026-10-13: a **New branch** button is there now, and on a bill
+  raised against an order.)*
 - No button on a bill that names a receipt or an order, on a purchase order
   being edited, or on the other buying documents (requisition, request for
   quotation, rate contract, debit note, payment).
@@ -10175,3 +10177,90 @@ Tests: `backend/tests/unit/test_licence_under_parent.py`,
 - Whether the law lets a parent's drug licence cover a shop at another
   premises is the customer's question (LIC-5 in section 16 of the
   requirements document). The setting is how a firm answers it.
+
+## 140. A new branch of the supplier added while the goods are recorded -- built 2026-10-13
+
+**Customer task F9** (the owner, 2026-10-13, on M10). Asked: the order is
+placed on the company and the goods can come from a branch nobody has
+entered yet; a **New branch** button beside *Received from* on the goods
+receipt and beside the office on a supplier's bill raised against an order.
+Try: "a receipt against an order on the main office is saved as received
+from a branch made on the spot, and the bill is in that branch's name".
+
+**What was found.**
+
+- Backlog 128 (M10) put a button where a supplier is *chosen*: a new
+  purchase order and a bill typed directly. A goods receipt names an order
+  and had no button; a branch not yet entered meant closing the receipt,
+  losing what was typed, adding the branch under *Buy → Suppliers* and
+  starting again.
+- *Received from* is shown only for a supplier that already has a branch or
+  a main office. A supplier on its own shows no box, so its **first** branch
+  had nowhere to be chosen from either.
+- A bill raised against an order (a firm that types orders but no receipts)
+  had **no office box at all**: the screen sent no supplier and the bill was
+  always in the name of the order's supplier. The server already took
+  another office of the same company on such a bill (backlog 127), but the
+  receipt it raises behind the bill named the order's supplier, so the
+  receipt said *main office* and the bill beside it said *branch*.
+
+**Design.**
+
+- **Goods receipt.** A **New branch** button after the order box, beside
+  *Received from* where that box is shown and in its place where it is not.
+  Offered once an order is chosen, to a person holding `VENDOR_CREATE`.
+- **Bill raised against an order.** A **Billed by** box listing the offices
+  of the order's supplier company, shown only where the supplier has a main
+  office or branches, and the same **New branch** button. Untouched, the
+  bill sends no supplier and is the order's, as before. Another office
+  chosen is sent as `vendor_id`.
+- The button opens the full supplier form over the document (the form of
+  backlog 128) with **Branch of** already naming the company the order is
+  on: its main office where the order is on a branch, since a branch has no
+  branches. The person can change it. The GST number follows backlog 136
+  (F5): left blank, the branch takes its main office's.
+- Save closes the form and shows the document again with the new branch
+  chosen and everything typed kept. Cancel changes nothing. A refusal stays
+  in the form with the server's message.
+- A supplier saved from the form with **Branch of** cleared or changed is
+  saved, is not chosen, and the document says why: it is no office of the
+  order's supplier and the server would refuse it.
+- **Server, one change.** The receipt a bill raises behind itself takes the
+  bill's office where that is another office of the order's supplier company
+  (`PurchaseChainService._received_from`). A supplier outside the company is
+  left to the bill's own check, so the refusal reads in the bill's words.
+- No new permission, table, column, route or setting. The buttons of
+  backlog 128 on the purchase order and the bill typed directly stay.
+
+**Calls.** The goods receipt reads the supplier's offices once when an order
+is chosen, as before, and now keeps the answer for a supplier on its own
+too; the button costs the look-alike check and the save, and no second read
+of the offices. The bill reads the offices once per order chosen, and only
+where the supplier list already says the supplier has a main office or
+branches: a supplier on its own costs no call, before or after the button.
+
+**Built.** Desktop, new UI only: `addSupplierInPlace(branchOf:)` in
+`desktop/lib/ui/vendors/vendor_management_page.dart`; `mainOfficeOf`,
+`familyWithBranch` and `officeFrom` in `desktop/lib/models/vendor.dart`; the
+button in `goods_receipt_editor_phase2.dart` with its state in
+`goods_receipt_editor_dialog.dart`; **Billed by** and the button in
+`purchase_invoice_editor_phase2.dart` with their state in
+`purchase_invoice_editor_dialog.dart`. Server:
+`backend/app/purchase_invoice/services/purchase_chain_service.py`. Tests:
+`desktop/test/supplier_branch_added_while_receiving_test.dart` (10),
+`backend/tests/unit/test_branch_bills_an_order.py` (3). Case: TC-BUY-107.
+PR #1481.
+
+**Not built.**
+
+- No **New branch** on a bill that names goods receipts: its supplier is the
+  office the receipt was received from, which the receipt's own button now
+  settles. The server takes another office there too; the screen has no box
+  for it.
+- No **Billed by** box on a bill being edited after it was saved: by then
+  its lines name the receipt, and it is a bill of receipts.
+- The new branch's place is not shown in the box until the document is
+  opened again (the offices' places come with the read; the branch just
+  saved is added from its own row).
+- The old UI is unchanged.
+- No screen was clicked in the running app.

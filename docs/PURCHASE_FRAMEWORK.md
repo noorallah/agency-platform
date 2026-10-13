@@ -1293,6 +1293,17 @@ page behind them so its list knows the name. A goods receipt names an order
 and has no supplier box. A new buying document that needs the same action
 calls `addSupplierInPlace`; it does not build a second supplier form.
 
+**A branch added the same way (backlog 140).** `addSupplierInPlace` takes
+`branchOf`, the main office the form opens as a branch of. The goods receipt
+offers **New branch** once an order is chosen, and a bill raised against an
+order offers it beside **Billed by**, the offices of the order's supplier.
+Both add the saved branch to the offices they already hold
+(`familyWithBranch` in `desktop/lib/models/vendor.dart`) rather than reading
+them again, and neither chooses a supplier that came back outside the
+company. The bill sends `vendor_id` only when an office other than the
+order's own supplier is chosen, and the receipt the chain raises behind it
+is from that office (`PurchaseChainService._received_from`).
+
 ## The brands a supplier may sell (backlog 129, 2026-10-13)
 
 `vendor_brands` holds one row for each brand named on a supplier.
