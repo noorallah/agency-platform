@@ -2631,7 +2631,15 @@ class SalesOrderService(TransactionalDocumentService):
                     firm_scope=row.firm_id,
                 )
             )
-            grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
+            typed_line = (entered or {}).get(item.line_number)
+            # A line typed at a rate including GST is worth the total typed
+            # with the tax taken out, not quantity x the four-place rate
+            # before tax (D-SELL-96).
+            grosses.append(
+                self._q(self._q(item.quantity) * self._q(item.unit_price))
+                if typed_line is None
+                else typed_line.gross_amount
+            )
 
         # Promotions are read once the grosses are known and before anything is
         # discounted, because a minimum-order-value offer is a condition on the

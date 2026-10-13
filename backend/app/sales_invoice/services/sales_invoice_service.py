@@ -167,6 +167,7 @@ from app.tax.services.inclusive_rate import (
     PreTaxLine,
     billed_rate,
     derive_pre_tax,
+    gross_before_tax,
 )
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
@@ -4238,6 +4239,31 @@ class SalesInvoiceService(TransactionalDocumentService):
                     price=unit_price,
                     otherwise=gross_amount,
                 )
+            rate_with_tax = self._rate_typed_with_tax(
+                entered_rates, source_line, unit_price
+            )
+            if rate_with_tax is not None and typed.entered is None:
+                # Typed at a rate including GST, on this bill or on the order
+                # it continues: worth quantity x the rate typed with the tax
+                # taken out, not quantity x the four-place rate before tax,
+                # which is two paise out on 500 pieces (D-SELL-96).
+                gross_amount = gross_before_tax(
+                    quantity=invoice_quantity,
+                    entered_rate=rate_with_tax,
+                    rate_at=partial(
+                        self._billed_rate_at,
+                        invoice_date=invoice_date,
+                        firm_id=firm_id,
+                        actor_id=actor_id,
+                        business_profile_id=business_profile_id,
+                        customer_id=row.customer_id,
+                        branch_id=row.branch_id,
+                        warehouse_id=_optional_uuid(spec.get("warehouse_id")),
+                        product_id=self._product_id(source_line),
+                        tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
+                        shipping_address_id=row.shipping_address_id,
+                    ),
+                )
             # Resolved before the tax call, not after it. The percentage never
             # reached this module: it was stored on the line and the tax base
             # and the subtotal were both computed from the amount alone, so a
@@ -4562,6 +4588,34 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         return self._q(left) if left > ZERO else otherwise
 
+    def _rate_typed_with_tax(
+        self,
+        entered_rates: Mapping[UUID, tuple[Decimal, Decimal]] | None,
+        source_line: SourceLine,
+        unit_price: Decimal,
+    ) -> Decimal | None:
+        """Return the GST-inclusive rate behind a line's price, if there is one.
+
+        Typed on this bill, or on the order the line continues (D-SELL-96).
+        Either way only while the line bills at the rate before tax it was
+        derived to; another price is not a statement about the typed figure.
+        """
+        typed = self._entered_rate(entered_rates, source_line.id, unit_price)
+        if typed is not None:
+            return typed
+        order_line = (
+            source_line
+            if isinstance(source_line, SalesOrderLine)
+            else self._session.get(SalesOrderLine, source_line.sales_order_line_id)
+        )
+        if (
+            order_line is None
+            or order_line.entered_rate is None
+            or self._q(order_line.unit_price) != unit_price
+        ):
+            return None
+        return Decimal(str(order_line.entered_rate))
+
     @staticmethod
     def _entered_rate(
         entered_rates: Mapping[UUID, tuple[Decimal, Decimal]] | None,
@@ -4591,7 +4645,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         business_profile_id: UUID | None,
         customer_id: UUID,
         branch_id: UUID,
-        warehouse_id: UUID,
+        warehouse_id: UUID | None,
         product_id: UUID,
         tax_profile_id: UUID | None,
         shipping_address_id: UUID | None,

@@ -1587,8 +1587,20 @@ which is before tax. The bill discount and freight stay before tax. The
 taxable value is kept at the documents' four decimals rather than rounded to
 the paisa first, because rounding it first leaves taxable + tax a paisa off the
 typed total about one time in seven (100 incl. 18% is 84.75 + 15.26 = 100.01,
-against 84.7458 + 15.2542); a residual left by the tax engine's own rounding on
-a large quantity is the round-off's, never an adjusted tax.
+against 84.7458 + 15.2542). The tax is the tax engine's figure for that value
+and is never adjusted.
+
+**The line is worth the total typed with the tax taken out, not quantity x
+the rate before tax** (D-SELL-96, backlog 132). `unit_price` is kept to four
+places, so multiplying it up again put 500 pieces at 100.00 two paise out
+(42,372.90 + 7,627.12 = 50,000.02). `gross_before_tax` divides quantity x the
+rate typed by one plus the rate of tax (42,372.8814), and that is the line's
+`gross_amount` on every document that states or continues it: the order and
+the quotation from the figures typed, the delivery note as its share of the
+order line's worth, the bill from the rate typed (its own `entered_rate`, or
+the order line's) and its own quantity. The rate before tax is what the line
+shows. A line that bills at another price, or in another unit than its
+order's, is quantity x its rate as before, and so is a sales return.
 
 The **sales order** and the **quotation** carry the same switch
 (`sales_orders.rate_includes_tax`, `sales_quotations.rate_includes_tax`;

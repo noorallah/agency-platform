@@ -2328,6 +2328,34 @@ class DeliveryNoteService(TransactionalDocumentService):
             return ZERO
         return Decimal(str(source.unit_price or ZERO))
 
+    def _line_gross(
+        self,
+        quantity: Decimal,
+        unit_price: Decimal,
+        source: SalesOrderLine | None,
+    ) -> Decimal:
+        """Return what a quantity shipped is worth before tax and discount.
+
+        Quantity x the rate, except on a line continuing an order typed at a
+        rate including GST, which takes its share of the order line's worth.
+        That worth was split out of the total typed; the rate before tax is
+        kept to four places and multiplying it up again put 500 pieces at
+        100.00 two paise out (D-SELL-96). Only at the order's own price: a
+        note shipping at another price states its own.
+        """
+        if (
+            source is not None
+            and source.entered_rate is not None
+            and self._q(source.quantity) > ZERO
+            and self._q(unit_price) == self._q(source.unit_price or ZERO)
+        ):
+            return self._q(
+                self._q(source.gross_amount or ZERO)
+                * quantity
+                / self._q(source.quantity)
+            )
+        return self._q(quantity * unit_price)
+
     def _line_discount(
         self,
         item: DeliveryNoteLineWrite,
@@ -2368,7 +2396,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         a line that came out at nothing came out at nothing on purpose.
         """
         shipping = self._q(item.current_delivery_quantity)
-        gross = self._q(shipping * unit_price)
+        gross = self._line_gross(shipping, unit_price, source)
         percent = item.discount_percent
         amount = item.discount_amount
         if percent is None and amount is None and source is not None:
@@ -2669,7 +2697,14 @@ class DeliveryNoteService(TransactionalDocumentService):
             for index, item in enumerate(lines)
         ]
         taxables = [
-            self._q(self._q(item.current_delivery_quantity) * price - line.amount)
+            self._q(
+                self._line_gross(
+                    self._q(item.current_delivery_quantity),
+                    price,
+                    source_lines.get(item.sales_order_line_id),
+                )
+                - line.amount
+            )
             for item, price, line in zip(lines, prices, priced, strict=True)
         ]
         shares = self._bill_discount_shares(
@@ -2782,7 +2817,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 )
             remaining_qty = self._q(ordered_qty - previous_delivered - delivered_qty)
             short_qty = self._q(remaining_qty if remaining_qty > ZERO else ZERO)
-            gross = self._q(current_qty * prices[index])
+            gross = self._line_gross(current_qty, prices[index], source_line)
             line_discount = priced[index]
             discount = line_discount.amount
             # Freight raises the taxable value; the bill discount

@@ -18,10 +18,17 @@ rather than rounded to the paisa first. Rounding it to two places and then
 charging tax on that leaves taxable plus tax a paisa away from the typed
 total in roughly one case in seven (100 at 18% is 84.75 + 15.26 = 100.01);
 at four places the two halves round to the paisa together (84.7458 +
-15.2542), and the residual is at most a hundredth of a paisa per unit, which
-nothing on the bill shows. Where a quantity is large enough for that to reach
-a paisa, the tax engine's figure stands and the difference is the round-off's
-to absorb -- the tax is never adjusted to make the total come out.
+15.2542).
+
+The line's worth is split out of the total typed, never built up from the
+rate before tax (D-SELL-96). That rate is kept to four places, so each piece
+carries up to 0.00005 of error and a line of 500 multiplied it into two
+paise: 500 at 100.00 read 42,372.90 + 7,627.12 = 50,000.02. The line's worth
+before tax is therefore the typed total divided by one plus the rate
+(``gross_before_tax``: 42,372.8814), every document that states or continues
+the line takes it as its gross amount, and the rate before tax is what the
+line shows, not what it is multiplied by. The tax is still the tax engine's
+figure for that value and is never adjusted.
 """
 
 from collections.abc import Callable, Sequence
@@ -48,6 +55,9 @@ class PreTaxLine:
     entered_rate: Decimal
     #: The rate of tax billed on the line, as a fraction (0.18 for 18%).
     tax_rate: Decimal
+    #: What the line is worth before tax and before its discount: the typed
+    #: total with the tax taken out of it, not quantity x ``unit_price``.
+    gross_amount: Decimal
 
 
 def billed_rate(response: TaxRuleSimulationResponse) -> Decimal:
@@ -68,6 +78,36 @@ def billed_rate(response: TaxRuleSimulationResponse) -> Decimal:
         ZERO,
     )
     return Decimal(str(percent)) / HUNDRED
+
+
+def gross_before_tax(
+    *,
+    quantity: Decimal,
+    entered_rate: Decimal,
+    rate_at: Callable[[Decimal], Decimal],
+) -> Decimal:
+    """Return what a line typed at a rate including GST is worth before tax.
+
+    Quantity x the rate typed, with the tax taken out of that total
+    (D-SELL-96). For a line that continues one typed so -- the note and the
+    bill of an order -- which knows the rate typed and its own quantity, and
+    asks the tax it will be charged.
+
+    Args:
+        quantity: The quantity this document states.
+        entered_rate: The rate as typed, GST included.
+        rate_at: The billed tax rate, as a fraction, for a line of the value
+            given -- asked twice at most, for a slabbed rule.
+
+    """
+    total = quantize_money(quantity * entered_rate)
+    rate = rate_at(total)
+    gross = quantize_money(total / (1 + rate))
+    if gross > ZERO:
+        second = rate_at(gross)
+        if second != rate:
+            gross = quantize_money(total / (1 + second))
+    return gross
 
 
 def derive_pre_tax(
@@ -111,20 +151,22 @@ def derive_pre_tax(
             rate = second
             taxable = quantize_money(net / (1 + rate))
     unit_price = quantize_money(entered_rate / (1 + rate))
+    # Split out of the total typed, not multiplied up from the four-place
+    # rate, which is two paise out on 500 pieces (D-SELL-96).
+    gross_amount = quantize_money(gross / (1 + rate))
     pre_tax_discount: Decimal | None = None
     if discount_amount is not None:
         # Whatever the line's own gross leaves above the taxable value is the
         # discount, so the line taxes exactly what the typed total implies.
         pre_tax_discount = (
-            max(quantize_money(quantity * unit_price) - taxable, ZERO)
-            if discount_amount > ZERO
-            else ZERO
+            max(gross_amount - taxable, ZERO) if discount_amount > ZERO else ZERO
         )
     return PreTaxLine(
         unit_price=unit_price,
         discount_amount=pre_tax_discount,
         entered_rate=entered_rate,
         tax_rate=rate,
+        gross_amount=gross_amount,
     )
 
 
@@ -136,6 +178,9 @@ class EnteredRate:
     entered_rate: Decimal
     #: The discount amount as typed, GST included; None where none was typed.
     entered_discount_amount: Decimal | None
+    #: What the line is worth before tax and before its discount, split out
+    #: of quantity x the rate typed (D-SELL-96).
+    gross_amount: Decimal
 
 
 class TypedLine(Protocol):
@@ -192,6 +237,7 @@ def lines_before_tax[LineT: TypedLine](
         entered[line.line_number] = EnteredRate(
             entered_rate=derived.entered_rate,
             entered_discount_amount=line.discount_amount,
+            gross_amount=derived.gross_amount,
         )
         update: dict[str, object] = {"unit_price": derived.unit_price}
         if derived.discount_amount is not None:

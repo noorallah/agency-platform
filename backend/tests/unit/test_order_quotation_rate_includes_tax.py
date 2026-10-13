@@ -12,8 +12,10 @@ from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import select
 
+from app.core.utils.money import quantize_ledger
 from app.quotation.models import SalesQuotation, SalesQuotationLine
 from app.quotation.schemas import QuotationCreate, QuotationLineWrite
 from app.quotation.services.quotation_print_service import QuotationPrintService
@@ -26,6 +28,7 @@ from app.sales_order.services.sales_order_service import SalesOrderService
 from tests.unit.test_invoice_print import _text_of
 from tests.unit.test_sales_chain_synthesis import _Firm
 from tests.unit.test_sales_invoice_rate_includes_tax import (
+    LARGE_LINES,
     OTHER_STATE_BUYER,
     _gst_firm,
 )
@@ -80,6 +83,7 @@ def _quotation_create(
     rate: Decimal,
     inclusive: bool | None = True,
     discount_amount: Decimal | None = None,
+    quantity: Decimal = Decimal("2"),
 ) -> QuotationCreate:
     """Return a quotation of one typed line."""
     return QuotationCreate(
@@ -93,7 +97,7 @@ def _quotation_create(
             QuotationLineWrite(
                 line_number=1,
                 product_id=setup.product.id,
-                quantity=Decimal("2"),
+                quantity=quantity,
                 unit_price=rate,
                 discount_amount=discount_amount,
                 discount_percent=None if discount_amount is not None else Decimal("0"),
@@ -358,3 +362,101 @@ def test_a_shelf_price_quotation_prints_both_rates() -> None:
     printed = _text_of(pdf)
     assert "incl." in printed
     assert "118.00 | 100.00" in printed
+
+
+@pytest.mark.parametrize(("quantity", "rate", "total"), LARGE_LINES)
+def test_a_large_order_line_totals_quantity_times_the_rate_typed(
+    quantity: Decimal, rate: Decimal, total: Decimal
+) -> None:
+    """D-SELL-96: 500 at 100.00 including GST is 50,000.00, not 50,000.02.
+
+    The line is worth the total typed with the tax taken out of it; the rate
+    before tax, kept to four places, is shown and not multiplied up.
+    """
+    setup = _gst_firm(sales_order_stage=True)
+    order = SalesOrderService(setup.session).create_order(
+        _order_create(setup, rate=rate, quantity=quantity),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    line = _order_line(setup, order)
+
+    assert line.entered_rate == rate
+    assert line.unit_price == (rate / Decimal("1.18")).quantize(Decimal("0.0001"))
+    assert line.gross_amount == (total / Decimal("1.18")).quantize(Decimal("0.0001"))
+    assert quantize_ledger(order.grand_total) == total
+    # The two halves the ledger rounds on their own add up to it too.
+    assert quantize_ledger(order.subtotal) + quantize_ledger(order.tax_total) == total
+
+
+def test_a_large_order_line_with_a_discount_totals_what_is_left_to_pay() -> None:
+    """500 at 100.00 with 10% off is 45,000.00; with 1,000.00 off, 49,000.00."""
+    setup = _gst_firm(sales_order_stage=True)
+    service = SalesOrderService(setup.session)
+    by_percent = service.create_order(
+        _order_create(
+            setup,
+            rate=Decimal("100"),
+            quantity=Decimal("500"),
+            discount_percent=Decimal("10"),
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    by_amount = service.create_order(
+        _order_create(
+            setup,
+            rate=Decimal("100"),
+            quantity=Decimal("500"),
+            discount_amount=Decimal("1000"),
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert quantize_ledger(by_percent.grand_total) == Decimal("45000.00")
+    assert quantize_ledger(by_amount.grand_total) == Decimal("49000.00")
+
+
+def test_a_large_order_line_typed_before_tax_is_unchanged() -> None:
+    """Before tax a line is still quantity x the rate, to the last place."""
+    setup = _gst_firm(sales_order_stage=True)
+    order = SalesOrderService(setup.session).create_order(
+        _order_create(
+            setup, rate=Decimal("84.7458"), quantity=Decimal("500"), inclusive=False
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    line = _order_line(setup, order)
+
+    assert line.entered_rate is None
+    assert line.gross_amount == Decimal("42372.9000")
+    assert order.subtotal == Decimal("42372.9000")
+    assert order.tax_total == Decimal("7627.1220")
+    assert order.grand_total == Decimal("50000.0220")
+
+
+@pytest.mark.parametrize(("quantity", "rate", "total"), LARGE_LINES)
+def test_a_large_quotation_line_and_its_order_total_the_rate_typed(
+    quantity: Decimal, rate: Decimal, total: Decimal
+) -> None:
+    """D-SELL-96 on the quotation, and on the order it becomes."""
+    setup = _gst_firm(sales_order_stage=True)
+    service = QuotationService(setup.session)
+    actor = uuid4()
+    quotation = service.create_quotation(
+        _quotation_create(setup, rate=rate, quantity=quantity),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    service.accept_quotation(quotation.id, firm_scope=setup.firm.id, actor_id=actor)
+    _, order = service.convert_quotation(
+        quotation.id,
+        firm_scope=setup.firm.id,
+        actor_id=actor,
+        order_date=date(2026, 8, 5),
+    )
+
+    assert quantize_ledger(quotation.grand_total) == total
+    assert quantize_ledger(order.grand_total) == total

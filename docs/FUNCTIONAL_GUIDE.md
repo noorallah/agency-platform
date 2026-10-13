@@ -2778,8 +2778,11 @@ nobody it is **off** — a converted quotation, a counter bill and an import all
 hand over rates already before tax. The line keeps the rate as typed beside the
 pre-tax figure and the editor shows it back as typed. A quotation typed at shelf
 prices becomes an order typed at them, read back to pre-tax at the order's date,
-so the customer is billed what was quoted. Bills raised from an order print only
-the pre-tax rate.
+so the customer is billed what was quoted. A bill raised from such an order
+prints the rate typed beside the pre-tax rate. A line's total is the quantity
+times the rate typed, on the quotation, the order, the delivery note and the
+bill: 500 at 100.00 is 50,000.00, with the taxable value and the tax split out
+of that figure.
 
 Quotation: `DRAFT` → `SENT` → `ACCEPTED` → `CONVERTED`, or `DECLINED`.
 Expiry is derived from `valid_until` and nothing writes an `EXPIRED` status.

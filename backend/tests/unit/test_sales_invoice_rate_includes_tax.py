@@ -13,10 +13,14 @@ from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.utils.money import quantize_ledger
+from app.delivery_note.models import DeliveryNoteLine
+from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
+from app.delivery_note.services import DeliveryNoteService
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
@@ -397,7 +401,12 @@ def test_a_bill_typed_before_tax_prints_one_rate() -> None:
 
 
 def _bill_of_an_order(
-    *, inclusive: bool, billed_at: Decimal | None = None
+    *,
+    inclusive: bool,
+    billed_at: Decimal | None = None,
+    quantity: Decimal = Decimal("1"),
+    rate: Decimal = Decimal("118"),
+    billed: Decimal | None = None,
 ) -> tuple[_Firm, SalesInvoice]:
     """Bill one piece of an order typed at 118, with GST in it or before it."""
     setup = _gst_firm(sales_order_stage=True)
@@ -414,8 +423,8 @@ def _bill_of_an_order(
                 SalesOrderLineWrite(
                     line_number=1,
                     product_id=setup.product.id,
-                    quantity=Decimal("1"),
-                    unit_price=Decimal("118"),
+                    quantity=quantity,
+                    unit_price=rate,
                 )
             ],
         ),
@@ -438,7 +447,7 @@ def _bill_of_an_order(
                     source_document_id=order.id,
                     source_document_line_id=order_line.id,
                     line_number=1,
-                    current_invoice_quantity=Decimal("1"),
+                    current_invoice_quantity=quantity if billed is None else billed,
                     unit_price=billed_at,
                 )
             ],
@@ -485,3 +494,176 @@ def test_the_bill_of_an_order_typed_before_tax_prints_one_rate() -> None:
 
     assert _line(setup.session, invoice).unit_price == Decimal("118.0000")
     assert _printed_typed_rate(setup, invoice) is None
+
+
+#: D-SELL-96: quantity, rate typed including 18%, and the total it must read.
+LARGE_LINES = [
+    (Decimal("500"), Decimal("100.00"), Decimal("50000.00")),
+    (Decimal("1000"), Decimal("100.00"), Decimal("100000.00")),
+    (Decimal("250"), Decimal("45.50"), Decimal("11375.00")),
+]
+
+
+@pytest.mark.parametrize(("quantity", "rate", "total"), LARGE_LINES)
+def test_a_large_bill_typed_with_gst_totals_quantity_times_the_rate(
+    quantity: Decimal, rate: Decimal, total: Decimal
+) -> None:
+    """D-SELL-96 on a bill typed directly: 500 at 100.00 is 50,000.00."""
+    setup = _gst_firm()
+    invoice = _bill(setup, rate=rate, quantity=quantity)
+    line = _line(setup.session, invoice)
+
+    assert line.entered_rate == rate
+    assert line.gross_amount == (total / Decimal("1.18")).quantize(Decimal("0.0001"))
+    assert quantize_ledger(invoice.grand_total) == total
+    assert (
+        quantize_ledger(invoice.subtotal) + quantize_ledger(invoice.tax_total) == total
+    )
+
+
+def test_a_large_bill_with_a_typed_discount_totals_what_is_left_to_pay() -> None:
+    """500 at 100.00 with 1,000.00 off is 49,000.00; with 10% off, 45,000.00."""
+    setup = _gst_firm()
+    by_amount = _bill(
+        setup,
+        rate=Decimal("100"),
+        quantity=Decimal("500"),
+        discount_amount=Decimal("1000"),
+    )
+    by_percent = _bill(
+        setup,
+        rate=Decimal("100"),
+        quantity=Decimal("500"),
+        discount_percent=Decimal("10"),
+    )
+
+    assert quantize_ledger(by_amount.grand_total) == Decimal("49000.00")
+    assert quantize_ledger(by_percent.grand_total) == Decimal("45000.00")
+
+
+@pytest.mark.parametrize(("quantity", "rate", "total"), LARGE_LINES)
+def test_the_bill_of_a_large_order_typed_with_gst_totals_the_rate_typed(
+    quantity: Decimal, rate: Decimal, total: Decimal
+) -> None:
+    """D-SELL-96 on what inherits: the bill reads what its order reads."""
+    setup, invoice = _bill_of_an_order(inclusive=True, quantity=quantity, rate=rate)
+
+    assert quantize_ledger(invoice.grand_total) == total
+    assert (
+        quantize_ledger(invoice.subtotal) + quantize_ledger(invoice.tax_total) == total
+    )
+
+
+def test_a_part_bill_of_a_large_order_totals_its_own_quantity() -> None:
+    """200 of 500 at 100.00 including GST are billed 20,000.00."""
+    setup, invoice = _bill_of_an_order(
+        inclusive=True,
+        quantity=Decimal("500"),
+        rate=Decimal("100"),
+        billed=Decimal("200"),
+    )
+
+    assert quantize_ledger(invoice.grand_total) == Decimal("20000.00")
+
+
+def test_the_bill_of_a_large_order_typed_before_tax_is_unchanged() -> None:
+    """Before tax the bill is still quantity x the rate, to the last place."""
+    setup, invoice = _bill_of_an_order(
+        inclusive=False, quantity=Decimal("500"), rate=Decimal("84.7458")
+    )
+
+    assert _line(setup.session, invoice).gross_amount == Decimal("42372.9000")
+    assert invoice.grand_total == Decimal("50000.0220")
+
+
+def test_the_note_and_the_bill_of_an_order_typed_with_gst_total_the_rate() -> None:
+    """D-SELL-96 down the whole chain: order, delivery note, bill of the note.
+
+    100 at 10.01 including 18% are 1,001.00. The rate before tax is 8.4831,
+    and 100 x 8.4831 with its tax reads 1,001.01; each document instead takes
+    its share of the total typed.
+    """
+    setup = _gst_firm(sales_order_stage=True)
+    workflow = setup.session.scalar(
+        select(SalesWorkflowSettings).where(
+            SalesWorkflowSettings.firm_id == setup.firm.id
+        )
+    )
+    assert workflow is not None
+    workflow.delivery_note_stage = True
+    setup.session.commit()
+    actor = uuid4()
+    orders = SalesOrderService(setup.session)
+    order = orders.stage_order(
+        SalesOrderCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            order_date=date(2026, 8, 3),
+            rate_includes_tax=True,
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=setup.product.id,
+                    quantity=Decimal("100"),
+                    unit_price=Decimal("10.01"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    orders.stage_approval(order.id, firm_scope=setup.firm.id, actor_id=actor)
+    order_line = setup.session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert order_line is not None
+    notes = DeliveryNoteService(setup.session)
+    note = notes.stage_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 3),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    notes.stage_approval(note.id, firm_scope=setup.firm.id, actor_id=actor)
+    notes.stage_dispatch(note.id, firm_scope=setup.firm.id, actor_id=actor)
+    setup.session.commit()
+    note_line = setup.session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert note_line is not None
+    invoice = SalesInvoiceService(setup.session).create_invoice(
+        SalesInvoiceCreate(
+            customer_id=setup.customer.id,
+            invoice_date=date(2026, 8, 4),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+
+    assert order_line.unit_price == Decimal("8.4831")
+    assert order_line.gross_amount == Decimal("848.3051")
+    assert quantize_ledger(order.grand_total) == Decimal("1001.00")
+    assert note_line.unit_price == Decimal("8.4831")
+    assert note_line.gross_amount == Decimal("848.3051")
+    assert quantize_ledger(note.grand_total) == Decimal("1001.00")
+    assert _line(setup.session, invoice).gross_amount == Decimal("848.3051")
+    assert quantize_ledger(invoice.grand_total) == Decimal("1001.00")
