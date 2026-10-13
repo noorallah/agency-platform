@@ -1481,6 +1481,9 @@ class ProductService:
                 Product.brand.ilike(f"%{filters.brand.strip()}%")
             )
             count = count.where(Product.brand.ilike(f"%{filters.brand.strip()}%"))
+        if filters.brand_ids:
+            statement = statement.where(Product.brand_id.in_(filters.brand_ids))
+            count = count.where(Product.brand_id.in_(filters.brand_ids))
         if filters.hsn_sac:
             statement = statement.where(
                 Product.hsn_sac == filters.hsn_sac.strip().upper()

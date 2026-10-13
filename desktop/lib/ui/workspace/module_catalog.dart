@@ -1169,6 +1169,7 @@ abstract final class ModuleCatalog {
         'EXPENSE_VIEW',
         'PARTY_ADJUSTMENT_VIEW',
         'FIXED_ASSET_VIEW',
+        'COLLECTION_OWN_VIEW',
       ],
       requiresAnyPermission: true,
       tabs: [
@@ -1227,6 +1228,20 @@ abstract final class ModuleCatalog {
           id: 'collection-sheet',
           label: 'Collection Sheet',
           requiredPermissions: ['RECEIPT_VIEW'],
+        ),
+        // Bills handed to a collector and taken back (backlog 122): a note
+        // beside the bill, so it reads on the receipt code too.
+        ModuleTabDefinition(
+          id: 'bills-with-collectors',
+          label: 'Bills with Collectors',
+          requiredPermissions: ['RECEIPT_VIEW'],
+        ),
+        // The collector's own list of the bills handed to him (backlog 123).
+        // Its own code: the Bill collector role holds nothing else.
+        ModuleTabDefinition(
+          id: 'my-bills',
+          label: 'My Bills to Collect',
+          requiredPermissions: ['COLLECTION_OWN_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'payment-promises',

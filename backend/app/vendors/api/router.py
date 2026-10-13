@@ -46,6 +46,7 @@ from app.vendors.schemas import (
     VendorCategoryResponse,
     VendorCategoryWrite,
     VendorCreate,
+    VendorFamily,
     VendorImportRequest,
     VendorListFilters,
     VendorResponse,
@@ -90,7 +91,13 @@ from app.vendors.services.supplier_catalogue import (
     SupplierCatalogueFileImporter,
     SupplierCatalogueService,
 )
+from app.vendors.services.supplier_family import SupplierFamilyFacts
 from app.vendors.services.supplier_gifts import SupplierGiftService
+from app.vendors.services.vendor_brands import (
+    VendorBrandList,
+    VendorBrandService,
+    VendorBrandsWrite,
+)
 from app.vendors.services.vendor_import import VendorFileImporter
 from app.vendors.services.vendor_import import template_csv as vendor_template_csv
 from app.vendors.services.vendor_import import (
@@ -136,6 +143,10 @@ PanReportScope = Annotated[
 ]
 #: Whoever reads suppliers or buys from them may say what they think (BUY-15).
 VendorRatingScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("VENDOR_VIEW", "PURCHASE_VIEW")
+]
+#: Read by the supplier form and by a purchase order narrowing its products.
+VendorBrandViewScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("VENDOR_VIEW", "PURCHASE_VIEW")
 ]
 VendorCreateScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_CREATE")]
@@ -209,6 +220,7 @@ def _response(
     *,
     attributes: list[AttributeValueResponse] | None = None,
     places: dict[UUID, tuple[str | None, str | None]] | None = None,
+    family: SupplierFamilyFacts | None = None,
 ) -> VendorResponse:
     """Build one vendor response with its custom fields attached.
 
@@ -231,6 +243,12 @@ def _response(
     named = VendorService(db).address_places([row]) if places is None else places
     for address in payload["addresses"]:
         address["city"], address["area"] = named.get(address["id"], (None, None))
+    facts = family or VendorService(db).family_facts([row]).get(
+        row.id, SupplierFamilyFacts()
+    )
+    payload["parent_code"] = facts.parent_code
+    payload["parent_name"] = facts.parent_name
+    payload["branch_count"] = facts.branch_count
     return VendorResponse.model_validate(payload)
 
 
@@ -241,8 +259,16 @@ def _responses(
     service = VendorService(db)
     attributes = service.attribute_responses_for_many(rows)
     places = service.address_places(rows)
+    family = service.family_facts(rows)
     return [
-        _response(row, db, scope, attributes=attributes.get(row.id, []), places=places)
+        _response(
+            row,
+            db,
+            scope,
+            attributes=attributes.get(row.id, []),
+            places=places,
+            family=family.get(row.id, SupplierFamilyFacts()),
+        )
         for row in rows
     ]
 
@@ -1024,6 +1050,54 @@ def get_vendor(
     )
     set_etag(response, vendor)
     return ApiResponse(data=_response(vendor, db, scope))
+
+
+@router.get("/{vendor_id}/family", response_model=ApiResponse[VendorFamily])
+def vendor_family(
+    vendor_id: UUID,
+    scope: VendorViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorFamily]:
+    """Return a supplier's main office and branches, with what they are owed.
+
+    Asked of the main office or of any branch the answer is the same
+    company; a supplier with neither is a company of one (backlog 127).
+    """
+    return ApiResponse(
+        data=VendorService(db).family(vendor_id, firm_scope=scope.firm_id)
+    )
+
+
+@router.get("/{vendor_id}/brands", response_model=ApiResponse[VendorBrandList])
+def vendor_brands(
+    vendor_id: UUID,
+    scope: VendorBrandViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorBrandList]:
+    """Return the brands a supplier may sell, and where the answer came from.
+
+    The supplier's own list first, then the brands of the companies bought
+    from it, then its main office's; a supplier none of them answers for is
+    not limited (backlog 129).
+    """
+    return ApiResponse(
+        data=VendorBrandService(db).brands_of(vendor_id, firm_id=scope.firm_id)
+    )
+
+
+@router.put("/{vendor_id}/brands", response_model=ApiResponse[VendorBrandList])
+def set_vendor_brands(
+    vendor_id: UUID,
+    data: VendorBrandsWrite,
+    scope: VendorUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorBrandList]:
+    """Replace the brands named on a supplier; an empty list clears them."""
+    return ApiResponse(
+        data=VendorBrandService(db).set(
+            vendor_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 @router.put("/{vendor_id}", response_model=ApiResponse[VendorResponse])

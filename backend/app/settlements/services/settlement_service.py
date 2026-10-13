@@ -829,6 +829,88 @@ class SettlementService(TransactionalDocumentService):
         records.sort(key=lambda record: (record.invoice_date, record.invoice_number))
         return records
 
+    def shop_ids(self, *, firm_id: UUID, party_id: UUID) -> list[UUID]:
+        """Return the shops under a customer, or the branches under a supplier.
+
+        A receipt from a parent buyer reaches its shops' bills (backlog 126)
+        and a payment to a supplier's main office reaches its branches'
+        (backlog 127). A refund is with one party, and a shop or a branch
+        has none under it.
+        """
+        if self.DIRECTION == SettlementDirection.PAYMENT:
+            return list(
+                self._session.scalars(
+                    select(Vendor.id)
+                    .where(
+                        Vendor.firm_id == firm_id,
+                        Vendor.parent_vendor_id == party_id,
+                        Vendor.is_deleted.is_(False),
+                    )
+                    .order_by(Vendor.code)
+                )
+            )
+        if self.DIRECTION != SettlementDirection.RECEIPT:
+            return []
+        return list(
+            self._session.scalars(
+                select(Customer.id)
+                .where(
+                    Customer.firm_id == firm_id,
+                    Customer.parent_customer_id == party_id,
+                    Customer.is_deleted.is_(False),
+                )
+                .order_by(Customer.code)
+            )
+        )
+
+    def family_outstanding_invoices(
+        self, *, firm_id: UUID, party_id: UUID
+    ) -> list[OutstandingInvoiceRecord]:
+        """Return what a party and those under it still owe, bill by bill.
+
+        The bills one receipt from a parent buyer may clear (backlog 126),
+        or one payment to a supplier's main office (backlog 127): its own
+        first, then each shop's or branch's, every row naming whose it is.
+        For a party with none under it, it is `outstanding_invoices` with the
+        names filled in. Read once per member, which is a handful of
+        statements for each shop of a chain rather than the firm's whole
+        unpaid list.
+        """
+        members = [party_id, *self.shop_ids(firm_id=firm_id, party_id=party_id)]
+        party: type[Customer] | type[Vendor] = (
+            Vendor if self.DIRECTION == SettlementDirection.PAYMENT else Customer
+        )
+        names = {
+            row.id: (row.code, row.name)
+            for row in self._session.execute(
+                select(party.id, party.code, party.name).where(party.id.in_(members))
+            )
+        }
+        records: list[OutstandingInvoiceRecord] = []
+        for member in members:
+            code, name = names.get(member, (None, None))
+            for record in self.outstanding_invoices(firm_id=firm_id, party_id=member):
+                record.party_code = code
+                record.party_name = name
+                records.append(record)
+        return records
+
+    def _settleable_bills(
+        self, *, firm_id: UUID, party_id: UUID
+    ) -> dict[UUID, OutstandingInvoiceRecord]:
+        """Return the bills this party's money may be set against, by id.
+
+        The party's own; for a receipt from a parent buyer, its shops' too,
+        and for a payment to a supplier's main office, its branches'.
+        """
+        if self.shop_ids(firm_id=firm_id, party_id=party_id):
+            records = self.family_outstanding_invoices(
+                firm_id=firm_id, party_id=party_id
+            )
+        else:
+            records = self.outstanding_invoices(firm_id=firm_id, party_id=party_id)
+        return {record.invoice_id: record for record in records}
+
     def _owing_customer_opening_bills(
         self, *, firm_id: UUID, party_id: UUID | None
     ) -> list[OutstandingInvoiceRecord]:
@@ -1302,15 +1384,26 @@ class SettlementService(TransactionalDocumentService):
             else None
         )
         deductions: dict[ControlAccountPurpose, Decimal]
+        #: What of a parent's receipt clears each shop's bills (backlog 126).
+        shop_shares: dict[UUID, Decimal] = {}
         if fx is not None:
             amount = fx.rupees
             allocated = amount
             deductions = {}
         else:
             amount = quantize_ledger(data.amount)
-            allocated = self._validate_allocations(
-                data, firm_id=firm_id, party_id=data.party_id, amount=amount
+            bills = (
+                self._settleable_bills(firm_id=firm_id, party_id=data.party_id)
+                if data.allocations
+                else {}
             )
+            allocated = self._validate_allocations(data, bills=bills, amount=amount)
+            for allocation in data.allocations:
+                owner = bills[allocation.invoice_id].party_id
+                if owner is not None and owner != data.party_id:
+                    shop_shares[owner] = shop_shares.get(owner, ZERO) + quantize_ledger(
+                        allocation.amount
+                    )
             deductions = self._deductions(data, firm_id=firm_id, allocated=allocated)
             self._assert_clearance_discount(
                 data,
@@ -1506,21 +1599,44 @@ class SettlementService(TransactionalDocumentService):
             # The receivable service decides for itself how much of a receipt
             # clears the balance and how much becomes an advance, which is the
             # one place that rule should live.
-            self._customers.post_receivable_transaction(
-                data.party_id,
-                CustomerReceivableTransactionCreate(
-                    transaction_type=CustomerReceivableTransactionType.RECEIPT,
-                    amount=amount,
-                    transaction_date=data.settlement_date,
-                    reference_type="settlement",
-                    reference_id=row.id,
-                    reference_number=number,
-                    remarks=data.narration,
-                ),
-                firm_scope=firm_id,
-                actor_id=actor_id,
-                commit=False,
-            )
+            #
+            # A parent's receipt that clears its shops' bills (backlog 126)
+            # comes off each shop's account for what it cleared there, and
+            # only the rest stands on the parent's. Every row names this
+            # receipt, so reversing it puts each account back by its own row.
+            for shop_id, share in shop_shares.items():
+                self._customers.post_receivable_transaction(
+                    shop_id,
+                    CustomerReceivableTransactionCreate(
+                        transaction_type=CustomerReceivableTransactionType.RECEIPT,
+                        amount=share,
+                        transaction_date=data.settlement_date,
+                        reference_type="settlement",
+                        reference_id=row.id,
+                        reference_number=number,
+                        remarks=f"Paid by {party.code} {party.name}.",
+                    ),
+                    firm_scope=firm_id,
+                    actor_id=actor_id,
+                    commit=False,
+                )
+            own_share = amount - sum(shop_shares.values(), ZERO)
+            if own_share > ZERO:
+                self._customers.post_receivable_transaction(
+                    data.party_id,
+                    CustomerReceivableTransactionCreate(
+                        transaction_type=CustomerReceivableTransactionType.RECEIPT,
+                        amount=own_share,
+                        transaction_date=data.settlement_date,
+                        reference_type="settlement",
+                        reference_id=row.id,
+                        reference_number=number,
+                        remarks=data.narration,
+                    ),
+                    firm_scope=firm_id,
+                    actor_id=actor_id,
+                    commit=False,
+                )
             # Tax collected at source is charged **here**, on the money, not
             # when the invoice was raised: section 206C(1H) says "at the time
             # of receipt of such amount". Staged rather than committed, so a
@@ -1555,6 +1671,17 @@ class SettlementService(TransactionalDocumentService):
                 },
                 "allocated_amount": str(allocated),
                 "party": party.code,
+                # What a parent's receipt cleared on each shop (backlog 126).
+                **(
+                    {
+                        "shop_shares": {
+                            str(shop_id): str(share)
+                            for shop_id, share in shop_shares.items()
+                        }
+                    }
+                    if shop_shares
+                    else {}
+                ),
                 # A payment in another currency (PG-12).
                 **(
                     {}
@@ -1664,21 +1791,106 @@ class SettlementService(TransactionalDocumentService):
             The part that must come out of the advance, never negative.
 
         """
-        original = self._recording_row(row)
-        if original is None:
+        if self._recording_row(row) is None:
             # Nothing recorded the split, so nothing can be claimed about it.
             # Treating it as advance would risk the double count this method
             # exists to avoid.
             return ZERO
-        off_the_balance = quantize_ledger(-Decimal(str(original.outstanding_delta)))
-        if off_the_balance <= ZERO:
-            # The whole receipt became an advance.
-            return quantize_ledger(allocating)
-        already = quantize_ledger(row.allocated_amount)
-        remaining = off_the_balance - already
-        if remaining >= allocating:
-            return ZERO
-        return quantize_ledger(allocating - max(remaining, ZERO))
+        # What this receipt has taken off its own customer's balance so far:
+        # the recording row, each ADVANCE_APPLY since, less what was moved to
+        # a shop (backlog 126). Less what is already set against the
+        # customer's own bills, the rest has cleared no bill yet and is what
+        # an allocation uses up before it reaches the advance.
+        off_the_balance, _, to_shops = self._held_by_party(row)
+        own_allocated = quantize_ledger(row.allocated_amount) - to_shops
+        unattributed = max(off_the_balance - own_allocated, ZERO)
+        return quantize_ledger(max(allocating - unattributed, ZERO))
+
+    def _held_by_party(self, row: Settlement) -> tuple[Decimal, Decimal, Decimal]:
+        """Say where a receipt's money stands, from the rows it wrote.
+
+        Three figures: what it has taken off its own customer's balance, what
+        that customer still holds of it as an advance, and what went to the
+        shops under the customer. Summed from stored deltas, never
+        recomputed: together they are the receipt's amount.
+        """
+        kinds = (
+            CustomerReceivableTransactionType.RECEIPT.value,
+            CustomerReceivableTransactionType.ADVANCE_APPLY.value,
+            CustomerReceivableTransactionType.RECEIPT_TRANSFER.value,
+        )
+        off_the_balance = advance = to_shops = ZERO
+        for written in self._rows_written_by(row):
+            if written.transaction_type not in kinds:
+                continue
+            if written.customer_id == row.customer_id:
+                off_the_balance -= Decimal(str(written.outstanding_delta))
+                advance += Decimal(str(written.advance_delta))
+            else:
+                to_shops += Decimal(str(written.amount))
+        return (
+            quantize_ledger(off_the_balance),
+            quantize_ledger(advance),
+            quantize_ledger(to_shops),
+        )
+
+    def _move_to_shop(
+        self,
+        row: Settlement,
+        *,
+        shop_id: UUID,
+        amount: Decimal,
+        on: date,
+        invoice_number: str,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Move money a parent's receipt holds onto a shop's account.
+
+        Called when the unspread part of a parent's receipt is set against a
+        shop's bill (backlog 126). Until then it stood on the parent's
+        account -- as an advance, or as less owed -- and the shop still owed
+        its bill. Two rows on the same day, both naming the receipt: the
+        parent's account gives the money up (the advance first, since a
+        parent should not owe more while it holds money on account), and the
+        shop's account takes it as a receipt. No journal, as for any other
+        application of money already received.
+        """
+        parent = self._session.get(Customer, row.customer_id)
+        shop = self._session.get(Customer, shop_id)
+        if parent is None or shop is None:  # pragma: no cover - both were read
+            raise ValidationError("This receipt names no customer to move it from.")
+        _, advance, _ = self._held_by_party(row)
+        from_advance = min(amount, max(advance, ZERO))
+        self._customers.stage_receipt_transfer(
+            parent.id,
+            from_advance=from_advance,
+            from_balance=amount - from_advance,
+            transaction_date=on,
+            reference_id=row.id,
+            reference_number=row.settlement_number,
+            remarks=f"Moved to {shop.code} {shop.name} for {invoice_number}.",
+            firm_scope=firm_id,
+            actor_id=actor_id,
+        )
+        self._customers.post_receivable_transaction(
+            shop.id,
+            CustomerReceivableTransactionCreate(
+                transaction_type=CustomerReceivableTransactionType.RECEIPT,
+                amount=amount,
+                transaction_date=on,
+                reference_type="settlement",
+                reference_id=row.id,
+                reference_number=row.settlement_number,
+                remarks=(
+                    f"Paid by {parent.code} {parent.name}, "
+                    f"applied to {invoice_number}."
+                ),
+            ),
+            firm_scope=firm_id,
+            actor_id=actor_id,
+            commit=False,
+        )
 
     def allocate(
         self,
@@ -1751,17 +1963,21 @@ class SettlementService(TransactionalDocumentService):
         party_id = row.customer_id if is_receipt else row.vendor_id
         if party_id is None:  # pragma: no cover - direction guarantees it
             raise ValidationError("This settlement names no party to apply it for.")
-        outstanding = {
-            record.invoice_id: record
-            for record in self.outstanding_invoices(firm_id=firm_id, party_id=party_id)
-        }
-        record = outstanding.get(invoice_id)
+        # A parent's receipt may be set against a shop's bill (backlog 126).
+        record = self._settleable_bills(firm_id=firm_id, party_id=party_id).get(
+            invoice_id
+        )
         if record is None:
             raise ValidationError(
                 f"That invoice does not belong to this "
                 f"{'customer' if is_receipt else 'supplier'}, is not "
                 "approved, or is already settled in full."
             )
+        shop_id = (
+            record.party_id
+            if is_receipt and record.party_id not in (None, party_id)
+            else None
+        )
         self._refuse_rupees_for_foreign_bill(record)
         if asked > record.outstanding_amount:
             raise ValidationError(
@@ -1819,8 +2035,23 @@ class SettlementService(TransactionalDocumentService):
         # so a payment's allocation is purely the statement about which bill
         # the money cleared.
         from_advance = (
-            self._advance_part_of(row, allocating=asked) if is_receipt else ZERO
+            self._advance_part_of(row, allocating=asked)
+            if is_receipt and shop_id is None
+            else ZERO
         )
+        if shop_id is not None:
+            # Until now the money stood on the parent's account; the shop
+            # still owed its bill. Before the receipt's own figures move, so
+            # the split is read as it stood.
+            self._move_to_shop(
+                row,
+                shop_id=shop_id,
+                amount=asked,
+                on=max(row.settlement_date, record.invoice_date),
+                invoice_number=record.invoice_number,
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
         row.allocated_amount = quantize_ledger(row.allocated_amount + asked)
         row.unallocated_amount = quantize_ledger(row.unallocated_amount - asked)
         row.updated_by = actor_id
@@ -1858,6 +2089,7 @@ class SettlementService(TransactionalDocumentService):
                 "invoice_number": record.invoice_number,
                 "amount": str(asked),
                 "unallocated_amount": str(row.unallocated_amount),
+                **({} if shop_id is None else {"shop_id": str(shop_id)}),
             },
         )
         self._session.commit()
@@ -1917,6 +2149,9 @@ class SettlementService(TransactionalDocumentService):
             journal_date=on,
             actor_id=actor_id,
         )
+        #: Every account this settlement moved: its own customer's, and for
+        #: a parent's receipt each shop whose bill it cleared (backlog 126).
+        touched: list[UUID] = [] if row.customer_id is None else [row.customer_id]
         if self.DIRECTION in (
             SettlementDirection.RECEIPT,
             SettlementDirection.REFUND,
@@ -1931,7 +2166,11 @@ class SettlementService(TransactionalDocumentService):
             # step with 1100 by the whole receipt. The applications are undone
             # first because they are later, and undoing them returns the
             # advance the receipt's own reversal then takes away.
+            # A parent's receipt wrote a row on each shop it paid for as
+            # well, and each is undone on its own account by its own deltas.
             for written in self._rows_written_by(row):
+                if written.customer_id not in touched:
+                    touched.append(written.customer_id)
                 self._customers.reverse_receivable_transaction(
                     written.id,
                     firm_scope=firm_id,
@@ -1989,13 +2228,14 @@ class SettlementService(TransactionalDocumentService):
             # reads. A refund reversed puts back an advance the same may be
             # true of. Left alone, the customer owed that much on no bill
             # and held it from no source (D-PRC-88).
-            absorb_credit_no_longer_given(
-                self._session,
-                firm_id=firm_id,
-                customer_id=row.customer_id,
-                actor_id=actor_id,
-                on=mirror.journal_date,
-            )
+            for customer_id in touched:
+                absorb_credit_no_longer_given(
+                    self._session,
+                    firm_id=firm_id,
+                    customer_id=customer_id,
+                    actor_id=actor_id,
+                    on=mirror.journal_date,
+                )
         return row
 
     # ------------------------------------------------------------------
@@ -2040,22 +2280,37 @@ class SettlementService(TransactionalDocumentService):
                 CustomerReceivableTransaction.id.desc(),
             )
         ).all()
-        applied = CustomerReceivableTransactionType.ADVANCE_APPLY.value
-        return sorted(written, key=lambda item: item.transaction_type != applied)
+        # What was moved to a shop (backlog 126) is later than the recording
+        # row as well, and came out of the advance that row made: undone
+        # after the applications, which only ever give balance back, and
+        # before the recording rows, whose advance it returns.
+        order = {
+            CustomerReceivableTransactionType.ADVANCE_APPLY.value: 0,
+            CustomerReceivableTransactionType.RECEIPT_TRANSFER.value: 1,
+        }
+        return sorted(written, key=lambda item: order.get(item.transaction_type, 2))
 
     def _recording_row(self, row: Settlement) -> CustomerReceivableTransaction | None:
         """Return the receivable row written when the settlement was recorded.
 
-        Not an `ADVANCE_APPLY` a later allocation added beside it: only the
-        recording row remembers how the money split between balance and
-        advance.
+        Not an `ADVANCE_APPLY` a later allocation added beside it, nor what
+        was moved to a shop: only the recording row remembers how the money
+        split between balance and advance.
         """
-        written = self._rows_written_by(row)
-        if not written:
-            return None
-        last = written[-1]
-        applied = CustomerReceivableTransactionType.ADVANCE_APPLY.value
-        return None if last.transaction_type == applied else last
+        later = (
+            CustomerReceivableTransactionType.ADVANCE_APPLY.value,
+            CustomerReceivableTransactionType.RECEIPT_TRANSFER.value,
+        )
+        # On the settlement's own customer: a parent's receipt also wrote a
+        # row on each shop it paid for (backlog 126), and those say nothing
+        # about how the parent's part split.
+        own = [
+            item
+            for item in self._rows_written_by(row)
+            if item.customer_id == row.customer_id
+            and item.transaction_type not in later
+        ]
+        return own[-1] if own else None
 
     def _scoped(
         self, statement: Select[tuple[Settlement]], firm_id: UUID
@@ -2315,8 +2570,7 @@ class SettlementService(TransactionalDocumentService):
         self,
         data: SettlementCreate,
         *,
-        firm_id: UUID,
-        party_id: UUID,
+        bills: dict[UUID, OutstandingInvoiceRecord],
         amount: Decimal,
     ) -> Decimal:
         """Check every allocation and return the total allocated.
@@ -2324,21 +2578,20 @@ class SettlementService(TransactionalDocumentService):
         Three things can be wrong, and each of them writes a lie into the
         books if it is let through: allocating more than arrived, allocating to
         somebody else's invoice, and allocating more to an invoice than is left
-        owing on it.
+        owing on it. ``bills`` is what the party's money may clear
+        (`_settleable_bills`): its own bills, and a parent's shops' bills.
         """
         if not data.allocations:
             return ZERO
-        outstanding = {
-            record.invoice_id: record
-            for record in self.outstanding_invoices(firm_id=firm_id, party_id=party_id)
-        }
+        outstanding = bills
         total = ZERO
         for allocation in data.allocations:
             record = outstanding.get(allocation.invoice_id)
             if record is None:
                 raise ValidationError(
-                    "An allocated invoice does not belong to this party, is "
-                    "not approved, or is already settled in full."
+                    "An allocated invoice does not belong to this party or "
+                    "to a shop or branch under it, is not approved, or is "
+                    "already settled in full."
                 )
             self._refuse_rupees_for_foreign_bill(record)
             allocated = quantize_ledger(allocation.amount)
@@ -2534,6 +2787,115 @@ class SettlementService(TransactionalDocumentService):
             settlement_ids,
             SettlementAllocation.created_at.asc(),
         )
+
+    def shop_bill_owners(
+        self,
+        rows: Sequence[Settlement],
+        allocations: Sequence[SettlementAllocation],
+    ) -> dict[UUID, tuple[UUID, str, str]]:
+        """Say whose each allocated bill is, where it is a shop's (backlog 126).
+
+        Keyed by bill id: the shop's id, code and name, for the bills on a
+        page of receipts that belong to a shop under the receipt's customer.
+        A bill of the receipt's own customer is left out. One read finds the
+        shops under the page's customers, and a page with none reads nothing
+        more.
+        """
+        if not allocations:
+            return {}
+        if self.DIRECTION == SettlementDirection.PAYMENT:
+            return self._branch_bill_owners(rows, allocations)
+        if self.DIRECTION != SettlementDirection.RECEIPT:
+            return {}
+        payers = {row.customer_id for row in rows if row.customer_id is not None}
+        shops = {
+            row.id: (row.id, row.code, row.name)
+            for row in self._session.execute(
+                select(Customer.id, Customer.code, Customer.name).where(
+                    Customer.parent_customer_id.in_(payers)
+                )
+            )
+        }
+        if not shops:
+            return {}
+        owners: dict[UUID, tuple[UUID, str, str]] = {}
+        invoice_ids = [
+            item.sales_invoice_id
+            for item in allocations
+            if item.sales_invoice_id is not None
+        ]
+        if invoice_ids:
+            for bill_id, customer_id in self._session.execute(
+                select(SalesInvoice.id, SalesInvoice.customer_id).where(
+                    SalesInvoice.id.in_(invoice_ids),
+                    SalesInvoice.customer_id.in_(shops),
+                )
+            ):
+                owners[bill_id] = shops[customer_id]
+        opening_ids = [
+            item.customer_opening_bill_id
+            for item in allocations
+            if item.customer_opening_bill_id is not None
+        ]
+        if opening_ids:
+            for bill_id, customer_id in self._session.execute(
+                select(CustomerOpeningBill.id, CustomerOpeningBill.customer_id).where(
+                    CustomerOpeningBill.id.in_(opening_ids),
+                    CustomerOpeningBill.customer_id.in_(shops),
+                )
+            ):
+                owners[bill_id] = shops[customer_id]
+        return owners
+
+    def _branch_bill_owners(
+        self,
+        rows: Sequence[Settlement],
+        allocations: Sequence[SettlementAllocation],
+    ) -> dict[UUID, tuple[UUID, str, str]]:
+        """Say whose each paid bill is, where it is a branch's (backlog 127).
+
+        The supplier twin of `shop_bill_owners`: the bills on a page of
+        payments that belong to a branch under the supplier that was paid.
+        """
+        payees = {row.vendor_id for row in rows if row.vendor_id is not None}
+        branches = {
+            row.id: (row.id, row.code, row.name)
+            for row in self._session.execute(
+                select(Vendor.id, Vendor.code, Vendor.name).where(
+                    Vendor.parent_vendor_id.in_(payees)
+                )
+            )
+        }
+        if not branches:
+            return {}
+        owners: dict[UUID, tuple[UUID, str, str]] = {}
+        invoice_ids = [
+            item.purchase_invoice_id
+            for item in allocations
+            if item.purchase_invoice_id is not None
+        ]
+        if invoice_ids:
+            for bill_id, vendor_id in self._session.execute(
+                select(PurchaseInvoice.id, PurchaseInvoice.vendor_id).where(
+                    PurchaseInvoice.id.in_(invoice_ids),
+                    PurchaseInvoice.vendor_id.in_(branches),
+                )
+            ):
+                owners[bill_id] = branches[vendor_id]
+        opening_ids = [
+            item.vendor_opening_bill_id
+            for item in allocations
+            if item.vendor_opening_bill_id is not None
+        ]
+        if opening_ids:
+            for bill_id, vendor_id in self._session.execute(
+                select(VendorOpeningBill.id, VendorOpeningBill.vendor_id).where(
+                    VendorOpeningBill.id.in_(opening_ids),
+                    VendorOpeningBill.vendor_id.in_(branches),
+                )
+            ):
+                owners[bill_id] = branches[vendor_id]
+        return owners
 
     def order_numbers_of(self, rows: Sequence[Settlement]) -> dict[UUID, str]:
         """Answer `order_number_of` for a page, keyed by order id."""

@@ -137,6 +137,10 @@ class GoodsReceiptCreate(GoodsReceiptSchema):
     """Goods Receipt Create contract."""
 
     purchase_order_id: UUID
+    #: The office the goods came from (backlog 127): the order's supplier,
+    #: its main office or another branch of it. Absent or null on a create
+    #: takes the order's supplier; absent on an edit keeps what is on file.
+    vendor_id: UUID | None = None
     receipt_date: date
     received_by_id: UUID | None = None
     transport_details: str | None = Field(default=None, max_length=250)

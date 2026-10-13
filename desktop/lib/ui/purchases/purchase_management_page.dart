@@ -30,6 +30,7 @@ import '../trade_licences/licence_check_dialog.dart';
 import '../../models/bulk_action.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/custom_fields_section.dart';
+import '../workspace/brand_filter.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/reason_prompt.dart';
@@ -37,9 +38,11 @@ import '../workspace/printed_document.dart';
 import '../../models/document_framework.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
+import '../vendors/vendor_management_page.dart' show addSupplierInPlace;
 import '../../phase2/indian_format.dart';
 import 'purchase_workflow_settings_dialog.dart';
 import 'reorder_planning_dialog.dart';
+import 'order_plan_dialog.dart';
 import 'reorder_dialog.dart';
 
 part 'purchase_order_editor_phase2.dart';
@@ -634,6 +637,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         mode: mode,
         order: order,
         vendors: _vendors,
+        canAddVendor: widget.permissions.hasPermission('VENDOR_CREATE'),
+        onVendorAdded: (Vendor added) {
+          if (mounted) setState(() => _vendors = [..._vendors, added]);
+        },
         branches: _branches,
         warehouses: _warehouses,
         products: _products,
@@ -1674,6 +1681,23 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     await _load();
   }
 
+  /// Plan an order by company from average sales (backlog 130).
+  Future<void> _openOrderPlan() async {
+    final Object? raised = await showDialog<Object>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => OrderPlanDialog(api: widget.api),
+    );
+    if (!mounted || raised is! Map) return;
+    final String message = stringValue(raised['message']);
+    NotificationService.show(
+      context,
+      message.isEmpty ? 'Raised.' : message,
+      kind: AppNotificationKind.success,
+    );
+    await _load();
+  }
+
   /// Phase 2: recent and saved searches, and saved layouts, in one "Views"
   /// chip beside "+ filter", as Products.
   Widget _viewsChip() => Phase2MenuChip<VoidCallback>(
@@ -1917,6 +1941,13 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           icon: Icons.inventory_outlined,
           menuOnly: true,
           onPressed: _canCreate ? () => unawaited(_openReorder()) : null,
+        ),
+        ToolbarCommand(
+          id: 'order-plan',
+          label: 'Plan an order…',
+          icon: Icons.shopping_cart_checkout_outlined,
+          menuOnly: true,
+          onPressed: _canCreate ? () => unawaited(_openOrderPlan()) : null,
         ),
         ToolbarCommand(
           id: 'print-settings',
@@ -2578,7 +2609,17 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
     required this.canSubmit,
     required this.canApprove,
     this.uoms = const <UomRecord>[],
+    this.canAddVendor = false,
+    this.onVendorAdded,
   });
+
+  /// Whether **New supplier** is offered beside the supplier box of a new
+  /// order (backlog 128): the user holds `VENDOR_CREATE`.
+  final bool canAddVendor;
+
+  /// Told of a supplier added from this order, so the list behind it knows
+  /// the name too.
+  final ValueChanged<Vendor>? onVendorAdded;
 
   final ApiClient api;
   final PermissionService permissions;
@@ -2691,6 +2732,82 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
 
   void _setState(VoidCallback change) => setState(change);
 
+  /// Backlog 129: the brands the chosen supplier may sell, read once per
+  /// supplier chosen. Null until read, and after a failed read: then the
+  /// supplier is treated as not limited. [_brandsFor] is the supplier the
+  /// answer belongs to, so a late answer for an earlier choice is dropped.
+  VendorBrands? _vendorBrands;
+  String _brandsFor = '';
+
+  /// The Brand box: blank is the default (all of the supplier's brands, or
+  /// all products), [everyProductChoice] lifts the supplier's limit, anything
+  /// else is one brand's id. Only narrows the product boxes.
+  String _brandChoice = '';
+
+  Future<void> _readVendorBrands(String vendorId) async {
+    if (vendorId == _brandsFor) return;
+    _brandsFor = vendorId;
+    setState(() {
+      _vendorBrands = null;
+      _brandChoice = '';
+      _lineEpoch++;
+    });
+    if (vendorId.isEmpty) return;
+    VendorBrands? read;
+    try {
+      read = await widget.api.vendorBrands(vendorId);
+    } on Object {
+      read = null;
+    }
+    if (!mounted || _brandsFor != vendorId) return;
+    setState(() {
+      _vendorBrands = read;
+      _lineEpoch++;
+    });
+  }
+
+  /// Whether the supplier chosen names brands for its orders.
+  bool get _brandLimited => _vendorBrands?.isLimited ?? false;
+
+  /// The products the product boxes offer: the brand choice applied, and the
+  /// products already on a line kept whatever the choice.
+  List<Product> get _offeredProducts {
+    final String choice = _brandChoice;
+    if (choice == everyProductChoice) return widget.products;
+    if (choice.isEmpty && !_brandLimited) return widget.products;
+    final Set<String> brandIds = choice.isEmpty
+        ? {for (final BrandRecord brand in _vendorBrands!.brands) brand.id}
+        : {choice};
+    return productsOfBrands(
+      widget.products,
+      brandIds,
+      keepIds: {
+        for (final PurchaseOrderLine line in _draft.lines) line.productId,
+      },
+    );
+  }
+
+  /// Suppliers added from this order (backlog 128), offered after the ones
+  /// the order was opened with.
+  final List<Vendor> _addedVendors = <Vendor>[];
+
+  List<Vendor> get _vendorChoices => _addedVendors.isEmpty
+      ? widget.vendors
+      : [...widget.vendors, ..._addedVendors];
+
+  /// Open the supplier form over the order and choose the supplier it saved.
+  Future<void> _addVendor() async {
+    final Vendor? added = await addSupplierInPlace(context, api: widget.api);
+    if (added == null || !mounted) return;
+    widget.onVendorAdded?.call(added);
+    setState(() {
+      _addedVendors.add(added);
+      _draft = _draft.copyWith(vendorId: added.id);
+    });
+    unawaited(_readVendorBrands(added.id));
+    _schedulePreview();
+  }
+
   /// D-BUY-39: whether the currency box was typed in. Until it is, a new
   /// order shows the supplier's own currency and sends it, because the server
   /// holds only what the client sends and does not default it.
@@ -2698,7 +2815,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
 
   /// The currency of the supplier's account; blank is rupees.
   String get _supplierCurrency {
-    for (final Vendor item in widget.vendors) {
+    for (final Vendor item in _vendorChoices) {
       if (item.id == _draft.vendorId) return item.currencyCode;
     }
     return '';
@@ -2748,6 +2865,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     unawaited(_loadBudgets());
     unawaited(_customFields.start());
     if (widget.isCreating) unawaited(_readApprovalSetting());
+    if (_draft.vendorId.isNotEmpty) {
+      unawaited(_readVendorBrands(_draft.vendorId));
+    }
   }
 
   Future<void> _readApprovalSetting() async {

@@ -21,6 +21,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.document_framework.services.transactional_document_service import (
@@ -281,6 +282,14 @@ class ExpenseService(TransactionalDocumentService):
             role="paid-from",
             expected=AccountType.ASSET.value,
         )
+        if data.expense_date > firm_today(self._session, firm_id):
+            # D-FIN-33: an expense is money already spent, and the form's
+            # calendar offered any day to 2100. One dated ahead took the money
+            # out of the cash or bank book on a day that had not come.
+            raise ValidationError(
+                "An expense cannot be recorded on a future date: it is for "
+                "money already spent."
+            )
         amount = quantize_ledger(data.amount)
         if amount <= Decimal("0"):
             raise ValidationError("An expense must be for more than zero.")

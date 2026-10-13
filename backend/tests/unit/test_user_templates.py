@@ -131,13 +131,13 @@ def _codes_held(session: Session, user_id: UUID, firm_id: UUID | None) -> set[st
 
 
 def test_the_platform_templates_are_offered_to_every_firm() -> None:
-    """Eleven jobs, seeded, needing no setup from the firm at all."""
+    """Twelve jobs, seeded, needing no setup from the firm at all."""
     service, session = _service()
     firm = _firm(session, "F1")
 
     rows, total = service.list_user_templates(1, 50, None, "code", False, firm.id)
 
-    assert total == 11
+    assert total == 12
     assert {"counter-sales", "warehouse", "accounts"} <= {row.code for row in rows}
     assert all(row.is_system and row.firm_id is None for row in rows)
 
@@ -469,7 +469,7 @@ def test_a_firm_admin_can_list_the_roles_a_template_may_bundle() -> None:
     `list_roles` had been written for a caller who could never reach it.
 
     That mattered here: a firm cannot assemble its own template without seeing
-    the roles. The list is scoped, so what they see is the twelve firm roles
+    the roles. The list is scoped, so what they see is the thirteen firm roles
     and their own -- never `PLATFORM_ADMIN`, which is what makes the bundle
     guard above a second lock rather than the only one.
     """

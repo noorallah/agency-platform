@@ -16,13 +16,43 @@ Migration `20260731_0009_customer_management` creates:
 
 Every table uses the shared UUID, timestamp, actor, version, and lifecycle
 columns. `customers.firm_id` references `firms.id`. The customer code is
-unique among a firm's live customers. The GST number and PAN may repeat
-(decision A7, migration 0219): one company is often several accounts -- a
-branch per state shares its PAN, a head office and its outlets may share a
-GSTIN -- so a save that repeats one succeeds and its response `message` names
-the other accounts, and `GET /api/v1/customers/identity-check` lets the form
-ask before it saves. Addresses and contacts are owned by a customer and are
-reconciled as part of the customer transaction.
+unique among a firm's live customers. The PAN may repeat (decision A7,
+migration 0219): one company is often several accounts, a branch per state
+sharing its PAN, so a save that repeats one succeeds and its response
+`message` names the other accounts, and
+`GET /api/v1/customers/identity-check` lets the form ask before it saves.
+Addresses and contacts are owned by a customer and are reconciled as part of
+the customer transaction.
+
+### A parent buyer and its shops (backlog 125)
+
+A chain is one **parent** customer with a customer per **shop** under it
+(`customers.parent_customer_id`), one level deep. Each shop keeps its own
+address, bills, dues, credit limit and salesman.
+
+- **A GST number is typed on one customer.**
+  `UQ_customers_firm_gst_number_own_active` holds it to one live customer of
+  the firm; a second save is refused (409) naming the holder.
+- **A shop that sends no number takes its parent's.** The server copies the
+  parent's number and registration type onto the shop's row and sets
+  `gst_number_from_parent`, so every reader of `customers.gst_number` bills
+  the shop under it without knowing about parents. The copies are left out of
+  the key. A shop in another state sends its own number, which is then its
+  own.
+- **The copy moves with the number.** Changing the parent's number rewrites
+  the shops that take it in the same transaction, each with an audit row.
+- **Taken out, a shop gives the number back.** It does not keep a copy.
+- A parent with shops is not deleted, made a shop or merged away. A parent
+  cannot be a shop, the walk-in customer, or the customer itself.
+- `GET /api/v1/customers/{id}/family` returns the parent and its shops with
+  each one's outstanding and one total, the same asked of any of them. Every
+  customer answer carries `parent_customer_id`, `parent_code`, `parent_name`,
+  `gst_number_from_parent` and `shop_count`.
+- The rules are in `app/customers/services/buyer_family.py`.
+- **One receipt from the parent may clear its shops' bills** (backlog 126).
+  Each shop's account moves by a `RECEIPT` row of its own that names the
+  parent's receipt; the parent's account takes only what was not a shop's.
+  The rule and its reversal are in `docs/LEDGER_POSTING_RULES.md`.
 
 `credit_limit` and `opening_balance` use `NUMERIC(18,2)`.
 `payment_terms_days` is a non-negative integer. Customer types are

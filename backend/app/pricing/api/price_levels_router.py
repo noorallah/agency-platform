@@ -27,7 +27,7 @@ from app.pricing.schemas.price_level import (
     UnitPricesResponse,
 )
 from app.pricing.services.price_levels import PriceLevelService
-from app.pricing.services.unit_price import UnitPriceResolver
+from app.pricing.services.unit_price import UnitPriceResolver, document_price_level
 
 router = APIRouter(
     prefix="/api/v1/price-levels",
@@ -53,10 +53,15 @@ LinePriceScope = Annotated[
 
 @router.get("", response_model=ApiResponse[list[PriceLevelResponse]])
 def list_price_levels(
-    scope: LevelViewScope,
+    scope: LinePriceScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PriceLevelResponse]]:
-    """List the firm's price levels in their order."""
+    """List the firm's price levels in their order.
+
+    Open to whoever raises a sales document as well as to whoever keeps the
+    levels: the document offers them as its switch (backlog 131), and the
+    names of a firm's levels are no more than the prices already quoted.
+    """
     return ApiResponse(
         data=[
             PriceLevelResponse.model_validate(row)
@@ -92,6 +97,7 @@ def unit_prices(
     on: Annotated[date, Query()],
     customer_id: Annotated[UUID | None, Query()] = None,
     territory_id: Annotated[UUID | None, Query()] = None,
+    price_level_id: Annotated[UUID | None, Query()] = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[UnitPricesResponse]:
     """Return the price each product's line starts at for this customer.
@@ -99,7 +105,12 @@ def unit_prices(
     A fixed rate on a price list for the customer, then the customer's (or
     its group's) price level, then the product's own price (SEL-9). What a
     document fills a blank price with, offered here for the editor to show.
+    ``price_level_id`` asks at the level a document names for itself rather
+    than the customer's usual one (backlog 131).
     """
+    price_level_id = document_price_level(
+        db, firm_id=scope.firm_id, price_level_id=price_level_id
+    )
     if customer_id is not None:
         customer = db.get(Customer, customer_id)
         if customer is None or customer.firm_id != scope.firm_id:
@@ -110,6 +121,7 @@ def unit_prices(
         customer_id=customer_id,
         territory_id=territory_id,
         on=on,
+        price_level_id=price_level_id,
     )
     prices = []
     for product_id in dict.fromkeys(product_ids):
@@ -120,7 +132,11 @@ def unit_prices(
             )
         )
     return ApiResponse(
-        data=UnitPricesResponse(price_level_id=resolver.level_id, prices=prices)
+        data=UnitPricesResponse(
+            price_level_id=resolver.level_id,
+            customer_price_level_id=resolver.customer_level_id,
+            prices=prices,
+        )
     )
 
 

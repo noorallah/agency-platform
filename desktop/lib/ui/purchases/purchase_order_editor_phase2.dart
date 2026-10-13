@@ -46,7 +46,8 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     if (widget.isCreating &&
-        (widget.vendors.isEmpty || widget.products.isEmpty)) {
+        ((_vendorChoices.isEmpty && !widget.canAddVendor) ||
+            widget.products.isEmpty)) {
       return const StandardEmptyState(
         type: EmptyStateType.noRecords,
         title: 'Nothing to order yet',
@@ -474,7 +475,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
   }
 
   Vendor? get _vendor {
-    for (final Vendor item in widget.vendors) {
+    for (final Vendor item in _vendorChoices) {
       if (item.id == _draft.vendorId) return item;
     }
     return null;
@@ -598,6 +599,23 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
               },
       );
 
+  /// The Brand box's options: a limited supplier's brands, or the brands the
+  /// loaded products carry.
+  List<(String, String)> _brandOptions() {
+    if (_brandLimited) {
+      return [
+        ('', 'All brands of this supplier'),
+        for (final BrandRecord brand in _vendorBrands!.brands)
+          (brand.id, brand.name),
+        (everyProductChoice, 'Every product'),
+      ];
+    }
+    return [
+      ('', 'All products'),
+      ...brandsOfProducts(widget.products),
+    ];
+  }
+
   Widget _orderHeader(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final Vendor? vendor = _vendor;
@@ -606,8 +624,12 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
         label: 'Vendor (type code, name or phone)',
         width: 420,
         below: vendor == null ? null : _vendorLine(context, vendor),
+        // Built again when a supplier is added from here, so the box shows
+        // the new name: a DropdownMenu reads its selection only once.
         child: DropdownMenu<String>(
-          key: const ValueKey('purchase-order-vendor'),
+          key: _addedVendors.isEmpty
+              ? const ValueKey('purchase-order-vendor')
+              : ValueKey('purchase-order-vendor-${_addedVendors.length}'),
           initialSelection: _draft.vendorId.isEmpty ? null : _draft.vendorId,
           width: 420,
           enabled: !_locked,
@@ -623,7 +645,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(5)),
           ),
           dropdownMenuEntries: [
-            for (final Vendor item in widget.vendors)
+            for (final Vendor item in _vendorChoices)
               DropdownMenuEntry<String>(
                 value: item.id,
                 label: withPlace(
@@ -633,10 +655,36 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
               ),
           ],
           onSelected: (value) {
-            if (value != null) _change((o) => o.copyWith(vendorId: value));
+            if (value == null) return;
+            _change((o) => o.copyWith(vendorId: value));
+            unawaited(_readVendorBrands(value));
           },
         ),
       ),
+      // Backlog 128: a supplier not in the list yet is added without
+      // leaving the order.
+      if (widget.isCreating && widget.canAddVendor && !_locked)
+        DocumentField(
+          label: '',
+          width: 150,
+          child: OutlinedButton.icon(
+            key: const ValueKey('purchase-order-new-supplier'),
+            onPressed: _saving ? null : () => unawaited(_addVendor()),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New vendor'),
+          ),
+        ),
+      // Backlog 129: narrows what the product boxes offer; stores nothing.
+      if (_draft.vendorId.isNotEmpty && !_locked)
+        BrandFilterBox(
+          key: const ValueKey('purchase-order-brand'),
+          options: _brandOptions(),
+          value: _brandChoice,
+          onChanged: (value) => _setState(() {
+            _brandChoice = value;
+            _lineEpoch++;
+          }),
+        ),
       DocumentField(
         label: 'Order date',
         auto: widget.isCreating,
@@ -1111,6 +1159,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
     final PurchaseOrderLine line = _draft.lines[index];
     final Product? product = _product(line.productId);
     final PurchaseOrderLine? priced = _pricedLine(index);
+    final List<Product> offered = _offeredProducts;
     final DocumentPreviewLine? companion = _companion(index);
     final bool schemeFree = _isOwnSchemeFree(line);
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
@@ -1146,7 +1195,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                 expandedInsets: EdgeInsets.zero,
                 enableFilter: true,
                 filterCallback: (entries, filter) =>
-                    productEntriesMatching(entries, filter, widget.products),
+                    productEntriesMatching(entries, filter, offered),
                 searchCallback: productEntryToHighlight,
                 requestFocusOnTap: true,
                 menuHeight: 320,
@@ -1158,7 +1207,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                   constraints: BoxConstraints(maxHeight: 26),
                 ),
                 dropdownMenuEntries: [
-                  for (final Product item in widget.products)
+                  for (final Product item in offered)
                     DropdownMenuEntry<String>(
                       value: item.id,
                       label: '${item.name}  ${item.code}'

@@ -509,6 +509,37 @@ that an edit changes what it names and nothing else.
   - Step 8: the statement's closing balance equals the last balance of the table.
   - Step 9: the rows are shown and the last row for adding a receipt is not.
 
+### TC-CUST-014 — A parent buyer with three shops; the GST number typed once
+
+*Added 2026-10-13 (backlog 125). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 125 (customer task M7)
+- **Fixture:** `ready-firm`
+- **Also needs:** a valid GST number nobody on the firm holds (say `36AAACD1234M1Z5`), and a second one for another state (`29AAACD1234M1Z3`).
+- **Steps**
+  1. Open *Masters → Customers* → **New customer**. Code `DMART`, name *DMart*, GST number the first one. Save.
+  2. **New customer**: code `DM-KUK`, name *DMart*. Under **Shop of** choose `DMART`. Leave the GST number blank. Save. Do the same for `DM-MIY` and `DM-GAC`.
+  3. Open `DM-KUK` again and look at the GST number box and the line under it.
+  4. **New customer**: code `DMART2`, name *DMart*, the same GST number, no parent. Save.
+  5. **New customer**: code `DM-BLR`, **Shop of** `DMART`, GST number the second one. Save.
+  6. Open `DMART` and look at **Shop of** and at **Shops**.
+  7. On `DMART` change the GST number to another valid number and save. Open `DM-KUK` and `DM-BLR`.
+  8. On the customer list, look at the *Parent / shops* column.
+  9. **New customer**: code `DEEP`, **Shop of**: search for `DM-KUK`.
+  10. Delete `DMART`.
+  11. Open `DM-GAC`, clear **Shop of**, save, and open it again.
+- **Expect**
+  - Step 2: each shop saves.
+  - Step 3: the box is empty and the line reads "Blank takes the parent's GST number (…)" with the parent's number.
+  - Step 4: refused. The message says the number is held by `DMART DMart` and to make this customer a shop of `DMART` with the GST number left blank. Nothing is saved.
+  - Step 5: saved with its own number.
+  - Step 6: **Shop of** cannot be changed and says the customer is the parent of 4 shops. **Shops** lists `DMART` marked as the parent and the four shops, three with the number marked as the parent's and `DM-BLR` with its own, each with what it owes, and a last line *Total outstanding*.
+  - Step 7: `DM-KUK` is billed under the new number (its box is still empty and the line names the new number); `DM-BLR` keeps its own.
+  - Step 8: `DMART` reads "4 shops"; each shop reads "Shop of DMART".
+  - Step 9: `DM-KUK` is not offered, because it is a shop itself.
+  - Step 10: refused: `DMART` is the parent of 4 shops.
+  - Step 11: `DM-GAC` has no parent and no GST number.
+
 ### TC-CUST-005 — Statement and ageing agree with the account
 
 - **Covers:** plan 4.7, 4.8
@@ -2288,6 +2319,114 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Leaves:** approved orders and bills for V, two completed receipts; the settings as they were.
 
 
+### TC-BUY-102 — An order on the main office is received from a branch and billed by it
+
+*Added 2026-10-13 (backlog 127). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 127 (customer task M9)
+- **Fixture:** `ready-firm`
+- **Also needs:** a product and a warehouse.
+- **Steps**
+  1. Open *Buy → Suppliers*. Add a supplier, the main office, with its GST number. Add a second supplier with a GST number of another state and choose the first under **Branch of**. Save.
+  2. Open the main office again and look at **Branches**. Look at the *Main office / branches* column of the list.
+  3. Try to choose the branch as **Branch of** on a third supplier. Try to delete the main office.
+  4. Raise a purchase order on the main office for 10 of the product at 100.00 and approve it.
+  5. Open *Goods Receipts* → new, choose that order. Under **Received from** choose the branch. Receive all 10 and complete it.
+  6. Open the order.
+  7. Raise a supplier bill: choose the branch as the supplier, tick that receipt, save and approve.
+  8. Open *Buy → Money → Payments* → **Record payment**. Choose the main office and look at the list of bills.
+  9. Amount 1,500.00, by bank. Set the bill's full amount against the branch's bill. Save.
+  10. Open the supplier statement of the branch, and of the main office.
+  11. Record a payment to a second branch of the same main office and look at the list of bills.
+  12. Reverse the main office's payment with a reason. Open both statements again.
+- **Expect**
+  - Step 1: saved. The branch keeps the GST number typed on it.
+  - Step 2: the panel lists the main office and the branch with what each is owed and one total; the list shows *Branch of* the main office's code on the branch and *1 branch* on the main office.
+  - Step 3: both refused. The first says the supplier is itself a branch and names its main office; the second says the main office has a branch and names it.
+  - Step 5: **Received from** lists the main office and the branch, the main office chosen first. The receipt is saved in the branch's name.
+  - Step 6: the order is still on the main office and reads Received.
+  - Step 7: saved in the branch's name; the tax is worked out for the branch's state. The branch is owed the bill; the main office is owed nothing.
+  - Step 8: the branch's bill is listed with the branch's code and name under the bill number, and a line above says the bills of the branches under this supplier are listed too.
+  - Step 9: saved as one payment in the main office's name; what was not set against the bill stays on the main office's account.
+  - Step 10: the branch's statement has the bill and a line *Paid by the main office* for the same amount, and closes at nothing. The main office's statement has the payment and a line *Paid for a branch*, and closes at the amount paid ahead.
+  - Step 11: only that branch's own bills are listed; not the first branch's and not the main office's.
+  - Step 12: the branch is owed its bill again, the main office's statement closes at nothing, and both statements keep the earlier lines with a reversal line under each.
+
+### TC-BUY-103 — A supplier is added from the purchase order being typed
+
+*Added 2026-10-13 (backlog 128). Covered by widget tests; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 128 (customer task M10)
+- **Fixture:** `ready-firm`
+- **Also needs:** a product; a second user who may raise purchase orders but may not add suppliers.
+- **Steps**
+  1. Open *Buy → Purchase Orders* → new. Add a line: the product, quantity 7.
+  2. Press **New vendor** beside the supplier box.
+  3. Type only a name not used before and press **Save vendor**.
+  4. Save the order. Open *Buy → Suppliers*.
+  5. Open a new order, press **New vendor**, type a name and press **Cancel**.
+  6. Press **New vendor** again, type the name used in step 3 and save.
+  7. On a firm that types supplier bills directly (order and receipt stages off): open *Buy → Purchase Invoices* → new and press **New supplier**. Type a name and save.
+  8. Sign in as the second user and open a new purchase order.
+- **Expect**
+  - Step 2: the supplier form opens over the order, on the same tab.
+  - Step 3: the form closes and the order is shown again. The supplier box names the new supplier, and the line with quantity 7 is still there.
+  - Step 4: the order is saved for the new supplier. The supplier is in the list with a code of the firm's series.
+  - Step 5: the order is shown again with no supplier chosen; no supplier was added.
+  - Step 6: a warning lists the supplier that looks the same. Going back keeps the form open with what was typed.
+  - Step 7: the bill is shown again with the new supplier chosen.
+  - Step 8: there is no **New vendor** button.
+
+### TC-BUY-104 — A purchase order for one brand offers only that brand's products
+
+*Added 2026-10-13 (backlog 129). The server steps were driven over HTTP; the screens are covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 129 (customer task M11)
+- **Fixture:** `ready-firm`
+- **Also needs:** two companies under *Set up → Item lists → Principals*, `HUL` and `PG`; three brands under *Brands*: `Surf` and `Lux` of HUL, `Tide` of PG; a product of each brand and one product with no brand; two suppliers, `A` and `B`.
+- **Steps**
+  1. Open *Buy → Suppliers*, open supplier `A`. In **Brands this supplier sells** tick `Surf` and press **Save brands**.
+  2. Open *Buy → Purchase Orders* → new and choose supplier `A`. Open the product box of the first line.
+  3. In the **Brand** box choose **Every product**. Open the product box again.
+  4. Choose the `Tide` product on the line, then set the **Brand** box back to **All brands of this supplier**.
+  5. Choose supplier `B`, which has no brand ticked. Open the product box.
+  6. On supplier `B` tick `Surf` and `Tide` and save. Open a new order for `B` and choose `Tide` in the **Brand** box.
+  7. Open *Set up → Item lists → Brands* and delete `Surf`.
+  8. Open *Sell → Sales Orders* → new. In the **Brand** box choose the entry for company HUL. Open the product box.
+- **Expect**
+  - Step 1: the tick is kept when the supplier is opened again.
+  - Step 2: the **Brand** box reads *All brands of this supplier*. The product box lists only the `Surf` product.
+  - Step 3: the product box lists every product, the one with no brand too.
+  - Step 4: the line still shows the `Tide` product. A new line's product box lists only the `Surf` product.
+  - Step 5: the **Brand** box reads *All products* and the product box lists every product.
+  - Step 6: the product box lists only the `Tide` product. Supplier `B` holds brands of two companies.
+  - Step 7: refused: the brand is still on a product, and when no product carries it, still named on a supplier. The message names the supplier.
+  - Step 8: the product box lists only the `Surf` and `Lux` products.
+
+### TC-BUY-105 — An order planned for a company matches a hand calculation
+
+*Added 2026-10-13 (backlog 130). The server steps were driven over HTTP; the screen is covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 130 (customer task M12)
+- **Fixture:** `ready-firm`
+- **Also needs:** a warehouse of its own for the case; a company `HUL` under *Set up → Item lists → Principals* that names supplier `A` as the one it is bought from, with brands `Surf` and `Lux`; three products of those brands, `P1`, `P2`, `P3`, with opening stock of 102, 65 and 60 in that warehouse; one sales order for 100, 45 and 10 of them, dispatched today from that warehouse; a product `Q1` of another company's brand.
+- **Steps**
+  1. Open *Buy → Purchase Orders* → **...** → **Plan an order...**. Choose the warehouse and company `HUL`, type **30** in *Sales of the last ... days* and **30** in *Stock for ... days*, press **Show**.
+  2. Work each row out by hand: sold ÷ 30 × 30, less *In hand*, less *On order*.
+  3. Change *Sales of the last ... days* to **60** and press **Show**.
+  4. Set it back to 30 and press **Show**. Type **60** in the *Order* box of `P1`, leave `P2` ticked, untick anything else, press **Raise draft orders**.
+  5. Open **Plan an order...** again with the same choices and press **Show**.
+  6. Tick `P3` and press **Raise draft orders**.
+  7. Press **Download**.
+- **Expect**
+  - Step 1: three rows, `P1`, `P2`, `P3`; `Q1` is not listed. Sold 100, 45, 10; in hand 2, 20, 50; on order 0. *Order* reads 98, 25 and nothing. `P1` and `P2` are ticked, `P3` is not. The supplier on each row is `A`.
+  - Step 2: the hand sums are 98, 25 and less than nothing, the same as the screen.
+  - Step 3: *Needed* reads 50, 22.5 and 5; *Order* reads 48, 3 and nothing.
+  - Step 4: one draft purchase order on supplier `A` for that warehouse, with 60 of `P1` and 25 of `P2`. Its remarks say it was raised from the order plan.
+  - Step 5: `P1` shows 60 on order and 38 to order; `P2` shows 25 on order and nothing to order.
+  - Step 6: refused, nothing to order for `P3`; no order is raised.
+  - Step 7: an Excel sheet with the rows and figures on the screen.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked
@@ -3930,6 +4069,89 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   - Step 8: one **Save**; the order is **Approved** and holds its stock.
 - **Leaves:** approved bills and one approved order for A; the settings as they were.
 
+### TC-SELL-101 — Retail and wholesale: the bill starts at the customer's level, and one switch reprices it
+
+*Added 2026-10-13 (backlog 131). The sales order was **driven over HTTP** that day on a fixture firm (28 checks); the bill typed directly was run in the unit suite only; the screens were not clicked.*
+
+- **Covers:** backlog 131 (customer task M13)
+- **Fixture:** `ready-firm`
+- **Also needs:** price levels **Retail** and **Wholesale** (*Price Levels*); a product **Soap** selling at 100.00 with 95.00 at Retail and 80.00 at Wholesale; a product **Oil** at 200.00 with 190.00 and 150.00; a product **Salt** at 40.00 with 38.00 at Retail and no Wholesale rate; a customer **T** whose price level is Wholesale; a customer **S** with no price level. Rates do not include GST.
+- **Steps**
+  1. New sales order for T. Add Soap, Oil and Salt, quantity 2 each. Read the **Price level** box and the three rates.
+  2. In the **Price level** box choose **Retail**.
+  3. Type 91.00 over Soap's rate. Save the draft, close it and open it again.
+  4. Choose **Wholesale** in the box.
+  5. Choose **Customer's usual** in the box. Save.
+  6. New sales order for S with the same three lines. Read the box and the rates; then choose **Wholesale**.
+  7. Change the customer of that order to T.
+  8. On a firm that types its bills directly (Sales order and Delivery note stages off): new sales invoice for T, add Soap and Oil; then choose **Retail**; save.
+  9. On a firm with no price level at all, open a new sales order.
+- **Expect**
+  - Step 1: the box reads **Customer's usual** and the line under it says *Usual for this customer: Wholesale*. Rates 80.00, 150.00 and 40.00 (Salt has no wholesale rate, so its own price).
+  - Step 2: all three rates change at once: 95.00, 190.00, 38.00.
+  - Step 3: the order reopens with **Retail** in the box, Soap at 91.00, Oil 190.00, Salt 38.00.
+  - Step 4: every line is repriced, the typed one too: 80.00, 150.00, 40.00.
+  - Step 5: the same prices (T's usual is Wholesale); the saved order names no level of its own.
+  - Step 6: the line under the box says *This customer has no price level: the product's price*; rates 100.00, 200.00, 40.00; after the switch 80.00, 150.00, 40.00.
+  - Step 7: the box goes back to **Customer's usual**.
+  - Step 8: the bill starts at 80.00 and 150.00; after the switch 95.00 and 190.00; the saved bill is billed at those.
+  - Step 9: there is no **Price level** box and the order behaves as before.
+- **Also true, by the server:** an order naming a level that is not the firm's, or one switched off, is refused in words; a bill of delivery notes that names a level is refused (*This bill takes its prices from the documents it bills*); where a role has a discount limit, a cheaper level named on the order counts as a reduction from the customer's own price and needs somebody allowed that much.
+- **Leaves:** draft sales orders for T and S, and one bill for T.
+
+### TC-SELL-102 — Billing and shipping address: what each document takes and what each print shows
+
+*Added 2026-10-13 (customer task C1, decision D6). **Server side driven over HTTP** that day on a fixture firm (41 checks), reading the text of each PDF; three defects found and fixed (D-SELL-92, 93, 94). The screens were not clicked.*
+
+- **Covers:** D-SELL-92, D-SELL-93, D-SELL-94; backlog 67 row 3
+- **Fixture:** `ready-firm`
+- **Also needs:** a product in stock; customer **A** with a billing address in Alphapur (default billing), a shipping address in Betanagar (default shipping) and a second shipping address in Gammabad; customer **B** with one billing address in Deltapur and nothing else; customer **C** with two billing addresses, the older in Epsilonpet and the newer in Zetaguda marked default billing; customer **D** with one address of kind Office in Etapalli marked default for billing and for shipping.
+- **Steps**
+  1. Sales order for A, one line; leave **Ship to** as it opens. Approve, deliver, bill. Open each document.
+  2. Sales order for A; in **Ship to** choose the Gammabad address. Approve, deliver, bill. Print the order, the challan and the bill.
+  3. Sales order for A at Gammabad; on the delivery note choose Betanagar. Bill the note.
+  4. Sales order for A (default); deliver; on the bill choose Gammabad. Print the bill.
+  5. Sales order for B. Approve, deliver, bill. Print the bill and the challan.
+  6. The same for C. Print the order, the challan and the bill.
+  7. The same for D. Print the bill.
+  8. Take the Gammabad address off customer A. Print the bill of step 2 again.
+- **Expect**
+  - Step 1: all three documents ship to Betanagar.
+  - Step 2: all three ship to Gammabad. Each print shows the Alphapur address on the left block and the Gammabad address under SHIP TO / SHIPPED TO; Betanagar is on none of them.
+  - Step 3: the bill ships to Betanagar: it follows the note, not the order.
+  - Step 4: the bill ships to Gammabad and prints it.
+  - Step 5: both blocks of the bill show the Deltapur address; SHIPPED TO is not a name alone. The challan shows it too.
+  - Step 6: every print shows Zetaguda as the billing address and Epsilonpet on none.
+  - Step 7: both blocks show the Etapalli address.
+  - Step 8: the bill still prints Gammabad: where the goods went stays on the paper.
+- **Also true, by the server:** an order, a note or a bill naming an address of another customer is refused (*The ship-to address must be one of the customer's own addresses.*). A half-page bill prints the two addresses the same way.
+- **Leaves:** approved bills for A, B, C and D; customer A with two addresses.
+
+### TC-SELL-103 — A rate typed including GST: what the line and each print show
+
+*Added 2026-10-13 (customer task C2, decision D11). **Server side driven over HTTP** that day on a fixture firm (46 checks), reading the text of each PDF; one defect found and fixed (D-SELL-95), one left open (D-SELL-96). The bill typed directly and the screens were not tried.*
+
+- **Covers:** D-SELL-95, D-SELL-96; backlog 64 row 4
+- **Fixture:** `ready-firm`
+- **Also needs:** a product at GST 18% and one at GST 5%, both in stock; a customer in the firm's own state.
+- **Steps**
+  1. Sales order, **Rate includes GST** off: one piece of the 18% product at 100. Approve, deliver, bill. Print the order and the bill.
+  2. Sales order, **Rate includes GST** on: one piece at 100. Print the order. Approve, deliver, bill. Print the challan and the bill.
+  3. Sales order, switch on: 7 of the 18% product at 33.33, 3 of the 5% product at 105, 1 of the 18% product at 99.99.
+  4. Sales order, switch on: one piece at 100 with a discount of 10%. Another: two pieces at 100 with a discount amount of 20.
+  5. A draft order, switch on, one piece at 100. Open it, change the quantity to 3, save. Then turn the switch off and save.
+  6. Quotation, switch on, one piece at 100. Print it. Send, accept, convert to an order.
+  7. A draft order, switch on: 500 pieces at 100.
+- **Expect**
+  - Step 1: taxable 100.00, tax 18.00, total 118.00. Each print has one **Rate** column, 100.00.
+  - Step 2: the order line shows the rate 100 as typed; taxable 84.75, tax 15.25, total 100.00. The order's print has **Rate incl. GST** 100.00 beside **Rate** 84.75. The bill totals 100.00 and its print shows the same two columns (D-SELL-95). The challan shows Rate 84.75 and the total 100.00.
+  - Step 3: the order totals 648.30, the sum of the three figures typed (233.31 + 315.00 + 99.99). The 5% line's rate before tax is 100.
+  - Step 4: 90.00 to pay; 180.00 to pay.
+  - Step 5: after the first save the total is 300.00 and the rate still reads 100. After the second it is 354.00: the same 100 is now before tax.
+  - Step 6: the quotation totals 100.00 and prints both rates; the order it becomes has the switch on and totals 100.00.
+  - Step 7: **today the total reads 50,000.02, not 50,000.00** (D-SELL-96, open). When that is fixed this step expects 50,000.00.
+- **Leaves:** approved bills, draft orders and one converted quotation.
+
 ### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
 
 *Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` fixture: the full chain and the direct bill, and both refusals. The screens were not clicked.*
@@ -4881,6 +5103,179 @@ quotation, batch, lot, serial number, beat plan, place, territory, tax
 component — says in a red toast: *"Somebody else saved this <thing> while you
 were editing it. Your changes were not saved. Open it again to see theirs and
 redo yours."*
+
+
+### TC-FIN-030 — Bills handed to a collector and taken back change no balance and no report
+
+*Added 2026-10-13 (backlog 122). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 122 (customer task M4)
+- **Fixture:** `ready-firm`
+- **Also needs:** two customers in different areas, each with two approved sales bills still unpaid; two people of the firm to act as collectors; a user who is a Cashier only.
+- **Steps**
+  1. Note the first customer's closing balance on *Customer Statements*, and the totals of the trial balance.
+  2. Open *Sell → Money → Bills with Collectors*.
+  3. Tick the first customer's first bill, choose the first collector under **Hand to** and press **Hand over ticked**.
+  4. Tick the same bill and another, choose the second collector and press **Hand over ticked**.
+  5. Type the first customer's area in **Area or city**, choose the second collector and press **Hand over all matching**; confirm.
+  6. Type one bill number of the second customer in both **Bill no. from** and **Bill no. to**, clear the area, and press **Hand over all matching**; confirm.
+  7. Read the first customer's closing balance and the trial balance again.
+  8. Record a receipt in full for a bill that is out, then choose **History**.
+  9. Tick every row still out and press **Take back ticked**. Read the balances once more.
+  10. Sign in as the Cashier and open *Bills with Collectors*.
+- **Expect**
+  - Step 2: every unpaid bill, the customer's area and city beside the name, **With** empty.
+  - Step 3: a message says 1 bill was handed to the collector and for how much; the row shows his name and today under **Handed on**.
+  - Step 4: refused, naming the bill already out; the other ticked bill stays in the office.
+  - Step 5: the message says 1 bill handed and 1 already out and left; the first bill is still with the first collector.
+  - Step 6: only the bill of that number goes out.
+  - Step 7: both figures are what they were in step 1.
+  - Step 8: the paid bill is no longer among the unpaid bills; History lists it as out, owing 0.00 now, with what it owed when handed.
+  - Step 9: every row reads as taken back with its date; the unpaid bills show nobody under **With**; the balances are unchanged by the taking back.
+  - Step 10: the list is shown; **Hand to** and the three buttons are not.
+
+### TC-FIN-031 — A bill collector sees only the bills handed to him
+
+*Added 2026-10-13 (backlog 123). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 123 (customer task M5)
+- **Fixture:** `ready-firm`
+- **Also needs:** two customers, the first with three approved sales bills still unpaid and the second with one; two users of the firm hired from the **Bill Collector** job (role Bill Collector only); a user who may hand bills out (the firm's administrator).
+- **Steps**
+  1. As the administrator open *Sell → Money → Bills with Collectors*. Hand the first customer's first bill to the first collector and the first customer's second bill to the second collector. Leave the third bill and the second customer's bill in the office.
+  2. Sign in as the first collector.
+  3. Open *Sell → Money → My Bills to Collect*.
+  4. Sign in as the second collector and open *My Bills to Collect*.
+  5. As the administrator record a receipt for part of the first bill, then sign in as the first collector and open the screen again.
+  6. As the administrator take the first bill back, then sign in as the first collector and open the screen again.
+  7. As the first collector, look in the menu for Receipts, Customers and Bills with Collectors.
+- **Expect**
+  - Step 2: Home opens with no figures. The menu offers one screen of the firm, *My Bills to Collect*; the gear offers his own preferences.
+  - Step 3: three rows, all of the first customer. The first bill is marked **With me** with the day it was handed over; the second and third bills are marked **Not handed to me**. The lines above the list count 1 bill with him and 2 other unpaid bills of his customers, each with its total. The second customer is not on the list. The second bill does not say who carries it.
+  - Step 4: the same three rows, the second bill marked **With me** and the other two **Not handed to me**.
+  - Step 5: the first bill shows what it still owes after the receipt.
+  - Step 6: the list is empty and says no bills are handed to him.
+  - Step 7: none of the three is in his menu.
+
+### TC-FIN-033 — One receipt from a parent closes bills of three shops
+
+*Added 2026-10-13 (backlog 126). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 126 (customer task M8)
+- **Fixture:** `ready-firm`
+- **Also needs:** a parent customer with three shops under it (TC-CUST-014 makes them), and one approved sales bill on each shop, say for 100.00, 250.00 and 400.00.
+- **Steps**
+  1. Note what each shop owes on *Customer Statements*.
+  2. Open *Sell → Money → Receipts* → **Record receipt**. Choose the parent as the customer.
+  3. Look at the list of bills.
+  4. Amount 1,000.00, by bank. Set 100.00, 250.00 and 400.00 against the three shops' bills. Save.
+  5. Open the statement of each shop, and of the parent.
+  6. Open the receipt in the list and look at the bills it cleared.
+  7. Raise one more bill of 150.00 on the first shop and approve it. On the receipt press **Apply**, choose that bill, 150.00, save.
+  8. Open the statement of the first shop and of the parent again.
+  9. Record a receipt from the second shop itself and look at the list of bills.
+  10. Reverse the parent's receipt with a reason. Open the three shops' statements and the parent's.
+- **Expect**
+  - Step 3: the three shops' bills are listed, each with its shop's code and name under the bill number, and a line above says the bills of the shops under this customer are listed too.
+  - Step 4: saved as one receipt in the parent's name for 1,000.00; 750.00 set against bills, 250.00 not.
+  - Step 5: each shop owes nothing, and its statement has one receipt line for its own bill's amount with the parent's receipt number and "Paid by" the parent. The parent's statement has one receipt line of 250.00, held on account.
+  - Step 6: each bill is followed by its shop's code and name.
+  - Step 7: saved. The receipt has 100.00 left not set against a bill.
+  - Step 8: the first shop owes nothing again. The parent holds 100.00 on account.
+  - Step 9: only that shop's own bills are listed; no other shop's and not the parent's.
+  - Step 10: every shop owes its bills again in full, the parent holds nothing on account, and the receipt reads Reversed.
+
+### TC-FIN-034 — Year end: what closing refuses, and starting the next year
+
+*Added 2026-10-13 (customer task C3, decision D12). Driven over HTTP on a fixture firm, on a year made for the purpose; **no screen was clicked**, so the steps are written from the build, not from the screen. Do not run steps 2 to 9 on a year the firm is still working in.*
+
+- **Covers:** D-FIN-32, the year-end close
+- **Fixture:** `ready-firm`
+- **Also needs:** a user holding the rights to create, close and reopen a financial year; a past year with two months in it, both open, and one draft journal dated in it (make them over the API: the screen makes no past year).
+- **Steps**
+  1. Open *Settings → Firm → Financial Years*. On the year you are working in, press **Close year** and confirm.
+  2. Choose the past year. Press **Close year** and confirm.
+  3. Press **Close** beside its second month.
+  4. Close its first month, then its second. Press **Close year** and confirm.
+  5. Delete the draft journal. Press **Close year** and confirm.
+  6. Try to press **Open** beside one of its months, and type a journal dated in the year.
+  7. Press **Reopen year** and leave the reason empty.
+  8. Type a reason and confirm. Look at the months.
+  9. Open the audit trail and find the reopening.
+  10. Open *Settings → Firm → Numbering Series*, choose the sales bill series and preview a number for the first day of the next year.
+  11. On *Financial Years* press **Start next year** and confirm.
+  12. Press **Start next year** again and confirm.
+- **Expect**
+  - Step 1: refused. The message says how many months are open and names them. The year stays open.
+  - Step 2: refused, naming the two open months.
+  - Step 3: refused: the first month, which comes before it, is still open.
+  - Step 4: the months close. The year is refused, naming the draft journal.
+  - Step 5: the year closes and reads LOCKED.
+  - Step 6: both refused; the message says the year is locked or the month is closed.
+  - Step 7: refused: a reason is required.
+  - Step 8: the year is open again. Its months still read CLOSED.
+  - Step 9: one line for the reopening, with the reason typed.
+  - Step 10: the number carries the next year (27-28) and its counter is 000001, though no such year has been made.
+  - Step 11: a new year appears, beginning the day after the last one ends, with twelve months, all open. The year you are in is still open.
+  - Step 12: refused: that year is already there and has not begun.
+
+### TC-FIN-035 — The account books: an expense from the form to the books
+
+*Added 2026-10-13 (customer task C4, decision D13). Driven over HTTP on a fixture firm; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** D-FIN-33, the expense form, the ledger, the cash book and the bank book
+- **Fixture:** `ready-firm`
+- **Also needs:** a user holding the rights to manage accounts and to record and cancel an expense. Note the closing balance of *Cash book* and *Bank book* before you begin.
+- **Steps**
+  1. Open *Accounts → Books → Chart of Accounts* and start a new account: group **Indirect Expenses**, code **6800**, name *Packing material*, type **EXPENSE**. Save.
+  2. Change the code to one not used (6810) and save. Open the account again and try to change its code, its type and its group; change its name.
+  3. Open *Accounts → Books → Expenses* and start a new expense. Try to pick tomorrow in **Date**.
+  4. Record 3,200 today: **Expense** *Packing material*, **Paid from** *Bank*, a payee, a bill number, a narration. Save.
+  5. Record 150 today, **Paid from** *Petty Cash*.
+  6. In the search box type *Packing*, then the payee, then the bill number.
+  7. Open *Accounts → Books → Ledgers*, pick *Packing material* and this month.
+  8. Open the report *Bank book* for today, then *Cash book*, then *Day book*.
+  9. On *Expenses* select the first expense and press **Cancel** with no reason, then with one.
+  10. Read *Bank book* and the *Packing material* ledger again.
+  11. Cancel the second expense. Open the account, switch **Active** off and save. Start a new expense.
+- **Expect**
+  - Step 1: refused: an account with this code already exists (6800 is *Bad Debts*).
+  - Step 2: saved. Afterwards the code, the type and the group cannot be changed; the name can. There is no delete.
+  - Step 3: the calendar offers no day after today.
+  - Step 4: saved with a number beginning EXP, posted at once. The row reads *Paid from: Bank*.
+  - Step 5: saved; the row reads *Paid from: Petty Cash*.
+  - Step 6: each search finds the expense it names; the first finds both.
+  - Step 7: Opening 0, Debits 3,350, Credits 0, Closing 3,350, one line per expense with the balance after it.
+  - Step 8: the Bank book has a payment of 3,200 naming *Packing material* and closes 3,200 lower than noted. The Cash book has the 150 with *Petty Cash* as its account and not the 3,200. The Day book lists both.
+  - Step 9: refused without a reason; with one, the expense reads CANCELLED and stays in the list.
+  - Step 10: the Bank book closes where it began. The ledger reads Credits 3,200 and Closing 150.
+  - Step 11: the Cash book closes where it began. *Packing material* is no longer offered in **Expense**.
+
+### TC-FIN-032 — The collector's day sheet adds up to the receipts
+
+*Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 124 (customer task M6)
+- **Fixture:** `ready-firm`
+- **Also needs:** a customer with three approved sales bills still unpaid, each for the same amount; a user hired from the **Bill Collector** job; the firm's administrator. *Customers → Credit settings → Collectors record their own receipts* switched **off**.
+- **Steps**
+  1. As the administrator open *Sell → Money → Bills with Collectors* and hand the three bills to the collector.
+  2. Sign in as the collector and open *Sell → Money → My Bills to Collect*.
+  3. On the first bill press **Record**, choose **Collected in full** and save.
+  4. On the second bill press **Record**, choose **Part collected**, enter less than the bill owes, name a promised day for the rest and save.
+  5. On the third bill press **Record**, choose **Not collected**, write a note and save.
+  6. As the administrator open *Bills with Collectors → Day sheet* and choose the collector and today.
+  7. On the first two lines press **Record receipt**.
+  8. As the administrator switch *Collectors record their own receipts* **on**. Hand a fourth unpaid bill to the collector. As the collector record it **Collected in full**.
+  9. As the collector try to withdraw the fourth bill's line.
+- **Expect**
+  - Step 3: the dialog says the office records the receipt. The bill stays on his list marked **Collected** and still owes its full amount. No receipt exists.
+  - Step 4: the bill is marked **Part collected** with the amount. The promise for the rest is on *Payment Promises* in his name.
+  - Step 5: the bill is marked **Not collected**. The line under the list counts three lines and says how much is still to be handed in.
+  - Step 6: three lines. Stated is the first bill plus the part; in receipts is nothing; the sheet says it **does not add up** by that amount.
+  - Step 7: each line names its receipt. The first bill owes nothing, the second owes the rest. The sheet says it **adds up**. Each receipt is on *Receipts*, dated today, applied to its bill.
+  - Step 8: the dialog says Save records the receipt. The fourth bill leaves his list; its receipt is on *Receipts*; the sheet still adds up. He still has no Receipts screen.
+  - Step 9: refused, naming the receipt to reverse first.
 
 ### TC-CONC-001 — Two people editing one customer
 
@@ -6041,7 +6436,7 @@ own roles and templates without anybody writing code.
   1. Sign in as the fixture's **Firm admin**, TEST01 selected.
   2. Roles → **New** → **Role code** `platform_admin`, any name → **Save**.
 - **Expect:** refused on the form — **"'platform_admin' is reserved. Choose a different role code."** Nothing is created. The code pattern `^[a-z0-9._-]+$` *permits* that spelling, so the refusal is the service's. Before 2026-09-05 this went through, and a firm administrator who assigned it to themselves signed in as a platform administrator.
-- **Also try** `firm_admin`, `cashier` or `system_auditor` — the same named refusal: the designation and all sixteen seeded codes are reserved. **Type them in lower case.** `FIRM_ADMIN` or `Cashier` is refused *earlier*, by the code pattern, with a generic "The request validation failed" — a different refusal for a different reason, and not what this case is checking. (The service's check is case-insensitive as defence in depth, for a role row written by some other route; through this form the pattern means only lower case can reach it.) *(Corrected 2026-09-16 after driving it: the first version of this case said `FIRM_ADMIN` gave the same refusal.)*
+- **Also try** `firm_admin`, `cashier` or `system_auditor` — the same named refusal: the designation and all seventeen seeded codes are reserved. **Type them in lower case.** `FIRM_ADMIN` or `Cashier` is refused *earlier*, by the code pattern, with a generic "The request validation failed" — a different refusal for a different reason, and not what this case is checking. (The service's check is case-insensitive as defence in depth, for a role row written by some other route; through this form the pattern means only lower case can reach it.) *(Corrected 2026-09-16 after driving it: the first version of this case said `FIRM_ADMIN` gave the same refusal.)*
 - **Data:** `select count(*) from platform.roles where lower(code) = 'platform_admin';` → **0**.
   Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.5 — a refused code writes nothing; a code any other firm or any deleted role holds is refused as well (D-IDN-9).
 - **Leaves:** a firm admin user.

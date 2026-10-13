@@ -879,6 +879,8 @@ class _SettlementsPageState extends State<SettlementsPage> {
         await widget.api.outstandingInvoices(
       direction: widget.direction,
       partyId: row.partyId,
+      withShops: isReceipt,
+      withBranches: !isReceipt,
     );
     if (!mounted) return;
     if (invoices.isEmpty) {
@@ -900,6 +902,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
         availableLabel: 'on account',
         invoiceLabel: isReceipt ? 'Invoice' : 'Bill',
         invoices: invoices,
+        ownerId: row.partyId,
         // The dialog runs the call and stays open on a refusal, the bill
         // and the amount kept (D-UI-70).
         onSave: (_Application application) => isReceipt
@@ -1189,10 +1192,13 @@ class _SettlementsPageState extends State<SettlementsPage> {
 
   /// "SI-… on 2026-05-19": the bill, and the day the money met it, which
   /// is what a statement's running balance is dated by (D-TER-19).
-  static String _allocationLabel(SettlementAllocation a) =>
-      a.allocatedOn.isEmpty
-          ? a.invoiceNumber
-          : '${a.invoiceNumber} on ${a.allocatedOn}';
+  static String _allocationLabel(SettlementAllocation a) {
+    // A shop's bill is named after its number: "SI-1 (S1 Corner Shop)".
+    final String number = a.partyCode.isEmpty
+        ? a.invoiceNumber
+        : '${a.invoiceNumber} (${a.partyCode} ${a.partyName})';
+    return a.allocatedOn.isEmpty ? number : '$number on ${a.allocatedOn}';
+  }
 
   Widget _tile(BuildContext context, Settlement row) {
     // A reversed settlement still names what it had cleared: that is the
@@ -1375,7 +1381,12 @@ class _ApplyDialog extends StatefulWidget {
     required this.invoiceLabel,
     required this.invoices,
     this.onSave,
+    this.ownerId = '',
   });
+
+  /// The customer the money is from. A bill of another party is named after
+  /// its number, so a shop's bill is told from the customer's own.
+  final String ownerId;
 
   final String title;
   final String note;
@@ -1438,8 +1449,14 @@ class _ApplyDialogState extends State<_ApplyDialog>
                       value: invoice.invoiceId,
                       child: Text(
                         '${invoice.invoiceNumber}'
-                        '${invoice.isOpeningBill ? ' (opening)' : ''} — owes '
-                        '${invoice.outstandingAmount}',
+                        '${invoice.isOpeningBill ? ' (opening)' : ''}'
+                        '${widget.ownerId.isNotEmpty && invoice.partyId.isNotEmpty && invoice.partyId != widget.ownerId ? ' (${invoice.partyCode} ${invoice.partyName})' : ''}'
+                        ' — owes ${invoice.outstandingAmount}',
+                        key: widget.ownerId.isNotEmpty &&
+                                invoice.partyId.isNotEmpty &&
+                                invoice.partyId != widget.ownerId
+                            ? ValueKey('bill-shop-${invoice.invoiceId}')
+                            : null,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),

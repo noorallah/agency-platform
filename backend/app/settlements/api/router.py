@@ -136,9 +136,10 @@ def _to_responses(
         return []
     parties = service.parties_of(rows)
     allocations = service.allocations_for_many([row.id for row in rows])
-    summaries = service.invoice_summaries(
-        [item for group in allocations.values() for item in group]
-    )
+    allocated = [item for group in allocations.values() for item in group]
+    summaries = service.invoice_summaries(allocated)
+    # A bill a parent's receipt cleared for a shop says whose it is.
+    owners = service.shop_bill_owners(rows, allocated)
     orders = service.order_numbers_of(rows)
     accounts = service.ledger_account_names([row.ledger_account_id for row in rows])
     responses: list[SettlementResponse] = []
@@ -154,6 +155,9 @@ def _to_responses(
             if invoice_id is None:  # pragma: no cover - one side is always set
                 continue
             number, invoice_date, total = summaries[invoice_id]
+            owner_id, owner_code, owner_name = owners.get(
+                invoice_id, (None, None, None)
+            )
             allocation_rows.append(
                 SettlementAllocationResponse(
                     id=allocation.id,
@@ -173,6 +177,9 @@ def _to_responses(
                         if allocation.base_amount is None
                         else allocation.amount - allocation.base_amount
                     ),
+                    party_id=owner_id,
+                    party_code=owner_code,
+                    party_name=owner_name,
                 )
             )
         exchange_difference = sum(
@@ -325,12 +332,23 @@ def list_receipts(
 def customer_outstanding_invoices(
     customer_id: UUID,
     scope: ReceiptViewScope,
+    with_shops: Annotated[bool, Query()] = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[OutstandingInvoiceRecord]]:
-    """Return the customer's invoices that still owe something."""
-    rows = ReceiptService(db).outstanding_invoices(
-        firm_id=scope.firm_id, party_id=customer_id
-    )
+    """Return the customer's invoices that still owe something.
+
+    ``with_shops`` adds the bills of the shops under a parent buyer, each row
+    naming whose it is: what one receipt from the parent may clear (backlog
+    126). For a customer with no shops it changes nothing but the names.
+    """
+    service = ReceiptService(db)
+    if with_shops:
+        return ApiResponse(
+            data=service.family_outstanding_invoices(
+                firm_id=scope.firm_id, party_id=customer_id
+            )
+        )
+    rows = service.outstanding_invoices(firm_id=scope.firm_id, party_id=customer_id)
     return ApiResponse(data=rows)
 
 
@@ -916,12 +934,24 @@ def cheque_test_print(
 def vendor_outstanding_invoices(
     vendor_id: UUID,
     scope: PaymentViewScope,
+    with_branches: Annotated[bool, Query()] = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[OutstandingInvoiceRecord]]:
-    """Return the vendor's invoices that still owe something."""
-    rows = PaymentService(db).outstanding_invoices(
-        firm_id=scope.firm_id, party_id=vendor_id
-    )
+    """Return the vendor's invoices that still owe something.
+
+    ``with_branches`` adds the bills of the branches under a supplier's main
+    office, each row naming whose it is: what one payment to the main office
+    may clear (backlog 127). For a supplier with no branches it changes
+    nothing but the names.
+    """
+    service = PaymentService(db)
+    if with_branches:
+        return ApiResponse(
+            data=service.family_outstanding_invoices(
+                firm_id=scope.firm_id, party_id=vendor_id
+            )
+        )
+    rows = service.outstanding_invoices(firm_id=scope.firm_id, party_id=vendor_id)
     return ApiResponse(data=rows)
 
 

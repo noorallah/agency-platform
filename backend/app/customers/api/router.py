@@ -47,6 +47,7 @@ from app.customers.schemas import (
     CustomerAgeing,
     CustomerContactResponse,
     CustomerCreate,
+    CustomerFamily,
     CustomerGroupResponse,
     CustomerGroupWrite,
     CustomerIdentityCheck,
@@ -89,6 +90,7 @@ from app.customers.services import (
     CustomerService,
     CustomerStatementService,
 )
+from app.customers.services.buyer_family import FamilyFacts
 from app.customers.services.combined_statement import CombinedStatementService
 from app.customers.services.customer_import import (
     CustomerFileImporter,
@@ -186,6 +188,7 @@ def _response(
     db: Session,
     *,
     attributes: list[AttributeValueResponse] | None = None,
+    family: FamilyFacts | None = None,
 ) -> CustomerResponse:
     """Build one customer response with its custom fields attached.
 
@@ -195,18 +198,31 @@ def _response(
     list for a customer that has values.
     """
     payload = CustomerResponse.model_validate(row).model_dump(mode="python")
+    service = CustomerService(db)
     payload["attributes"] = (
-        CustomerService(db).attribute_responses(row)
-        if attributes is None
-        else attributes
+        service.attribute_responses(row) if attributes is None else attributes
     )
+    facts = family or service.family_facts([row]).get(row.id, FamilyFacts())
+    payload["parent_code"] = facts.parent_code
+    payload["parent_name"] = facts.parent_name
+    payload["shop_count"] = facts.shop_count
     return CustomerResponse.model_validate(payload)
 
 
 def _responses(rows: list[Customer], db: Session) -> list[CustomerResponse]:
     """Build a page of responses, reading every row's custom fields at once."""
-    attributes = CustomerService(db).attribute_responses_for_many(rows)
-    return [_response(row, db, attributes=attributes.get(row.id, [])) for row in rows]
+    service = CustomerService(db)
+    attributes = service.attribute_responses_for_many(rows)
+    family = service.family_facts(rows)
+    return [
+        _response(
+            row,
+            db,
+            attributes=attributes.get(row.id, []),
+            family=family.get(row.id, FamilyFacts()),
+        )
+        for row in rows
+    ]
 
 
 @router.get("", response_model=PaginatedResponse[CustomerResponse])
@@ -280,9 +296,11 @@ def check_customer_identity(
 ) -> ApiResponse[CustomerIdentityCheck]:
     """Name the other customers holding a GSTIN or PAN, before a save (A7).
 
-    A repeat is allowed -- a branch per state shares the company's PAN -- so
-    the form warns and lets the person decide. ``excluding_id`` is the
-    customer being edited.
+    A repeated PAN is allowed -- a branch per state shares the company's --
+    so the form warns and lets the person decide. A GST number is held by
+    one customer (backlog 125): its holder is the parent to choose, and a
+    save that repeats it is refused. ``excluding_id`` is the customer being
+    edited.
     """
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required to check a customer's GSTIN.")
@@ -391,10 +409,14 @@ def create_customer(
 
 
 def _identity_message(customer: Customer, db: Session) -> str | None:
-    """Say which other customers share this one's GSTIN or PAN (A7)."""
+    """Say which other customers share this one's PAN (A7).
+
+    A saved customer's GST number is its own or its parent's, so there is
+    nothing to say about it.
+    """
     return CustomerService(db).identity_warning(
         customer.firm_id,
-        gst_number=customer.gst_number,
+        gst_number=None,
         pan_number=customer.pan_number,
         excluding_id=customer.id,
     )
@@ -1049,6 +1071,22 @@ def get_customer(
     )
     set_etag(response, customer)
     return ApiResponse(data=_response(customer, db))
+
+
+@router.get("/{customer_id}/family", response_model=ApiResponse[CustomerFamily])
+def customer_family(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerFamily]:
+    """Return a customer's parent and its shops, with what they owe together.
+
+    Asked of the parent or of any shop the answer is the same family; a
+    customer with neither is a family of one (backlog 125).
+    """
+    return ApiResponse(
+        data=CustomerService(db).family(customer_id, firm_scope=scope.firm_id)
+    )
 
 
 @router.put("/{customer_id}", response_model=ApiResponse[CustomerResponse])

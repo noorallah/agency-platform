@@ -112,6 +112,7 @@ from app.uom.services import (
     stock_unit_of,
 )
 from app.vendors.models import Vendor
+from app.vendors.services.supplier_family import assert_office_of
 
 ZERO = Decimal("0")
 
@@ -350,6 +351,9 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
         purchase_order = self._purchase_order(data.purchase_order_id, firm_id=firm_id)
         self._assert_order_receivable(purchase_order)
+        vendor_id = self._received_from(
+            data.vendor_id, purchase_order=purchase_order, firm_id=firm_id
+        )
         branch_code, company_code = self._scope_codes(
             firm_id=firm_id, branch_id=purchase_order.branch_id
         )
@@ -374,7 +378,7 @@ class GoodsReceiptService(TransactionalDocumentService):
             ),
             purchase_order_id=purchase_order.id,
             purchase_order_number=purchase_order.po_number,
-            vendor_id=purchase_order.vendor_id,
+            vendor_id=vendor_id,
             branch_id=purchase_order.branch_id,
             warehouse_id=purchase_order.warehouse_id,
             received_by_id=data.received_by_id,
@@ -418,6 +422,32 @@ class GoodsReceiptService(TransactionalDocumentService):
         self._flush_or_conflict("Goods receipt number already exists in this firm.")
         return row
 
+    def _received_from(
+        self,
+        vendor_id: UUID | None,
+        *,
+        purchase_order: PurchaseOrder,
+        firm_id: UUID,
+    ) -> UUID:
+        """Return the supplier a receipt is from: the order's, or an office of it.
+
+        An order placed on a supplier company's main office may be delivered
+        by any of its branches, and the other way round (backlog 127). The
+        receipt names the office the goods came from, which is the one that
+        bills them. A supplier outside the company is refused.
+        """
+        if vendor_id is None or vendor_id == purchase_order.vendor_id:
+            return purchase_order.vendor_id
+        assert_office_of(
+            self._session,
+            firm_id=firm_id,
+            vendor_id=vendor_id,
+            of_vendor_id=purchase_order.vendor_id,
+            document="goods receipt",
+            against=f"order {purchase_order.po_number}",
+        )
+        return vendor_id
+
     def update_receipt(
         self,
         receipt_id: UUID,
@@ -445,6 +475,11 @@ class GoodsReceiptService(TransactionalDocumentService):
         self._refuse_empty_receipt_lines(data.lines)
         purchase_order = self._purchase_order(row.purchase_order_id, firm_id=firm_scope)
         before_status = row.status
+        # Absent keeps the office on file; null goes back to the order's.
+        if "vendor_id" in data.model_fields_set:
+            row.vendor_id = self._received_from(
+                data.vendor_id, purchase_order=purchase_order, firm_id=firm_scope
+            )
         row.receipt_date = data.receipt_date
         row.received_by_id = data.received_by_id
         row.transport_details = data.transport_details

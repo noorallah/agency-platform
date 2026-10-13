@@ -307,16 +307,10 @@ class PromiseService:
         self._session.commit()
         return self.get(row.id, firm_id=firm_id, today=on)
 
-    def withdraw(
-        self,
-        promise_id: UUID,
-        reason: str,
-        *,
-        firm_id: UUID,
-        actor_id: UUID,
-        today: date | None = None,
-    ) -> PaymentPromiseResponse:
-        """Take a promise back, keeping the row; commit.
+    def stage_withdraw(
+        self, promise_id: UUID, reason: str, *, firm_id: UUID, actor_id: UUID
+    ) -> PaymentPromise:
+        """Stage taking a promise back, keeping the row, without committing.
 
         Raises:
             ResourceNotFoundError: If the firm has no such promise.
@@ -362,6 +356,21 @@ class PromiseService:
             firm_id=firm_id,
             before_data=before,
             after_data=self._snapshot(row),
+        )
+        return row
+
+    def withdraw(
+        self,
+        promise_id: UUID,
+        reason: str,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        today: date | None = None,
+    ) -> PaymentPromiseResponse:
+        """Take a promise back; commit. See ``stage_withdraw``."""
+        row = self.stage_withdraw(
+            promise_id, reason, firm_id=firm_id, actor_id=actor_id
         )
         self._session.commit()
         return self.get(row.id, firm_id=firm_id, today=today)

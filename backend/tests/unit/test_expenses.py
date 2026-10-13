@@ -6,7 +6,7 @@ journal is there and balanced, the accounts are the right kind, and a
 cancelled expense leaves the ledger where it started.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.common.audit.models import AuditLog
+from app.common.firm_metadata import firm_today
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.expenses.api.router import (
@@ -207,6 +208,23 @@ def test_the_amount_must_be_more_than_zero() -> None:
                 paid_from_account_id=uuid4(),
                 amount=Decimal(amount),
             )
+
+
+def test_an_expense_dated_ahead_is_refused_and_today_is_taken() -> None:
+    """Money already spent cannot be dated on a day that has not come (D-FIN-33).
+
+    "Today" is the firm's own day, not the UTC one, so an expense typed in
+    India before 05:30 is not refused as tomorrow's.
+    """
+    books = _Books()
+    today = firm_today(books.session, books.firm.id)
+
+    with pytest.raises(ValidationError, match="future date"):
+        books.record("100.00", when=today + timedelta(days=1))
+    assert books.session.scalar(select(func.count()).select_from(Expense)) == 0
+    assert books.session.scalar(select(func.count()).select_from(JournalEntry)) == 0
+
+    assert books.record("100.00", when=today).expense_date == today
 
 
 def test_cancelling_reverses_the_journal_and_cannot_happen_twice() -> None:

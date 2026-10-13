@@ -79,6 +79,11 @@ from app.purchase.schemas.requisition import (
 from app.purchase.services import PurchaseService
 from app.purchase.services.approval_limit import PurchaseApprovalLimitService
 from app.purchase.services.budgets import PurchaseBudgetService
+from app.purchase.services.order_plan import (
+    OrderPlanPick,
+    OrderPlanQuery,
+    OrderPlanService,
+)
 from app.purchase.services.purchase_print_service import (
     PurchaseOrderPrintService,
 )
@@ -971,6 +976,130 @@ def raise_reorder_drafts(
         [
             ReorderPick(
                 warehouse_id=item.warehouse_id,
+                product_id=item.product_id,
+                quantity=item.quantity,
+                supplier_id=item.supplier_id,
+            )
+            for item in data.items
+        ],
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=PurchaseService(db).order_responses(orders),
+        message=f"{len(orders)} draft purchase order(s) raised.",
+    )
+
+
+class OrderPlanRecord(BaseModel):
+    """One product of an order plan, with the sum behind its quantity (130)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    branch_id: UUID
+    warehouse_id: UUID
+    warehouse_code: str
+    product_id: UUID
+    product_code: str
+    product_name: str
+    brand_id: UUID | None
+    brand_name: str | None
+    sales_days: int
+    cover_days: int
+    sold_quantity: Decimal
+    average_daily_sales: Decimal
+    required_quantity: Decimal
+    available_quantity: Decimal
+    on_order_quantity: Decimal
+    suggested_quantity: Decimal
+    supplier_id: UUID | None
+    supplier_name: str | None
+    unit_price: Decimal
+
+
+class OrderPlanPickWrite(BaseModel):
+    """One product to order; the quantity defaults to the plan's own."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: UUID
+    quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
+    supplier_id: UUID | None = None
+
+
+class OrderPlanDraftsRequest(BaseModel):
+    """The plan the buyer was shown, and the rows ticked on it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    warehouse_id: UUID
+    company_id: UUID | None = None
+    brand_ids: list[UUID] = Field(default_factory=list, max_length=500)
+    vendor_id: UUID | None = None
+    sales_days: int | None = Field(default=None, ge=7, le=365)
+    cover_days: int | None = Field(default=None, ge=1, le=365)
+    items: list[OrderPlanPickWrite] = Field(min_length=1, max_length=1000)
+
+
+# Declared above `/{order_id}`, as every literal path here is.
+@router.get("/order-plan", response_model=PaginatedResponse[OrderPlanRecord])
+def order_plan(
+    scope: PurchaseReportScope,
+    warehouse_id: UUID,
+    company_id: UUID | None = None,
+    brand_id: Annotated[list[UUID] | None, Query(max_length=500)] = None,
+    vendor_id: UUID | None = None,
+    sales_days: Annotated[int | None, Query(ge=7, le=365)] = None,
+    cover_days: Annotated[int | None, Query(ge=1, le=365)] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[OrderPlanRecord]:
+    """Say what to order for a company's products from what sold (130).
+
+    Average sales over ``sales_days`` times ``cover_days``, less the stock in
+    hand and what open orders still bring; the days default to the firm's
+    reorder planning.
+    """
+    window = ReportWindow(None, None, page, page_size)
+    rows = OrderPlanService(db).plan(
+        scope.firm_id,
+        OrderPlanQuery(
+            warehouse_id=warehouse_id,
+            company_id=company_id,
+            brand_ids=tuple(brand_id or ()),
+            vendor_id=vendor_id,
+            sales_days=sales_days,
+            cover_days=cover_days,
+        ),
+    )
+    return window.respond([OrderPlanRecord.model_validate(row) for row in rows])
+
+
+@router.post(
+    "/order-plan/drafts",
+    response_model=ApiResponse[list[PurchaseOrderResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def raise_order_plan_drafts(
+    data: OrderPlanDraftsRequest,
+    scope: PurchaseCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderResponse]]:
+    """Raise one DRAFT order per supplier for the ticked rows of a plan."""
+    orders = OrderPlanService(db).raise_plan_drafts(
+        scope.firm_id,
+        OrderPlanQuery(
+            warehouse_id=data.warehouse_id,
+            company_id=data.company_id,
+            brand_ids=tuple(data.brand_ids),
+            vendor_id=data.vendor_id,
+            sales_days=data.sales_days,
+            cover_days=data.cover_days,
+        ),
+        [
+            OrderPlanPick(
                 product_id=item.product_id,
                 quantity=item.quantity,
                 supplier_id=item.supplier_id,

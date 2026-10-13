@@ -71,5 +71,10 @@ class UnitPriceResponse(PricingSchema):
 class UnitPricesResponse(PricingSchema):
     """The prices a document's lines start at, and the customer's level."""
 
+    #: The level the prices were worked out at: the one asked for, else the
+    #: customer's usual.
     price_level_id: UUID | None
+    #: The customer's usual level -- its own, else its group's -- whatever was
+    #: asked for, so a document's switch can say what "usual" is (backlog 131).
+    customer_price_level_id: UUID | None = None
     prices: list[UnitPriceResponse]

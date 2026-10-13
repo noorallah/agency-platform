@@ -1369,6 +1369,13 @@ class ApiClient {
     return message is String && message.isNotEmpty ? message : null;
   }
 
+  /// A buyer's family (backlog 125): the parent and its shops, asked of any
+  /// member. Read only for a customer that has a parent or shops.
+  Future<CustomerFamily> customerFamily(String id) async =>
+      CustomerFamily.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/customers/$id/family')),
+      );
+
   /// Customers that look like the one being typed (MST-3): the same GSTIN,
   /// phone or name. A warning, never a refusal. [excluding] is the record
   /// being edited.
@@ -2259,6 +2266,12 @@ class ApiClient {
         sortBy: sortBy,
         descending: descending,
         additionalQuery: filters.toQuery(),
+      );
+
+  /// A supplier company: the main office and its branches, asked of any
+  /// office. Read only for a supplier that has a main office or branches.
+  Future<VendorFamily> vendorFamily(String id) async => VendorFamily.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/vendors/$id/family')),
       );
 
   /// Suppliers that look like the one being typed (MST-3); see
@@ -4319,6 +4332,26 @@ class ApiClient {
         BrandRecord.fromJson,
       );
 
+  /// The brands a supplier may sell (backlog 129): its own, its company's or
+  /// its main office's. `source` NONE means the supplier is not limited.
+  Future<VendorBrands> vendorBrands(String vendorId) async =>
+      VendorBrands.fromJson(_unwrapMap(
+        await request('GET', '/api/v1/vendors/$vendorId/brands'),
+      ));
+
+  /// Replace the brands named on a supplier; an empty list clears them.
+  Future<VendorBrands> setVendorBrands(
+    String vendorId,
+    List<String> brandIds,
+  ) async =>
+      VendorBrands.fromJson(_unwrapMap(
+        await request(
+          'PUT',
+          '/api/v1/vendors/$vendorId/brands',
+          body: <String, dynamic>{'brand_ids': brandIds},
+        ),
+      ));
+
   Future<PagedResult<PrincipalRecord>> principalsPage({
     int page = 1,
     String search = '',
@@ -5517,6 +5550,55 @@ class ApiClient {
         body: <String, dynamic>{'items': items},
       );
 
+  /// The order plan (backlog 130): every active stocked product of a
+  /// warehouse, optionally of one company or some brands, with what was sold
+  /// in [salesDays], what is wanted for [coverDays] and the quantity to
+  /// order. Pages are read until a short one.
+  Future<List<Json>> orderPlan({
+    required String warehouseId,
+    String? companyId,
+    List<String> brandIds = const [],
+    String? vendorId,
+    required int salesDays,
+    required int coverDays,
+  }) async {
+    final List<Json> rows = <Json>[];
+    for (int page = 1; page <= 50; page++) {
+      // `brand_id` repeats once per brand, which a `Map<String, String>`
+      // query cannot say, so the query string is built here.
+      final String queryString = Uri(queryParameters: <String, dynamic>{
+        'warehouse_id': warehouseId,
+        if (companyId != null && companyId.isNotEmpty) 'company_id': companyId,
+        if (brandIds.isNotEmpty) 'brand_id': brandIds,
+        if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+        'sales_days': '$salesDays',
+        'cover_days': '$coverDays',
+        'page': '$page',
+        'page_size': '100',
+      }).query;
+      final Json response = await request(
+        'GET',
+        '/api/v1/purchases/order-plan?$queryString',
+      );
+      final dynamic data = response['data'];
+      final List<Json> batch = <Json>[
+        for (final dynamic row in data is List ? data : const [])
+          if (row is Map) Map<String, dynamic>.from(row),
+      ];
+      rows.addAll(batch);
+      if (batch.length < 100) break;
+    }
+    return rows;
+  }
+
+  /// Raise one draft purchase order per supplier for the ticked rows of an
+  /// order plan, all or none. [body] is the plan's choices plus `items`.
+  Future<Json> raiseOrderPlanDrafts(Json body) async => await request(
+        'POST',
+        '/api/v1/purchases/order-plan/drafts',
+        body: body,
+      );
+
   /// Raise requisitions (one per warehouse) for the ticked reorder rows
   /// instead of orders (BUY-7). Same items as [raiseReorderDrafts].
   Future<Json> raiseReorderRequisitions(List<Json> items) async =>
@@ -6330,6 +6412,16 @@ class ApiClient {
         FinancialYear.fromJson,
       );
 
+  /// Make the year after the firm's last one, with its twelve months. A year
+  /// does not begin by itself; the server refuses while the year after the
+  /// current one is already there.
+  Future<FinancialYear> startNextFinancialYear() async =>
+      FinancialYear.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/finance/financial-years/next'),
+        ),
+      );
+
   /// Close a financial year: nothing can be posted into it afterwards. The
   /// server refuses while a period is open or a draft journal is dated in it.
   Future<FinancialYear> closeFinancialYear(String id) async =>
@@ -6997,11 +7089,18 @@ class ApiClient {
 
   /// What the server would charge for each of [productIds], and from which
   /// arrangement. Keyed by product id.
+  ///
+  /// [priceLevelId] asks at that level instead of the customer's usual one
+  /// (M13). [onCustomerLevel] is told the customer's usual level, own else
+  /// his group's, or null when he has none -- it is not called when the
+  /// answer does not carry the field.
   Future<Map<String, UnitPriceQuote>> unitPrices({
     required List<String> productIds,
     required String on,
     String customerId = '',
     String territoryId = '',
+    String priceLevelId = '',
+    void Function(String? customerPriceLevelId)? onCustomerLevel,
   }) async {
     // `product_ids` repeats once per product, which a `Map<String, String>`
     // query cannot say, so the query string is built here and rides on the path.
@@ -7010,12 +7109,19 @@ class ApiClient {
       'on': on,
       if (customerId.isNotEmpty) 'customer_id': customerId,
       if (territoryId.isNotEmpty) 'territory_id': territoryId,
+      if (priceLevelId.isNotEmpty) 'price_level_id': priceLevelId,
     }).query;
     final Json response = await request(
       'GET',
       '/api/v1/price-levels/unit-prices?$queryString',
     );
     final dynamic data = response['data'];
+    if (onCustomerLevel != null &&
+        data is Map &&
+        data.containsKey('customer_price_level_id')) {
+      final String usual = stringValue(data['customer_price_level_id']);
+      onCustomerLevel(usual.isEmpty ? null : usual);
+    }
     final dynamic prices = data is Map ? data['prices'] : null;
     return <String, UnitPriceQuote>{
       if (prices is List)
@@ -7969,6 +8075,170 @@ class ApiClient {
           routeId: routeId,
           asOf: asOf,
           overdueOnly: overdueOnly,
+        ),
+      );
+
+  // ---- Bills handed to a collector (backlog 122) ---------------------------
+
+  /// One page of the unpaid bills, with who carries each. [handed] is ALL,
+  /// OUT or NOT_OUT. Returns the whole response.
+  Future<Json> handoverBills({
+    int page = 1,
+    int pageSize = 50,
+    String? handed,
+    String? collectorId,
+    String? dateFrom,
+    String? dateTo,
+    String? area,
+    String? numberFrom,
+    String? numberTo,
+    String? customerId,
+  }) =>
+      request(
+        'GET',
+        '/api/v1/collections/handovers/bills',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '$pageSize',
+          if (handed != null) 'handed': handed,
+          if (collectorId != null) 'collector_id': collectorId,
+          if (dateFrom != null) 'date_from': dateFrom,
+          if (dateTo != null) 'date_to': dateTo,
+          if (area != null) 'area': area,
+          if (numberFrom != null) 'number_from': numberFrom,
+          if (numberTo != null) 'number_to': numberTo,
+          if (customerId != null) 'customer_id': customerId,
+        },
+      );
+
+  /// One page of the unpaid bills handed to the signed-in person, with the
+  /// same customers' other unpaid bills marked apart (backlog 123). Returns
+  /// the whole response.
+  Future<Json> myBillsToCollect({int page = 1, int pageSize = 50}) => request(
+        'GET',
+        '/api/v1/collections/my-bills',
+        query: <String, String>{'page': '$page', 'page_size': '$pageSize'},
+      );
+
+  /// One page of the hand-over history. [state] is OUT or RETURNED.
+  Future<Json> billHandovers({
+    int page = 1,
+    int pageSize = 50,
+    String? collectorId,
+    String? state,
+    String? handedFrom,
+    String? handedTo,
+  }) =>
+      request(
+        'GET',
+        '/api/v1/collections/handovers',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '$pageSize',
+          if (collectorId != null) 'collector_id': collectorId,
+          if (state != null) 'state': state,
+          if (handedFrom != null) 'handed_from': handedFrom,
+          if (handedTo != null) 'handed_to': handedTo,
+        },
+      );
+
+  /// Hand bills to a collector: the ticked [invoiceIds], or every bill that
+  /// fits [matching] (only the keys that are set). Exactly one of the two.
+  /// Returns `{bills, amount, already_out}`.
+  Future<Json> handBillsOut({
+    required String collectorId,
+    String? handedOn,
+    List<String>? invoiceIds,
+    Map<String, String>? matching,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/handovers',
+          body: <String, dynamic>{
+            'collector_id': collectorId,
+            if (handedOn != null) 'handed_on': handedOn,
+            if (invoiceIds != null) 'invoice_ids': invoiceIds,
+            if (matching != null) 'matching': matching,
+          },
+        ),
+      );
+
+  /// Take bills back from a collector. Returns `{bills, amount, already_out}`.
+  Future<Json> takeBillsBack({
+    required List<String> handoverIds,
+    String? note,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/handovers/take-back',
+          body: <String, dynamic>{
+            'handover_ids': handoverIds,
+            if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+          },
+        ),
+      );
+
+  // ---- The collector's end-of-day line (backlog 124, M6) -------------------
+
+  /// The signed-in collector's own day sheet; [day] is YYYY-MM-DD, today if
+  /// omitted. Returns the sheet.
+  Future<Json> myDaySheet({String? day}) async => _unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/collections/my-bills/day-sheet',
+          query: <String, String>{if (day != null) 'day': day},
+        ),
+      );
+
+  /// The collector's own line on a bill in his bag, today. Returns the line.
+  Future<Json> recordMyReturn(Json body) async => _unwrapMap(
+        await request('POST', '/api/v1/collections/my-bills/returns',
+            body: body),
+      );
+
+  /// Withdraw the collector's own line. Returns the line.
+  Future<Json> withdrawMyReturn(String id, String reason) async => _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/my-bills/returns/$id/withdraw',
+          body: <String, dynamic>{'reason': reason},
+        ),
+      );
+
+  /// The office's day sheet, for one collector or all. Returns the sheet.
+  Future<Json> collectionDaySheet({String? day, String? collectorId}) async =>
+      _unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/collections/day-sheet',
+          query: <String, String>{
+            if (day != null) 'day': day,
+            if (collectorId != null) 'collector_id': collectorId,
+          },
+        ),
+      );
+
+  /// The office's line on any bill handed out; the receipt is recorded with
+  /// it. Returns the line.
+  Future<Json> recordCollectionReturn(Json body) async => _unwrapMap(
+        await request('POST', '/api/v1/collections/returns', body: body),
+      );
+
+  /// Record the receipt for a line that only states its money. Returns the
+  /// line.
+  Future<Json> recordReturnReceipt(String id) async => _unwrapMap(
+        await request('POST', '/api/v1/collections/returns/$id/receipt'),
+      );
+
+  /// Withdraw a line as the office. Returns the line.
+  Future<Json> withdrawCollectionReturn(String id, String reason) async =>
+      _unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/collections/returns/$id/withdraw',
+          body: <String, dynamic>{'reason': reason},
         ),
       );
 
@@ -10921,11 +11191,21 @@ class ApiClient {
   Future<List<OutstandingInvoice>> outstandingInvoices({
     required SettlementDirection direction,
     required String partyId,
+    bool withShops = false,
+    bool withBranches = false,
   }) async {
     final Json response = await request(
       'GET',
       '/api/v1/${direction.path}/outstanding',
-      query: {direction.partyParameter: partyId},
+      query: {
+        direction.partyParameter: partyId,
+        // A receipt from a parent buyer may clear its shops' bills too.
+        if (withShops && direction == SettlementDirection.receipt)
+          'with_shops': 'true',
+        // A payment to a main office may clear its branches' bills too.
+        if (withBranches && direction == SettlementDirection.payment)
+          'with_branches': 'true',
+      },
     );
     return _unwrapList(response, OutstandingInvoice.fromJson);
   }

@@ -19,6 +19,7 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
     'Licences',
     'Opening bills',
     'Catalogue',
+    'Brands',
     'Ratings',
   ];
 
@@ -26,6 +27,7 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
         'Licences' => widget.loadLicences != null,
         'Opening bills' => widget.loadOpeningBills != null,
         'Catalogue' => widget.showCatalogue && widget.vendor != null,
+        'Brands' => widget.showBrands && widget.vendor != null,
         'Ratings' => widget.loadRatings != null || widget.vendor == null,
         _ => true,
       };
@@ -243,6 +245,20 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
                 vendorId: widget.vendor!.id,
                 canManage: widget.canManageCatalogue,
                 canImport: widget.canImportCatalogue,
+              ),
+            ],
+            if (widget.showBrands && widget.vendor != null) ...[
+              _heading(context, 'Brands',
+                  'which brands this supplier sells, for its orders'),
+              Text(
+                'Brands this supplier sells',
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              VendorBrandsSection(
+                api: widget.api,
+                vendorId: widget.vendor!.id,
+                canManage: widget.canManageBrands,
               ),
             ],
             if (widget.loadRatings != null || widget.vendor == null) ...[

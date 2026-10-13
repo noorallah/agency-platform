@@ -59,6 +59,10 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
   bool get _canReopenYear =>
       widget.permissions.hasPermission('FINANCIAL_YEAR_REOPEN');
 
+  /// Starting the next year is gated on the code the server gates it with.
+  bool get _canStartYear =>
+      widget.permissions.hasPermission('FINANCIAL_YEAR_CREATE');
+
   /// Deleting an empty period is gated like the year's own delete.
   bool get _canDelete =>
       widget.permissions.hasPermission('FINANCIAL_YEAR_CREATE');
@@ -145,6 +149,48 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
       NotificationService.show(
         context,
         '${period.name} deleted.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Start the year after the last one. The year in hand is left open.
+  Future<void> _startNextYear() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Start the next year?'),
+        content: const Text(
+          'The year after the last one is made, with its twelve months open '
+          'for posting. The year you are in stays open: closing it is a '
+          'separate step, done when its work is finished.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Start next year'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      final FinancialYear year = await widget.api.startNextFinancialYear();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${year.code} is started, with its twelve months.',
         kind: AppNotificationKind.success,
       );
       await _load();
@@ -497,13 +543,39 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
                       'exists, nothing can be booked.',
                 )
               : Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Expanded(flex: 2, child: _yearList(context)),
+                  Expanded(flex: 2, child: _yearColumn(context)),
                   const VerticalDivider(width: 1),
                   Expanded(flex: 3, child: _periodList(context)),
                 ]),
         ),
       ]),
     );
+  }
+
+  /// The years, and above them the one way a firm makes another: the next
+  /// year does not begin by itself, and until it exists nothing dated in it
+  /// can be booked (D-FIN-32).
+  Widget _yearColumn(BuildContext context) {
+    if (!_canStartYear) return _yearList(context);
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Row(children: [
+          const Expanded(
+            child: Text(
+              'The next year is started here, with its twelve months.',
+            ),
+          ),
+          OutlinedButton(
+            key: const ValueKey('start-next-year'),
+            onPressed: () => unawaited(_startNextYear()),
+            child: const Text('Start next year'),
+          ),
+        ]),
+      ),
+      const Divider(height: 1),
+      Expanded(child: _yearList(context)),
+    ]);
   }
 
   Widget _yearList(BuildContext context) => ListView.separated(

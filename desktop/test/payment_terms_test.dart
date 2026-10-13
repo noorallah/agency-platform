@@ -54,6 +54,8 @@ class _Api extends ApiClient {
   Future<List<OutstandingInvoice>> outstandingInvoices({
     required SettlementDirection direction,
     required String partyId,
+    bool withShops = false,
+    bool withBranches = false,
   }) async =>
       [
         OutstandingInvoice.fromJson({
@@ -278,6 +280,33 @@ void main() {
     expect(api.savedPolicy!.cashDiscountPercent, '1.5');
     expect(api.savedPolicy!.overdueInterestRate, '18');
     expect(api.savedPolicy!.interestGraceDays, 7);
+  });
+
+  testWidgets('the credit policy saves the collector receipt switch',
+      (tester) async {
+    _bigScreen(tester);
+    final _Api api = _Api();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CreditSettingsDialog(
+          api: api,
+          permissions:
+              _permissions(['CUSTOMER_VIEW', 'CUSTOMER_MANAGE_SETTINGS']),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final Finder switchTile =
+        find.byKey(const ValueKey('credit-collector-records-receipt'));
+    expect(tester.widget<SwitchListTile>(switchTile).value, isFalse);
+    await tester.ensureVisible(switchTile);
+    await tester.tap(switchTile);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedPolicy!.collectorRecordsReceipt, isTrue);
+    expect(api.savedPolicy!.toJson()['collector_records_receipt'], isTrue);
   });
 
   testWidgets('a receipt offers the discount and fills it only on Apply',

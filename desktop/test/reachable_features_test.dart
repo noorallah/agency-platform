@@ -11,13 +11,17 @@ import 'dart:io';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
+import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:agency_desktop/ui/products/product_management_page.dart';
 import 'package:agency_desktop/models/settlement_direction.dart';
 import 'package:agency_desktop/ui/customers/loyalty_page.dart';
 import 'package:agency_desktop/models/settlement.dart';
+import 'package:agency_desktop/models/vendor.dart';
+import 'package:agency_desktop/ui/vendors/vendor_management_page.dart';
 import 'package:agency_desktop/ui/finance/record_settlement_dialog.dart';
 import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_management_page.dart';
 import 'package:agency_desktop/ui/purchase_returns/purchase_return_management_page.dart';
@@ -572,4 +576,90 @@ void main() {
       expect(find.byKey(const ValueKey('selection-copy-as-new')), findsNothing);
     });
   });
+
+  group('a customer can be made a shop of another', () {
+    // Backlog 125: the server took `parent_customer_id`; the form must offer
+    // the field, or no screen reaches it.
+    testWidgets('the customer form offers Shop of', (tester) async {
+      await _sized(
+        tester,
+        CustomerManagementPage(
+          api: _CustomerApi(),
+          permissions: _permissions(const ['CUSTOMER_VIEW', 'CUSTOMER_CREATE']),
+          hasActiveFirm: true,
+        ),
+        phase2: true,
+      );
+      // The empty list offers its own New customer button.
+      await tester.tap(find.text('New customer').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shop of'), findsOneWidget);
+    });
+  });
+
+  group('a supplier can be made a branch of another', () {
+    // Backlog 127: the server took `parent_vendor_id`; the form must offer
+    // the field, or no screen reaches it.
+    testWidgets('the supplier form offers Branch of',
+        (tester) async {
+      await _sized(
+        tester,
+        VendorManagementPage(
+          api: _VendorApi(),
+          permissions: _permissions(const ['VENDOR_VIEW', 'VENDOR_CREATE']),
+          hasActiveFirm: true,
+        ),
+        phase2: true,
+      );
+      // The empty list offers its own New vendor button.
+      await tester.tap(find.text('New vendor').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Branch of'), findsOneWidget);
+    });
+  });
+}
+
+/// A supplier list with nothing in it.
+class _VendorApi extends ApiClient {
+  _VendorApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  @override
+  Future<PagedResult<Vendor>> vendors({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    VendorQuery filters = const VendorQuery(),
+  }) async =>
+      PagedResult(items: const <Vendor>[], total: 0);
+}
+
+/// A customer list with nothing in it.
+class _CustomerApi extends ApiClient {
+  _CustomerApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  @override
+  Future<PagedResult<Customer>> customers({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    CustomerQuery filters = const CustomerQuery(),
+  }) async =>
+      PagedResult(items: const <Customer>[], total: 0);
 }

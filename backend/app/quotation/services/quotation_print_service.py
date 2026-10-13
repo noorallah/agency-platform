@@ -157,7 +157,10 @@ class QuotationPrintService:
             seller=seller_party(self._session, firm_scope, row.branch_id),
             buyer=customer_party(self._session, row.customer_id, "BILLING")
             or PartyBlock(name="", address_lines=[]),
-            ship_to=None,
+            # A quotation names no address of its own: the customer's
+            # default shipping address, which is what the order raised
+            # from it will take (D-SELL-94).
+            ship_to=customer_party(self._session, row.customer_id, "SHIPPING"),
             lines=tuple(printed),
             bill_discount=row.bill_discount_amount,
             gross_before_bill_discount=row.subtotal + row.bill_discount_amount,

@@ -19,10 +19,10 @@ with -- because that is what a return and an e-invoice file:
   state of its own supplies from there: from the state its own GSTIN names
   (STK-2), else from its address.
 - **The buyer** is the buyer's GSTIN where it has one. An unregistered buyer has
-  none, so the address the invoice is addressed to decides it -- the billing
-  address, then the default billing one, then any live address, the same order
-  ``SalesInvoiceService._place_of_supply`` prints -- so the printed place of
-  supply and the tax charged cannot name different states. An address outside
+  none, so the address the invoice is addressed to decides it -- the default
+  billing address, then any billing one, then any live address, the one choice
+  (``billing_address``) the printed BILLED TO block also makes -- so the printed
+  place of supply and the tax charged cannot name different states. An address outside
   India is a supply to another country, which section 7(5)(a) makes
   inter-state.
 
@@ -74,6 +74,7 @@ from app.branches.models import Branch
 from app.common.firm_metadata import FirmMetadataReader
 from app.customers.gst_registration import SEZ_TYPES
 from app.customers.models import Customer, CustomerAddress
+from app.customers.services.ship_to import billing_address
 from app.sales.models.territory import GeoCountry, GeoState
 from app.vendors.models import Vendor, VendorAddress
 
@@ -495,15 +496,10 @@ class SupplyPlaceResolver:
             for address in (customer.addresses or [])
             if not address.is_deleted and (address.state or address.state_id)
         ]
-        for preferred in (
-            lambda address: address.address_type == "BILLING",
-            lambda address: bool(address.is_default_billing),
-            lambda address: True,
-        ):
-            for address in live:
-                if preferred(address):
-                    return address
-        return None
+        # The same choice the print makes, so the BILLED TO block and the
+        # place of supply name one address: the default billing address
+        # outranks another of type BILLING (D-SELL-92).
+        return billing_address(live)
 
     def state_code_of(self, state_id: UUID) -> str | None:
         """Return the GST state code of a ``geo_states`` row, or None."""

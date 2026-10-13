@@ -8609,3 +8609,935 @@ table and the statement close at the same figure.
 - A supplier's account has no such table.
 - No screen was clicked in the running app.
 
+## 122. Bills handed to a collector -- built 2026-10-13
+
+Customer task M4 (`docs/CUSTOMER_BUILD_TASKS.md`): a separate
+bill-and-collector table that never touches the books; bills are handed out
+by date, by area, by a run of bill numbers, or by ticking.
+
+**What was there.** `app/collections` already had promises to pay and the
+collection sheet, and a customer already names a collector. The sheet answers
+"whose customers are these" from the customer master. Nothing recorded which
+*bill* was physically out with which person on which day, or that it came
+back.
+
+**Decided.**
+
+- **A handover is a note beside a bill.** One row in `bill_handovers`: the
+  bill, the collector, the day, who handed it out, what it owed at that
+  moment, and when it was taken back. It posts no journal, moves no customer
+  balance and is read by nothing that states money.
+- **Only a bill that still owes something is handed out**: a sales bill, or a
+  bill owed from before the firm started here. A bill paid while it is out
+  stays out until it is taken back, because the paper is still in the bag; it
+  is found under **History**.
+- **A bill is out with one person at a time.** A ticked bill somebody already
+  carries is refused by its number and none of the ticked bills go out. A
+  bundle (by date, area, customer or a run of numbers) leaves such bills where
+  they are and says how many. Two partial unique indexes settle two people
+  handing out the same bill at once.
+- **Taking back keeps the row.** Who carried a bill, and when, survives; the
+  bill can go out again, to the same person or another.
+- **A run of bill numbers stays inside one series**: `SI-26-27-000086` to
+  `SI-26-27-000120`. Either end may be left open. Two ends of different
+  series, an end with no digits and a run that ends before it starts are
+  refused.
+- **Area is part of the customer's area or city**, any case, read from the
+  billing address (the same two words the pickers show since backlog 108).
+- **The day is today or a past day**, by the firm's own calendar.
+- **A permission of its own, `COLLECTION_ASSIGN`**, in the accounting group:
+  the firm administrator, the firm manager and the accountant hold it. A
+  cashier does not. Reading who carries what stays on `RECEIPT_VIEW`. It is
+  apart from `RECEIPT_CREATE` on purpose: a collector who may record what he
+  collected (row M6) must not be the one who decides which bills he carries.
+
+**Built.**
+
+- `bill_handovers` (migration `20261013_0362`, firm-owned, idempotent), model
+  `BillHandover`, service `BillHandoverService`
+  (`app/collections/services/handovers.py`).
+- `GET /api/v1/collections/handovers/bills`: the unpaid bills, each with who
+  carries it; narrowed by `handed` (all, out, in the office), `collector_id`,
+  `date_from`, `date_to`, `area`, `number_from`, `number_to`, `customer_id`.
+- `GET /api/v1/collections/handovers`: the history, bills still out first;
+  by collector, state and the day handed.
+- `POST /api/v1/collections/handovers`: the bills ticked (`invoice_ids`) or a
+  bundle (`matching`), one of the two. Answers how many went, what they owe
+  together and how many were already out.
+- `POST /api/v1/collections/handovers/take-back`: all of the rows named, or
+  none.
+- Every handover and every return writes an audit record.
+- Desktop: **Bills with Collectors** under Sell > Money
+  (`bill_handover_page.dart`). Filters (Show, Collector, From, To, Area or
+  city, Bill no. from and to), a tick per row and *Tick every bill shown*,
+  **Hand over ticked**, **Hand over all matching** (asks first, naming the
+  filters it will use) and **Take back ticked**; a **History** view. The
+  buttons are shown only to somebody who holds `COLLECTION_ASSIGN`.
+- `bill_handovers` joined the history reset order of
+  `scripts/generate_transaction_history.py`.
+
+**Tested.** `tests/unit/test_bill_handovers.py` (17): a ticked bill goes out;
+handing out and taking back leave the journals, the receipts, the receivable
+rows, the ageing, the collection sheet and the unpaid bills exactly as they
+were; a bill already out, a paid bill, a stranger as collector and a future
+day are refused; bundles by area, by a run, by date and by customer; the
+lists; a bill paid while out; taking back is all or nothing; the index holds
+one live row per bill; the lists cost the same number of statements however
+long they are. Desktop: `bill_handover_page_test.dart` (8). Driven over HTTP
+on a fixture firm (88 checks): the customer's Try, with each customer's
+account, unpaid bills and statement, the trial balance, the collection sheet
+and the number of journal entries read before and after handing out, and
+again before and after taking back: nothing moved.
+
+**Not done.**
+
+- The collector's own screen and the ready-made role are row M5; the
+  end-of-day return entry (collected, part, promised, not collected) is M6.
+- No print of the bundle: the Collection Sheet prints by the customer's
+  collector, not by what was handed out.
+- A bill owed from before the firm started here was not handed out in any
+  test (no fixture holds one); the code path is the same list Record Receipt
+  reads.
+- Moving a bill from one collector to another is two steps: take back, hand
+  out.
+- No screen was clicked in the running app.
+
+## 123. The Bill collector role and his one screen -- built 2026-10-13
+
+Customer task M5 (`docs/CUSTOMER_BUILD_TASKS.md`): a ready-made Bill collector
+role and his one screen: the bills handed to him, and older unpaid bills of
+the same customers marked apart. Done when a collector signs in and sees only
+that screen and only his bills.
+
+**What was there.** Section 122 records which bill is out with which person.
+The only way to read it was *Bills with Collectors*, on `RECEIPT_VIEW`, which
+shows every unpaid bill of the firm. No role was narrow enough to give to a
+person who only carries bills.
+
+**Decided.**
+
+- **A code of its own, `COLLECTION_OWN_VIEW`,** in the `accounting` group. It
+  reads one route, `GET /api/v1/collections/my-bills`.
+- **The route takes the collector from the token.** No parameter names a
+  person, so the code cannot read anybody else's bag.
+- **The list is the bills in his bag plus their neighbours.** The unpaid bills
+  handed to him and still out; beside each customer's, that customer's other
+  unpaid bills, marked as not handed to him (customer answer A14: both, marked
+  apart). Nothing of a customer he carries no bill of. For a neighbour the
+  answer does not say who carries it.
+- **By customer, the bag first, then oldest first**: the order he walks a
+  street in.
+- **A bill paid in full while it is out is not listed.** It owes nothing. The
+  office still finds it under History and takes it back.
+- **A seventeenth system role, `BILL_COLLECTOR`, holding that one code**, and
+  a job template `bill-collector` to hire from. Not `RECEIPT_VIEW` and not
+  `CUSTOMER_VIEW`: either shows him the whole firm.
+- **The firm's administrator, manager and accountant hold the code too.** It
+  is in the group their roles are built from, and in a small firm the owner
+  carries bills himself. The read-only role holds it as it holds every view
+  code. A cashier does not.
+- **The screen is read only.** *My Bills to Collect*, a tab of Finance shown
+  under Sell > Money. Recording what he collected is M6.
+
+**Decided by me, by the industry standard.** A collection agent's view in the
+field apps of the common accounting packages is his own assigned bills and
+nothing of the ledger, with the customer's other dues shown for reference.
+Showing those without the other collector's name follows the same
+least-privilege line.
+
+**Built.** `BillHandoverService.my_bills`, the route, migration
+`20261013_0363` (platform data only: the role, the code, the grants, the job
+template; each inserted only where missing), `MyBillsPage` in the desktop.
+Tests: `tests/unit/test_my_bills.py`, `desktop/test/my_bills_page_test.dart`,
+a collector case in `desktop/test/menu_layout_test.dart`. Test case
+TC-FIN-031.
+
+**Not done.**
+
+- He lands on Home, which is empty for him, and opens his screen from the
+  menu; the app does not open it for him.
+- No receipt and no end-of-day return from this screen: M6.
+- No print of his list and no Download.
+- The customer's phone number is not on the list.
+- The list reads the firm's whole unpaid list per request, as *Bills with
+  Collectors* does; not timed on PERF01.
+- No screen was clicked in the running app.
+
+## 124. The collector's end-of-day line, and a day sheet that adds up -- built 2026-10-13
+
+Customer task M6 (`docs/CUSTOMER_BUILD_TASKS.md`): an end-of-day return entry
+per bill handed out: collected, part, promised, not collected. A firm setting
+decides whether the collector records the receipt himself (customer answers
+A13: a firm setting; A15: yes). Done when the day's sheet adds up to the
+receipts recorded.
+
+**What was there.** Section 122 records which bill is out with whom, section
+123 gives the collector his own list. Promises to pay (`payment_promises`) and
+receipts (`/api/v1/receipts`) existed. Nothing recorded what happened on a
+bill on a given day, and a collector could write nothing at all.
+
+**Design.**
+
+- **One table, `collection_returns`: one line per handed-out bill per day.**
+  It names the handover, the day, the outcome, what the bill owed, what the
+  collector says he took and how, the receipt (`settlement_id`) and the
+  promise (`payment_promise_id`). One live line per handover per day, held by
+  a partial unique index. A bill out three days has three lines.
+- **The line states; a receipt records.** `amount_collected` moves nothing.
+  The money is recorded by `ReceiptService.create`, the one way a receipt is
+  written, applied to that bill, and the line names it. No second way to
+  record money.
+- **A promise is a promise.** Promised, and part with a day named for the
+  rest, write a row through `PromiseService` in the collector's name.
+- **The firm's switch, `collector_records_receipt`,** a column on
+  `credit_control_settings`, which already holds the firm's collection terms.
+  Off to start.
+- **Two doors.** The office writes any bill's line on `RECEIPT_CREATE` and the
+  receipt is recorded with it. A collector writes his own on a code of its
+  own, `COLLECTION_OWN_RECORD`, for a bill in his own bag and for today; the
+  receipt is recorded only where the switch is on. Where it is off the office
+  records it from the day sheet (`POST /collections/returns/{id}/receipt`).
+- **The day sheet** (`GET /collections/day-sheet`, and the collector's own at
+  `/my-bills/day-sheet`): the day's live lines, counts by outcome, bills out
+  with no line, and three figures: stated, in receipts, the difference. It
+  adds up when the difference is nothing.
+- **A line is withdrawn, never edited**, with a reason, and its promise goes
+  with it unless the customer has kept it. Not while a live receipt stands on
+  it: the receipt is reversed first, on Receipts.
+
+**Decided by me, by the industry standard.**
+
+- Collected in full is exactly what the bill owes; anything less is part. An
+  amount that does not fit the outcome is refused rather than re-labelled.
+- The receipt carries no discount, TDS or bank charge: those stay on the
+  Receipts screen, where the person allowed to give them works.
+- A collector writes only today's line. A past day's is the office's, not
+  before the bill went out and never a future day.
+- Another collector's bill answers "not found" to him, as his list does not
+  say who carries a neighbour's bill.
+- A reversed receipt counts nothing on the sheet, so the sheet stops adding
+  up until a new receipt is recorded or the line is withdrawn.
+- A bill collected in full stays out until the office takes it back (section
+  122's rule); it leaves the collector's list because it owes nothing.
+- The switch sits with the credit settings and is written on
+  `CUSTOMER_MANAGE_SETTINGS`, which the collector does not hold: the person
+  the switch frees must not be the one to set it.
+- `FIRM_ADMIN`, `FIRM_MANAGER` and `ACCOUNTANT` hold `COLLECTION_OWN_RECORD`
+  (it is in the `accounting` group; an owner collects himself). `VIEWER` and
+  `CASHIER` do not.
+- Field collection in the common accounting packages works this way: the
+  agent reports, a cashier receipts, and the daily collection register is
+  reconciled to the cash handed in; letting the agent's entry post directly
+  is an option a firm turns on.
+
+**Built.** Model `app/collections/models/collection_return.py`, service
+`CollectionReturnService` (`app/collections/services/returns.py`:
+`stage_record`, `record`, `record_receipt`, `withdraw`, `day_sheet`,
+`responses`), seven routes under `/api/v1/collections`, three fields on each
+`my-bills` row for today's line, `PromiseService.stage_withdraw`, the switch
+on the credit settings read and write, migration `20261013_0364` (the table,
+the column, the code; each only where missing), `collection_returns` in the
+history reset order. Desktop: **Record** and **Withdraw** on *My Bills to
+Collect* with the day's summary, a **Day sheet** view and a **Day's line**
+action on *Bills with Collectors*, the switch on the credit settings dialog.
+Tests: `tests/unit/test_collection_returns.py`, the two desktop page tests.
+Test case TC-FIN-032.
+
+**Not done.**
+
+- A cheque dated ahead is not sent to the post-dated cheques register from a
+  line; the line records a receipt dated the line's day.
+- One line is one bill. Money for several bills in one payment is several
+  lines; money on account with no bill is a receipt on Receipts.
+- No discount at the door (section 115's clearance discount stays on
+  Receipts).
+- The day sheet has no print and no Download.
+- Taking a bill back does not ask for its line, and a line does not take the
+  bill back.
+- "Bills out with no line" is counted on the bills still out now, so for a
+  past day it is a guide, not a record.
+- No screen was clicked in the running app.
+
+## 125. A parent buyer with shops; a GST number held once -- built 2026-10-13
+
+Customer task M7 (`docs/CUSTOMER_BUILD_TASKS.md`): a parent buyer with shops,
+the GST number held once, on the parent. The owner's example is DMart: several
+shops, one name, one GST number (the *Not shown* sheet of the answers
+workbook, 2026-10-12: "the GST number is entered once on the parent; a shop
+with no number of its own takes the parent's; the number is then unique across
+the firm's customers; a shop in another state carries its own number; each
+shop keeps its own address, bills, dues and salesman"). Done when a parent
+with three shops is created and the GST number is refused on a second parent.
+
+**What was there.** Each shop could already be a customer of its own with the
+same name and the same GST number (decision A7, 2026-10-02, which let a GST
+number and a PAN repeat with a warning). Nothing tied the shops together, and
+nothing stopped the number being typed on a customer that had nothing to do
+with them.
+
+**Design.**
+
+- **One column, `customers.parent_customer_id`,** a key to `customers`. A
+  shop names its parent. One level deep: a shop has no shops and a parent has
+  no parent. A customer with neither is as it always was.
+- **The number a shop takes is copied onto the shop's row by the server, and
+  marked** (`customers.gst_number_from_parent`). About twenty readers decide
+  the tax, the place of supply, GSTR-1 and the e-invoice from
+  `customers.gst_number`, several of them in SQL. Leaving a shop's column
+  empty and looking the parent up on every read would bill a registered buyer
+  as unregistered at the first reader that was missed, the mistake this
+  repository records eight times for platform tables. So the column always
+  holds the number the shop is billed under, the marker says whose it is, and
+  no reader changed.
+- **The number is typed once.** `UQ_customers_firm_gst_number_own_active`, a
+  partial unique index, holds a typed number to one live customer of the firm
+  and leaves the marked copies out. The service check stays for the message,
+  which names the holder and says to make the customer its shop.
+- **The copy moves with the number.** When the parent's number or
+  registration type changes, every shop that takes it is rewritten in the
+  same transaction, each with its own audit row. A shop's PAN follows where
+  it was the parent's or blank.
+- **What a write means.** A shop that sends no GST number, or its parent's,
+  or the number its form was shown, takes the parent's. A shop that sends
+  another number keeps it as its own. A customer taken out from under its
+  parent gives the number back; it does not keep a copy as its own.
+- **A PAN still repeats, with a warning** (A7 stands for it): one company has
+  a GST number per state and one PAN.
+- **Existing customers that share a number are made one family by the
+  migration,** because the key cannot be built over them: the oldest becomes
+  the parent and the rest its shops. No number on any row changes, so every
+  bill is taxed as before. On 2026-10-13 that touched two fixture customers
+  (`DM-KKP-URX6`, `DM-MYP-URX6` on `T1012URX6-S`) and nothing else in any
+  store.
+
+**Decided by me, by the industry standard.**
+
+- One level, parent and shops. The common packages (Zoho's parent and
+  sub-customer, QuickBooks' sub-customer, ERPNext's parent customer group)
+  keep the same shape for billing.
+- A shop takes the parent's registration type with the number.
+- A parent with shops cannot be deleted, made a shop, or merged away; its
+  shops are moved first. A shop can be deleted, moved to another parent or
+  taken out.
+- A deleted customer is not restored into a number another customer now
+  holds, nor under a parent that is deleted.
+- A repeated GST number is now refused where A7 warned. The owner's decision
+  of 2026-10-12 says the number is unique once the parent exists.
+- The import file gained a column, **ParentCode**: a customer the firm has,
+  or one on an earlier row of the same file.
+- The family read (`GET /customers/{id}/family`) is the same asked of the
+  parent or of any shop, and gives one total outstanding. It is there for row
+  M8, which spreads one receipt over the shops' bills.
+
+**Built.** Columns `parent_customer_id` and `gst_number_from_parent`, the
+index, the rules in `app/customers/services/buyer_family.py` (`BuyerFamily`),
+called from `CustomerService.stage_create`, `stage_update`, `delete` and
+`restore`; a guard in `app/common/party_merge.py`; five fields on every
+customer answer (`parent_customer_id`, `parent_code`, `parent_name`,
+`gst_number_from_parent`, `shop_count`), read once per page;
+`GET /api/v1/customers/{id}/family`; the `ParentCode` import column;
+migration `20261013_0365`. Desktop: **Shop of** on the customer form, the GST
+box left empty for a shop with a line saying whose number it takes, a
+**Shops** panel with the family and its total outstanding, and a *Parent /
+shops* column on the customer list. Tests:
+`tests/unit/test_customer_parent_and_shops.py`,
+`desktop/test/customer_parent_and_shops_test.dart`. Test case TC-CUST-014.
+
+**Not done.**
+
+- One receipt from the parent spread over its shops' bills (row M8).
+- One shared credit limit for the buyer. Each shop keeps its own limit, and
+  the credit check reads the shop alone.
+- Combined reports and one statement for the whole buyer. The family read
+  gives the total outstanding only.
+- The supplier side (row M9) is separate: a branch there keeps its own number.
+- Nothing prints "shop of" on a bill; a bill prints the shop's name and
+  address as before.
+- No screen was clicked in the running app.
+
+## 126. One receipt from a parent spread over its shops' bills -- built 2026-10-13
+
+Customer task M8 (`docs/CUSTOMER_BUILD_TASKS.md`): one receipt from a parent
+buyer spread over its shops' bills; a shop can also pay for itself (answer
+A10: both). The owner's note on the *Not shown* sheet of the answers workbook
+(2026-10-12): "money received from the parent is one receipt, spread over the
+shops' bills, and any part not yet spread sits on the parent's account until
+mapped". Done when one receipt closes bills of three shops and each shop's
+account is right.
+
+**What was there.** A receipt belongs to one customer (`settlements`), names
+the bills it clears (`settlement_allocations`), posts one journal, and moves
+that customer's balance by one row in `customer_receivable_transactions`,
+whose stored deltas are what a reversal puts back. A bill could be cleared
+only by a receipt of its own customer. Backlog 125 gave a parent its shops
+(`customers.parent_customer_id`) and nothing that used the link for money.
+
+**Design.**
+
+- **The receipt stays the parent's.** One row in `settlements`, one number,
+  one journal for the whole amount. No table and no column was added, and
+  there is no migration.
+- **An allocation may name a shop's bill.** Where the receipt's customer is a
+  parent, the bills its money may clear are its own and its shops'. A shop's
+  own receipt clears the shop's bills only: it does not reach a sibling or
+  the parent.
+- **Each account moves by its own row.** For every shop whose bills the
+  receipt clears, a `RECEIPT` row is written on that shop's account for what
+  was cleared there, naming the receipt and who paid. The parent's account
+  gets a `RECEIPT` row for the rest only: its own bills, and what is not set
+  against any bill. So a shop's statement and balance come down by exactly
+  what was paid for it, and the parent's statement shows only what was the
+  parent's.
+- **What is not spread stays on the parent's account,** as less owed or as
+  money held on account, by the rule every receipt already follows.
+- **Spreading it later moves it.** Setting the unspread part against a shop's
+  bill (`POST /api/v1/receipts/{id}/allocate`) writes two rows on one day,
+  both naming the receipt: a `RECEIPT_TRANSFER` row on the parent, which
+  gives the money up, and a `RECEIPT` row on the shop, which takes it. The
+  parent gives up money held on account first; any part that had come off
+  what the parent owed goes back on what it owes, because that money is now
+  paying somebody else's bill.
+- **No journal for the spreading.** Every customer's account sits in the one
+  receivables control account, and the rows cancel. The ledger moved once,
+  when the money arrived.
+- **A reversal puts every account back.** `reverse` already undoes every row
+  that names the receipt, each by its own stored deltas; it now does so on
+  each account the receipt touched. The applications are undone first, then
+  what was moved to shops, then the recording rows.
+
+**Decided by me, by the industry standard.**
+
+- One receipt on the paying company with its bills picked across the shops is
+  how the common packages do it (QuickBooks' "receive payment" on a parent
+  with sub-customers' bills listed, Zoho's parent account payment).
+- The cheque's tax collected at source, its TDS, bank charges and discount
+  belong to the receipt and so to the parent. A cash discount earned under a
+  shop's terms is not worked out for a parent's receipt: a discount on it
+  beyond what the parent's own bills earn needs the approve party adjustments
+  permission, as any clearance discount does.
+- A shop cannot pay for another shop or for its parent.
+- The parent's money held on account is used before its balance is raised.
+- Money the parent no longer holds (refunded or applied since) is refused by
+  name rather than moved.
+- The list of a shop's receipts does not show the parent's receipt; the
+  shop's statement and the receipt's own page do.
+
+**Built.** `ReceiptService` in
+`app/settlements/services/settlement_service.py`: `shop_ids`,
+`family_outstanding_invoices`, `_settleable_bills`, `_held_by_party`,
+`_move_to_shop`, `shop_bill_owners`, and the changes to `create`, `allocate`,
+`reverse`, `_advance_part_of`, `_recording_row` and `_rows_written_by`.
+`CustomerService.stage_receipt_transfer` and the transaction type
+`RECEIPT_TRANSFER`, which cannot be posted by hand.
+`GET /api/v1/receipts/outstanding` takes `with_shops`, and each row then
+names whose bill it is (`party_id`, `party_code`, `party_name`); an
+allocation on a receipt answer carries the same three fields where the bill
+is a shop's. Desktop: Record Receipt and Apply list the shops' bills under a
+parent with the shop named on each, and a receipt's cleared bills name the
+shop. Tests: `tests/unit/test_receipt_over_shops.py`,
+`desktop/test/receipt_over_shops_test.dart`. Test case TC-FIN-033.
+
+**Not done.**
+
+- A combined statement for the whole buyer, and a shared credit limit (as in
+  backlog 125).
+- A shop's receipt list does not show receipts its parent paid for it.
+- A parent's money is not taken back from a shop's bill once spread, short of
+  reversing the receipt.
+- Returns and credit notes are not spread across a family: a credit is set
+  against a bill of the customer that holds it.
+- The supplier side (row M9).
+- No screen was clicked in the running app.
+
+## 127. A supplier company with branches -- built 2026-10-13
+
+Customer task M9 (`docs/CUSTOMER_BUILD_TASKS.md`): the company is the main
+supplier and its branches are suppliers under it, each with its own GST
+number; an order is placed on the main office, goods and bills come from any
+branch, and payment goes to the main office or to a branch (the *Not shown*
+sheet of the answers workbook, 2026-10-12; open question A10, "can a branch
+also be paid directly?", answered yes). Done when an order on the main office
+is received from a branch and billed by it.
+
+**What was there.** Each branch could already be a supplier of its own.
+Nothing tied the offices together: a goods receipt always took its order's
+supplier, a bill had to be from the supplier of the receipts it billed, and a
+payment cleared only the bills of the supplier it was made to. An order on
+the main office could not be received from, or billed by, a branch.
+
+**Design.**
+
+- **One column, `vendors.parent_vendor_id`,** a key to `vendors`. A branch
+  names its main office. One level deep: a branch has no branches and a main
+  office has none above it.
+- **Nothing is copied.** This is where the supplier side differs from the
+  buyer side (backlog 125). A branch is registered in its own state, so its
+  GST number is its own, and `UQ_vendors_firm_gstin_active` already held a
+  number to one live supplier. No marker, no new key, and no reader of
+  `vendors.gstin` changed: the tax on a bill is worked out from the office
+  that sent the bill.
+- **The order stays where it was placed; the receipt names the office the
+  goods came from.** A goods receipt takes `vendor_id`: the order's supplier,
+  its main office, or another branch of the same main office. Left out, it
+  is the order's supplier, as before. The order is still counted received
+  from its receipts, whoever sent them.
+- **The bill is from the office that sends it.** A supplier bill may be in
+  the name of any office of the company its receipts are from. So goods
+  received in the branch's name are billed by the branch, and goods received
+  in the main office's name can still be billed by a branch. What is owed is
+  owed to the office on the bill.
+- **A payment to the main office may clear a branch's bills; a branch is
+  also paid directly.** The payment stays the main office's: one row, one
+  number, one journal. A branch's payment clears its own bills only; it does
+  not pay for a sibling or for the main office.
+- **Each office's account still closes on what that office is owed.** A
+  supplier has no balance row; its statement is read off the payables lines
+  of the ledger, each traced to the supplier on the document. A main
+  office's payment that clears a branch's bill is therefore read as two
+  `PAYMENT_TRANSFER` lines, a debit on the branch and a credit on the main
+  office, on the day the money met the bill. The pair is derived from the
+  allocation and stored nowhere, it nets to nothing on the payables account,
+  and a reversed payment gains the opposite pair on the day it was reversed.
+  No table and no journal, which is the supplier-side twin of the rows
+  backlog 126 writes on a shop's account.
+
+**Decided by me, by the industry standard.**
+
+- One level, main office and branches (Tally's group of ledgers under one
+  party, Zoho's and ERPNext's supplier with a parent).
+- Any office of the company may deliver or bill an order placed on any other
+  office of it, not only a branch for the main office. It is one company.
+- A main office with branches cannot be deleted, made a branch, or merged
+  away; its branches are moved first. A deleted branch is not restored under
+  a main office that is deleted or has become a branch.
+- A bill that names no supplier takes its receipts' supplier; where the
+  receipts are from different offices it must say which office it is from.
+- TDS on a payment is proposed on the supplier that is paid (the main
+  office), as on any payment.
+
+**A defect found on the way (D-BUY-75).** Editing a draft supplier bill took
+any supplier at all: the check that a bill is from the supplier of its
+receipts ran on create and not on edit. Both paths now ask one method.
+
+**Built.** Column `parent_vendor_id` and its index (migration
+`20261013_0366`, no row rewritten); the rules in
+`app/vendors/services/supplier_family.py` (`SupplierFamily`, `company_of`,
+`same_company`, `assert_office_of`), called from `VendorService.stage_create`,
+`stage_update`, `delete` and `restore`; the guard in
+`app/common/party_merge.py`; four fields on every supplier answer
+(`parent_vendor_id`, `parent_code`, `parent_name`, `branch_count`), read once
+per page; `GET /api/v1/vendors/{id}/family` with each office's balance and
+one total; `vendor_id` on the goods receipt write; `_billing_office` in the
+supplier bill service; `with_branches` on `GET /payments/outstanding`, the
+branch named on a payment's allocations, and Apply reaching a branch's bill;
+the transfer lines in `app/vendors/services/statement_service.py`. Desktop:
+**Branch of** on the supplier form, a **Branches** panel with what each
+office is owed and one total, a *Main office / branches* column on the
+supplier list, **Received from** on the goods receipt when the order's
+supplier is a company, and Record Payment and Apply listing the branches'
+bills under a main office. Tests: `tests/unit/test_supplier_branches.py`,
+`desktop/test/supplier_branches_test.dart`. Test case TC-BUY-102.
+
+**Not done.**
+
+- The supplier import file has no column for the main office.
+- A purchase return and a debit note stay with the supplier on the document
+  they come from; a credit is set against a bill of the office that holds it.
+- A payment in another currency clears only the bills of the supplier it is
+  made to.
+- A payment run pays each office for its own bills.
+- Supplier price lists, lead times and ratings stay per office.
+- Combined reports and one statement for the whole company. The family read
+  gives each office's balance and the total.
+- The **Branch of** picker offers the first page of suppliers its search
+  returns.
+- No screen was clicked in the running app.
+
+## 128. A supplier added while the goods are being entered -- built 2026-10-13
+
+**Customer task M10.** Asked: "a supplier can be added while receiving
+goods"; try: "a new supplier is created from the receiving screen without
+leaving it".
+
+**What was found.** A supplier could be added only on *Buy → Suppliers*. A
+person typing a purchase order or a supplier bill for a supplier not yet in
+the list had to close the document, lose what was typed, add the supplier and
+start again. A firm with no supplier at all was shown *Nothing to order yet*
+and could not open a new order.
+
+**Where a supplier is chosen.** A goods receipt names a purchase order, and
+the order names the supplier, so the Goods Receipt screen has no supplier box
+to add one from. A supplier is chosen in two places while goods come in: on a
+**purchase order**, and on a **supplier bill typed directly**, which is how a
+firm that has switched the order and receipt stages off receives its goods
+(the bill raises the order and the receipt behind it and puts the stock in).
+The action is on those two.
+
+**Design.** Screen only; the server is unchanged.
+
+- A **New vendor** button beside the supplier box of a new purchase order,
+  and a **New supplier** button beside the supplier box of a supplier bill
+  typed directly. Each screen keeps the word it already uses.
+- The button opens the full supplier form over the document, on the
+  document's own tab. It is the same form as *Buy → Suppliers* → new: a name
+  is enough, the look-alike warning runs, and the save is the same
+  `POST /api/v1/vendors`.
+- Save closes the form and shows the document again with the new supplier
+  chosen. Everything typed on the document is kept. Cancel or Esc closes the
+  form and changes nothing. A refusal stays in the form with the server's
+  message.
+- Shown only to a person holding `VENDOR_CREATE`; the server asks the same
+  permission on the save. No new permission, table, column or route.
+- A firm with no supplier yet can now open a new purchase order or a direct
+  supplier bill when the person may add suppliers, and add the first one
+  from there.
+- One call more than before, only when the button is used: the look-alike
+  check and the save. Opening a document costs no extra call.
+
+**Built.** Desktop, new UI only: `addSupplierInPlace` in
+`desktop/lib/ui/vendors/vendor_management_page.dart`; the button, the added
+suppliers and the choice in `purchase_order_editor_phase2.dart`,
+`purchase_management_page.dart`, `purchase_invoice_editor_phase2.dart`,
+`purchase_invoice_editor_dialog.dart` and
+`purchase_invoice_management_page.dart`. Tests:
+`desktop/test/supplier_added_while_buying_test.dart` (9). Test case
+TC-BUY-103.
+
+**Not done.**
+
+- No button on the Goods Receipt screen: it has no supplier box.
+- No button on a bill that names a receipt or an order, on a purchase order
+  being edited, or on the other buying documents (requisition, request for
+  quotation, rate contract, debit note, payment).
+- The same for a customer on the selling documents is not built.
+- The old UI is unchanged.
+- No screen was clicked in the running app.
+
+## 129. Company and brand: the brands a supplier may sell -- built 2026-10-13
+
+**Customer task M11**, decision D16, answers A7 to A9. Asked: "a supplier
+names the brands it may sell; the product list on a purchase order and on a
+sale can be narrowed by brand. A stockist is a company of his own with the
+brands he is allowed"; try: "a purchase order for one brand offers only that
+brand's products".
+
+**What was found.** Companies (the *Principals* list) and brands were there
+(MST-1): a brand belongs to a company, a product names its brand
+(`products.brand_id`), and a company may name the supplier it is bought from.
+Nothing joined a supplier to a brand, the product list could be searched by
+the brand's text only, and no document narrowed its products by brand. The
+list filter schema carried a `brand_id` field that nothing read.
+
+**Design.**
+
+- One table in the firm's store, `vendor_brands`: a supplier and a brand, one
+  row for each brand named on that supplier. Both keys cascade, the pair is
+  unique, and a brand taken off the list is a row removed. No column on the
+  supplier, the brand or the product changes, and no existing row is written.
+- Which brands count for a supplier, the first of these that has any:
+  1. the brands named on the supplier itself;
+  2. the brands of every company that names this supplier as the one it is
+     bought from;
+  3. for a branch (backlog 127), whatever its main office answers.
+  A supplier none of them answers for is **not limited**: every product is
+  offered, so no existing firm sees a change until it names a brand.
+- A **stockist** is a supplier with the brands he is allowed named on him
+  (rule 1). Whose brands they are does not matter, so he can hold brands of
+  several companies.
+- `GET /api/v1/vendors/{id}/brands` answers the brands that count, where the
+  answer came from (`OWN`, `COMPANY`, `MAIN_OFFICE`, `NONE`) and the brands
+  named on the supplier itself. `PUT` on the same path replaces the named
+  list whole; an empty list clears it. Reading needs `VENDOR_VIEW` or
+  `PURCHASE_VIEW`, writing `VENDOR_UPDATE`. No new permission.
+- `GET /api/v1/products` takes `brand_id`, repeated for several brands, and
+  answers the products filed under those brand rows exactly. The unread
+  `brand_id` field on the filter schema is replaced by it.
+- The list **narrows what is offered and never refuses a line**. A purchase
+  order for a product outside the supplier's brands is saved as before.
+- A brand a supplier names cannot be deleted until it is taken off that
+  supplier; the refusal names the supplier. Merging two suppliers carries
+  the named brands to the one that stays, each held once.
+- Screens, new UI only. The supplier form has a part **Brands this supplier
+  sells**. A purchase order has a **Brand** box: for a supplier with brands
+  it starts at *All brands of this supplier* and the product box of every
+  line offers only those; one brand can be chosen, and *Every product* brings
+  the rest back. A sales order and a sales bill have the same box with the
+  firm's companies and brands. A product already on a line is always kept in
+  its box. Nothing about the choice is stored on the document.
+- Calls: the supplier form's part makes two reads when it opens and one
+  write on Save. A purchase order makes one read each time a supplier is
+  chosen. A sales order or bill makes one read of the brand list when it
+  opens.
+
+**Decided by the standard, not asked.**
+
+- A filter, not a rule the server enforces. Tally, Marg and Zoho narrow an
+  order's items by company; none refuses an item outside it. A firm's first
+  order for a new brand is raised before anybody has tidied the list.
+- A branch takes its main office's brands until it names its own. A branch
+  that names any brand uses its own list only.
+- A list named on the supplier outranks the company's brands, so a supplier
+  can be held to fewer brands than its company owns.
+- A product with no brand is offered only when no brand is chosen (*Every
+  product*, or a supplier that is not limited).
+
+**Built.** Server: `backend/app/vendors/models/vendor_brand.py`,
+`backend/app/vendors/services/vendor_brands.py`, two routes in
+`backend/app/vendors/api/router.py`, the `brand_id` filter in
+`backend/app/products/api/router.py` and `ProductService`, the delete
+refusal in `backend/app/products/services/brands.py`, migration
+`20261013_0367`. Tests: `backend/tests/unit/test_vendor_brands.py` (9).
+Desktop: `desktop/lib/ui/vendors/vendor_brands_section.dart`,
+`desktop/lib/ui/workspace/brand_filter.dart`, and the Brand box in
+`purchase_order_editor_phase2.dart`, `sales_order_editor_phase2.dart` and
+`sales_invoice_editor_phase2.dart`. Tests:
+`desktop/test/supplier_brands_test.dart` (16). Test case TC-BUY-104.
+
+**Tried over HTTP** on a fixture firm, 36 checks: the company's supplier
+takes the company's two brands; its branch takes the same; one brand named
+on the supplier and the product list for that brand answers only that
+brand's two products; an order for another brand's product is still saved; a
+branch's own list outranks its main office's; a stockist holds brands of two
+companies; the list is replaced whole and cleared; a brand that is not the
+firm's is refused and nothing is written; a brand a supplier names is not
+deleted; the change is on the audit trail.
+
+**Not done.**
+
+- No Brand box on the supplier bill, the goods receipt, the quotation, the
+  requisition, the request for quotation or any other document.
+- The old UI is unchanged.
+- The brands a supplier may sell are not in the supplier import file and
+  not on the supplier list or its download.
+- The purchase order does not warn about a line whose product is outside
+  the supplier's brands.
+- The menu still says *Principals* for the companies; the Brand box says
+  company.
+- No Brand box on the counter (till) bill: it did not fit the counter
+  screen at 800 by 600.
+- No widget test opens the Brand box on the sales bill; the sales order's
+  is tested and the two share the code.
+- No screen was clicked in the running app.
+
+## 130. Purchase planning by company from average sales -- built 2026-10-13
+
+**Customer task M12**, answer A6 ("is quantity already on an open purchase
+order taken off the suggested quantity? Yes"). Asked: "purchase planning by
+company from average sales, with stock in hand and quantity already on open
+orders taken off"; try: "the suggested quantity for three items matches a
+hand calculation". It is step 4 of backlog 93 in its smallest form; the rest
+of 93 stays designed and not built.
+
+**What was found.** *Below reorder level* (backlog 42.9, 69 row 12) already
+works out a quantity from average sales, takes off the stock in hand and
+what is on open orders (drafts counted), rounds to the supplier's pack and
+raises draft orders. Three things were missing for this row. It lists only
+what is **already short**, so a month-end order for a whole company cannot be
+read off it. It cannot be asked for **one company**. And its sales basis is a
+firm setting with a lead time and safety days inside the sum, which a person
+checking it by hand has to know about.
+
+**Design.**
+
+- One sum per product, in stock units, for one warehouse:
+  *needed* = sold in the last **N** days / N x **M** days of stock wanted;
+  *to order* = needed - stock in hand - already on open orders, rounded
+  **up** to a whole unit and never below zero. Where the supplier's list
+  quotes a minimum order or a pack multiple, a quantity above zero is rounded
+  up to it (BUY-5).
+- *Sold* is what went out to customers less what came back, each net of its
+  reversals, dated in the last N days up to the firm's today: the same reading
+  *Below reorder level* uses. An order nobody shipped is not a sale yet.
+- *Stock in hand* is what is available in that warehouse, so stock reserved
+  for an order is not counted. *On open orders* counts every purchase order
+  short of received, cancelled or closed, **drafts included**, less what its
+  receipts have taken in: planning twice does not order twice.
+- **Every** active product held as stock in the selection is listed, short or
+  not, with the figures of the sum beside it. A product that needs nothing
+  shows nothing to order.
+- Which products: a **company** means the products of its brands; brands can
+  be named as well or instead; a supplier named on its own means the brands
+  that supplier may sell (backlog 129); nothing named means every product.
+- From whom: the supplier named on the plan, for every row. Otherwise the
+  product's preferred supplier, else the supplier last billed for it, else
+  the supplier its company is bought from. A row with none is listed and is
+  refused when ordered until a supplier is named.
+- N and M are typed on the plan. Left out, they are the firm's *Reorder
+  planning* figures (90 and 30 until the firm changes them). N is 7 to 365, M
+  is 1 to 365.
+- `GET /api/v1/purchases/order-plan` (`warehouse_id` required; `company_id`,
+  `brand_id` repeated, `vendor_id`, `sales_days`, `cover_days`) answers the
+  rows. `POST /api/v1/purchases/order-plan/drafts` takes the same choices and
+  the ticked products, works the plan out again and raises **one draft order
+  per supplier**, all or none, through the order's own save path. A quantity
+  typed on a row is ordered as typed. Reading needs `PURCHASE_VIEW` or
+  `REPORT_VIEW`, raising `PURCHASE_CREATE`. No new permission, no table, no
+  migration, no setting.
+- Screen, new UI only: *Purchase Orders -> "..." -> Plan an order...*. The
+  buyer chooses the warehouse, the company, optionally a supplier, the two
+  numbers of days, and presses **Show**. Each row can be ticked and its
+  quantity typed over. **Download** writes the rows as an Excel sheet;
+  **Raise draft orders** raises them.
+- Calls: four reads when the window opens (warehouses, companies, suppliers, the
+  firm's days), one read for each **Show**, one write for **Raise**.
+
+**Decided by the standard, not asked.**
+
+- The sum has no lead time and no safety days in it. Marg's reorder on sale
+  ("sold in the last X days, times Y, less closing stock") and Tally's reorder
+  on consumption are this sum, and the row asks for a quantity that matches a
+  hand calculation. *Below reorder level* keeps its own.
+- The days default to the firm's *Reorder planning* figures, so a firm sets
+  them once.
+- A plan is for one warehouse, because an order is placed for one and stock
+  and sales are counted per warehouse.
+- Whole units, rounded up: nobody orders a third of a carton, and rounding
+  down leaves the firm short.
+
+**Defect found while it was tried, fixed before the merge.** Worked as
+sold / N x M, 100 / 60 x 30 came to 50.000...01 in decimal arithmetic and was
+rounded up to order 49 where the hand sum says 48. The sum is now multiplied
+first and held to four places. It was never on `main`, so it has no number in
+`docs/DEFECTS.md`; `test_a_sum_that_comes_out_whole_is_not_rounded_up_past_it`
+pins it.
+
+**Built.** Server: `backend/app/purchase/services/order_plan.py`
+(`OrderPlanService`, on top of `ReorderService`, whose order-raising tail
+became the shared `_stage_orders`), two routes in
+`backend/app/purchase/api/router.py`. Tests:
+`backend/tests/unit/test_order_plan.py` (14). Desktop:
+`desktop/lib/ui/purchases/order_plan_dialog.dart`, the menu entry in
+`purchase_management_page.dart`, two calls in `api_client.dart`. Tests:
+`desktop/test/order_plan_dialog_test.dart`. Test case TC-BUY-105.
+
+**Tried over HTTP** on a fixture firm, 50 checks. Three items of one company
+with 102, 65 and 60 in stock sold 100, 45 and 10: on 30 days of sales and 30
+days of stock the plan says 98, 25 and nothing; on 60 days of sales it says
+48, 3 (2.5 rounded up) and nothing. A brand on its own, another company, a
+supplier on its own and a supplier named on the plan each list what they
+should. A draft raised for 60 of the first item shows as 60 on order and the
+plan then says 38; an item fully on order cannot be ordered again. A row with
+nothing to order, a product outside the plan and a row with no supplier each
+refuse the whole batch and leave no order behind.
+
+**Not done.**
+
+- The rest of backlog 93: a level on the product, the category or the firm;
+  a monthly requirement typed on a product; the choice of the higher or the
+  lower of a typed level and the sales figure; a sheet laid out per supplier.
+- Stock committed to open sales orders is not a column; stock in hand is
+  what is available, which already leaves reserved stock out.
+- One warehouse at a time; no plan across warehouses.
+- The supplier cannot be changed row by row on the screen, only for the
+  whole plan.
+- A requisition cannot be raised from the plan, only draft orders.
+- A plan with no company on a firm with many thousands of products is read
+  whole; it was not timed on the volume firm.
+- The old UI is unchanged.
+- No screen was clicked in the running app.
+
+## 131. Retail and wholesale: a price level named on the order and the bill -- built 2026-10-13
+
+**Customer task M13**, decision D17 ("named price levels with a rate per
+product, reached through the customer or his group; new work is only the
+switch on the bill"). Asked: "a customer carries his usual choice, and one
+switch on the bill changes the whole bill"; done when: "the switch reprices
+every line; a new bill starts from the customer's choice".
+
+**What was found.** Price levels (backlog SEL-9: Retail, Wholesale, Dealer,
+a rate per product, a level on the customer or on his segment) already price
+a line nobody typed a price on. Three things were missing. No document could
+name a level of its own, so a retail customer buying at wholesale today had
+to be retyped line by line. The sales bill typed directly filled each line
+with the product's own selling price and sent it as typed, so **the
+customer's level never reached that bill at all** from the desktop. And only
+somebody holding the price list code could read the list of levels.
+
+**Design.**
+
+- `sales_orders.price_level_id`, nullable (migration `20261013_0368`). NULL
+  is "the customer's usual", which is what every order already written
+  means. A level named there **takes the customer's level's place in the
+  ranking and no other**: typed price > price list agreed with the customer >
+  batch PTR/PTS > *the document's level, else the customer's* > product
+  price. A product with no rate at the named level falls to its own price,
+  not to the customer's level.
+- A bill typed directly raises an order, and the level it names is kept on
+  that order; the bill itself gains no column. `price_level_id` on the bill
+  is accepted only on a bill of product lines. A bill of delivery notes or
+  orders takes its prices from them and is refused a level in words.
+- On an edit, leaving the field out keeps the document's level, an explicit
+  null goes back to the customer's usual, and a line sent without a price is
+  priced at the level the document now names. A price already on a line is
+  not moved by the server: the screen is what reprices.
+- A level must be the firm's own and in use, or the document is refused by
+  the level's name.
+- `GET /price-levels/unit-prices` takes `price_level_id` and also answers
+  `customer_price_level_id`, the customer's usual level (his own, else his
+  segment's), so the screen can say what "usual" is. `GET /price-levels` (the
+  list) is open to whoever may raise a quotation, a sales order or a sales
+  bill; keeping the levels still needs the price list code.
+- Screen, new UI only: a **Price level** box on the sales order and on the
+  sales bill typed directly, drawn only when the firm has a level in use.
+  Its first entry is *Customer's usual*; under the box a line says what that
+  is. A new document starts there. Choosing another entry reprices **every**
+  line that names a product with one request; a new line is then priced at
+  it too. Changing the customer puts the box back to *Customer's usual*. The
+  direct bill now asks the server for each line's price, so it starts from
+  the customer's level.
+
+**Decided by the standard, not asked.**
+
+- *The switch reprices a price typed by hand as well.* Tally's price level on
+  the voucher and Marg's rate switch both restate every rate; the switch is a
+  deliberate act on the whole bill, and the box is then shown as not typed.
+  A price typed after the switch stands.
+- *Anybody who may raise the document may use the switch*, as in both of
+  those. It is not a way round a discount limit: the limit (D-PRC-2) still
+  measures what a line charges against **the customer's own price**, so a
+  cheaper level named on the document is a reduction like any other and
+  needs somebody allowed that much. A firm with no limits is not held up.
+- *A price list agreed with the customer still wins.* It is an agreement
+  with him; a level is a rate for a class of buyers.
+- *Where the rates include GST* the screen clears the price boxes on a
+  switch rather than filling them: a blank box there is the server's own
+  price before tax, at the level named.
+
+**Where it lives.** `app/pricing/services/unit_price.py`
+(`UnitPriceResolver(price_level_id=)`, `document_price_level`),
+`app/pricing/api/price_levels_router.py`, `app/sales_order` (model, schemas,
+`SalesOrderService`), `app/sales_invoice/services/sales_chain_service.py` and
+`sales_invoice_service.py` (a saved direct bill keeps its level when an edit
+raises its order again). Tests:
+`backend/tests/unit/test_price_level_on_the_document.py` (11). Desktop:
+`desktop/lib/ui/workspace/price_level_box.dart`, the two sales editors,
+`unitPrices` in `api_client.dart`. Tests:
+`desktop/test/price_level_on_the_bill_test.dart` (15). Test case TC-SELL-101.
+
+**Tried over HTTP** on a fixture firm, 28 checks: a wholesale customer's
+quote and new order start at wholesale (80, 150, and 40 for a product with no
+wholesale rate); asked at retail every price is the retail one (95, 190, 38)
+and his usual level is still named; an order naming retail is priced at it
+and gives the level back; a typed price stands beside two level prices; an
+edit that says nothing keeps the level, another level reprices the unpriced
+lines, an explicit null goes back to the customer's prices; a level nobody
+has and a level out of use are each refused in words. That firm types an
+order before its bill, so **the direct bill was tried in the unit suite
+only**.
+
+**Not done.**
+
+- No Price level box on the quotation, the proforma, the delivery note, a
+  bill of delivery notes, or a saved draft bill being edited (the server
+  keeps that bill's level).
+- The level is not printed on the order or the bill, and is not a column of
+  any list or report.
+- Working the prices of each level out from a margin at purchase, the other
+  half of D17, is not part of this row.
+- The box makes the sales order's header one row taller: at a window of
+  800 by 600 it overflows by 14 pixels when the firm has levels. At 1366 by
+  768 it does not.
+- The counter (till) bill is the same screen as the direct bill in the new
+  UI, so it shows the box too when the firm has levels.
+- The old UI is unchanged.
+- No screen was clicked in the running app.

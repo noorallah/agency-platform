@@ -15,6 +15,7 @@
   ],
   "order": {
     "additional_charges": "0.0000",
+    "approval_step": true,
     "approved_at": null,
     "attached_file_count": 0,
     "attachments": [],
@@ -96,6 +97,7 @@
     "outstanding_balance_snapshot": "0.0000",
     "payment_terms": null,
     "payment_terms_days": 0,
+    "price_level_id": null,
     "rate_includes_tax": false,
     "reference_number": null,
     "released_at": null,

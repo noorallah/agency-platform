@@ -45,6 +45,12 @@ class CustomerReceivableTransactionType(StrEnum):
     RECEIPT = "RECEIPT"
     ADVANCE_RECEIPT = "ADVANCE_RECEIPT"
     ADVANCE_APPLY = "ADVANCE_APPLY"
+    #: Money a parent's receipt was holding, moved to one of its shops to
+    #: clear that shop's bill (backlog 126). Written on the parent only, by
+    #: the receipt service: the part that had come off the parent's balance
+    #: goes back on it, the part held as an advance leaves the advance, and
+    #: the shop gets a ``RECEIPT`` row for the same amount on the same day.
+    RECEIPT_TRANSFER = "RECEIPT_TRANSFER"
     CREDIT_NOTE = "CREDIT_NOTE"
     #: More charged on an invoice after it was billed (backlog 77 row 5). It
     #: raises what the customer owes exactly as the invoice did.
@@ -205,6 +211,10 @@ class CustomerWrite(CustomerSchema):
     #: The same business as a supplier (ACC-11): one combined statement, and
     #: a set-off between the two preselected.
     linked_vendor_id: UUID | None = None
+    #: The buyer this customer is a shop of (backlog 125). A shop that sends
+    #: no GST number, or its parent's, takes the parent's number and
+    #: registration type; one in another state sends its own.
+    parent_customer_id: UUID | None = None
     email: str | None = Field(default=None, max_length=320)
     phone: str | None = Field(default=None, max_length=20)
     alternate_phone: str | None = Field(default=None, max_length=20)
@@ -352,6 +362,14 @@ class CustomerResponse(CustomerSchema):
     cash_discount_days: int | None = None
     cash_discount_percent: Decimal | None = None
     linked_vendor_id: UUID | None = None
+    #: The parent this shop sits under, with its code and name for a list.
+    parent_customer_id: UUID | None = None
+    parent_code: str | None = None
+    parent_name: str | None = None
+    #: The GST number shown is the parent's, not one typed on this shop.
+    gst_number_from_parent: bool = False
+    #: How many live shops sit under this customer; a parent has some.
+    shop_count: int = 0
     email: str | None
     phone: str | None
     alternate_phone: str | None
@@ -385,6 +403,35 @@ class CustomerResponse(CustomerSchema):
     attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
 
+class CustomerFamilyMember(CustomerSchema):
+    """One account of a buyer's family: the parent, or a shop under it."""
+
+    id: UUID
+    code: str
+    name: str
+    is_parent: bool
+    gst_number: str | None = None
+    gst_number_from_parent: bool = False
+    status: str
+    #: Area and city of the default billing address, to tell shops apart.
+    place: str | None = None
+    current_outstanding: Decimal
+    unapplied_advance_balance: Decimal
+
+
+class CustomerFamily(CustomerSchema):
+    """A parent buyer and its shops, with what they owe together.
+
+    Asked of the parent or of any shop, the answer is the same family. A
+    customer with no parent and no shops is a family of one.
+    """
+
+    parent_id: UUID
+    members: list[CustomerFamilyMember]
+    total_outstanding: Decimal
+    total_unapplied_advance: Decimal
+
+
 class CustomerIdentityHolder(CustomerSchema):
     """Another live customer holding the same GSTIN or PAN (decision A7)."""
 
@@ -398,8 +445,9 @@ class CustomerIdentityHolder(CustomerSchema):
 class CustomerIdentityCheck(CustomerSchema):
     """Who else holds a GSTIN or PAN, asked before a save (decision A7).
 
-    A repeat is allowed -- one company is often several accounts -- so this
-    warns rather than refuses; ``message`` is the sentence to show.
+    A repeated PAN is allowed -- one company is often several accounts -- so
+    that warns rather than refuses. A GST number is held once (backlog 125):
+    ``message`` names its holder, whose shop the customer should be made.
     """
 
     holders: list[CustomerIdentityHolder]
@@ -519,6 +567,8 @@ class CreditControlSettingsResponse(CustomerSchema):
     cash_discount_percent: Decimal | None = None
     overdue_interest_rate: Decimal = Decimal("0")
     interest_grace_days: int = 0
+    #: Whether a collector's own end-of-day line records the receipt.
+    collector_records_receipt: bool = False
     is_configured: bool
 
 
@@ -538,6 +588,8 @@ class CreditControlSettingsWrite(CustomerSchema):
         default=None, ge=0, le=60, max_digits=7, decimal_places=4
     )
     interest_grace_days: int | None = Field(default=None, ge=0, le=365)
+    #: Absent keeps the firm's own (backlog 124).
+    collector_records_receipt: bool | None = None
 
     @model_validator(mode="after")
     def _warn_before_block(self) -> "CreditControlSettingsWrite":

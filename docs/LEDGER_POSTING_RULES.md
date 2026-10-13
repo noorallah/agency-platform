@@ -1387,6 +1387,10 @@ shows an opening balance for an income or expense account must go through it,
 and must take the same figure off its closing balance, so the closing is where
 the running balance ends (D-FIN-24, 2026-10-02).
 
+## The next year is started, it does not begin by itself
+
+**A document's number takes its year from the document's date; its posting needs a period somebody made.** A numbering rule that resets builds its year label from the firm's year start and the date, so the first bill of April is `000001` with nothing set up. The ledger is not like that: a posting goes into an accounting period, a period belongs to a financial year, and neither is made by a document arriving. Until 2026-10-13 the only thing that made a year with its months was opening a firm's books, a platform administrator's act, and the firm's own screen could only close and reopen (D-FIN-32, found trying year end on a fixture firm). `FinanceService.start_next_financial_year` is the firm's own: `POST /finance/financial-years/next`, on `FINANCIAL_YEAR_CREATE`, makes the year after the latest one, of twelve months running on from its last day, all open. It closes nothing, so both years take postings while the old one is being finished, which is what an audit in June needs. It is refused while the latest year has not begun, so the button cannot run years ahead. The code is `FY` and the year it begins in, as `seed_finance_setup` names them; the key on the code covers deleted rows, so where that code is taken it says both years (`FY2027-28`).
+
 ## A credit note that states its lines reverses tax
 
 **A credit note that states its lines reverses tax; the bare receivable
@@ -1587,6 +1591,70 @@ nothing and are left out. A posting dated before the account's first imported
 statement and matched by no line is taken as cleared before reconciling began
 (decision A125).
 
+## A bill handed to a collector is recorded, never posted (backlog 122, 2026-10-13)
+
+`bill_handovers` says which unpaid bill is out with which collector, since
+which day, and when it came back. **Nothing that states money reads it**: it
+posts no journal, moves no customer balance, and what a bill owes is still
+`ReceiptService.outstanding_invoices`, the same before a bill goes out, while
+it is out and after it is back. `outstanding_at_handover` is a note of that
+moment, never a balance. `tests/unit/test_bill_handovers.py` reads the
+journals, the receipts, the receivable rows, the ageing and the collection
+sheet before and after and expects them equal. Handing out takes
+`COLLECTION_ASSIGN`, apart from `RECEIPT_CREATE`: whoever records what was
+collected does not decide which bills he carries.
+
+## A collector's line states; only its receipt posts (backlog 124, 2026-10-13)
+
+`collection_returns` holds one line per handed-out bill per day: collected,
+part, promised or not collected. **The line posts nothing.** `amount_collected`
+is what the collector says he took; it moves no balance and no report reads
+it. The money enters the books through `ReceiptService.create`, the one way a
+receipt is recorded, and the line names that receipt in `settlement_id`. So
+the journal, the customer's balance, the allocation to the bill and every
+refusal are the receipt's own, and reversing it is done where receipts are
+reversed.
+
+Who writes the receipt is the firm's choice
+(`credit_control_settings.collector_records_receipt`, off unless switched on):
+
+| Who writes the line | Switch | What is written |
+| --- | --- | --- |
+| The office (`RECEIPT_CREATE`) | either | the line and its receipt, in one transaction |
+| The collector (`COLLECTION_OWN_RECORD`) | off | the line only; the office records the receipt from the day's sheet (`POST /collections/returns/{id}/receipt`) |
+| The collector | on | the line and its receipt, for a bill in his own bag |
+
+The day's sheet (`GET /collections/day-sheet`) states three figures: what the
+lines say was taken, what the receipts named on them took in, and the
+difference. It adds up when the difference is nothing. A reversed receipt
+counts nothing, so its line shows as stated and not in the books until a new
+receipt is recorded or the line is withdrawn. A line with a live receipt is
+not withdrawn. A promised day on a line is a row in `payment_promises`,
+written by `PromiseService`, never a second kind of promise.
+
+## A parent's receipt posts once; spreading it over shops posts nothing (backlog 126, 2026-10-13)
+
+One receipt from a parent buyer may clear the bills of the shops under it.
+The receipt is the parent's and posts one journal for the whole amount
+(`Dr cash or bank / Cr receivables`). Each customer's account is a
+subsidiary of that one control account, so which shop the money belongs to
+is the subsidiary ledger's business:
+
+- For each shop whose bills it clears, a `RECEIPT` row on that shop's
+  account for what was cleared there. The parent's account takes a `RECEIPT`
+  row for the rest only.
+- Setting the unspread part against a shop's bill later writes a
+  `RECEIPT_TRANSFER` row on the parent (money held on account first, then
+  back onto what the parent owes) and a `RECEIPT` row on the shop, the same
+  day. No journal: the two rows cancel inside the control account.
+- Every one of those rows names the receipt, and a reversal undoes each by
+  its own stored deltas on its own account: the applications first, then
+  what was moved to shops, then the recording rows. One mirror journal.
+- The sum of the rows a receipt wrote, over all the accounts it touched,
+  is always the receipt's amount. `_held_by_party` in
+  `app/settlements/services/settlement_service.py` reads where the money
+  stands from those rows and never recomputes it.
+
 ## A promise to pay is recorded, never posted (SG-8, 2026-10-05)
 
 `app/collections` keeps what a customer said about paying: `payment_promises`
@@ -1683,3 +1751,30 @@ The shift's cash account defaults to the firm's `CASH` control account, and
 that is where every cash receipt is booked. A shift that names another asset
 account posts only its difference against that account -- routing the
 receipts themselves per till is not built.
+
+## A main office's payment posts once; a branch's account moves by a derived line (backlog 127, 2026-10-13)
+
+One payment to a supplier's main office may clear the bills of the branches
+under it. The payment is the main office's and posts one journal for the
+whole amount (`Dr payables / Cr cash or bank`). A supplier has no balance
+row: its statement is the payables lines of the ledger, each traced to a
+supplier through the document that posted it
+(`app/vendors/services/statement_service.py`). Left at that, the branch
+would show its bill owed for ever and the main office the same money paid
+ahead. So:
+
+- Each allocation of a payment to a bill of **another** supplier, which only
+  a main office's payment to a branch's bill can be, is read as two
+  `PAYMENT_TRANSFER` lines for the allocated amount, dated the day the money
+  met the bill: a debit on the branch (*Paid by the main office*) and a
+  credit on the main office (*Paid for a branch*).
+- The pair is **derived from `settlement_allocations` on every read and
+  stored nowhere**. It posts no journal and nets to nothing on the payables
+  account, so every supplier's closing balance still sums to the account.
+- Applying money paid ahead to a branch's bill later is the same pair, on
+  the date of that allocation. No journal, as for any Apply.
+- A reversed payment keeps its allocations and its pair, and gains the
+  opposite pair (`PAYMENT_TRANSFER_REVERSAL`) on the date of the journal
+  that reversed it, beside the `PAYMENT_REVERSAL` line on the main office.
+- What a bill still owes is read from the allocations as before, so the
+  branch's open bills and its statement agree.

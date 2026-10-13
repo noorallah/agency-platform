@@ -652,6 +652,28 @@ sale; a buyer's name is refused on a bill to any other customer. The *Cash
 sale* customer cannot be deleted, given a credit limit or a GSTIN, or made
 inactive.
 
+**A buyer with several shops.** A chain such as a supermarket with a shop in
+each area is kept as one **parent** customer and one customer per shop. On a
+shop's form choose the parent under **Shop of** and leave the **GST number**
+blank: the shop takes the parent's number, and the form says whose number it
+is. A shop registered in another state types its own. A GST number can be
+typed on one customer only; typing it on a second is refused with the name of
+the customer that holds it. Each shop keeps its own address, bills, dues,
+credit limit and salesman. The parent's form lists its shops under **Shops**
+with what each owes and one total, and the customer list shows *Shop of* or
+the number of shops. Changing the parent's GST number changes it on its shops.
+A parent cannot be deleted while it has shops. In a customer file, the column
+**ParentCode** names the parent.
+
+**One payment for several shops.** When the parent pays for its shops, record
+one receipt in the parent's name. Record Receipt lists the parent's own bills
+and the bills of every shop under it, each with the shop's name; set the
+money against the bills it pays. Each shop's account and statement come down
+by what was paid for it. Money not set against a bill stays on the parent's
+account, and **Apply** on the receipt sets it against a shop's bill later. A
+shop can still pay for itself: a receipt in the shop's name lists only that
+shop's bills. Reversing the parent's receipt puts every shop's account back.
+
 **Service invoices.** A product whose type is *Service* (installation,
 freight, a repair) is put on a quotation, order, delivery note, bill or
 return like any other line and is billed with its SAC. It **moves no stock**:
@@ -741,6 +763,56 @@ paying a rebate out in money, and accruing part-way through a period.
 *Receipts* and *Customer Statements* are in the Sell drop-down; Collection
 Sheet, Payment Promises, Post-dated Cheques and Refunds are under *Sell → All
 Sell screens → Money*.
+
+**Bills with Collectors** (added 2026-10-13, not yet tested by hand). The
+list of unpaid bills, each with who carries it. In the morning tick the bills
+going out, choose the collector under **Hand to** and press **Hand over
+ticked**. To hand out a whole bundle, fill a filter (the bills' dates, part
+of the area or city, or the first and last bill number of a run) and press
+**Hand over all matching**; the screen asks first and names the filters. A
+bill somebody already carries is left with him. **Take back ticked** brings
+bills home; **History** shows every bill handed out, those still out first,
+with what it owed going out and what it owes now, and is where a bill paid
+while it was out is found. Handing a bill out changes no balance and no
+report: it only records who carries the bill. The buttons are shown to
+whoever may hand bills out (the firm's administrator, manager and
+accountant); everybody who reads receipts sees the list.
+
+**The collector's line for the day, and the day sheet** (added 2026-10-13,
+not yet tested by hand). In the evening each bill a collector carries gets one
+line: **Collected in full**, **Part collected**, **Promised** or **Not
+collected**. The collector writes it himself with **Record** on *My Bills to
+Collect*, or the office writes it for him from *Bills with Collectors*. A part
+line needs the amount; a promised line needs the day, and a part line may
+name a day for the rest. The promise appears on *Payment Promises* in the
+collector's name.
+
+A line only says what was collected. The money enters the accounts as a
+receipt. A line written in the office records the receipt at once. For a line
+the collector writes himself, the firm chooses, under *Customers → Credit
+settings → Collectors record their own receipts*: switched off, his line is a
+note and the office presses **Record receipt** on the day sheet when he hands
+the money in; switched on, his line records the receipt. Either way he sees
+no Receipts screen and no accounts.
+
+*Bills with Collectors → Day sheet* shows a day's lines for one collector or
+all, with three totals: what the lines say was collected, what is in
+receipts, and the difference. When the difference is nothing the sheet says
+it adds up. One bill has one line a day. A wrong line is withdrawn with a
+reason and written again; a line whose receipt stands cannot be withdrawn
+until the receipt is reversed on *Receipts*.
+
+**My Bills to Collect and the Bill Collector job** (added 2026-10-13, not yet
+tested by hand). Hire the person who carries bills from the **Bill Collector**
+job. When he signs in he is offered one screen, **My Bills to Collect**: the
+unpaid bills handed to him, by customer, each marked **With me** with the day
+it was handed over and what it still owes. Under each customer the screen
+also lists that customer's other unpaid bills, marked **Not handed to me**,
+so he can ask for them at the same door; it does not say who carries those.
+He sees no other customer, no other collector's bills, no receipts and no
+accounts, and the screen has no buttons that change anything. A bill taken
+back in the office leaves his list. The firm's administrator, manager and
+accountant have the same screen for bills handed to them.
 
 **Collection Sheet and Payment Promises** (added 2026-10-05, not yet tested by
 hand). The **Collection Sheet** lists every customer's open bills, opening
@@ -995,6 +1067,61 @@ nothing. Typing a percentage replaces it and typing 0 removes it.
 | **Purchase invoice** | The supplier's bill | **Books what the firm owes the supplier, and the input GST** |
 | **Purchase return** | Goods sent back | **Takes the stock back out**, and reduces what is owed |
 | **Payment** | Money paid to the supplier | **Books the cash or bank**, and reduces what is owed |
+
+**A supplier company with branches.** A supplier that has branches is entered
+as one supplier for the main office and one for each branch, and each branch
+names the main office under **Branch of**. A branch keeps its own GST number,
+address and bank account. The main office's form lists its offices under
+**Branches** with what each is owed and one total, and the supplier list shows
+*Branch of* or the number of branches. An order placed on the main office can
+be received from a branch: on the goods receipt choose the office under
+**Received from**. The bill is then raised in that branch's name, and the
+order stays on the main office. A payment to the main office lists the bills
+of its branches too, each with the branch's name; a payment to a branch lists
+only that branch's bills. Each office has its own statement: a branch's bill
+paid by the main office shows there as *Paid by the main office*. A main
+office cannot be deleted while it has branches.
+
+**A supplier who is not in the list yet.** A supplier can be added without
+closing the document being typed. On a new purchase order press **New
+vendor** beside the supplier box; on a supplier bill typed directly press
+**New supplier**. The supplier form opens over the document. A name is enough;
+the rest can be filled in later under *Buy → Suppliers*. **Save** returns to
+the document with the new supplier chosen and everything typed still there;
+**Cancel** returns with nothing changed. The button is shown to a person who
+may add suppliers. A goods receipt takes its supplier from the purchase
+order, so it has no such button.
+
+**The brands a supplier sells.** Companies and their brands are kept under
+*Set up → Item lists → Principals* and *Brands*, and a product names its
+brand. On a supplier's form, **Brands this supplier sells** lists the firm's
+brands with a tick box each; tick the ones this supplier may sell and press
+**Save brands**. A stockist who sells several companies' brands is one
+supplier with all of those brands ticked. A supplier with no brand ticked
+takes the brands of the company bought from it (the supplier named on the
+company under *Principals*); a branch with none ticked takes its main
+office's; a supplier none of these answers for sells everything. On a
+purchase order the **Brand** box above the lines starts at *All brands of
+this supplier*, and the product box of each line then offers only those
+brands' products. Choose one brand to order that brand alone, or *Every
+product* to see the rest. This only shortens the list: a product outside the
+supplier's brands can still be ordered, and a product already on a line
+stays there. A sales order and a sales bill have the same **Brand** box, with
+the firm's companies and brands, to shorten the product list while typing;
+the counter bill does not. A
+brand cannot be deleted while a supplier has it ticked.
+
+**Retail and wholesale on one bill.** A customer carries his usual price
+level (on the customer, or on his segment), and a sales order or a sales bill
+for him starts at that level's prices. Where the firm has price levels, both
+documents show a **Price level** box: it starts at *Customer's usual* and
+says under it which level that is. Choose another level and every line is
+priced again at it, a rate typed by hand included; a rate typed afterwards
+stays. A product with no rate at the level chosen takes its own selling
+price, and a price list agreed with the customer still comes first. The
+order remembers the level. Changing the customer puts the box back to his
+usual. Where somebody's discount is limited, a cheaper level counts as a
+discount from the customer's own price.
 
 ## 6.2 Documents
 
@@ -1355,6 +1482,21 @@ worth (7 days' lead time plus 7 safety), order up to 30 days more, in whole
 units. A level typed on a product still wins. The report shows which basis each
 row used and the daily average.
 
+**Plan an order** (*Purchase Orders → "..." → Plan an order...*). A month-end
+order for one company. Choose the warehouse and the company, type how many
+days of sales to read and how many days of stock to hold, and press **Show**.
+Every product of that company's brands is listed, short or not, with what was
+sold in the period, the average a day, what is needed, what is in hand and
+what is already on order. **To order** is one sum: sold ÷ the days read × the
+days of stock wanted, less stock in hand, less what open orders (drafts too)
+still bring, rounded up to a whole unit and to the supplier's pack. Tick the
+rows, type over a quantity where wanted, and **Raise draft orders** raises
+one draft per supplier; **Download** gives the list as an Excel sheet. A
+supplier chosen at the top takes every row; otherwise each product goes to
+its preferred supplier, else the one last billed, else the one its company is
+bought from. Left untyped, the days are the firm's *Reorder planning*
+figures.
+
 Every buying list names the **supplier** in a column and on the bar, and is
 searched by supplier name.
 
@@ -1599,7 +1741,8 @@ selected*.
 
 **Expenses.** Rent, fuel, salaries and other running costs: the expense
 account, the amount, the cash or bank account it was paid from, and TDS where it was deducted. Saving
-posts it to the journal; an expense dated in a locked year is refused.
+posts it to the journal; an expense dated in a locked year is refused, and so is
+one dated after today, since an expense is money already spent.
 
 **Ledgers.** One account's movements over a period, with the opening and
 closing balance.
@@ -1826,6 +1969,15 @@ document can only be posted into an open period; closing a period stops late
 changes to it. Before a month is closed the screen lists what is still undone
 (draft documents, unreconciled bank lines and the like) -- it lists and never
 refuses. The same screen sets the **ageing bands** (5.3).
+
+**Year end.** *Close year* locks a year once every month of it is closed and no
+draft journal is dated in it; it says which months or which drafts are in the
+way. Nothing can be posted into a closed year, and no closing entry is made.
+*Reopen year* is a right of its own and asks for a reason. **The next year is
+started with *Start next year***, which makes it with its twelve months and
+leaves the current year open; a year does not begin by itself, and documents
+dated in it are refused until it exists. Document numbers restart for the new
+year by themselves.
 
 ---
 

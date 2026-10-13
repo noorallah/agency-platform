@@ -828,6 +828,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         # absent means leave alone, and only this tells absent from null.
         sent = frozenset(data.model_fields_set)
         counter = self._own_counter_chain(row)
+        if counter is None and data.price_level_id is not None:
+            raise ValidationError(
+                "This bill takes its prices from the documents it bills, so "
+                "it cannot name a price level. Change the level on the order, "
+                "or type the price on the line."
+            )
         data = self._keeping_what_the_bill_holds(
             row, data, sent=sent, own_orders=None if counter is None else counter[1]
         )
@@ -2241,6 +2247,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         }
         held = next((order.coupon_code for order in orders if order.coupon_code), None)
         coupon = normalized_coupon(data.coupon_code) if "coupon_code" in sent else held
+        # The price level, likewise (backlog 131): the bill is where its order
+        # is priced, so the level it names is the order's. Silence keeps it,
+        # an explicit null goes back to the customer's usual, and another
+        # level raises the order again so a line nobody priced takes it.
+        held_level = next(
+            (order.price_level_id for order in orders if order.price_level_id), None
+        )
+        level = data.price_level_id if "price_level_id" in sent else held_level
         # An offer the order was priced with may have run out since: another
         # bill was approved first and took the last of it. Saving again is
         # how this one is priced without, so that save raises the order
@@ -2250,6 +2264,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         if (
             coupon == held
+            and level == held_level
             and not spent
             and self._ships_as_raised(data, note_lines, picked)
             and all(
@@ -2272,6 +2287,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 "customer_id": data.customer_id or row.customer_id,
                 "branch_id": data.branch_id or row.branch_id,
                 "coupon_code": coupon,
+                "price_level_id": level,
                 "source_documents": [],
                 "lines": bare,
             }

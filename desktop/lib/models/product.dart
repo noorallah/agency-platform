@@ -252,6 +252,49 @@ class BrandRecord {
       );
 }
 
+/// The brands a supplier may sell (backlog 129). [source] says where the list
+/// came from: OWN (named on the supplier), COMPANY (the brands of the company
+/// that names it), MAIN_OFFICE (taken from the main office it is a branch of)
+/// or NONE (not limited, [brands] empty).
+class VendorBrands {
+  const VendorBrands({
+    required this.vendorId,
+    required this.source,
+    required this.sourceVendorName,
+    required this.namedBrandIds,
+    required this.brands,
+  });
+
+  final String vendorId;
+  final String source;
+  final String sourceVendorName;
+  final List<String> namedBrandIds;
+  final List<BrandRecord> brands;
+
+  /// A supplier that is not limited offers every product.
+  bool get isLimited => source != 'NONE' && source.isNotEmpty;
+
+  factory VendorBrands.fromJson(Json json) => VendorBrands(
+        vendorId: stringValue(json['vendor_id']),
+        source: stringValue(json['source']),
+        sourceVendorName: stringValue(json['source_vendor_name']),
+        namedBrandIds: [
+          for (final dynamic id in (json['named_brand_ids'] as List?) ?? [])
+            stringValue(id),
+        ],
+        brands: [
+          for (final dynamic row in (json['brands'] as List?) ?? [])
+            BrandRecord(
+              id: stringValue((row as Json)['brand_id']),
+              name: stringValue(row['name']),
+              principalId: stringValue(row['principal_id']),
+              principalName: stringValue(row['principal_name']),
+              isActive: boolValue(row['is_active'], fallback: true),
+            ),
+        ],
+      );
+}
+
 class ProductFeatureState {
   const ProductFeatureState({required this.code, required this.enabled});
 

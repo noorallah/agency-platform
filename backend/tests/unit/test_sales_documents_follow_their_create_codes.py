@@ -12,8 +12,15 @@ that holds `SALES_CREATE` holds both codes so nobody lost an action, and a
 draft is editable by whoever raised it under the create code and by nobody
 else short of `SALES_UPDATE`. Approval stays with `SALES_APPROVE`: the role
 that raises a document is not the one that agrees to it.
+
+Since backlog 119 (2026-10-13) a firm may make approval no step of its own,
+and then whoever raised a document completes it. The approve routes therefore
+admit the create code and `assert_may_approve` narrows it, so a route's gate
+alone no longer says who may approve: the checks ask the narrowing itself,
+with the codes each role really holds.
 """
 
+import inspect
 from collections.abc import Iterable, Iterator
 from datetime import date
 from decimal import Decimal
@@ -24,7 +31,7 @@ import pytest
 from fastapi import Response
 from fastapi.routing import APIRoute
 
-from app.common.scope import ResolvedFirmScope
+from app.common.scope import ResolvedFirmScope, assert_may_approve
 from app.core.exceptions import AuthorizationError
 from app.identity.system_seed import ROLE_PERMISSION_CODES, SYSTEM_PERMISSION_CODES
 from app.sales_order.api.router import update_sales_order
@@ -150,17 +157,87 @@ def test_counter_sales_can_raise_and_correct_a_bill(route: str) -> None:
     assert _opened_by(route, granted), f"refused {route}: {_gates()[route]}"
 
 
+def _may_approve(role: str, *, author: UUID, caller: UUID, approval_step: bool) -> bool:
+    """Whether `caller`, holding what `role` holds, may approve `author`'s order."""
+    scope = ResolvedFirmScope(
+        principal=_principal(caller, set(ROLE_PERMISSION_CODES[role])),
+        firm_id=uuid4(),
+    )
+    try:
+        assert_may_approve(
+            scope,
+            created_by=author,
+            approval_step=approval_step,
+            approve_codes=("SALES_APPROVE",),
+            document="sales order",
+        )
+    except AuthorizationError:
+        return False
+    return True
+
+
 @pytest.mark.parametrize("role", ["SALES_EXECUTIVE", "BILLING_EXECUTIVE"])
+def test_approval_stays_with_the_approver(role: str) -> None:
+    """Where a firm asks for an approver, whoever raises is not who agrees."""
+    assert "SALES_APPROVE" not in ROLE_PERMISSION_CODES[role]
+    author = uuid4()
+    assert not _may_approve(role, author=author, caller=author, approval_step=True)
+    assert not _may_approve(role, author=author, caller=uuid4(), approval_step=True)
+
+
+@pytest.mark.parametrize("role", ["SALES_EXECUTIVE", "BILLING_EXECUTIVE"])
+def test_with_no_approval_step_only_the_author_completes_a_document(
+    role: str,
+) -> None:
+    """A firm that asks for no approver lets the author finish, and nobody else."""
+    author = uuid4()
+    assert _may_approve(role, author=author, caller=author, approval_step=False)
+    assert not _may_approve(role, author=author, caller=uuid4(), approval_step=False)
+
+
+def test_an_approver_approves_whatever_the_firm_chose() -> None:
+    """`SALES_APPROVE` approves anybody's document, step or no step."""
+    author = uuid4()
+    for step in (True, False):
+        assert _may_approve(
+            "SALES_MANAGER", author=author, caller=uuid4(), approval_step=step
+        )
+
+
 @pytest.mark.parametrize(
-    "route",
+    ("route", "create_code"),
     [
-        "POST /api/v1/sales-orders/{order_id}/approve",
-        "POST /api/v1/sales-invoices/{invoice_id}/approve",
+        ("POST /api/v1/sales-orders/{order_id}/approve", _ORDER),
+        ("POST /api/v1/sales-invoices/{invoice_id}/approve", _INVOICE),
     ],
 )
-def test_approval_stays_with_the_approver(role: str, route: str) -> None:
-    """Whoever raises a document is not the one who agrees to it."""
-    assert not _opened_by(route, ROLE_PERMISSION_CODES[role])
+def test_an_approve_route_admits_its_own_create_code_and_no_other(
+    route: str, create_code: str
+) -> None:
+    """The gate is the approve code or that document's create code, nothing wider."""
+    assert _gates()[route] == (frozenset({"SALES_APPROVE", create_code}),)
+
+
+def test_every_approve_route_that_admits_a_create_code_narrows_it() -> None:
+    """A gate widened for the author is narrowed by `assert_may_approve`.
+
+    Selling and buying alike (backlog 119, 120): an approve route whose gate
+    lets a create code through, with a handler that never asks whose document
+    it is, would let anybody who raises documents approve everybody's.
+    """
+    from app.main import create_app
+
+    widened = 0
+    for route in _endpoints(create_app().routes):
+        if not isinstance(route, APIRoute) or not route.path.endswith("/approve"):
+            continue
+        codes: frozenset[str] = frozenset().union(*_walk(route))
+        if not any(code.endswith("_CREATE") for code in codes):
+            continue
+        widened += 1
+        source = inspect.getsource(route.endpoint)
+        assert "assert_may_approve(" in source, f"{route.path} is not narrowed"
+    assert widened >= 5, widened
 
 
 def test_counter_sales_takes_no_order() -> None:

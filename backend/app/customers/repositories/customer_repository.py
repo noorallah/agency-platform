@@ -4,7 +4,7 @@ from datetime import UTC, datetime, time
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import case, exists, func, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -68,8 +68,9 @@ class CustomerRepository:
     ) -> UUID | None:
         """Find a live customer already holding this code.
 
-        Only the code is unique: a GSTIN or a PAN may repeat across one
-        company's accounts (decision A7) and is warned about instead.
+        A PAN may repeat across one company's accounts (decision A7) and is
+        warned about instead; a GST number has its own check, which names
+        the holder (`BuyerFamily.assert_number_free`).
         """
         # Live rows only (D-MST-11): a deleted customer releases its code, as
         # the partial key does.
@@ -90,10 +91,19 @@ class CustomerRepository:
         pan_number: str | None,
         excluding_id: UUID | None = None,
     ) -> list[Customer]:
-        """Return the live customers already holding this GSTIN or PAN (A7)."""
+        """Return the live customers already holding this GSTIN or PAN (A7).
+
+        A GST number's holder is the customer it was typed on; the shops
+        that take it from their parent are not holders (backlog 125).
+        """
         conditions = []
         if gst_number:
-            conditions.append(Customer.gst_number == gst_number)
+            conditions.append(
+                and_(
+                    Customer.gst_number == gst_number,
+                    Customer.gst_number_from_parent.is_(False),
+                )
+            )
         if pan_number:
             conditions.append(Customer.pan_number == pan_number)
         if not conditions:

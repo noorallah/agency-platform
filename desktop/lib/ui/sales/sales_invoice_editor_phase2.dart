@@ -61,6 +61,40 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     _schedulePreview();
   }
 
+  /// The Price level switch (M13): the whole bill is priced at [choice] ('' is
+  /// the customer's usual). Every line naming a product is repriced, one typed
+  /// by hand included, with one request for all of them. With GST in the rates
+  /// a blank box takes the level's price on the server, so the boxes are
+  /// cleared instead of quoted.
+  void _choosePriceLevel(String choice) {
+    _setState(() {
+      _priceLevelChoice = choice;
+      if (_rateIncludesTax) {
+        for (final _DirectLine line in _directLines) {
+          if (line.productId == null) continue;
+          line.price.clear();
+          line.autoPrice = null;
+        }
+      }
+    });
+    if (!_rateIncludesTax) {
+      unawaited(_quoteDirect(_directLines, replaceTyped: true));
+    }
+    _schedulePreview();
+  }
+
+  /// A customer was chosen on a bill of products: back to his usual level, the
+  /// lines nobody typed a rate on asked afresh.
+  void _customerChosen(String? id) {
+    _setState(() {
+      _customerId = id;
+      _shipToId = null;
+      _resetPriceLevelFor(id);
+    });
+    unawaited(_quoteDirect(_directLines));
+    _schedulePreview();
+  }
+
   /// The bill's switch: on a new bill of products, the switch itself; on a
   /// draft, what its rates were typed as, which an edit cannot change.
   Widget? _rateIncludesTaxField(BuildContext context) {
@@ -373,8 +407,10 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         }
         _customerId = id;
         _shipToId = null;
+        _resetPriceLevelFor(id);
         _error = null;
       });
+      unawaited(_quoteDirect(_directLines));
       _schedulePreview();
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -598,13 +634,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                       customerPlace(item)),
                 ),
             ],
-            onSelected: (value) {
-              _setState(() {
-                _customerId = value;
-                _shipToId = null;
-              });
-              _schedulePreview();
-            },
+            onSelected: _customerChosen,
           ),
         )
       else
@@ -668,6 +698,37 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           },
         ),
       if (inclusive != null) inclusive,
+      // Backlog 131: one switch on the bill for the level it is priced at.
+      // Only on a bill of bare product lines.
+      if (_showsPriceLevel)
+        PriceLevelBox(
+          fieldKey: const ValueKey('sales-invoice-price-level'),
+          levels: offeredPriceLevels(_priceLevels, _priceLevelChoice),
+          value: _priceLevelChoice,
+          helper: _customerId == null
+              ? null
+              : priceLevelHelper(
+                  _priceLevels,
+                  known: _usualKnown,
+                  usualId: _usualLevelId,
+                ),
+          enabled: !_saving,
+          onChanged: _choosePriceLevel,
+        ),
+      // Backlog 129: narrows the product boxes by company or brand; stores
+      // and sends nothing.
+      // Not on the counter's till screen, which has no room for a row more
+      // in its header at 800x600.
+      if (_direct && !_counterMode && _products.isNotEmpty)
+        BrandFilterBox(
+          key: const ValueKey('sales-invoice-brand'),
+          options: salesBrandOptions(_products, _brandRecords),
+          value: _brandChoice,
+          onChanged: (value) => _setState(() {
+            _brandChoice = value;
+            _brandEpoch++;
+          }),
+        ),
       DocumentField(
         label: 'Invoice date',
         auto: true,
@@ -953,6 +1014,15 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     final ThemeData theme = Theme.of(context);
     final _DirectLine line = _directLines[index];
     final Product? product = _product(line.productId);
+    final List<Product> offered = productsForSalesChoice(
+      _brandChoice,
+      _products,
+      _brandRecords,
+      keepIds: {
+        for (final _DirectLine row in _directLines)
+          if (row.productId != null) row.productId!,
+      },
+    );
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final int? number = _sentNumber(index);
     final Map<String, dynamic>? priced =
@@ -977,14 +1047,14 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             KeyedSubtree(
-              key: ValueKey<String>('scan-$index-${line.refresh}'),
+              key: ValueKey<String>('scan-$index-${line.refresh}-$_brandEpoch'),
               child: DropdownMenu<String>(
               key: ValueKey<String>('sales-invoice-direct-product-$index'),
               initialSelection: line.productId,
               expandedInsets: EdgeInsets.zero,
               enableFilter: true,
               filterCallback: (entries, filter) =>
-                  productEntriesMatching(entries, filter, _products),
+                  productEntriesMatching(entries, filter, offered),
               searchCallback: productEntryToHighlight,
               requestFocusOnTap: true,
               menuHeight: 320,
@@ -996,7 +1066,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                 constraints: BoxConstraints(maxHeight: 26),
               ),
               dropdownMenuEntries: [
-                for (final Product item in _products)
+                for (final Product item in offered)
                   DropdownMenuEntry<String>(
                     value: item.id,
                     label: '${item.name}  ${item.code}'

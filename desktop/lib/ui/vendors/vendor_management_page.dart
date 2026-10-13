@@ -25,6 +25,7 @@ import '../workspace/party_place.dart';
 import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import 'supplier_catalogue_section.dart';
+import 'vendor_brands_section.dart';
 import 'vendor_ratings_section.dart';
 import '../../phase2/document_page.dart';
 
@@ -230,6 +231,11 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
                   widget.permissions.hasPermission('VENDOR_UPDATE'),
               canImportCatalogue:
                   widget.permissions.hasPermission('VENDOR_IMPORT'),
+              showBrands: vendor != null &&
+                  (widget.permissions.hasPermission('VENDOR_VIEW') ||
+                      widget.permissions.hasPermission('PURCHASE_VIEW')),
+              canManageBrands:
+                  widget.permissions.hasPermission('VENDOR_UPDATE'),
               loadRatings: vendor != null &&
                       (widget.permissions.hasPermission('VENDOR_VIEW') ||
                           widget.permissions.hasPermission('PURCHASE_VIEW'))
@@ -244,6 +250,15 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
                   ? null
                   : () => widget.api.withdrawMyVendorRating(vendor.id),
               loadMembers: widget.api.firmMembers,
+              // "Branch of": the main office this supplier is a branch of.
+              searchParents: (text) => widget.api
+                  .vendors(search: text)
+                  .then((page) => page.items),
+              // The main office and its branches; the form asks only for a
+              // record that has a main office or branches.
+              loadFamily: vendor == null
+                  ? null
+                  : () => widget.api.vendorFamily(vendor.id),
               // "Also a customer" (ACC-11): read-only, for somebody who may
               // read customers.
               loadLinkedCustomer: vendor != null &&
@@ -561,6 +576,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
           columns: [
             _column('Code', 'code'),
             _column('Name', 'name'),
+            const GridColumn(key: 'family', label: 'Main office / branches'),
             const GridColumn(key: 'gstin', label: 'GSTIN'),
             const GridColumn(key: 'gst_type', label: 'GST type'),
             const GridColumn(key: 'phone', label: 'Phone'),
@@ -572,6 +588,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
           cells: (item) => [
             item.code,
             item.displayName,
+            _familyCell(item),
             item.gstin,
             item.gstTypeShort,
             item.mobile.isNotEmpty ? item.mobile : item.phone,
@@ -672,6 +689,64 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
       );
 }
 
+/// "Branch of CODE" for a branch, "N branches" for a main office, from the
+/// row alone.
+String _familyCell(Vendor vendor) {
+  final String? parent = vendor.parentCode;
+  if (vendor.parentVendorId != null) {
+    return parent == null || parent.isEmpty ? 'Branch' : 'Branch of $parent';
+  }
+  if (vendor.branchCount > 0) {
+    return '${vendor.branchCount} '
+        '${vendor.branchCount == 1 ? 'branch' : 'branches'}';
+  }
+  return '';
+}
+
+/// Add a supplier from a document that is being typed (backlog 128): the
+/// supplier form opens over the document, on the document's own navigator,
+/// and closing it shows the document again with nothing typed lost. The same
+/// form, duplicate warning and create call as the Suppliers screen. Returns
+/// the supplier saved, or null when the form was closed without saving. The
+/// server asks `VENDOR_CREATE`; a caller offers this only to somebody who
+/// holds it.
+Future<Vendor?> addSupplierInPlace(
+  BuildContext context, {
+  required ApiClient api,
+}) async {
+  Vendor? created;
+  await Navigator.of(context).push<Object?>(
+    PageRouteBuilder<Object?>(
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      // The full-page form of the new UI, whatever is above the navigator
+      // this lands on: only the new UI's documents offer the action.
+      pageBuilder: (pageContext, _, __) => Phase2Scope(
+        child: SelectionArea(
+          child: _VendorEditorDialog(
+            api: api,
+            searchParents: (text) =>
+                api.vendors(search: text).then((page) => page.items),
+            onSave: (Json data) async {
+              created = await saveUnlessDuplicate<Vendor>(
+                pageContext,
+                noun: 'supplier',
+                check: () => api.vendorDuplicates(
+                  name: '${data['name'] ?? ''}',
+                  phone: '${data['phone'] ?? ''}',
+                  gstin: '${data['gstin'] ?? ''}',
+                ),
+                save: () => api.createVendor(data),
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+  return created;
+}
+
 class _VendorEditorDialog extends StatefulWidget {
   const _VendorEditorDialog({
     required this.api,
@@ -684,13 +759,27 @@ class _VendorEditorDialog extends StatefulWidget {
     this.showCatalogue = false,
     this.canManageCatalogue = false,
     this.canImportCatalogue = false,
+    this.showBrands = false,
+    this.canManageBrands = false,
     this.loadRatings,
     this.onRate,
     this.onWithdrawRating,
     this.loadMembers,
     this.loadLinkedCustomer,
+    this.searchParents,
+    this.loadFamily,
     this.onSave,
   });
+
+  /// Finds suppliers by what was typed, for the "Branch of" field. Null omits
+  /// the field, and then `parent_vendor_id` is not sent at all, so a save
+  /// cannot clear a link the form never showed.
+  final Future<List<Vendor>> Function(String text)? searchParents;
+
+  /// The main office and its branches. Asked once on opening, and only for a
+  /// record that has a main office or branches; null omits the Branches
+  /// panel.
+  final Future<VendorFamily> Function()? loadFamily;
 
   /// Makes the create or update call. When given, the page runs it itself and
   /// stays open with the server's message on a refusal; null pops the payload
@@ -729,6 +818,12 @@ class _VendorEditorDialog extends StatefulWidget {
   final bool showCatalogue;
   final bool canManageCatalogue;
   final bool canImportCatalogue;
+
+  /// The brands this supplier may sell (backlog 129), phase 2 only: shown for
+  /// a saved supplier to somebody holding `VENDOR_VIEW` or `PURCHASE_VIEW`;
+  /// ticking and saving needs `VENDOR_UPDATE`.
+  final bool showBrands;
+  final bool canManageBrands;
 
   /// What people think of this supplier (BUY-15). Null hides the section for
   /// a user who can read neither `VENDOR_VIEW` nor `PURCHASE_VIEW`; a new
@@ -859,6 +954,18 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   /// The customer of the same business, once read; null shows nothing.
   Json? _linkedCustomer;
 
+  // The main office this supplier is a branch of; empty is "on its own",
+  // sent as null. Sent only when the form offers the field.
+  late String _parentId = widget.vendor?.parentVendorId ?? '';
+  late String _parentLabel = [
+    for (final String? part in [
+      widget.vendor?.parentCode,
+      widget.vendor?.parentName
+    ])
+      if (part != null && part.isNotEmpty) part,
+  ].join(' - ');
+  VendorFamily? _family;
+
   /// Phase 2: the sections are one scroll rather than tabs.
   bool _flat = false;
   final Map<String, GlobalKey> _sectionKeys = {
@@ -873,6 +980,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       'Licences',
       'Opening bills',
       'Catalogue',
+      'Brands',
       'Ratings',
     ])
       section: GlobalKey(),
@@ -897,6 +1005,160 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     _customFields.setKind(vendorTypeId: _typeId);
     unawaited(_loadClassifications());
     unawaited(_loadLinkedCustomer());
+    unawaited(_loadFamily());
+  }
+
+  /// Whether the record being opened belongs to a supplier company at all.
+  bool get _hasFamily {
+    final Vendor? vendor = widget.vendor;
+    return vendor != null &&
+        (vendor.parentVendorId != null || vendor.branchCount > 0);
+  }
+
+  /// Reads the main office and its branches, once per open and only for a
+  /// record that has either: a supplier with neither makes no call.
+  Future<void> _loadFamily() async {
+    if (widget.loadFamily == null || !_hasFamily) return;
+    try {
+      final VendorFamily family = await widget.loadFamily!();
+      if (mounted) setState(() => _family = family);
+    } on Object {
+      // A family that cannot be read costs the panel, not the form.
+    }
+  }
+
+  /// Suppliers the "Branch of" field offers: never the one being edited, or a
+  /// branch itself (branches sit one level under a main office).
+  Future<Iterable<Vendor>> _findParents(TextEditingValue value) async {
+    final String text = value.text.trim();
+    if (text.length < 2 || widget.searchParents == null) {
+      return const <Vendor>[];
+    }
+    try {
+      final List<Vendor> found = await widget.searchParents!(text);
+      return [
+        for (final Vendor row in found)
+          if (row.id != widget.vendor?.id && row.parentVendorId == null) row,
+      ];
+    } on Object {
+      return const <Vendor>[];
+    }
+  }
+
+  void _clearParent() => setState(() {
+        _parentId = '';
+        _parentLabel = '';
+      });
+
+  /// The "Branch of" field. A main office with branches cannot itself become
+  /// a branch, so the field is disabled and says why.
+  Widget _parentField() {
+    final int branches = widget.vendor?.branchCount ?? 0;
+    if (branches > 0) {
+      return TextFormField(
+        key: const ValueKey('vendor-parent'),
+        enabled: false,
+        decoration: InputDecoration(
+          labelText: 'Branch of',
+          helperText: 'This supplier is the main office of $branches '
+              '${branches == 1 ? 'branch' : 'branches'}.',
+          helperMaxLines: 2,
+        ),
+      );
+    }
+    return Autocomplete<Vendor>(
+      key: const ValueKey('vendor-parent'),
+      initialValue: TextEditingValue(text: _parentLabel),
+      optionsBuilder: _findParents,
+      displayStringForOption: (vendor) =>
+          withPlace('${vendor.code} - ${vendor.name}', vendorPlace(vendor)),
+      onSelected: (vendor) => setState(() {
+        _parentId = vendor.id;
+        _parentLabel = '${vendor.code} - ${vendor.name}';
+      }),
+      fieldViewBuilder: (context, controller, focusNode, onSubmitted) =>
+          TextField(
+        key: const ValueKey('vendor-parent-box'),
+        controller: controller,
+        focusNode: focusNode,
+        decoration: InputDecoration(
+          labelText: 'Branch of',
+          helperText: 'The main office this supplier is a branch of. A branch '
+              'keeps its own GST number. Leave blank for a supplier on its '
+              'own.',
+          helperMaxLines: 3,
+          suffixIcon: _parentId.isEmpty
+              ? null
+              : IconButton(
+                  key: const ValueKey('vendor-parent-clear'),
+                  tooltip: 'Clear',
+                  icon: const Icon(Icons.clear, size: 18),
+                  onPressed: () {
+                    controller.clear();
+                    _clearParent();
+                  },
+                ),
+        ),
+        // Emptying the box takes the supplier out from under its main office.
+        onChanged: (text) {
+          if (text.isEmpty && _parentId.isNotEmpty) _clearParent();
+        },
+        onSubmitted: (_) => onSubmitted(),
+      ),
+    );
+  }
+
+  /// The main office and its branches, one row each, with what the firm owes
+  /// them together.
+  Widget _branchesPanel() {
+    final VendorFamily? family = _family;
+    if (family == null || family.members.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final ThemeData theme = Theme.of(context);
+    String money(String value) =>
+        double.tryParse(value)?.toStringAsFixed(2) ?? value;
+    return Column(
+      key: const ValueKey('vendor-branches'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 16),
+        Text('Branches', style: theme.textTheme.titleSmall),
+        Card(
+          child: Column(
+            children: [
+              for (final VendorFamilyMember member in family.members)
+                ListTile(
+                  key: ValueKey('vendor-branch-${member.code}'),
+                  dense: true,
+                  title: Text(
+                    '${member.code}  ${member.name}'
+                    '${member.isParent ? '  (main office)' : ''}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    [
+                      if (member.place.isNotEmpty) member.place,
+                      if (member.gstin.isNotEmpty) member.gstin,
+                    ].join(' · '),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Text(money(member.balance)),
+                ),
+              ListTile(
+                key: const ValueKey('vendor-branches-total'),
+                dense: true,
+                title: Text('Total we owe', style: theme.textTheme.titleSmall),
+                trailing: Text(
+                  money(family.totalBalance),
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _loadLinkedCustomer() async {
@@ -1362,6 +1624,11 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
               ),
             ],
           ),
+          if (widget.searchParents != null) ...[
+            const SizedBox(height: 12),
+            _parentField(),
+          ],
+          if (widget.loadFamily != null) _branchesPanel(),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -2030,6 +2297,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         // Sent whole like the other optional fields: null is "Not set".
         'gst_registration_type': _gstType,
         'gstin': _gstin.text.trim().toUpperCase(),
+        // Only when the form offers the field: absent means "leave the main
+        // office alone" and null takes the supplier out from under it.
+        if (widget.searchParents != null)
+          'parent_vendor_id': _parentId.isEmpty ? null : _parentId,
         'pan': _pan.text.trim().toUpperCase(),
         'payment_terms_days': int.tryParse(_creditDays.text.trim()) ?? 0,
         // Blank is rupees: null clears a currency that was set.

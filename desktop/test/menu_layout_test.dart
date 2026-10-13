@@ -279,6 +279,27 @@ void main() {
       expect(masters!.groups.map((group) => group.label), ['Parties']);
     });
 
+    test('a bill collector is offered My Bills to Collect and nothing else',
+        () {
+      // The Bill collector role holds COLLECTION_OWN_VIEW and no other code
+      // (backlog 123): one working item, plus Home and the settings every
+      // member has.
+      final ModuleVisibility visibility = _visibility(['COLLECTION_OWN_VIEW']);
+      final List<String> labels = [];
+      for (final MenuAreaSpec area in MenuLayout.all) {
+        final MenuAreaSpec? shown = MenuLayout.visible(area, visibility);
+        if (shown == null || shown.id == 'home' || shown.id == 'settings') {
+          continue;
+        }
+        labels.addAll(shown.items.map((item) => item.label));
+      }
+      expect(labels, ['My Bills to Collect']);
+      final MenuAreaSpec settings =
+          MenuLayout.visible(MenuLayout.settings, visibility)!;
+      expect(settings.items.map((item) => item.label),
+          ['My Preferences', 'My Branch and Warehouse']);
+    });
+
     test('nobody with no permissions is offered an area', () {
       final ModuleVisibility visibility = _visibility(const []);
       for (final MenuAreaSpec area in MenuLayout.all) {

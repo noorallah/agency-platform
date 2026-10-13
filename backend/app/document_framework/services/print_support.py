@@ -22,6 +22,11 @@ from sqlalchemy.orm import Session
 
 from app.common.firm_metadata import platform_reader
 from app.customers.models import Customer, CustomerAddress
+from app.customers.services.ship_to import (
+    billing_address,
+    live_addresses,
+    shipping_address,
+)
 from app.document_framework.models import DocumentPrintTemplate
 from app.document_framework.services.printable_types import (
     PRINTABLE_DOCUMENT_TYPES as PRINTABLE_DOCUMENT_TYPES,
@@ -208,7 +213,10 @@ def customer_party(
             depending on which address the document is speaking to.
         address_id: The address the document itself names -- its ship-to
             (backlog 67 row 3). Printed even when deleted since, because it
-            is where the goods went; None reads the customer's own by kind.
+            is where the goods went; None reads the customer's own by kind:
+            the default of that kind, then an address of that type, and a
+            customer with no shipping address ships to the billing one
+            (D-SELL-92, D-SELL-93).
 
     Returns:
         The block, or None where the customer has been removed.
@@ -228,15 +236,11 @@ def customer_party(
         else None
     )
     if address is None:
-        address = session.scalar(
-            select(CustomerAddress)
-            .where(
-                CustomerAddress.customer_id == customer_id,
-                CustomerAddress.address_type == kind,
-                CustomerAddress.is_deleted.is_(False),
-            )
-            .limit(1)
-        )
+        rows = live_addresses(session, customer_id)
+        if kind == "SHIPPING":
+            address = shipping_address(rows)
+        if address is None:
+            address = billing_address(rows)
     lines: list[str] = []
     state: str | None = None
     if address is not None:

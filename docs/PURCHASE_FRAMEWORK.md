@@ -1252,6 +1252,99 @@ optional other product given free, a period, and either one supplier or none
   applied" for each line a scheme filled.
 - **QA.** TC-BUY-066 to TC-BUY-069.
 
+## A supplier company with branches (backlog 127, 2026-10-13)
+
+`vendors.parent_vendor_id` puts a branch under its main office, one level
+deep. `app/vendors/services/supplier_family.py` holds the rules and the three
+questions the documents ask: `company_of` (the main office each supplier
+belongs to), `same_company` and `assert_office_of`.
+
+| Document | Whose it is | Rule |
+| --- | --- | --- |
+| Purchase order | The office it was placed on | Unchanged |
+| Goods receipt | The office the goods came from: `vendor_id` on the write, the order's supplier when left out | An office of the order's supplier's company, or refused (`GoodsReceiptService._received_from`) |
+| Supplier bill | The office that sent the bill | An office of the company its receipts are from (`PurchaseInvoiceService._billing_office`, on create and on edit) |
+| Payment | The office that was paid | A main office's payment may name its branches' bills; a branch's only its own (`SettlementService.shop_ids`) |
+| Purchase return, debit note | The supplier on the document they come from | Unchanged |
+
+The order is counted received from its receipts whoever sent them. Nothing
+is copied between offices: a branch's GST number is its own, and the tax on a
+bill is worked out from the office on the bill. What a main office's payment
+does to a branch's account is in `docs/LEDGER_POSTING_RULES.md`.
+
+## A supplier added from a document (backlog 128, 2026-10-13)
+
+Screen only. `addSupplierInPlace` in
+`desktop/lib/ui/vendors/vendor_management_page.dart` pushes the supplier form
+onto the navigator of the document that asked, so the document's state stays
+alive beneath it, and returns the supplier `POST /api/v1/vendors` created or
+null. The new purchase order and the supplier bill typed directly offer it
+beside their supplier box to a holder of `VENDOR_CREATE`, keep the supplier
+in a list of their own beside the one they were opened with, and tell the
+page behind them so its list knows the name. A goods receipt names an order
+and has no supplier box. A new buying document that needs the same action
+calls `addSupplierInPlace`; it does not build a second supplier form.
+
+## The brands a supplier may sell (backlog 129, 2026-10-13)
+
+`vendor_brands` holds one row for each brand named on a supplier.
+`VendorBrandService.brands_of` (`backend/app/vendors/services/vendor_brands.py`)
+answers the brands that count for a supplier from the first of three places
+that has any: the supplier's own rows, the brands of the companies
+(`principals.vendor_id`) bought from it, and for a branch its main office's
+answer. `source` says which, and `NONE` means the supplier is not limited.
+`GET` and `PUT /api/v1/vendors/{id}/brands` read and replace it;
+`GET /api/v1/products?brand_id=` lists the products of brand rows exactly.
+
+It is a filter on what a document's product box offers and nothing more.
+No purchase service reads it, so no line is refused for its brand and no
+document stores the choice. `desktop/lib/ui/workspace/brand_filter.dart`
+holds the narrowing and the **Brand** box the purchase order, the sales order
+and the sales bill share; a product already on a line is always kept in its
+box. A new document that wants the filter uses that file and reads the
+supplier's brands once when the supplier is chosen.
+
+`BrandService.delete_brand` refuses a brand a supplier names, because both
+foreign keys cascade and a soft delete reaches neither. A supplier merge
+re-points the rows and keeps one where both suppliers named the same brand.
+
+## Planning an order for a company (backlog 130, 2026-10-13)
+
+`OrderPlanService` (`app/purchase/services/order_plan.py`) is a
+`ReorderService` asked a different question. *Below reorder level* lists what
+is already short; the plan lists **every** active stocked product of a
+selection with what to order.
+
+- The sum, per product, for one warehouse, in stock units:
+  `needed = sold * cover_days / sales_days`, held to four places;
+  `to order = ceil(max(needed - available - on order, 0))`, then rounded up to
+  the supplier's minimum and multiple where its catalogue row has them.
+  **Multiply before dividing**: 100 / 60 * 30 is 50.000...01 in decimal
+  arithmetic, and the ceiling of that orders one too many.
+- *Sold* is `_sales_by_location` (dispatches less returns, net of reversals,
+  the last `sales_days` days up to `firm_today`). *Available* is the sum of
+  `inventory_records.available_quantity`. *On order* is `incoming(...)` with
+  `OPEN_ORDER_STATUSES`, drafts included.
+- The selection: `company_id` (the products of the brands of that
+  `principals` row), `brand_ids`, or a `vendor_id` alone (the brands
+  `VendorBrandService.brands_of` answers, unless its source is `NONE`).
+  Stockless product types are left out.
+- The supplier: the plan's `vendor_id` for every row; else `_suppliers`
+  (preferred, then last billed); else the active supplier the brand's company
+  names. The rate is the last bill's where that bill was the same supplier's
+  and in the stock unit, else the product's purchase price.
+- `raise_plan_drafts` works the plan out again from the same choices, so a
+  product outside it, a row with nothing to order and a row with no supplier
+  each refuse the batch by name. Orders are staged by
+  `ReorderService._stage_orders`, which *Below reorder level* also uses, and
+  committed once.
+- Routes: `GET /api/v1/purchases/order-plan` and
+  `POST /api/v1/purchases/order-plan/drafts`, declared above `/{order_id}`.
+  The read is not under `/reports/`: it is a working screen, not a catalogue
+  report.
+- The product ids are asked about in chunks of 5,000 where a helper binds
+  them, because a plan with no selection names every product of the firm.
+
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the
