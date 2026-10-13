@@ -9858,3 +9858,121 @@ taken number "(main office's)". Tests: `tests/unit/test_supplier_gst_number.py`
   the GST number and so lists a main office beside the branches that take
   its number. The customers' list does the same.
 - No screen was clicked; the form is covered by widget tests.
+
+## 137. GST number lookup: a customer's or supplier's details fetched from a GST provider -- open, not built, waiting on the owner
+
+**Customer task F6**, the owner's answer of 2026-10-13: "Log in
+`docs/BACKLOG.md`, as an open item and no build: GST number lookup, fetching
+a customer's or supplier's name, address, state and registration status from
+a GST provider and filling the form. Off until a firm enters its own provider
+account, as messaging is. Needs the provider chosen and today's price first
+(the owner: research later)." It is CUS-8 in `docs/CUSTOMER_REQUIREMENTS.md`.
+
+**Nothing is built by this entry.** It records what is there today, the
+design the build would follow, and what is not known. The two things not
+known, the provider and its price, are the owner's.
+
+**What we do today.**
+
+- A GST number is typed. `normalize_gstin` (`app/core/validation/common.py`)
+  checks its shape on a customer and on a supplier, and the PAN is read off
+  the number. `gstin_problem`, beside it, also checks the state code and
+  the check character; today only a branch's own number goes through it.
+- Nothing asks anybody outside whether the number exists, whose it is, or
+  whether the registration is still alive. The name, the address, the state
+  and the registration type (Regular, Composition, Unregistered and the
+  rest) are typed by the person, on the customer and on the supplier.
+- One number is held by one customer and by one supplier of a firm, with a
+  shop or a branch taking its parent's (backlog 125 and 136). That is about
+  the firm's own records and says nothing about the number being real.
+- The platform already has the shape for "a service of somebody else's, off
+  until the firm brings its own account": messaging
+  (`docs/MESSAGING_FRAMEWORK.md`: built in, off, the firm enters its own
+  provider account, passes **Test**, and the provider bills the firm) and
+  the e-invoice route (`EInvoiceProvider` in
+  `app/einvoice/models/einvoice.py`: SANDBOX, OFFLINE, and the live routes
+  NIC_DIRECT and GSP "added provider by provider", neither built yet).
+
+**What the lookup would do.** The person types a GST number on the customer
+or the supplier form and presses **Fetch**. The server asks the firm's
+provider and the form is filled with what came back: the legal name and the
+trade name, the address of the principal place of business, the state, the
+registration type and the registration status. The person reads it, changes
+what he wants and saves. Nothing is saved by the fetch itself.
+
+**Design the build would follow, by the repository's rules.**
+
+- **Off, and the firm brings its own account.** One settings row per firm:
+  the provider, its credentials, on or off, and a **Test** that must pass
+  before it can be switched on. The provider bills the firm; the platform
+  holds no shared account and pays for nobody's lookups. A firm that never
+  set it up sees no Fetch button and types the details as today.
+- **One adapter per provider behind one interface**, as
+  `app/messaging/providers/base.py` is for messaging, so a second provider
+  is one more adapter and no screen change. A sandbox adapter answers from
+  made-up data and says so in every value, so the screen can be shown and
+  tested with no account.
+- **The lookup fills a form; it never writes a record.** A read endpoint
+  that answers what the provider said. The save is the ordinary create or
+  update, with its own checks (the one-number-one-holder rule, the audit
+  row). So a wrong or stale answer is seen by a person before it is kept.
+- **A dead registration is said, not refused.** A number the provider calls
+  cancelled or suspended is shown as that on the form, in words. Whether a
+  firm may still save such a party, and whether a bill to one is stopped, is
+  a decision for then; the convention here (credit limits, cash that is not
+  there) is to warn and let the firm decide.
+- **The state comes from the number** and the address from the provider.
+  The address arrives as text, so it goes into the address lines and the
+  PIN code; matching it to the geography masters (district, city, area) is
+  by PIN code where that finds one and left to the person where it does
+  not.
+- **Every call is counted and kept.** Each lookup costs the firm money at
+  its provider, so the firm sees how many were made, by whom and when, and
+  the answer is kept for a while so the same number asked twice in a day is
+  not paid for twice. Credentials are stored as the messaging accounts'
+  are, never returned by a read.
+- **A permission of its own is not needed**: whoever may create or edit the
+  customer or the supplier may fetch. Entering the provider account is the
+  firm administrator's (`SETTINGS_UPDATE`), as for messaging.
+- Phase 2 screens only: the customer and supplier forms, and one settings
+  page beside the messaging one.
+
+**What is known, from general knowledge of the GST system and not checked
+against any provider's documents today.**
+
+- The GST Network's taxpayer search answers, for a number: legal name, trade
+  name, constitution of business, taxpayer type, registration status, the
+  date of registration and of cancellation, the jurisdiction, and the
+  principal place of business. The public page asks a captcha and is not an
+  interface a program may use.
+- A program reaches the same answer through a licensed GST Suvidha Provider
+  (GSP) or a company that resells one. The e-invoice portal also answers
+  taxpayer details to a firm registered for e-invoicing through its API
+  credentials. So a firm that takes the GSP route for e-invoices may get
+  the lookup from the same account; that is a reason to choose the two
+  together.
+- The other products fetch on the number: Zoho Books, Busy, Marg and
+  TallyPrime (with a connected service) all fill the party from the GSTIN.
+  It is an expected convenience, not a differentiator.
+
+**What is not known.**
+
+- **Which provider.** Not chosen. The owner's.
+- **The price today**: per lookup or a monthly plan, a minimum commitment,
+  whether a sandbox is free. Not researched; no figure is written here
+  because none was checked. The owner's.
+- Whether the provider's terms allow the answer to be stored, and for how
+  long. This decides the "kept for a while" above.
+- What the address looks like in the answer (one line or parts, with or
+  without a PIN code) and so how much of the address the form can fill.
+- Whether additional places of business are answered. A shop under a parent
+  (backlog 125) and a supplier's branch (backlog 136) often trade from one.
+- The limits on calls per minute and per day, and what the provider answers
+  when the GST system itself is down.
+- Whether the first customer wants it at all at the provider's price: he
+  asked for it as a convenience ("Later" in his requirements).
+
+**Waiting on.** The owner: the provider and its price. Then the build is
+medium: one settings table and its screen, one adapter and the sandbox, one
+read endpoint, a button on two forms, the lookup log. No change to the
+ledger, to tax or to any document.
