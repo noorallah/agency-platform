@@ -9601,9 +9601,10 @@ failed 19 checks on the old code.
 
 **Not done.**
 
-- A sales return of such a line is still credited at quantity x the rate
-  before tax, so a full return of 500 pieces may credit two paise more than
-  the bill. Not tried and not changed.
+- A sales return of such a line was thought to credit two paise more than
+  the bill. Tried on 2026-10-14 (row G4) it was refused outright, and it is
+  fixed there as D-SELL-97 (#1494): the return credits what the bill
+  charged, 50,000.00 for the 500.
 - The order and the note the server raises by itself behind a bill typed
   directly still read quantity x the rate before tax. The bill, which is what
   the customer owes and what posts, reads the figure typed.
