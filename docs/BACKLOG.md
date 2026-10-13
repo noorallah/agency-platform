@@ -10804,7 +10804,7 @@ sit beside it.
 
 **Size.** Large; a design note first.
 
-## 148. Settings: one screen per subject, its items as tabs in set-up order, with a Start here tab -- open, design agreed in outline, not built
+## 148. Settings: one screen per subject, its items as tabs in set-up order, with a Start here tab -- open; wireframes agreed, to be built for every section (rows T1, T2), not built yet
 
 **The owner, 2026-10-13.** Every setting is a menu item of its own and
 nothing says where to start: under Tax a user sees Tax Configuration, Tax
@@ -10849,10 +10849,17 @@ sections wireframes.html`, five views: the Settings page today and
 proposed, Tax (Start here, and inside a step), Item lists (Start here), and
 the eight assumptions to confirm.
 
+**The owner, 2026-10-13, on seeing the wireframes:** they are right, and the
+improvement is to be built, **for all possible settings**. Tax goes first,
+row T1 of `docs/CUSTOMER_BUILD_TASKS.md`, and builds the shared piece; every
+other section follows in row T2, its order worked out from what the server
+refuses without what and written in a table in
+`desktop/docs/DESKTOP_FRAMEWORK.md` for him to check.
+
 **Not decided.**
 
-1. The owner's word on the wireframes, and on the eight assumptions listed
-   in them (short names on the tabs among them).
+1. Nothing more on the wireframes; the eight assumptions stand as drawn,
+   short names on the tabs among them.
 2. The order of the steps in each section, and which are required. The
    order drawn for Tax and Item lists is a reading of the screens and is
    checked against each one before building. To be settled section by
@@ -10862,4 +10869,36 @@ the eight assumptions to confirm.
    types are examples).
 
 **Size.** Medium for the first section, small for each one after it.
+
+## 149. Two calculators in the application: an ordinary one and a GST one -- open, low priority, not built
+
+**The owner, 2026-10-13:** somewhere in the application, in the header or
+the footer, two calculators: a normal calculator and a GST calculator. Low
+priority.
+
+**Nothing is built by this entry.** There is no calculator in the desktop
+today.
+
+**What a build would do.**
+
+- One small button in the header of the new UI, beside the bell, and a
+  keyboard shortcut; it opens a small window that stays over the screen
+  being worked on and can be moved, so a figure can be worked out without
+  leaving a bill.
+- **Calculator:** add, subtract, multiply, divide, percent, a memory and the
+  last few results. Typed from the number pad.
+- **GST calculator:** an amount and a rate (the firm's own rates offered:
+  5, 12, 18, 28), and a choice of *add GST* or *take GST out*. It shows the
+  taxable value, the tax, the total, and the tax split into CGST and SGST,
+  or shown as IGST for another state. Rounded as a bill line is.
+- A result can be copied; nothing it shows is saved and nothing is sent to
+  the server. The GST calculator works the figure out on the desktop by the
+  same rounding the server uses for a line typed at a rate including GST
+  (backlog F1, D-SELL-96), and a test holds the two to the same paisa.
+
+**Not decided.** Header or footer (the header is proposed; the new UI has
+no footer bar); whether it is offered to every user or switched off per
+firm; whether the GST calculator also takes a discount and a quantity.
+
+**Size.** Small.
 
