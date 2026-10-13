@@ -2226,6 +2226,38 @@ of 2026-10-05 and, like the rest, have not been run by hand.
 - **Expect:** (1) **422**, "Record 2 of 2: Line 1 brings in 1 free, and line 1 of PO-... has 0 left to give: 2 free on the order, 2 already received. Nothing was imported." The order has the same receipts as before: the good first record was not left behind as a draft. (2) **201**, two draft receipts with their own numbers; completed, the shelf holds 12. (3) **422**, "Record 2 of 2: Selected product is not available in this firm. Nothing was imported.", and no order was written. (4) **201**, two draft orders, numbered one after the other.
 - **Leaves:** the order received in full with its 2 free; two draft purchase orders.
 
+### TC-BUY-101 — Approval switched off for a buying document: one Save completes it, and only for whoever raised it
+
+*Added 2026-10-13 (backlog 120). **Driven over HTTP** that day on a fixture firm (60 checks); the screens were not clicked.*
+
+- **Covers:** backlog 120 (customer task M2)
+- **Fixture:** `ready-firm`
+- **Also needs:** a product **P**; a supplier **V**; a warehouse **W**; a second user **B** holding only the **Purchase Executive** role. The firm administrator is **F**.
+- **Steps**
+  1. As B, open *Settings > Buying > Purchase Settings*.
+  2. As F, open *Purchase Settings*. Under **Approval** switch **Purchase orders wait for approval** off. Save.
+  3. As B, new purchase order to V: P, quantity 5 at 60, into W. Press **Save**.
+  4. As F, raise the same order and leave it submitted (by the API, or with the switch on for a moment). As B, open that order.
+  5. As F, switch **Purchase orders wait for approval** on again and save. As B, new purchase order to V: P, quantity 5. Press the save button, then Submit.
+  6. As F, approve B's order of step 5.
+  7. As F, switch **Goods receipts are completed as a step of their own** off. As B, new goods receipt against the order of step 3: P, quantity 3. Press **Save**.
+  8. As F, switch the purchase order and goods receipt stages off, set the default warehouse to W, and switch **Supplier bills wait for approval** off. As B, new supplier bill from V: P, quantity 3 at 60. Press **Save**.
+  9. As F, new supplier bill from V, left as a draft (by the API). As B, open that draft.
+  10. As F, switch **Supplier bills wait for approval** on. As B, new supplier bill from V: P, quantity 3. Press the save button.
+  11. As F, switch everything back as it was.
+- **Expect**
+  - Step 1: B cannot change the settings.
+  - Step 2: the Approval part shows three switches, all on until changed. A line under the heading says that with a switch off Save completes the document, whoever raised it approves it, the checks are still made, and a change applies to documents raised from then on. The goods receipt's switch says a receipt has no approver and that off, Save also completes the receipt and brings the stock in.
+  - Step 3: the window shows one button, **Save**. The order is **Approved**.
+  - Step 4: B is not offered Approve on an order somebody else raised (the server answers *Only whoever raised this purchase order may approve it without PURCHASE_APPROVE*).
+  - Step 5: the order stays **Submitted** and B is not offered Approve (the server answers *This purchase order waits for approval, which needs PURCHASE_APPROVE*). An order B raised while the switch was off, and left submitted, can still be approved by B.
+  - Step 6: approved.
+  - Step 7: one **Save**; the receipt is **Completed** and stock of P in W rises by 3. A receipt raised before the switch went off still shows Save and Complete apart.
+  - Step 8: one **Save**; the bill is **Approved** and stock of P in W rises by 3.
+  - Step 9: B is not offered Approve on a bill somebody else raised.
+  - Step 10: the bill stays a **Draft** and B is not offered Approve (the server answers *This purchase invoice waits for approval, which needs PURCHASE_APPROVE*).
+- **Leaves:** approved orders and bills for V, two completed receipts; the settings as they were.
+
 
 ## Stock
 

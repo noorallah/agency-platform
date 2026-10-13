@@ -303,7 +303,14 @@ class GoodsReceiptRecord {
     this.ewayBillWarning = '',
     this.leftToBillQuantity = '',
     this.leftToBillAmount = '',
+    this.approvalStep = true,
+    this.createdBy = '',
   });
+
+  /// Backlog 120 (M2): false when completing was not a step of its own for
+  /// this receipt when it was raised, and who raised it.
+  final bool approvalStep;
+  final String createdBy;
 
   final String id;
 
@@ -451,6 +458,8 @@ class GoodsReceiptRecord {
         ewayBillWarning: stringValue(json['eway_bill_warning']),
         leftToBillQuantity: stringValue(json['left_to_bill_quantity']),
         leftToBillAmount: stringValue(json['left_to_bill_amount']),
+        approvalStep: json['approval_step'] != false,
+        createdBy: stringValue(json['created_by']),
       );
 
   /// The header a document view shows. [branchName] and [warehouseName]

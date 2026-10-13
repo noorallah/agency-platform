@@ -16,6 +16,10 @@ Approval stays a control wherever a person raises the order: a firm with the
 order stage on still submits and approves every order. Only an order the bill
 raised is approved by the bill, because the bill's own approval is the
 decision there and nobody else would ever see the order.
+
+Whether approval is a step of its own is the firm's decision too, per
+document (backlog 120): three switches, on by default. Off, whoever raises
+the document completes it, and every check approval makes is still made.
 """
 
 from uuid import UUID
@@ -43,6 +47,16 @@ DEFAULT_SETTINGS = PurchaseWorkflowSettings(
     bill_tolerance_amount=None,
     order_quantity_policy="WARN",
     budget_policy="WARN",
+    purchase_order_approval=True,
+    goods_receipt_approval=True,
+    purchase_invoice_approval=True,
+)
+
+#: The approval switch of each document that has one (backlog 120).
+APPROVAL_SWITCHES = (
+    "purchase_order_approval",
+    "goods_receipt_approval",
+    "purchase_invoice_approval",
 )
 
 
@@ -66,6 +80,15 @@ class PurchaseWorkflowService:
         """Return the firm's configuration, or the whole chain by default."""
         stored = self._stored_settings(firm_id)
         return stored if stored is not None else DEFAULT_SETTINGS
+
+    def approval_is_a_step(self, firm_id: UUID, switch: str) -> bool:
+        """Say whether a new document of this kind waits for an approver.
+
+        ``switch`` is one of ``APPROVAL_SWITCHES``. The answer is stamped
+        on the document as it is raised, so a later change to the setting
+        never reaches a document already made (backlog 120).
+        """
+        return bool(getattr(self.settings_for(firm_id), switch))
 
     def settings_response(self, firm_id: UUID) -> PurchaseWorkflowSettingsResponse:
         """Report the configuration and whether the firm actually chose it."""
@@ -126,6 +149,13 @@ class PurchaseWorkflowService:
             row.budget_policy = data.budget_policy
         if data.order_quantity_policy is not None:
             row.order_quantity_policy = data.order_quantity_policy
+        for switch in APPROVAL_SWITCHES:
+            chosen = getattr(data, switch)
+            if chosen is not None:
+                setattr(row, switch, chosen)
+            elif getattr(row, switch) is None:
+                # A row not yet flushed has no column default to read.
+                setattr(row, switch, True)
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -211,6 +241,9 @@ class PurchaseWorkflowService:
             bill_tolerance_amount=row.bill_tolerance_amount,
             order_quantity_policy=row.order_quantity_policy or "WARN",
             budget_policy=row.budget_policy or "WARN",
+            purchase_order_approval=bool(row.purchase_order_approval),
+            goods_receipt_approval=bool(row.goods_receipt_approval),
+            purchase_invoice_approval=bool(row.purchase_invoice_approval),
             is_configured=is_configured,
         )
 
@@ -238,4 +271,5 @@ class PurchaseWorkflowService:
             ),
             "order_quantity_policy": row.order_quantity_policy,
             "budget_policy": row.budget_policy,
+            **{switch: getattr(row, switch) for switch in APPROVAL_SWITCHES},
         }

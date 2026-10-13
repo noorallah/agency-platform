@@ -49,6 +49,8 @@ class DocumentRef {
     required this.id,
     required this.number,
     required this.status,
+    this.approvalStep = true,
+    this.createdBy = '',
   });
 
   /// [numberKey] names the document's number in the server's JSON
@@ -64,12 +66,19 @@ class DocumentRef {
       id: '${body['id'] ?? ''}',
       number: '${body[numberKey] ?? ''}',
       status: '${body['status'] ?? ''}',
+      approvalStep: body['approval_step'] != false,
+      createdBy: '${body['created_by'] ?? ''}',
     );
   }
 
   final String id;
   final String number;
   final String status;
+
+  /// Backlog 120 (M2): false when approval was not a step of its own for
+  /// this document when it was raised, and who raised it.
+  final bool approvalStep;
+  final String createdBy;
 }
 
 /// One next step a document can take.
@@ -179,12 +188,26 @@ DocumentStep<Json>? soleSaveStep(
   List<DocumentStep<Json>> steps, {
   required bool settingOff,
   Json? existing,
+}) =>
+    soleSaveStepOf<Json>(
+      steps,
+      settingOff: settingOff,
+      existing: existing,
+      stampedOff: (Json record) => record['approval_step'] == false,
+    );
+
+/// [soleSaveStep] for a window that holds a parsed record rather than the
+/// server's JSON (backlog 120): [stampedOff] says whether the record was
+/// raised where approval is not a step of its own.
+DocumentStep<T>? soleSaveStepOf<T>(
+  List<DocumentStep<T>> steps, {
+  required bool settingOff,
+  required bool Function(T record) stampedOff,
+  T? existing,
 }) {
-  final bool off = existing == null
-      ? settingOff
-      : existing['approval_step'] == false;
+  final bool off = existing == null ? settingOff : stampedOff(existing);
   if (!off) return null;
-  for (final DocumentStep<Json> step in steps) {
+  for (final DocumentStep<T> step in steps) {
     if (step.afterSave == null) continue;
     // A new document is the user's own, so the grant they raise it under
     // is enough; a draft is judged on its own record.

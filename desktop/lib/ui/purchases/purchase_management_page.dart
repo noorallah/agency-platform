@@ -86,6 +86,22 @@ enum PurchaseOrderView {
       };
 }
 
+/// Backlog 120 (M2): whether the user may approve [order]. The approve code,
+/// or -- where approval was not a step of its own when the order was raised --
+/// the person who raised it, under the code they raised it with. The server
+/// makes the same test on `approval_step` and `created_by`.
+bool mayApprovePurchaseOrder(
+  PermissionService permissions,
+  PurchaseOrder order,
+) {
+  if (permissions.hasPermission('PURCHASE_APPROVE')) return true;
+  final String? me = permissions.userId;
+  return !order.approvalStep &&
+      permissions.hasPermission('PURCHASE_CREATE') &&
+      me != null &&
+      order.createdBy == me;
+}
+
 class PurchaseManagementPage extends StatefulWidget {
   const PurchaseManagementPage({
     super.key,
@@ -1804,7 +1820,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           onPressed: selected != null &&
                   !selected.isDeleted &&
                   selected.isSubmitted &&
-                  _canApprove
+                  mayApprovePurchaseOrder(widget.permissions, selected)
               ? () => unawaited(_approveSelected(selected))
               : null,
         ),
@@ -1943,7 +1959,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     final bool canApproveSelected = selected != null &&
         !selected.isDeleted &&
         selected.isSubmitted &&
-        _canApprove;
+        mayApprovePurchaseOrder(widget.permissions, selected);
     return Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -2625,6 +2641,11 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   bool _saving = false;
   String? _error;
 
+  /// Backlog 120 (M2): the firm does not make approval a step of its own for
+  /// purchase orders, so saving a new one submits and approves it. Read once
+  /// when the window opens; unreadable settings leave approval a step.
+  bool _approvalOff = false;
+
   /// True once a lifecycle action moved this document, so the grid behind is
   /// out of date even though nothing was edited.
   bool _acted = false;
@@ -2726,6 +2747,35 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     _historyFuture = _loadHistory();
     unawaited(_loadBudgets());
     unawaited(_customFields.start());
+    if (widget.isCreating) unawaited(_readApprovalSetting());
+  }
+
+  Future<void> _readApprovalSetting() async {
+    try {
+      final PurchaseWorkflowSettings stages =
+          await widget.api.purchaseWorkflowSettings();
+      if (!mounted || stages.purchaseOrderApproval) return;
+      setState(() => _approvalOff = true);
+    } on Object {
+      // Left as it was.
+    }
+  }
+
+  /// Whether Save, here, also sends the order for approval and approves it:
+  /// approval is not a step of its own for this order (a new one follows the
+  /// firm's setting, a saved one what it was stamped with), and the user may
+  /// both send it and approve it.
+  bool get _soleSave {
+    if (_locked || !widget.canSubmit) return false;
+    final bool isNew = _draft.id.isEmpty;
+    if (isNew) {
+      return _approvalOff &&
+          (widget.canApprove ||
+              widget.permissions.hasPermission('PURCHASE_CREATE'));
+    }
+    return !_draft.approvalStep &&
+        (widget.canApprove ||
+            mayApprovePurchaseOrder(widget.permissions, _draft));
   }
 
   Future<void> _loadBudgets() async {
@@ -3931,7 +3981,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     return null;
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool thenApprove = false}) async {
     final String? missing = _missing();
     if (missing != null) {
       setState(() {
@@ -3980,12 +4030,19 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       _error = null;
     });
     try {
-      final PurchaseOrder saved = widget.isCreating
+      // A window that has already saved this order (and then stopped at a
+      // refusal) holds it, so a second Save updates it rather than raising
+      // another.
+      final PurchaseOrder saved = widget.isCreating && _draft.id.isEmpty
           ? await widget.api.createPurchaseOrder(sending)
           : amendReason != null
               ? await widget.api.amendPurchaseOrder(sending, amendReason.trim())
               : await widget.api.updatePurchaseOrder(sending);
       if (!mounted) return;
+      if (thenApprove) {
+        await _submitAndApprove(saved);
+        return;
+      }
       Navigator.of(
         context,
       ).pop(PurchaseEditorOutcome(order: saved, saved: true));
@@ -4006,6 +4063,48 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       if (mounted) {
         setState(() => _saving = false);
       }
+    }
+  }
+
+  /// Backlog 120 (M2): the rest of the one Save -- submit, then approve --
+  /// each through the call the buttons make, the licence check included. The
+  /// first refusal stops it: the order stays as the server left it, held in
+  /// this window with the server's message, and Approve is still offered.
+  Future<void> _submitAndApprove(PurchaseOrder saved) async {
+    PurchaseOrder held = saved;
+    try {
+      if (held.isDraft) held = await widget.api.submitPurchaseOrder(held.id);
+      if (!mounted) return;
+      if (held.isSubmitted) {
+        final LicenceCheckOutcome licence = await confirmLicenceCheck(
+          context,
+          widget.api,
+          widget.permissions,
+          document: 'PURCHASE_ORDER',
+          documentId: held.id,
+        );
+        if (!licence.proceed || !mounted) {
+          if (mounted) {
+            setState(() {
+              _draft = held;
+              _acted = true;
+              _error = 'Saved, but not approved.';
+            });
+          }
+          return;
+        }
+        held = await widget.api.approvePurchaseOrder(held.id);
+      }
+      if (!mounted) return;
+      Navigator.of(context)
+          .pop(PurchaseEditorOutcome(order: held, saved: true));
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        _draft = held;
+        _acted = true;
+        _error = 'Saved, but not approved: ${exception.message}';
+      });
     }
   }
 
@@ -4464,7 +4563,8 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
             _draft.id.isNotEmpty &&
             !_draft.isDeleted &&
             _draft.isDraft,
-        DocumentToolbarAction.approve => widget.canApprove &&
+        DocumentToolbarAction.approve => (widget.canApprove ||
+                mayApprovePurchaseOrder(widget.permissions, _draft)) &&
             !_saving &&
             _draft.id.isNotEmpty &&
             !_draft.isDeleted &&

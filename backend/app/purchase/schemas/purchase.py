@@ -367,6 +367,11 @@ class PurchaseOrderResponse(PurchaseSchema):
     #: header because a list carries many records and a header carries
     #: one — and this desktop edits from list rows.
     version: int
+    #: Who raised it, and whether approval is a step of its own on this
+    #: document (backlog 120). False: whoever raised it may complete it
+    #: without the approve code, so the desktop's Save does.
+    created_by: UUID | None = None
+    approval_step: bool = True
     firm_id: UUID
     branch_id: UUID
     warehouse_id: UUID
@@ -588,6 +593,11 @@ class PurchaseWorkflowSettingsResponse(PurchaseSchema):
     order_quantity_policy: str = "WARN"
     #: ``WARN`` or ``NEEDS_APPROVAL`` past a purchase budget (BUY-14).
     budget_policy: str = "WARN"
+    #: Whether approval is a step of its own on each document (backlog
+    #: 120). Off: whoever raises one completes it in the same Save.
+    purchase_order_approval: bool = True
+    goods_receipt_approval: bool = True
+    purchase_invoice_approval: bool = True
     is_configured: bool
 
 
@@ -616,6 +626,12 @@ class PurchaseWorkflowSettingsWrite(PurchaseSchema):
     budget_policy: Literal["WARN", "NEEDS_APPROVAL"] | None = None
     #: Absent keeps the firm's own (BUY-5).
     order_quantity_policy: Literal["WARN", "REFUSE"] | None = None
+    #: Approval as a step of its own, per document (backlog 120). Omitted
+    #: is left as it is: an editor that never showed them must not switch
+    #: a control off. A change reaches documents raised from then on.
+    purchase_order_approval: bool | None = None
+    goods_receipt_approval: bool | None = None
+    purchase_invoice_approval: bool | None = None
 
 
 class RolePurchaseApprovalLimitItem(PurchaseSchema):

@@ -65,7 +65,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           if (!_saving) _close();
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
-          if (!_locked && !_saving) unawaited(_save());
+          if (!_locked && !_saving) unawaited(_save(thenApprove: _soleSave));
         },
         const SingleActivator(LogicalKeyboardKey.enter, control: true):
             _phase2AddLine,
@@ -124,7 +124,7 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                       ),
                       child: const Text('Send for approval'),
                     ),
-                  if (widget.canApprove && canApprove)
+                  if (canApprove)
                     OutlinedButton(
                       key: const ValueKey('purchase-order-approve'),
                       onPressed: () =>
@@ -134,13 +134,17 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
                   if (!_locked)
                     FilledButton(
                       key: const ValueKey('purchase-order-save'),
-                      onPressed: _saving ? null : () => unawaited(_save()),
+                      onPressed: _saving
+                          ? null
+                          : () => unawaited(_save(thenApprove: _soleSave)),
                       child: Text(
-                        widget.isCreating
-                            ? 'Save draft'
-                            : widget.isAmending
-                                ? 'Save amendment'
-                                : 'Save order',
+                        _soleSave
+                            ? 'Save'
+                            : widget.isCreating
+                                ? 'Save draft'
+                                : widget.isAmending
+                                    ? 'Save amendment'
+                                    : 'Save order',
                       ),
                     ),
                 ],

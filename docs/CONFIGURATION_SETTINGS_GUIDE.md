@@ -565,6 +565,9 @@ whose purchases passed 50 lakh a year.
 | Whole bill may exceed the order by (amount) | No check | The bill's total excess over its order's prices. |
 | Order quantities off the supplier's terms | **Warn** | *Refuse*: an order line not meeting the supplier's minimum or multiple cannot be saved. *Warn*: the editor suggests the right quantity. |
 | Past a purchase budget | **Warn** | *Needs approval*: an order taking a budget past its amount can be approved only with `PURCHASE_APPROVE_OVER_BUDGET`. |
+| Purchase orders wait for approval | On | On: a submitted order waits for somebody with the approve permission. Off: **Save** completes it, and whoever raised it is who approves it. |
+| Goods receipts are completed as a step of their own | On | On: a receipt is saved, then completed. Off: **Save** also completes it, which brings the stock in. A receipt has no approver either way. |
+| Supplier bills wait for approval | On | The same as the order, for a supplier's bill. |
 
 **Tolerance:** any breach refuses approval unless the approver holds
 `PURCHASE_APPROVE_OVER_TOLERANCE`, and names each line, for example *"billed
@@ -574,6 +577,18 @@ it has nothing to compare against.
 **With stages off**, stock still arrives through a goods receipt and the
 accounts still pass through *Goods received not invoiced*, exactly as if the
 documents had been typed.
+
+**Approval, per document.** A firm run by one person has nobody to approve
+what that person typed. With a document's switch off, its window shows one
+**Save**, which saves and completes it. Whoever raised an order or a bill is
+the one who approves it, with no approve permission needed; somebody else's
+still needs it. Every check made at approval is still made, on the person
+who approves: the approval limit of their role, the firm's approval rules,
+the purchase budgets, the licence check and the bill's tolerance over its
+order. A document keeps the answer it was raised under, so a change reaches
+documents raised from then on. With both stages and *Supplier bills wait for
+approval* off, a supplier's bill is typed, approved, received into stock and
+posted in one Save.
 
 ### Reorder planning
 

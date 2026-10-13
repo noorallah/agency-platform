@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
+    assert_may_approve,
     firm_any_permission_scope,
     firm_permission_scope,
 )
@@ -114,6 +115,13 @@ PurchaseInvoiceUpdateScope = Annotated[
 ]
 PurchaseInvoiceApproveScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_APPROVE")
+]
+#: Approving one bill also admits the code that raises one: where the firm
+#: has made approval no step of its own, the author completes the bill
+#: (backlog 120). The handler narrows it with `assert_may_approve`.
+PurchaseInvoiceApproveOneScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope("PURCHASE_APPROVE", "PURCHASE_CREATE"),
 ]
 PurchaseInvoiceCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CANCEL")
@@ -601,7 +609,7 @@ def set_purchase_invoice_supplier_irn(
 )
 def approve_purchase_invoice(
     invoice_id: UUID,
-    scope: PurchaseInvoiceApproveScope,
+    scope: PurchaseInvoiceApproveOneScope,
     data: PurchaseInvoiceApproveRequest | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
@@ -610,8 +618,19 @@ def approve_purchase_invoice(
     The block (PG-3) records an ordinary payment allocated to the bill in the
     same commit, so it needs PAYMENT_CREATE as ``POST /payments`` does. With no
     block the approval is exactly what it always was.
+
+    Under `PURCHASE_APPROVE`, or by whoever raised the bill where the firm
+    has made approval no step of its own (backlog 120).
     """
     service = PurchaseInvoiceService(db)
+    current = service.get_invoice(invoice_id, firm_scope=scope.firm_id)
+    assert_may_approve(
+        scope,
+        created_by=current.created_by,
+        approval_step=current.approval_step,
+        approve_codes=("PURCHASE_APPROVE",),
+        document="purchase invoice",
+    )
     # A bill priced past the firm's tolerance over its order waits for
     # somebody who may approve it anyway (BUY-10).
     may_exceed_tolerance = scope.principal.has_permission(

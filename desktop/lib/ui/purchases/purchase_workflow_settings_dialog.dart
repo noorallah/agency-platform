@@ -258,6 +258,53 @@ class _PurchaseWorkflowSettingsDialogState
                     ),
                   ],
                   const SizedBox(height: AppSpacing.lg),
+                  // Backlog 120 (M2): approval as a step of its own, per kind.
+                  Text('Approval', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'Off: Save completes the document, and whoever raised it '
+                    'is who approves it. The checks made at approval are '
+                    'still made. A change applies to documents raised from '
+                    'then on.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  SwitchListTile(
+                    key: const ValueKey('purchase-order-approval-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _settings.purchaseOrderApproval,
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings =
+                            _settings.copyWith(purchaseOrderApproval: value))
+                        : null,
+                    title: const Text('Purchase orders wait for approval'),
+                  ),
+                  SwitchListTile(
+                    key: const ValueKey('goods-receipt-approval-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _settings.goodsReceiptApproval,
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings =
+                            _settings.copyWith(goodsReceiptApproval: value))
+                        : null,
+                    title: const Text('Goods receipts are completed as a '
+                        'step of their own'),
+                    subtitle: Text(
+                      'A receipt has no approver. Off: Save also completes '
+                      'the receipt and brings the stock in.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                  SwitchListTile(
+                    key: const ValueKey('purchase-invoice-approval-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _settings.purchaseInvoiceApproval,
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings =
+                            _settings.copyWith(purchaseInvoiceApproval: value))
+                        : null,
+                    title: const Text('Supplier bills wait for approval'),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
                   Text('Bill matching', style: theme.textTheme.titleSmall),
                   const SizedBox(height: AppSpacing.sm),
                   Text(

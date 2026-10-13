@@ -431,6 +431,11 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     #: it back as ``If-Match``. In the body as well as the ``ETag`` header
     #: because a list carries many records and a header carries one.
     version: int = 1
+    #: Who raised it, and whether approval is a step of its own on this
+    #: document (backlog 120). False: whoever raised it may complete it
+    #: without the approve code, so the desktop's Save does.
+    created_by: UUID | None = None
+    approval_step: bool = True
 
     id: UUID
     firm_id: UUID
