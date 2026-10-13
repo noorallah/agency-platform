@@ -97,7 +97,7 @@ defect found goes into `docs/DEFECTS.md` and is fixed in the same work.
 
 | # | What to try | Status |
 | --- | --- | --- |
-| C1 | D6: billing and shipping address, on the screen and on the print | READY |
+| C1 | D6: billing and shipping address, on the screen and on the print | DONE #1459. Tried over HTTP on a fixture firm, 41 checks. **Works:** an order naming no address takes the customer's default shipping address; an order may name any of the customer's own addresses; the delivery note inherits the order's and the bill the note's, and each may name another; an address of another customer is refused on all three in words; the bill (full page and half page) and the challan print BILLED TO and SHIPPED TO apart; an address deleted afterwards still prints on the bill and challan that shipped to it. **Three defects found and fixed in this work** (D-SELL-92, 93, 94): with two billing addresses the print took whichever came first, not the default; a customer with no shipping address had an empty SHIPPED TO; the order's print showed the billing address under SHIP TO whatever the order named. **Not shown:** the tax of an unregistered buyer shipped to another state (the fixture firm has no GST number, so its own state is unknown; the unit suite covers it); the screens were not clicked (the Ship to box is on the order, the note and the bill; the quotation has none and prints the customer's default shipping address; the proforma prints its order's) |
 | C2 | D11: rate including GST, what the line and the print show in each mode | READY |
 | C3 | D12: year end. Closing refused and why; whether the next year, its months and the bill numbers start by themselves | READY |
 | C4 | D13: every step of `docs/ACCOUNT_BOOKS_GUIDE.md` | READY |

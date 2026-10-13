@@ -847,7 +847,16 @@ order, the delivery note and the invoice:
   raises for it, so all three agree.
 - **It must be the customer's own live address**
   (`app/customers/services/ship_to.py`); on an update, leaving it out keeps the
-  document's own. The challan and the tax invoice print it.
+  document's own. The challan, the tax invoice and the order's own print
+  show it (the order's print repeated the billing address until
+  D-SELL-94).
+- **Which address is the billing one is one choice**, `billing_address` in
+  the same file: the address marked default billing, then the oldest
+  BILLING address, then the oldest address of any kind. The printed BILLED
+  TO block and an unregistered buyer's place of supply both ask it, so a
+  bill cannot print one address and be taxed by another (D-SELL-92). A
+  customer with no shipping address ships to that address, on the print
+  as in the tax (D-SELL-93).
 - **Place of supply.** Goods are supplied where their movement ends (IGST Act
   s.10(1)(a)), so for an **unregistered** buyer the ship-to's state is the
   place of supply and decides CGST + SGST against IGST. A **registered** buyer
