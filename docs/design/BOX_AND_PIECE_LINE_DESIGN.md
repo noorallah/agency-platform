@@ -44,8 +44,7 @@ One item, kept in pieces, packed 12 to a box. GST 12%.
 - **Nothing is rounded.** No figure such as 3.4167 of a box exists anywhere.
 - **Boxes are always full boxes.** Typing 2 boxes + 17 pieces turns into
   3 + 5 as the cell is left, and that is what every later document shows.
-- **The bill prints** Box 3 x 12, Pcs 5, Free 0 + 2, Rate 10.00, Amount
-  410.00.
+- **The bill prints** Qty 3/5 (x12), Free 0/2, Rate 10.00, Amount 410.00.
 
 ## 2. What exists today, and what is missing
 
@@ -373,21 +372,26 @@ confirmation, challan, purchase order, credit note, thermal bill):
 
 | Paper | Today | In the boxes-and-pieces layout |
 | --- | --- | --- |
-| Full page | Qty, UOM; "10 + 1 free" under Qty | **Box**, **Pcs** take the place of Qty and UOM; free goods read "Free 0 + 2" |
-| Half page | Qty, Free | **Box**, **Pcs**, **Free** ("0 + 2"), in the width Qty and Free hold now |
-| 80 mm roll | Qty x rate | "3 box x 12 + 5" on the item's second row |
+| Full page | Qty, UOM; "10 + 1 free" under Qty | The **Qty** cell reads **3/5 (x12)**; free goods read "Free 0/2" |
+| Half page | Qty, Free | **Qty** "3/5 (x12)", **Free** "0/2", in the columns the page has now |
+| 80 mm roll | Qty x rate | "3/5 (x12)" on the item's second row |
 
-The Box cell says how many pieces a box holds, as the customer asked on
-2026-10-13: 10 boxes of 12 print as **10 x 12**, so the paper can be checked
-without the item list. A line with no box prints the cell empty.
+**The form is the customer's own** (the owner, 2026-10-13, option B, after
+the customer's sample bill with boxes was read): one Qty cell, boxes before
+the slash and loose pieces after it, so 3 boxes and no pieces is **3/0**.
+His bill does not say what a box holds; ours adds it in brackets, **(x12)**,
+as the owner asked, so the paper can be checked without the item list. No
+column is added and none is renamed, which is why the half page keeps its
+widths. The owner may change the form later; it lives in one formatter.
 
-The two columns appear only on a document saved in the boxes-and-pieces
-layout, the way the "rate incl. GST" column appears today. An item with no
-pack prints its quantity under Pcs. The total quantity line prints pieces.
-The customer's own sample bill prints one Qty and one Free column, so this
-layout is ours and not a copy of theirs.
-`InvoiceLineBlock` gains the four figures and the pack's word; the layouts do
-no arithmetic.
+- An item with no pack prints a plain quantity, as today ("2.00"), also as
+  on his bill.
+- The total quantity under the lines reads the same way: boxes before the
+  slash, loose pieces and the pieces of items with no pack after it.
+- This form prints only on a document saved in the boxes-and-pieces
+  layout. Any other document prints its quantities as today.
+- `InvoiceLineBlock` gains the box figure, the piece figure and the pack
+  size for the charged and the free quantity; the layouts do no arithmetic.
 
 ## 5. Effect on existing features
 
@@ -421,7 +425,7 @@ switch off behaves exactly as before. Steps 1 to 8 are server only.
 | 5 | Sales return: the pack size of the line returned, caps in pieces | No | The worked example's return |
 | 6 | Purchase order and goods receipt; the supplier's minimum and the rate contract read a pair line rightly | No | The worked example's purchase: 132 in at 7.27 |
 | 7 | Supplier's bill (and the order and receipt it raises) and purchase return | No | Chain tests; free goods back to the supplier |
-| 8 | Prints: `InvoiceLineBlock`, full page, half page, roll, challan, purchase order, credit note | No | Print tests on the worked example; a mixed document; a bill that still fits half a page |
+| 8 | Prints: `InvoiceLineBlock`, the one formatter for "3/5 (x12)", full page, half page, roll, challan, purchase order, credit note, the total quantity | No | Print tests on the worked example; a mixed document; a bill that still fits half a page; the customer's sample (`bill with box.pdf` in the customer papers, never copied here) read beside ours |
 | 9 | The switch on both settings screens; the tick on the customer and supplier forms, their import columns and list filters; the toggle above the lines; the shared two-box cells; sales order, quotation and sales bill editors, with the Free boxes the direct bill lacks | No | Widget tests incl. keyboard order at 800x600; a guard that every line key the desktop sends is declared by the server |
 | 10 | Delivery note, sales return, purchase order, goods receipt, supplier's bill and purchase return editors | No | Widget tests; clicked on a fixture firm |
 | 11 | Pack scan on the counter bill; *Show boxes* on the stock screens, reports, their downloads and the count screen, display only | No | Counter bill test; report tests; the toggle changes no stored figure and adds no call |
@@ -462,11 +466,12 @@ Each has the recommended answer first.
    boxes, so dispatch, what is left and the print are all the same sum. The
    line therefore stores no pair at all, only the pack size (3.1, 3.8).
 4. **How do boxes and pieces print on the bill?**
-   **ANSWERED by the customer, 2026-10-13: both are shown, and the box
-   figure says how many pieces a box holds.** So: two columns, Box and Pcs,
-   in place of Qty, the Box cell reading "10 x 12", and Free as "0 + 2",
-   only on a bill that has such a line. This fits the half page's present
-   width.
+   **ANSWERED by the owner, 2026-10-13, option B: as the customer's own
+   bill prints them, with the box size added.** One Qty cell reading
+   "3/5 (x12)", and Free as "0/2". The first answer here was two columns,
+   Box and Pcs; the customer's sample bill with boxes, read the same day,
+   prints "3/0" in the Qty cell, and his staff and shops know that form. It
+   can be changed later.
 5. **Who gets the two boxes?**
    **ANSWERED by the customer, 2026-10-13: it is chosen per customer, and
    the bill maker can change it on the bill in hand.** So: the firm's two
