@@ -23,9 +23,9 @@ left against a budget of 5 (D-PRC-63). Such a line is paired with the stored
 line whose **facts** it repeats, and its number only breaks a tie.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal
-from typing import Protocol
+from typing import Any, Protocol, Self
 from uuid import UUID
 
 ZERO = Decimal("0")
@@ -53,6 +53,15 @@ class SentLine(Protocol):
     @property
     def sales_uom_id(self) -> UUID | None:
         """Return the unit the line is in, None for the stock unit."""
+
+
+class WrittenLine(SentLine, Protocol):
+    """A line of the request that can be handed on with a figure taken out."""
+
+    def model_copy(
+        self, *, update: Mapping[str, Any] | None = None, deep: bool = False
+    ) -> Self:
+        """Return the line with ``update`` written over it."""
 
 
 class StoredLine(Protocol):
@@ -241,3 +250,56 @@ def echoes_of_what_an_offer_gave[Stored: StoredLine](
         return {}
     free_lines = [line for line in rows if line.quantity == ZERO]
     return _free_line_echoes(sent, free_lines) | _selling_line_echoes(sent, rows)
+
+
+def without_what_an_offer_gave[Line: WrittenLine, Stored: StoredLine](
+    lines: Sequence[Line], stored: Iterable[Stored]
+) -> list[Line]:
+    """Take back out of a save what the offers' engine put on the document.
+
+    The one reading a sales order and a quotation share, so a document sent
+    back as it was read is the document it was (D-PRC-48, D-SELL-89):
+
+    * the engine's own line -- one that sells nothing and names its offer --
+      is dropped where it comes back still selling nothing, and the engine
+      adds it again if the offer still gives it;
+    * free units an offer put on a line itself, sent back as the same
+      figure, are silence again;
+    * and the zero beside a dropped line -- the box line, read back with "0
+      free" -- is silence too, since a client that sends the offer's free
+      line back is not refusing the offer.
+
+    A zero sent **without** the engine's line is still the refusal it always
+    was (D-SELL-41).
+
+    Args:
+        lines: The request's lines, in the order sent.
+        stored: The document's lines as they stand.
+
+    Returns:
+        The lines the document is to be worked out from.
+
+    """
+    kept: list[Line] = []
+    returned: set[UUID] = set()
+    echoes = echoes_of_what_an_offer_gave(lines, stored)
+    for index, item in enumerate(lines):
+        line = echoes.get(index)
+        if line is not None:
+            if line.quantity == ZERO:
+                returned.add(item.product_id)
+                continue
+            item = item.model_copy(update={"free_quantity": None})
+        kept.append(item)
+    if not returned:
+        return kept
+    return [
+        (
+            item.model_copy(update={"free_quantity": None})
+            if item.product_id in returned
+            and item.quantity > ZERO
+            and item.free_quantity == ZERO
+            else item
+        )
+        for item in kept
+    ]

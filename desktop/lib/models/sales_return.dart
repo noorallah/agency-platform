@@ -51,6 +51,21 @@ class SalesReturnLine {
     this.serials = const [],
     this.taxRuleCode,
     this.taxRuleVersion,
+    this.sourceDocumentId = '',
+    this.sourceDocumentLineId = '',
+    this.itemCondition = '',
+    this.isDamaged = false,
+    this.isExpired = false,
+    this.discountPercent = '',
+    this.chargesAmount = '',
+    this.taxProfileId = '',
+    this.packagingTypeId = '',
+    this.salesUomId = '',
+    this.conversionFactor = '',
+    this.warehouseId = '',
+    this.storageNodeId = '',
+    this.expiryDate = '',
+    this.manufacturingDate = '',
   });
 
   final String id;
@@ -111,6 +126,31 @@ class SalesReturnLine {
   final String? taxRuleCode;
   final int? taxRuleVersion;
 
+  /// The document and the line of it these goods went out on, by id: what
+  /// editing a Draft finds the line again by (D-UI-39).
+  final String sourceDocumentId;
+  final String sourceDocumentLineId;
+
+  /// What the line holds that the return screen does not show. Saving a
+  /// Draft replaces every line from the request, so the screen sends these
+  /// back as it read them or the save would clear them (D-UI-39).
+  final String itemCondition;
+  final bool isDamaged;
+  final bool isExpired;
+  final String discountPercent;
+  final String chargesAmount;
+  final String taxProfileId;
+  final String packagingTypeId;
+
+  /// The unit the source line counts in; [returnUomId] differs from it only
+  /// on a line typed in a unit of its own.
+  final String salesUomId;
+  final String conversionFactor;
+  final String warehouseId;
+  final String storageNodeId;
+  final String expiryDate;
+  final String manufacturingDate;
+
   factory SalesReturnLine.fromJson(Json json) => SalesReturnLine(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -141,6 +181,21 @@ class SalesReturnLine {
         serials: PickedSerial.listFrom(json['serials']),
         taxRuleCode: LineTaxRule.fromJson(json).code,
         taxRuleVersion: LineTaxRule.fromJson(json).version,
+        sourceDocumentId: stringValue(json['source_document_id']),
+        sourceDocumentLineId: stringValue(json['source_document_line_id']),
+        itemCondition: stringValue(json['item_condition']),
+        isDamaged: json['is_damaged'] == true,
+        isExpired: json['is_expired'] == true,
+        discountPercent: stringValue(json['discount_percent']),
+        chargesAmount: stringValue(json['charges_amount']),
+        taxProfileId: stringValue(json['tax_profile_id']),
+        packagingTypeId: stringValue(json['packaging_type_id']),
+        salesUomId: stringValue(json['sales_uom_id']),
+        conversionFactor: stringValue(json['conversion_factor']),
+        warehouseId: stringValue(json['warehouse_id']),
+        storageNodeId: stringValue(json['storage_node_id']),
+        expiryDate: stringValue(json['expiry_date']),
+        manufacturingDate: stringValue(json['manufacturing_date']),
       );
 }
 
@@ -171,6 +226,18 @@ class SalesReturn {
     required this.remarks,
     required this.lines,
     this.timeLimitWarning = '',
+    this.version,
+    this.businessProfileId = '',
+    this.customerReturnDate = '',
+    this.referenceDeliveryNoteNumber = '',
+    this.referenceInvoiceNumber = '',
+    this.currencyCode = '',
+    this.exchangeRate = '',
+    this.referenceNumber = '',
+    this.additionalCharges = '',
+    this.roundOff = '',
+    this.attachments = const [],
+    this.notes = const [],
   });
 
   final String id;
@@ -210,6 +277,31 @@ class SalesReturn {
   /// Set when the return is dated past 30 November after the year of an
   /// invoice it credits, so it can no longer reduce tax (s.34(2), GST-1).
   final String timeLimitWarning;
+
+  /// The concurrency counter, sent back as `If-Match` when a Draft is saved
+  /// so a save over somebody else's newer one is refused (D-UI-39).
+  final int? version;
+
+  /// What the return holds that its screen does not show. Saving a Draft
+  /// replaces the whole header from the request -- a field left out is
+  /// written empty -- so the screen sends these back as it read them
+  /// (D-UI-39).
+  final String businessProfileId;
+  final String customerReturnDate;
+  final String referenceDeliveryNoteNumber;
+  final String referenceInvoiceNumber;
+  final String currencyCode;
+  final String exchangeRate;
+  final String referenceNumber;
+  final String additionalCharges;
+  final String roundOff;
+
+  /// The return's attachment records and notes, each cut down to the fields
+  /// a save accepts. A save deletes both lists and writes the request's, so
+  /// they go back with it. Files added from the Attachments window are kept
+  /// apart from these and a save does not touch them.
+  final List<Json> attachments;
+  final List<Json> notes;
 
   bool get isDraft => status == 'DRAFT';
   bool get isApproved => status == 'APPROVED';
@@ -251,7 +343,36 @@ class SalesReturn {
             if (line is Map) SalesReturnLine.fromJson(Map<String, dynamic>.from(line)),
         ],
         timeLimitWarning: stringValue(json['time_limit_warning']),
+        version: (json['version'] as num?)?.toInt(),
+        businessProfileId: stringValue(json['business_profile_id']),
+        customerReturnDate: stringValue(json['customer_return_date']),
+        referenceDeliveryNoteNumber:
+            stringValue(json['reference_delivery_note_number']),
+        referenceInvoiceNumber: stringValue(json['reference_invoice_number']),
+        currencyCode: stringValue(json['currency_code']),
+        exchangeRate: stringValue(json['exchange_rate']),
+        referenceNumber: stringValue(json['reference_number']),
+        additionalCharges: stringValue(json['additional_charges']),
+        roundOff: stringValue(json['round_off']),
+        attachments: _written(json['attachments'], const [
+          'file_name',
+          'mime_type',
+          'file_path',
+          'attachment_kind',
+        ]),
+        notes: _written(json['notes'], const ['note_type', 'note']),
       );
+
+  /// Each record of [raw] with only [keys], and those only where it has a
+  /// value: the server refuses a field its write model does not declare.
+  static List<Json> _written(dynamic raw, List<String> keys) => [
+        for (final dynamic item in raw is List ? raw : const [])
+          if (item is Map)
+            <String, dynamic>{
+              for (final String key in keys)
+                if (item[key] != null) key: item[key],
+            },
+      ];
 }
 
 /// A document a return can be raised against, flattened for the picker.
@@ -340,12 +461,18 @@ class ReturnableLine {
     required this.quantity,
     required this.unitPrice,
     this.freeQuantity = '0',
+    this.discountPercent = '',
   });
 
   final String id;
   final int lineNumber;
   final String productId;
   final String description;
+
+  /// The rate of discount the line went out at, which a return of it takes
+  /// unless one is typed. Read so an edited Draft can tell a discount
+  /// somebody typed on the return from this one (D-UI-39).
+  final String discountPercent;
 
   /// What this line charged the customer for. With [freeQuantity] it is the
   /// ceiling on the return: free goods can come back too (D-PRC-8).
@@ -392,5 +519,6 @@ class ReturnableLine {
         freeQuantity: json['free_quantity'] == null
             ? '0'
             : stringValue(json['free_quantity']),
+        discountPercent: stringValue(json['discount_percent']),
       );
 }

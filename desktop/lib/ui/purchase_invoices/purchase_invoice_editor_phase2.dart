@@ -74,17 +74,25 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         stringValue(_preview?.invoice['credit_time_limit_warning']);
     // Save & approve (D-BUY-22), and once this window has saved the bill,
     // that bill's own steps instead of a second save.
+    // A draft being edited follows what it was stamped with when raised.
     final DocumentStep<Json>? sole = soleSaveStep(widget.steps,
-        settingOff: !widget.stages.purchaseInvoiceApproval);
+        settingOff: !widget.stages.purchaseInvoiceApproval,
+        existing: widget.existing);
     final DocumentStep<Json>? approve = sole ?? stepAfterSave(widget.steps);
     final Json? saved = _saved;
+    // D-UI-39: a preview prices a new bill, so while a draft is edited it
+    // finds that draft holding the same supplier number. Its own number is
+    // not a duplicate.
+    final bool ownNumber = _editing &&
+        !_savedFigures &&
+        _supplierInvoiceNumber.trim() == _held('supplier_invoice_number');
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
           if (!_saving) leaveDocument(context, result: saved, saved: saved != null);
         },
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
-          if (!_saving && saved == null) {
+          if (!_saving && saved == null && !_editHeld) {
             unawaited(sole != null ? _saveAndStep(sole) : _save());
           }
         },
@@ -103,10 +111,18 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               DocumentPageBand(
-                title: 'New purchase invoice',
+                // D-UI-39: a draft being edited says so, under its own
+                // number rather than the next one a new bill would take.
+                title: _editing
+                    ? 'Edit purchase invoice'
+                    : 'New purchase invoice',
+                number: _editing ? _held('invoice_number') : '',
                 chips: [
-                  if (number.isNotEmpty) '$number (new)',
-                  if (_receipt != null) 'against ${_receipt!.grnNumber}',
+                  if (!_editing && number.isNotEmpty) '$number (new)',
+                  if (_ownReceipt && _ownOrderNumber.isNotEmpty)
+                    'against $_ownOrderNumber'
+                  else if (_receipt != null)
+                    'against ${_receipt!.grnNumber}',
                   if (_order != null) 'against ${_order!.poNumber}',
                   'Draft',
                 ],
@@ -128,10 +144,16 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                               builder: (_) => DocumentAttachmentsDialog(
                                 api: widget.api,
                                 kind: AttachableDocument.purchaseInvoice,
-                                documentId: saved == null
-                                    ? null
-                                    : stringValue(saved['id']),
-                                subtitle: stringValue(saved?['invoice_number']),
+                                // A draft being edited is already on file,
+                                // so its files are its own from the start.
+                                documentId: saved != null
+                                    ? stringValue(saved['id'])
+                                    : _editing
+                                        ? _held('id')
+                                        : null,
+                                subtitle: saved != null
+                                    ? stringValue(saved['invoice_number'])
+                                    : _held('invoice_number'),
                                 canEdit: widget.canAttach,
                               ),
                             ),
@@ -150,14 +172,14 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                     ...saveButtons(
                       saveKey: const ValueKey('purchase-invoice-save'),
                       saveLabel: sole != null ? 'Save' : 'Save bill',
-                      onSave: _saving
+                      onSave: _saving || _editHeld
                           ? null
                           : sole != null
                               ? () => unawaited(_saveAndStep(sole))
                               : () => unawaited(_save()),
                       stepKey: const ValueKey('purchase-invoice-save-approve'),
                       stepLabel: sole != null ? null : approve?.afterSave,
-                      onStep: _saving || approve == null
+                      onStep: _saving || _editHeld || approve == null
                           ? null
                           : () => unawaited(_saveAndStep(approve)),
                     ),
@@ -165,8 +187,18 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
               ),
               for (final String message in [
                 if (_error != null) _error!,
+                // D-UI-39: the server keeps the receipt such a bill raised
+                // as it is when the bill is edited, so a quantity changed
+                // here would leave the two disagreeing about what arrives.
+                if (_ownReceipt)
+                  'This bill receives its own goods'
+                      '${_ownOrderNumber.isEmpty ? '' : ' against $_ownOrderNumber'}'
+                      '. Its rates, dates and numbers can be changed here; '
+                      'its quantities, batches and expiry dates cannot yet. '
+                      'To change those, cancel the bill and enter it again.',
                 if (duplicate.isNotEmpty &&
-                    _supplierInvoiceNumber.trim().isNotEmpty)
+                    _supplierInvoiceNumber.trim().isNotEmpty &&
+                    !ownNumber)
                   '$duplicate Check it is not the same bill entered twice.',
                 if (irnWarning.isNotEmpty) irnWarning,
                 // Past the credit's last date (s.16(4), GST-3).
@@ -208,15 +240,18 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                                   const EdgeInsets.fromLTRB(12, 8, 12, 0),
                             ),
                             Expanded(
-                              child: _direct
-                                  ? _directLinesTable(context)
-                                  : _billLines(context),
+                              child: _editHeld
+                                  ? _editHold()
+                                  : _direct
+                                      ? _directLinesTable(context)
+                                      : _billLines(context),
                             ),
                             _billTotals(),
                           ],
                         ),
                       ),
-                      if (constraints.maxWidth >= DocumentSidePanel.showFrom)
+                      if (constraints.maxWidth >= DocumentSidePanel.showFrom &&
+                          !_editHeld)
                         _direct
                             ? _directSidePanel(context)
                             : _billSidePanel(context),
@@ -229,6 +264,62 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         ),
       ),
     );
+  }
+
+  /// What stands where the lines go while a draft's receipts are read, or
+  /// where it cannot be edited from here: the reason, never empty boxes
+  /// that would save as a different bill (D-UI-39).
+  Widget _editHold() => _loadingEdit
+      ? const SizedBox.shrink()
+      : StandardEmptyState(
+          key: const ValueKey('purchase-invoice-edit-block'),
+          type: EmptyStateType.noRecords,
+          title: 'This bill cannot be changed here',
+          message: _editBlock ?? '',
+        );
+
+  /// Who a draft being edited is from, and what it is typed against. Not a
+  /// picker: a bill for the wrong supplier is cancelled, not moved.
+  Widget _editSourceField(BuildContext context) {
+    final String supplier = _held('vendor_name');
+    return DocumentField(
+      label: 'Supplier',
+      width: 400,
+      below: _quietLine(
+        context,
+        _loadingEdit
+            ? 'Reading the bill…'
+            : _editBlock != null
+                ? ''
+                : _direct
+                    ? 'typed directly  ·  saving raises its order and '
+                        'receipt again'
+                    : _ownReceipt
+                        ? 'approving the bill receives what it charges for'
+                        : 'for the goods receipts on this bill',
+      ),
+      child: InputDecorator(
+        key: const ValueKey('purchase-invoice-edit-supplier'),
+        decoration: documentBoxDecoration(context),
+        child: Text(
+          supplier.isEmpty ? '—' : supplier,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+
+  /// The server's figures for a product line: its line of the last pricing,
+  /// or -- while a draft being edited still shows the bill as saved -- the
+  /// saved line, for as long as the line is typed as it was saved.
+  Map<String, dynamic>? _pricedDirect(int index) {
+    final PurchaseDirectLine line = _directLines[index];
+    if (_savedFigures) {
+      return line.changedSinceSaved || _headerChangedSinceSaved
+          ? null
+          : line.saved;
+    }
+    return _pricedByNumber(_sentNumber(index), line.productId);
   }
 
   Product? _product(String id) => _productById(id);
@@ -325,6 +416,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
   /// the supplier.
   Widget _sourceField(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    if (_editing) return _editSourceField(context);
     switch (_mode) {
       case PurchaseBillMode.receipt:
         final GoodsReceiptRecord? receipt = _receipt;
@@ -541,6 +633,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     if (_mode != PurchaseBillMode.receipt || _tickVendorId == null) {
       return null;
     }
+    // D-UI-39: a receipt the bill raised itself is not one to choose among,
+    // and nothing is offered while a draft is read or cannot be edited.
+    if (_ownReceipt || _editHeld) return null;
     final ThemeData theme = Theme.of(context);
     final int waiting = _vendorReceipts.length;
     final List<GoodsReceiptRecord> on = [
@@ -699,9 +794,9 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         child: InputDecorator(
           decoration: documentBoxDecoration(context),
           child: Text(
-            _preview == null
+            _interstate == null
                 ? '—'
-                : _preview!.interstate
+                : _interstate!
                     ? 'IGST · other state'
                     : 'CGST + SGST',
             overflow: TextOverflow.ellipsis,
@@ -802,7 +897,10 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: documentBoxDecoration(context, hint: 'e.g. 0.1'),
           onChanged: (value) {
-            _setState(() => _tcsRate = value);
+            _setState(() {
+              _tcsRate = value;
+              _tcsTouched = true;
+            });
             _schedulePreview();
           },
         ),
@@ -819,7 +917,10 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           decoration:
               documentBoxDecoration(context, hint: 'blank: rate x total'),
           onChanged: (value) {
-            _setState(() => _tcsAmount = value);
+            _setState(() {
+              _tcsAmount = value;
+              _tcsTouched = true;
+            });
             _schedulePreview();
           },
         ),
@@ -849,6 +950,13 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
 
   Map<String, dynamic>? _pricedLine(int index) {
     final PurchaseInvoiceDraftLine line = _lines[index];
+    if (_savedFigures) {
+      // D-UI-39: a draft being edited shows each line as the bill holds it,
+      // for as long as the line is typed as it was saved.
+      return line.changedSinceSaved || _headerChangedSinceSaved
+          ? null
+          : line.saved;
+    }
     for (final dynamic raw in _preview?.invoice['lines'] as List? ?? const []) {
       if (raw is Map &&
           stringValue(raw['source_document_line_id']) ==
@@ -922,6 +1030,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     bool over = false,
     String? hint,
     String epoch = '',
+    bool locked = false,
   }) =>
       TextFormField(
         key: ValueKey<String>(
@@ -929,7 +1038,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           '-$index$epoch${_extraReceipts.map((r) => r.id).join()}',
         ),
         initialValue: value.trim().isEmpty ? value : documentQuantity(value),
-        readOnly: _saving,
+        readOnly: _saving || locked,
         textAlign: TextAlign.right,
         keyboardType: TextInputType.number,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -952,9 +1061,15 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     Map<String, dynamic>? priced,
     double typed, {
     bool billing = true,
+    bool owed = false,
   }) {
     final TextStyle? text =
         Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13);
+    if (owed) {
+      // D-UI-39: changed since the bill was saved and not priced again, so
+      // no figure is shown rather than one worked out here.
+      return [Text('—', style: text), Text('', style: text), Text('—', style: text)];
+    }
     final double taxable = priced == null
         ? typed
         // With the bill discount's share and the line's charges (D-UI-96):
@@ -1031,6 +1146,8 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           name: 'billing',
           value: line.invoiceQuantity,
           over: billing > line.outstanding,
+          // The receipt this bill raised keeps its quantity on an edit.
+          locked: _ownReceipt,
           onChanged: (value) => line.invoiceQuantity = value,
         ),
         _cellBox(
@@ -1042,7 +1159,13 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           hint: documentMoney(line.receiptUnitPrice),
           onChanged: (value) => line.unitPrice = value,
         ),
-        ..._figures(context, priced, _typedTaxable(line), billing: billing > 0),
+        ..._figures(
+          context,
+          priced,
+          _typedTaxable(line),
+          billing: billing > 0,
+          owed: _figuresOwed && priced == null && billing > 0,
+        ),
       ],
     );
   }
@@ -1074,8 +1197,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final PurchaseDirectLine line = _directLines[index];
     final Product? product = _productById(line.productId);
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
-    final Map<String, dynamic>? priced =
-        _pricedByNumber(_sentNumber(index), line.productId);
+    final Map<String, dynamic>? priced = _pricedDirect(index);
     final DocumentPreviewLine? companion = _companionOf(priced);
     return DocumentLineRow(
       key: ValueKey<String>('purchase-invoice-direct-$index'),
@@ -1188,6 +1310,22 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
   }
 
   Widget _billTotals() {
+    if (_loadingEdit) {
+      return const DocumentTotalsBar(figures: [], note: 'Reading the bill…');
+    }
+    if (_editBlock != null) {
+      return const DocumentTotalsBar(figures: []);
+    }
+    if (_figuresOwed) {
+      // D-UI-39: see [_figuresOwed]. The saved totals are no longer this
+      // bill's, and none is worked out here in their place.
+      return const DocumentTotalsBar(
+        key: ValueKey('purchase-invoice-totals-owed'),
+        figures: [],
+        note: 'Changed since it was saved: its tax and total are worked out '
+            'when the bill is saved.',
+      );
+    }
     final Map<String, dynamic>? invoice = _preview?.invoice;
     double typed = 0;
     if (_direct) {
@@ -1210,7 +1348,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         invoice == null ? 0 : _number(stringValue(invoice['tds_amount']));
     final double tcs =
         invoice == null ? 0 : _number(stringValue(invoice['tcs_amount']));
-    final bool? interstate = _preview?.interstate;
+    final bool? interstate = _interstate;
     // PG-12: figures are in the bill's currency; the rupee equivalent is the
     // server's, never worked out here.
     final String previewCurrency = invoice == null
@@ -1480,12 +1618,18 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
               companion.lastInvoiceDate, companion.lastDiscountPercent),
         ),
       ],
-      ...documentTaxLines(
-        taxable: taxable,
-        tax: tax,
-        interstate: _preview?.interstate,
-        taxRule: LineTaxRule.fromJson(priced),
-      ),
+      if (_figuresOwed && priced == null && billing > 0)
+        const DocumentSideNote(
+          'Changed since the bill was saved: its tax and amount are worked '
+          'out when the bill is saved.',
+        )
+      else
+        ...documentTaxLines(
+          taxable: taxable,
+          tax: tax,
+          interstate: _interstate,
+          taxRule: LineTaxRule.fromJson(priced),
+        ),
       if (order)
         ..._batchFields(
           context,
@@ -1535,8 +1679,10 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
       DocumentSideNote(
         order
             ? 'saving the bill receives these goods into stock'
-            : 'the receipt already put it into stock; the bill records what '
-                'is owed for it',
+            : _ownReceipt
+                ? 'approving the bill receives these goods into stock'
+                : 'the receipt already put it into stock; the bill records '
+                    'what is owed for it',
       ),
     ]);
   }
@@ -1546,8 +1692,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     final int index = _current.clamp(0, _directLines.length - 1);
     final PurchaseDirectLine line = _directLines[index];
     final Product? product = _productById(line.productId);
-    final Map<String, dynamic>? priced =
-        _pricedByNumber(_sentNumber(index), line.productId);
+    final Map<String, dynamic>? priced = _pricedDirect(index);
     final DocumentPreviewLine? companion = _companionOf(priced);
     return DocumentSidePanel(children: [
       if (product == null) ...[
@@ -1586,7 +1731,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
                       priced['net_amount'], priced['tax_amount']) ??
                   0,
           tax: priced == null ? 0 : _number(stringValue(priced['tax_amount'])),
-          interstate: _preview?.interstate,
+          interstate: _interstate,
           taxRule: LineTaxRule.fromJson(priced),
         ),
         ..._batchFields(
@@ -1634,7 +1779,11 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         ),
       ],
       const DocumentSideHeading('Supplier'),
-      DocumentSidePair('Billed by', vendor?.displayName ?? '—'),
+      DocumentSidePair(
+        'Billed by',
+        vendor?.displayName ??
+            (_held('vendor_name').isEmpty ? '—' : _held('vendor_name')),
+      ),
       const DocumentSideNote(
         'This firm buys directly: saving raises the order and the receipt '
         'behind this bill, so the goods come into the default warehouse and '

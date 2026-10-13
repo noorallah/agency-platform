@@ -58,7 +58,11 @@ class QuotationLineWrite(QuotationSchema):
     line_number: int = Field(ge=1)
     product_id: UUID
     description: str | None = Field(default=None, max_length=500)
-    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
+    #: Zero is taken only beside free goods: the free line an offer added,
+    #: sent back by a client that read the quotation (D-SELL-89). The service
+    #: drops that line and works the offer out again, and refuses one nobody
+    #: but a person can have typed.
+    quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
     #: None means the caller said nothing, so a promotion's free goods apply.
     #: Zero is an answer -- no free goods on this line, offer or not
     #: (D-SELL-41). It defaulted to zero once, which made the two the same.
@@ -85,6 +89,16 @@ class QuotationLineWrite(QuotationSchema):
     tax_profile_id: UUID | None = None
     warehouse_id: UUID | None = None
     remarks: str | None = None
+
+    @model_validator(mode="after")
+    def _quotes_something(self) -> "QuotationLineWrite":
+        """Refuse a line that quotes nothing and gives nothing."""
+        if self.quantity <= 0 and not (self.free_quantity or 0) > 0:
+            raise ValueError(
+                f"Line {self.line_number} quotes a quantity of 0. Type a "
+                "quantity, or leave the line off the quotation."
+            )
+        return self
 
 
 class QuotationCreate(QuotationSchema):

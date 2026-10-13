@@ -19,6 +19,41 @@ class _ReturnLineDraft {
   bool serialsRead = false;
   final Set<String> picked = <String>{};
 
+  /// The Draft's own line for this row while one is edited (D-UI-39); null
+  /// on a new return and on a row the Draft brings nothing back on.
+  SalesReturnLine? stored;
+
+  /// Open the row holding what the Draft's line holds.
+  ///
+  /// The free box is filled only where the line brought free goods back.
+  /// The server keeps one free figure whether somebody typed it or it took
+  /// the charged units first, so the two cannot be told apart afterwards;
+  /// sending the figure back is what keeps a save with nothing changed from
+  /// moving a unit between charged and free. A stored 0 stays blank: blank
+  /// reaches 0 by itself, and a typed 0 would refuse a thirteenth unit that
+  /// blank takes as the free one.
+  void hold(SalesReturnLine held) {
+    stored = held;
+    quantity = _plain(held.currentReturnQuantity);
+    damaged = _plain(held.damagedQuantity);
+    scrap = _plain(held.scrapQuantity);
+    free = (double.tryParse(held.freeQuantity) ?? 0) > 0
+        ? _plain(held.freeQuantity)
+        : '';
+    picked
+      ..clear()
+      ..addAll(held.serials.map((unit) => unit.id));
+  }
+
+  /// "5.0000" as somebody would type it: "5".
+  static String _plain(String value) {
+    final String text = value.trim();
+    if (text.isEmpty) return '0';
+    if (!text.contains('.')) return text;
+    final String cut = text.replaceFirst(RegExp(r'0+$'), '');
+    return cut.endsWith('.') ? cut.substring(0, cut.length - 1) : cut;
+  }
+
   double get typedQuantity => double.tryParse(quantity.trim()) ?? 0;
 
   /// Everything coming back on the line. A quantity of 0 beside a free
@@ -73,6 +108,15 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
             'invoice, so there has to be one before goods can come back.',
       );
     }
+    final SalesReturn? editing = widget.editing;
+    if (editing != null && _document == null) {
+      return StandardEmptyState(
+        type: EmptyStateType.noRecords,
+        title: 'Edit ${editing.returnNumber}',
+        message: salesReturnEditRefusal(editing, widget.documents) ??
+            'The document this return was raised against could not be found.',
+      );
+    }
     final String number = stringValue(_preview?.salesReturn['return_number']);
     return CallbackShortcuts(
       bindings: {
@@ -92,9 +136,13 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               DocumentPageBand(
-                title: 'New sales return',
+                // A Draft opened again is named by its own number, which
+                // the save keeps (D-UI-39).
+                title:
+                    editing == null ? 'New sales return' : 'Edit sales return',
+                number: editing?.returnNumber ?? '',
                 chips: [
-                  if (number.isNotEmpty) '$number (new)',
+                  if (editing == null && number.isNotEmpty) '$number (new)',
                   if (_document != null) 'against ${_document!.number}',
                   'Draft',
                 ],
@@ -187,6 +235,190 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
     });
   }
 
+  /// Open holding the Draft [editing] (D-UI-39): its document, a row for
+  /// every line of that document with the Draft's figures on the ones it
+  /// brings back, and its own reference, reason and remarks.
+  ///
+  /// Called from `initState`, so it sets the fields and rebuilds nothing.
+  void _phase2Open(SalesReturn editing) {
+    _customerNumber.text = editing.customerReturnNumber;
+    _reason.text = editing.returnReason;
+    _remarks.text = editing.remarks;
+    // A warehouse no longer on the list cannot be shown as chosen, so the
+    // person chooses one rather than the save moving the goods unseen.
+    final bool listed =
+        widget.warehouses.any((item) => item.id == editing.warehouseId);
+    _warehouseId = listed ? editing.warehouseId : null;
+    if (!listed) {
+      _phase2Problem = 'The warehouse ${editing.returnNumber} is taken back '
+          'into is not on the list any more. Choose one before saving.';
+    }
+    final SalesReturnLine? first = editing.lines.firstOrNull;
+    final ReturnableDocument? document = first == null
+        ? null
+        : widget.documents
+            .where((item) =>
+                item.id == first.sourceDocumentId &&
+                item.sourceType == first.sourceType)
+            .firstOrNull;
+    if (document == null) return;
+    _document = document;
+    _drafts = [
+      for (final ReturnableLine line in document.lines) _ReturnLineDraft(line),
+    ];
+    for (final _ReturnLineDraft draft in _drafts) {
+      final SalesReturnLine? held = editing.lines
+          .where((item) => item.sourceDocumentLineId == draft.line.id)
+          .firstOrNull;
+      if (held != null) draft.hold(held);
+    }
+    final int held = _drafts.indexWhere((draft) => draft.stored != null);
+    _current = held < 0 ? 0 : held;
+    // The units each line may name, so the ones it picked show as picked.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final _ReturnLineDraft draft in _drafts) {
+        if (draft.stored != null) unawaited(_phase2Serials(draft));
+      }
+    });
+  }
+
+  bool _same(String left, String right) =>
+      (_number(left) - _number(right)).abs() < 0.00005;
+
+  /// Whether the rows and the warehouse are as the Draft holds them, so its
+  /// own figures still describe what is on the screen.
+  bool _asStored(SalesReturn editing) {
+    if (_warehouseId != editing.warehouseId) return false;
+    for (final _ReturnLineDraft draft in _drafts) {
+      final SalesReturnLine? held = draft.stored;
+      if (held == null) {
+        if (draft.returned > 0) return false;
+        continue;
+      }
+      if ((draft.returned - _number(held.currentReturnQuantity)).abs() >=
+              0.00005 ||
+          !_same(draft.free, held.freeQuantity) ||
+          !_same(draft.damaged, held.damagedQuantity) ||
+          !_same(draft.scrap, held.scrapQuantity)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// The return as the server priced it: the preview of a new return, or
+  /// the Draft's own figures while nothing on it has been changed. A Draft
+  /// with a figure changed is priced by the save, not here -- the preview
+  /// would count the Draft against itself (D-UI-39).
+  Map<String, dynamic>? get _pricing {
+    final Map<String, dynamic>? priced = _preview?.salesReturn;
+    final SalesReturn? editing = widget.editing;
+    if (priced != null || editing == null || !_asStored(editing)) {
+      return priced;
+    }
+    return <String, dynamic>{
+      'subtotal': editing.subtotal,
+      'tax_total': editing.taxTotal,
+      'grand_total': editing.grandTotal,
+      'round_off': editing.roundOff,
+      'lines': [
+        for (final SalesReturnLine line in editing.lines)
+          <String, dynamic>{
+            'source_document_line_id': line.sourceDocumentLineId,
+            'line_number': line.lineNumber,
+            'net_amount': line.netAmount,
+            'tax_amount': line.taxAmount,
+          },
+      ],
+    };
+  }
+
+  /// What the Draft's header holds that this screen does not show.
+  ///
+  /// The server replaces a Draft's header from the request, so a field left
+  /// out is written empty: changing a quantity would clear the customer's
+  /// own return date, the references, the currency, the charges and every
+  /// attachment record and note (D-UI-39). Each key is one the server's
+  /// write model declares; it refuses the whole request for one it does
+  /// not.
+  Json _heldHeader(SalesReturn held) => <String, dynamic>{
+        for (final (String key, String value) in [
+          ('customer_return_date', held.customerReturnDate),
+          ('reference_delivery_note_number', held.referenceDeliveryNoteNumber),
+          ('reference_invoice_number', held.referenceInvoiceNumber),
+          ('currency_code', held.currencyCode),
+          ('exchange_rate', held.exchangeRate),
+          ('reference_number', held.referenceNumber),
+          ('business_profile_id', held.businessProfileId),
+        ])
+          if (value.isNotEmpty) key: value,
+        if (_number(held.additionalCharges) != 0)
+          'additional_charges': held.additionalCharges,
+        if (_number(held.roundOff) != 0) 'round_off': held.roundOff,
+        if (held.attachments.isNotEmpty) 'attachments': held.attachments,
+        if (held.notes.isNotEmpty) 'notes': held.notes,
+      };
+
+  /// What the Draft's line holds that its row does not show, for the same
+  /// reason as [_heldHeader]: the lines are deleted and written again.
+  ///
+  /// A price or a rate of discount is a figure typed on this server, and
+  /// sending one switches off what it does for a line that says nothing --
+  /// taking the bill's own worth. So each goes back only where it differs
+  /// from the source line's, which is the one case it can have been typed.
+  /// The line's own warehouse goes back only where it is not the return's,
+  /// so choosing another warehouse above still moves the lines that follow
+  /// it.
+  Json _heldLine(_ReturnLineDraft draft, SalesReturn editing) {
+    final SalesReturnLine? held = draft.stored;
+    if (held == null) return const <String, dynamic>{};
+    return <String, dynamic>{
+      for (final (String key, String value) in [
+        ('item_condition', held.itemCondition),
+        ('tax_profile_id', held.taxProfileId),
+        ('packaging_type_id', held.packagingTypeId),
+        ('return_uom_id', held.returnUomId),
+        ('storage_node_id', held.storageNodeId),
+        ('batch_number', held.batchNumber),
+        ('expiry_date', held.expiryDate),
+        ('manufacturing_date', held.manufacturingDate),
+        ('remarks', held.remarks),
+      ])
+        if (value.isNotEmpty) key: value,
+      if (held.isDamaged) 'is_damaged': true,
+      if (held.isExpired) 'is_expired': true,
+      if (_number(held.chargesAmount) != 0)
+        'charges_amount': held.chargesAmount,
+      if (held.conversionFactor.isNotEmpty &&
+          !_same(held.conversionFactor, '1'))
+        'conversion_factor': held.conversionFactor,
+      if (held.warehouseId.isNotEmpty &&
+          held.warehouseId != editing.warehouseId)
+        'warehouse_id': held.warehouseId,
+      if (held.unitPrice.isNotEmpty &&
+          !_same(held.unitPrice, draft.line.unitPrice))
+        'unit_price': held.unitPrice,
+      if (held.discountPercent.isNotEmpty &&
+          !_same(held.discountPercent, draft.line.discountPercent))
+        'discount_percent': held.discountPercent,
+    };
+  }
+
+  /// The reason a line carries. A new return writes the header's reason on
+  /// every line. A Draft's line follows the header only where it held the
+  /// header's reason before; one with a reason of its own keeps it.
+  String _lineReason(_ReturnLineDraft draft) {
+    final SalesReturnLine? held = draft.stored;
+    final SalesReturn? editing = widget.editing;
+    if (held != null &&
+        editing != null &&
+        held.reasonCode != editing.returnReason) {
+      return held.reasonCode;
+    }
+    return _reason.text.trim();
+  }
+
   /// The return as the caller creates it: every line with something
   /// coming back. Null (with the reason said) while it cannot be saved.
   Json? _phase2Payload({bool pricing = false}) {
@@ -238,13 +470,15 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
       if (!pricing) _setState(() => _phase2Problem = problem);
       return null;
     }
+    final SalesReturn? editing = widget.editing;
     return <String, dynamic>{
       'warehouse_id': _warehouseId,
-      'return_date': widget.today.toIso8601String().split('T').first,
+      'return_date': _returnDay,
       if (_customerNumber.text.trim().isNotEmpty)
         'customer_return_number': _customerNumber.text.trim(),
       if (_reason.text.trim().isNotEmpty) 'return_reason': _reason.text.trim(),
       if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
+      if (editing != null) ..._heldHeader(editing),
       'lines': [
         for (int i = 0; i < sending.length; i++)
           <String, dynamic>{
@@ -265,13 +499,27 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
                 : sending[i].damaged.trim(),
             'scrap_quantity':
                 sending[i].scrap.trim().isEmpty ? '0' : sending[i].scrap.trim(),
-            if (sending[i].serials.serialTracked)
+            // Always said for a Draft: a line that says nothing takes the
+            // picks of whichever line held its number before, and the
+            // numbers move when a line above stops coming back (D-UI-39).
+            if (editing != null || sending[i].serials.serialTracked)
               'serial_ids': [...sending[i].picked],
-            if (_reason.text.trim().isNotEmpty)
-              'reason_code': _reason.text.trim(),
+            if (_lineReason(sending[i]).isNotEmpty)
+              'reason_code': _lineReason(sending[i]),
+            if (editing != null) ..._heldLine(sending[i], editing),
           },
       ],
     };
+  }
+
+  /// The day the return is dated: today for a new one, and its own day for
+  /// a Draft opened again -- putting a quantity right must not move it into
+  /// another period (D-UI-39).
+  String get _returnDay {
+    final String held = widget.editing?.returnDate ?? '';
+    return held.isNotEmpty
+        ? held
+        : widget.today.toIso8601String().split('T').first;
   }
 
   void _phase2Save() {
@@ -289,7 +537,16 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
     try {
       final ReturnableSerials found = await loader(document, draft.line);
       if (!mounted) return;
-      _setState(() => draft.serials = found);
+      _setState(() {
+        draft.serials = found;
+        // A unit a Draft picked that may no longer come back is dropped
+        // where it can be seen: the count beside the chips falls short and
+        // the save asks for another, rather than sending one that has no
+        // chip to unpick it by.
+        if (found.serialTracked) {
+          draft.picked.retainAll(found.serials.map((unit) => unit.id));
+        }
+      });
     } on ApiException catch (exception) {
       if (!mounted) return;
       _setState(() => _phase2Problem =
@@ -331,7 +588,20 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
                   color: scheme.onSurfaceVariant,
                 ),
               ),
-        child: DropdownMenu<String>(
+        // Fixed on a Draft opened again (D-UI-39): another document is
+        // another customer's goods, which is a new return, not this one put
+        // right.
+        child: widget.editing != null && document != null
+            ? InputDecorator(
+                key: const ValueKey('sales-return-document-fixed'),
+                decoration: documentBoxDecoration(context),
+                child: Text(
+                  '${document.sourceType.label}  ${document.label}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              )
+            : DropdownMenu<String>(
           key: const ValueKey('sales-return-document'),
           initialSelection: document?.id,
           width: 420,
@@ -368,7 +638,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
         width: 130,
         child: InputDecorator(
           decoration: documentBoxDecoration(context),
-          child: Text(documentDate(widget.today)),
+          child: Text(_dayOf(_returnDay)),
         ),
       ),
       DocumentField(
@@ -424,8 +694,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
 
   Map<String, dynamic>? _pricedLine(int index) {
     final String id = _drafts[index].line.id;
-    for (final dynamic raw
-        in _preview?.salesReturn['lines'] as List? ?? const []) {
+    for (final dynamic raw in _pricing?['lines'] as List? ?? const []) {
       if (raw is Map && stringValue(raw['source_document_line_id']) == id) {
         return Map<String, dynamic>.from(raw);
       }
@@ -576,7 +845,7 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
   }
 
   Widget _returnTotals() {
-    final Map<String, dynamic>? priced = _preview?.salesReturn;
+    final Map<String, dynamic>? priced = _pricing;
     double typed = 0;
     for (final _ReturnLineDraft draft in _drafts) {
       typed += _typedTaxable(draft);
@@ -595,7 +864,11 @@ extension _Phase2SalesReturnEditor on _SalesReturnEditorDialogState {
       total: priced == null ? null : total,
       note: typed <= 0
           ? 'Type how many came back on each line.'
-          : 'Totals follow as the lines are priced.',
+          : widget.editing != null
+              // Not priced as it is typed, for the reason beside
+              // [_pricing]; the figures here are quantity at the rate.
+              ? 'The credit and its tax are worked out when this is saved.'
+              : 'Totals follow as the lines are priced.',
       figures: [
         ('Taxable', taxable),
         if (interstate == null)

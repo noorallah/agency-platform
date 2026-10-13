@@ -57,12 +57,12 @@ void main() {
         await openBills();
         final List<String> missing = <String>[
           for (final String h in <String>[
+            // Payment Terms, Taxable Value and Tax are under Columns, not
+            // shown at first (D-UI-31: the book was wrong, not the list).
             'Invoice Number',
             'Customer',
+            'Invoice Date',
             'Status',
-            'Payment Terms',
-            'Taxable Value',
-            'Tax',
             'Grand Total',
             'Approved',
             'Cancelled',

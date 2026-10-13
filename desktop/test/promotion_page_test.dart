@@ -377,6 +377,49 @@ void main() {
     expect(find.text('Ends here'), findsOneWidget);
   });
 
+  testWidgets('the list says which offer works only with a coupon (D-UI-56)',
+      (tester) async {
+    // Only the edit form said so: the grid, the bar and the offer's window
+    // read the same for an offer everybody gets and one behind a coupon.
+    const PromotionRecord behindACoupon = PromotionRecord(
+      id: 'promo-2',
+      code: 'CPN',
+      name: 'Coupon offer',
+      version: 1,
+      status: 'ACTIVE',
+      requiresCoupon: true,
+      actions: <PromotionActionRecord>[
+        PromotionActionRecord(
+            actionType: 'LINE_DISCOUNT_PERCENT', percent: '10'),
+      ],
+    );
+    await _pumpPage(
+      tester,
+      _PromotionApi(rows: <PromotionRecord>[_promotion(), behindACoupon]),
+      phase2: true,
+    );
+
+    expect(find.text('Coupon'), findsOneWidget);
+    expect(find.text('Only with a coupon'), findsOneWidget);
+    expect(find.text('Not needed'), findsOneWidget);
+
+    await tester.tap(find.text('CPN').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('selection-bar')),
+        matching: find.textContaining('Only with a coupon'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('selection-view')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('promotion-coupon-only')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the compounding rule is stated, not left to be discovered',
       (tester) async {
     await _pumpDialog(tester, _PromotionApi());

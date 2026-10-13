@@ -94,7 +94,7 @@ from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
-from app.sales_order.services.offer_echoes import echoes_of_what_an_offer_gave
+from app.sales_order.services.offer_echoes import without_what_an_offer_gave
 from app.sales_order.services.sales_order_service import (
     PromotionBenefits,
     normalized_coupon,
@@ -826,9 +826,9 @@ class QuotationService(TransactionalDocumentService):
                         remarks=line.remarks,
                     )
                     for line in lines
-                    # A line of nothing charged is a gift an offer added: the
-                    # write schema refuses a quantity of zero, so nobody typed
-                    # it. The order's own offers add it again if it is still
+                    # A line of nothing charged is a gift an offer added: a
+                    # save refuses one a person typed, so nobody typed it.
+                    # The order's own offers add it again if it is still
                     # given, and claim it (D-SELL-32).
                     if line.quantity > ZERO
                 ],
@@ -1145,15 +1145,17 @@ class QuotationService(TransactionalDocumentService):
         The sales order's rule, so the offer and the order read alike: goods
         supplied free and nothing charged, an explicit zero rate so no
         standing discount reaches a line worth nothing, and a gift the caller
-        already typed is not doubled. Built without validation because the
-        write schema refuses a quantity of zero -- which is also what lets
-        the conversion tell these lines from typed ones and leave them to the
-        order's own offers.
+        already typed is not doubled. Built without validation, as it was
+        when the write schema refused a quantity of zero. A save still
+        refuses such a line from a person -- which is what lets the
+        conversion tell these lines from typed ones and leave them to the
+        order's own offers -- and drops this one where a client sends it
+        back as read (D-SELL-89).
 
         Free units of a line's own product that are not a whole number of
         the line's unit come the same way, as a free line of that product in
-        its stock unit (D-PRC-39); nobody can have typed one, since the
-        write schema refuses a line of nothing.
+        its stock unit (D-PRC-39); nobody can have typed one, since a save
+        refuses a line of nothing.
         """
         gifts = benefits.gifts()
         if not gifts:
@@ -1285,19 +1287,34 @@ class QuotationService(TransactionalDocumentService):
                 )
             ).all()
         }
-        # A figure the offer put on a line, sent back as read, is silence
-        # again -- at its number or wherever the line moved to -- or saving
-        # the quotation twice would make the offer's free goods typed ones,
-        # and the order it becomes would carry them unclaimed (D-PRC-58).
-        echoed = echoes_of_what_an_offer_gave(lines, existing.values())
-        lines = [
-            (
-                item.model_copy(update={"free_quantity": None})
-                if index in echoed
-                else item
-            )
-            for index, item in enumerate(lines)
-        ]
+        # What the offers' engine put on the quotation, sent back as read, is
+        # the offer's again and not typed: a figure on a line is silence --
+        # at its number or wherever the line moved to -- or saving the
+        # quotation twice would make the offer's free goods typed ones, and
+        # the order it becomes would carry them unclaimed (D-PRC-58). The
+        # engine's own free line is dropped and worked out afresh, as an
+        # order does it; it was refused by the schema, so a quotation read
+        # and sent back whole could not be saved at all (D-SELL-89).
+        lines = without_what_an_offer_gave(lines, existing.values())
+        # What is left that quotes nothing is a line somebody typed. The
+        # order this becomes leaves every such line to its own offers, so
+        # one a person typed would be quoted and never ordered.
+        for item in lines:
+            if item.quantity <= ZERO:
+                raise ValidationError(
+                    f"Line {item.line_number} quotes a quantity of 0. Goods "
+                    "given free with nothing bought are added by an offer; "
+                    "type a quantity and put the free goods beside it, or "
+                    "leave the line off the quotation.",
+                    details={"field": "lines"},
+                )
+        if entered is not None:
+            # A line dropped above leaves no typed rate behind for the free
+            # line the engine may add at its number.
+            numbers = {item.line_number for item in lines}
+            entered = {
+                number: rate for number, rate in entered.items() if number in numbers
+            }
         asked = len(lines)
         seen: set[int] = set()
         subtotal = ZERO

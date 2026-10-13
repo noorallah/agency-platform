@@ -177,6 +177,34 @@ void main() {
         : '/api/v1/delivery-notes/bulk-print';
     final String key = invoices ? 'invoice_ids' : 'note_ids';
 
+    if (invoices) {
+      testWidgets('the bill list opens on six columns, the rest under Columns',
+          (tester) async {
+        // D-UI-31: the case book listed Payment Terms, Taxable Value and Tax
+        // as shown. The list is the owner's column choice (2026-09-27): the
+        // few a bill is found by, and the others one click away.
+        await _pump(tester, invoices: true);
+        for (final String heading in <String>[
+          'Invoice Number',
+          'Files',
+          'Customer',
+          'Invoice Date',
+          'Status',
+          'Grand Total',
+        ]) {
+          expect(find.text(heading), findsOneWidget, reason: heading);
+        }
+        for (final String heading in <String>[
+          'Payment Terms',
+          'Taxable Value',
+          'Tax',
+        ]) {
+          expect(find.text(heading), findsNothing, reason: heading);
+        }
+        expect(find.byTooltip('Columns'), findsOneWidget);
+      });
+    }
+
     testWidgets('$name: Print selected is offered only for a selection',
         (tester) async {
       await _pump(tester, invoices: invoices);

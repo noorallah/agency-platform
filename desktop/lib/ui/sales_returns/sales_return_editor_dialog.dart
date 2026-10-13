@@ -16,6 +16,66 @@ import '../workspace/desktop_framework.dart';
 
 part 'sales_return_editor_phase2.dart';
 
+/// Why [draft] cannot be opened for editing, in a sentence, or null when it
+/// can (D-UI-39).
+///
+/// The editor is one source document and one row for each of its lines, so
+/// the draft has to be found again among [documents] -- what goods can come
+/// back against now. It can be missing: the note or bill cancelled since,
+/// or a list that could not be read, which the picker's read turns into an
+/// empty one. Saying so beats opening an editor with nothing in it.
+String? salesReturnEditRefusal(
+  SalesReturn draft,
+  List<ReturnableDocument> documents,
+) {
+  final String number = draft.returnNumber;
+  final Set<String> sources = {
+    for (final SalesReturnLine line in draft.lines)
+      '${line.sourceType.code}:${line.sourceDocumentId}',
+  };
+  if (draft.lines.isEmpty) return '$number has no lines to edit.';
+  if (sources.length > 1) {
+    return '$number brings goods back against more than one document '
+        '(${{
+      for (final SalesReturnLine line in draft.lines) line.sourceDocumentNumber
+    }.join(', ')}). This screen edits a return raised against one.';
+  }
+  final SalesReturnLine first = draft.lines.first;
+  final ReturnableDocument? document = documents
+      .where((item) =>
+          item.id == first.sourceDocumentId &&
+          item.sourceType == first.sourceType)
+      .firstOrNull;
+  if (document == null) {
+    return '$number was raised against ${first.sourceDocumentNumber}, which '
+        'is not among the documents goods can come back against now. It may '
+        'have been cancelled since, or the list could not be read: refresh '
+        'and try again.';
+  }
+  final Set<String> seen = <String>{};
+  for (final SalesReturnLine line in draft.lines) {
+    if (!document.lines.any((item) => item.id == line.sourceDocumentLineId)) {
+      return '$number line ${line.lineNumber} names a line that is no longer '
+          'on ${document.number}, so it cannot be edited here.';
+    }
+    if (!seen.add(line.sourceDocumentLineId)) {
+      return '$number has two lines for line '
+          '${line.sourceDocumentLineNumber} of ${document.number}. This '
+          'screen holds one row for each line of the document.';
+    }
+    // Typed in a unit of its own (D-PRC-37): the row here counts in the
+    // source line's unit, and saving 0.5833 of a box for seven pieces would
+    // change what comes back.
+    if (line.enteredQuantity.isNotEmpty ||
+        (line.returnUomId.isNotEmpty && line.returnUomId != line.salesUomId)) {
+      return '$number line ${line.lineNumber} was typed in another unit '
+          'than ${document.number} counts in. This screen cannot edit it '
+          'without changing the quantity.';
+    }
+  }
+  return null;
+}
+
 /// Raising a return against goods that already went out.
 ///
 /// A return line belongs to a line of a delivery note or a sales invoice, so
@@ -32,10 +92,19 @@ class SalesReturnEditorDialog extends StatefulWidget {
     this.loadSerials,
     this.preview,
     this.onSave,
+    this.editing,
   });
 
   final List<ReturnableDocument> documents;
   final List<WarehouseRecord> warehouses;
+
+  /// The Draft being put right (D-UI-39); null raises a new return. The
+  /// phase 2 screen opens holding it -- its document, each line's figures,
+  /// its own date -- and its payload is the whole return again, because the
+  /// server replaces a Draft from the request rather than patching it. Ask
+  /// [salesReturnEditRefusal] before opening one. The older layout does not
+  /// edit.
+  final SalesReturn? editing;
 
   /// Passed in rather than read here, so the dialog is testable and so the
   /// date shown is the one the caller decided on.
@@ -105,7 +174,10 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog>
   /// lands. A return nothing is coming back on is not sent.
   void _schedulePreview() {
     final previewer = widget.preview;
-    if (!_phase2 || previewer == null) return;
+    // Not while a Draft is edited (D-UI-39): the preview prices a new return,
+    // so the Draft's own quantity counts against the line it is on -- five
+    // of five opened again would be refused as five more.
+    if (!_phase2 || previewer == null || widget.editing != null) return;
     _previewTimer?.cancel();
     _previewTimer = Timer(const Duration(milliseconds: 350), () async {
       final Json? draft = _phase2Payload(pricing: true);
@@ -132,6 +204,8 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog>
     // so returned goods landed in whichever warehouse was added last
     // (D-QA-17).
     _warehouseId = preferredWarehouseId(widget.warehouses);
+    final SalesReturn? editing = widget.editing;
+    if (editing != null) _phase2Open(editing);
   }
 
   @override

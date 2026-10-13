@@ -6726,6 +6726,22 @@ class ApiClient {
         _unwrapMap(await request('POST', '/api/v1/sales-returns', body: data)),
       );
 
+  /// Replace a Draft return (D-UI-39). [expectedVersion] is the version the
+  /// screen read, so a save over somebody else's newer one is refused.
+  Future<SalesReturn> updateSalesReturn(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
+      SalesReturn.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/sales-returns/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
+      );
+
   /// Run a lifecycle action: approve, complete, cancel or close.
   ///
   /// `cancel` and `close` carry a reason; the other two take no body, and the
@@ -6972,6 +6988,21 @@ class ApiClient {
   /// literal `'purchase-invoices'` in `documentPage` and stops looking.
   Future<Json> createPurchaseInvoice(Json body) =>
       request('POST', '/api/v1/purchase-invoices', body: body);
+
+  /// Replace a Draft supplier bill (D-UI-39). [expectedVersion] is the
+  /// version the screen read, so a save over somebody else's newer one is
+  /// refused.
+  Future<Json> updatePurchaseInvoice(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) =>
+      request(
+        'PUT',
+        '/api/v1/purchase-invoices/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      );
 
   /// Record (or, with null, clear) the supplier's IRN on a bill that is not
   /// cancelled -- the way to put it on an approved bill, whose editor is

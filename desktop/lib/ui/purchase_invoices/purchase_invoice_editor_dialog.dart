@@ -102,6 +102,26 @@ class PurchaseInvoiceDraftLine {
 
   bool get billsAnOrder => sourceDocumentType == 'PURCHASE_ORDER';
 
+  /// D-UI-39: what the saved bill line holds that this screen has no box
+  /// for -- a charge on the line, a discount somebody typed, an expiry --
+  /// sent back as held, because the server replaces the line with what it
+  /// is sent and an edit of the quantity would otherwise wipe them. Every
+  /// key is one `PurchaseInvoiceLineWrite` declares.
+  Json echo = const {};
+
+  /// D-UI-39: the line as the bill being edited holds it, and what the
+  /// boxes read when it was opened. While the two agree the line's figures
+  /// are the server's own, as saved.
+  Json? saved;
+  String savedAs = '';
+
+  String get typedAs => '${invoiceQuantity.trim()}|${unitPrice.trim()}';
+
+  /// Whether the line differs from the bill as saved: retyped, or added.
+  bool get changedSinceSaved => saved == null
+      ? (double.tryParse(invoiceQuantity) ?? 0) > 0
+      : typedAs != savedAs;
+
   /// What the receipt (or the order) still has to be billed for.
   double get outstanding {
     final double received = double.tryParse(receivedQuantity) ?? 0;
@@ -112,6 +132,8 @@ class PurchaseInvoiceDraftLine {
   }
 
   Json toJson() => {
+        // First, so anything typed below replaces what the bill held.
+        ...echo,
         'source_document_type': sourceDocumentType,
         'source_document_id': sourceDocumentId,
         'source_document_line_id': sourceDocumentLineId,
@@ -167,7 +189,25 @@ class PurchaseDirectLine {
 
   bool get sendable => (productId ?? '').isNotEmpty && quantityValue > 0;
 
+  /// D-UI-39: what the saved bill line holds that this screen has no box
+  /// for, sent back as held; and the line as saved, with what the boxes
+  /// read when it was opened (see [PurchaseInvoiceDraftLine.echo]).
+  Json echo = const {};
+  Json? saved;
+  String savedAs = '';
+
+  String get typedAs => '${productId ?? ''}|${quantity.trim()}|'
+      '${freeQuantity.trim()}|${unitPrice.trim()}|${discountPercent.trim()}';
+
+  bool get changedSinceSaved =>
+      saved == null ? sendable : typedAs != savedAs;
+
   Json toJson(int lineNumber) => {
+        for (final MapEntry<String, dynamic> held in echo.entries)
+          // A discount typed in the box replaces an amount the bill held:
+          // sent beside it, the amount would win.
+          if (held.key != 'discount_amount' || discountPercent.trim().isEmpty)
+            held.key: held.value,
         'product_id': productId,
         'line_number': lineNumber,
         'current_invoice_quantity': quantity.trim(),
@@ -222,7 +262,15 @@ class PurchaseInvoiceEditorDialog extends StatefulWidget {
     this.canAttach = true,
     this.canAddVendor = false,
     this.onVendorAdded,
+    this.existing,
   });
+
+  /// D-UI-39: the Draft bill being edited, as `GET /purchase-invoices/{id}`
+  /// answered it; null raises a new one. A Draft had no Edit, so a wrong
+  /// quantity could only be put right by cancelling the bill and typing it
+  /// again. The window opens holding the draft and saves it with a `PUT`
+  /// carrying the version read here.
+  final Json? existing;
 
   /// Whether **New supplier** is offered beside the supplier box of a bill
   /// typed directly (backlog 128): the user holds `VENDOR_CREATE`.
@@ -309,6 +357,478 @@ class _PurchaseInvoiceEditorDialogState
   /// the approval did not happen. The window then holds that draft: it
   /// cannot raise a second bill, and its steps act on the one saved.
   Json? _saved;
+
+  // ---- editing a Draft (D-UI-39) ------------------------------------------
+
+  bool get _editing => widget.existing != null;
+
+  /// One field of the bill being edited, as text; blank when it holds none.
+  String _held(String key) => stringValue(widget.existing?[key]).trim();
+
+  static double _amountOf(Object? value) =>
+      double.tryParse(stringValue(value).trim()) ?? 0;
+
+  /// A stored figure without the store's trailing zeros, as a box shows it.
+  static String _plain(Object? value) =>
+      documentQuantity(stringValue(value).trim());
+
+  /// What the bill being edited is typed against, decided from the bill
+  /// itself once the receipts it names were read -- never from the firm's
+  /// stages alone, which may have changed since the bill was raised.
+  PurchaseBillMode? _editMode;
+
+  /// The bill raised the receipt its lines name, against an order somebody
+  /// typed. The server keeps that receipt as it is on an edit, so the
+  /// quantities and batches it holds cannot be changed from the bill.
+  bool _ownReceipt = false;
+  String _ownOrderNumber = '';
+
+  /// The bill's receipts are still being read.
+  bool _loadingEdit = false;
+
+  /// Why this draft cannot be edited from here, said in place of its lines.
+  String? _editBlock;
+
+  /// The receipts on the bill being edited, which the list behind the
+  /// window may not hold: one the bill raised itself is a draft.
+  List<GoodsReceiptRecord> _editReceipts = const [];
+
+  /// [_preview] holds the bill as saved, not a pricing of what is typed.
+  bool _savedFigures = false;
+  bool? _savedInterstate;
+  int _savedLineCount = 0;
+  bool _tcsTouched = false;
+
+  bool get _editHeld => _loadingEdit || _editBlock != null;
+
+  /// The currency the bill was saved in; blank is rupees.
+  String get _savedCurrency {
+    final String code = _held('currency_code').toUpperCase();
+    return code == 'INR' ? '' : code;
+  }
+
+  bool get _hadTcs =>
+      _held('tcs_rate_percent').isNotEmpty ||
+      _amountOf(widget.existing?['tcs_amount']) > 0;
+
+  /// Whether something that decides the whole bill's figures was changed.
+  bool get _headerChangedSinceSaved =>
+      _invoiceDate.trim() != _held('invoice_date') ||
+      _tcsTouched ||
+      _currencyTouched ||
+      _rateTouched;
+
+  bool get _changedSinceSaved {
+    if (_headerChangedSinceSaved) return true;
+    if (_direct) {
+      return _directLines.where((line) => line.saved != null).length !=
+              _savedLineCount ||
+          _directLines.any((line) => line.changedSinceSaved);
+    }
+    return _lines.where((line) => line.saved != null).length !=
+            _savedLineCount ||
+        _lines.any((line) => line.changedSinceSaved);
+  }
+
+  /// A bill of receipts cannot be priced again while it is edited: the
+  /// preview prices a new bill, which would count this draft's own quantity
+  /// as billed by another and refuse it. So a changed bill says its tax and
+  /// total follow on saving rather than showing figures nobody worked out.
+  bool get _figuresOwed => _editing && !_direct && _changedSinceSaved;
+
+  /// How the tax splits: the server's answer for what is typed, or what the
+  /// saved bill's own tax lines say. Null when neither says.
+  bool? get _interstate =>
+      _savedFigures ? _savedInterstate : _preview?.interstate;
+
+  /// Fill the header from the bill being edited. Its own dates, not today.
+  void _holdHeader() {
+    _invoiceDate = _held('invoice_date');
+    _supplierInvoiceNumber = _held('supplier_invoice_number');
+    _supplierInvoiceDate = _held('supplier_invoice_date');
+    _supplierIrn = _held('supplier_irn');
+    _remarks = _held('remarks');
+    _tcsRate = _plain(_held('tcs_rate_percent'));
+    // The amount is in its box only where somebody typed it. One the rate
+    // gave is left blank, as it was typed, so it follows a new total.
+    final double amount = _amountOf(_held('tcs_amount'));
+    final double worked =
+        _amountOf(_held('grand_total')) * _amountOf(_tcsRate) / 100;
+    _tcsAmount =
+        amount > 0 && (_tcsRate.isEmpty || (amount - worked).abs() > 0.005)
+            ? _plain(_held('tcs_amount'))
+            : '';
+  }
+
+  /// Read what the bill being edited charges for and fill its lines.
+  ///
+  /// The mode comes from the bill. A receipt it names that is still a draft
+  /// can only be one the bill raised itself -- the server lets nobody else
+  /// bill a draft receipt -- so the firm typed either products or an order.
+  /// Which of the two the server does not publish, so the order is read: one
+  /// the bill raised carries the supplier's invoice number as its reference
+  /// and the bill's date as its own. Only then, and only while the firm
+  /// still types neither stage, are the lines sent again as products, which
+  /// is what makes the server withdraw that order and receipt and raise
+  /// them again.
+  Future<void> _loadEditing() async {
+    final Json bill = widget.existing!;
+    final List<Json> held = [
+      for (final dynamic raw in bill['lines'] as List? ?? const [])
+        if (raw is Map) Map<String, dynamic>.from(raw),
+    ]..sort((a, b) => ((a['line_number'] as num?) ?? 0)
+        .compareTo((b['line_number'] as num?) ?? 0));
+    String? block;
+    PurchaseBillMode mode = PurchaseBillMode.receipt;
+    bool own = false;
+    final List<GoodsReceiptRecord> receipts = <GoodsReceiptRecord>[];
+    Map<String, double> invoiced = const <String, double>{};
+    try {
+      final List<String> ids = <String>[];
+      for (final dynamic raw in [
+        ...bill['sources'] as List? ?? const [],
+        ...held,
+      ]) {
+        if (raw is! Map) continue;
+        final String id = stringValue(raw['source_document_id']);
+        if (stringValue(raw['source_document_type']) == 'GOODS_RECEIPT' &&
+            id.isNotEmpty &&
+            !ids.contains(id)) {
+          ids.add(id);
+        }
+      }
+      for (final String id in ids) {
+        GoodsReceiptRecord? known;
+        for (final GoodsReceiptRecord item in widget.receipts) {
+          if (item.id == id) known = item;
+        }
+        receipts.add(known ?? await widget.api.goodsReceipt(id));
+      }
+      if (receipts.isEmpty) {
+        block = '${_held('invoice_number')} names no goods receipt, so it '
+            'cannot be changed from this screen. Cancel it and enter the '
+            'bill again.';
+      } else if (held
+          .any((line) => stringValue(line['entered_quantity']).isNotEmpty)) {
+        // The row keeps the quantity in the receipt's unit and the price of
+        // one of it; what was typed cannot be put back in the boxes exactly.
+        block = '${_held('invoice_number')} has a line typed in another '
+            "unit than its goods receipt's, which this screen cannot show "
+            'yet. Cancel it and enter the bill again to change it.';
+      } else {
+        own = receipts.any((item) => item.status == 'DRAFT');
+        if (!own) {
+          invoiced = await _invoicedByLine();
+        } else if (!widget.stages.goodsReceiptStage &&
+            !widget.stages.purchaseOrderStage &&
+            receipts.length == 1 &&
+            await _orderIsTheBills(receipts.first)) {
+          mode = PurchaseBillMode.products;
+        }
+      }
+    } on ApiException catch (exception) {
+      block = 'Could not read what ${_held('invoice_number')} bills: '
+          '${refusalMessage(exception)} Close this window and open the bill '
+          'again.';
+    }
+    if (!mounted) return;
+    setState(() {
+      _loadingEdit = false;
+      _editBlock = block;
+      _editMode = mode;
+      _editReceipts = receipts;
+      if (block != null) return;
+      _ownReceipt = own && mode == PurchaseBillMode.receipt;
+      _ownOrderNumber = own ? receipts.first.purchaseOrderNumber : '';
+      _savedLineCount = held.length;
+      if (mode == PurchaseBillMode.products) {
+        _vendorId = _held('vendor_id');
+        final Map<String, GoodsReceiptLine> raised = {
+          for (final GoodsReceiptLine line in receipts.first.lines)
+            line.id: line,
+        };
+        _directLines
+          ..clear()
+          ..addAll([
+            for (final Json line in held)
+              _heldDirectLine(
+                line,
+                raised[stringValue(line['source_document_line_id'])],
+              ),
+          ]);
+        if (_directLines.isEmpty) _directLines.add(PurchaseDirectLine());
+      } else {
+        _billVendorId = receipts.first.vendorId;
+        _receipt = receipts.first;
+        _extraReceipts = receipts.skip(1).toList();
+        _lines = _heldLines(held, receipts, invoiced);
+      }
+      // Until something is changed the figures shown are the bill's own,
+      // as the server saved them.
+      _preview = PurchaseInvoicePreviewRecord(
+        invoice: Map<String, dynamic>.from(bill),
+        interstate: false,
+        lines: const [],
+      );
+      _savedFigures = true;
+      _savedInterstate = _heldInterstate(held);
+    });
+  }
+
+  /// Whether the order behind a receipt the bill raised was raised by the
+  /// bill too: a bill of products. An order that cannot be read is taken as
+  /// somebody's own, which is the reading that withdraws nothing.
+  Future<bool> _orderIsTheBills(GoodsReceiptRecord receipt) async {
+    if (receipt.purchaseOrderId.isEmpty) return false;
+    try {
+      final PurchaseOrder order =
+          await widget.api.purchaseOrder(receipt.purchaseOrderId);
+      return order.referenceNumber.trim() ==
+              _held('supplier_invoice_number') &&
+          order.purchaseDate.trim() == _held('invoice_date');
+    } on ApiException {
+      return false;
+    }
+  }
+
+  /// IGST or CGST and SGST, read off the tax lines the bill kept; null
+  /// where their codes name neither.
+  bool? _heldInterstate(List<Json> held) {
+    for (final Json line in held) {
+      for (final dynamic tax in line['taxes'] as List? ?? const []) {
+        if (tax is! Map) continue;
+        final String code =
+            '${tax['component_code']} ${tax['component_label']}'.toUpperCase();
+        if (code.contains('IGST')) return true;
+        if (code.contains('CGST') || code.contains('SGST')) return false;
+      }
+    }
+    return null;
+  }
+
+  /// What a saved line holds that neither kind of line has a box for.
+  Json _heldLineExtras(Json was) => {
+        if (_amountOf(was['charges_amount']) > 0)
+          'charges_amount': stringValue(was['charges_amount']),
+        for (final String key in const [
+          'packaging_type_id',
+          'storage_node_id',
+          'manufacturing_date',
+        ])
+          if (stringValue(was[key]).isNotEmpty) key: stringValue(was[key]),
+      };
+
+  /// The input credit choice somebody made on a saved line, or blank.
+  ///
+  /// The row keeps what was resolved, not who decided it. Where it is what
+  /// the product itself says and no tax rule decided the line, the box
+  /// stays on *From product*: leaving it there resolves to the same answer.
+  /// Anywhere else it is sent back as held, which is the reading under
+  /// which saving an unchanged bill changes nothing.
+  String _typedItc(Json was) {
+    final String held = stringValue(was['itc_eligibility']);
+    if (!const ['ELIGIBLE', 'BLOCKED', 'INELIGIBLE'].contains(held)) return '';
+    final Product? product = _productById(stringValue(was['product_id']));
+    if (product != null &&
+        product.itcEligibility == held &&
+        stringValue(was['tax_rule_code']).isEmpty) {
+      return '';
+    }
+    return held;
+  }
+
+  /// The discount key to send back for a saved line that bills a receipt
+  /// line, or nothing.
+  ///
+  /// The screen has no discount box here and a new bill sends none, so the
+  /// receipt line's arrangement carries over; sending one back would turn
+  /// that arrangement into an override. Nothing is sent where the saved
+  /// discount is what the receipt line gives -- its rate on this line's
+  /// worth, or its amount by the share billed. Only a discount that is
+  /// neither, typed through another route, is sent back as held.
+  Json _typedDiscount(Json was, GoodsReceiptLine source) {
+    final double amount = _amountOf(was['discount_amount']);
+    final double percent = _amountOf(was['discount_percent']);
+    final double gross = _amountOf(was['gross_amount']);
+    final double sourceRate = _amountOf(source.discountPercent);
+    final double sourceAmount = _amountOf(source.discountAmount);
+    final double sourceGross = _amountOf(source.grossAmount);
+    final bool byRate = sourceAmount <= 0 ||
+        (sourceRate > 0 &&
+            (sourceGross * sourceRate / 100 - sourceAmount).abs() < 0.00006);
+    final double whole = _amountOf(source.acceptedQuantity);
+    final double share = whole > 0
+        ? sourceAmount * _amountOf(was['current_invoice_quantity']) / whole
+        : 0;
+    final double inherited =
+        byRate ? gross * sourceRate / 100 : (share > gross ? gross : share);
+    // A rate is exact to the store's four places; a share is cut at the
+    // paisa and the last part takes the rounding.
+    if ((amount - inherited).abs() < (byRate ? 0.00006 : 0.011)) {
+      return const {};
+    }
+    return (gross * percent / 100 - amount).abs() < 0.00006
+        ? {'discount_percent': _plain(was['discount_percent'])}
+        : {'discount_amount': _plain(was['discount_amount'])};
+  }
+
+  /// The lines of the receipts on the bill being edited: each at what the
+  /// bill holds for it, and a receipt line the bill does not charge for at
+  /// nothing -- a new bill would start it at what is left.
+  List<PurchaseInvoiceDraftLine> _heldLines(
+    List<Json> held,
+    List<GoodsReceiptRecord> receipts,
+    Map<String, double> invoiced,
+  ) {
+    final Map<String, Json> byLine = <String, Json>{};
+    final Map<String, double> quantity = <String, double>{};
+    for (final Json line in held) {
+      final String id = stringValue(line['source_document_line_id']);
+      byLine.putIfAbsent(id, () => line);
+      quantity[id] =
+          (quantity[id] ?? 0) + _amountOf(line['current_invoice_quantity']);
+    }
+    final List<PurchaseInvoiceDraftLine> lines = <PurchaseInvoiceDraftLine>[];
+    for (final GoodsReceiptRecord receipt in receipts) {
+      for (final GoodsReceiptLine source in receipt.lines) {
+        final PurchaseInvoiceDraftLine draft = _draftLine(
+          receipt,
+          source,
+          lines.length + 1,
+          invoiced[source.id] ?? 0,
+        );
+        final Json? was = byLine[source.id];
+        if (was == null) {
+          draft.invoiceQuantity = '0';
+        } else {
+          draft.invoiceQuantity = _trim(quantity[source.id] ?? 0);
+          draft.batchNumber = stringValue(was['batch_number']);
+          draft.remarks = stringValue(was['remarks']);
+          // A rate is in the box only where somebody typed one: the saved
+          // price differs from the receipt line's. Left blank it takes the
+          // receipt's again, which is the price it has.
+          if ((_amountOf(was['unit_price']) - _amountOf(source.unitPrice))
+                  .abs() >
+              0.00005) {
+            draft.unitPrice = _plain(was['unit_price']);
+          }
+          draft.itcEligibility = _typedItc(was);
+          draft.capitalGoods =
+              was['is_capital_goods'] == true || source.isCapitalGoods;
+          draft.assetClassId =
+              draft.capitalGoods ? stringValue(was['asset_class_id']) : '';
+          draft.echo = {
+            ..._heldLineExtras(was),
+            ..._typedDiscount(was, source),
+            if (stringValue(was['expiry_date']).isNotEmpty)
+              'expiry_date': stringValue(was['expiry_date']),
+          };
+          draft.saved = was;
+          draft.savedAs = draft.typedAs;
+        }
+        lines.add(draft);
+      }
+    }
+    return lines;
+  }
+
+  /// One saved line of a bill of products, back in its boxes.
+  ///
+  /// Nothing is inherited on such a line: the order behind it was raised
+  /// from the bill, at the rate and the discount the bill gave. So the rate
+  /// is put back as held -- blank would take the product's price as it is
+  /// today, which may no longer be the bill's -- and a discount on the row
+  /// is one somebody typed. [raised] is the receipt line the bill raised,
+  /// which is where its free goods are kept.
+  PurchaseDirectLine _heldDirectLine(Json was, GoodsReceiptLine? raised) {
+    final PurchaseDirectLine line = PurchaseDirectLine()
+      ..productId = stringValue(was['product_id'])
+      ..quantity = _plain(was['current_invoice_quantity'])
+      ..freeQuantity = raised != null && _amountOf(raised.freeQuantity) > 0
+          ? _plain(raised.freeQuantity)
+          : ''
+      ..unitPrice = _plain(was['unit_price'])
+      ..batchNumber = stringValue(was['batch_number'])
+      ..expiryDate = stringValue(was['expiry_date'])
+      ..remarks = stringValue(was['remarks'])
+      ..itcEligibility = _typedItc(was)
+      ..capitalGoods = was['is_capital_goods'] == true;
+    line.assetClassId =
+        line.capitalGoods ? stringValue(was['asset_class_id']) : '';
+    final double amount = _amountOf(was['discount_amount']);
+    final bool asRate = (_amountOf(was['gross_amount']) *
+                    _amountOf(was['discount_percent']) /
+                    100 -
+                amount)
+            .abs() <
+        0.00006;
+    if (amount > 0 && asRate) {
+      line.discountPercent = _plain(was['discount_percent']);
+    }
+    line.echo = {
+      ..._heldLineExtras(was),
+      // An amount no rate gives back has no box; it is sent back as held.
+      if (amount > 0 && !asRate)
+        'discount_amount': _plain(was['discount_amount']),
+      // The unit and the place the line was raised in, so the order raised
+      // again counts and receives it as before.
+      for (final String key in const ['invoice_uom_id', 'warehouse_id'])
+        if (stringValue(was[key]).isNotEmpty) key: stringValue(was[key]),
+    };
+    line.saved = was;
+    line.savedAs = line.typedAs;
+    return line;
+  }
+
+  /// What the bill holds in its header that this screen has no box for,
+  /// sent back as held. The server writes each of these from the request
+  /// even when it is absent, so leaving one out would clear it.
+  Json _heldHeader({required bool pricing}) {
+    final Json bill = widget.existing!;
+    List<Json> rows(String key, List<String> fields) => [
+          for (final dynamic raw in bill[key] as List? ?? const [])
+            if (raw is Map)
+              {
+                for (final String field in fields)
+                  if (raw[field] != null) field: raw[field],
+              },
+        ];
+    final List<Json> notes = rows('notes', const ['note_type', 'note']);
+    final List<Json> attachments = rows('attachments', const [
+      'file_name',
+      'mime_type',
+      'file_path',
+      'attachment_kind',
+    ]);
+    return {
+      for (final String key in const [
+        'payment_terms',
+        'reference_number',
+        'business_profile_id',
+      ])
+        if (_held(key).isNotEmpty) key: _held(key),
+      // The due date follows the bill's date by the supplier's terms unless
+      // one is sent, so it is sent back only while the date is the bill's
+      // own: a bill moved to another day takes its due date again.
+      if (_held('due_date').isNotEmpty &&
+          _invoiceDate.trim() == _held('invoice_date'))
+        'due_date': _held('due_date'),
+      for (final String key in const ['additional_charges', 'round_off'])
+        if (_amountOf(bill[key]) != 0) key: _held(key),
+      // A bill of products is received at the firm's default branch unless
+      // it names one; a bill of receipts takes its receipts' branch.
+      if (_direct && _held('branch_id').isNotEmpty)
+        'branch_id': _held('branch_id'),
+      // A bill in the name of another office of the receipts' supplier.
+      if (!_direct &&
+          _held('vendor_id').isNotEmpty &&
+          _held('vendor_id') != _receipt?.vendorId)
+        'vendor_id': _held('vendor_id'),
+      // Rebuilt from the request on every save. Not while merely pricing.
+      if (!pricing && notes.isNotEmpty) 'notes': notes,
+      if (!pricing && attachments.isNotEmpty) 'attachments': attachments,
+    };
+  }
 
   /// Phase 2: the bill as the server priced it last, and the line the side
   /// panel follows.
@@ -503,7 +1023,9 @@ class _PurchaseInvoiceEditorDialogState
   }
 
   /// What the bill starts in while nobody has typed a currency (D-BUY-42).
-  String get _startingCurrency => _orderCurrency?.$1 ?? _supplierCurrency;
+  /// A bill being edited starts in the currency it was saved in (D-UI-39).
+  String get _startingCurrency =>
+      _editing ? _savedCurrency : _orderCurrency?.$1 ?? _supplierCurrency;
 
   /// The bill's currency: what was typed, else its order's, else the
   /// supplier's. Blank and INR are both rupees and read as blank here.
@@ -517,6 +1039,12 @@ class _PurchaseInvoiceEditorDialogState
   /// the order's currency -- the rate the goods were received at.
   String get _billRate {
     if (_rateTouched) return _exchangeRate.trim();
+    if (_editing) {
+      // The rate the bill was saved at, while it stays in that currency.
+      return _billCurrency == _savedCurrency
+          ? _plain(_held('exchange_rate'))
+          : '';
+    }
     final (String, String)? order = _orderCurrency;
     if (order == null || order.$1.trim().toUpperCase() != _billCurrency) {
       return '';
@@ -528,11 +1056,16 @@ class _PurchaseInvoiceEditorDialogState
 
   /// Receipts on is the whole chain; the server refuses receipts on with
   /// orders off, so the two switches name exactly three modes.
-  PurchaseBillMode get _mode => widget.stages.goodsReceiptStage
-      ? PurchaseBillMode.receipt
-      : widget.stages.purchaseOrderStage
-          ? PurchaseBillMode.order
-          : PurchaseBillMode.products;
+  ///
+  /// A bill being edited is typed the way the bill itself says (D-UI-39),
+  /// decided in [_loadEditing].
+  PurchaseBillMode get _mode =>
+      _editMode ??
+      (widget.stages.goodsReceiptStage
+          ? PurchaseBillMode.receipt
+          : widget.stages.purchaseOrderStage
+              ? PurchaseBillMode.order
+              : PurchaseBillMode.products);
 
   bool get _direct => _mode == PurchaseBillMode.products;
 
@@ -554,12 +1087,25 @@ class _PurchaseInvoiceEditorDialogState
   /// definitions arrived.
   late final CustomFieldsController _customFields = CustomFieldsController(
     load: () => widget.api.applicableAttributeDefinitions('PURCHASE_INVOICE'),
+    // D-UI-39: an edit sends the fields whole, so they start at what the
+    // bill holds; started empty, saving would clear them.
+    stored: [
+      for (final dynamic raw
+          in widget.existing?['attributes'] as List? ?? const [])
+        if (raw is Map)
+          ProductAttributeValueRecord.fromJson(Map<String, dynamic>.from(raw)),
+    ],
   );
 
   @override
   void initState() {
     super.initState();
     unawaited(_customFields.start());
+    if (_editing) {
+      _holdHeader();
+      _loadingEdit = true;
+      unawaited(_loadEditing());
+    }
   }
 
   @override
@@ -573,6 +1119,9 @@ class _PurchaseInvoiceEditorDialogState
   /// lands. A bill with no receipt or nothing being billed is not sent.
   void _schedulePreview() {
     if (!_phase2) return;
+    // D-UI-39: a bill of receipts being edited is not priced again here;
+    // see [_figuresOwed].
+    if (_editing && (_editHeld || !_direct)) return;
     _previewTimer?.cancel();
     _previewTimer = Timer(const Duration(milliseconds: 350), () async {
       if (!_hasSource || !_hasSomethingToBill) return;
@@ -581,7 +1130,10 @@ class _PurchaseInvoiceEditorDialogState
         final PurchaseInvoicePreviewRecord priced =
             await widget.api.previewPurchaseInvoice(_payload(pricing: true));
         if (!mounted || serial != _previewSerial) return;
-        setState(() => _preview = priced);
+        setState(() {
+          _preview = priced;
+          _savedFigures = false;
+        });
       } on ApiException {
         // A bill the server refuses as it stands keeps the last figures;
         // saving it says why.
@@ -631,9 +1183,23 @@ class _PurchaseInvoiceEditorDialogState
   List<GoodsReceiptRecord> get _vendorReceipts {
     final String? vendor = _tickVendorId;
     if (vendor == null) return const [];
+    final Set<String> listed = {
+      for (final GoodsReceiptRecord item in widget.receipts) item.id,
+    };
+    // D-UI-39: a receipt already on the bill being edited is offered
+    // whatever is left of it, or unticking it could not be undone.
+    final Set<String> on = {
+      for (final GoodsReceiptRecord item in _editReceipts) item.id,
+    };
     return [
-      for (final GoodsReceiptRecord item in widget.receipts)
-        if (item.vendorId == vendor && item.hasLeftToBill) item,
+      for (final GoodsReceiptRecord item in [
+        ...widget.receipts,
+        for (final GoodsReceiptRecord read in _editReceipts)
+          if (!listed.contains(read.id)) read,
+      ])
+        if (item.vendorId == vendor &&
+            (item.hasLeftToBill || on.contains(item.id)))
+          item,
     ];
   }
 
@@ -809,6 +1375,10 @@ class _PurchaseInvoiceEditorDialogState
         if (stringValue(row['status']).trim().toUpperCase() == 'CANCELLED') {
           continue;
         }
+        // D-UI-39: the bill being edited is not "another bill". Counting its
+        // own quantity left a draft for the whole receipt reading nothing
+        // left to bill, and refused the quantity it already holds.
+        if (_editing && stringValue(row['id']) == _held('id')) continue;
         for (final dynamic line
             in (row['lines'] as List<dynamic>? ?? const [])) {
           if (line is! Map) continue;
@@ -871,6 +1441,8 @@ class _PurchaseInvoiceEditorDialogState
       _direct ? _sendableDirect().isNotEmpty : _sendableLines().isNotEmpty;
 
   String? _validation() {
+    if (_loadingEdit) return 'The bill is still being read.';
+    if (_editBlock != null) return _editBlock;
     if (!_hasSource) {
       return switch (_mode) {
         PurchaseBillMode.receipt => 'Choose the goods receipt being billed.',
@@ -995,7 +1567,10 @@ class _PurchaseInvoiceEditorDialogState
     // from the document, and a copy sent from here is one more thing that can
     // disagree with it. A bill of products names its supplier; its branch is
     // the firm's default, as the stage settings say.
+    final bool editing = _editing;
     return {
+      // D-UI-39: first, so what is typed below replaces what the bill held.
+      if (editing) ..._heldHeader(pricing: pricing),
       if (_direct) 'vendor_id': _vendorId,
       // Backlog 140: only where another office of the order's supplier is
       // billing; the server checks it is one, and receives the goods from it.
@@ -1015,15 +1590,31 @@ class _PurchaseInvoiceEditorDialogState
       // PG-6: sent only when typed -- blank is no TCS. Priced while typing,
       // a box that is not yet a number is left out rather than refused.
       // A bill in another currency carries no TCS: the server refuses it.
-      if (!_foreign && _tcsFigure(_tcsRate) != null)
-        'tcs_rate_percent': _tcsRate.trim(),
-      if (!_foreign && _tcsFigure(_tcsAmount) != null)
-        'tcs_amount': _tcsAmount.trim(),
+      if (!editing || pricing) ...{
+        if (!_foreign && _tcsFigure(_tcsRate) != null)
+          'tcs_rate_percent': _tcsRate.trim(),
+        if (!_foreign && _tcsFigure(_tcsAmount) != null)
+          'tcs_amount': _tcsAmount.trim(),
+      } else if (_foreign ? _hadTcs : _tcsTouched) ...{
+        // D-UI-39: an edit that leaves both boxes alone sends neither, and
+        // the server keeps the bill's TCS -- an amount the rate gave follows
+        // the new total, one that was typed stays. Once either is touched
+        // both are sent, a blank one as null, because absent would keep it.
+        // A bill moved to another currency gives its TCS up.
+        'tcs_rate_percent':
+            _foreign || _tcsFigure(_tcsRate) == null ? null : _tcsRate.trim(),
+        'tcs_amount': _foreign || _tcsFigure(_tcsAmount) == null
+            ? null
+            : _tcsAmount.trim(),
+      },
       // PG-12: sent once the person has chosen a currency (blank or INR is
       // rupees); until then the server starts the bill in its order's, or
       // its supplier's. The rate is sent only for a foreign bill: what was
       // typed, else the order's.
-      if (_currencyTouched) 'currency_code': _foreign ? _billCurrency : 'INR',
+      // An edit that leaves the box alone sends none and keeps the bill's;
+      // pricing it is a new bill to the server, so it is told.
+      if (_currencyTouched || (editing && pricing))
+        'currency_code': _foreign ? _billCurrency : 'INR',
       if (_foreign && (double.tryParse(_billRate) ?? 0) > 0)
         'exchange_rate': _billRate,
       // Only once the definitions arrived, and never while merely pricing:
@@ -1090,7 +1681,15 @@ class _PurchaseInvoiceEditorDialogState
       _error = null;
     });
     try {
-      final Json response = await widget.api.createPurchaseInvoice(_payload());
+      // D-UI-39: a draft being edited is replaced, with the version it was
+      // read at, so a save over somebody else's newer one is refused.
+      final Json response = _editing
+          ? await widget.api.updatePurchaseInvoice(
+              _held('id'),
+              _payload(),
+              expectedVersion: (widget.existing!['version'] as num?)?.toInt(),
+            )
+          : await widget.api.createPurchaseInvoice(_payload());
       final dynamic data = response['data'];
       return data is Json ? data : response;
     } on ApiException catch (exception) {

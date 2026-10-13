@@ -221,6 +221,41 @@ void main() {
       }
     });
 
+    test('Field Sales, who may read sales returns, is offered them', () {
+      // D-UI-38: the server answers the role's GET /sales-returns with 200
+      // (it holds SALES_VIEW, the code the list enforces), so the menu has
+      // to offer the screen, under Returns & notes with the notes it may
+      // not open left off. The codes are the seeded SALES_EXECUTIVE's.
+      final MenuAreaSpec sell =
+          MenuLayout.areas.singleWhere((area) => area.id == 'sell');
+      final MenuAreaSpec? shown = MenuLayout.visible(
+        sell,
+        _visibility(const [
+          'CUSTOMER_VIEW',
+          'CUSTOMER_CREATE',
+          'TERRITORY_VIEW',
+          'SALES_QUOTATION_CREATE',
+          'SALES_ORDER_CREATE',
+          'SALES_INVOICE_CREATE',
+          'SALES_VIEW',
+          'DELIVERY_NOTE_VIEW',
+          'TRADE_LICENCE_VIEW',
+          'PRODUCT_VIEW',
+          'BRANCH_VIEW',
+          'WAREHOUSE_VIEW',
+          'TAX_VIEW',
+          'UOM_VIEW',
+        ]),
+      );
+      expect(shown, isNotNull);
+      expect(shown!.items.map((item) => item.path), contains('salesReturns'));
+      expect(shown.shortList, contains('salesReturns'));
+      expect(
+        shown.daily.expand((group) => group.paths),
+        contains(MenuLayout.returnsAndNotes),
+      );
+    });
+
     test('the menu and the Settings page ask the server nothing', () {
       // The owner's condition for approving them (2026-10-04, backlog 72):
       // built from the catalogue and the permissions already held, so none

@@ -1178,6 +1178,112 @@ def test_a_refusal_on_a_quotation_is_taken_back_by_saying_nothing() -> None:
     )
 
 
+# ---- a quotation sent back with the offer's own free line (D-SELL-89) -------
+
+
+def _box_quotation_as_read(
+    shop: _Offers, quotation: SalesQuotation, **box: object
+) -> dict[str, object]:
+    """Return the request a client sends that read the quotation whole."""
+    shop.session.expire_all()
+    stored = shop.session.scalars(
+        select(SalesQuotationLine)
+        .where(SalesQuotationLine.sales_quotation_id == quotation.id)
+        .order_by(SalesQuotationLine.line_number)
+    ).all()
+    body = _quotation_body(shop)
+    body["lines"] = [
+        {
+            "line_number": line.line_number,
+            "product_id": line.product_id,
+            "quantity": str(line.quantity),
+            "free_quantity": str(line.free_quantity),
+            "sales_uom_id": line.sales_uom_id,
+            "unit_price": str(line.unit_price),
+        }
+        | (box if line.quantity > 0 else {})
+        for line in stored
+    ]
+    return body
+
+
+def test_a_quotation_sent_back_with_its_free_line_is_saved_as_it_was() -> None:
+    """D-SELL-89: 2 BOX and the offer's "0 + 2 PIECE free" answered a bare 422."""
+    shop = _Offers(TEN_PLUS_ONE)
+    quotation = _quotation(shop, quantity="2", sales_uom_id=shop.box)
+    as_quoted = _quoted_lines(shop, quotation)
+    assert as_quoted == [
+        (D("2.0000"), D("0.0000"), None, False),
+        (D("0.0000"), D("2.0000"), shop.offer.id, False),
+    ]
+
+    QuotationService(shop.session).update_quotation(
+        quotation.id,
+        QuotationUpdate.model_validate(_box_quotation_as_read(shop, quotation)),
+        firm_scope=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+    # The free line is the offer's still, and the "0 free" read back beside
+    # it refused nothing.
+    assert _quoted_lines(shop, quotation) == as_quoted
+
+
+def test_a_quotation_sent_back_with_more_boxes_earns_the_offer_afresh() -> None:
+    """The echoed free line is worked out again, not kept at its old figure."""
+    shop = _Offers(TEN_PLUS_ONE)
+    quotation = _quotation(shop, quantity="2", sales_uom_id=shop.box)
+
+    QuotationService(shop.session).update_quotation(
+        quotation.id,
+        QuotationUpdate.model_validate(
+            _box_quotation_as_read(shop, quotation, quantity="5")
+        ),
+        firm_scope=shop.firm_id,
+        actor_id=shop.actor,
+    )
+
+    # 5 BOX is 60 pieces: 6 free, which is no whole number of boxes.
+    assert _quoted_lines(shop, quotation) == [
+        (D("5.0000"), D("0.0000"), None, False),
+        (D("0.0000"), D("6.0000"), shop.offer.id, False),
+    ]
+
+
+def test_a_free_line_typed_on_a_quotation_is_refused_in_a_sentence() -> None:
+    """A line of nothing bought that no offer added names what to do."""
+    shop = _Offers(TEN_PLUS_ONE)
+    body = _quotation_body(shop)
+    lines = body["lines"]
+    assert isinstance(lines, list)
+    lines.append(
+        {
+            "line_number": 2,
+            "product_id": shop.setup.product.id,
+            "quantity": "0",
+            "free_quantity": "5",
+            "sales_uom_id": shop.piece,
+        }
+    )
+
+    with pytest.raises(ValidationError) as refusal:
+        QuotationService(shop.session).create_quotation(
+            QuotationCreate.model_validate(body),
+            firm_id=shop.firm_id,
+            actor_id=shop.actor,
+        )
+
+    assert "Line 2 quotes a quantity of 0" in refusal.value.message
+
+
+def test_a_quotation_line_of_nothing_at_all_is_refused_by_name() -> None:
+    """A quantity of 0 with nothing free is no line."""
+    shop = _Offers(TEN_PLUS_ONE)
+
+    with pytest.raises(ValueError, match="Line 1 quotes a quantity of 0"):
+        QuotationCreate.model_validate(_quotation_body(shop, quantity="0"))
+
+
 # ---- what a claim gave, in stock units -------------------------------------
 
 

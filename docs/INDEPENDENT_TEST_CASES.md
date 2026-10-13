@@ -2604,6 +2604,28 @@ the fixture builds (a minute or two).
   - Steps 1 and 2: each order comes to 0.00. Each bill is **taken and approved** at 0.00; it is not refused with "A journal entry needs at least one debit and one credit line." Stock reads **5** of the first product and **6** of the second, valued at nothing, and each order reads received.
   - Step 3: the supplier is owed nothing, and neither bill has a journal entry: a bill whose every figure is nothing posts none.
 
+### TC-BUY-111 — A Draft supplier bill is edited
+
+*Added 2026-10-14 (D-UI-39, row G6). Covered by widget tests and a reading of the service; **no screen was clicked and nothing was driven over HTTP**, so the steps are written from the build.*
+
+- **Covers:** D-UI-39 (supplier bill)
+- **Fixture:** `ready-firm`
+- **Also needs:** a completed goods receipt of 10 of a product at 60.00 from a supplier; a user holding `PURCHASE_UPDATE` and one who does not.
+- **Steps**
+  1. Buy > Purchase Invoices > **New**: the supplier, tick the receipt, quantity **10**, a supplier invoice number, payment terms if the screen offers them. Save draft.
+  2. Select the draft. Press **Edit**. Read the window. Change nothing. Save.
+  3. **Edit** again. Change the quantity to **8**. Save.
+  4. Approve the bill. Select it.
+  5. Sign in as the user without `PURCHASE_UPDATE` and select another Draft bill.
+- **Expect**
+  1. A Draft bill of 10.
+  2. The window says it is editing, with the bill's own number and its own invoice date; the supplier is fixed; the line reads 10 with **10 left to bill**, not 0. The rate box is blank where the bill took the receipt's rate. After Save the bill's lines and totals are what they were.
+  3. The bill reads 8 and its total follows; the supplier's number, the dates and anything recorded on the bill outside the window are unchanged.
+  4. No **Edit** on an Approved bill.
+  5. No **Edit** for that user.
+- **Also:** a bill typed as products (orders and receipts switched off) opens with its product lines and is saved by raising the order and receipt behind it again. A bill raised off an order opens with its quantities read-only and says so (D-UI-100). While an edit of a bill of receipts is typed its tax and total are not worked out again; the window says so (D-UI-99).
+- **Leaves:** a bill.
+
 ### TC-STOCK-001 — The summary and the rows agree; the ledger explains the balance
 
 - **Covers:** plan 8.1, 8.2
@@ -4407,6 +4429,32 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Leaves:** two approved bills and 8 fewer DET; the sales stages off (switch them back on).
 
 
+
+### TC-SELL-107 — A Draft sales return is edited, and a quotation with an offer's free line is saved again
+
+*Added 2026-10-14 (D-UI-39, D-SELL-89, D-UI-56, row G6). The quotation steps were driven over HTTP on a fixture firm; the Edit window is covered by widget tests only and **no screen was clicked**, so those steps are written from the build.*
+
+- **Covers:** D-UI-39 (sales return), D-SELL-89, D-UI-56
+- **Fixture:** `ready-firm`
+- **Also needs:** a product kept in PIECE at 100.00 with a rule that 1 BOX is 12 PIECE, in stock; a customer; an approved bill of 5 of the product to that customer; an offer *buy 10 get 1 free* for that customer; a second offer with **Only with a coupon** switched on. A user holding `SALES_UPDATE` and one who does not.
+- **Steps**
+  1. Sell > Sales Returns > **New**: choose the bill, return **2**, type a reason. Save draft.
+  2. Select the draft. Press **Edit**. Read the window. Change nothing. Save.
+  3. **Edit** again. Change *Returning* to **3**. Save.
+  4. Approve the return. Select it.
+  5. Sign in as the user without `SALES_UPDATE` and select another Draft return.
+  6. Sell > Quotations > **New**: the customer, **2 BOX** of the product. Save. Open it again, change nothing, Save. Then change the quantity to **5 BOX** and Save.
+  7. Open Pricing > Promotions > Offers.
+- **Expect**
+  1. A Draft return of 2.
+  2. The window is headed *Edit sales return* with the return's own number and date, the bill fixed, 2 on the line and the reason typed. After Save the return's lines and totals are what they were.
+  3. The return reads 3. The reason, the date and the number are unchanged.
+  4. No **Edit** on an Approved return.
+  5. No **Edit** for that user.
+  6. The quotation shows 2 BOX and a line *0 + 2 PIECE free* named for the offer. Saved again it is unchanged. At 5 BOX the free line reads **6 PIECE**.
+  7. The grid has a **Coupon** column: *Only with a coupon* on the second offer, *Not needed* on the first.
+- **Also:** while an edit is typed the credit is not worked out again; the window says it is worked out on saving (D-UI-99). A return against several documents, or with a line typed in another unit, is not opened for Edit and the screen says why.
+- **Leaves:** a return, a quotation and two offers.
 
 ## Pricing, promotions and incentives
 

@@ -82,6 +82,10 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
   /// seeded since the identity seed was written and enforced nowhere until the
   /// document existed.
   bool get _canRaise => widget.permissions.hasPermission('SALES_RETURN');
+
+  /// `SALES_UPDATE` is what the server asks of whoever saves a Draft again
+  /// (D-UI-39) -- not `SALES_RETURN`, which only raises one.
+  bool get _canUpdate => widget.permissions.hasPermission('SALES_UPDATE');
   bool get _canApprove => widget.permissions.hasPermission('SALES_APPROVE');
   bool get _canCancel => widget.permissions.hasPermission('SALES_CANCEL');
 
@@ -172,25 +176,85 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
     return '${line.enteredQuantity}${unit.isEmpty ? '' : ' $unit'}';
   }
 
-  Future<void> _raiseReturn() async {
+  /// What the editor needs before it opens: the documents goods can come
+  /// back against and the warehouses they can be taken into. Null when the
+  /// read was refused, which the banner then says.
+  Future<(List<ReturnableDocument>, List<WarehouseRecord>)?>
+      _editorLists() async {
     setState(() => _loading = true);
-    List<ReturnableDocument> documents = const [];
-    List<WarehouseRecord> warehouses = const [];
     try {
       final List<dynamic> results = await Future.wait<dynamic>([
         widget.api.returnableDocuments(),
         widget.api.warehouses(page: 1, pageSize: 100),
       ]);
-      documents = results[0] as List<ReturnableDocument>;
-      warehouses = (results[1] as PagedResult<WarehouseRecord>).items;
+      return (
+        results[0] as List<ReturnableDocument>,
+        (results[1] as PagedResult<WarehouseRecord>).items,
+      );
     } on ApiException catch (exception) {
-      if (!mounted) return;
-      setState(() => _error = exception.message);
-      return;
+      if (mounted) setState(() => _error = exception.message);
+      return null;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-    if (!mounted) return;
+  }
+
+  /// Open a Draft again to put it right (D-UI-39): a wrong quantity used to
+  /// mean Cancel and a new document. The editor opens holding the Draft and
+  /// saves over it; the server refuses anything that is no longer a Draft.
+  Future<void> _editReturn(SalesReturn row) async {
+    final lists = await _editorLists();
+    if (lists == null || !mounted) return;
+    final (List<ReturnableDocument> documents, List<WarehouseRecord> warehouses) =
+        lists;
+    // Said here rather than by an editor with nothing in it.
+    final String? refusal = salesReturnEditRefusal(row, documents);
+    if (refusal != null) {
+      setState(() => _error = refusal);
+      return;
+    }
+    // Saved inside the editor, as a new one is (D-UI-37). The version is the
+    // one this row was read with, so a save over somebody else's newer Draft
+    // is refused there, with the typing kept.
+    SalesReturn? saved;
+    final Json? payload = await showDocument<Json>(
+      context,
+      title: 'Edit ${row.returnNumber}',
+      builder: (_) => SalesReturnEditorDialog(
+        documents: documents,
+        warehouses: warehouses,
+        today: widget.today ?? DateTime.now(),
+        editing: row,
+        loadSerials: (document, line) => widget.api.returnableSerials(
+          sourceType: document.sourceType.code,
+          sourceLineId: line.id,
+        ),
+        onSave: (Json payload) async {
+          saved = await widget.api.updateSalesReturn(
+            row.id,
+            payload,
+            expectedVersion: row.version,
+          );
+        },
+      ),
+    );
+    final SalesReturn? kept = saved;
+    if (payload == null || kept == null || !mounted) return;
+    NotificationService.show(
+      context,
+      '${kept.returnNumber} saved. It is still a draft: approving and '
+      'completing it is what takes the goods back and credits the customer.',
+      kind: AppNotificationKind.success,
+    );
+    // The same page, so the row stays selected with its new figures.
+    await _load();
+  }
+
+  Future<void> _raiseReturn() async {
+    final lists = await _editorLists();
+    if (lists == null || !mounted) return;
+    final (List<ReturnableDocument> documents, List<WarehouseRecord> warehouses) =
+        lists;
     // Saved inside the editor, so a refusal leaves it open with the typing
     // (D-UI-37); the return it made is kept here for the message.
     SalesReturn? created;
@@ -520,14 +584,26 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
           actions: const [
             ToolbarAction.newItem,
             ToolbarAction.view,
+            ToolbarAction.edit,
             ToolbarAction.refresh,
           ],
-          isVisible: (action) => action != ToolbarAction.newItem || _canRaise,
+          isVisible: (action) => switch (action) {
+            ToolbarAction.newItem => _canRaise,
+            ToolbarAction.edit => _canUpdate,
+            _ => true,
+          },
           isEnabled: (action) =>
               !_loading &&
               switch (action) {
                 ToolbarAction.newItem => _canRaise,
                 ToolbarAction.view => selected != null && !_bulkMode,
+                // About the selected row, and only while it is a Draft: the
+                // bar shows what the row can do now, so an approved return
+                // is not offered an Edit the server would refuse (D-UI-39).
+                ToolbarAction.edit => _canUpdate &&
+                    selected != null &&
+                    selected.isDraft &&
+                    !_bulkMode,
                 ToolbarAction.refresh => true,
                 _ => false,
               },
@@ -537,6 +613,8 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
                 unawaited(_raiseReturn());
               case ToolbarAction.view:
                 if (selected != null) unawaited(_openReturn(selected));
+              case ToolbarAction.edit:
+                if (selected != null) unawaited(_editReturn(selected));
               case ToolbarAction.refresh:
                 unawaited(_load());
               default:
