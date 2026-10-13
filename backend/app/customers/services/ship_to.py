@@ -23,6 +23,7 @@ and a document printed after the address was deleted still prints it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
@@ -32,13 +33,9 @@ from app.core.exceptions import ValidationError
 from app.customers.models import CustomerAddress
 
 
-def default_shipping_address_id(session: Session, customer_id: UUID) -> UUID | None:
-    """Return the address a customer's goods go to when nobody names one.
-
-    The address marked default shipping, then any SHIPPING address -- the
-    oldest, so the answer is stable -- else None.
-    """
-    rows = list(
+def live_addresses(session: Session, customer_id: UUID) -> list[CustomerAddress]:
+    """Return a customer's live addresses, oldest first, so a choice is stable."""
+    return list(
         session.scalars(
             select(CustomerAddress)
             .where(
@@ -48,13 +45,49 @@ def default_shipping_address_id(session: Session, customer_id: UUID) -> UUID | N
             .order_by(CustomerAddress.created_at.asc(), CustomerAddress.id.asc())
         ).all()
     )
+
+
+def billing_address(rows: Sequence[CustomerAddress]) -> CustomerAddress | None:
+    """Return the address a document to this customer is addressed to.
+
+    The address marked default billing, then any BILLING address, then any
+    address at all: a customer with one office address is billed there. The
+    print and the place of supply both ask here, so the address a bill prints
+    and the state its tax was charged by cannot be two different addresses
+    (D-SELL-92). The first match in the order given wins.
+    """
+    for row in rows:
+        if row.is_default_billing:
+            return row
+    for row in rows:
+        if row.address_type == "BILLING":
+            return row
+    return rows[0] if rows else None
+
+
+def shipping_address(rows: Sequence[CustomerAddress]) -> CustomerAddress | None:
+    """Return the address a customer's goods go to when nobody names one.
+
+    The address marked default shipping, then any SHIPPING address, else None:
+    the caller decides what a customer with neither ships to.
+    """
     for row in rows:
         if row.is_default_shipping:
-            return row.id
+            return row
     for row in rows:
         if row.address_type == "SHIPPING":
-            return row.id
+            return row
     return None
+
+
+def default_shipping_address_id(session: Session, customer_id: UUID) -> UUID | None:
+    """Return the address a customer's goods go to when nobody names one.
+
+    The address marked default shipping, then any SHIPPING address -- the
+    oldest, so the answer is stable -- else None.
+    """
+    row = shipping_address(live_addresses(session, customer_id))
+    return row.id if row is not None else None
 
 
 def resolve_ship_to(

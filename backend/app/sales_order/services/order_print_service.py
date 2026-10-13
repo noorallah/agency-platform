@@ -150,7 +150,14 @@ class SalesOrderPrintService:
             seller=seller_party(self._session, firm_scope, row.branch_id),
             buyer=customer_party(self._session, row.customer_id, "BILLING")
             or PartyBlock(name="", address_lines=[]),
-            ship_to=None,
+            # The address the order names (backlog 67 row 3); the print
+            # used to repeat the billing address under SHIP TO (D-SELL-94).
+            ship_to=customer_party(
+                self._session,
+                row.customer_id,
+                "SHIPPING",
+                address_id=row.shipping_address_id,
+            ),
             lines=tuple(printed),
             bill_discount=row.bill_discount_amount,
             gross_before_bill_discount=row.subtotal + row.bill_discount_amount,

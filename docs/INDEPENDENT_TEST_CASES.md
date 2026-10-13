@@ -4099,6 +4099,34 @@ For these cases the agreement covers **last calendar month**, and its bills carr
 - **Also true, by the server:** an order naming a level that is not the firm's, or one switched off, is refused in words; a bill of delivery notes that names a level is refused (*This bill takes its prices from the documents it bills*); where a role has a discount limit, a cheaper level named on the order counts as a reduction from the customer's own price and needs somebody allowed that much.
 - **Leaves:** draft sales orders for T and S, and one bill for T.
 
+### TC-SELL-102 — Billing and shipping address: what each document takes and what each print shows
+
+*Added 2026-10-13 (customer task C1, decision D6). **Server side driven over HTTP** that day on a fixture firm (41 checks), reading the text of each PDF; three defects found and fixed (D-SELL-92, 93, 94). The screens were not clicked.*
+
+- **Covers:** D-SELL-92, D-SELL-93, D-SELL-94; backlog 67 row 3
+- **Fixture:** `ready-firm`
+- **Also needs:** a product in stock; customer **A** with a billing address in Alphapur (default billing), a shipping address in Betanagar (default shipping) and a second shipping address in Gammabad; customer **B** with one billing address in Deltapur and nothing else; customer **C** with two billing addresses, the older in Epsilonpet and the newer in Zetaguda marked default billing; customer **D** with one address of kind Office in Etapalli marked default for billing and for shipping.
+- **Steps**
+  1. Sales order for A, one line; leave **Ship to** as it opens. Approve, deliver, bill. Open each document.
+  2. Sales order for A; in **Ship to** choose the Gammabad address. Approve, deliver, bill. Print the order, the challan and the bill.
+  3. Sales order for A at Gammabad; on the delivery note choose Betanagar. Bill the note.
+  4. Sales order for A (default); deliver; on the bill choose Gammabad. Print the bill.
+  5. Sales order for B. Approve, deliver, bill. Print the bill and the challan.
+  6. The same for C. Print the order, the challan and the bill.
+  7. The same for D. Print the bill.
+  8. Take the Gammabad address off customer A. Print the bill of step 2 again.
+- **Expect**
+  - Step 1: all three documents ship to Betanagar.
+  - Step 2: all three ship to Gammabad. Each print shows the Alphapur address on the left block and the Gammabad address under SHIP TO / SHIPPED TO; Betanagar is on none of them.
+  - Step 3: the bill ships to Betanagar: it follows the note, not the order.
+  - Step 4: the bill ships to Gammabad and prints it.
+  - Step 5: both blocks of the bill show the Deltapur address; SHIPPED TO is not a name alone. The challan shows it too.
+  - Step 6: every print shows Zetaguda as the billing address and Epsilonpet on none.
+  - Step 7: both blocks show the Etapalli address.
+  - Step 8: the bill still prints Gammabad: where the goods went stays on the paper.
+- **Also true, by the server:** an order, a note or a bill naming an address of another customer is refused (*The ship-to address must be one of the customer's own addresses.*). A half-page bill prints the two addresses the same way.
+- **Leaves:** approved bills for A, B, C and D; customer A with two addresses.
+
 ### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
 
 *Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` fixture: the full chain and the direct bill, and both refusals. The screens were not clicked.*
