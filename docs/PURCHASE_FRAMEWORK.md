@@ -1334,6 +1334,14 @@ re-points the rows and keeps one where both suppliers named the same brand.
 is already short; the plan lists **every** active stocked product of a
 selection with what to order.
 
+A plan that names no `sales_days` reads **180** (`PLAN_SALES_DAYS`, backlog
+142), not the firm's reorder days: `planning.sales_window_days` belongs to
+*Below reorder level*. `cover_days` left out is still the firm's figure.
+Each row carries the supplier's `minimum_order_quantity` and
+`order_multiple`, because the screen raises every suggestion by a
+percentage on its own and has to round the way the server does. The raise
+itself is the screen's: the drafts route orders the quantity it is sent.
+
 - The sum, per product, for one warehouse, in stock units:
   `needed = sold * cover_days / sales_days`, held to four places;
   `to order = ceil(max(needed - available - on order, 0))`, then rounded up to

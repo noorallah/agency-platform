@@ -182,15 +182,17 @@ def test_a_sum_that_comes_out_whole_is_not_rounded_up_past_it() -> None:
     assert row.suggested_quantity == Decimal("48.0000")
 
 
-def test_the_days_default_to_the_firms_reorder_planning() -> None:
+def test_a_plan_reads_six_months_unless_told_otherwise() -> None:
     shop = _Agency()
     product = shop.item("A-1", shop.soap)
     shop.trade(product, received="90", sold="90")
 
     row = shop.plan()["A-1"]
 
-    assert (row.sales_days, row.cover_days) == (90, 30)
-    assert row.suggested_quantity == Decimal("30.0000")
+    # Six months of sales (backlog 142), stock for the firm's own 30 days:
+    # 90 / 180 * 30 = 15.
+    assert (row.sales_days, row.cover_days) == (180, 30)
+    assert row.suggested_quantity == Decimal("15.0000")
 
 
 def test_a_sale_before_the_window_does_not_count() -> None:
@@ -296,6 +298,20 @@ def test_the_suppliers_pack_rounds_the_quantity_up() -> None:
 
     # 98 needed, sold by the dozen: 108.
     assert row.suggested_quantity == Decimal("108.0000")
+    # The terms travel with the row, so a raised figure can keep to them.
+    assert row.order_multiple == Decimal("12")
+    assert row.minimum_order_quantity is None
+
+
+def test_a_row_with_no_catalogue_entry_carries_no_terms() -> None:
+    shop = _Agency()
+    product = shop.item("A-1", shop.soap)
+    shop.trade(product, received="102", sold="100")
+
+    row = shop.plan(sales_days=30, cover_days=30)["A-1"]
+
+    assert row.order_multiple is None
+    assert row.minimum_order_quantity is None
 
 
 def test_drafts_are_one_per_supplier_and_take_the_typed_quantity() -> None:

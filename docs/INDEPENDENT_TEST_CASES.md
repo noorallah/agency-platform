@@ -2525,6 +2525,37 @@ of 2026-10-05 and, like the rest, have not been run by hand.
   - Step 9: **Billed by** names the new branch, and the bill is saved in that branch's name. The order is still on `MAIN`.
   - Step 10: the receipt is from the same branch as the bill.
 
+### TC-BUY-108 — A plan opens on six months, and every quantity is raised at once
+
+*Added 2026-10-13 (backlog 142). The server steps were driven over HTTP; the screen is covered by widget tests and **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** backlog 142 (customer task F11)
+- **Fixture:** `ready-firm`
+- **Also needs:** the warehouse, company `HUL`, supplier `A` and products `P1`, `P2`, `P3` of TC-BUY-105 before any order is raised from its plan (opening stock 102, 65 and 60; 100, 45 and 10 sold today); supplier `A` listing `P3` in its catalogue with an order multiple of 12.
+- **Steps**
+  1. Open *Buy → Purchase Orders* → **...** → **Plan an order...**.
+  2. Click **3 months**, then **1 year**, then **6 months**. Type **45** in the box.
+  3. Click **1 month**, type **30** in *Stock for ... days*, choose the warehouse and `HUL`, press **Show**.
+  4. Type **10** in *Raise all by ... %* and press **Apply**.
+  5. Type **20** and press **Apply**. Then type **0** and press **Apply**. Then **10** and **Apply** again.
+  6. Type **110** in the *Order* box of `P1`.
+  7. Type **-5** in the percentage box, then **abc**.
+  8. Put **10** back without pressing Apply, and press **Raise draft orders**.
+  9. Open the draft order that was raised.
+  10. Open **Plan an order...** again, click **1 month**, type **365** in *Stock for ... days*, choose the same warehouse and company, press **Show**, type **1** in the percentage box and press **Apply**.
+- **Expect**
+  - Step 1: *Sales of the last ... days* reads **180** and **6 months** is marked, whatever the firm's *Reorder planning* days are. *Stock for ... days* reads the firm's figure. **Apply** cannot be pressed: nothing is listed yet.
+  - Step 2: the box reads 90, then 365, then 180, and the choice clicked is the one marked. With 45 typed none is marked.
+  - Step 3: *Order* reads 98, 25 and nothing; `P1` and `P2` are ticked.
+  - Step 4: *Order* reads **108** (98 + 10% is 107.8) and **28** (25 + 10% is 27.5); `P3` is still blank and not ticked. The label reads "Raised by 10%".
+  - Step 5: 118 and 30; then 98 and 25 again; then 108 and 28. A second Apply never compounds the first.
+  - Step 6: the box keeps 110.
+  - Step 7: **Apply** cannot be pressed for either.
+  - Step 8: one draft purchase order on supplier `A`.
+  - Step 9: the order holds 110 of `P1` and 28 of `P2`.
+  - Step 10: the *Order* box of `P3` reads a whole number of dozens before Apply and after it; after Apply it is the next dozen at or above the suggestion plus 1%.
+- **Data (HTTP):** `GET /api/v1/purchases/order-plan?warehouse_id=...&company_id=...` with no days answers rows whose `sales_days` is 180; each row carries `minimum_order_quantity` and `order_multiple`. `sales_days=366` is a 422. `POST /api/v1/purchases/order-plan/drafts` with `quantity` 108 and 28 raises one draft with those quantities.
+
 ## Stock
 
 Everything here lives under **Inventory**, in two groups that must be clicked

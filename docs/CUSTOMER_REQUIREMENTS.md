@@ -87,7 +87,7 @@ name, GST number or bank detail is written in this file.
 | No. | Requirement | How it works | Status | Row |
 | --- | --- | --- | --- | --- |
 | BUY-1 | Plan an order for one company | Every product of the company's brands, with a suggested quantity: average sold per day x days of stock wanted, less stock in hand, less open orders | Built | M12 |
-| BUY-2 | The plan reads six months by default and can be raised | Opens on the last six months; other periods one click away; quantities raised line by line or all at once by a percentage | Planned | F11 |
+| BUY-2 | The plan reads six months by default and can be raised | Opens on the last six months (180 days); one month, three months and a year one click away; quantities raised line by line or all at once by a percentage, rounded up to the supplier's pack | Built | F11 |
 | BUY-3 | Narrow the product list by brand | A Brand box on the purchase order, starting at the supplier's brands | Built | M11 |
 | BUY-4 | Every purchase line is a lot | See section 7 | Building | L2 |
 
@@ -247,3 +247,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | LIC-5 built (F8): a shop with no licence of the kind needed is covered by its parent's and the check says so; a firm setting makes each shop hold its own. The question to the customer stays open: the setting is how the firm answers it |
 | 2026-10-13 | SUP-3 built (F9): a new branch of the supplier is added from the goods receipt, and from a bill raised against an order, without leaving the document |
 | 2026-10-13 | COL-2 built (F10): the customer's Account view shows the whole account, downloads to Excel and remembers how many entries each user chose |
+| 2026-10-13 | BUY-2 built (F11): Plan an order opens on the last six months of sales, and every suggested quantity can be raised by a percentage at once |
