@@ -676,6 +676,71 @@ def test_an_account_with_no_entries_is_an_empty_table() -> None:
     assert answer.from_date == answer.to_date
 
 
+def test_the_whole_account_read_in_pages_is_the_statement() -> None:
+    """Pages from the first entry laid end to end are the account (backlog 141).
+
+    Each page opens on what the one before it closed on, and the last closes
+    on the balance a statement over the same entries closes on.
+    """
+    books = _Books(_session_factory()())
+    books.movement("INVOICE", "2500", date(2026, 3, 1))
+    books.movement("RECEIPT", "-500", date(2026, 3, 20))
+    books.movement("INVOICE", "1000", date(2026, 4, 10))
+    books.movement("RECEIPT", "-250", date(2026, 4, 12))
+    books.movement("INVOICE", "125.50", date(2026, 4, 20))
+    service = CustomerStatementService(books.session)
+
+    pages = [
+        service.account(
+            books.customer.id,
+            firm_scope=books.firm.id,
+            last=2,
+            skip=skip,
+            from_start=True,
+        )
+        for skip in (0, 2, 4, 6)
+    ]
+
+    assert [len(page.lines) for page in pages] == [2, 2, 1, 0]
+    assert all(page.total_entries == 5 for page in pages)
+    assert pages[0].opening_balance == Decimal("0.00")
+    assert pages[1].opening_balance == pages[0].closing_balance
+    assert pages[2].opening_balance == pages[1].closing_balance
+    statement = service.statement(
+        books.customer.id,
+        firm_scope=books.firm.id,
+        from_date=date(2026, 1, 1),
+        to_date=date(2026, 12, 31),
+    )
+    read = [line for page in pages for line in page.lines]
+    assert [(line.transaction_date, line.balance) for line in read] == [
+        (line.transaction_date, line.balance) for line in statement.lines
+    ]
+    assert pages[2].closing_balance == statement.closing_balance
+    # Past the end there is nothing to show, and the balance is still right.
+    assert pages[3].closing_balance == statement.closing_balance
+
+
+def test_the_tail_can_be_read_a_page_further_back() -> None:
+    """Passing over the newest entries shows the ones before them."""
+    books = _Books(_session_factory()())
+    books.movement("INVOICE", "2500", date(2026, 3, 1))
+    books.movement("RECEIPT", "-500", date(2026, 3, 20))
+    books.movement("INVOICE", "1000", date(2026, 4, 10))
+    books.movement("RECEIPT", "-250", date(2026, 4, 12))
+
+    answer = CustomerStatementService(books.session).account(
+        books.customer.id, firm_scope=books.firm.id, last=2, skip=1
+    )
+
+    assert [line.transaction_date for line in answer.lines] == [
+        date(2026, 3, 20),
+        date(2026, 4, 10),
+    ]
+    assert answer.opening_balance == Decimal("2500.00")
+    assert answer.closing_balance == Decimal("3000.00")
+
+
 def test_another_firm_s_customer_has_no_account_here() -> None:
     """The firm scope decides, as it does for the statement."""
     books = _Books(_session_factory()())

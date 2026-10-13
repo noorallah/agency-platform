@@ -911,7 +911,12 @@ it cannot be cancelled until the credit is taken off.
 - **Ageing**: every customer's outstanding split by how old it is (0–30,
   31–60, 61–90, over 90 days).
 - **Account**: the customer's account as a table, the last 20 entries (or 50,
-  or 100) with a running balance, whatever their dates. The last row of the
+  or 100) with a running balance, whatever their dates. **Show all** shows
+  the whole account from its first entry; it is read 100 entries at a time
+  as the rows are scrolled, and closes on the same balance as the Statement.
+  **Download** writes the rows of the choice on show to an Excel sheet,
+  every entry under **Show all**. The number chosen is remembered for each
+  user on that computer. The last row of the
   table adds a receipt: a date, *On account* or one unpaid bill, a reference,
   how the money came and the amount, then **Add**. It is an ordinary receipt:
   it closes the bill it names, appears in Receipts and in the ledger. A saved

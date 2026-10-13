@@ -8610,6 +8610,7 @@ table and the statement close at the same figure.
 - Clicking a customer in the ageing still opens the Statement; Account is one
   more click.
 - The Account view has no Download and no print: the Statement has both.
+  *(Backlog 141, 2026-10-13: it has a Download now, and an **All** choice.)*
 - A supplier's account has no such table.
 - No screen was clicked in the running app.
 
@@ -10264,3 +10265,78 @@ PR #1481.
   saved is added from its own row).
 - The old UI is unchanged.
 - No screen was clicked in the running app.
+
+## 141. The customer's Account view: All, a download, the choice remembered -- built 2026-10-13
+
+**Customer task F10** (the owner, 2026-10-13, on M3). Asked: an **All**
+choice beside 20, 50 and 100, read in pages as the user scrolls; a
+**Download** that writes every row of the choice to Excel through the shared
+writer; the number chosen remembered per user. Try: "All shows the account
+from its first entry with the same closing balance as the Statement; the
+sheet holds the same rows; the choice is still there after signing in
+again".
+
+**What was found.**
+
+- Backlog 121 (M3) reads the *newest* entries of an account, 200 at most,
+  and folds everything older into one *Opening balance* row. There was no
+  way to read an account from its first entry except the Statement, with a
+  period typed wide enough.
+- The Download button of the page was there on the Account view and
+  switched off: the sheet was the Statement's.
+- The chooser opened on 20 every time.
+
+**Design.**
+
+- **All.** A fourth choice, **Show all**. The account is read forward from
+  its first entry, 100 entries at a time; scrolling near the end of the rows
+  reads the next 100. The caption says "The first 100 of 4210 entries"
+  until the last page is in, then "All 4210 entries". It opens on the first
+  entry, at a balance of nothing, so it has no *Opening balance* row. The
+  row that adds a receipt comes after the last entry, once that is read.
+- A page the server refuses is said under the rows with **Try again**; the
+  rows already read stay, and scrolling does not keep asking.
+- **Download.** The page's own Download button, on the Account view, writes
+  the rows of the choice on show: under 20, 50 or 100 the *Opening balance*
+  row and those entries, with no further read; under All every entry, the
+  pages not yet scrolled to being read first, 200 at a time. One sheet,
+  through the shared writer of backlog 117: Date, Type, Reference, Remarks,
+  Debit, Credit, Balance, the three figures as numbers.
+- **Remembered.** The choice is kept on the machine, per user, in the
+  screen's own state (`workspace_state`, key `customer_account`), which a
+  sign-in does not replace. Another user on the same machine starts on 20.
+- **Server, one change.** `GET /api/v1/customers/{id}/account` takes
+  `from_start` and `skip` beside `last`. With `from_start` the entries run
+  forward from the first; `skip` passes over the entries earlier pages held.
+  Each page opens at the balance the one before it closed on (summed in SQL
+  over the entries passed), so the pages end to end are the statement's rows
+  and the last closes on the statement's closing balance. `last` stays
+  capped at 200. No new route, table, column, permission or setting.
+
+**Calls.** Opening the view is unchanged: the account and, for someone who
+may record a receipt, the unpaid bills. Choosing All is one read of 100.
+Each time the rows are scrolled near their end, one read of 100, never two
+at once. Download under 20, 50 or 100 reads nothing; under All it reads
+what is left in pages of 200 (an account of 4210 entries first seen at 100
+is 21 reads). The choice is saved to the machine's own file, no request.
+
+**Built.** Server: `CustomerStatementService.account` in
+`backend/app/customers/services/statement_service.py` and its route. Desktop,
+new UI only for the Download (the old UI's page has no Download button):
+`desktop/lib/ui/customers/customer_account_table.dart`, the button's wiring
+in `customer_statement_page.dart`. Tests:
+`backend/tests/unit/test_customer_statement.py` (2 more),
+`desktop/test/customer_account_all_and_download_test.dart` (7). Case:
+TC-CUST-015. PR #1482.
+
+**Not built.**
+
+- The choice is remembered on the machine, not on the server: the same user
+  on another computer starts on 20.
+- After a receipt is added under All, the account is read again from its
+  first page and shown from the top; the new row is at the end.
+- An entry dated back while the pages are being read can shift a row
+  between two pages. Refresh reads the account again.
+- No print of the Account view, and a supplier's account has no such table.
+- No screen was clicked in the running app, and no sheet was opened in
+  Excel itself.

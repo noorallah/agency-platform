@@ -1268,6 +1268,8 @@ def customer_account(
     customer_id: UUID,
     scope: CustomerViewScope,
     last: Annotated[int, Query(ge=1, le=MAX_ACCOUNT_ENTRIES)] = 20,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    from_start: Annotated[bool, Query()] = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CustomerAccount]:
     """Return the newest entries of one customer's account, oldest first.
@@ -1275,10 +1277,18 @@ def customer_account(
     The account as a table of rows (backlog 121): the last entries whatever
     their dates, with the same running balance a statement shows. A receipt
     is added through `/api/v1/receipts`; this only reads.
+
+    The whole account is read in pages (backlog 141): `from_start` reads
+    forward from the first entry and `skip` passes over the entries the
+    earlier pages held.
     """
     return ApiResponse(
         data=CustomerStatementService(db).account(
-            customer_id, firm_scope=scope.firm_id, last=last
+            customer_id,
+            firm_scope=scope.firm_id,
+            last=last,
+            skip=skip,
+            from_start=from_start,
         )
     )
 

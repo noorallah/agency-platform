@@ -158,7 +158,7 @@ Design: `docs/design/BOX_AND_PIECE_LINE_DESIGN.md`.
 | No. | Requirement | How it works | Status | Row |
 | --- | --- | --- | --- | --- |
 | COL-1 | The customer's account as a table | Rows with a running balance; a last row adds a receipt, on account or against one bill | Built | M3 |
-| COL-2 | All rows, and a download | An **All** choice beside 20, 50, 100; an Excel download; the choice remembered per user | Planned | F10 |
+| COL-2 | All rows, and a download | An **All** choice beside 20, 50, 100, read in pages as the rows are scrolled; an Excel download of the rows of the choice; the choice remembered per user on the machine | Built | F10 |
 | COL-3 | Bills handed to a collector | Handed over by ticking, or by date, area, or a run of bill numbers; taken back the same way. It never touches the books | Built | M4 |
 | COL-4 | A bill collector's own screen | A ready-made role that sees one screen: his bills, by customer, with that customer's older unpaid bills marked apart | Built | M5 |
 | COL-5 | End-of-day return | Each bill out: collected, part, promised, not collected. A firm switch, off to start, decides whether his line records the receipt or the office confirms it | Built | M6 |
@@ -246,3 +246,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-13 | PRD-2 built (F7): a product cannot be saved without a brand, nor a brand without a company; what was there before is filed under *Unbranded* and *General* |
 | 2026-10-13 | LIC-5 built (F8): a shop with no licence of the kind needed is covered by its parent's and the check says so; a firm setting makes each shop hold its own. The question to the customer stays open: the setting is how the firm answers it |
 | 2026-10-13 | SUP-3 built (F9): a new branch of the supplier is added from the goods receipt, and from a bill raised against an order, without leaving the document |
+| 2026-10-13 | COL-2 built (F10): the customer's Account view shows the whole account, downloads to Excel and remembers how many entries each user chose |

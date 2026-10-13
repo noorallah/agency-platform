@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
@@ -34,6 +35,7 @@ class CustomerStatementPage extends StatefulWidget {
     required this.api,
     required this.permissions,
     required this.hasActiveFirm,
+    this.preferences,
     this.letters = const BalanceConfirmationActions(),
     this.whatsApp = const WhatsAppSharer(),
   });
@@ -41,6 +43,9 @@ class CustomerStatementPage extends StatefulWidget {
   final ApiClient api;
   final PermissionService permissions;
   final bool hasActiveFirm;
+
+  /// Where the Account view keeps how many entries each user chose to see.
+  final DesktopPreferencesService? preferences;
 
   /// How letters are shown and saved; tests replace it.
   final BalanceConfirmationActions letters;
@@ -70,6 +75,9 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
   /// Bumped to read the account table again; it is keyed on this and the
   /// customer, so a new key is a fresh read and an emptied pane.
   int _accountReads = 0;
+
+  /// The Account view's rows as a sheet; the table on show names it.
+  final CustomerAccountSheet _accountSheet = CustomerAccountSheet();
   String? _error;
   bool _loading = false;
 
@@ -222,8 +230,8 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
         _View.ageing => _ageing.isNotEmpty,
         _View.statement => _statement != null,
         _View.combined => _combined != null,
-        // The Statement view's Download is the sheet for one customer.
-        _View.account => false,
+        // The table holds the rows; it says so when it has none yet.
+        _View.account => _selectedCustomerId != null,
       };
 
   String _sheetName() => switch (_view) {
@@ -244,6 +252,17 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
           workbookFileName(['customer-account', _selectedCustomerName]),
       };
 
+  /// What Download writes: the Account view's rows are held by its table,
+  /// which may read the rest of the account first (backlog 141).
+  FutureOr<WorkbookSheet> _download() {
+    if (_view != _View.account) return _sheet();
+    final Future<WorkbookSheet> Function()? build = _accountSheet.build;
+    if (build == null) {
+      throw const ApiException('The account has not been read yet.');
+    }
+    return build();
+  }
+
   /// The view on show as a sheet (backlog 117): the ageing with a column
   /// per band, one customer's account, or the account net of what the firm
   /// owes them as a supplier.
@@ -251,7 +270,7 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
     final String period = 'From ${_from.text.trim()} to ${_to.text.trim()}';
     switch (_view) {
       case _View.account:
-        // Never offered: the download is disabled on this view.
+        // The Account view's sheet is the table's own: [_download].
         return const WorkbookSheet(title: 'Customer account', headers: [], rows: []);
       case _View.ageing:
         final List<dynamic> bands =
@@ -490,7 +509,7 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
                 WorkbookDownloadButton(
                   enabled: !_loading && _mayDownload,
                   fileName: _sheetName,
-                  sheet: _sheet,
+                  sheet: _download,
                 ),
               ],
               commands: [
@@ -770,6 +789,8 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
       api: widget.api,
       permissions: widget.permissions,
       customerId: id,
+      preferences: widget.preferences,
+      sheet: _accountSheet,
     );
   }
 

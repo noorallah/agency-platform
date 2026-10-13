@@ -7885,11 +7885,24 @@ class ApiClient {
   /// The last [last] entries on a customer's account, oldest first, with the
   /// balance before the first one shown and how many entries there are in all
   /// (backlog 121, M3).
-  Future<Json> customerAccount(String customerId, {int last = 20}) async =>
+  ///
+  /// With [fromStart] the account is read forward from its first entry, a
+  /// page of [last] at a time, [skip] being how many entries the pages before
+  /// this one held (backlog 141, F10).
+  Future<Json> customerAccount(
+    String customerId, {
+    int last = 20,
+    int skip = 0,
+    bool fromStart = false,
+  }) async =>
       _unwrapMap(await request(
         'GET',
         '/api/v1/customers/$customerId/account',
-        query: {'last': '$last'},
+        query: {
+          'last': '$last',
+          if (fromStart) 'from_start': 'true',
+          if (skip > 0) 'skip': '$skip',
+        },
       ));
 
   /// A customer and the supplier that is the same business, on one page, net
