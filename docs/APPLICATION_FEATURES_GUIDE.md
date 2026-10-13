@@ -426,6 +426,15 @@ off (*Settings → Selling → Sales Stages*). The skipped documents are
 still created automatically behind the scenes, so stock still leaves at
 delivery and every report still adds up.
 
+**A firm chooses whether a document waits for approval.** On the same
+screen, under *Approval*, the sales order, the delivery note and the sales
+bill each have a switch. Switched off, **Save** completes the document and
+the person who raised it is the one who approves it; the checks made at
+approval are all still made. A firm run by one person, with the stages and
+the bill's approval off, types a bill and saves it once: it is approved, the
+goods leave and the sale is posted. A change applies to documents raised
+from then on.
+
 ## 5.2 Documents
 
 *Quotations, Sales Orders, Delivery Notes* and *Sales Invoices* are in the

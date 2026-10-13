@@ -27,7 +27,9 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
     final ColorScheme scheme = theme.colorScheme;
     // Save & approve (D-BUY-22), and once this window has saved the note,
     // that note's own steps instead of a second save.
-    final DocumentStep<Json>? approve = stepAfterSave(widget.steps);
+    final DocumentStep<Json>? sole =
+        soleSaveStep(widget.steps, settingOff: _approvalOff);
+    final DocumentStep<Json>? approve = sole ?? stepAfterSave(widget.steps);
     final Json? saved = _saved;
     return CallbackShortcuts(
       bindings: {
@@ -72,10 +74,14 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
                   else
                     ...saveButtons(
                       saveKey: const ValueKey('delivery-note-save'),
-                      saveLabel: 'Save delivery note',
-                      onSave: _saving ? null : () => unawaited(_save()),
+                      saveLabel: sole != null ? 'Save' : 'Save delivery note',
+                      onSave: _saving
+                          ? null
+                          : sole != null
+                              ? () => unawaited(_saveAndStep(sole))
+                              : () => unawaited(_save()),
                       stepKey: const ValueKey('delivery-note-save-approve'),
-                      stepLabel: approve?.afterSave,
+                      stepLabel: sole != null ? null : approve?.afterSave,
                       onStep: _saving || approve == null
                           ? null
                           : () => unawaited(_saveAndStep(approve)),

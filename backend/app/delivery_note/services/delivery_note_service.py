@@ -131,6 +131,7 @@ from app.sales_order.services.discount_limit import (
     DiscountLimitService,
     note_reduction,
 )
+from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
@@ -471,6 +472,9 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
         row = DeliveryNote(
             firm_id=firm_id,
+            approval_step=SalesWorkflowService(self._session).approval_is_a_step(
+                firm_id, "delivery_note_approval"
+            ),
             sales_order_id=order.id,
             customer_id=order.customer_id,
             branch_id=order.branch_id,
@@ -1958,6 +1962,8 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
         return DeliveryNoteResponse(
             id=row.id,
+            created_by=row.created_by,
+            approval_step=row.approval_step,
             version=row.version,
             firm_id=row.firm_id,
             sales_order_id=row.sales_order_id,

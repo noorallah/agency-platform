@@ -127,6 +127,12 @@ class DeliveryNote(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default="DRAFT"
     )
+    #: Whether approval was a step of its own when this note was raised
+    #: (backlog 119), stamped from the firm's sales workflow setting. False
+    #: lets whoever raised it approve it; the checks approval runs still run.
+    approval_step: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     #: The bill that raised this note for itself, when the firm leaves the
     #: delivery-note stage to the service. Only that bill may bill it before it
     #: is dispatched, dispatch it on approval, or withdraw it when a draft is

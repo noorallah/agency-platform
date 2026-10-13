@@ -3841,6 +3841,34 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   - Step 8: full A4 pages.
 - **Leaves:** the firm's paper at A4; B on full pages.
 
+### TC-SELL-100 — Approval switched off for a document: one Save completes it, and only for whoever raised it
+
+*Added 2026-10-13 (backlog 119). **Driven over HTTP** that day on a fixture firm (42 checks); the screens were not clicked.*
+
+- **Covers:** backlog 119 (customer task M1)
+- **Fixture:** `ready-firm`
+- **Also needs:** a product **P** with 50 in stock in the firm's default warehouse; a customer **A**; a second user **S** holding only the **Sales Executive** role. The firm administrator is **F**.
+- **Steps**
+  1. As S, open *Settings > Selling > Sales Stages*.
+  2. As F, open *Sales Stages*. Switch Quotation, Sales order and Delivery note off, and under **Approval** switch **Sales bills wait for approval** off. Save.
+  3. As S, new sales invoice for A: P, quantity 1. Press **Save**.
+  4. As F, new sales invoice for A: P, quantity 500. Press **Save**: it is refused for stock and stays a draft; close the window. As S, find that draft in the list.
+  5. As S, new sales invoice for A: P, quantity 500. Press **Save**.
+  6. As F, switch **Sales bills wait for approval** on again and save. As S, new sales invoice for A: P, quantity 1. Press the save button.
+  7. As F, approve S's bill of step 6.
+  8. As F, switch the three stages on, and **Sales orders wait for approval** off. As S, new sales order for A: P, quantity 2. Press **Save**.
+  9. As F, switch everything back as it was.
+- **Expect**
+  - Step 1: S cannot change the settings.
+  - Step 2: the Approval part shows three switches, all on until changed. A line under the heading says that with a switch off Save completes the document, whoever raised it approves it, the checks are still made, and a change applies to documents raised from then on.
+  - Step 3: the window shows one button, **Save**, and no *Save & approve*. The bill is **Approved**; stock of P falls by 1.
+  - Step 4: S is not offered Approve on a bill somebody else raised (the server answers *Only whoever raised this sales invoice may approve it without SALES_APPROVE*).
+  - Step 5: refused in words (not enough stock); the bill stays a draft in the open window.
+  - Step 6: the button reads **Save draft**; the bill stays a **Draft** and S is not offered Approve (the server answers *This sales invoice waits for approval, which needs SALES_APPROVE*). A bill S raised before the switch went back on, and left as a draft, can still be completed by S.
+  - Step 7: approved.
+  - Step 8: one **Save**; the order is **Approved** and holds its stock.
+- **Leaves:** approved bills and one approved order for A; the settings as they were.
+
 ### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
 
 *Added 2026-10-12 with the fix of D-SELL-91. **Server side driven 2026-10-12** over HTTP on a `selling-firm` fixture: the full chain and the direct bill, and both refusals. The screens were not clicked.*

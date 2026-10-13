@@ -925,6 +925,10 @@ class _DeliveryNoteManagementPageState
       permitted: _mayApprove(),
       forward: true,
       afterSave: 'Save & approve',
+      rowPermitted: (note) =>
+          !note.approvalStep &&
+          widget.permissions.userId != null &&
+          note.createdBy == widget.permissions.userId,
     ),
     _lifecycleStep(
       DocumentToolbarAction.dispatch,
@@ -963,6 +967,7 @@ class _DeliveryNoteManagementPageState
     required bool permitted,
     bool forward = false,
     String? afterSave,
+    bool Function(_DeliveryNoteRecord note)? rowPermitted,
   }) =>
       DocumentStep<_DeliveryNoteRecord>(
         id: action.name,
@@ -971,6 +976,7 @@ class _DeliveryNoteManagementPageState
         permitted: permitted,
         forward: forward,
         afterSave: afterSave,
+        rowPermitted: rowPermitted,
         allows: (note) =>
             DocumentStatusGate.deliveryNote.allows(lifecycle, note.status),
         run: (context, note) => _take(note, '/${action.name}'),
@@ -1490,7 +1496,14 @@ class _DeliveryNoteRecord {
     this.deliveryRemarks = '',
     this.challanReason = 'SALE',
     this.challanReasonNote = '',
+    this.approvalStep = true,
+    this.createdBy = '',
   });
+
+  /// Backlog 119: false when approval was not a step of its own for this
+  /// note, and who raised it.
+  final bool approvalStep;
+  final String createdBy;
 
   /// Why the goods go out (backlog 77.1), and the words with Other.
   final String challanReason;
@@ -1593,6 +1606,8 @@ class _DeliveryNoteRecord {
           ? 'SALE'
           : stringValue(json['challan_reason']),
       challanReasonNote: stringValue(json['challan_reason_note']),
+      approvalStep: json['approval_step'] != false,
+      createdBy: stringValue(json['created_by']),
     );
   }
 

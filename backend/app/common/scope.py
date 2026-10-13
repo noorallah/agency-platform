@@ -264,3 +264,51 @@ def assert_may_edit_draft(
     raise AuthorizationError(
         f"Only whoever raised this {document} may edit it without {edit_code}."
     )
+
+
+def assert_may_approve(
+    scope: ResolvedFirmScope,
+    *,
+    created_by: UUID | None,
+    approval_step: bool,
+    approve_codes: tuple[str, ...],
+    document: str,
+) -> None:
+    """Refuse an approval by somebody the document does not let approve it.
+
+    A firm decides, per document type, whether approval is a step of its
+    own, and each document is stamped with the answer as it is raised
+    (backlog 119). Where it is a step, approving takes one of
+    `approve_codes`, as it always has. Where it is not, whoever raised the
+    document completes it under the code they raised it with -- a firm of
+    one has nobody else to ask -- and anyone else's still needs an approve
+    code. The stamp is the server's, read off the firm's setting: nothing
+    the caller sends can switch the step off. Every check approval runs
+    still runs, whoever approves. The route admits the create code; this
+    narrows it.
+
+    Args:
+        scope: The caller and the firm they act in.
+        created_by: Who raised the document.
+        approval_step: Whether approval was a step of its own when the
+            document was raised.
+        approve_codes: The codes that approve any such document.
+        document: The document's name, for the refusal.
+
+    Raises:
+        AuthorizationError: If the caller holds no approve code and the
+            document waits for an approver, or is somebody else's.
+
+    """
+    if any(scope.principal.has_permission(code) for code in approve_codes):
+        return
+    needed = approve_codes[0]
+    if approval_step:
+        raise AuthorizationError(
+            f"This {document} waits for approval, which needs {needed}."
+        )
+    if created_by is not None and created_by == scope.principal.subject:
+        return
+    raise AuthorizationError(
+        f"Only whoever raised this {document} may approve it without {needed}."
+    )

@@ -320,6 +320,47 @@ class _SalesWorkflowSettingsDialogState
                     ),
                   ),
                   const SizedBox(height: AppSpacing.md),
+                  // Backlog 119 (M1): approval as a step of its own, per kind.
+                  Text('Approval', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'Off: Save completes the document, and whoever raised it '
+                    'is who approves it. The checks made at approval are '
+                    'still made. A change applies to documents raised from '
+                    'then on.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  SwitchListTile(
+                    key: const ValueKey('sales-order-approval-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _settings.salesOrderApproval,
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings =
+                            _settings.copyWith(salesOrderApproval: value))
+                        : null,
+                    title: const Text('Sales orders wait for approval'),
+                  ),
+                  SwitchListTile(
+                    key: const ValueKey('delivery-note-approval-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _settings.deliveryNoteApproval,
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings =
+                            _settings.copyWith(deliveryNoteApproval: value))
+                        : null,
+                    title: const Text('Delivery notes wait for approval'),
+                  ),
+                  SwitchListTile(
+                    key: const ValueKey('sales-invoice-approval-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    value: _settings.salesInvoiceApproval,
+                    onChanged: _mayManage && _read && !_saving
+                        ? (value) => setState(() => _settings =
+                            _settings.copyWith(salesInvoiceApproval: value))
+                        : null,
+                    title: const Text('Sales bills wait for approval'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
                   // STK-12: stock held for an order nobody ships comes back.
                   TextFormField(
                     key: const ValueKey('sales-settings-reservation-lapse'),

@@ -580,6 +580,10 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     #: Who raised it. The desktop offers Edit on a draft to its author when
     #: they hold the create code and not `SALES_UPDATE` (D-ROLE-2).
     created_by: UUID | None = None
+    #: Whether approval is a step of its own on this document (backlog
+    #: 119). False: whoever raised it may approve it without the approve
+    #: code, so the desktop's Save completes it.
+    approval_step: bool = True
     firm_id: UUID
     customer_id: UUID
     #: The customer's name, resolved for display so the header is not a UUID.

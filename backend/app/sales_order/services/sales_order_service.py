@@ -125,6 +125,7 @@ from app.sales_order.services.discount_limit import (
 )
 from app.sales_order.services.offer_echoes import echoes_of_what_an_offer_gave
 from app.sales_order.services.price_floor import PriceFloorService, order_lines
+from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.settlements.models import Settlement
 from app.tax.schemas import TaxRuleSimulationRequest, TaxRuleSimulationResponse
 from app.tax.services.inclusive_rate import (
@@ -488,6 +489,9 @@ class SalesOrderService(TransactionalDocumentService):
         )
         row = SalesOrder(
             firm_id=firm_id,
+            approval_step=SalesWorkflowService(self._session).approval_is_a_step(
+                firm_id, "sales_order_approval"
+            ),
             customer_id=data.customer_id,
             salesman_id=scope.salesman_id,
             territory_id=scope.territory_id,
@@ -1601,6 +1605,7 @@ class SalesOrderService(TransactionalDocumentService):
             id=row.id,
             version=row.version,
             created_by=row.created_by,
+            approval_step=row.approval_step,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
             customer_name=customer_name,

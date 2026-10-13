@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.common.firm_metadata import firm_today
 from app.common.scope import (
     ResolvedFirmScope,
+    assert_may_approve,
     assert_may_edit_draft,
     firm_any_permission_scope,
     firm_permission_scope,
@@ -125,6 +126,13 @@ SalesInvoiceUpdateScope = Annotated[
 ]
 SalesInvoiceApproveScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")
+]
+#: Approving one bill also admits the code that raises one: where the firm
+#: has made approval no step of its own, the author completes the bill
+#: (backlog 119). The handler narrows it with `assert_may_approve`.
+SalesInvoiceApproveOneScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_APPROVE", "SALES_INVOICE_CREATE"),
 ]
 SalesInvoiceCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_CANCEL")
@@ -405,14 +413,26 @@ def update_sales_invoice(
     status_code=status.HTTP_200_OK,
 )
 def approve_sales_invoice(
-    scope: SalesInvoiceApproveScope,
+    scope: SalesInvoiceApproveOneScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     licence_override_reason: LicenceOverrideReason = None,
     price_override_reason: PriceOverrideReason = None,
 ) -> ApiResponse[SalesInvoiceResponse]:
-    """Approve a sales invoice."""
+    """Approve a sales invoice.
+
+    Under `SALES_APPROVE`, or by whoever raised it where the firm has made
+    approval no step of its own (backlog 119).
+    """
     service = SalesInvoiceService(db)
+    current = service.get_invoice(invoice_id, firm_scope=scope.firm_id)
+    assert_may_approve(
+        scope,
+        created_by=current.created_by,
+        approval_step=current.approval_step,
+        approve_codes=("SALES_APPROVE",),
+        document="sales invoice",
+    )
     row = service.approve_invoice(
         invoice_id,
         firm_scope=scope.firm_id,

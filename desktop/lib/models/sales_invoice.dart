@@ -173,6 +173,9 @@ class SalesWorkflowSettings {
     this.rateIncludesTax = false,
     this.newOutletsNeedApproval = false,
     this.reservationLapseDays,
+    this.salesOrderApproval = true,
+    this.deliveryNoteApproval = true,
+    this.salesInvoiceApproval = true,
   });
 
   final bool quotationStage;
@@ -204,6 +207,12 @@ class SalesWorkflowSettings {
   /// Null is never.
   final int? reservationLapseDays;
 
+  /// Backlog 119 (M1): whether approval is a step of its own, per document.
+  /// Off means one Save completes the document. Default on.
+  final bool salesOrderApproval;
+  final bool deliveryNoteApproval;
+  final bool salesInvoiceApproval;
+
   /// What a firm gets before anybody configures anything, and what the client
   /// falls back to when the settings cannot be read. Failing open matters: an
   /// unreachable endpoint must not hide screens a firm depends on.
@@ -231,6 +240,9 @@ class SalesWorkflowSettings {
         rateIncludesTax: boolValue(json['rate_includes_tax']),
         newOutletsNeedApproval: boolValue(json['new_outlets_need_approval']),
         reservationLapseDays: (json['reservation_lapse_days'] as num?)?.toInt(),
+        salesOrderApproval: json['sales_order_approval'] != false,
+        deliveryNoteApproval: json['delivery_note_approval'] != false,
+        salesInvoiceApproval: json['sales_invoice_approval'] != false,
       );
 
   /// The three switches only. No screen here edits the default branch or
@@ -247,6 +259,9 @@ class SalesWorkflowSettings {
         'new_outlets_need_approval': newOutletsNeedApproval,
         // Shown on the same screen, so sent on every save: null is never.
         'reservation_lapse_days': reservationLapseDays,
+        'sales_order_approval': salesOrderApproval,
+        'delivery_note_approval': deliveryNoteApproval,
+        'sales_invoice_approval': salesInvoiceApproval,
       };
 
   SalesWorkflowSettings copyWith({
@@ -258,6 +273,9 @@ class SalesWorkflowSettings {
     bool? rateIncludesTax,
     bool? newOutletsNeedApproval,
     int? Function()? reservationLapseDays,
+    bool? salesOrderApproval,
+    bool? deliveryNoteApproval,
+    bool? salesInvoiceApproval,
   }) =>
       SalesWorkflowSettings(
         quotationStage: quotationStage ?? this.quotationStage,
@@ -276,6 +294,9 @@ class SalesWorkflowSettings {
         reservationLapseDays: reservationLapseDays != null
             ? reservationLapseDays()
             : this.reservationLapseDays,
+        salesOrderApproval: salesOrderApproval ?? this.salesOrderApproval,
+        deliveryNoteApproval: deliveryNoteApproval ?? this.deliveryNoteApproval,
+        salesInvoiceApproval: salesInvoiceApproval ?? this.salesInvoiceApproval,
       );
 }
 

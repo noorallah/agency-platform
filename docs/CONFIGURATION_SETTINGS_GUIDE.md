@@ -414,12 +414,27 @@ stages on later.
 | Rates typed on a bill include GST | Off | On: a new counter bill starts with *Rate includes GST*, so the shelf price can be typed; each bill can still switch it. |
 | New outlets wait for approval | Off | On: a customer added by someone who cannot approve customers can take orders but **cannot be billed** until approved. |
 | Release stock held by unshipped orders after (days) | Never | An approved order that has not shipped in this many days gives its reserved stock back. The order stays approved; reserve it again to hold the stock. |
+| Sales orders wait for approval | On | On: a saved order is a draft until somebody with the approve permission approves it. Off: **Save** completes it, and whoever raised it is who approves it. |
+| Delivery notes wait for approval | On | The same for a delivery note. Dispatch stays a step of its own either way. |
+| Sales bills wait for approval | On | The same for a sales bill. |
 
 **What happens when the order and delivery note stages are both off:** the
 person types only the bill. When it is saved, the bill raises the order and
 the delivery note itself, and **stock leaves when the bill is approved**. The
 documents are real, so stock, cost and the audit trail are exactly as if they
 had been typed. A draft bill ships nothing.
+
+**Approval, per document.** A firm run by one person has nobody to approve
+what that person typed. With a document's switch off, its window shows one
+**Save**, which saves and completes it. Whoever raised the document is the
+one who approves it, with no approve permission needed; somebody else's
+document still needs it. Every check made at approval is still made: the
+credit limit, the licence check, the price floor, the discount limit of the
+person's role and the stock. A document keeps the answer it was raised under,
+so a change reaches documents raised from then on: a draft raised while
+approval was on still waits for an approver. With the three stages and *Sales
+bills wait for approval* all off, a bill is typed, approved, shipped and
+posted in one Save.
 
 **When either stage is on,** a bill line must name the order or note it bills:
 *"This firm raises a sales order and a delivery note before it bills, so an

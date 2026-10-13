@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.common.scope import (
     ResolvedFirmScope,
+    assert_may_approve,
     assert_may_edit_draft,
     firm_any_permission_scope,
     firm_permission_scope,
@@ -130,6 +131,13 @@ SalesOrderUpdateScope = Annotated[
 ]
 SalesOrderApproveScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")
+]
+#: Approving one order also admits the code that raises one: where the firm
+#: has made approval no step of its own, the author completes the order
+#: (backlog 119). The handler narrows it with `assert_may_approve`.
+SalesOrderApproveOneScope = Annotated[
+    ResolvedFirmScope,
+    firm_any_permission_scope("SALES_APPROVE", "SALES_ORDER_CREATE"),
 ]
 SalesOrderCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_CANCEL")
@@ -478,13 +486,25 @@ def update_sales_order(
 @router.post("/{order_id}/approve", response_model=ApiResponse[SalesOrderResponse])
 def approve_sales_order(
     order_id: UUID,
-    scope: SalesOrderApproveScope,
+    scope: SalesOrderApproveOneScope,
     db: Session = Depends(get_db),
     licence_override_reason: LicenceOverrideReason = None,
     price_override_reason: PriceOverrideReason = None,
 ) -> ApiResponse[SalesOrderResponse]:
-    """Approve one sales order."""
+    """Approve one sales order.
+
+    Under `SALES_APPROVE`, or by whoever raised it where the firm has made
+    approval no step of its own (backlog 119).
+    """
     service = SalesOrderService(db)
+    current = service.get_order(order_id, firm_scope=scope.firm_id)
+    assert_may_approve(
+        scope,
+        created_by=current.created_by,
+        approval_step=current.approval_step,
+        approve_codes=("SALES_APPROVE",),
+        document="sales order",
+    )
     row = service.approve_order(
         order_id,
         firm_scope=scope.firm_id,

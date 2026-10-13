@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/api_refusal.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../models/entities.dart' show Json;
 import '../workspace/workspace_components.dart';
 
 /// What a document window closes with after it moved its document along:
@@ -82,6 +83,7 @@ class DocumentStep<T> {
     required this.run,
     this.forward = false,
     this.afterSave,
+    this.rowPermitted,
   });
 
   /// Keys the toolbar command `toolbar-command-<id>` and the window's
@@ -92,6 +94,12 @@ class DocumentStep<T> {
 
   /// Whether the signed-in user holds the code the server asks for.
   final bool permitted;
+
+  /// A grant that depends on the record rather than the user: the person
+  /// who raised a document whose approval is not a step of its own may
+  /// approve it without holding the approve code (backlog 119). Null where
+  /// there is no such grant.
+  final bool Function(T record)? rowPermitted;
 
   /// Whether the record's state lets the step run.
   final bool Function(T record) allows;
@@ -114,8 +122,13 @@ class DocumentStep<T> {
   /// offered that way.
   final String? afterSave;
 
+  /// Whether the user may take the step on [record]: the code, or the
+  /// record's own grant.
+  bool mayTake(T record) =>
+      permitted || (rowPermitted != null && rowPermitted!(record));
+
   bool enabledFor(T? record) =>
-      record != null && permitted && allows(record);
+      record != null && mayTake(record) && allows(record);
 
   /// The same step over another shape of the same document: a window that
   /// holds the server's JSON where the list holds a parsed row.
@@ -128,6 +141,9 @@ class DocumentStep<T> {
         run: (BuildContext context, S source) => run(context, convert(source)),
         forward: forward,
         afterSave: afterSave,
+        rowPermitted: rowPermitted == null
+            ? null
+            : (S source) => rowPermitted!(convert(source)),
       );
 
   /// The list toolbar's command for this step against [record].
@@ -148,6 +164,34 @@ class DocumentStep<T> {
 DocumentStep<T>? stepAfterSave<T>(List<DocumentStep<T>> steps) {
   for (final DocumentStep<T> step in steps) {
     if (step.afterSave != null && step.permitted) return step;
+  }
+  return null;
+}
+
+/// The approve step a window runs as the one and only *Save* (backlog 119):
+/// where approval is not a step of its own for this document, saving it
+/// completes it. A new document follows the firm's setting ([settingOff]); a
+/// draft being edited follows what it was stamped with when raised.
+///
+/// Null when approval stays a step of its own, or when the user could not
+/// take the step on this draft -- the window then offers what it always did.
+DocumentStep<Json>? soleSaveStep(
+  List<DocumentStep<Json>> steps, {
+  required bool settingOff,
+  Json? existing,
+}) {
+  final bool off = existing == null
+      ? settingOff
+      : existing['approval_step'] == false;
+  if (!off) return null;
+  for (final DocumentStep<Json> step in steps) {
+    if (step.afterSave == null) continue;
+    // A new document is the user's own, so the grant they raise it under
+    // is enough; a draft is judged on its own record.
+    final bool may = existing == null
+        ? step.permitted || step.rowPermitted != null
+        : step.mayTake(existing);
+    if (may) return step;
   }
   return null;
 }
@@ -211,7 +255,7 @@ Future<void> saveThenStep<T>(
 }) async {
   final T? saved = await save();
   if (saved == null || !context.mounted) return;
-  if (!step.allows(saved)) {
+  if (!step.mayTake(saved) || !step.allows(saved)) {
     onStopped(saved, null);
     return;
   }

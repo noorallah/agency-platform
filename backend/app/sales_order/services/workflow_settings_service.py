@@ -40,6 +40,16 @@ DEFAULT_SETTINGS = SalesWorkflowSettings(
     rate_includes_tax=False,
     new_outlets_need_approval=False,
     reservation_lapse_days=None,
+    sales_order_approval=True,
+    delivery_note_approval=True,
+    sales_invoice_approval=True,
+)
+
+#: The approval switch of each document that has one (backlog 119).
+APPROVAL_SWITCHES = (
+    "sales_order_approval",
+    "delivery_note_approval",
+    "sales_invoice_approval",
 )
 
 
@@ -68,6 +78,15 @@ class SalesWorkflowService:
         stored = self._stored_settings(firm_id)
         return stored if stored is not None else DEFAULT_SETTINGS
 
+    def approval_is_a_step(self, firm_id: UUID, switch: str) -> bool:
+        """Say whether a new document of this kind waits for an approver.
+
+        ``switch`` is one of ``APPROVAL_SWITCHES``. The answer is stamped
+        on the document as it is raised, so a later change to the setting
+        never reaches a document already made (backlog 119).
+        """
+        return bool(getattr(self.settings_for(firm_id), switch))
+
     def settings_response(self, firm_id: UUID) -> SalesWorkflowSettingsResponse:
         """Report the configuration and whether the firm actually chose it."""
         stored = self._stored_settings(firm_id)
@@ -83,6 +102,9 @@ class SalesWorkflowService:
             rate_includes_tax=bool(policy.rate_includes_tax),
             new_outlets_need_approval=bool(policy.new_outlets_need_approval),
             reservation_lapse_days=policy.reservation_lapse_days,
+            sales_order_approval=bool(policy.sales_order_approval),
+            delivery_note_approval=bool(policy.delivery_note_approval),
+            sales_invoice_approval=bool(policy.sales_invoice_approval),
             is_configured=stored is not None,
         )
 
@@ -141,6 +163,13 @@ class SalesWorkflowService:
             row.new_outlets_need_approval = data.new_outlets_need_approval
         if "reservation_lapse_days" in sent:
             row.reservation_lapse_days = data.reservation_lapse_days
+        for switch in APPROVAL_SWITCHES:
+            chosen = getattr(data, switch)
+            if chosen is not None:
+                setattr(row, switch, chosen)
+            elif getattr(row, switch) is None:
+                # A row not yet flushed has no column default to read.
+                setattr(row, switch, True)
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -169,6 +198,9 @@ class SalesWorkflowService:
             rate_includes_tax=row.rate_includes_tax,
             new_outlets_need_approval=row.new_outlets_need_approval,
             reservation_lapse_days=row.reservation_lapse_days,
+            sales_order_approval=row.sales_order_approval,
+            delivery_note_approval=row.delivery_note_approval,
+            sales_invoice_approval=row.sales_invoice_approval,
             is_configured=True,
         )
 
@@ -237,6 +269,7 @@ class SalesWorkflowService:
             "rate_includes_tax": row.rate_includes_tax,
             "new_outlets_need_approval": row.new_outlets_need_approval,
             "reservation_lapse_days": row.reservation_lapse_days,
+            **{switch: getattr(row, switch) for switch in APPROVAL_SWITCHES},
             "quotation_stage": row.quotation_stage,
             "sales_order_stage": row.sales_order_stage,
             "delivery_note_stage": row.delivery_note_stage,

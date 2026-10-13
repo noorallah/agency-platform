@@ -683,6 +683,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         terms, terms_days = self._order_terms(source_rows)
         row = SalesInvoice(
             firm_id=firm_id,
+            approval_step=SalesWorkflowService(self._session).approval_is_a_step(
+                firm_id, "sales_invoice_approval"
+            ),
             customer_id=customer_id,
             shipping_address_id=shipping_address_id,
             salesman_id=salesman_id,
@@ -3440,6 +3443,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         return SalesInvoiceResponse(
             id=row.id,
             created_by=row.created_by,
+            approval_step=row.approval_step,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
             customer_name=customer_name,
