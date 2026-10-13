@@ -126,6 +126,47 @@ Future<String?> saveWorkbook({
   return location.path;
 }
 
+/// Build [sheet], ask where to save it and say where it went. What the
+/// Download button does, for a screen whose download sits in a menu instead:
+/// a toolbar with no room for one more button.
+Future<void> downloadWorkbook(
+  BuildContext context, {
+  required String fileName,
+  required FutureOr<WorkbookSheet> Function() sheet,
+  SaveWorkbookOverride? saveFile,
+}) async {
+  try {
+    final WorkbookSheet built = await sheet();
+    final String? path = await saveWorkbook(
+      suggestedName: fileName,
+      bytes: workbookBytes(built),
+      override: saveFile ?? WorkbookDownloadButton.saveOverride,
+    );
+    if (!context.mounted) return;
+    NotificationService.show(
+      context,
+      path == null ? exportCancelledMessage : exportSavedMessage(path),
+      kind: path == null
+          ? AppNotificationKind.information
+          : AppNotificationKind.success,
+    );
+  } on ApiException catch (exception) {
+    if (!context.mounted) return;
+    NotificationService.show(
+      context,
+      'Download failed: ${exception.message}',
+      kind: AppNotificationKind.error,
+    );
+  } on FileSystemException catch (exception) {
+    if (!context.mounted) return;
+    NotificationService.show(
+      context,
+      'The file could not be written: ${exception.message}',
+      kind: AppNotificationKind.error,
+    );
+  }
+}
+
 /// The Download button of a report or statement screen: builds the sheet
 /// from what the screen holds, asks where to save it and says where it went.
 class WorkbookDownloadButton extends StatefulWidget {
@@ -166,33 +207,11 @@ class _WorkbookDownloadButtonState extends State<WorkbookDownloadButton> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final WorkbookSheet sheet = await widget.sheet();
-      final String? path = await saveWorkbook(
-        suggestedName: widget.fileName(),
-        bytes: workbookBytes(sheet),
-        override: widget.saveFile ?? WorkbookDownloadButton.saveOverride,
-      );
-      if (!mounted) return;
-      NotificationService.show(
+      await downloadWorkbook(
         context,
-        path == null ? exportCancelledMessage : exportSavedMessage(path),
-        kind: path == null
-            ? AppNotificationKind.information
-            : AppNotificationKind.success,
-      );
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        'Download failed: ${exception.message}',
-        kind: AppNotificationKind.error,
-      );
-    } on FileSystemException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        'The file could not be written: ${exception.message}',
-        kind: AppNotificationKind.error,
+        fileName: widget.fileName(),
+        sheet: widget.sheet,
+        saveFile: widget.saveFile,
       );
     } finally {
       if (mounted) setState(() => _busy = false);

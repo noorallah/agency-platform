@@ -14,6 +14,8 @@ import 'package:agency_desktop/ui/workspace/export_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/workbook_cells.dart';
+
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
@@ -274,6 +276,21 @@ void main() {
     expect(find.text('90.00'), findsWidgets);
     expect(find.text('110.00'), findsWidgets);
     expect(find.text('+10.0%'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Download saves the points under the line (backlog 117).
+    final List<String> name = [];
+    final List<List<Object?>> cells = await downloadedSheet(tester, name: name);
+    expect(name.single, 'rate-trend-Basmati-25kg.xlsx');
+    expect(cells[0].first, 'Rate trend');
+    expect(cells[1].first, 'Product: Basmati 25kg');
+    expect(cells[2].first, 'Supplier: Any');
+    final int head = cells.indexWhere((row) => row.first == 'Date');
+    expect(cells[head], ['Date', 'Bill', 'Supplier', 'Quantity', 'Rate']);
+    expect(cells[head + 1],
+        ['2026-01-10', 'PB-000', 'Acme Supplies', 5, 100]);
+    expect(cells.last, ['2026-03-10', 'PB-002', 'Acme Supplies', 5, 110]);
+    expect(cells, hasLength(head + 4));
     expect(tester.takeException(), isNull);
   });
 }

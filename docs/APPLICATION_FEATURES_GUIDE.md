@@ -1938,8 +1938,10 @@ period it was asked for, and the same columns and rows as the screen: all
 the rows of the period, not only the page on show. Amounts are numbers, so
 a column can be added up or pivoted. The same button is on the customer
 statement and ageing, the supplier statement, a ledger, the trial balance,
-the profit and loss, the balance sheet, the cash flow statement and the
-sales and purchase analysis.
+the profit and loss, the balance sheet, the cash flow statement, the
+sales and purchase analysis, Payables by Month, Rate Trend, the Asset
+register and the Income-tax block schedule. On the Stock Ledger it is
+**Download as an Excel sheet** behind "..." on the line.
 
 | Area | Reports |
 | --- | --- |
