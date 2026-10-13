@@ -57,7 +57,7 @@ name, GST number or bank detail is written in this file.
 | SUP-1 | A supplier company with branches | The company is the main supplier; a branch is a supplier marked **Branch of** it, with its own GST number. Order on the main office, goods and bills from any branch, payment to either | Built | M9 |
 | SUP-2 | Add a supplier while typing a purchase | A button on a new purchase order and on a supplier's bill typed directly | Built | M10 |
 | SUP-3 | Add a new branch while recording goods received | The order is on the company and the goods can come from a branch not entered yet: a **New branch** button beside *Received from*, already set as a branch of that company | Planned | F9 |
-| SUP-4 | One GST number, one supplier | The customers' rule (CUS-3) for suppliers and their branches | Planned | F5 |
+| SUP-4 | One GST number, one supplier | The customers' rule (CUS-3) for suppliers and their branches: a branch leaves it blank to use its main office's, or types its own | Built | F5 |
 | SUP-5 | The brands a supplier may sell | Ticked on the supplier. A stockist is a supplier with several companies' brands | Built | M11 |
 | SUP-6 | Buys in boxes and pieces, per supplier | A tick on the supplier, as CUS-6 | Planned | L5 |
 
@@ -241,3 +241,4 @@ customer to agree, and the smaller firm goes first.
 | --- | --- |
 | 2026-10-13 | First written, from the review of 2026-10-12, the sample bills and the owner's answers of the day |
 | 2026-10-13 | COL-8 built (F4): the discount at collection has a permission of its own, the firm admin's alone |
+| 2026-10-13 | SUP-4 built (F5): a supplier's GST number is held once; a branch takes its main office's or types its own |

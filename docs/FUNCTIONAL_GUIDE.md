@@ -2173,8 +2173,12 @@ through `AttributeService`, where a list filter can index them.
 1. **Code and GSTIN are unique per firm, not globally.** `UQ_vendors_firm_code`
    and `UQ_vendors_firm_gstin` are composite with `firm_id`, so two firms may
    each have a `V001`, and one firm may not. The service checks first for the
-   message and the database constraint catches the race — both paths answer
-   *"Vendor code or GSTIN already exists in this firm."*
+   message and the database constraint catches the race. Since 2026-10-13
+   (backlog 136) the keys are `UQ_vendors_firm_code_active` and
+   `UQ_vendors_firm_gstin_own_active`: a repeated code answers *"Vendor code
+   already exists in this firm."*, a repeated GST number names the supplier
+   that holds it, and a branch that leaves the number blank takes its main
+   office's.
 2. **A `PUT` leaves alone what it does not name, and an explicit `null`
    still clears.** Both halves of the request now read silence the same way.
    Until 2026-09-16 the header did not: `_vendor_values` dumped the whole

@@ -1082,8 +1082,12 @@ nothing. Typing a percentage replaces it and typing 0 removes it.
 
 **A supplier company with branches.** A supplier that has branches is entered
 as one supplier for the main office and one for each branch, and each branch
-names the main office under **Branch of**. A branch keeps its own GST number,
-address and bank account. The main office's form lists its offices under
+names the main office under **Branch of**. A branch keeps its own address and
+bank account. Its GST number is typed only where the branch is registered in
+another state; left blank, the branch takes its main office's number, and the
+list and the **Branches** panel show it as the main office's. A GST number is
+entered on one supplier only: typed on a second, the save is refused and
+names the supplier that holds it. The main office's form lists its offices under
 **Branches** with what each is owed and one total, and the supplier list shows
 *Branch of* or the number of branches. An order placed on the main office can
 be received from a branch: on the goods receipt choose the office under

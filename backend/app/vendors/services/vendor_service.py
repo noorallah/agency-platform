@@ -67,7 +67,11 @@ from app.vendors.schemas import (
     VendorTypeWrite,
     VendorUpdate,
 )
-from app.vendors.services.supplier_family import SupplierFamily, SupplierFamilyFacts
+from app.vendors.services.supplier_family import (
+    FAMILY_FIELDS,
+    SupplierFamily,
+    SupplierFamilyFacts,
+)
 
 #: The masters a vendor names by id. A category or a type must be a live row
 #: of the vendor's own firm; a business profile has no firm and is shared by
@@ -236,11 +240,12 @@ class VendorService:
         Flushed at the end, so a later row of the same file claiming this
         vendor's new GSTIN is refused by the uniqueness check.
         """
+        # Whose GST number the row holds, settled before the PAN is checked
+        # against it (backlog 136).
+        data, from_parent = self._with_family(
+            data, firm_id=vendor.firm_id, current=vendor
+        )
         data = self._with_settled_identity(data, current=vendor)
-        if "parent_vendor_id" in data.model_fields_set:
-            self._family.assert_parent(
-                vendor.firm_id, vendor=vendor, parent_id=data.parent_vendor_id
-            )
         banking = self._banking_to_write(
             vendor,
             data.banking,
@@ -251,12 +256,20 @@ class VendorService:
         self._assert_drug_license_allowed(vendor.firm_id, data)
         before = self._audit_snapshot(vendor)
         values = self._vendor_values(data, partial=True)
+        if from_parent is not None:
+            values["gstin_from_parent"] = from_parent
         assert_master_references(
             self._session,
             values,
             _VENDOR_REFERENCES,
             firm_id=vendor.firm_id,
             current=vendor,
+        )
+        identity_before = (
+            vendor.gstin,
+            vendor.gst_registration,
+            vendor.gst_registration_type,
+            vendor.pan,
         )
         previous_name = vendor.name
         for field, value in values.items():
@@ -298,12 +311,58 @@ class VendorService:
             before_data=before,
             after_data=self._audit_snapshot(vendor),
         )
+        self._carry_identity_to_branches(
+            vendor, before=identity_before, actor_id=actor_id
+        )
         try:
             self._session.flush()
         except IntegrityError as error:
             self._session.rollback()
             raise self._unique_conflict() from error
         return vendor
+
+    def _carry_identity_to_branches(
+        self,
+        parent: Vendor,
+        *,
+        before: tuple[str | None, bool, str | None, str | None],
+        actor_id: UUID,
+    ) -> None:
+        """Write a main office's changed GST number onto the branches taking it.
+
+        The branches hold a copy so every reader taxes them under it, and the
+        copy moves in the same transaction as the number it copies. A
+        branch's PAN follows only where it was the main office's or blank.
+        Deleted branches are carried too, so one restored later is not taxed
+        under a number its main office gave up.
+        """
+        old_gstin, old_registered, old_type, old_pan = before
+        if (parent.gstin, parent.gst_registration, parent.gst_registration_type) == (
+            old_gstin,
+            old_registered,
+            old_type,
+        ):
+            return
+        for branch in self._family.branches(parent.id, include_deleted=True):
+            if not branch.gstin_from_parent:
+                continue
+            was = self._audit_snapshot(branch)
+            branch.gstin = parent.gstin
+            branch.gst_registration = parent.gst_registration
+            branch.gst_registration_type = parent.gst_registration_type
+            if branch.pan in (None, old_pan):
+                branch.pan = parent.pan
+            branch.updated_by = actor_id
+            record_audit(
+                self._session,
+                action="vendor.updated",
+                entity_type="vendor",
+                entity_id=branch.id,
+                actor_id=actor_id,
+                firm_id=branch.firm_id,
+                before_data=was,
+                after_data=self._audit_snapshot(branch),
+            )
 
     def delete(
         self, vendor_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
@@ -675,10 +734,7 @@ class VendorService:
         """
         base = f"{code}-COPY"
         candidate, index = base, 1
-        while (
-            self._repository.duplicate_id(firm_id, code=candidate, gstin=None)
-            is not None
-        ):
+        while self._repository.duplicate_id(firm_id, code=candidate) is not None:
             candidate = f"{base}-{index}"
             index += 1
         return candidate
@@ -687,16 +743,13 @@ class VendorService:
         """Refuse a restore into a code or GSTIN a live vendor now holds."""
         if (
             self._repository.duplicate_id(
-                vendor.firm_id,
-                code=vendor.code,
-                gstin=vendor.gstin,
-                excluding_id=vendor.id,
+                vendor.firm_id, code=vendor.code, excluding_id=vendor.id
             )
             is not None
         ):
             raise ConflictError(
                 f"{vendor.code} cannot be restored: a live vendor now holds its "
-                "code or GSTIN."
+                "code."
             )
         self._family.assert_restorable(vendor)
 
@@ -982,13 +1035,14 @@ class VendorService:
                 None, code_column=Vendor.code, firm_id=firm_id, actor_id=actor_id
             )
             data = data.model_copy(update={"code": issued})
+        # Settled before the PAN is read off the GSTIN: a branch's number
+        # may be its main office's (backlog 136).
+        data, from_parent = self._with_family(data, firm_id=firm_id, current=None)
         data = self._with_settled_identity(data, current=None)
-        self._family.assert_parent(
-            firm_id, vendor=None, parent_id=data.parent_vendor_id
-        )
         self._assert_unique(firm_id, data)
         self._assert_drug_license_allowed(firm_id, data)
         values = self._vendor_values(data)
+        values["gstin_from_parent"] = bool(from_parent)
         assert_master_references(
             self._session, values, _VENDOR_REFERENCES, firm_id=firm_id
         )
@@ -1028,6 +1082,37 @@ class VendorService:
             after_data=self._audit_snapshot(vendor),
         )
         return vendor
+
+    def _with_family(
+        self, data: _Write, *, firm_id: UUID, current: Vendor | None
+    ) -> tuple[_Write, bool | None]:
+        """Settle whose GST number a write stores (backlog 136).
+
+        Returns the write carrying the number the row will hold, and whether
+        that number is the main office's; ``None`` where the write touches
+        neither the main office nor the number. A column the write did not
+        name and the rules leave as it stands is not marked as sent, so a
+        number typed before a check existed is not checked again.
+        """
+        sent = set(data.model_fields_set)
+        values: dict[str, object] = {
+            name: getattr(data, name)
+            for name in FAMILY_FIELDS
+            if current is None or name in sent
+        }
+        family = self._family.resolve(firm_id, vendor=current, values=values)
+        if not family:
+            return data, None
+        from_parent = bool(family.pop("gstin_from_parent"))
+        if current is not None:
+            family = {
+                name: value
+                for name, value in family.items()
+                if name in sent or getattr(current, name) != value
+            }
+        copy = data.model_copy(update=family)
+        object.__setattr__(copy, "__pydantic_fields_set__", sent | set(family))
+        return copy, from_parent
 
     @staticmethod
     def _with_settled_identity(data: _Write, *, current: Vendor | None) -> _Write:
@@ -1106,18 +1191,21 @@ class VendorService:
         data: VendorCreate | VendorUpdate,
         excluding_id: UUID | None = None,
     ) -> None:
-        """Assert unique."""
+        """Refuse a code another live vendor holds.
+
+        The GST number is refused by the family rules, which name its holder
+        (backlog 136).
+        """
         if (
             self._repository.duplicate_id(
                 firm_id,
                 # A create's blank code is issued before this is asked.
                 code=data.code or "",
-                gstin=data.gstin,
                 excluding_id=excluding_id,
             )
             is not None
         ):
-            raise ConflictError("Vendor code or GSTIN already exists in this firm.")
+            raise ConflictError("Vendor code already exists in this firm.")
 
     def _commit_unique(self) -> None:
         """Commit unique."""
@@ -1227,6 +1315,7 @@ class VendorService:
                     name=row.name,
                     is_parent=row.id == rows[0].id,
                     gstin=row.gstin,
+                    gstin_from_parent=row.gstin_from_parent,
                     status=row.status,
                     place=_office_place(row, places),
                     balance=balance,
@@ -1630,6 +1719,9 @@ class VendorService:
                 if vendor.parent_vendor_id is not None
                 else None
             ),
+            # The number it is taxed under, and whose it is (backlog 136).
+            "gstin": vendor.gstin,
+            "gstin_from_parent": vendor.gstin_from_parent,
             "contact_count": sum(not item.is_deleted for item in vendor.contacts),
             "address_count": sum(not item.is_deleted for item in vendor.addresses),
             "bank_count": sum(not item.is_deleted for item in vendor.bank_accounts),

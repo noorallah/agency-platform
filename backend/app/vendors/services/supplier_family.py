@@ -6,9 +6,15 @@ and names the main office it sits under. An order placed on one office may
 be received from another and billed by it, and a payment to the main office
 may clear a branch's bills.
 
-Nothing is copied between the offices. A branch is registered in its own
-state, so its GST number is its own, and ``UQ_vendors_firm_gstin_active``
-already holds a number to one live supplier.
+**A GST number is typed once** (backlog 136), as on the buyer side
+(``app/customers/services/buyer_family.py``). A branch in another state types
+its own. A branch that sends none takes its main office's: the server copies
+the number onto the branch's row and marks it ``gstin_from_parent``, because
+the tax on a purchase, the GSTR-2B match and the credit checks all read
+``vendors.gstin``, several of them in SQL, and a branch left blank would be
+taxed as an unregistered supplier at the first reader that did not look up
+its main office. ``UQ_vendors_firm_gstin_own_active`` holds a typed number
+to one live supplier by leaving the copies out.
 
 The link is one level deep: a branch has no branches, and a main office has
 no main office above it.
@@ -23,6 +29,10 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError, ValidationError
 from app.vendors.models import Vendor
+
+#: The fields of a write that can move the GST number a supplier is taxed
+#: under. A save that names none of them leaves the family rules alone.
+FAMILY_FIELDS = ("parent_vendor_id", "gstin", "gst_registration_type")
 
 
 @dataclass(frozen=True)
@@ -40,6 +50,103 @@ class SupplierFamily:
     def __init__(self, session: Session) -> None:
         """Bind the rules to one request unit of work."""
         self._session = session
+
+    def resolve(
+        self,
+        firm_id: UUID,
+        *,
+        vendor: Vendor | None,
+        values: dict[str, object],
+    ) -> dict[str, object]:
+        """Return the GST columns a write must store, given its main office.
+
+        ``values`` is what the write sends: everything on a create, only the
+        fields named on an update. The answer is empty when the write touches
+        neither the main office nor the number.
+
+        A branch that sends no number, its main office's number, or the
+        number it was shown (a form sends back what it read) takes the main
+        office's. A supplier taken out from under its main office gives the
+        number back rather than keeping a copy as its own.
+
+        Raises:
+            ValidationError: If the main office is not a supplier that can
+                have branches, or the supplier cannot be a branch.
+            ConflictError: If the number is held by another supplier.
+
+        """
+        if vendor is not None and not any(key in values for key in FAMILY_FIELDS):
+            return {}
+        current_parent_id = vendor.parent_vendor_id if vendor else None
+        parent_id = values.get("parent_vendor_id", current_parent_id)
+        inherited = bool(vendor is not None and vendor.gstin_from_parent)
+        stored = vendor.gstin if vendor is not None else None
+        if "gstin" in values:
+            sent = _text(values["gstin"])
+        else:
+            sent = None if inherited else stored
+        echoed = inherited and sent == stored
+        if isinstance(parent_id, UUID):
+            self.assert_parent(firm_id, vendor=vendor, parent_id=parent_id)
+            parent = self._session.get(Vendor, parent_id)
+            if parent is not None and (sent is None or echoed or sent == parent.gstin):
+                return {
+                    "gstin": parent.gstin,
+                    "gst_registration": parent.gst_registration,
+                    "gst_registration_type": parent.gst_registration_type,
+                    "gstin_from_parent": True,
+                }
+            own: str | None = sent
+        else:
+            own = None if echoed else sent
+        if own and (own != stored or inherited):
+            self.assert_number_free(
+                firm_id, own, excluding_id=vendor.id if vendor else None
+            )
+        answer: dict[str, object] = {"gstin": own, "gstin_from_parent": False}
+        if inherited and "gst_registration_type" not in values:
+            # The type came with the number, and goes back with it.
+            answer["gst_registration_type"] = None
+            if own is None and "gst_registration" not in values:
+                answer["gst_registration"] = False
+        return answer
+
+    def assert_number_free(
+        self,
+        firm_id: UUID,
+        gstin: str,
+        *,
+        excluding_id: UUID | None,
+        doing: str = "saved",
+    ) -> None:
+        """Refuse a GST number another live supplier holds as its own.
+
+        The partial unique index is the guard; this is the message, which
+        names the holder and says what to do instead.
+        """
+        holder = self.number_holder(firm_id, gstin, excluding_id=excluding_id)
+        if holder is None:
+            return
+        raise ConflictError(
+            f"This supplier cannot be {doing}: GST number {gstin} is held by "
+            f"{holder.code} {holder.name}. A GST number is entered once. Make "
+            f"this supplier a branch of {holder.code} and leave its GST "
+            "number blank; a branch takes its main office's."
+        )
+
+    def number_holder(
+        self, firm_id: UUID, gstin: str, *, excluding_id: UUID | None
+    ) -> Vendor | None:
+        """Return the live supplier a GST number was typed on, if any."""
+        statement = select(Vendor).where(
+            Vendor.firm_id == firm_id,
+            Vendor.is_deleted.is_(False),
+            Vendor.gstin == gstin,
+            Vendor.gstin_from_parent.is_(False),
+        )
+        if excluding_id is not None:
+            statement = statement.where(Vendor.id != excluding_id)
+        return self._session.scalars(statement.order_by(Vendor.code)).first()
 
     def assert_parent(
         self,
@@ -109,20 +216,32 @@ class SupplierFamily:
         )
 
     def assert_restorable(self, vendor: Vendor) -> None:
-        """Refuse to restore a branch into a company that has moved on."""
-        if vendor.parent_vendor_id is None:
-            return
-        parent = self._session.get(Vendor, vendor.parent_vendor_id)
-        if parent is None or parent.is_deleted:
-            raise ConflictError(
-                f"{vendor.code} cannot be restored: its main office "
-                f"{parent.code if parent else ''} is deleted. Restore the "
-                "main office first."
-            )
-        if parent.parent_vendor_id is not None:
-            raise ConflictError(
-                f"{vendor.code} cannot be restored: its main office "
-                f"{parent.code} is now a branch itself."
+        """Refuse to restore into a company, or a number, that has moved on.
+
+        A delete released the supplier's own GST number, and a deleted
+        branch does not hold its main office in place.
+        """
+        if vendor.parent_vendor_id is not None:
+            parent = self._session.get(Vendor, vendor.parent_vendor_id)
+            if parent is None or parent.is_deleted:
+                raise ConflictError(
+                    f"{vendor.code} cannot be restored: its main office "
+                    f"{parent.code if parent else ''} is deleted. Restore the "
+                    "main office first."
+                )
+            if parent.parent_vendor_id is not None:
+                raise ConflictError(
+                    f"{vendor.code} cannot be restored: its main office "
+                    f"{parent.code} is now a branch itself."
+                )
+            if vendor.gstin_from_parent:
+                vendor.gstin = parent.gstin
+                vendor.gst_registration = parent.gst_registration
+                vendor.gst_registration_type = parent.gst_registration_type
+                return
+        if vendor.gstin:
+            self.assert_number_free(
+                vendor.firm_id, vendor.gstin, excluding_id=vendor.id, doing="restored"
             )
 
     def facts(self, rows: list[Vendor]) -> dict[UUID, SupplierFamilyFacts]:
@@ -171,6 +290,11 @@ class SupplierFamily:
         if vendor.parent_vendor_id is not None:
             root = self._session.get(Vendor, vendor.parent_vendor_id) or vendor
         return [root, *self.branches(root.id)]
+
+
+def _text(value: object) -> str | None:
+    """Return a sent GST number as text, a blank one as none."""
+    return str(value).strip() or None if value is not None else None
 
 
 def company_of(session: Session, vendor_ids: Iterable[UUID]) -> dict[UUID, UUID]:
@@ -235,6 +359,7 @@ def assert_office_of(
 
 
 __all__ = [
+    "FAMILY_FIELDS",
     "SupplierFamily",
     "SupplierFamilyFacts",
     "assert_office_of",

@@ -105,13 +105,23 @@ class Vendor(BaseEntity):
             postgresql_where=text("is_deleted = false"),
             sqlite_where=text("is_deleted = 0"),
         ),
+        # A GST number is typed on one live supplier of the firm (backlog
+        # 136). A branch that takes its main office's number holds a copy the
+        # server wrote, marked ``gstin_from_parent``, which is what this key
+        # leaves out.
         Index(
-            "UQ_vendors_firm_gstin_active",
+            "UQ_vendors_firm_gstin_own_active",
             "firm_id",
             "gstin",
             unique=True,
-            postgresql_where=text("is_deleted = false"),
-            sqlite_where=text("is_deleted = 0"),
+            postgresql_where=text(
+                "gstin IS NOT NULL AND gstin <> '' "
+                "AND gstin_from_parent = false AND is_deleted = false"
+            ),
+            sqlite_where=text(
+                "gstin IS NOT NULL AND gstin <> '' "
+                "AND gstin_from_parent = 0 AND is_deleted = 0"
+            ),
         ),
         Index("IX_vendors_firm_name", "firm_id", "name"),
         Index("IX_vendors_firm_status", "firm_id", "status"),
@@ -158,6 +168,12 @@ class Vendor(BaseEntity):
         Boolean, nullable=False, default=False, server_default="false"
     )
     gstin: Mapped[str | None] = mapped_column(String(32))
+    #: The GST number on this row is its main office's, copied here by the
+    #: server so every reader of ``gstin`` taxes the branch under it
+    #: (backlog 136). False where the supplier typed its own, or has none.
+    gstin_from_parent: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     #: REGULAR, COMPOSITION, UNREGISTERED, OVERSEAS or SEZ (backlog 78 row 2);
     #: NULL is read off the GSTIN (`app/vendors/gst_registration.py`).
     gst_registration_type: Mapped[str | None] = mapped_column(String(30))

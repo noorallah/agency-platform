@@ -9072,8 +9072,9 @@ the main office could not be received from, or billed by, a branch.
 - **One column, `vendors.parent_vendor_id`,** a key to `vendors`. A branch
   names its main office. One level deep: a branch has no branches and a main
   office has none above it.
-- **Nothing is copied.** This is where the supplier side differs from the
-  buyer side (backlog 125). A branch is registered in its own state, so its
+- **Nothing is copied.** *(Superseded the same day by backlog 136: a branch
+  that types no number now takes its main office's, as a marked copy.)* This
+  is where the supplier side differed from the buyer side (backlog 125). A branch is registered in its own state, so its
   GST number is its own, and `UQ_vendors_firm_gstin_active` already held a
   number to one live supplier. No marker, no new key, and no reader of
   `vendors.gstin` changed: the tax on a bill is worked out from the office
@@ -9777,3 +9778,83 @@ and could move the firm's ceiling on it.
 - The collector's own receipt (M6) and a receipt spread from a parent (M8)
   go through the same service with no leave to give one, as before.
 - No screen was clicked; the box is covered by a widget test.
+
+## 136. A supplier's GST number follows the customers' rule -- built 2026-10-13
+
+**Customer task F5**, the owner's answer of 2026-10-13: "A supplier's GST
+number follows the customers' rule (backlog 125): held once among the firm's
+live suppliers; a branch (M9) leaves it blank to take its main office's, or
+types its own; a second holder is refused naming the first; a number removed
+is free again." PR #1477.
+
+**What was there.** Backlog 127 gave a supplier company its branches and
+copied nothing: a branch held its own GST number or none.
+`UQ_vendors_firm_gstin_active` held a number to one live supplier, every row
+counted, so a branch could not hold its main office's number even if it was
+typed, and a branch left blank was taxed as a supplier with no GST number.
+The refusal said "Vendor code or GSTIN already exists in this firm" and
+named nobody.
+
+**Design.** The buyer side's, unchanged (backlog 125).
+
+- **The number a branch takes is copied onto the branch's row by the server,
+  and marked** (`vendors.gstin_from_parent`). The tax on a purchase, the
+  GSTR-2B match, the filing checks and the Tally export read `vendors.gstin`,
+  several in SQL, joined from the bill. With the copy on the row a branch's
+  bill is matched and taxed under the number it is really registered under,
+  and no reader changed.
+- **The number is typed once.** `UQ_vendors_firm_gstin_own_active`, a partial
+  unique index, holds a typed number to one live supplier of the firm and
+  leaves out the marked copies and a blank. It replaces
+  `UQ_vendors_firm_gstin_active`, which is dropped. The service check stays
+  for the message: it names the holder and says to make the supplier its
+  branch and leave the number blank.
+- **What a write means.** A branch that sends no number, or its main
+  office's, or the number its form was shown, takes the main office's. A
+  branch that sends another number holds it as its own. A branch taken out
+  from under its main office gives the number back; it does not keep a copy.
+- **The copy moves with the number.** When the main office's number,
+  registered flag or registration type changes, every branch that takes it
+  is rewritten in the same transaction, each with its own audit row. A
+  branch's PAN follows where it was the main office's or blank.
+- **A number removed is free again**: cleared from its holder, or its holder
+  deleted. A deleted supplier is not restored into a number another now
+  holds, and a deleted branch restored reads its main office's number again
+  rather than trusting its old copy.
+
+**Decided here, by convention.**
+
+- A branch takes the main office's registered flag and registration type
+  with the number, and gives the type back with it.
+- **No number is written onto an existing row.** A branch entered blank
+  before this stays blank until it is next saved with the box blank: nothing
+  says it meant its main office's, and writing one would change the tax on
+  its next bill without anybody having asked. Backlog 127 was built the same
+  day, so only fixture branches are in that state.
+- The refusal of a repeated code now says "Vendor code already exists in
+  this firm"; the number has its own message.
+
+**Built.** Column and key (migration `20261013_0372`, no row rewritten; where
+a store lacks the old key and holds a number twice, the later rows become
+branches of the oldest, and a row that cannot is named and the key left
+unbuilt rather than the migration failing); `SupplierFamily.resolve`,
+`assert_number_free`, `number_holder` and the wider `assert_restorable` in
+`app/vendors/services/supplier_family.py`; `VendorService._with_family` and
+`_carry_identity_to_branches`; `gstin_from_parent` on every supplier answer
+and on each member of `GET /api/v1/vendors/{id}/family`; the number and its
+marker in the supplier's audit snapshot. `VendorRepository.duplicate_id` now
+asks about the code alone. Desktop: a taking branch's form opens with the
+GSTIN box blank, the box says under it "Blank takes the main office's GST
+number (...)" once a main office is chosen, and the Branches panel marks a
+taken number "(main office's)". Tests: `tests/unit/test_supplier_gst_number.py`
+(15), `desktop/test/supplier_branches_test.dart`. Case TC-BUY-106.
+
+**Not built.**
+
+- The supplier import file has no main-office column (the customers' file
+  has **ParentCode**), so a file cannot make a branch or have one take a
+  number. A file row that repeats a number is refused by the same message.
+- The "looks like a duplicate" list (`GET /vendors/duplicates`) matches on
+  the GST number and so lists a main office beside the branches that take
+  its number. The customers' list does the same.
+- No screen was clicked; the form is covered by widget tests.

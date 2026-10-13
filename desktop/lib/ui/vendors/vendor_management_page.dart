@@ -896,7 +896,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   late final TextEditingController _displayName =
       TextEditingController(text: widget.vendor?.displayName ?? '');
   late final TextEditingController _gstin =
-      TextEditingController(text: widget.vendor?.gstin ?? '');
+      TextEditingController(
+          text: widget.vendor?.gstinFromParent == true
+              ? ''
+              : widget.vendor?.gstin ?? '');
   late final TextEditingController _pan =
       TextEditingController(text: widget.vendor?.pan ?? '');
   late final TextEditingController _blockedReason =
@@ -964,6 +967,11 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     ])
       if (part != null && part.isNotEmpty) part,
   ].join(' - ');
+  // The main office's own GSTIN when it is known, for the helper under the
+  // GSTIN box. Never put into the box.
+  late String _parentGstin = widget.vendor?.gstinFromParent == true
+      ? widget.vendor!.gstin
+      : '';
   VendorFamily? _family;
 
   /// Phase 2: the sections are one scroll rather than tabs.
@@ -1021,7 +1029,17 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     if (widget.loadFamily == null || !_hasFamily) return;
     try {
       final VendorFamily family = await widget.loadFamily!();
-      if (mounted) setState(() => _family = family);
+      if (!mounted) return;
+      setState(() {
+        _family = family;
+        if (_parentGstin.isEmpty) {
+          for (final VendorFamilyMember member in family.members) {
+            if (member.isParent && member.id != widget.vendor?.id) {
+              _parentGstin = member.gstin;
+            }
+          }
+        }
+      });
     } on Object {
       // A family that cannot be read costs the panel, not the form.
     }
@@ -1048,7 +1066,18 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   void _clearParent() => setState(() {
         _parentId = '';
         _parentLabel = '';
+        _parentGstin = '';
       });
+
+  /// The words under the GSTIN box once a main office is chosen.
+  String? get _gstinHelper {
+    if (widget.searchParents == null || _parentId.isEmpty) return null;
+    return _parentGstin.isEmpty
+        ? "Blank takes the main office's GST number. Type one only for a "
+            'branch registered in another state.'
+        : "Blank takes the main office's GST number ($_parentGstin). Type "
+            'one only for a branch registered in another state.';
+  }
 
   /// The "Branch of" field. A main office with branches cannot itself become
   /// a branch, so the field is disabled and says why.
@@ -1075,6 +1104,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       onSelected: (vendor) => setState(() {
         _parentId = vendor.id;
         _parentLabel = '${vendor.code} - ${vendor.name}';
+        _parentGstin = vendor.gstin;
       }),
       fieldViewBuilder: (context, controller, focusNode, onSubmitted) =>
           TextField(
@@ -1084,8 +1114,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         decoration: InputDecoration(
           labelText: 'Branch of',
           helperText: 'The main office this supplier is a branch of. A branch '
-              'keeps its own GST number. Leave blank for a supplier on its '
-              'own.',
+              'takes its GST number unless it types its own. Leave blank for a '
+              'supplier on its own.',
           helperMaxLines: 3,
           suffixIcon: _parentId.isEmpty
               ? null
@@ -1139,7 +1169,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                   subtitle: Text(
                     [
                       if (member.place.isNotEmpty) member.place,
-                      if (member.gstin.isNotEmpty) member.gstin,
+                      if (member.gstin.isNotEmpty)
+                        member.gstinFromParent
+                            ? "${member.gstin} (main office's)"
+                            : member.gstin,
                     ].join(' · '),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1589,7 +1622,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _field(_gstin, 'GSTIN')),
+              Expanded(child: _field(_gstin, 'GSTIN', helper: _gstinHelper)),
               const SizedBox(width: 12),
               Expanded(child: _field(_pan, 'PAN')),
               const SizedBox(width: 12),
