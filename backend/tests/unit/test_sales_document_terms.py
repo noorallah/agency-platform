@@ -36,6 +36,7 @@ from app.sales_invoice.models import SalesInvoice, SalesInvoiceSource
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
+from app.sales_order.services.order_print_service import SalesOrderPrintService
 from app.sales_order.services.sales_order_service import SalesOrderService
 from app.tax.services.place_of_supply import SupplyPlaceResolver
 from tests.unit.test_einvoice import _Books
@@ -244,6 +245,22 @@ def test_the_challan_prints_the_address_the_note_names() -> None:
 
     document = DeliveryChallanPrintService(session)._document(
         note, firm_scope=setup.firm.id
+    )
+    assert document.ship_to is not None
+    assert "Godown Lane" in document.ship_to.address_lines
+
+
+def test_the_orders_print_names_the_address_the_order_ships_to() -> None:
+    """SHIP TO used to repeat the billing address whatever was named (D-SELL-94)."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    _address(session, setup.customer, line1="Main Road", default_shipping=True)
+    other = _address(session, setup.customer, line1="Godown Lane")
+    order = session.get(SalesOrder, _order(setup, shipping_address_id=other.id).id)
+    assert order is not None
+
+    document = SalesOrderPrintService(session)._document(
+        order, firm_scope=setup.firm.id
     )
     assert document.ship_to is not None
     assert "Godown Lane" in document.ship_to.address_lines
