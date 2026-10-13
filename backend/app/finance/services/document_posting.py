@@ -3252,6 +3252,7 @@ class DocumentPostingService:
         actor_id: UUID,
         tax_by_component: dict[str, Decimal] | None = None,
         round_off_amount: Decimal = ZERO,
+        account_amount: Decimal | None = None,
     ) -> JournalEntry | None:
         """Post what a customer is credited for goods they sent back.
 
@@ -3283,6 +3284,11 @@ class DocumentPostingService:
                 credit note's round-off, where the firm rounds every bill
                 (backlog 134). Posted to `ROUNDING`, the other way round from
                 the bill's, and taken off the sales-returns leg.
+            account_amount: What the customer's account falls by, to the
+                paisa, where the caller has worked it out from the bills the
+                return comes off (D-FIN-28). None rounds ``total_amount``.
+                The tax is reversed as stated either way, so the paisa is in
+                the sales-returns leg.
 
         Returns:
             The posted entry, or None when the credit rounds to nothing at the
@@ -3307,7 +3313,11 @@ class DocumentPostingService:
 
         # Derived from the two figures the customer sees, so the three legs
         # still agree once each is rounded to the ledger's two decimals.
-        ledger_total = quantize_ledger(total)
+        ledger_total = (
+            quantize_ledger(total)
+            if account_amount is None
+            else quantize_ledger(account_amount)
+        )
         ledger_tax = quantize_ledger(tax)
         ledger_taxable = ledger_total - ledger_tax
         if ledger_total == ZERO:

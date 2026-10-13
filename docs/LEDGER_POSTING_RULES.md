@@ -137,6 +137,21 @@ refund could clear it.
   reverses those rows before its own, as it withdraws its applications. In
   any order of apply, refund, reverse and pay, what the customer owes is
   what the bills owe and what they hold is what their credits hold.
+  **Approving a customer debit note runs it too** (D-FIN-29, 2026-10-14):
+  the bill owes more, so that much of the credit a return left on the
+  account meets the charge on the bill. A bill of 2,832.00 paid, 826.00
+  back and 118.00 debited read 118.00 owed and 826.00 held; it reads 0.00
+  and 708.00.
+- **A return takes off the account what its bills' reading moves by**
+  (D-FIN-28, 2026-10-14). A document is kept to four places and the ledger
+  to two. `credited_against` adds a bill's returns up before it rounds, so
+  three thirds of a bill of 118.00 read 118.00 on the bill while each
+  return posted 39.33 on its own, 117.99. A completing return now posts
+  the difference its completion makes to that reading
+  (`_credit_on_the_account`): 39.33, 39.34, 39.33. The tax is reversed as
+  the return states it, so the paisa is in the sales-returns leg. Where
+  the two readings are further apart than rounding the return's own figure
+  stands.
 - **Loyalty is not a source.** A redemption is capped at what its bill owes,
   so it never over-settles a bill by itself; where a return follows a bill
   paid in points, the return is the source of the credit.

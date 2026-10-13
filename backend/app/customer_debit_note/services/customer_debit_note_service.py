@@ -421,6 +421,23 @@ class CustomerDebitNoteService(TransactionalDocumentService):
         row.status = CustomerDebitNoteStatus.APPROVED.value
         row.updated_by = actor_id
         self._session.flush()
+        # The bill owes more, so where a return had left credit on the
+        # account because the bill was paid, that much of it is no longer
+        # held for the customer: it meets this charge on the bill, as the
+        # bill already reads. Left alone the customer owed the charge on no
+        # bill and held as much from no source (D-FIN-29, as D-PRC-88).
+        # Imported here: the settlement module imports the customer services.
+        from app.settlements.services.customer_credits import (
+            absorb_credit_no_longer_given,
+        )
+
+        absorb_credit_no_longer_given(
+            self._session,
+            firm_id=firm_scope,
+            customer_id=row.customer_id,
+            actor_id=actor_id,
+            on=row.debit_note_date,
+        )
         self._record_event(
             row,
             action="APPROVED",
@@ -530,10 +547,12 @@ class CustomerDebitNoteService(TransactionalDocumentService):
         mine = quantize_ledger(row.taxable_amount) + quantize_ledger(row.tax_amount)
         owing_without = quantize_ledger(invoice.grand_total) - settled - mine
         if owing_without < ZERO:
+            # Never more than the note itself: a bill paid and then partly
+            # returned is past its total by the return, not by this charge.
             raise ValidationError(
                 f"Money received on invoice {invoice.invoice_number} has already "
-                f"met {-owing_without} of this debit note. Reverse that receipt "
-                "first, then cancel the note."
+                f"met {min(-owing_without, mine)} of this debit note. Reverse "
+                "that receipt first, then cancel the note."
             )
 
     def _record_event(
