@@ -1387,6 +1387,10 @@ shows an opening balance for an income or expense account must go through it,
 and must take the same figure off its closing balance, so the closing is where
 the running balance ends (D-FIN-24, 2026-10-02).
 
+## The next year is started, it does not begin by itself
+
+**A document's number takes its year from the document's date; its posting needs a period somebody made.** A numbering rule that resets builds its year label from the firm's year start and the date, so the first bill of April is `000001` with nothing set up. The ledger is not like that: a posting goes into an accounting period, a period belongs to a financial year, and neither is made by a document arriving. Until 2026-10-13 the only thing that made a year with its months was opening a firm's books, a platform administrator's act, and the firm's own screen could only close and reopen (D-FIN-32, found trying year end on a fixture firm). `FinanceService.start_next_financial_year` is the firm's own: `POST /finance/financial-years/next`, on `FINANCIAL_YEAR_CREATE`, makes the year after the latest one, of twelve months running on from its last day, all open. It closes nothing, so both years take postings while the old one is being finished, which is what an audit in June needs. It is refused while the latest year has not begun, so the button cannot run years ahead. The code is `FY` and the year it begins in, as `seed_finance_setup` names them; the key on the code covers deleted rows, so where that code is taken it says both years (`FY2027-28`).
+
 ## A credit note that states its lines reverses tax
 
 **A credit note that states its lines reverses tax; the bare receivable

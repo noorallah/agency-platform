@@ -1969,6 +1969,15 @@ changes to it. Before a month is closed the screen lists what is still undone
 (draft documents, unreconciled bank lines and the like) -- it lists and never
 refuses. The same screen sets the **ageing bands** (5.3).
 
+**Year end.** *Close year* locks a year once every month of it is closed and no
+draft journal is dated in it; it says which months or which drafts are in the
+way. Nothing can be posted into a closed year, and no closing entry is made.
+*Reopen year* is a right of its own and asks for a reason. **The next year is
+started with *Start next year***, which makes it with its twelve months and
+leaves the current year open; a year does not begin by itself, and documents
+dated in it are refused until it exists. Document numbers restart for the new
+year by themselves.
+
 ---
 
 # 9. Masters

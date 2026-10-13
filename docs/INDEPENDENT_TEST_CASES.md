@@ -5185,6 +5185,40 @@ redo yours."*
   - Step 9: only that shop's own bills are listed; no other shop's and not the parent's.
   - Step 10: every shop owes its bills again in full, the parent holds nothing on account, and the receipt reads Reversed.
 
+### TC-FIN-034 — Year end: what closing refuses, and starting the next year
+
+*Added 2026-10-13 (customer task C3, decision D12). Driven over HTTP on a fixture firm, on a year made for the purpose; **no screen was clicked**, so the steps are written from the build, not from the screen. Do not run steps 2 to 9 on a year the firm is still working in.*
+
+- **Covers:** D-FIN-32, the year-end close
+- **Fixture:** `ready-firm`
+- **Also needs:** a user holding the rights to create, close and reopen a financial year; a past year with two months in it, both open, and one draft journal dated in it (make them over the API: the screen makes no past year).
+- **Steps**
+  1. Open *Settings → Firm → Financial Years*. On the year you are working in, press **Close year** and confirm.
+  2. Choose the past year. Press **Close year** and confirm.
+  3. Press **Close** beside its second month.
+  4. Close its first month, then its second. Press **Close year** and confirm.
+  5. Delete the draft journal. Press **Close year** and confirm.
+  6. Try to press **Open** beside one of its months, and type a journal dated in the year.
+  7. Press **Reopen year** and leave the reason empty.
+  8. Type a reason and confirm. Look at the months.
+  9. Open the audit trail and find the reopening.
+  10. Open *Settings → Firm → Numbering Series*, choose the sales bill series and preview a number for the first day of the next year.
+  11. On *Financial Years* press **Start next year** and confirm.
+  12. Press **Start next year** again and confirm.
+- **Expect**
+  - Step 1: refused. The message says how many months are open and names them. The year stays open.
+  - Step 2: refused, naming the two open months.
+  - Step 3: refused: the first month, which comes before it, is still open.
+  - Step 4: the months close. The year is refused, naming the draft journal.
+  - Step 5: the year closes and reads LOCKED.
+  - Step 6: both refused; the message says the year is locked or the month is closed.
+  - Step 7: refused: a reason is required.
+  - Step 8: the year is open again. Its months still read CLOSED.
+  - Step 9: one line for the reopening, with the reason typed.
+  - Step 10: the number carries the next year (27-28) and its counter is 000001, though no such year has been made.
+  - Step 11: a new year appears, beginning the day after the last one ends, with twelve months, all open. The year you are in is still open.
+  - Step 12: refused: that year is already there and has not begun.
+
 ### TC-FIN-032 — The collector's day sheet adds up to the receipts
 
 *Added 2026-10-13 (backlog 124). Covered by unit and widget tests and driven over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*

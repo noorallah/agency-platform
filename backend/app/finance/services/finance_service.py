@@ -5,8 +5,9 @@ posting lives in :mod:`app.finance.services.journal_engine` and reporting in
 :mod:`app.finance.services.general_ledger_service`.
 """
 
+from calendar import monthrange
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import firm_today
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.finance.models import (
@@ -78,6 +80,25 @@ ACCOUNT_AUDIT_FIELDS = (
 CENTRE_AUDIT_FIELDS = ("name", "description", "is_active")
 
 
+def _month_spans(start: date) -> list[tuple[date, date]]:
+    """Return twelve months running on from ``start``, each a month long.
+
+    A year that begins on the first of a month gets calendar months. One
+    that begins on another day gets months beginning on that day, held to
+    the last day of a shorter month.
+    """
+
+    def step(months: int) -> date:
+        """Return the day ``months`` months after ``start``."""
+        index = start.month - 1 + months
+        year, month = start.year + index // 12, index % 12 + 1
+        return date(year, month, min(start.day, monthrange(year, month)[1]))
+
+    return [
+        (step(number), step(number + 1) - timedelta(days=1)) for number in range(12)
+    ]
+
+
 def audit_snapshot(row: object, fields: Sequence[str]) -> dict[str, object]:
     """Return the named fields of a row as JSON-safe values for an audit row."""
     snapshot: dict[str, object] = {}
@@ -134,6 +155,91 @@ class FinanceService:
         )
         self._session.flush()
         return year
+
+    def start_next_financial_year(
+        self, *, firm_id: UUID, actor_id: UUID
+    ) -> FinancialYear:
+        """Make the year after the firm's last one, with its twelve months.
+
+        A year does not begin by itself (D-FIN-32): the first document dated
+        in a year nobody made is refused for want of a period, and the only
+        thing that made a year with its months was opening a firm's books,
+        which is a platform administrator's act. This is the firm's own: the
+        year runs on from the last day of the latest one, for the same
+        length of time, and its months are opened with it. The year in hand
+        is left as it is -- starting the next one closes nothing.
+
+        Raises:
+            ValidationError: If the firm has no year to run on from, or the
+                year after the current one is already there.
+
+        """
+        latest = self._session.scalar(
+            self._active(select(FinancialYear), FinancialYear, firm_id)
+            .order_by(FinancialYear.ends_on.desc())
+            .limit(1)
+        )
+        if latest is None:
+            raise ValidationError(
+                "The firm has no financial year to run on from. Its first "
+                "year is made when its books are opened."
+            )
+        if latest.starts_on > firm_today(self._session, firm_id):
+            raise ValidationError(
+                f"Financial year {latest.code} is already there and has not "
+                "begun. The year after it can be started once it has."
+            )
+        starts_on = latest.ends_on + timedelta(days=1)
+        months = _month_spans(starts_on)
+        ends_on = months[-1][1]
+        label = (
+            str(starts_on.year)
+            if ends_on.year == starts_on.year
+            else f"{starts_on.year}-{ends_on.year}"
+        )
+        year = self.create_financial_year(
+            FinancialYearCreate(
+                code=self._free_year_code(firm_id, starts_on, ends_on),
+                name=f"Financial Year {label}",
+                starts_on=starts_on,
+                ends_on=ends_on,
+            ),
+            firm_id=firm_id,
+            actor_id=actor_id,
+        )
+        for number, (month_starts, month_ends) in enumerate(months, start=1):
+            self.create_accounting_period(
+                AccountingPeriodCreate(
+                    financial_year_id=year.id,
+                    period_number=number,
+                    code=f"P{number:02d}",
+                    name=month_starts.strftime("%B %Y"),
+                    starts_on=month_starts,
+                    ends_on=month_ends,
+                ),
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
+        return year
+
+    def _free_year_code(self, firm_id: UUID, starts_on: date, ends_on: date) -> str:
+        """Return a code for a new year that no year of the firm carries.
+
+        ``FY2027`` for the year beginning in 2027, as opening the books names
+        them. A firm that named its years by the year they end in already
+        holds that code, and so does a year deleted under it -- the key
+        covers deleted rows -- so the code then says both years, and a
+        number after that.
+        """
+        taken = set(
+            self._session.scalars(
+                select(FinancialYear.code).where(FinancialYear.firm_id == firm_id)
+            )
+        )
+        both = f"FY{starts_on.year}-{ends_on.year % 100:02d}"
+        candidates = [f"FY{starts_on.year}", both]
+        candidates += [f"{both}-{number}" for number in range(2, 100)]
+        return next(code for code in candidates if code not in taken)
 
     def list_financial_years(self, *, firm_id: UUID) -> Sequence[FinancialYear]:
         """Return every financial year owned by the firm."""
