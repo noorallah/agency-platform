@@ -20,11 +20,15 @@ import 'package:flutter_test/flutter_test.dart';
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
-PermissionService _permissions({bool allowed = true}) => PermissionService()
-  ..applyAccessToken(_accessToken({
-    'roles': <String>['user'],
-    'permissions': <String>[if (allowed) 'COLLECTION_OWN_VIEW'],
-  }));
+PermissionService _permissions({bool allowed = true, bool record = false}) =>
+    PermissionService()
+      ..applyAccessToken(_accessToken({
+        'roles': <String>['user'],
+        'permissions': <String>[
+          if (allowed) 'COLLECTION_OWN_VIEW',
+          if (record) 'COLLECTION_OWN_RECORD',
+        ],
+      }));
 
 Json _bill(String n, String customer,
         {required bool mine, String outstanding = '800.00'}) =>
@@ -59,7 +63,12 @@ final List<List<Json>> _pages = [
 ];
 
 class _Api extends ApiClient {
-  _Api({this.empty = false, this.refusal})
+  _Api({
+    this.empty = false,
+    this.refusal,
+    this.withLine = false,
+    this.refuseRecord,
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -69,6 +78,10 @@ class _Api extends ApiClient {
 
   final bool empty;
   final String? refusal;
+  final bool withLine;
+  final String? refuseRecord;
+  Json? recordedBody;
+  String? withdrawn;
   final List<String> requested = <String>[];
   final List<String?> pageAsked = <String?>[];
 
@@ -93,9 +106,54 @@ class _Api extends ApiClient {
         };
       }
       final int page = int.parse(query?['page'] ?? '1');
+      final List<Json> rows = page <= _pages.length
+          ? [
+              for (final Json row in _pages[page - 1])
+                if (withLine && row['invoice_id'] == 'i-B')
+                  <String, dynamic>{
+                    ...row,
+                    'return_id': 'r-B',
+                    'return_outcome': 'PART',
+                    'return_amount': '300.00',
+                  }
+                else
+                  row,
+            ]
+          : const <Json>[];
       return <String, dynamic>{
-        'data': page <= _pages.length ? _pages[page - 1] : const <Json>[],
+        'data': rows,
         'pagination': {'page': page, 'total_records': 3},
+      };
+    }
+    if (path == '/api/v1/collections/my-bills/day-sheet') {
+      return <String, dynamic>{
+        'data': {
+          'day': '2026-10-13',
+          'collector_records_receipt': false,
+          'rows': withLine
+              ? [
+                  {'id': 'r-B', 'outcome': 'PART', 'amount_collected': '300.00'},
+                ]
+              : const <Json>[],
+          'bills_without_a_line': withLine ? 1 : 2,
+          'amount_stated': withLine ? '1180.00' : '0.00',
+          'amount_receipted': withLine ? '1000.00' : '0.00',
+          'amount_not_receipted': withLine ? '180.00' : '0.00',
+          'adds_up': !withLine,
+        },
+      };
+    }
+    if (method == 'POST' && path.endsWith('/my-bills/returns')) {
+      recordedBody = body;
+      if (refuseRecord != null) throw ApiException(refuseRecord!);
+      return <String, dynamic>{
+        'data': {'id': 'r-new'},
+      };
+    }
+    if (method == 'POST' && path.endsWith('/withdraw')) {
+      withdrawn = body?['reason'] as String?;
+      return <String, dynamic>{
+        'data': {'id': 'r-B'},
       };
     }
     return <String, dynamic>{'data': const <Json>[]};
@@ -107,7 +165,7 @@ DesktopPreferencesService _preferences() => DesktopPreferencesService(
     );
 
 Future<void> _pump(WidgetTester tester, _Api api,
-    {bool allowed = true, bool firm = true}) async {
+    {bool allowed = true, bool firm = true, bool record = false}) async {
   tester.view.physicalSize = const Size(1200, 800);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -117,7 +175,7 @@ Future<void> _pump(WidgetTester tester, _Api api,
       body: MyBillsPage(
         api: api,
         preferences: _preferences(),
-        permissions: _permissions(allowed: allowed),
+        permissions: _permissions(allowed: allowed, record: record),
         hasActiveFirm: firm,
       ),
     ),
@@ -204,5 +262,96 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.pageAsked, ['1', '2', '1', '2']);
     expect(api.requested.every((r) => r.startsWith('GET ')), isTrue);
+  });
+
+  testWidgets('without COLLECTION_OWN_RECORD no Record button is offered',
+      (tester) async {
+    final _Api api = _Api();
+    await _pump(tester, api);
+    expect(find.byKey(const ValueKey('my-bill-record-i-A')), findsNothing);
+    expect(find.byType(TextButton), findsNothing);
+  });
+
+  testWidgets('recording a part sends exactly the declared keys',
+      (tester) async {
+    final _Api api = _Api();
+    await _pump(tester, api, record: true);
+    // The other customer's bill carries no button.
+    expect(find.byKey(const ValueKey('my-bill-record-i-C')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('my-bill-record-i-A')));
+    await tester.pumpAndSettle();
+    expect(
+        find.text('Save notes what you collected. The office records '
+            'the receipt.'),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('return-outcome')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Part collected').last);
+    await tester.pumpAndSettle();
+    // Nothing typed yet: refused before it is sent.
+    await tester.tap(find.byKey(const ValueKey('return-save')));
+    await tester.pumpAndSettle();
+    expect(api.recordedBody, isNull);
+    expect(find.byKey(const ValueKey('return-error')), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('return-amount')), '300');
+    await tester.tap(find.byKey(const ValueKey('return-save')));
+    await tester.pumpAndSettle();
+    expect(api.recordedBody, {
+      'handover_id': 'h-A',
+      'outcome': 'PART',
+      'amount_collected': '300',
+      'payment_mode': 'CASH',
+    });
+    expect(api.recordedBody!.values.contains(null), isFalse);
+    // The list and the day were read again.
+    expect(api.pageAsked, ['1', '2', '1', '2']);
+    expect(find.byKey(const ValueKey('return-save')), findsNothing);
+  });
+
+  testWidgets('a refusal keeps the dialog open with the message',
+      (tester) async {
+    final _Api api = _Api(refuseRecord: 'This bill is not in your bag.');
+    await _pump(tester, api, record: true);
+    await tester.tap(find.byKey(const ValueKey('my-bill-record-i-A')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('return-save')));
+    await tester.pumpAndSettle();
+    expect(api.recordedBody, {
+      'handover_id': 'h-A',
+      'outcome': 'COLLECTED',
+      'payment_mode': 'CASH',
+    });
+    expect(find.text('This bill is not in your bag.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('return-save')), findsOneWidget);
+  });
+
+  testWidgets('a bill with a line shows it and can be withdrawn',
+      (tester) async {
+    final _Api api = _Api(withLine: true);
+    await _pump(tester, api, record: true);
+    expect(find.byKey(const ValueKey('my-bill-record-i-B')), findsNothing);
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('my-bill-line-i-B')))
+            .data,
+        'Part collected 300.00');
+    await tester.tap(find.byKey(const ValueKey('my-bill-withdraw-i-B')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'Entered in error');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Withdraw'));
+    await tester.pumpAndSettle();
+    expect(api.withdrawn, 'Entered in error');
+  });
+
+  testWidgets('the day summary comes from the day sheet', (tester) async {
+    final _Api api = _Api(withLine: true);
+    await _pump(tester, api);
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('my-day-summary')))
+            .data,
+        'Today: 1 line. Collected 1,180.00. In receipts 1,000.00. '
+        'Still with you to hand in: 180.00. 1 bill has no line yet.');
   });
 }

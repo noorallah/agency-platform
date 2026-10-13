@@ -414,6 +414,10 @@ PERMISSION_GROUPS = {
         # else's: the route takes the collector from the token. Apart from
         # `RECEIPT_VIEW`, which reads every unpaid bill of the firm.
         "COLLECTION_OWN_VIEW",
+        # Writing the day's line on a bill in one's own bag (backlog 124):
+        # collected, part, promised, not collected. Whether that line also
+        # records the receipt is the firm's switch, not this code.
+        "COLLECTION_OWN_RECORD",
         "LEDGER_VIEW",
         "TRIAL_BALANCE_VIEW",
         "PROFIT_LOSS_VIEW",
@@ -909,7 +913,7 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     # code and nothing beside it: `RECEIPT_VIEW` or `CUSTOMER_VIEW` would show
     # him every bill and every customer of the firm, and his screen is the
     # bills handed to him.
-    "BILL_COLLECTOR": frozenset({"COLLECTION_OWN_VIEW"}),
+    "BILL_COLLECTOR": frozenset({"COLLECTION_OWN_VIEW", "COLLECTION_OWN_RECORD"}),
 }
 
 #: What each seeded role grants: the table above, less the designation-only

@@ -230,9 +230,15 @@ def test_the_route_reads_the_callers_bag_and_takes_no_name() -> None:
 
 
 def test_the_bill_collector_holds_his_own_list_and_nothing_else() -> None:
-    """One code. Not the firm's bills, not its customers, not its money."""
+    """His own bills and his line on them (backlog 124); nothing of the firm's.
+
+    Not the firm's bills, not its customers, not its money.
+    """
     assert "COLLECTION_OWN_VIEW" in PERMISSION_GROUPS["accounting"]
-    assert ROLE_PERMISSION_CODES["BILL_COLLECTOR"] == {"COLLECTION_OWN_VIEW"}
+    assert ROLE_PERMISSION_CODES["BILL_COLLECTOR"] == {
+        "COLLECTION_OWN_VIEW",
+        "COLLECTION_OWN_RECORD",
+    }
     assert "BILL_COLLECTOR" in FIRM_ROLE_CODES
 
 

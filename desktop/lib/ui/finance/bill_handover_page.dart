@@ -1,6 +1,9 @@
 // Bills with Collectors (backlog 122): the office hands unpaid bills to a
 // collector in the morning and takes them back later. It is a note beside the
 // bill; it changes no balance and no report. Phase 2 only.
+//
+// M6 (backlog 124) adds the Day sheet: the collectors' end-of-day lines, what
+// they state, what is in a receipt, and whether the two agree.
 
 import 'dart:async';
 
@@ -14,8 +17,11 @@ import '../../core/security/permission_service.dart';
 import '../../models/bill_handover.dart';
 import '../../models/entities.dart';
 import '../../models/firm_member.dart';
+import '../../phase2/display_dates.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
+import 'collection_return_dialog.dart';
 
 const int _pageSize = 50;
 
@@ -24,6 +30,13 @@ String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
 String _money(String value) {
   final double? parsed = double.tryParse(value);
   return parsed == null ? value : parsed.toStringAsFixed(2);
+}
+
+/// A stored day as the person's own date format writes it; blank stays blank.
+String _shown(String? value) {
+  if (value == null || value.length < 10) return value ?? '';
+  final DateTime? parsed = DateTime.tryParse(value.substring(0, 10));
+  return parsed == null ? value : DisplayDates.write(parsed);
 }
 
 String _bills(int count) => count == 1 ? '1 bill' : '$count bills';
@@ -88,6 +101,24 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
     GridColumn(key: 'handed-on', label: 'Handed on', priority: 2),
   ];
 
+  static const GridColumn _lineColumn =
+      GridColumn(key: 'line', label: 'Day’s line');
+
+  static const List<GridColumn> _daySheetColumns = [
+    GridColumn(key: 'collector', label: 'Collector'),
+    GridColumn(key: 'customer', label: 'Customer'),
+    GridColumn(key: 'bill', label: 'Bill'),
+    GridColumn(key: 'outcome', label: 'Outcome'),
+    GridColumn(key: 'stated', label: 'Stated', numeric: true),
+    GridColumn(key: 'how-paid', label: 'How paid', priority: 2),
+    GridColumn(key: 'receipt', label: 'Receipt'),
+    GridColumn(key: 'receipt-amount', label: 'In receipt', numeric: true),
+    GridColumn(key: 'promised-on', label: 'Promised for', priority: 2),
+    GridColumn(key: 'note', label: 'Note', priority: 3),
+    GridColumn(key: 'by', label: 'Recorded by', priority: 3),
+    GridColumn(key: 'actions', label: ''),
+  ];
+
   static const List<GridColumn> _historyColumns = [
     GridColumn(key: 'tick', label: '', priority: 1),
     GridColumn(key: 'customer', label: 'Customer'),
@@ -109,7 +140,9 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
   List<BillHandover> _historyRows = const [];
   final Set<String> _ticked = <String>{};
 
-  bool _historyView = false;
+  CollectionDaySheet? _sheet;
+  DateTime _sheetDay = DateTime.now();
+  String _viewName = 'bills';
   String _handed = 'ALL';
   String _historyState = '';
   String _filterCollector = '';
@@ -124,6 +157,9 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
 
   bool get _mayView => widget.permissions.hasPermission('RECEIPT_VIEW');
   bool get _mayAssign => widget.permissions.hasPermission('COLLECTION_ASSIGN');
+  bool get _mayReceipt => widget.permissions.hasPermission('RECEIPT_CREATE');
+  bool get _historyView => _viewName == 'history';
+  bool get _dayView => _viewName == 'day';
 
   @override
   void initState() {
@@ -164,13 +200,25 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
       _error = null;
       _billRows = const [];
       _historyRows = const [];
+      _sheet = null;
       _ticked.clear();
       if (requestedPage != null) _page = requestedPage;
     });
     try {
       final String? collector =
           _filterCollector.isEmpty ? null : _filterCollector;
-      if (_historyView) {
+      if (_dayView) {
+        final Json answer = await widget.api.collectionDaySheet(
+          day: _iso(_sheetDay),
+          collectorId: collector,
+        );
+        if (!mounted) return;
+        setState(() {
+          _sheet = CollectionDaySheet.fromJson(answer);
+          _total = _sheet!.rows.length;
+          _loading = false;
+        });
+      } else if (_historyView) {
         final Json response = await widget.api.billHandovers(
           page: _page,
           pageSize: _pageSize,
@@ -354,6 +402,59 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
         _tookMessage(await widget.api.takeBillsBack(handoverIds: ids)));
   }
 
+  Future<void> _recordLine({
+    required String handoverId,
+    required String billNumber,
+    required String customer,
+    required double owes,
+  }) async {
+    final bool saved = await showCollectionReturnDialog(
+      context,
+      billNumber: billNumber,
+      customerName: customer,
+      owes: owes,
+      handoverId: handoverId,
+      office: true,
+      collectorRecordsReceipt: true,
+      onSave: (body) async {
+        await widget.api.recordCollectionReturn(body);
+      },
+    );
+    if (saved && mounted) await _load();
+  }
+
+  Future<void> _receiptFor(CollectionReturnLine row) => _act(() async {
+        await widget.api.recordReturnReceipt(row.id);
+        return 'Receipt recorded for ${row.invoiceNumber}.';
+      });
+
+  Future<void> _withdrawLine(CollectionReturnLine row) async {
+    final String? reason = await askForReason(
+      context,
+      title: 'Withdraw this line?',
+      explanation: 'The line on ${row.invoiceNumber} is withdrawn. A receipt '
+          'recorded from it has to be reversed first.',
+      confirmLabel: 'Withdraw',
+    );
+    if (reason == null || !mounted) return;
+    await _act(() async {
+      await widget.api.withdrawCollectionReturn(row.id, reason);
+      return 'Line on ${row.invoiceNumber} withdrawn.';
+    });
+  }
+
+  Future<void> _pickSheetDay() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _sheetDay,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null) return;
+    setState(() => _sheetDay = picked);
+    unawaited(_load());
+  }
+
   Future<void> _pickDate({required bool from}) async {
     final DateTime? current = from ? _dateFrom : _dateTo;
     final DateTime? picked = await showDatePicker(
@@ -410,7 +511,47 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
     );
   }
 
+  Widget _daySheetFilters() {
+    return Wrap(
+      spacing: AppSpacing.md,
+      runSpacing: AppSpacing.sm,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        SizedBox(
+          width: 190,
+          child: _picker(
+            key: const ValueKey('day-sheet-collector'),
+            label: 'Collector',
+            anyLabel: 'All collectors',
+            members: _members,
+            value: _filterCollector,
+            onChanged: (value) {
+              setState(() => _filterCollector = value);
+              unawaited(_load());
+            },
+          ),
+        ),
+        SizedBox(
+          width: 170,
+          child: InkWell(
+            key: const ValueKey('day-sheet-day'),
+            onTap: () => unawaited(_pickSheetDay()),
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Day',
+                isDense: true,
+                suffixIcon: Icon(Icons.event_outlined, size: 16),
+              ),
+              child: Text(DisplayDates.write(_sheetDay)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _filters() {
+    if (_dayView) return _daySheetFilters();
     return Wrap(
       spacing: AppSpacing.md,
       runSpacing: AppSpacing.sm,
@@ -534,22 +675,26 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
   }
 
   Widget _view() {
-    return SegmentedButton<bool>(
+    return SegmentedButton<String>(
       showSelectedIcon: false,
       segments: const [
         ButtonSegment(
-          value: false,
+          value: 'bills',
           label: Text('Bills', key: ValueKey('handover-view-bills')),
         ),
         ButtonSegment(
-          value: true,
+          value: 'history',
           label: Text('History', key: ValueKey('handover-view-history')),
         ),
+        ButtonSegment(
+          value: 'day',
+          label: Text('Day sheet', key: ValueKey('handover-view-day-sheet')),
+        ),
       ],
-      selected: {_historyView},
+      selected: {_viewName},
       onSelectionChanged: (picked) {
         setState(() {
-          _historyView = picked.first;
+          _viewName = picked.first;
           _page = 1;
         });
         unawaited(_load(requestedPage: 1));
@@ -619,7 +764,7 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
       pageOffset: (_page - 1) * _pageSize,
       rowsPerPage: _pageSize,
       availableRowsPerPage: const [_pageSize],
-      columns: _billColumns,
+      columns: [..._billColumns, if (_mayReceipt) _lineColumn],
       id: (row) => row.invoiceId,
       cells: (row) => [
         '',
@@ -631,12 +776,32 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
         _money(row.outstanding),
         row.collectorName,
         row.handedOn,
+        if (_mayReceipt) '',
       ],
       onSelect: (_) {},
       onPageChanged: _onPage,
-      cellBuilder: (columnIndex, value, item) => columnIndex == 0
-          ? _tickBox(item.invoiceId)
-          : _plainCell(value),
+      cellBuilder: (columnIndex, value, item) {
+        if (columnIndex == 0) return _tickBox(item.invoiceId);
+        if (columnIndex == _billColumns.length) {
+          if (!item.isOut) return const SizedBox.shrink();
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: ValueKey('handover-line-${item.handoverId}'),
+              onPressed: _busy
+                  ? null
+                  : () => unawaited(_recordLine(
+                        handoverId: item.handoverId!,
+                        billNumber: item.invoiceNumber,
+                        customer: item.customerLabel,
+                        owes: double.tryParse(item.outstanding) ?? 0,
+                      )),
+              child: const Text('Day’s line'),
+            ),
+          );
+        }
+        return _plainCell(value);
+      },
     );
   }
 
@@ -647,7 +812,7 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
       pageOffset: (_page - 1) * _pageSize,
       rowsPerPage: _pageSize,
       availableRowsPerPage: const [_pageSize],
-      columns: _historyColumns,
+      columns: [..._historyColumns, if (_mayReceipt) _lineColumn],
       id: (row) => row.id,
       cells: (row) => [
         '',
@@ -661,11 +826,130 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
         row.returnedAt.length >= 10
             ? row.returnedAt.substring(0, 10)
             : row.returnedAt,
+        if (_mayReceipt) '',
       ],
       onSelect: (_) {},
       onPageChanged: _onPage,
-      cellBuilder: (columnIndex, value, item) =>
-          columnIndex == 0 ? _tickBox(item.id) : _plainCell(value),
+      cellBuilder: (columnIndex, value, item) {
+        if (columnIndex == 0) return _tickBox(item.id);
+        if (columnIndex == _historyColumns.length) {
+          if (!item.isOut) return const SizedBox.shrink();
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: ValueKey('handover-line-${item.id}'),
+              onPressed: _busy
+                  ? null
+                  : () => unawaited(_recordLine(
+                        handoverId: item.id,
+                        billNumber: item.invoiceNumber,
+                        customer: item.customerLabel,
+                        owes: double.tryParse(item.outstanding) ?? 0,
+                      )),
+              child: const Text('Day’s line'),
+            ),
+          );
+        }
+        return _plainCell(value);
+      },
+    );
+  }
+
+  String _receiptText(CollectionReturnLine row) {
+    if (row.receiptReversed) return 'Receipt reversed';
+    if (row.settlementId != null) return row.settlementNumber ?? 'Receipt';
+    return row.stated > 0 ? 'No receipt yet' : '';
+  }
+
+  Widget _daySheetActions(CollectionReturnLine row) {
+    if (!_mayReceipt) return const SizedBox.shrink();
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (row.needsReceipt)
+            TextButton(
+              key: ValueKey('day-sheet-receipt-${row.id}'),
+              onPressed: _busy ? null : () => unawaited(_receiptFor(row)),
+              child: const Text('Record receipt'),
+            ),
+          TextButton(
+            key: ValueKey('day-sheet-withdraw-${row.id}'),
+            onPressed: _busy ? null : () => unawaited(_withdrawLine(row)),
+            child: const Text('Withdraw'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _daySheetGrid(CollectionDaySheet sheet) {
+    return EnterpriseDataGrid<CollectionReturnLine>(
+      items: sheet.rows,
+      total: sheet.rows.length,
+      pageOffset: 0,
+      rowsPerPage: sheet.rows.length,
+      availableRowsPerPage: [sheet.rows.length],
+      columns: _daySheetColumns,
+      id: (row) => row.id,
+      cells: (row) => [
+        row.collectorName,
+        row.customerName,
+        row.invoiceNumber,
+        returnOutcomeWords(row.outcome),
+        row.stated > 0 ? _money(row.amountCollected) : '',
+        collectionModeWords(row.stated > 0 ? row.paymentMode : null),
+        _receiptText(row),
+        (double.tryParse(row.receiptAmount) ?? 0) > 0
+            ? _money(row.receiptAmount)
+            : '',
+        _shown(row.promisedOn),
+        row.note ?? '',
+        row.recordedByName,
+        '',
+      ],
+      onSelect: (_) {},
+      onPageChanged: (_) {},
+      cellBuilder: (columnIndex, value, item) => columnIndex == 11
+          ? _daySheetActions(item)
+          : _plainCell(value),
+    );
+  }
+
+  /// Stated, in receipts, the difference, and whether the sheet adds up.
+  Widget _daySheetTotals(CollectionDaySheet sheet) {
+    final ThemeData theme = Theme.of(context);
+    final int out = sheet.billsWithoutALine;
+    final String none = out == 0
+        ? ''
+        : ' ${_bills(out)} out ${out == 1 ? 'has' : 'have'} no line.';
+    final String difference = indianAmount(sheet.notReceipted, full: true);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Stated ${indianAmount(sheet.stated, full: true)}. '
+          'In receipts ${indianAmount(sheet.receipted, full: true)}. '
+          'Difference $difference.$none',
+          key: const ValueKey('day-sheet-totals'),
+          style: theme.textTheme.titleSmall,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          sheet.addsUp
+              ? 'The sheet adds up.'
+              : 'The sheet does not add up: $difference stated is not in a '
+                  'receipt.',
+          key: const ValueKey('day-sheet-adds-up'),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: sheet.addsUp
+                ? theme.colorScheme.primary
+                : theme.colorScheme.error,
+          ),
+        ),
+      ],
     );
   }
 
@@ -684,7 +968,11 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
         message: 'Reading them needs the view receipts permission.',
       );
     }
-    final bool empty = _historyView ? _historyRows.isEmpty : _billRows.isEmpty;
+    final bool empty = _dayView
+        ? (_sheet?.rows.isEmpty ?? true)
+        : _historyView
+            ? _historyRows.isEmpty
+            : _billRows.isEmpty;
     final List<String> shownIds = _historyView
         ? [for (final BillHandover row in _historyRows) row.id]
         : [for (final HandoverBill row in _billRows) row.invoiceId];
@@ -709,7 +997,7 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
           Align(alignment: Alignment.centerLeft, child: _view()),
           const SizedBox(height: AppSpacing.sm),
           _filters(),
-          if (_mayAssign) ...[
+          if (_mayAssign && !_dayView) ...[
             const SizedBox(height: AppSpacing.sm),
             _actions(),
           ],
@@ -720,21 +1008,31 @@ class _BillHandoverPageState extends State<BillHandoverPage> {
                   style:
                       TextStyle(color: Theme.of(context).colorScheme.error)),
             ),
-          if (!_loading && !empty) _tickAll(shownIds),
+          if (!_loading && !empty && !_dayView) _tickAll(shownIds),
+          if (!_loading && _sheet != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _daySheetTotals(_sheet!),
+          ],
           const SizedBox(height: AppSpacing.sm),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : empty
                     ? WorkspaceEmptyState(
-                        title: _historyView
-                            ? 'Nothing handed out yet'
-                            : 'No bills',
-                        message: _historyView
-                            ? 'No hand-over matches these filters.'
-                            : 'No unpaid bill matches these filters.',
+                        title: _dayView
+                            ? 'No lines for this day'
+                            : _historyView
+                                ? 'Nothing handed out yet'
+                                : 'No bills',
+                        message: _dayView
+                            ? 'No collector has stated a line for this day.'
+                            : _historyView
+                                ? 'No hand-over matches these filters.'
+                                : 'No unpaid bill matches these filters.',
                       )
-                    : (_historyView ? _historyGrid() : _billGrid()),
+                    : _dayView
+                        ? _daySheetGrid(_sheet!)
+                        : (_historyView ? _historyGrid() : _billGrid()),
           ),
         ],
       ),

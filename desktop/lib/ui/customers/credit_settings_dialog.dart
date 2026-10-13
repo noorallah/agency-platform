@@ -40,6 +40,7 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
   bool _loading = true;
   bool _saving = false;
   bool _isConfigured = false;
+  bool _collectorRecordsReceipt = false;
   String? _error;
 
   bool get _mayManage =>
@@ -80,6 +81,7 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
         _interestRate.text = _trim(settings.overdueInterestRate);
         _graceDays.text = settings.interestGraceDays.toString();
         _isConfigured = settings.isConfigured;
+        _collectorRecordsReceipt = settings.collectorRecordsReceipt;
         _loading = false;
       });
     } on ApiException catch (error) {
@@ -166,6 +168,7 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
           overdueInterestRate:
               _interestRate.text.trim().isEmpty ? '0' : _interestRate.text.trim(),
           interestGraceDays: int.tryParse(_graceDays.text.trim()) ?? 0,
+          collectorRecordsReceipt: _collectorRecordsReceipt,
         ),
       );
       if (!mounted) return;
@@ -324,6 +327,21 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text('Bill collectors', style: theme.textTheme.titleSmall),
+                  SwitchListTile(
+                    key: const ValueKey('credit-collector-records-receipt'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Collectors record their own receipts'),
+                    subtitle: const Text(
+                        'Off: a collector notes what he collected and the '
+                        'office records the receipt.'),
+                    value: _collectorRecordsReceipt,
+                    onChanged: _mayManage && !_saving
+                        ? (value) =>
+                            setState(() => _collectorRecordsReceipt = value)
+                        : null,
                   ),
                   if (!_mayManage) ...[
                     const SizedBox(height: AppSpacing.lg),

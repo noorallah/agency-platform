@@ -31,6 +31,7 @@ from app.business.models import (
 )
 from app.collections.models import (
     bill_handover,  # noqa: F401
+    collection_return,  # noqa: F401
     payment_promise,  # noqa: F401
 )
 from app.commission.models import commission  # noqa: F401

@@ -756,6 +756,30 @@ report: it only records who carries the bill. The buttons are shown to
 whoever may hand bills out (the firm's administrator, manager and
 accountant); everybody who reads receipts sees the list.
 
+**The collector's line for the day, and the day sheet** (added 2026-10-13,
+not yet tested by hand). In the evening each bill a collector carries gets one
+line: **Collected in full**, **Part collected**, **Promised** or **Not
+collected**. The collector writes it himself with **Record** on *My Bills to
+Collect*, or the office writes it for him from *Bills with Collectors*. A part
+line needs the amount; a promised line needs the day, and a part line may
+name a day for the rest. The promise appears on *Payment Promises* in the
+collector's name.
+
+A line only says what was collected. The money enters the accounts as a
+receipt. A line written in the office records the receipt at once. For a line
+the collector writes himself, the firm chooses, under *Customers → Credit
+settings → Collectors record their own receipts*: switched off, his line is a
+note and the office presses **Record receipt** on the day sheet when he hands
+the money in; switched on, his line records the receipt. Either way he sees
+no Receipts screen and no accounts.
+
+*Bills with Collectors → Day sheet* shows a day's lines for one collector or
+all, with three totals: what the lines say was collected, what is in
+receipts, and the difference. When the difference is nothing the sheet says
+it adds up. One bill has one line a day. A wrong line is withdrawn with a
+reason and written again; a line whose receipt stands cannot be withdrawn
+until the receipt is reversed on *Receipts*.
+
 **My Bills to Collect and the Bill Collector job** (added 2026-10-13, not yet
 tested by hand). Hire the person who carries bills from the **Bill Collector**
 job. When he signs in he is offered one screen, **My Bills to Collect**: the

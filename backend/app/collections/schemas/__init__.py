@@ -119,6 +119,19 @@ class CollectionSheetRow(CollectionSchema):
     promise_is_for_account: bool
 
 
+class ReturnOutcome(StrEnum):
+    """What happened on one handed-out bill that day (backlog 124)."""
+
+    #: Everything the bill owed was paid.
+    COLLECTED = "COLLECTED"
+    #: Part of it was paid.
+    PART = "PART"
+    #: Nothing was paid; a day was promised.
+    PROMISED = "PROMISED"
+    #: Nothing was paid and nothing promised.
+    NOT_COLLECTED = "NOT_COLLECTED"
+
+
 class HandoverState(StrEnum):
     """Where a handed-out bill is. Read off ``returned_at``, never stored."""
 
@@ -260,6 +273,11 @@ class MyBillRow(CollectionSchema):
     #: The reader's own handover and its day; null on the customer's others.
     handover_id: UUID | None
     handed_on: date | None
+    #: Today's line on that handover (backlog 124); null where none is
+    #: written, and on the customer's others.
+    return_id: UUID | None = None
+    return_outcome: ReturnOutcome | None = None
+    return_amount: Decimal | None = None
 
 
 class HandoverResponse(CollectionSchema):
@@ -301,7 +319,153 @@ class HandoverResult(CollectionSchema):
     already_out: int = 0
 
 
+class ReturnPaymentMode(StrEnum):
+    """How a collector was paid; the receipt's own modes."""
+
+    CASH = "CASH"
+    CHEQUE = "CHEQUE"
+    UPI = "UPI"
+    BANK_TRANSFER = "BANK_TRANSFER"
+    CARD = "CARD"
+    DEMAND_DRAFT = "DEMAND_DRAFT"
+    OTHER = "OTHER"
+
+
+class CollectionReturnCreate(CollectionSchema):
+    """Write the day's line for one handed-out bill."""
+
+    handover_id: UUID
+    outcome: ReturnOutcome
+    #: The day the line is for; the firm's today when omitted, never later
+    #: and never before the bill went out.
+    return_date: date | None = None
+    #: What was taken. Needed for PART; for COLLECTED it is what the bill
+    #: owes and may be left out; not sent for the other two.
+    amount_collected: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=2
+    )
+    #: How it was paid; cash when omitted.
+    payment_mode: ReturnPaymentMode | None = None
+    instrument_reference: str | None = Field(default=None, max_length=120)
+    #: The day the rest was promised for. Needed for PROMISED; allowed on
+    #: PART, for what is still owed.
+    promised_on: date | None = None
+    note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("note", "instrument_reference", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value: str | None) -> str | None:
+        """Store a blank box as none."""
+        return (value.strip() or None) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _fields_fit_the_outcome(self) -> "CollectionReturnCreate":
+        """Refuse a line whose figures say something its outcome does not."""
+        took_money = self.outcome in (ReturnOutcome.COLLECTED, ReturnOutcome.PART)
+        if self.outcome == ReturnOutcome.PART and self.amount_collected is None:
+            raise ValueError("Say how much was collected.")
+        if not took_money and (
+            self.amount_collected is not None
+            or self.payment_mode is not None
+            or self.instrument_reference is not None
+        ):
+            raise ValueError(
+                "Nothing was collected on this line, so it carries no amount "
+                "and no way of paying."
+            )
+        if self.outcome == ReturnOutcome.PROMISED and self.promised_on is None:
+            raise ValueError("Say which day was promised.")
+        if (
+            self.outcome in (ReturnOutcome.COLLECTED, ReturnOutcome.NOT_COLLECTED)
+            and self.promised_on is not None
+        ):
+            raise ValueError("A promised day goes with PROMISED or PART.")
+        return self
+
+
+class CollectionReturnWithdraw(CollectionSchema):
+    """Take a day's line back, saying why."""
+
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _trim_reason(cls, value: str) -> str:
+        """Drop the spaces around the reason, so a blank one is refused."""
+        return value.strip() if isinstance(value, str) else value
+
+
+class CollectionReturnResponse(CollectionSchema):
+    """One day's line on one handed-out bill."""
+
+    id: UUID
+    handover_id: UUID
+    return_date: date
+    outcome: ReturnOutcome
+    invoice_id: UUID
+    invoice_number: str
+    is_opening_bill: bool
+    customer_id: UUID
+    customer_code: str
+    customer_name: str
+    collector_id: UUID
+    collector_name: str
+    #: What the bill owed when the line was written.
+    outstanding_before: Decimal
+    #: What the collector says he took.
+    amount_collected: Decimal
+    payment_mode: ReturnPaymentMode | None
+    instrument_reference: str | None
+    #: The receipt that took the money into the books, if one has.
+    settlement_id: UUID | None
+    settlement_number: str | None
+    #: What that receipt is for; 0.00 with none, and once it is reversed.
+    receipt_amount: Decimal
+    #: True where the receipt named here was reversed afterwards.
+    receipt_reversed: bool
+    payment_promise_id: UUID | None
+    promised_on: date | None
+    promised_amount: Decimal | None
+    note: str | None
+    recorded_by: UUID
+    recorded_by_name: str
+    cancelled_at: datetime | None
+    cancel_reason: str | None
+    version: int
+
+
+class CollectionDaySheet(CollectionSchema):
+    """A day's lines, and whether they add up to the receipts recorded."""
+
+    day: date
+    #: Whose sheet; null is every collector's.
+    collector_id: UUID | None
+    collector_name: str | None
+    #: The firm's switch: a collector's own line records the receipt.
+    collector_records_receipt: bool
+    rows: list[CollectionReturnResponse]
+    #: Lines by outcome, withdrawn ones left out.
+    collected_bills: int
+    part_bills: int
+    promised_bills: int
+    not_collected_bills: int
+    #: Bills out with the collector on the day's evening that have no line.
+    bills_without_a_line: int
+    #: What the lines say was taken.
+    amount_stated: Decimal
+    #: What the receipts named on those lines took into the books.
+    amount_receipted: Decimal
+    #: Stated and not yet in the books; 0.00 when the sheet adds up.
+    amount_not_receipted: Decimal
+    #: True when every rupee stated is in a receipt.
+    adds_up: bool
+
+
 __all__ = [
+    "CollectionDaySheet",
+    "CollectionReturnCreate",
+    "CollectionReturnResponse",
+    "CollectionReturnWithdraw",
     "CollectionSheetRow",
     "HandedFilter",
     "HandoverBillRow",
@@ -316,4 +480,6 @@ __all__ = [
     "PaymentPromiseResponse",
     "PaymentPromiseWithdraw",
     "PromiseStatus",
+    "ReturnOutcome",
+    "ReturnPaymentMode",
 ]
