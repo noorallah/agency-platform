@@ -719,6 +719,56 @@ def test_a_free_only_order_line_comes_in_whole_with_the_first_bill_naming_it(
     assert firm.stock() == Decimal("27")
 
 
+@pytest.mark.parametrize(
+    ("line", "billed", "stock"),
+    [
+        ({"ordered_quantity": "0", "unit_price": "60", "free_quantity": "5"}, "0", "5"),
+        ({"ordered_quantity": "1", "unit_price": "0", "free_quantity": "5"}, "1", "6"),
+    ],
+)
+def test_a_bill_of_free_goods_alone_brings_them_in_and_posts_nothing(
+    firm: _Firm, line: dict[str, object], billed: str, stock: str
+) -> None:
+    """D-PRC-94: the bill was refused with the ledger's words for an empty entry.
+
+    An order line that charges nothing, billed with receipts off (PRCQ-94):
+    every leg of the bill's journal is nothing, and an entry needs two. The
+    goods now come in at no cost and the bill, owing nothing, posts no entry.
+    """
+    from app.finance.models import JournalEntry
+
+    firm.stages(order=True, receipt=False)
+    order, (gift,) = _order_with_free(firm, {"product_id": firm.product.id} | line)
+
+    receipt = _part_bill(firm, order, (gift, billed, {}))
+
+    assert receipt.total_free_quantity == Decimal("5")
+    assert firm.stock() == Decimal(stock)
+    assert _valuation(firm)[2] == Decimal("0.00")
+    assert receipt.raised_by_purchase_invoice_id is not None
+    bill = firm.bills().get_invoice(
+        receipt.raised_by_purchase_invoice_id, firm_scope=firm.firm.id
+    )
+    assert bill.status == "APPROVED"
+    assert bill.grand_total == Decimal("0")
+    assert (
+        firm.session.scalar(
+            select(JournalEntry.id).where(
+                JournalEntry.source_module == "purchase_invoice",
+                JournalEntry.source_id == bill.id,
+            )
+        )
+        is None
+    )
+    assert firm.balance(ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED) == 0
+
+    # Cancelling it finds no entry to take back and is not refused for that.
+    cancelled = firm.bills().cancel_invoice(
+        bill.id, firm_scope=firm.firm.id, actor_id=firm.actor_id, reason="sent back"
+    )
+    assert cancelled.status == "CANCELLED"
+
+
 # --- D-PRC-93: each buying document inherits the discount of the line it
 # continues, a rate as itself and an amount by the share it covers ---
 

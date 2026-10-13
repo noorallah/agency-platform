@@ -3968,7 +3968,7 @@ class DocumentPostingService:
         tcs_amount: Decimal = ZERO,
         capital_amounts: list[tuple[UUID, Decimal]] | None = None,
         service_amount: Decimal = ZERO,
-    ) -> JournalEntry:
+    ) -> JournalEntry | None:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
         The goods were already brought onto the balance sheet when they were
@@ -4025,7 +4025,7 @@ class DocumentPostingService:
                 rest of the bill's.
 
         Returns:
-            The posted journal entry.
+            The posted journal entry, or None where there is nothing to post.
 
         Raises:
             ValidationError: If accounts or an open period are missing, or the
@@ -4208,6 +4208,12 @@ class DocumentPostingService:
             for line in lines
             if line.debit_amount != ZERO or line.credit_amount != ZERO
         ]
+        if not lines:
+            # A bill of goods the supplier sent free and nothing else owes
+            # nothing and clears nothing: there is no entry to post, as on a
+            # sales bill that comes to nothing (D-PRC-94). The goods came in
+            # at no cost by the receipt.
+            return None
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,

@@ -2589,6 +2589,21 @@ the fixture builds (a minute or two).
   - Step 4: the bill reads 236.00 owed and the payment is **taken**. The screen shows the supplier's credit before saving; the server's answer carries a warning that the supplier holds 118.00 of supplier credit, naming the return.
   - Step 5: completing is refused. The message names the debit note for 40.00 on the second bill and the return for 100.00 on the first, and does not say a debit note was "approved since".
 
+### TC-BUY-110 — A bill of free goods alone, with receipts off
+
+*Added 2026-10-13 (D-PRC-94, row G3). Driven over HTTP on a fixture firm; the screens were not clicked.*
+
+- **Covers:** D-PRC-94
+- **Fixture:** `ready-firm`
+- **Also needs:** orders switched on and goods receipts switched **off** (put back afterwards); two products at 60.00 plus 18% local GST with nothing in stock; a supplier of the case's own.
+- **Steps**
+  1. Order the first product: quantity **0** at 60.00 with **5** free. Approve it. Raise a supplier bill off the order line, quantity 0.
+  2. Order the second product: quantity **1** at **0.00** with **5** free. Approve it. Raise a supplier bill off the order line, quantity 1.
+  3. Open *Record Payment* for the supplier, and Accounts > Journal Entries.
+- **Expect**
+  - Steps 1 and 2: each order comes to 0.00. Each bill is **taken and approved** at 0.00; it is not refused with "A journal entry needs at least one debit and one credit line." Stock reads **5** of the first product and **6** of the second, valued at nothing, and each order reads received.
+  - Step 3: the supplier is owed nothing, and neither bill has a journal entry: a bill whose every figure is nothing posts none.
+
 ### TC-STOCK-001 — The summary and the rows agree; the ledger explains the balance
 
 - **Covers:** plan 8.1, 8.2
