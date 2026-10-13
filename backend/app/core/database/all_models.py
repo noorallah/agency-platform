@@ -133,5 +133,6 @@ from app.vendors.models import (  # noqa: F401
     supplier_gift,
     supplier_product,
     vendor,
+    vendor_brand,
     vendor_rating,
 )

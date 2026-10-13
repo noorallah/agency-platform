@@ -9212,3 +9212,109 @@ TC-BUY-103.
 - The same for a customer on the selling documents is not built.
 - The old UI is unchanged.
 - No screen was clicked in the running app.
+
+## 129. Company and brand: the brands a supplier may sell -- built 2026-10-13
+
+**Customer task M11**, decision D16, answers A7 to A9. Asked: "a supplier
+names the brands it may sell; the product list on a purchase order and on a
+sale can be narrowed by brand. A stockist is a company of his own with the
+brands he is allowed"; try: "a purchase order for one brand offers only that
+brand's products".
+
+**What was found.** Companies (the *Principals* list) and brands were there
+(MST-1): a brand belongs to a company, a product names its brand
+(`products.brand_id`), and a company may name the supplier it is bought from.
+Nothing joined a supplier to a brand, the product list could be searched by
+the brand's text only, and no document narrowed its products by brand. The
+list filter schema carried a `brand_id` field that nothing read.
+
+**Design.**
+
+- One table in the firm's store, `vendor_brands`: a supplier and a brand, one
+  row for each brand named on that supplier. Both keys cascade, the pair is
+  unique, and a brand taken off the list is a row removed. No column on the
+  supplier, the brand or the product changes, and no existing row is written.
+- Which brands count for a supplier, the first of these that has any:
+  1. the brands named on the supplier itself;
+  2. the brands of every company that names this supplier as the one it is
+     bought from;
+  3. for a branch (backlog 127), whatever its main office answers.
+  A supplier none of them answers for is **not limited**: every product is
+  offered, so no existing firm sees a change until it names a brand.
+- A **stockist** is a supplier with the brands he is allowed named on him
+  (rule 1). Whose brands they are does not matter, so he can hold brands of
+  several companies.
+- `GET /api/v1/vendors/{id}/brands` answers the brands that count, where the
+  answer came from (`OWN`, `COMPANY`, `MAIN_OFFICE`, `NONE`) and the brands
+  named on the supplier itself. `PUT` on the same path replaces the named
+  list whole; an empty list clears it. Reading needs `VENDOR_VIEW` or
+  `PURCHASE_VIEW`, writing `VENDOR_UPDATE`. No new permission.
+- `GET /api/v1/products` takes `brand_id`, repeated for several brands, and
+  answers the products filed under those brand rows exactly. The unread
+  `brand_id` field on the filter schema is replaced by it.
+- The list **narrows what is offered and never refuses a line**. A purchase
+  order for a product outside the supplier's brands is saved as before.
+- A brand a supplier names cannot be deleted until it is taken off that
+  supplier; the refusal names the supplier. Merging two suppliers carries
+  the named brands to the one that stays, each held once.
+- Screens, new UI only. The supplier form has a part **Brands this supplier
+  sells**. A purchase order has a **Brand** box: for a supplier with brands
+  it starts at *All brands of this supplier* and the product box of every
+  line offers only those; one brand can be chosen, and *Every product* brings
+  the rest back. A sales order and a sales bill have the same box with the
+  firm's companies and brands. A product already on a line is always kept in
+  its box. Nothing about the choice is stored on the document.
+- Calls: the supplier form's part makes two reads when it opens and one
+  write on Save. A purchase order makes one read each time a supplier is
+  chosen. A sales order or bill makes one read of the brand list when it
+  opens.
+
+**Decided by the standard, not asked.**
+
+- A filter, not a rule the server enforces. Tally, Marg and Zoho narrow an
+  order's items by company; none refuses an item outside it. A firm's first
+  order for a new brand is raised before anybody has tidied the list.
+- A branch takes its main office's brands until it names its own. A branch
+  that names any brand uses its own list only.
+- A list named on the supplier outranks the company's brands, so a supplier
+  can be held to fewer brands than its company owns.
+- A product with no brand is offered only when no brand is chosen (*Every
+  product*, or a supplier that is not limited).
+
+**Built.** Server: `backend/app/vendors/models/vendor_brand.py`,
+`backend/app/vendors/services/vendor_brands.py`, two routes in
+`backend/app/vendors/api/router.py`, the `brand_id` filter in
+`backend/app/products/api/router.py` and `ProductService`, the delete
+refusal in `backend/app/products/services/brands.py`, migration
+`20261013_0367`. Tests: `backend/tests/unit/test_vendor_brands.py` (9).
+Desktop: `desktop/lib/ui/vendors/vendor_brands_section.dart`,
+`desktop/lib/ui/workspace/brand_filter.dart`, and the Brand box in
+`purchase_order_editor_phase2.dart`, `sales_order_editor_phase2.dart` and
+`sales_invoice_editor_phase2.dart`. Tests:
+`desktop/test/supplier_brands_test.dart` (16). Test case TC-BUY-104.
+
+**Tried over HTTP** on a fixture firm, 36 checks: the company's supplier
+takes the company's two brands; its branch takes the same; one brand named
+on the supplier and the product list for that brand answers only that
+brand's two products; an order for another brand's product is still saved; a
+branch's own list outranks its main office's; a stockist holds brands of two
+companies; the list is replaced whole and cleared; a brand that is not the
+firm's is refused and nothing is written; a brand a supplier names is not
+deleted; the change is on the audit trail.
+
+**Not done.**
+
+- No Brand box on the supplier bill, the goods receipt, the quotation, the
+  requisition, the request for quotation or any other document.
+- The old UI is unchanged.
+- The brands a supplier may sell are not in the supplier import file and
+  not on the supplier list or its download.
+- The purchase order does not warn about a line whose product is outside
+  the supplier's brands.
+- The menu still says *Principals* for the companies; the Brand box says
+  company.
+- No Brand box on the counter (till) bill: it did not fit the counter
+  screen at 800 by 600.
+- No widget test opens the Brand box on the sales bill; the sales order's
+  is tested and the two share the code.
+- No screen was clicked in the running app.

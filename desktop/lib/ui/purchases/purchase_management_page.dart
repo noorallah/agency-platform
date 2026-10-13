@@ -30,6 +30,7 @@ import '../trade_licences/licence_check_dialog.dart';
 import '../../models/bulk_action.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/custom_fields_section.dart';
+import '../workspace/brand_filter.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/reason_prompt.dart';
@@ -2706,6 +2707,61 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
 
   void _setState(VoidCallback change) => setState(change);
 
+  /// Backlog 129: the brands the chosen supplier may sell, read once per
+  /// supplier chosen. Null until read, and after a failed read: then the
+  /// supplier is treated as not limited. [_brandsFor] is the supplier the
+  /// answer belongs to, so a late answer for an earlier choice is dropped.
+  VendorBrands? _vendorBrands;
+  String _brandsFor = '';
+
+  /// The Brand box: blank is the default (all of the supplier's brands, or
+  /// all products), [everyProductChoice] lifts the supplier's limit, anything
+  /// else is one brand's id. Only narrows the product boxes.
+  String _brandChoice = '';
+
+  Future<void> _readVendorBrands(String vendorId) async {
+    if (vendorId == _brandsFor) return;
+    _brandsFor = vendorId;
+    setState(() {
+      _vendorBrands = null;
+      _brandChoice = '';
+      _lineEpoch++;
+    });
+    if (vendorId.isEmpty) return;
+    VendorBrands? read;
+    try {
+      read = await widget.api.vendorBrands(vendorId);
+    } on Object {
+      read = null;
+    }
+    if (!mounted || _brandsFor != vendorId) return;
+    setState(() {
+      _vendorBrands = read;
+      _lineEpoch++;
+    });
+  }
+
+  /// Whether the supplier chosen names brands for its orders.
+  bool get _brandLimited => _vendorBrands?.isLimited ?? false;
+
+  /// The products the product boxes offer: the brand choice applied, and the
+  /// products already on a line kept whatever the choice.
+  List<Product> get _offeredProducts {
+    final String choice = _brandChoice;
+    if (choice == everyProductChoice) return widget.products;
+    if (choice.isEmpty && !_brandLimited) return widget.products;
+    final Set<String> brandIds = choice.isEmpty
+        ? {for (final BrandRecord brand in _vendorBrands!.brands) brand.id}
+        : {choice};
+    return productsOfBrands(
+      widget.products,
+      brandIds,
+      keepIds: {
+        for (final PurchaseOrderLine line in _draft.lines) line.productId,
+      },
+    );
+  }
+
   /// Suppliers added from this order (backlog 128), offered after the ones
   /// the order was opened with.
   final List<Vendor> _addedVendors = <Vendor>[];
@@ -2723,6 +2779,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       _addedVendors.add(added);
       _draft = _draft.copyWith(vendorId: added.id);
     });
+    unawaited(_readVendorBrands(added.id));
     _schedulePreview();
   }
 
@@ -2783,6 +2840,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     unawaited(_loadBudgets());
     unawaited(_customFields.start());
     if (widget.isCreating) unawaited(_readApprovalSetting());
+    if (_draft.vendorId.isNotEmpty) {
+      unawaited(_readVendorBrands(_draft.vendorId));
+    }
   }
 
   Future<void> _readApprovalSetting() async {

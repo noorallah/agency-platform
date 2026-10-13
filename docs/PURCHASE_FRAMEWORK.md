@@ -1285,6 +1285,29 @@ page behind them so its list knows the name. A goods receipt names an order
 and has no supplier box. A new buying document that needs the same action
 calls `addSupplierInPlace`; it does not build a second supplier form.
 
+## The brands a supplier may sell (backlog 129, 2026-10-13)
+
+`vendor_brands` holds one row for each brand named on a supplier.
+`VendorBrandService.brands_of` (`backend/app/vendors/services/vendor_brands.py`)
+answers the brands that count for a supplier from the first of three places
+that has any: the supplier's own rows, the brands of the companies
+(`principals.vendor_id`) bought from it, and for a branch its main office's
+answer. `source` says which, and `NONE` means the supplier is not limited.
+`GET` and `PUT /api/v1/vendors/{id}/brands` read and replace it;
+`GET /api/v1/products?brand_id=` lists the products of brand rows exactly.
+
+It is a filter on what a document's product box offers and nothing more.
+No purchase service reads it, so no line is refused for its brand and no
+document stores the choice. `desktop/lib/ui/workspace/brand_filter.dart`
+holds the narrowing and the **Brand** box the purchase order, the sales order
+and the sales bill share; a product already on a line is always kept in its
+box. A new document that wants the filter uses that file and reads the
+supplier's brands once when the supplier is chosen.
+
+`BrandService.delete_brand` refuses a brand a supplier names, because both
+foreign keys cascade and a soft delete reaches neither. A supplier merge
+re-points the rows and keeps one where both suppliers named the same brand.
+
 ## Not built
 
 - ~~The purchase order's received status~~ -- built: receiving moves the

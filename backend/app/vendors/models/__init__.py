@@ -14,6 +14,7 @@ from app.vendors.models.vendor import (
     VendorTaxDetail,
     VendorType,
 )
+from app.vendors.models.vendor_brand import VendorBrand
 
 __all__ = [
     "SupplierProduct",
@@ -22,6 +23,7 @@ __all__ = [
     "VendorAttachment",
     "VendorAttributeValue",
     "VendorBankAccount",
+    "VendorBrand",
     "VendorCategory",
     "VendorContact",
     "VendorNote",

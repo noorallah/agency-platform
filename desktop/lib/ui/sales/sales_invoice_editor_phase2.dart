@@ -668,6 +668,20 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           },
         ),
       if (inclusive != null) inclusive,
+      // Backlog 129: narrows the product boxes by company or brand; stores
+      // and sends nothing.
+      // Not on the counter's till screen, which has no room for a row more
+      // in its header at 800x600.
+      if (_direct && !_counterMode && _products.isNotEmpty)
+        BrandFilterBox(
+          key: const ValueKey('sales-invoice-brand'),
+          options: salesBrandOptions(_products, _brandRecords),
+          value: _brandChoice,
+          onChanged: (value) => _setState(() {
+            _brandChoice = value;
+            _brandEpoch++;
+          }),
+        ),
       DocumentField(
         label: 'Invoice date',
         auto: true,
@@ -953,6 +967,15 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     final ThemeData theme = Theme.of(context);
     final _DirectLine line = _directLines[index];
     final Product? product = _product(line.productId);
+    final List<Product> offered = productsForSalesChoice(
+      _brandChoice,
+      _products,
+      _brandRecords,
+      keepIds: {
+        for (final _DirectLine row in _directLines)
+          if (row.productId != null) row.productId!,
+      },
+    );
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     final int? number = _sentNumber(index);
     final Map<String, dynamic>? priced =
@@ -977,14 +1000,14 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             KeyedSubtree(
-              key: ValueKey<String>('scan-$index-${line.refresh}'),
+              key: ValueKey<String>('scan-$index-${line.refresh}-$_brandEpoch'),
               child: DropdownMenu<String>(
               key: ValueKey<String>('sales-invoice-direct-product-$index'),
               initialSelection: line.productId,
               expandedInsets: EdgeInsets.zero,
               enableFilter: true,
               filterCallback: (entries, filter) =>
-                  productEntriesMatching(entries, filter, _products),
+                  productEntriesMatching(entries, filter, offered),
               searchCallback: productEntryToHighlight,
               requestFocusOnTap: true,
               menuHeight: 320,
@@ -996,7 +1019,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                 constraints: BoxConstraints(maxHeight: 26),
               ),
               dropdownMenuEntries: [
-                for (final Product item in _products)
+                for (final Product item in offered)
                   DropdownMenuEntry<String>(
                     value: item.id,
                     label: '${item.name}  ${item.code}'

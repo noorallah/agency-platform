@@ -23,6 +23,7 @@ import '../../phase2/indian_format.dart';
 import '../../phase2/source_tick_dialog.dart';
 import '../document_framework/document_steps.dart';
 import '../workspace/batch_picker_panel.dart';
+import '../workspace/brand_filter.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/party_place.dart';
@@ -218,6 +219,23 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   Timer? _previewTimer;
   int _previewSerial = 0;
   bool _phase2 = false;
+
+  /// Backlog 129: the Brand box narrows what the product boxes offer. Blank is
+  /// every product, `company:` and a company id, its brands, else one brand's id.
+  /// Nothing about it is stored or sent. [_brandEpoch] builds the product
+  /// boxes again when it changes.
+  List<BrandRecord> _brandRecords = const [];
+  String _brandChoice = '';
+  int _brandEpoch = 0;
+
+  Future<void> _readBrands() async {
+    try {
+      final List<BrandRecord> read = await widget.api.brands();
+      if (mounted) setState(() => _brandRecords = read);
+    } on Object {
+      // Brands come from the products alone, with no company entries.
+    }
+  }
 
   /// The counter's shift and held bills (backlog 87 #7): the caller's open
   /// shift, whether it has been read yet, how many bills are held, and
@@ -534,6 +552,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       });
       // After the invoice, so a correction opens with its stored values.
       unawaited(_customFields.start());
+      if (_products.isNotEmpty) unawaited(_readBrands());
       unawaited(_readCounterState());
       _schedulePreview();
     } on ApiException catch (error) {

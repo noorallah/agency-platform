@@ -312,6 +312,18 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
         ),
       );
 
+  /// The products the line boxes offer, the Brand box applied and the
+  /// products already on a line kept.
+  List<Product> get _offeredProducts => productsForSalesChoice(
+        _brandChoice,
+        _products,
+        _brandRecords,
+        keepIds: {
+          for (final _LineDraft line in _lines)
+            if (line.productId != null) line.productId!,
+        },
+      );
+
   Widget _orderHeader(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final Customer? customer = _customer;
@@ -371,6 +383,18 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             _setState(() => _shippingAddressId = value);
             _schedulePreview();
           },
+        ),
+      // Backlog 129: narrows the product boxes by company or brand; stores
+      // and sends nothing.
+      if (!_locked && _products.isNotEmpty)
+        BrandFilterBox(
+          key: const ValueKey('sales-order-brand'),
+          options: salesBrandOptions(_products, _brandRecords),
+          value: _brandChoice,
+          onChanged: (value) => _setState(() {
+            _brandChoice = value;
+            _brandEpoch++;
+          }),
         ),
       DocumentField(
         label: 'Order date',
@@ -821,6 +845,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     final ThemeData theme = Theme.of(context);
     final _LineDraft line = _lines[index];
     final Product? product = _product(line.productId);
+    final List<Product> offered = _offeredProducts;
     final Map<String, dynamic>? priced = _pricedLine(index);
     final DocumentPreviewLine? companion = _companion(index);
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
@@ -842,14 +867,16 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              DropdownMenu<String>(
+              KeyedSubtree(
+                key: ValueKey<int>(_brandEpoch),
+                child: DropdownMenu<String>(
                 key: ValueKey<String>('sales-order-line-product-$index'),
                 initialSelection: line.productId,
                 enabled: !_locked,
                 expandedInsets: EdgeInsets.zero,
                 enableFilter: true,
                 filterCallback: (entries, filter) =>
-                    productEntriesMatching(entries, filter, _products),
+                    productEntriesMatching(entries, filter, offered),
                 searchCallback: productEntryToHighlight,
                 requestFocusOnTap: true,
                 menuHeight: 320,
@@ -861,7 +888,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                   constraints: BoxConstraints(maxHeight: 26),
                 ),
                 dropdownMenuEntries: [
-                  for (final Product item in _products)
+                  for (final Product item in offered)
                     DropdownMenuEntry<String>(
                       value: item.id,
                       label: '${item.name}  ${item.code}'
@@ -873,6 +900,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                   _setState(() => _current = index);
                   _schedulePreview();
                 },
+              ),
               ),
               if (companion != null)
                 Text(

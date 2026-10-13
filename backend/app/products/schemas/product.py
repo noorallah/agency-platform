@@ -437,8 +437,8 @@ class ProductListFilters(ProductSchema):
     general_goods: bool = False
     tax_profile_group_code: str | None = None
     brand: str | None = Field(default=None, max_length=120)
-    #: The brand row (MST-1); naming one sets ``brand`` to its name.
-    brand_id: UUID | None = None
+    #: Only products filed under one of these brand rows (backlog 129).
+    brand_ids: list[UUID] = Field(default_factory=list, max_length=500)
     hsn_sac: str | None = Field(default=None, max_length=20)
     include_deleted: bool = False
     attribute_query: str | None = Field(default=None, max_length=200)

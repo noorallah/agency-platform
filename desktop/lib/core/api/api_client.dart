@@ -4332,6 +4332,26 @@ class ApiClient {
         BrandRecord.fromJson,
       );
 
+  /// The brands a supplier may sell (backlog 129): its own, its company's or
+  /// its main office's. `source` NONE means the supplier is not limited.
+  Future<VendorBrands> vendorBrands(String vendorId) async =>
+      VendorBrands.fromJson(_unwrapMap(
+        await request('GET', '/api/v1/vendors/$vendorId/brands'),
+      ));
+
+  /// Replace the brands named on a supplier; an empty list clears them.
+  Future<VendorBrands> setVendorBrands(
+    String vendorId,
+    List<String> brandIds,
+  ) async =>
+      VendorBrands.fromJson(_unwrapMap(
+        await request(
+          'PUT',
+          '/api/v1/vendors/$vendorId/brands',
+          body: <String, dynamic>{'brand_ids': brandIds},
+        ),
+      ));
+
   Future<PagedResult<PrincipalRecord>> principalsPage({
     int page = 1,
     String search = '',

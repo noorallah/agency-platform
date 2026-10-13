@@ -93,6 +93,11 @@ from app.vendors.services.supplier_catalogue import (
 )
 from app.vendors.services.supplier_family import SupplierFamilyFacts
 from app.vendors.services.supplier_gifts import SupplierGiftService
+from app.vendors.services.vendor_brands import (
+    VendorBrandList,
+    VendorBrandService,
+    VendorBrandsWrite,
+)
 from app.vendors.services.vendor_import import VendorFileImporter
 from app.vendors.services.vendor_import import template_csv as vendor_template_csv
 from app.vendors.services.vendor_import import (
@@ -138,6 +143,10 @@ PanReportScope = Annotated[
 ]
 #: Whoever reads suppliers or buys from them may say what they think (BUY-15).
 VendorRatingScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("VENDOR_VIEW", "PURCHASE_VIEW")
+]
+#: Read by the supplier form and by a purchase order narrowing its products.
+VendorBrandViewScope = Annotated[
     ResolvedFirmScope, firm_any_permission_scope("VENDOR_VIEW", "PURCHASE_VIEW")
 ]
 VendorCreateScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_CREATE")]
@@ -1056,6 +1065,38 @@ def vendor_family(
     """
     return ApiResponse(
         data=VendorService(db).family(vendor_id, firm_scope=scope.firm_id)
+    )
+
+
+@router.get("/{vendor_id}/brands", response_model=ApiResponse[VendorBrandList])
+def vendor_brands(
+    vendor_id: UUID,
+    scope: VendorBrandViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorBrandList]:
+    """Return the brands a supplier may sell, and where the answer came from.
+
+    The supplier's own list first, then the brands of the companies bought
+    from it, then its main office's; a supplier none of them answers for is
+    not limited (backlog 129).
+    """
+    return ApiResponse(
+        data=VendorBrandService(db).brands_of(vendor_id, firm_id=scope.firm_id)
+    )
+
+
+@router.put("/{vendor_id}/brands", response_model=ApiResponse[VendorBrandList])
+def set_vendor_brands(
+    vendor_id: UUID,
+    data: VendorBrandsWrite,
+    scope: VendorUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorBrandList]:
+    """Replace the brands named on a supplier; an empty list clears them."""
+    return ApiResponse(
+        data=VendorBrandService(db).set(
+            vendor_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
     )
 
 
