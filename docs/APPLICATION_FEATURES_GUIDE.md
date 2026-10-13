@@ -494,7 +494,10 @@ line are the shelf prices; the tax is taken back out to find the rate before
 tax, and what was typed is kept so the editor shows it again. A quotation
 typed at shelf prices becomes an order typed at them, so the customer pays
 what was quoted. The quotation print shows both rates. Orders raised by a
-conversion, a counter bill or an import start with it off.
+conversion, a counter bill or an import start with it off. A line's total is
+always the quantity times the rate typed (500 at 100.00 is 50,000.00); the
+taxable value and the tax are split out of that total, on the order, the
+delivery note and the bill alike.
 
 **Delivery Notes.** Picked from an approved order, choosing the warehouse
 (and batch or serial, where the product is tracked). Dispatching takes the

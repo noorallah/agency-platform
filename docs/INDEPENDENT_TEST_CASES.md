@@ -4149,8 +4149,31 @@ For these cases the agreement covers **last calendar month**, and its bills carr
   - Step 4: 90.00 to pay; 180.00 to pay.
   - Step 5: after the first save the total is 300.00 and the rate still reads 100. After the second it is 354.00: the same 100 is now before tax.
   - Step 6: the quotation totals 100.00 and prints both rates; the order it becomes has the switch on and totals 100.00.
-  - Step 7: **today the total reads 50,000.02, not 50,000.00** (D-SELL-96, open). When that is fixed this step expects 50,000.00.
+  - Step 7: the total reads 50,000.00 (D-SELL-96, fixed 2026-10-13; TC-SELL-104 covers it in full).
 - **Leaves:** approved bills, draft orders and one converted quotation.
+
+### TC-SELL-104 — A large line typed including GST totals the figure typed
+
+*Added 2026-10-13 with the fix of D-SELL-96 (customer task F1). **Server side driven over HTTP** that day on a fixture firm (28 checks). The bill typed directly was tried in the unit suite only; the screens were not clicked.*
+
+- **Covers:** D-SELL-96; backlog 132
+- **Fixture:** `ready-firm`
+- **Also needs:** a product at GST 18% with 5,000 in stock; a customer in the firm's own state.
+- **Steps**
+  1. Sales order, **Rate includes GST** on: 500 pieces at 100.00. Save.
+  2. The same with 1,000 pieces at 100.00, and with 250 pieces at 45.50.
+  3. Quotation, switch on: 500 pieces at 100.00.
+  4. Sales order, switch **off**: 500 pieces at 84.7458.
+  5. Approve the order of step 1, deliver it in full, and bill the delivery note. Do the same for the two orders of step 2.
+  6. A new order as in step 1; approve, deliver in full, and bill 200 of the 500. Approve the bill and print it.
+- **Expect**
+  - Step 1: taxable 42,372.88, tax 7,627.12, total 50,000.00. The line shows the rate 100 as typed and 84.7458 before tax.
+  - Step 2: 100,000.00 and 11,375.00.
+  - Step 3: 50,000.00.
+  - Step 4: unchanged by this fix: taxable 42,372.90, tax 7,627.12, total 50,000.02, because 84.7458 before tax is what was typed.
+  - Step 5: each delivery note and each bill totals what its order does: 50,000.00, 100,000.00, 11,375.00.
+  - Step 6: the bill totals 20,000.00, before and after approval, and prints 20,000.00.
+- **Leaves:** draft and approved orders, dispatched delivery notes, draft bills, one approved bill and one quotation.
 
 ### TC-SELL-097 — A part share of an offer: charged and free fractions that make whole pieces
 

@@ -1342,7 +1342,15 @@ class QuotationService(TransactionalDocumentService):
             # -- so there is no already-agreed line to spare.
             assert_product_takes_new_lines(product, document="quotation")
             products.append(product)
-            grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
+            typed_line = (entered or {}).get(item.line_number)
+            # A line typed at a rate including GST is worth the total typed
+            # with the tax taken out, not quantity x the four-place rate
+            # before tax (D-SELL-96).
+            grosses.append(
+                self._q(self._q(item.quantity) * self._q(item.unit_price))
+                if typed_line is None
+                else typed_line.gross_amount
+            )
         # The firm's live offers and the customer's segment, asked once for the
         # whole document the way a sales order asks them. A quotation that
         # ignored both quoted a worse price than the order it became would

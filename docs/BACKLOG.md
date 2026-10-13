@@ -9541,3 +9541,63 @@ only**.
   UI, so it shows the box too when the firm has levels.
 - The old UI is unchanged.
 - No screen was clicked in the running app.
+
+## 132. A line typed including GST totals the figure typed -- built 2026-10-13
+
+**Customer task F1**, the owner's answer of 2026-10-13 to D-SELL-96 ("way
+1": the line's total is exactly quantity x the rate typed, and the taxable
+value and the tax are split out of that total; the rate before tax is for
+display). Done when: "500 at 100.00 including 18% totals 50,000.00 on the
+order and on its bill; 1,000 and 250 at 45.50 too; a line typed before tax
+is unchanged to the paisa". PR #PRNUM.
+
+**What was wrong.** A rate typed with GST in it is stored as the rate before
+tax, at four places (100.00 is 84.7458). Every document then worked the line
+out as quantity x that rate, so the error of the fourth place, at most
+0.00005 a piece, was multiplied by the quantity: 500 pieces were two paise
+out, 1,000 four.
+
+**Design.** The line's worth before tax is the total typed with the tax
+taken out of it (50,000 / 1.18 = 42,372.8814), and every document that
+states or continues the line takes that as the line's gross amount.
+
+- `gross_before_tax` and the new `gross_amount` on `PreTaxLine` and
+  `EnteredRate`, in `app/tax/services/inclusive_rate.py`.
+- The sales order and the quotation take it for each line typed with GST in
+  it (`_replace_lines` of each service).
+- The delivery note takes its share of the order line's worth, by the
+  quantity shipped, while it ships at the order's own price (`_line_gross`).
+- The bill works it out from the rate typed and its own quantity, asking the
+  tax the line will be charged: a bill typed directly from its own
+  `entered_rate`, a bill of an order or of a note from the order line's
+  (`_rate_typed_with_tax`). Only while the line bills at the rate before tax
+  the typed rate was derived to.
+- A typed discount amount is what that worth leaves above the taxable value,
+  as before; a percentage applies unchanged.
+- The tax is still the tax engine's figure for the taxable value. Nothing is
+  adjusted to make a total come out, and no round-off is filled.
+- `unit_price` still holds the rate before tax, so postings, returns, GSTR-1
+  and 3B and the e-invoice read it as before. No table, no migration, no
+  screen.
+
+**Tried.** Over HTTP on fixture firm T10139XDY-R with a script of its own, 28
+checks: the three orders, a quotation, a line before tax (unchanged:
+42,372.90 + 7,627.122), the note and the bill of each order, a part bill of
+200 of 500 (20,000.00), and that bill approved and printed. The same script
+failed 19 checks on the old code.
+
+**Not done.**
+
+- A sales return of such a line is still credited at quantity x the rate
+  before tax, so a full return of 500 pieces may credit two paise more than
+  the bill. Not tried and not changed.
+- The order and the note the server raises by itself behind a bill typed
+  directly still read quantity x the rate before tax. The bill, which is what
+  the customer owes and what posts, reads the figure typed.
+- A line billed in another unit than its order's (pieces of a box) is priced
+  as before.
+- A document saved before this keeps its figures until it is saved again.
+- At four places a total can read 99,999.9999; to the paisa, and as the two
+  halves the ledger rounds, it is the figure typed in every case tried. A
+  case where the two halves round a paisa apart was not looked for.
+- No screen was clicked. The editors' own running totals were not read.
