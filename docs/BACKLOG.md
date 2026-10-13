@@ -10870,3 +10870,35 @@ refuses without what and written in a table in
 
 **Size.** Medium for the first section, small for each one after it.
 
+## 149. Two calculators in the application: an ordinary one and a GST one -- open, low priority, not built
+
+**The owner, 2026-10-13:** somewhere in the application, in the header or
+the footer, two calculators: a normal calculator and a GST calculator. Low
+priority.
+
+**Nothing is built by this entry.** There is no calculator in the desktop
+today.
+
+**What a build would do.**
+
+- One small button in the header of the new UI, beside the bell, and a
+  keyboard shortcut; it opens a small window that stays over the screen
+  being worked on and can be moved, so a figure can be worked out without
+  leaving a bill.
+- **Calculator:** add, subtract, multiply, divide, percent, a memory and the
+  last few results. Typed from the number pad.
+- **GST calculator:** an amount and a rate (the firm's own rates offered:
+  5, 12, 18, 28), and a choice of *add GST* or *take GST out*. It shows the
+  taxable value, the tax, the total, and the tax split into CGST and SGST,
+  or shown as IGST for another state. Rounded as a bill line is.
+- A result can be copied; nothing it shows is saved and nothing is sent to
+  the server. The GST calculator works the figure out on the desktop by the
+  same rounding the server uses for a line typed at a rate including GST
+  (backlog F1, D-SELL-96), and a test holds the two to the same paisa.
+
+**Not decided.** Header or footer (the header is proposed; the new UI has
+no footer bar); whether it is offered to every user or switched off per
+firm; whether the GST calculator also takes a discount and a quantity.
+
+**Size.** Small.
+
