@@ -89,6 +89,7 @@ class HalfPageRenderer:
         self._rule = colors.HexColor("#8E949E")
         base = ParagraphStyle("base", fontName="Helvetica", fontSize=7.4, leading=9)
         self._text = base
+        self._cell = ParagraphStyle("cell", parent=base, fontSize=7.2, leading=8.4)
         self._small = ParagraphStyle("small", parent=base, fontSize=6.4, leading=7.8)
         self._right = ParagraphStyle("right", parent=base, alignment=TA_RIGHT)
         self._centre = ParagraphStyle("centre", parent=self._small, alignment=TA_CENTER)
@@ -363,7 +364,8 @@ class HalfPageRenderer:
             _rate(percent) if line.taxes else "",
             _money(tax) if line.taxes else "",
             _money(line.total),
-            line.batch or "",
+            # Wrapped in its cell rather than printed over the expiry.
+            Paragraph(escape(line.batch or ""), self._cell),
             line.expiry or "",
         ]
         return cells
