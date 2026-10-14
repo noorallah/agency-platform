@@ -16,6 +16,7 @@ from pydantic import (
 )
 
 from app.core.validation import NumberedOnce
+from app.products.schemas.goods_type import MarginPercent
 
 #: One serial number as typed; the service trims it and compares without case.
 SerialText = Annotated[str, StringConstraints(max_length=200)]
@@ -118,10 +119,16 @@ class GoodsReceiptLineWrite(GoodsReceiptSchema):
         default=None, ge=0, max_digits=18, decimal_places=2
     )
     #: Price to retailer and to stockist for the batch, per stock unit before
-    #: tax (PG-14): only with a batch number, never above the MRP, and only
-    #: where the firm's profile has BATCH_PTR_PTS.
+    #: tax (PG-14): never above the MRP; on a firm on Average only with a
+    #: batch number and where the profile has BATCH_PTR_PTS. A firm costing
+    #: by lot calls them the retail and wholesale prices (L3).
     ptr: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
     pts: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    #: A firm costing by lot (L3): the retail and wholesale mark-ups for this
+    #: line's lot only. Silence takes the product's; a ``ptr`` or ``pts``
+    #: typed wins over its margin, which is then worked back from it.
+    retail_margin_percent: MarginPercent | None = None
+    wholesale_margin_percent: MarginPercent | None = None
     #: Capital goods (D-BUY-40): received without entering stock; the bill
     #: raises a fixed asset. Absent (or null) takes the order line's mark.
     is_capital_goods: bool | None = None
@@ -272,6 +279,12 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
     selling_price: Decimal | None = None
     ptr: Decimal | None = None
     pts: Decimal | None = None
+    #: The margins the line's lot was priced at (L3), and a sentence naming
+    #: a price that bills above the MRP once tax is added: a warning, never
+    #: a refusal, since the sale above the MRP is refused.
+    retail_margin_percent: Decimal | None = None
+    wholesale_margin_percent: Decimal | None = None
+    mrp_warning: str | None = None
     is_capital_goods: bool = False
     inventory_transaction_id: UUID | None
     remarks: str | None

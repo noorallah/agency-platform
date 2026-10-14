@@ -61,6 +61,7 @@ from app.inventory.models import (
 )
 from app.inventory.schemas import BatchStockTotals
 from app.inventory.services import InventoryService
+from app.inventory.services.lot_margins import LotPrices
 from app.inventory.services.lots import (
     LotNumbering,
     LotSource,
@@ -854,6 +855,7 @@ class BatchSerialService:
         shelf_life_days: int | None = None,
         ptr: Decimal | None = None,
         pts: Decimal | None = None,
+        prices: LotPrices | None = None,
     ) -> BatchRecord:
         """Make the lot one purchase line's goods arrive in (firm costs by lot).
 
@@ -865,8 +867,14 @@ class BatchSerialService:
         Goods with no printed batch still get a lot. Its ``batch_number``
         then holds our own reference and ``has_printed_batch`` is false, so
         no screen or print shows a batch for it.
+
+        ``prices``, where given, is the lot's retail and wholesale prices
+        worked out from its margins (L3), and stands in for ``ptr`` and
+        ``pts``; the margins are kept on the lot beside them.
         """
-        return self._new_receipt_batch(
+        if prices is not None:
+            ptr, pts = prices.ptr, prices.pts
+        record = self._new_receipt_batch(
             firm_scope=firm_scope,
             actor_id=actor_id,
             product_id=product_id,
@@ -883,6 +891,10 @@ class BatchSerialService:
             pts=pts,
             source=source,
         )
+        if prices is not None:
+            record.retail_margin_percent = prices.retail_margin_percent
+            record.wholesale_margin_percent = prices.wholesale_margin_percent
+        return record
 
     def lots_of(
         self, *, firm_scope: UUID, document_type: str, document_id: UUID
