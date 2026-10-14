@@ -2883,8 +2883,20 @@ def _ensure_by_lot(admin: Api) -> str:
     return f"BY_LOT since {switched.get('switched_on')} (switched by this run)"
 
 
-def _lot_product(admin: Api, code: str, name: str, batches: bool, piece: str) -> Json:
-    """Find or make one TEST03 product: GST 18 local, PIECE, bought at 50."""
+def _lot_product(
+    admin: Api,
+    code: str,
+    name: str,
+    batches: bool,
+    piece: str,
+    extra: Json | None = None,
+) -> Json:
+    """Find or make one TEST03 product: GST 18 local, PIECE, bought at 50.
+
+    ``extra`` fields (the margins) are written only when the product is made;
+    a product found is never written over, since a product PUT replaces every
+    field.
+    """
     found = _find(admin, "/api/v1/products", code)
     if found is not None:
         return found
@@ -2893,6 +2905,7 @@ def _lot_product(admin: Api, code: str, name: str, batches: bool, piece: str) ->
             "POST",
             "/api/v1/products",
             {
+                **(extra or {}),
                 "code": code,
                 "brand_id": fixture_brand(admin),
                 "name": name,
@@ -2911,13 +2924,20 @@ def _lot_product(admin: Api, code: str, name: str, batches: bool, piece: str) ->
 
 
 def _lot_receipt(
-    admin: Api, reference: str, rate: str, batch: str | None, parties: dict[str, Json]
+    admin: Api,
+    reference: str,
+    rate: str,
+    batch: str | None,
+    parties: dict[str, Json],
+    extra: Json | None = None,
 ) -> Json:
-    """Find, or order and receive, 10 of the batched item at one rate.
+    """Find, or order and receive, 10 of ``parties["product"]`` at one rate.
 
     The receipt carries ``reference`` as its supplier invoice reference, which
     the receipt list searches, so a rerun finds it rather than buying again.
     A draft left by a run that stopped half-way is completed, not duplicated.
+    ``extra`` fields (MRP, line margins) go on the receipt line as made. The
+    receipt is answered whole, lines included, whether made or found.
     """
     found = admin.call("GET", f"/api/v1/goods-receipts?search={reference}")
     receipt = next(
@@ -2957,6 +2977,7 @@ def _lot_receipt(
         }
         if batch is not None:
             line["batch_number"] = batch
+        line.update(extra or {})
         receipt = admin.call(
             "POST",
             "/api/v1/goods-receipts",
@@ -2968,8 +2989,8 @@ def _lot_receipt(
             },
         )
     if receipt.get("status") != "COMPLETED":
-        receipt = admin.call("POST", f"/api/v1/goods-receipts/{receipt['id']}/complete")
-    return dict(receipt)
+        admin.call("POST", f"/api/v1/goods-receipts/{receipt['id']}/complete")
+    return dict(admin.call("GET", f"/api/v1/goods-receipts/{receipt['id']}"))
 
 
 def build_lot_firm(built: Built) -> None:
@@ -2980,8 +3001,17 @@ def build_lot_firm(built: Built) -> None:
     holds a batch-tracked item ``LOT-BATCH`` and an untracked stocked item
     ``LOT-PLAIN``, a supplier ``LOT-V`` and a customer ``LOT-C``; two receipts
     of 10 ``LOT-BATCH`` at 50 (printed batch ``TEST03-B1``) and at 65 (no
-    printed batch) leave two lots of one item at two costs. Fixed codes,
-    found on a rerun: only the firm administrator is new each run.
+    printed batch) leave two lots of one item at two costs.
+
+    For the margins (L3) it also holds ``LOT-MARGIN``, batch-tracked, with a
+    retail margin of 25% and a wholesale margin of 12.5%, and two lots of it
+    bought at 80: ``TEST03-M1`` (receipt ``TEST03-LOT-3``) takes the
+    product's margins, PTR 100.00 and PTS 90.00; ``TEST03-M2`` (receipt
+    ``TEST03-LOT-4``) carries MRP 130 and a line retail margin of 40%, PTR
+    112.00 and PTS 90.00, and a warning that 112 with tax bills above the
+    MRP. Customers ``LOT-R`` (a retailer) and ``LOT-W`` (a stockist) buy at
+    the two prices. Fixed codes, found on a rerun: only the firm
+    administrator is new each run.
     """
     firm_id = ensure_firm(built.admin, TEST03)
     built.add_firm(TEST03, firm_id)
@@ -2997,18 +3027,7 @@ def build_lot_firm(built: Built) -> None:
     vendor = _find(admin, "/api/v1/vendors", "LOT-V") or dict(
         admin.call("POST", "/api/v1/vendors", {"code": "LOT-V", "name": "Lot Supplier"})
     )
-    customer = _find(admin, "/api/v1/customers", "LOT-C") or dict(
-        admin.call(
-            "POST",
-            "/api/v1/customers",
-            {
-                "code": "LOT-C",
-                "name": "Lot Buyer",
-                "customer_type": "BUSINESS",
-                "currency_code": "INR",
-            },
-        )
-    )
+    customer = _lot_customer(admin, "LOT-C", "Lot Buyer")
     parties = {
         "product": batched,
         "piece": piece,
@@ -3018,6 +3037,26 @@ def build_lot_firm(built: Built) -> None:
     }
     first = _lot_receipt(admin, "TEST03-LOT-1", "50", "TEST03-B1", parties)
     second = _lot_receipt(admin, "TEST03-LOT-2", "65", None, parties)
+    margin = _lot_product(
+        admin,
+        "LOT-MARGIN",
+        "Lot Margin Item",
+        True,
+        piece["id"],
+        {"retail_margin_percent": "25", "wholesale_margin_percent": "12.5"},
+    )
+    margin_parties = {**parties, "product": margin}
+    third = _lot_receipt(admin, "TEST03-LOT-3", "80", "TEST03-M1", margin_parties)
+    fourth = _lot_receipt(
+        admin,
+        "TEST03-LOT-4",
+        "80",
+        "TEST03-M2",
+        margin_parties,
+        {"mrp": "130", "retail_margin_percent": "40"},
+    )
+    retailer = _lot_customer(admin, "LOT-R", "Lot Retailer", "RETAILER")
+    stockist = _lot_customer(admin, "LOT-W", "Lot Wholesaler", "STOCKIST")
     lots = admin.call(
         "GET",
         f"/api/v1/inventory/reports/stock-valuation/lots?product_id={batched['id']}",
@@ -3043,6 +3082,46 @@ def build_lot_firm(built: Built) -> None:
         )
         or "none",
     )
+    if margin.get("retail_margin_percent") is None:
+        pair = "no margins (found without them; not written over)"
+    else:
+        pair = (
+            f"retail {margin['retail_margin_percent']}%, "
+            f"wholesale {margin.get('wholesale_margin_percent')}%"
+        )
+    built.say("Margin item", f"LOT-MARGIN  ({margin['name']}), batch-tracked, {pair}")
+    for receipt in (third, fourth):
+        line = receipt["lines"][0]
+        built.say(
+            f"Receipt {receipt.get('invoice_reference')}",
+            f"{receipt.get('grn_number')}: 10 LOT-MARGIN at 80, "
+            f"{line.get('batch_number')}, PTR {line.get('ptr')}, "
+            f"PTS {line.get('pts')}, MRP {line.get('mrp')}",
+        )
+    built.say("MRP warning", fourth["lines"][0].get("mrp_warning") or "none")
+    for party in (retailer, stockist):
+        built.say(
+            "Customer",
+            f"{party['code']}  ({party['name']}), {party.get('trade_class')}",
+        )
+
+
+def _lot_customer(
+    admin: Api, code: str, name: str, trade_class: str | None = None
+) -> Json:
+    """Find or make one TEST03 business customer, of a trade class if named."""
+    found = _find(admin, "/api/v1/customers", code)
+    if found is not None:
+        return found
+    body: Json = {
+        "code": code,
+        "name": name,
+        "customer_type": "BUSINESS",
+        "currency_code": "INR",
+    }
+    if trade_class is not None:
+        body["trade_class"] = trade_class
+    return dict(admin.call("POST", "/api/v1/customers", body))
 
 
 #: Every fixture, what it builds, and the cases that name it.
@@ -3316,9 +3395,10 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "TC-FIN-008, TC-FIN-009",
     ),
     "lot-firm": (
-        "TEST03 costing by lot: one item in two lots at 50 and 65, fixed codes.",
+        "TEST03 costing by lot: one item in two lots at 50 and 65, and a margin "
+        "item LOT-MARGIN in two lots at 80 (PTR 100/112, PTS 90), fixed codes.",
         build_lot_firm,
-        "costing by lot (L2)",
+        "TC-LOT-001..022",
     ),
 }
 

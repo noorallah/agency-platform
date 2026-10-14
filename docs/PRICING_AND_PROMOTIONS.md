@@ -1955,3 +1955,21 @@ receipt keeps it (D-BUY-33) and inherits the scheme's label, and the bill
 raised from the receipt carries it at zero. Such a line is judged received on
 its free goods: it used to read `ORDERED` for ever, so an order carrying one
 was never `is_complete` (86 #27).
+
+## Retail and wholesale margins on the lot (L3, 2026-10-15)
+
+*Written from the build notes; the design is `docs/design/LOT_MARGINS_DESIGN.md`. Applies to a firm costing by lot; a firm on Average prices as before.*
+
+**Retail is the lot's PTR and wholesale is its PTS.** There are no new price columns. A retail shop (customer kind RETAILER) takes the lot's PTR, a wholesaler (STOCKIST) its PTS, both per stock unit before tax. Screens say *PTR* and *PTS* where the firm's profile has `BATCH_PTR_PTS`, and *Retail price* and *Wholesale price* otherwise.
+
+**Where the margins live.** A retail margin and a wholesale margin sit on the goods type, the product, the goods receipt line (this lot only) and the lot. A goods type gives a new product its pair when the person gives none, and never writes over a product afterwards. A receipt line that sends none takes the product's. Each is at or above 0 and below 1,000, to four places.
+
+**How a price is worked out.** The mark-up is on the receipt line's net rate per stock unit before tax (its taxable value after its own discount and the bill's, over the units paid for; free units are not spread in): price = rate x (1 + margin / 100), kept to the paisa and never rounded further. Rounding to the rupee is the bill's. It is worked out once, at receipt; a supplier's bill at another rate corrects the lot's cost and does not re-price it. A product with no margin and no typed price gives the lot no price of that kind.
+
+**A typed price wins.** A price typed beside a margin is kept and its margin is worked back from it, to two places (none where there is no cost). Margins sent for a firm on Average are refused.
+
+**MRP.** A price that bills above the lot's MRP once the line's own tax is added is a **warning** on the receipt line (`mrp_warning`, naming the price that sits at the MRP). A price above the MRP **before** tax is **refused**, naming the line, as is wholesale above retail. Opening stock, stock found at a count and a repack never refuse for a price: a price the register would refuse is left off the lot.
+
+**One switch on the bill.** A firm costing by lot has two reserved price levels, RETAIL and WHOLESALE (`price_levels.trade_class` RETAILER and STOCKIST). They may be renamed and reordered, never deleted or made inactive. A customer with no level of his own or his group's starts on the level of his kind; the price level box on the bill is the one switch, and every line follows it. The lot's price for the bill's class sits between the price list and the level's rate in the ranking. A line naming no lot is priced at the lot that would leave its warehouse first. A counter bill line whose chosen lots disagree on the price is refused naming both prices, and the screen splits it into one line per price.
+
+**Cost and margin on the line.** Every sales order and bill line carries `cost_amount`, `cost_is_estimate`, `margin_amount` and `margin_percent`, and the document `cost_total` and `margin_total`, **only for a holder of `PRODUCT_VIEW_COST_PRICE`**. The margin is the line's taxable value less cost, as a percentage of cost. The figures are on screen only and no print or PDF names them (guarded in `tests/unit/test_line_margin.py`).
