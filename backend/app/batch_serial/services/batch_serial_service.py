@@ -57,6 +57,7 @@ from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.inventory.schemas import BatchStockTotals
 from app.inventory.services import InventoryService
+from app.inventory.services.lots import LotNumbering, LotSource
 from app.products.models import Product
 from app.sales_order.models import SalesOrder, SalesOrderLine
 
@@ -694,6 +695,7 @@ class BatchSerialService:
             vendor_id=data.vendor_id,
             storage_node_id=data.storage_node_id,
             batch_number=batch_number,
+            lot_reference=self._lot_reference(firm_scope, actor_id),
             supplier_batch=data.supplier_batch,
             internal_batch=data.internal_batch,
             manufacturing_date=data.manufacturing_date,
@@ -782,6 +784,9 @@ class BatchSerialService:
                 BatchRecord.firm_id == firm_scope,
                 BatchRecord.product_id == product_id,
                 BatchRecord.batch_number == number,
+                # A lot of one purchase line is never joined by its number:
+                # several may carry the same print.
+                BatchRecord.per_purchase_line.is_(False),
                 BatchRecord.is_deleted.is_(False),
             )
         )
@@ -804,13 +809,153 @@ class BatchSerialService:
                 existing, ptr=ptr, pts=pts, actor_id=actor_id, firm_scope=firm_scope
             )
             return existing
+        return self._new_receipt_batch(
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            product_id=product_id,
+            number=number,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            vendor_id=vendor_id,
+            expiry_date=expiry_date,
+            mrp=mrp,
+            selling_price=selling_price,
+            manufacturing_date=manufacturing_date,
+            shelf_life_days=shelf_life_days,
+            ptr=ptr,
+            pts=pts,
+            source=None,
+        )
+
+    def open_lot(
+        self,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        product_id: UUID,
+        source: LotSource,
+        batch_number: str | None = None,
+        branch_id: UUID | None = None,
+        warehouse_id: UUID | None = None,
+        vendor_id: UUID | None = None,
+        expiry_date: date | None = None,
+        mrp: Decimal | None = None,
+        selling_price: Decimal | None = None,
+        manufacturing_date: date | None = None,
+        shelf_life_days: int | None = None,
+        ptr: Decimal | None = None,
+        pts: Decimal | None = None,
+    ) -> BatchRecord:
+        """Make the lot one purchase line's goods arrive in (firm costs by lot).
+
+        Always a new row, never an earlier one: a second delivery of the same
+        printed batch is a second lot, even at the same cost, so each lot
+        traces to one line of one document and no comparison has to be right
+        to the last paisa (`docs/design/LOT_COST_DESIGN.md`, section 3.3).
+
+        Goods with no printed batch still get a lot. Its ``batch_number``
+        then holds our own reference and ``has_printed_batch`` is false, so
+        no screen or print shows a batch for it.
+        """
+        return self._new_receipt_batch(
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            product_id=product_id,
+            number=(batch_number or "").strip(),
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            vendor_id=vendor_id,
+            expiry_date=expiry_date,
+            mrp=mrp,
+            selling_price=selling_price,
+            manufacturing_date=manufacturing_date,
+            shelf_life_days=shelf_life_days,
+            ptr=ptr,
+            pts=pts,
+            source=source,
+        )
+
+    def lots_of(
+        self, *, firm_scope: UUID, document_type: str, document_id: UUID
+    ) -> Sequence[BatchRecord]:
+        """Return the live lots one document made."""
+        return self._session.scalars(
+            select(BatchRecord).where(
+                BatchRecord.firm_id == firm_scope,
+                BatchRecord.per_purchase_line.is_(True),
+                BatchRecord.source_document_type == document_type,
+                BatchRecord.source_document_id == document_id,
+                BatchRecord.is_deleted.is_(False),
+            )
+        ).all()
+
+    def remove_lots(
+        self, lots: Sequence[BatchRecord], *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Take off the lots of a document that is being cancelled.
+
+        The caller has already put the stock back and checked that nothing
+        else moved it. The row is kept, deleted softly, because the movements
+        that brought the goods in and took them out again still name it.
+        """
+        for lot in lots:
+            before = _snapshot("batch", lot)
+            lot.is_deleted = True
+            lot.deleted_at = utc_now()
+            lot.deleted_by = actor_id
+            lot.updated_by = actor_id
+            record_audit(
+                self._session,
+                action="batch.deleted",
+                entity_type="batch",
+                entity_id=lot.id,
+                actor_id=actor_id,
+                firm_id=firm_scope,
+                before_data=before,
+            )
+
+    def _lot_reference(
+        self, firm_scope: UUID, actor_id: UUID, on: date | None = None
+    ) -> str:
+        """Issue the next reference of the firm's lot series."""
+        return LotNumbering(self._session).next_reference(
+            firm_id=firm_scope,
+            on=on or firm_today(self._session, firm_scope),
+            actor_id=actor_id,
+        )
+
+    def _new_receipt_batch(
+        self,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        product_id: UUID,
+        number: str,
+        branch_id: UUID | None,
+        warehouse_id: UUID | None,
+        vendor_id: UUID | None,
+        expiry_date: date | None,
+        mrp: Decimal | None,
+        selling_price: Decimal | None,
+        manufacturing_date: date | None,
+        shelf_life_days: int | None,
+        ptr: Decimal | None,
+        pts: Decimal | None,
+        source: LotSource | None,
+    ) -> BatchRecord:
+        """Register the batch a delivery arrived in; ``source`` makes it a lot.
+
+        ``number`` may be blank only for a lot, which then goes by our own
+        reference.
+        """
         assert_trade_rates_within_mrp(mrp=mrp, ptr=ptr, pts=pts)
         product = tracked_product(self._session, firm_scope, product_id)
         # Not asked whether the product is tracked by batch: goods that have
         # arrived have to be receivable. Whether the batch may be dated is
         # the product's own switch.
         self._assert_batch_fields(firm_scope, product, {"expiry_date": expiry_date})
-        assert_expiry_stated(product, batch_number=number, expiry_date=expiry_date)
+        if number:
+            assert_expiry_stated(product, batch_number=number, expiry_date=expiry_date)
         # Every path that makes a batch from a delivery -- a receipt, opening
         # stock -- is held to the order the batch master asks for (F10).
         assert_date_order(
@@ -820,13 +965,24 @@ class BatchSerialService:
             expiry_date=expiry_date,
             best_before_date=None,
         )
+        reference = self._lot_reference(
+            firm_scope, actor_id, source.received_on if source else None
+        )
         record = BatchRecord(
             firm_id=firm_scope,
             product_id=product_id,
             warehouse_id=warehouse_id,
             branch_id=branch_id,
             vendor_id=vendor_id,
-            batch_number=number,
+            batch_number=number or reference,
+            lot_reference=reference,
+            per_purchase_line=source is not None,
+            has_printed_batch=bool(number),
+            received_on=source.received_on if source else None,
+            source_document_type=source.document_type if source else None,
+            source_document_id=source.document_id if source else None,
+            source_document_line_id=source.line_id if source else None,
+            source_document_number=source.document_number if source else None,
             expiry_date=expiry_date,
             # As typed off the carton, with the product's shelf life that
             # filled the expiry where only this date was given (STK-18) --

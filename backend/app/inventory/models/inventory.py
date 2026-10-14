@@ -614,16 +614,9 @@ class OpeningStockLine(BaseEntity):
             "line_number",
             name="UQ_opening_stock_lines_batch_line",
         ),
-        # The batch is part of the key. Day-one stock of one product in one
-        # bay is routinely two deliveries expiring months apart, and keying
-        # without the batch made that impossible to record on one document.
-        UniqueConstraint(
-            "opening_stock_batch_id",
-            "product_id",
-            "storage_locator",
-            "batch_number",
-            name="UQ_opening_stock_lines_batch_product_location",
-        ),
+        # No key on product, place and batch: a firm costing by lot enters
+        # two old lots of one batch at two costs on one document. A firm on
+        # Average is still refused the same item twice, by the service.
     )
 
     opening_stock_batch_id: Mapped[UUID] = mapped_column(
@@ -663,6 +656,17 @@ class OpeningStockLine(BaseEntity):
         UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), index=True
     )
     expiry_date: Mapped[date | None] = mapped_column(Date)
+    #: What the lot carries besides its cost, per stock unit: the printed
+    #: MRP and the rates it is sold at, as a goods receipt line has them.
+    mrp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    ptr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    pts: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: The day the goods were bought, which orders lots of equal expiry,
+    #: and the supplier's bill they came on, as text: that bill is in the
+    #: old books, not in ours.
+    purchase_date: Mapped[date | None] = mapped_column(Date)
+    supplier_bill_reference: Mapped[str | None] = mapped_column(String(80))
     minimum_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     maximum_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     reorder_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))

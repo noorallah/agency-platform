@@ -114,6 +114,46 @@ Nothing stamps an item `BY_LOT` yet but `tests/unit/test_lot_valuation.py`;
 the switch-over (section 4.4 of the note) will. A landed cost still adds to
 the item's figure only, until the step that puts it on the lot.
 
+#### Stock arriving in lots (L2 step 3, migration 0379)
+
+Every batch has a `lot_reference`, NOT NULL. `LotNumbering` in
+`backend/app/inventory/services/lots.py` issues it from the firm's
+*Stock Lot* series (prefix `LOT`), inside the caller's work and without
+committing, the way a stock movement takes its number. Batches older
+than the series keep the `B000001` numbers the migrations gave them.
+The two creators are `create_batch` (the batch master) and
+`_new_receipt_batch`, which `resolve_for_receipt` and `open_lot` share.
+
+`costs_by_lot(session, firm_id)` reads `stock_lot_settings`; no row is
+Average. For a firm on Average nothing else changed: a receipt or an
+opening stock line joins the batch of that number or registers it, and
+`resolve_for_receipt` never returns a lot of one purchase line.
+
+For a firm costing by lot:
+
+- `GoodsReceiptService._post_inventory` calls `open_lot` for every
+  stocked line: always a new row, `per_purchase_line` true, the source
+  `GOODS_RECEIPT` with the receipt, its line, its number and its date.
+  Accepted, free, rejected and damaged units of the line all sit in it.
+  Service and capital goods lines make none.
+- A line with no printed batch, or of a product that keeps no batches,
+  gets a lot whose `batch_number` is the lot reference and whose
+  `has_printed_batch` is false.
+- `stage_cancel` removes the receipt's lots (soft delete; the movements
+  still name the row) after the stock has gone back. It is refused when
+  any movement other than the receipt's own and its inspection holds
+  names one of the lots.
+- An opening stock line makes a lot the same way, source
+  `OPENING_STOCK`, received on the line's `purchase_date` or the
+  document's date. One document may hold the same item and batch twice.
+- `valuation_for` stamps a new item's valuation row `BY_LOT`.
+
+`opening_stock_lines` carries `mrp`, `selling_price`, `ptr`, `pts`,
+`purchase_date` and `supplier_bill_reference`, for every firm; the file
+template has a column for each. The key
+`UQ_opening_stock_lines_batch_product_location` is dropped and a firm on
+Average is refused the same item twice by the service.
+
 ### Table: `lots`
 
 | Column | Type | Notes |

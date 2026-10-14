@@ -237,6 +237,7 @@ def test_a_batch_line_corrects_the_batch_it_counted() -> None:
     """
     books = _Warehouse(_session_factory()())
     batch = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=books.firm.id,
         product_id=books.product.id,
         batch_number="B-2405",

@@ -13,7 +13,7 @@ Every case runs with the session shaped as a request's is: autoflush off.
 
 from datetime import date
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -296,6 +296,7 @@ class _Pharmacy(_Counter):
             )
         )
         batch = BatchRecord(
+            lot_reference=uuid4().hex[:12],
             firm_id=self.firm.id,
             product_id=self.drug.id,
             batch_number="BM",

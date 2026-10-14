@@ -56,13 +56,13 @@ def _batch(
 
 def test_a_batch_is_an_ordinary_printed_batch_unless_told(session: Session) -> None:
     """Every batch written today keeps today's meaning."""
-    row = _batch("BN-1", None)
+    row = _batch("BN-1", "B000001")
     session.add(row)
     session.commit()
 
     assert row.per_purchase_line is False
     assert row.has_printed_batch is True
-    assert row.lot_reference is None
+    assert row.lot_reference == "B000001"
     assert row.received_on is None
     assert row.source_document_type is None
 
@@ -104,13 +104,12 @@ def test_a_lot_reference_is_one_lot_per_firm(session: Session) -> None:
     session.commit()
 
 
-def test_batches_without_a_reference_do_not_collide(session: Session) -> None:
-    """A batch made before its creator issues a reference is not refused."""
+def test_a_batch_without_a_reference_is_refused(session: Session) -> None:
+    """Every creator issues a reference, so a batch with none is a mistake."""
     session.add(_batch("BN-1", None))
-    session.add(_batch("BN-2", None))
-    session.commit()
 
-    assert session.query(BatchRecord).count() == 2
+    with pytest.raises(IntegrityError):
+        session.commit()
 
 
 def test_a_lot_has_one_valuation(session: Session) -> None:

@@ -396,6 +396,17 @@ class OpeningStockLineWrite(InventorySchema):
     #: number registers the batch rather than being refused.
     batch_number: str | None = Field(default=None, max_length=120)
     expiry_date: date | None = None
+    #: What the stock carries besides its cost, per stock unit before tax
+    #: (the MRP with tax, as printed). Kept on the batch the line makes.
+    mrp: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    selling_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
+    ptr: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    pts: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    #: The day the goods were bought and the supplier's bill they came on.
+    purchase_date: date | None = None
+    supplier_bill_reference: str | None = Field(default=None, max_length=80)
     minimum_level: Decimal | None = Field(
         default=None, ge=0, max_digits=18, le=MAX_STOCK_FIGURE
     )
@@ -459,6 +470,12 @@ class OpeningStockLineResponse(InventorySchema):
     batch_number: str | None = None
     batch_id: UUID | None = None
     expiry_date: date | None = None
+    mrp: Decimal | None = None
+    selling_price: Decimal | None = None
+    ptr: Decimal | None = None
+    pts: Decimal | None = None
+    purchase_date: date | None = None
+    supplier_bill_reference: str | None = None
     minimum_level: Decimal | None
     maximum_level: Decimal | None
     reorder_level: Decimal | None

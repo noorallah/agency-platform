@@ -530,6 +530,7 @@ def _register_batch(
 ) -> BatchRecord:
     """Register a batch of a product, as a goods receipt would have."""
     batch = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm_id,
         product_id=product_id,
         batch_number=batch_number,

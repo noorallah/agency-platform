@@ -467,6 +467,7 @@ def test_a_count_refuses_a_line_naming_another_firms_product_or_batch() -> None:
     books = counts._Warehouse(counts._session_factory()())
     _, product, _ = _other_firms(books)
     stranger = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=books.firm.id,
         product_id=product.id,
         batch_number="NOT-MINE",

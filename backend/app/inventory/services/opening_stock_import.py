@@ -29,6 +29,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -54,6 +55,7 @@ from app.inventory.services.inventory_service import (
     InventoryService,
     opening_stock_key,
 )
+from app.inventory.services.lots import costs_by_lot
 from app.products.models import Product
 from app.uom.models import Uom
 
@@ -117,6 +119,54 @@ COLUMNS: tuple[Column, ...] = (
         "",
     ),
     Column(
+        "MRP",
+        ("maxretailprice", "maximumretailprice", "mrprate"),
+        False,
+        "The MRP printed on the pack, for one unit, tax included. Kept on "
+        "the batch.",
+        "",
+    ),
+    Column(
+        "SellingPrice",
+        ("salerate", "saleprice", "sellingrate", "retailprice"),
+        False,
+        "The rate this stock is sold at, for one unit, before tax. Not above "
+        "the MRP.",
+        "",
+    ),
+    Column(
+        "PTR",
+        ("pricetoretailer",),
+        False,
+        "Price to retailer for one unit, before tax, where the firm keeps "
+        "trade rates on a batch.",
+        "",
+    ),
+    Column(
+        "PTS",
+        ("pricetostockist",),
+        False,
+        "Price to stockist for one unit, before tax, where the firm keeps "
+        "trade rates on a batch.",
+        "",
+    ),
+    Column(
+        "PurchaseDate",
+        ("billdate", "invoicedate", "dateofpurchase", "purchasedon"),
+        False,
+        "The day this stock was bought, not after the opening date. "
+        "dd-mm-yyyy, dd/mm/yyyy, yyyy-mm-dd or an Excel date.",
+        "",
+    ),
+    Column(
+        "SupplierBill",
+        ("supplierbillno", "billno", "invoiceno", "purchasebillno"),
+        False,
+        "The number of the supplier's bill the stock came on, as written in "
+        "the old books.",
+        "",
+    ),
+    Column(
         "Unit",
         ("uom", "units", "unitofmeasure"),
         False,
@@ -171,6 +221,9 @@ class _Reference:
     units: dict[str, Uom]
     opened: dict[tuple[UUID, UUID, str], str]
     batches: dict[tuple[UUID, str], date | None]
+    #: Whether the firm costs by lot: every row is then a lot of its own,
+    #: so the same product and batch may be on two rows at two costs.
+    by_lot: bool = False
 
 
 def _read_references(session: Session, firm_id: UUID) -> _Reference:
@@ -213,7 +266,9 @@ def _read_references(session: Session, firm_id: UUID) -> _Reference:
             ).where(BatchRecord.firm_id == firm_id, BatchRecord.is_deleted.is_(False))
         ).all()
     }
-    return _Reference(products, warehouses, units, opened, batches)
+    return _Reference(
+        products, warehouses, units, opened, batches, costs_by_lot(session, firm_id)
+    )
 
 
 def _find_warehouse(warehouses: Sequence[Warehouse], value: str) -> Warehouse | None:
@@ -351,7 +406,19 @@ class OpeningStockFileImporter:
             reader.fail("UnitCost", "cannot be negative.")
             unit_cost = None
         batch = reader.text("Batch")
-        expiry = self._expiry(reader)
+        expiry = self._date(reader, "Expiry")
+        rates = {
+            name: self._rate(reader, heading)
+            for name, heading in (
+                ("mrp", "MRP"),
+                ("selling_price", "SellingPrice"),
+                ("ptr", "PTR"),
+                ("pts", "PTS"),
+            )
+        }
+        purchase_date = self._date(reader, "PurchaseDate")
+        if purchase_date is not None and purchase_date > posting_date:
+            reader.fail("PurchaseDate", "is after the opening date.")
         if product is not None:
             self._check_tracking(reader, reference, product, batch, expiry)
         unit_id = self._unit(reader, reference)
@@ -381,7 +448,7 @@ class OpeningStockFileImporter:
             )
         if product is not None and warehouse is not None and not issues:
             key = (product.id, warehouse.id, batch)
-            if key in seen:
+            if key in seen and not reference.by_lot:
                 reader.fail(
                     "Batch" if batch else "ProductCode",
                     f"appears again for {warehouse.code}; row {seen[key]} "
@@ -407,6 +474,12 @@ class OpeningStockFileImporter:
                 entered_uom_id=unit_id,
                 batch_number=batch or None,
                 expiry_date=expiry,
+                mrp=rates["mrp"],
+                selling_price=rates["selling_price"],
+                ptr=rates["ptr"],
+                pts=rates["pts"],
+                purchase_date=purchase_date,
+                supplier_bill_reference=reader.text("SupplierBill") or None,
                 remarks=reader.text("Remarks") or None,
             ),
         )
@@ -433,15 +506,24 @@ class OpeningStockFileImporter:
         return warehouse
 
     @staticmethod
-    def _expiry(reader: RowReader) -> date | None:
-        """Read the expiry cell, naming it when it is not a date."""
-        raw = reader.text("Expiry")
+    def _rate(reader: RowReader, heading: str) -> Decimal | None:
+        """Read a price cell, refusing a negative one."""
+        value = reader.number(heading)
+        if value is not None and value < 0:
+            reader.fail(heading, "cannot be negative.")
+            return None
+        return value
+
+    @staticmethod
+    def _date(reader: RowReader, heading: str) -> date | None:
+        """Read a date cell, naming it when it is not a date."""
+        raw = reader.text(heading)
         if not raw:
             return None
         parsed = parse_date(raw)
         if parsed is None:
             reader.fail(
-                "Expiry",
+                heading,
                 f"'{raw}' is not a date. Write it as dd-mm-yyyy, dd/mm/yyyy "
                 "or yyyy-mm-dd.",
             )
@@ -480,8 +562,10 @@ class OpeningStockFileImporter:
             return
         if not batch or not tracked:
             return
-        known = (product.id, batch) in reference.batches
-        dated = reference.batches.get((product.id, batch))
+        # By lot the row makes a lot of its own and joins no batch already
+        # there, so it is dated by itself.
+        known = not reference.by_lot and (product.id, batch) in reference.batches
+        dated = reference.batches.get((product.id, batch)) if known else None
         if product.track_expiry and expiry is None and dated is None:
             reader.fail("Expiry", f"is required: {product.code} is expiry-tracked.")
         elif known and dated is not None and expiry is not None and expiry != dated:

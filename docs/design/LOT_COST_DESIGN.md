@@ -22,6 +22,22 @@ movement that names no lot is still valued at the average, until steps 3 and
 4 give every stock row a lot. The worked example of section 1 is
 `backend/tests/unit/test_lot_valuation.py`.
 
+Step 3, receiving (#1510, migration `20261014_0379`):
+`backend/app/inventory/services/lots.py` holds the lot series and
+`costs_by_lot`. Every creator of a batch now issues a reference, so
+`lot_reference` is NOT NULL as section 3.2 has it. For a firm whose
+`stock_lot_settings` row says `BY_LOT`, `open_lot` in
+`backend/app/batch_serial/services/batch_serial_service.py` makes one
+lot for every stocked goods receipt line and every opening stock line,
+with its source; cancelling a receipt removes its lots. An item first
+stocked by such a firm is stamped `BY_LOT` on its first movement.
+Opening stock lines carry the six new columns and the key on product,
+place and batch is gone. No route sets the firm's method yet (step 9),
+so every firm is still on Average. One point differs from section 3.3:
+the refusal to cancel is "any other movement names the lot", which
+covers sold, transferred and returned and also an adjustment. Tests:
+`backend/tests/unit/test_lot_receiving.py`.
+
 Words used here. A **lot** is one purchase line's goods: its own cost, MRP,
 selling prices, batch and expiry. A **batch** is the number the manufacturer
 prints on the goods. Two deliveries of one printed batch are two lots.

@@ -21,7 +21,7 @@ session.
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
@@ -104,6 +104,7 @@ class _Stockist(_Agency):
         held = None
         if batch is not None:
             held = BatchRecord(
+                lot_reference=uuid4().hex[:12],
                 firm_id=self.firm_id,
                 product_id=product.id,
                 batch_number=batch,

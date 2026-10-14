@@ -57,6 +57,7 @@ class _Counter(_Firm):
             ("LATE", date(2027, 9, 30)),
         ):
             batch = BatchRecord(
+                lot_reference=uuid4().hex[:12],
                 firm_id=self.firm.id,
                 product_id=self.drug.id,
                 batch_number=number,
@@ -203,6 +204,7 @@ def test_another_products_batch_is_refused_by_line() -> None:
     """The same check the note's own editor makes, in the bill's words."""
     shop = _Counter()
     stranger = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=shop.firm.id,
         product_id=shop.product.id,
         batch_number="OTHER",

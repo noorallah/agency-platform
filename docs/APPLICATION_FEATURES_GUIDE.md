@@ -1663,7 +1663,11 @@ And two documents:
 
 - **Opening Stock**: the stock a firm holds on its first day in the
   application, entered by hand or imported from Excel, then posted once.
-  Posting values it against the opening balance in the books.
+  Posting values it against the opening balance in the books. The file
+  may also carry, for each row, the **MRP**, the **selling price**, the
+  trade rates (**PTR**, **PTS**), the **purchase date** and the
+  **supplier's bill number**: the prices are kept on the batch the row
+  makes, and a purchase date after the opening date is refused.
 - **Physical Count**: a stock-take. Open a count for a warehouse, record what
   was found line by line (over hours, by several people if needed; the list
   shows how many lines are counted), then post it: every difference becomes
