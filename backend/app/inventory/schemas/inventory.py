@@ -60,6 +60,9 @@ class InventoryTransactionType(StrEnum):
     #: A lot that came in covering units billed before it (L2 step 7a): out
     #: of the lot and into the row the sale took below zero, one pair.
     LOT_SETTLEMENT = "LOT_SETTLEMENT"
+    #: Value moved onto a lot, or off it, by a supplier's bill at another
+    #: rate than its receipt (L2 step 8); no quantity moves.
+    COST_CORRECTION = "COST_CORRECTION"
 
 
 #: Appended by ``reverse_transaction`` to the type it reverses.

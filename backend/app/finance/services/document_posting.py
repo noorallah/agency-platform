@@ -3363,6 +3363,74 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def reverse_with_stock_back(
+        self,
+        *,
+        firm_id: UUID,
+        entry_id: UUID,
+        reference_number: str,
+        stock_back: Decimal,
+        rest_to: ControlAccountPurpose,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Reverse an entry that put value onto lots, crediting what came back.
+
+        A landed cost or a bill's rate put value onto lots (L2 step 8), and
+        the units sold since took their share to cost of goods sold. The
+        cancel takes off the lots only what they still hold, so the
+        Inventory leg is mirrored at that figure, ``stock_back``, and the
+        rest of what it carried goes to ``rest_to``: cost of goods sold for
+        a landed cost, purchase price variance for a bill. Every other leg
+        is mirrored as it was.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(
+            firm_id, (ControlAccountPurpose.INVENTORY, rest_to)
+        )
+        inventory_id = accounts[ControlAccountPurpose.INVENTORY]
+        original = self._journals.get_entry(entry_id, firm_id=firm_id)
+        lines: list[JournalLineData] = []
+        stock_was = ZERO
+        for line in original.lines:
+            if line.ledger_account_id == inventory_id:
+                stock_was += line.debit_amount - line.credit_amount
+                continue
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=line.ledger_account_id,
+                    cost_center_id=line.cost_center_id,
+                    profit_center_id=line.profit_center_id,
+                    debit_amount=line.credit_amount,
+                    credit_amount=line.debit_amount,
+                    description=f"Reversal of {original.reference_number}",
+                )
+            )
+        back = quantize_ledger(quantize_money(stock_back))
+        rest = stock_was - back
+        for account_id, value, describe in (
+            (inventory_id, back, "Taken back off the lots"),
+            (accounts[rest_to], rest, "On goods gone since"),
+        ):
+            if value != ZERO:
+                lines.append(
+                    JournalLineData(
+                        ledger_account_id=account_id,
+                        debit_amount=-value if value < ZERO else ZERO,
+                        credit_amount=value if value > ZERO else ZERO,
+                        description=f"{describe}, {original.reference_number}",
+                    )
+                )
+        return self._journals.reverse_entry(
+            entry_id,
+            firm_id=firm_id,
+            reference_number=reference_number,
+            actor_id=actor_id,
+            lines=lines,
+        )
+
     def post_cost_correction(
         self,
         *,
@@ -4162,6 +4230,7 @@ class DocumentPostingService:
         tcs_amount: Decimal = ZERO,
         capital_amounts: list[tuple[UUID, Decimal]] | None = None,
         service_amount: Decimal = ZERO,
+        inventory_amount: Decimal = ZERO,
     ) -> JournalEntry | None:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
@@ -4217,6 +4286,11 @@ class DocumentPostingService:
                 to purchases (`PURCHASE_EXPENSE`) rather than being left to
                 fall into the price variance. Its tax is claimed with the
                 rest of the bill's.
+            inventory_amount: The part of the price difference put onto the
+                lots still holding the goods, for a firm costing by lot (L2
+                step 8): debited to inventory (credited when the bill is
+                cheaper) and taken out of the variance, so the Inventory
+                account stays the sum of the lots.
 
         Returns:
             The posted journal entry, or None where there is nothing to post.
@@ -4270,11 +4344,13 @@ class DocumentPostingService:
             if quantize_ledger(amount) > ZERO
         ]
         ledger_services = quantize_ledger(service_amount)
+        ledger_stock = quantize_ledger(quantize_money(inventory_amount))
         variance = (
             ledger_goods
             - accrued
             - sum((value for _, value in capital), ZERO)
             - ledger_services
+            - ledger_stock
         )
         lines = [
             JournalLineData(
@@ -4297,6 +4373,19 @@ class DocumentPostingService:
                     ledger_account_id=account_id,
                     debit_amount=value,
                     description=f"Capital goods on {invoice_number}",
+                )
+            )
+        if ledger_stock != ZERO:
+            # The bill's rate onto the lots still holding the goods (L2 step
+            # 8); the share of units already gone stays variance below.
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=self._require_mapping(
+                        firm_id, (ControlAccountPurpose.INVENTORY,)
+                    )[ControlAccountPurpose.INVENTORY],
+                    debit_amount=ledger_stock if ledger_stock > ZERO else ZERO,
+                    credit_amount=-ledger_stock if ledger_stock < ZERO else ZERO,
+                    description=f"Bill rate onto the lots on {invoice_number}",
                 )
             )
         if ledger_services > ZERO:

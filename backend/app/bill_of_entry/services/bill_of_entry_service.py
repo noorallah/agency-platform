@@ -72,10 +72,10 @@ from app.finance.services.document_posting import (
     DocumentPostingService,
     prefixed_reference,
 )
-from app.finance.services.journal_engine import JournalEntryEngine
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.landed_costs.services import (
     land_on_receipt_lines,
+    reverse_landing,
     stock_quantity,
     take_off_receipt_lines,
 )
@@ -415,12 +415,17 @@ class BillOfEntryService(TransactionalDocumentService):
         if not reason.strip():
             raise ValidationError("Say why the Bill of Entry is cancelled.")
         if row.status == "POSTED":
-            take_off_receipt_lines(
+            allocations = self._rows.allocations(row.id)
+            taken = take_off_receipt_lines(
                 self._session,
                 firm_id=firm_id,
                 held=[
-                    (allocation.goods_receipt_line_id, allocation.inventory_amount)
-                    for allocation in self._rows.allocations(row.id)
+                    (
+                        allocation.goods_receipt_line_id,
+                        allocation.inventory_amount,
+                        allocation.inventory_transaction_id,
+                    )
+                    for allocation in allocations
                 ],
                 reference_number=row.document_number,
                 on=row.boe_date,
@@ -436,10 +441,16 @@ class BillOfEntryService(TransactionalDocumentService):
                     if posted is not None
                     else prefixed_reference("BOE", row.document_number)
                 )
-                JournalEntryEngine(self._session).reverse_entry(
-                    row.journal_entry_id,
+                reverse_landing(
+                    self._session,
                     firm_id=firm_id,
+                    entry_id=row.journal_entry_id,
                     reference_number=f"{reference}-REV",
+                    landed=sum(
+                        (Decimal(str(a.inventory_amount)) for a in allocations),
+                        ZERO,
+                    ),
+                    taken=taken,
                     actor_id=actor_id,
                 )
         row.status = "CANCELLED"

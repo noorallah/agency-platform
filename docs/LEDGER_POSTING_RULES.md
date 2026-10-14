@@ -1915,3 +1915,20 @@ whole figure.
 A wrong entry is cancelled by a mirror journal under `<number>-CAN`. An
 employee's account is left out of the accounts an expense may be **paid
 from**: it is money a person owes the firm, not money the firm holds.
+
+## A firm costing by lot: a bill's rate and a landed cost go onto the lot (L2 step 8)
+
+For a firm costing by lot the Inventory account is the sum of the lots, so
+value that arrives after the goods has to land on the lot they came in
+(`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`, "A bill's rate and a landed
+cost onto the lot").
+
+| Event | Journal |
+| --- | --- |
+| Supplier's bill at another rate than its receipt | As any bill, plus Dr Inventory (Cr when cheaper) for the share of the difference on units still in the lot; the variance is what is left |
+| That bill cancelled | The bill mirrored, except Inventory is credited only with what the lots still hold of the correction; the rest to purchase price variance |
+| Landed cost or bill of entry | Unchanged: Dr Inventory for the units still in the receipt line's **own lot**, Dr cost of goods sold for the rest |
+| That voucher cancelled | Inventory credited with what the lot still holds of it; the rest to cost of goods sold |
+
+A firm on Average posts exactly as before: the whole difference to variance,
+and a landed cost judged on the item's quantity on hand.

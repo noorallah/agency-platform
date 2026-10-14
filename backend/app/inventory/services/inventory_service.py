@@ -3065,6 +3065,10 @@ class InventoryService:
         transaction_date: date,
         remarks: str,
         actor_id: UUID,
+        transaction_type: InventoryTransactionType = (
+            InventoryTransactionType.LANDED_COST
+        ),
+        reference_type: str = "LANDED_COST",
     ) -> InventoryTransaction:
         """Add value to stock already held, moving no quantity (BUY-16).
 
@@ -3075,9 +3079,15 @@ class InventoryService:
         valuation and the stock statement read. ``amount`` is negative when a
         cancelled voucher takes the value back off.
 
+        For an item costed by lot whose ``batch_id`` is a valued lot the
+        value lands on that lot alone, and its ledger entry's unit cost is
+        what each unit in the lot gained, so a later cancel can take back
+        what is still there (L2 step 8). A supplier's bill at another rate
+        than its receipt moves value the same way, as ``COST_CORRECTION``.
+
         Raises:
-            ValidationError: If value is added to a product with nothing on
-                hand to carry it.
+            ValidationError: If value is added to a product, or a lot, with
+                nothing on hand to carry it.
 
         """
         inventory = self._ensure_inventory_projection(
@@ -3089,29 +3099,48 @@ class InventoryService:
             actor_id=actor_id,
             batch_id=batch_id,
         )
+        valuation = self.valuation_for(firm_scope=firm_scope, product_id=product_id)
+        lot = self._valued_lot(valuation, batch_id)
+        on_hand = Decimal(str(valuation.quantity_on_hand))
+        carrying = on_hand if lot is None else Decimal(str(lot.quantity_on_hand))
+        if carrying <= ZERO and amount != ZERO:
+            raise ValidationError(
+                "Nothing of this product is on hand to carry the added cost."
+                if lot is None
+                else f"Nothing is left in lot {self._lot_label(lot.batch_id)} "
+                "to carry the added cost."
+            )
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
             movement=_Movement(
-                transaction_type=InventoryTransactionType.LANDED_COST.value,
+                transaction_type=transaction_type.value,
                 batch_id=batch_id,
                 reference_number=reference_number,
-                reference_type="LANDED_COST",
+                reference_type=reference_type,
                 transaction_date=transaction_date,
                 quantity=ZERO,
                 revalues=False,
                 remarks=remarks,
             ),
         )
-        valuation = self.valuation_for(firm_scope=firm_scope, product_id=product_id)
-        on_hand = Decimal(str(valuation.quantity_on_hand))
-        if on_hand <= ZERO and amount != ZERO:
-            raise ValidationError(
-                "Nothing of this product is on hand to carry the added cost."
+        per_unit: Decimal | None = None
+        if lot is not None:
+            lot_value = quantize_money(Decimal(str(lot.total_value)) + amount)
+            lot.total_value = lot_value
+            lot.unit_cost = (lot_value / carrying).quantize(
+                UNIT_COST_SCALE, rounding=ROUND_HALF_UP
+            )
+            lot.updated_by = actor_id
+            per_unit = (amount / carrying).quantize(
+                UNIT_COST_SCALE, rounding=ROUND_HALF_UP
             )
         new_value = quantize_money(Decimal(str(valuation.total_value)) + amount)
         valuation.total_value = new_value
-        valuation.average_cost = new_value / on_hand if on_hand > ZERO else ZERO
+        if on_hand > ZERO:
+            valuation.average_cost = new_value / on_hand
+        elif lot is None:
+            valuation.average_cost = ZERO
         valuation.updated_by = actor_id
         self._session.flush()
         entry = self._session.scalar(
@@ -3122,7 +3151,76 @@ class InventoryService:
         if entry is not None:
             entry.total_cost = quantize_money(amount)
             entry.average_cost_after = valuation.average_cost
+            if per_unit is not None:
+                entry.unit_cost = per_unit
         return transaction
+
+    def lot_on_hand(
+        self, *, firm_scope: UUID, product_id: UUID, batch_id: UUID | None
+    ) -> Decimal | None:
+        """Return what a by-lot item's lot holds, or None if it is not one.
+
+        None for an item on Average, or a batch no lot valuation carries:
+        the caller then reads the item's quantity on hand, as before.
+        """
+        valuation = self.valuation_for(firm_scope=firm_scope, product_id=product_id)
+        lot = self._valued_lot(valuation, batch_id)
+        return None if lot is None else Decimal(str(lot.quantity_on_hand))
+
+    def value_of_lot(self, batch_id: UUID) -> Decimal:
+        """Return what a lot is worth now; nothing for a lot never valued."""
+        value = self._session.scalar(
+            select(BatchValuation.total_value).where(
+                BatchValuation.batch_id == batch_id,
+                BatchValuation.is_deleted.is_(False),
+            )
+        )
+        return ZERO if value is None else Decimal(str(value))
+
+    def value_left_in_lot(self, transaction_id: UUID) -> Decimal | None:
+        """Return what a value-only movement still holds in its lot, if a lot.
+
+        A landed cost or a bill's correction (L2 step 8) put the same figure
+        on every unit of the lot it named; the units sold since took their
+        share to cost of goods sold. What is left is that figure times the
+        units the lot holds now, never more than the movement moved, nor
+        more than the lot is worth. None where the movement did not land on
+        a lot, so its caller takes back what it always did.
+        """
+        entry = self._session.scalar(
+            select(StockLedgerEntry).where(
+                StockLedgerEntry.transaction_id == transaction_id
+            )
+        )
+        if entry is None or entry.batch_id is None:
+            return None
+        valuation = self.valuation_for(
+            firm_scope=entry.firm_id, product_id=entry.product_id
+        )
+        lot = self._valued_lot(valuation, entry.batch_id)
+        if lot is None or entry.unit_cost is None:
+            return None
+        moved = Decimal(str(entry.total_cost or ZERO))
+        held = Decimal(str(lot.quantity_on_hand))
+        if held <= ZERO or moved == ZERO:
+            return ZERO
+        left = quantize_money(Decimal(str(entry.unit_cost)) * held)
+        if moved > ZERO:
+            return max(min(left, moved, Decimal(str(lot.total_value))), ZERO)
+        return min(max(left, moved), ZERO)
+
+    def _valued_lot(
+        self, valuation: ProductValuation, batch_id: UUID | None
+    ) -> BatchValuation | None:
+        """Return the lot valuation a by-lot item's batch carries, if any."""
+        if batch_id is None or valuation.costing_method != COSTING_BY_LOT:
+            return None
+        return self._session.scalar(
+            select(BatchValuation).where(
+                BatchValuation.batch_id == batch_id,
+                BatchValuation.is_deleted.is_(False),
+            )
+        )
 
     def record_goods_receipt(
         self,
