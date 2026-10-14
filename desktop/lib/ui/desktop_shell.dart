@@ -985,6 +985,7 @@ class _DesktopShellState extends State<DesktopShell> {
                       widget.permissions,
                       preferences: widget.preferences,
                       onOpenGlobalSearch: _openGlobalSearch,
+                      onOpenFirm: _openFirm,
                     )) ??
             const WorkspaceEmptyState(
               title: 'This step has no screen here',
@@ -2821,14 +2822,16 @@ Widget? _taxScreen(
     };
 
 /// The body of a Firm, Selling, Buying, Stock, Business profile, Pricing,
-/// Territories & routes, Account structure, Party lists, Item lists or
-/// Locations settings tab that is a screen, or null for any other tab. Customer Groups, a phase 2 page,
-/// answers to its route ([MenuLayout.customerGroupsRoute]).
+/// Territories & routes, Account structure, Party lists, Item lists,
+/// Locations, People or Firms settings tab that is a screen, or null for any
+/// other tab. Customer Groups, a phase 2 page, answers to its route
+/// ([MenuLayout.customerGroupsRoute]).
 ///
 /// Its own workspace shows it under its heading and the Settings subject
 /// screen under a step's tab (backlog 148, row T2); both come here so the
 /// two cannot build a screen differently. [preferences] is needed only by
-/// Purchase Settings and Inventory Settings, which are not built without it.
+/// Purchase Settings and Inventory Settings, which are not built without it;
+/// [onOpenFirm] is the Firms tab's "Open this firm".
 Widget? _settingsStepScreen(
   BuildContext context,
   String tabId,
@@ -2838,6 +2841,7 @@ Widget? _settingsStepScreen(
   ValueChanged<PurchaseSection>? onNavigateToSection,
   ValueChanged<InventorySection>? onNavigateToInventorySection,
   Future<void> Function()? onOpenGlobalSearch,
+  Future<String> Function(Firm firm)? onOpenFirm,
 }) {
   final bool hasActiveFirm = api.activeFirmId?.call() != null;
   return switch (tabId) {
@@ -3086,6 +3090,49 @@ Widget? _settingsStepScreen(
         hasActiveFirm: hasActiveFirm,
         section: BranchWarehouseSection.storageAreas,
       ),
+    'roles' => ResourceManagementPage<Role>(
+        api: api,
+        definition: _roleDefinition(api, permissions, showFrame: false),
+      ),
+    'permissions' => ResourceManagementPage<Permission>(
+        api: api,
+        definition: permissionDefinition(api, permissions, showFrame: false),
+      ),
+    'user-templates' => ResourceManagementPage<UserTemplate>(
+        api: api,
+        definition: userTemplateDefinition(api, permissions, showFrame: false),
+      ),
+    'users' => ResourceManagementPage<PlatformUser>(
+        api: api,
+        definition: userDefinition(
+          api,
+          permissions,
+          showFrame: false,
+          context: context,
+        ),
+      ),
+    'user-firms' => ResourceManagementPage<PlatformUser>(
+        api: api,
+        definition: userFirmAssignmentDefinition(api, permissions),
+      ),
+    'business-profiles' => ResourceManagementPage<BusinessProfileRecord>(
+        api: api,
+        definition: _businessProfileDefinition(
+          api,
+          permissions,
+          showFrame: false,
+        ),
+      ),
+    'firms' => ResourceManagementPage<Firm>(
+        api: api,
+        definition: firmDefinition(
+          api,
+          permissions,
+          showFrame: false,
+          onOpenFirm: onOpenFirm,
+          context: context,
+        ),
+      ),
     _ => null,
   };
 }
@@ -3167,18 +3214,10 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
         ? requestedTab!
         : firstAvailableTab();
     final Widget content = switch (tabId) {
-      'users' => ResourceManagementPage<PlatformUser>(
-          api: widget.api,
-          definition: userDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-            context: context,
-          ),
-        ),
       // One page for the two, chosen by the router's tab so the sidebar
       // entry, the heading and the remembered screen all agree on which
-      // half is open. Each half keeps its own definition and its own id.
+      // half is open. Each half is built in one place: Settings > People
+      // shows the same (backlog 148).
       'roles' || 'permissions' => TabGroupPage(
           members: [
             for (final ModuleTabDefinition tab in visibleTabs)
@@ -3186,61 +3225,29 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           ],
           current: tabId,
           onSelect: widget.router.selectTab,
-          builder: (id) => id == 'roles'
-              ? ResourceManagementPage<Role>(
-                  api: widget.api,
-                  definition: _roleDefinition(
-                    widget.api,
-                    widget.permissions,
-                    showFrame: false,
-                  ),
-                )
-              : ResourceManagementPage<Permission>(
-                  api: widget.api,
-                  definition: permissionDefinition(
-                    widget.api,
-                    widget.permissions,
-                    showFrame: false,
-                  ),
-                ),
+          builder: (id) => _settingsStepScreen(
+              context, id, widget.api, widget.permissions)!,
         ),
-      'user-templates' => ResourceManagementPage<UserTemplate>(
-          api: widget.api,
-          definition: userTemplateDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
-      'firms' => ResourceManagementPage<Firm>(
-          api: widget.api,
-          definition: firmDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-            onOpenFirm: widget.onOpenFirm,
-            context: context,
-          ),
-        ),
-      'user-firms' => ResourceManagementPage<PlatformUser>(
-          api: widget.api,
-          definition:
-              userFirmAssignmentDefinition(widget.api, widget.permissions),
-        ),
+      // Built in one place: Settings > People and Firms show the same
+      // (backlog 148).
+      'users' ||
+      'user-templates' ||
+      'user-firms' ||
+      'business-profiles' ||
+      'firms' =>
+        _settingsStepScreen(
+          context,
+          tabId,
+          widget.api,
+          widget.permissions,
+          onOpenFirm: widget.onOpenFirm,
+        )!,
       // Built in one place: Settings > Firm shows the same (backlog 148).
       'numbering-series' ||
       'goods-types' ||
       'firm-custom-fields' ||
       'firm-custom-field-rules' =>
         _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
-      'business-profiles' => ResourceManagementPage<BusinessProfileRecord>(
-          api: widget.api,
-          definition: _businessProfileDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
       // Built in one place: Settings > Business profile shows the same
       // (backlog 148).
       'feature-management' ||

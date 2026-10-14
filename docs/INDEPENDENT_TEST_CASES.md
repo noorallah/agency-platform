@@ -1290,6 +1290,22 @@ opens any screen by name.
   - Step 3: Product Categories opens on its own, as it always did.
 - **Leaves:** nothing.
 
+### TC-CONF-015 — Settings > People and Firms open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** the two PLATFORM cards People and Firms; Start here and the numbered steps of each; the counts read from the platform store, scoped to who asks; User-firm assignments offered to a platform administrator only; System still a list of cards; the old items still found by search
+- **Fixture:** `ready-firm`, as its **Firm admin**, then as the **platform administrator**
+- **Steps**
+  1. As the Firm admin, press the gear and press the **People** card (under PLATFORM); read the tabs from left to right, then Start here.
+  2. Sign in as the platform administrator and do step 1 again; then press the **Firms** card and read the tabs and Start here.
+  3. Press the **System** section; then type **Users** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: **Start here, 1 Roles, 2 User templates, 3 Users**, then **Check: Permissions**; no User-firm assignments tab and no row for it. Roles reads **Done** with the ready-made roles a firm is offered and any of the firm's own; Users **Done** with the number of the firm's people (platform administrators not counted); Templates **Optional**.
+  - Step 2: People also shows **4 User-firm assignments**, reading the memberships and how many firms they span, and the counts are the whole installation's. Firms shows **1 Business profiles** (Optional, the count of active profiles) and **2 Firms** (Done, the number of live firms).
+  - Step 3: System shows its items as cards (Audit Logs, Diagnostics, ...), with no Start here; Users opens on its own, as it always did.
+- **Leaves:** nothing.
+
 ## Buying — order to payment
 
 Four documents: a purchase order, goods receipts against it, a supplier

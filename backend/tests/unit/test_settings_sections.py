@@ -30,10 +30,10 @@ from app.business.models.framework import (
     ProfileFeature,
     ProfileModule,
 )
-from app.common.scope import ResolvedFirmScope
+from app.common.scope import FirmScope, ResolvedFirmScope
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import AuthorizationError, ResourceNotFoundError
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.customers.models.customer import CreditControlSettings, CustomerGroup
@@ -49,6 +49,7 @@ from app.finance.models.finance import (
 from app.finance.models.tds_194q import Tds194QSettings
 from app.firms.models import Firm
 from app.firms.services.readiness import ALL_PURPOSES
+from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserTemplate
 from app.inventory.models.adjustment_approval import RoleStockAdjustmentLimit
 from app.inventory.models.adjustment_reason import StockAdjustmentReason
 from app.loyalty.models.loyalty import LoyaltyEntry, LoyaltySettings
@@ -77,7 +78,10 @@ from app.sales_order.models.sales_order import (
     SalesWorkflowSettings,
 )
 from app.salesmen.models.salesman import Salesman
-from app.settings_sections.api.router import settings_section_state
+from app.settings_sections.api.router import (
+    platform_settings_section_state,
+    settings_section_state,
+)
 from app.settings_sections.schemas import SettingsSectionStateResponse
 from app.settings_sections.services import SECTIONS
 from app.tax.models import GstComplianceSettings, TaxProfile, TaxRule
@@ -1323,3 +1327,156 @@ def test_locations_read_as_they_come_then_what_was_set(session: Session) -> None
         "warehouse-types": ("OPTIONAL", "2 types"),
         "storage-areas": ("OPTIONAL", "1 area"),
     }
+
+
+def _caller(permissions: set[str], *, platform_admin: bool = False) -> Principal:
+    """Build a principal of the shape ``_issue_tokens`` mints."""
+    user_id = uuid4()
+    extra: dict[str, object] = {"permissions": sorted(permissions)}
+    if platform_admin:
+        extra["platform_admin"] = True
+        extra["platform_admin_scope"] = "ALL_FIRMS"
+    return Principal(
+        subject=user_id,
+        roles=frozenset(),
+        permissions=frozenset(permissions),
+        claims=TokenClaims(
+            sub=str(user_id), type=TokenType.ACCESS, iat=1, exp=4_102_444_800, **extra
+        ),
+    )
+
+
+def _platform_state(
+    session: Session, section: str, principal: Principal, firm_id: UUID | None
+) -> SettingsSectionStateResponse:
+    """Call the platform route function as ``principal`` working in ``firm_id``."""
+    scope = FirmScope(principal=principal, firm_id=firm_id)
+    response = platform_settings_section_state(section, scope, session)
+    assert response.data is not None
+    return response.data
+
+
+def _person(session: Session, email: str, firm: Firm | None = None) -> User:
+    """Create a switched-on user, a member of ``firm`` when one is given."""
+    user = User(email=email, full_name=email, password_hash="x")
+    session.add(user)
+    session.flush()
+    if firm is not None:
+        session.add(UserFirm(user_id=user.id, firm_id=firm.id, is_primary=True))
+    session.commit()
+    return user
+
+
+def _people_fixture(session: Session) -> tuple[Firm, Firm]:
+    """Two firms, seeded roles, one role and one template of each firm's own."""
+    own, other = _firm(session, "PPL01"), _firm(session, "PPL02")
+    session.add_all(
+        [
+            Role(code="FIRM_ADMIN", name="Firm admin", is_system=True),
+            Role(code="SALES_MANAGER", name="Sales manager", is_system=True),
+            Role(code="PLATFORM_ADMIN", name="Platform admin", is_system=True),
+            Role(code="SUPPORT_ADMIN", name="Support", is_system=True),
+            Role(code="packer", name="Packer", firm_id=own.id),
+            Role(code="driver", name="Driver", firm_id=other.id),
+            UserTemplate(code="CLERK", name="Clerk", is_system=True),
+            UserTemplate(code="PACK", name="Packing desk", firm_id=own.id),
+            UserTemplate(code="DRIVE", name="Drivers", firm_id=other.id),
+        ]
+    )
+    session.commit()
+    _person(session, "a@ppl01.test", own)
+    _person(session, "b@ppl01.test", own)
+    _person(session, "c@ppl02.test", other)
+    admin = _person(session, "root@platform.test", own)
+    session.add(PlatformAdmin(user_id=admin.id, scope="ALL_FIRMS"))
+    session.commit()
+    return own, other
+
+
+def test_people_counts_what_a_firm_administrator_s_screens_list(
+    session: Session,
+) -> None:
+    """A firm's own rows and the ready-made ones; never another firm's."""
+    own, _ = _people_fixture(session)
+
+    state = _platform_state(session, "people", _caller({"USER_VIEW"}), own.id)
+
+    assert [step.code for step in state.steps] == [
+        "roles",
+        "user-templates",
+        "users",
+        "user-firms",
+    ]
+    assert _details(state) == {
+        "roles": ("DONE", "2 ready-made, 1 your own"),
+        "user-templates": ("OPTIONAL", "2 templates"),
+        "users": ("DONE", "2 people"),
+        "user-firms": ("OPTIONAL", "3 memberships"),
+    }
+    assert state.todo_count == 0
+
+
+def test_people_counts_the_installation_for_a_platform_administrator(
+    session: Session,
+) -> None:
+    """Every firm's rows, the platform roles included, the hidden one not."""
+    own, _ = _people_fixture(session)
+    root = _caller(set(), platform_admin=True)
+
+    assert _details(_platform_state(session, "people", root, own.id)) == {
+        "roles": ("DONE", "3 ready-made, 2 your own"),
+        "user-templates": ("OPTIONAL", "3 templates"),
+        "users": ("DONE", "4 people"),
+        "user-firms": ("OPTIONAL", "4 memberships in 2 firms"),
+    }
+
+
+def test_an_empty_platform_has_firms_and_people_to_do(session: Session) -> None:
+    """Nothing works without a firm, a role and a person."""
+    root = _caller(set(), platform_admin=True)
+
+    firms = _platform_state(session, "firms", root, None)
+    people = _platform_state(session, "people", root, None)
+
+    assert _details(firms) == {
+        "business-profiles": ("OPTIONAL", "None yet"),
+        "firms": ("TODO", "None yet"),
+    }
+    assert firms.todo_count == 1
+    assert people.todo_count == 2
+
+
+def test_firms_counts_live_firms_and_profiles(session: Session) -> None:
+    """A soft-deleted firm and a switched-off profile are not counted."""
+    _firm(session, "LIVE01")
+    gone = _firm(session, "GONE01")
+    gone.is_deleted = True
+    session.add_all(
+        [
+            BusinessProfile(code="PHARMA", name="Pharma", industry_type="PHARMA"),
+            BusinessProfile(
+                code="OLD", name="Old", industry_type="FMCG", status="INACTIVE"
+            ),
+        ]
+    )
+    session.commit()
+
+    state = _platform_state(session, "firms", _caller(set(), platform_admin=True), None)
+
+    assert _details(state) == {
+        "business-profiles": ("OPTIONAL", "1 profile"),
+        "firms": ("DONE", "1 firm"),
+    }
+
+
+def test_platform_sections_refuse_who_is_not_offered_them(session: Session) -> None:
+    """Firms is a platform screen; People needs a people screen and a firm."""
+    firm = _firm(session)
+    with pytest.raises(AuthorizationError):
+        _platform_state(session, "firms", _caller({"USER_VIEW"}), firm.id)
+    with pytest.raises(AuthorizationError):
+        _platform_state(session, "people", _caller({"SALES_VIEW"}), firm.id)
+    with pytest.raises(AuthorizationError):
+        _platform_state(session, "people", _caller({"ROLE_VIEW"}), None)
+    with pytest.raises(ResourceNotFoundError):
+        _platform_state(session, "tax", _caller(set(), platform_admin=True), None)

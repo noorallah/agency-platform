@@ -288,6 +288,11 @@ abstract final class MenuLayout {
   static const String itemListsSubjectRoute = 'settings/subject/item-lists';
   static const String locationsSubjectRoute = 'settings/subject/locations';
 
+  /// Settings > People and Firms as one screen each (row T2), the same way.
+  /// System stays as cards: every item there is a tool or a log.
+  static const String peopleSubjectRoute = 'settings/subject/people';
+  static const String firmsSubjectRoute = 'settings/subject/firms';
+
   /// The subject screens as items, so each tab has a label and a path.
   static const List<MenuItemSpec> subjectPages = [
     MenuItemSpec.phase2(taxSubjectRoute, 'Tax settings'),
@@ -305,6 +310,8 @@ abstract final class MenuLayout {
     MenuItemSpec.phase2(partyListsSubjectRoute, 'Party lists settings'),
     MenuItemSpec.phase2(itemListsSubjectRoute, 'Item lists settings'),
     MenuItemSpec.phase2(locationsSubjectRoute, 'Locations settings'),
+    MenuItemSpec.phase2(peopleSubjectRoute, 'People settings'),
+    MenuItemSpec.phase2(firmsSubjectRoute, 'Firms settings'),
   ];
 
   /// Messaging (backlog 51): the firm's switch, accounts, events and log.
