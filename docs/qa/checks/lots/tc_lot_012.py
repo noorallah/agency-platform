@@ -20,7 +20,7 @@ c0.eq(sorted((r["batch_number"], r["quantity"], r["rate"], r["value"]) for r in 
       "lot report: a row per lot with quantity, cost and value")
 c0.ok(all(r[k] for r in rows for k in ("lot_reference", "received_on", "expiry_date", "mrp")),
       "each row carries reference, received date, expiry and MRP", rows[:1])
-val = rows_of(api.get(f"{INV}/reports/stock-valuation?page_size=100&include_zero=true"))
+val = all_rows(api, f"{INV}/reports/stock-valuation?include_zero=true")
 mine = [r for r in val if r["row_type"] == "ITEM" and r["product_code"] == p["code"]]
 c0.eq((len(mine), D(mine[0]["quantity"]) if mine else None, D(mine[0]["value"]) if mine else None), (1, D(18), D(740)),
       "Stock valuation of the item is the sum of its lots (18 units, 740.00)")
