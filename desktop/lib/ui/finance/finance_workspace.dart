@@ -236,6 +236,45 @@ ResourceDefinition<FinanceCentre> financeCentreDefinition(
   );
 }
 
+/// The body of an Account structure tab (control accounts, cost centres,
+/// profit centres), or null for any other tab.
+///
+/// The Finance workspace shows it under its heading and Settings > Account
+/// structure under a step's tab (backlog 148, row T2); both come here so the
+/// two cannot build a screen differently.
+Widget? accountStructureScreen(
+  String tabId,
+  ApiClient api,
+  PermissionService permissions, {
+  required bool hasActiveFirm,
+}) =>
+    switch (tabId) {
+      'cost-centers' => ResourceManagementPage<FinanceCentre>(
+          api: api,
+          definition: financeCentreDefinition(
+            api,
+            permissions,
+            profit: false,
+            showFrame: false,
+          ),
+        ),
+      'profit-centers' => ResourceManagementPage<FinanceCentre>(
+          api: api,
+          definition: financeCentreDefinition(
+            api,
+            permissions,
+            profit: true,
+            showFrame: false,
+          ),
+        ),
+      'control-accounts' => ControlAccountsPage(
+          api: api,
+          permissions: permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
+      _ => null,
+    };
+
 /// The accounting workspace: what the finance API has been recording all along.
 ///
 /// The module rendered "Coming Soon" while thirty endpoints ran behind it and
@@ -271,29 +310,15 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
         description: 'Accounts, and whether the books balance.',
         breadcrumbs: const ['Workspace', 'Finance'],
         child: switch (widget.tabId) {
-          'cost-centers' => ResourceManagementPage<FinanceCentre>(
-              api: widget.api,
-              definition: financeCentreDefinition(
-                widget.api,
-                widget.permissions,
-                profit: false,
-                showFrame: false,
-              ),
-            ),
-          'profit-centers' => ResourceManagementPage<FinanceCentre>(
-              api: widget.api,
-              definition: financeCentreDefinition(
-                widget.api,
-                widget.permissions,
-                profit: true,
-                showFrame: false,
-              ),
-            ),
-          'control-accounts' => ControlAccountsPage(
-              api: widget.api,
-              permissions: widget.permissions,
+          // Built in one place: Settings > Account structure shows the same
+          // (backlog 148).
+          'cost-centers' || 'profit-centers' || 'control-accounts' =>
+            accountStructureScreen(
+              widget.tabId,
+              widget.api,
+              widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
-            ),
+            )!,
           'journal-entries' => JournalEntriesPage(
               api: widget.api,
               preferences: widget.preferences,

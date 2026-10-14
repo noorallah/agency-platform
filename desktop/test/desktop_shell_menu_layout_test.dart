@@ -255,6 +255,29 @@ void main() {
       'sales/promotions',
       'sales/price-lists',
     ),
+    (
+      'Territories & routes',
+      'territories',
+      'Territories & routes settings',
+      'sales/route-types',
+      'sales/route-builder',
+    ),
+    (
+      'Account structure',
+      'account-structure',
+      'Account structure settings',
+      'accounting/cost-centers',
+      'accounting/control-accounts',
+    ),
+    // Customer Groups is a phase 2 page, not a catalogue tab: its step
+    // still shows the screen.
+    (
+      'Party lists',
+      'party-lists',
+      'Party lists settings',
+      'masters/vendor-types',
+      'customer-groups',
+    ),
   ]) {
     testWidgets('Settings > $section opens as one screen in a tab of its own',
         (tester) async {
@@ -286,12 +309,16 @@ void main() {
     });
   }
 
-  // The old items of Stock, Business profile and Pricing still open from
-  // search, each in its own tab, as before the subjects.
+  // The old items of Stock, Business profile, Pricing, Territories & routes,
+  // Account structure and Party lists still open from search, each in its
+  // own tab, as before the subjects.
   for (final (String query, String path) in const [
     ('Adjustment Reasons', 'inventory/adjustment-reasons'),
     ('Unit Sets', 'administration/unit-sets'),
     ('Price Lists', 'sales/price-lists'),
+    ('Route Builder', 'sales/route-builder'),
+    ('Control Accounts', 'accounting/control-accounts'),
+    ('Customer Groups', 'customer-groups'),
   ]) {
     testWidgets('Settings search still opens $query in its own tab',
         (tester) async {
