@@ -18,6 +18,7 @@ from app.core.exceptions import ResourceNotFoundError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
 from app.customers.models import Customer
+from app.inventory.services.lots import costs_by_lot
 from app.pricing.schemas.price_level import (
     PriceLevelResponse,
     PriceLevelWrite,
@@ -27,7 +28,12 @@ from app.pricing.schemas.price_level import (
     UnitPricesResponse,
 )
 from app.pricing.services.price_levels import PriceLevelService
-from app.pricing.services.unit_price import UnitPriceResolver, document_price_level
+from app.pricing.services.trade_levels import ensure_trade_levels
+from app.pricing.services.unit_price import (
+    StockPlace,
+    UnitPriceResolver,
+    document_price_level,
+)
 
 router = APIRouter(
     prefix="/api/v1/price-levels",
@@ -61,7 +67,15 @@ def list_price_levels(
     Open to whoever raises a sales document as well as to whoever keeps the
     levels: the document offers them as its switch (backlog 131), and the
     names of a firm's levels are no more than the prices already quoted.
+
+    A firm costing by lot that has not yet got its two reserved levels,
+    Retail and Wholesale (row L3), gets them on this read: a firm that
+    switched before they existed would otherwise never have them.
     """
+    if costs_by_lot(db, scope.firm_id) and ensure_trade_levels(
+        db, scope.firm_id, scope.actor_id
+    ):
+        db.commit()
     return ApiResponse(
         data=[
             PriceLevelResponse.model_validate(row)
@@ -98,6 +112,8 @@ def unit_prices(
     customer_id: Annotated[UUID | None, Query()] = None,
     territory_id: Annotated[UUID | None, Query()] = None,
     price_level_id: Annotated[UUID | None, Query()] = None,
+    branch_id: Annotated[UUID | None, Query()] = None,
+    warehouse_id: Annotated[UUID | None, Query()] = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[UnitPricesResponse]:
     """Return the price each product's line starts at for this customer.
@@ -106,7 +122,10 @@ def unit_prices(
     its group's) price level, then the product's own price (SEL-9). What a
     document fills a blank price with, offered here for the editor to show.
     ``price_level_id`` asks at the level a document names for itself rather
-    than the customer's usual one (backlog 131).
+    than the customer's usual one (backlog 131). For a firm costing by lot,
+    ``branch_id`` and ``warehouse_id`` price each product at the lot that
+    would leave that warehouse first (row L3); without them a line names no
+    lot and takes the level's rate or the product's price.
     """
     price_level_id = document_price_level(
         db, firm_id=scope.firm_id, price_level_id=price_level_id
@@ -125,7 +144,7 @@ def unit_prices(
     )
     prices = []
     for product_id in dict.fromkeys(product_ids):
-        found = resolver.price(product_id)
+        found = resolver.price(product_id, place=_place(branch_id, warehouse_id))
         prices.append(
             UnitPriceResponse(
                 product_id=product_id, unit_price=found.price, source=found.source
@@ -138,6 +157,13 @@ def unit_prices(
             prices=prices,
         )
     )
+
+
+def _place(branch_id: UUID | None, warehouse_id: UUID | None) -> StockPlace | None:
+    """Return the place a line would leave from, where both halves are named."""
+    if branch_id is None or warehouse_id is None:
+        return None
+    return StockPlace(branch_id=branch_id, warehouse_id=warehouse_id)
 
 
 @router.get(

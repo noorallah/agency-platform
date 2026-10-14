@@ -33,6 +33,7 @@ from app.inventory.models import (
 )
 from app.inventory.schemas.inventory import InventoryTransactionType
 from app.inventory.services.lots import FIRM_BY_LOT, LotSource
+from app.pricing.services.trade_levels import ensure_trade_levels
 from app.products.models import Product
 
 #: What ``stock_lot_settings.costing_method`` reads for a firm on Average.
@@ -226,6 +227,8 @@ class LotSwitchOverService:
             row.switched_on = on
             row.updated_by = actor_id
             self._session.flush()
+            # The bill's one switch, Retail and Wholesale (row L3).
+            ensure_trade_levels(self._session, firm_id, actor_id)
             self._assert_carried_exactly(firm_id, plan.items)
             record_audit(
                 self._session,

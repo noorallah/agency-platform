@@ -17,15 +17,18 @@ behind it. That is the whole reason the `stage_*` methods exist.
 """
 
 from collections.abc import Callable, Sequence
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.models import BatchRecord
 from app.batch_serial.services.mrp_ceiling import refuse_above_batch_mrp
 from app.branches.models import Branch, Warehouse
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.pricing import batch_trade_rate
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.schemas import (
     DeliveryNoteBatchPick,
@@ -33,6 +36,8 @@ from app.delivery_note.schemas import (
     DeliveryNoteLineWrite,
 )
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
+from app.inventory.services.lots import costs_by_lot
+from app.pricing.services.unit_price import UnitPriceResolver
 from app.products.models import Product
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
@@ -227,12 +232,12 @@ class SalesChainService:
             # refused in those words rather than for an order nobody typed.
             raised_as="bill",
             # A line drawn wholly from one batch it chose may take that
-            # batch's PTR or PTS (PG-14); several batches name no one rate.
-            price_batches={
-                line.line_number: batch_id
-                for line in data.lines
-                if (batch_id := self._one_batch(line)) is not None
-            },
+            # batch's PTR or PTS (PG-14); several batches name no one rate,
+            # except for a firm costing by lot, whose lots on one line share
+            # the bill's price (row L3).
+            price_batches=self._price_batches(
+                data, firm_id=firm_id, on=data.invoice_date
+            ),
         )
         self._refuse_above_chosen_mrp(order, data.lines)
         self.raised_orders.append(order)
@@ -657,6 +662,80 @@ class SalesChainService:
                 quantity=Decimal(str(line.quantity or 0)),
                 stock_units_per_unit=line.conversion_factor,
             )
+
+    def _price_batches(
+        self, data: SalesInvoiceCreate, *, firm_id: UUID, on: date
+    ) -> dict[int, UUID]:
+        """Return, by line number, the batch each line is priced from.
+
+        A line drawn wholly from one chosen batch, on any firm. For a firm
+        costing by lot also a line drawn from several lots that agree on the
+        bill's price -- the lot's PTR on a Retail bill, its PTS on a
+        Wholesale one -- priced from the first; one whose lots disagree is
+        refused, because one line carries one price (row L3, design section
+        3.5). A line with a typed price takes no price from its lots, so its
+        lots may differ.
+
+        Raises:
+            ValidationError: A line with no typed price chose lots at two
+                prices for this bill, naming the line and both prices.
+
+        """
+        chosen = {
+            line.line_number: batch_id
+            for line in data.lines
+            if (batch_id := self._one_batch(line)) is not None
+        }
+        split = [
+            line
+            for line in data.lines
+            if line.line_number not in chosen
+            and line.unit_price is None
+            and len({pick.batch_id for pick in line.batches or []}) > 1
+        ]
+        if not split or not costs_by_lot(self._session, firm_id):
+            return chosen
+        resolver = UnitPriceResolver(
+            self._session,
+            firm_id=firm_id,
+            customer_id=data.customer_id,
+            territory_id=data.territory_id,
+            on=on,
+            price_level_id=data.price_level_id,
+        )
+        for line in split:
+            picks = [pick.batch_id for pick in line.batches or []]
+            batches = {
+                batch.id: batch
+                for batch in self._session.scalars(
+                    select(BatchRecord).where(BatchRecord.id.in_(picks))
+                )
+            }
+            prices = [
+                None if found is None else found.price
+                for batch_id in picks
+                if (batch := batches.get(batch_id)) is not None
+                for found in [
+                    batch_trade_rate(
+                        trade_class=resolver.trade_class,
+                        ptr=None if batch.ptr is None else Decimal(str(batch.ptr)),
+                        pts=None if batch.pts is None else Decimal(str(batch.pts)),
+                    )
+                ]
+            ]
+            differ = list(dict.fromkeys(prices))
+            if len(differ) > 1:
+                shown = " and ".join(
+                    "no price" if price is None else f"{price:.2f}"
+                    for price in differ[:2]
+                )
+                raise ValidationError(
+                    f"Line {line.line_number} takes lots at two prices for "
+                    f"this bill, {shown}. One line carries one price: put the "
+                    "lots of each price on a line of their own."
+                )
+            chosen[line.line_number] = picks[0]
+        return chosen
 
     @staticmethod
     def _one_batch(line: SalesInvoiceLineWrite) -> UUID | None:

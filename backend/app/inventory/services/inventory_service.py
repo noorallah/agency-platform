@@ -4701,6 +4701,40 @@ class InventoryService:
             ).all()
         )
 
+    def first_lot_to_leave(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        on: date,
+    ) -> UUID | None:
+        """Return the lot whose free stock would leave this warehouse first.
+
+        The order reservation and dispatch rank in (`_expiry_ranked_rows`),
+        passing over a lot out of date on ``on``, which dispatch refuses.
+        None where nothing is free, or where stock with no lot would leave
+        before any lot: a line priced from it has no lot price to take (L3).
+        """
+        for row in self._expiry_ranked_rows(
+            firm_scope=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            column=InventoryRecord.available_quantity,
+        ):
+            if row.batch_id is None:
+                return None
+            batch = self._session.get(BatchRecord, row.batch_id)
+            if batch is None or batch.is_deleted:
+                continue
+            if batch.expiry_date is not None and batch.expiry_date <= on:
+                continue
+            batch_id: UUID = row.batch_id
+            return batch_id
+        return None
+
     def issue_rule(self, product_id: UUID) -> str:
         """Return the product's issue rule: FEFO unless it names another."""
         rule = self._session.scalar(

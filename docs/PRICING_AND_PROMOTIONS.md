@@ -1677,6 +1677,42 @@ the goods actually leaving. `LinePrice.source` says `BATCH_PTR` or `BATCH_PTS`;
 sales lines store no price source, so it is not recorded on the line. A
 missing rate falls through unchanged.
 
+**A firm costing by lot has one switch: Retail or Wholesale (row L3 step 3,
+2026-10-15).** `docs/design/LOT_MARGINS_DESIGN.md` section 3.5. Such a firm
+holds two reserved levels, coded RETAIL and WHOLESALE, whose
+`price_levels.trade_class` is RETAILER and STOCKIST
+(`app/pricing/services/trade_levels.py`). They are made by the switch-over,
+and by `GET /price-levels` for a firm that switched before they existed; a
+live level already coded RETAIL or WHOLESALE is adopted and put back in use
+rather than doubled. They may be renamed and reordered; deleting one, or
+making it inactive, is refused, and the class is never writable. Then:
+
+- A customer with no level of his own or his group's starts on the reserved
+  level of his `trade_class` (`customer_price_level`); OTHER starts on none.
+- The batch tier prices by the class of the level the document is at -- the
+  one it names, else the customer's usual -- and by the customer's own class
+  only where that level has none (a Dealer level). So naming Wholesale on a
+  retailer's bill gives every line the lot's PTS. `BATCH_PTR_PTS` is not
+  needed for a firm costing by lot: every lot carries both prices.
+- A line that names no lot is priced at the lot that would leave its
+  warehouse first (`InventoryService.first_lot_to_leave`: the reservation
+  order, skipping a lot out of date on the document's day); stock with no lot
+  leaving first gives no lot price. `GET /price-levels/unit-prices` takes
+  `branch_id` and `warehouse_id` for the same answer.
+- On a counter bill, a line with no typed price whose chosen lots disagree on
+  the bill's price is refused, naming both prices; lots that agree price it
+  from the first. A typed price takes nothing from its lots, so they may
+  differ. A pick on a dispatch from an order already priced is not judged:
+  dispatch does not re-price.
+- The discount limit judges a line at the lot it was priced from: an order at
+  its approval asks with the order's branch and warehouse, before the stock
+  is reserved; a counter bill at the bill asks at the lot its note line
+  shipped. It still asks at the customer's level, so Wholesale on a
+  retailer's bill is a reduction that needs somebody allowed it.
+
+A firm on Average has no reserved level and prices exactly as before
+(`test_lot_price_switch.py`).
+
 **Every price in the ranking is per stock unit, and a line in another unit is
 given that price converted** (D-PRC-25, 2026-10-06). The product's selling
 price, a level's rate, a list's fixed rate and a batch's PTR or PTS are all

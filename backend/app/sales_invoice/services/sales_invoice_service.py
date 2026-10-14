@@ -84,6 +84,7 @@ from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import StockLedgerEntry
+from app.inventory.services.lots import costs_by_lot
 from app.loyalty.services import LoyaltyService
 from app.loyalty.services.redemption_reversal import RedemptionReversalService
 from app.messaging.services import MessagingDocument, stage_document_event
@@ -2767,6 +2768,27 @@ class SalesInvoiceService(TransactionalDocumentService):
         # other bill against the price its order line agreed (D-PRC-2).
         limits = DiscountLimitService(self._session)
         ranked: dict[UUID, Decimal] = {}
+        # A firm costing by lot priced a counter bill's line at the lot it
+        # left from (row L3), and one line never mixes two prices, so any of
+        # its lots is the one to judge it at.
+        shipped_lots: dict[UUID, UUID] = (
+            {
+                note_line_id: batch_id
+                for note_line_id, batch_id in self._session.execute(
+                    select(
+                        DeliveryNoteLineBatch.delivery_note_line_id,
+                        DeliveryNoteLineBatch.batch_id,
+                    ).where(
+                        DeliveryNoteLineBatch.delivery_note_line_id.in_(
+                            list(by_note_line)
+                        ),
+                        DeliveryNoteLineBatch.is_deleted.is_(False),
+                    )
+                ).all()
+            }
+            if own_orders and costs_by_lot(self._session, row.firm_id)
+            else {}
+        )
         for order in own_orders.values():
             order_lines = [
                 order_line
@@ -2779,6 +2801,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                 customer_id=order.customer_id,
                 territory_id=order.territory_id,
                 on=order.order_date,
+                batches={
+                    order_line.line_number: lot
+                    for note_line_id, order_line in by_note_line.items()
+                    if order_line.sales_order_id == order.id
+                    and (lot := shipped_lots.get(note_line_id)) is not None
+                },
             )
             ranked.update(
                 {

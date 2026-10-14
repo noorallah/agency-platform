@@ -19,11 +19,22 @@ level in the ranking and of nothing else -- a price list's fixed rate and a
 batch's trade rate still come first -- and a document that names none is priced
 at the customer's, exactly as before.
 
+**A firm costing by lot prices by the document's kind** (row L3, step 3):
+its two reserved levels, Retail and Wholesale, carry the customer's kind
+they stand for, so the batch tier offers the lot's PTR or PTS by the class of
+the level the document is priced at -- the one it names, else the customer's
+usual -- and by the customer's own class only where that level has none. A
+customer with no level of his own or his group's starts on the reserved level
+of his kind. A line that names no lot is priced at the lot that would leave
+its warehouse first, which is the lot dispatch will take. The PTR and PTS
+tier needs no BATCH_PTR_PTS there: every lot carries both prices.
+
 Built once per document, like ``PriceListResolver``: the customer, its level,
 its territory and the date do not change between lines, so the lists and the
 level's rates are read once and every line is matched against them.
 """
 
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -37,24 +48,38 @@ from app.core.exceptions import ValidationError
 from app.core.utils.money import quantize_money
 from app.core.utils.pricing import LinePrice, batch_trade_rate, resolve_unit_price
 from app.customers.models import Customer, CustomerGroup
+from app.inventory.services.lots import costs_by_lot
 from app.pricing.models import PriceLevel, ProductPriceLevel
 from app.pricing.services.price_list_service import PriceListResolver
+from app.pricing.services.trade_levels import trade_level_for
 from app.products.models import Product
 from app.uom.services import UomService, stock_unit_of
 
 
+@dataclass(frozen=True, slots=True)
+class StockPlace:
+    """Where a line's goods would leave from: a branch's warehouse."""
+
+    branch_id: UUID
+    warehouse_id: UUID
+
+
 def customer_price_level(session: Session, customer: Customer | None) -> UUID | None:
-    """Return the level a customer buys at: its own, else its group's."""
+    """Return the level a customer buys at: its own, else its group's.
+
+    Where neither is set, the reserved level of the customer's kind (row
+    L3): a retailer of a firm costing by lot starts on Retail, a stockist on
+    Wholesale. A firm on Average has no reserved level, so nothing changes.
+    """
     if customer is None:
         return None
     if customer.price_level_id is not None:
         return customer.price_level_id
-    if customer.customer_group_id is None:
-        return None
-    group = session.get(CustomerGroup, customer.customer_group_id)
-    if group is None or group.is_deleted:
-        return None
-    return group.price_level_id
+    if customer.customer_group_id is not None:
+        group = session.get(CustomerGroup, customer.customer_group_id)
+        if group is not None and not group.is_deleted and group.price_level_id:
+            return group.price_level_id
+    return trade_level_for(session, customer.firm_id, customer.trade_class)
 
 
 def document_price_level(
@@ -112,15 +137,21 @@ class UnitPriceResolver:
             on=on,
         )
         customer = session.get(Customer, customer_id) if customer_id else None
-        self._trade_class = customer.trade_class if customer is not None else None
+        #: Whether the firm costs by lot, read once per document.
+        self._by_lot = costs_by_lot(session, firm_id)
         #: Read on the first line naming a batch, never for a document without.
-        self._batch_rates_on: bool | None = None
+        self._batch_rates_on: bool | None = True if self._by_lot else None
+        #: (product, branch, warehouse) -> the lot that would leave first.
+        self._first_lots: dict[tuple[UUID, UUID, UUID], UUID | None] = {}
         #: The customer's usual level, whatever the document names.
         self.customer_level_id = self._in_use(customer_price_level(session, customer))
         self.level_id = (
             self._in_use(price_level_id)
             if price_level_id is not None
             else self.customer_level_id
+        )
+        self.trade_class = self._class_of(
+            self.level_id, customer.trade_class if customer is not None else None
         )
         self._levels: dict[UUID, Decimal] = {}
         if self.level_id is not None:
@@ -138,6 +169,17 @@ class UnitPriceResolver:
         #: (product, line unit, stock unit the line named) -> stock units in
         #: one line unit, resolved once per document.
         self._factors: dict[tuple[UUID, UUID, UUID | None], Decimal] = {}
+
+    def _class_of(self, level_id: UUID | None, fallback: str | None) -> str | None:
+        """Return the kind the batch tier prices for: the level's, else ours.
+
+        Only a reserved level carries a class; any other leaves the
+        customer's own class in force for the lot's price, as before.
+        """
+        level = self._session.get(PriceLevel, level_id) if level_id else None
+        if level is not None and level.trade_class:
+            return level.trade_class
+        return fallback
 
     def _in_use(self, level_id: UUID | None) -> UUID | None:
         """Return the level if it is the firm's and still in use, else None."""
@@ -157,12 +199,17 @@ class UnitPriceResolver:
         quantity: Decimal | None = None,
         *,
         batch_id: UUID | None = None,
+        place: StockPlace | None = None,
     ) -> LinePrice:
         """Return the price one product's line starts at.
 
         ``batch_id`` is the batch the line sells from, where it names one: its
-        trade rate for this customer's class is offered to the ranking.
+        trade rate for this customer's class is offered to the ranking. A
+        line that names none, of a firm costing by lot, is offered the rate
+        of the lot that would leave ``place`` first.
         """
+        if batch_id is None and place is not None and self._by_lot:
+            batch_id = self.first_lot(product_id, place)
         return resolve_unit_price(
             product_price=self._product_price(product_id),
             level_rate=self._levels.get(product_id),
@@ -177,6 +224,7 @@ class UnitPriceResolver:
         *,
         factor: Decimal | None,
         batch_id: UUID | None = None,
+        place: StockPlace | None = None,
     ) -> LinePrice:
         """Return the price of one *line unit* worth ``factor`` stock units.
 
@@ -189,11 +237,12 @@ class UnitPriceResolver:
         or none, is a line in the stock unit and is `price` unchanged.
         """
         if factor is None or factor <= 0 or factor == 1:
-            return self.price(product_id, quantity, batch_id=batch_id)
+            return self.price(product_id, quantity, batch_id=batch_id, place=place)
         resolved = self.price(
             product_id,
             None if quantity is None else quantity * factor,
             batch_id=batch_id,
+            place=place,
         )
         return LinePrice(
             price=quantize_money(resolved.price * factor), source=resolved.source
@@ -207,6 +256,7 @@ class UnitPriceResolver:
         uom_id: UUID | None,
         stock_uom_id: UUID | None = None,
         batch_id: UUID | None = None,
+        place: StockPlace | None = None,
     ) -> LinePrice:
         """Return the price a line starts at **in the unit the line is in**.
 
@@ -225,7 +275,7 @@ class UnitPriceResolver:
 
         """
         if uom_id is None:
-            return self.price(product_id, quantity, batch_id=batch_id)
+            return self.price(product_id, quantity, batch_id=batch_id, place=place)
         factor = self._factors.get((product_id, uom_id, stock_uom_id))
         if factor is None:
             product = self._session.scalar(
@@ -242,12 +292,32 @@ class UnitPriceResolver:
             )
             self._factors[(product_id, uom_id, stock_uom_id)] = factor
         return self.price_at_factor(
-            product_id, quantity, factor=factor, batch_id=batch_id
+            product_id, quantity, factor=factor, batch_id=batch_id, place=place
         )
 
+    def first_lot(self, product_id: UUID, place: StockPlace) -> UUID | None:
+        """Return the lot this product would leave ``place`` from first.
+
+        The order dispatch takes lots in (`first_lot_to_leave`), so the line
+        is priced at the lot it will ship from and dispatch does not re-price
+        it. Read once per product and place on a document.
+        """
+        key = (product_id, place.branch_id, place.warehouse_id)
+        if key not in self._first_lots:
+            from app.inventory.services.inventory_service import InventoryService
+
+            self._first_lots[key] = InventoryService(self._session).first_lot_to_leave(
+                firm_scope=self._firm_id,
+                branch_id=place.branch_id,
+                warehouse_id=place.warehouse_id,
+                product_id=product_id,
+                on=self._on,
+            )
+        return self._first_lots[key]
+
     def _batch_rate(self, product_id: UUID, batch_id: UUID | None) -> LinePrice | None:
-        """Return the batch's PTR or PTS for this customer, if it applies."""
-        if batch_id is None or self._trade_class not in ("RETAILER", "STOCKIST"):
+        """Return the batch's PTR or PTS for this document's kind, if it applies."""
+        if batch_id is None or self.trade_class not in ("RETAILER", "STOCKIST"):
             return None
         if self._batch_rates_on is None:
             self._batch_rates_on = feature_enabled(
@@ -264,7 +334,7 @@ class UnitPriceResolver:
         ):
             return None
         return batch_trade_rate(
-            trade_class=self._trade_class,
+            trade_class=self.trade_class,
             ptr=None if batch.ptr is None else Decimal(str(batch.ptr)),
             pts=None if batch.pts is None else Decimal(str(batch.pts)),
         )
@@ -293,4 +363,9 @@ class UnitPriceResolver:
         return self._products[product_id]
 
 
-__all__ = ["UnitPriceResolver", "customer_price_level", "document_price_level"]
+__all__ = [
+    "StockPlace",
+    "UnitPriceResolver",
+    "customer_price_level",
+    "document_price_level",
+]
