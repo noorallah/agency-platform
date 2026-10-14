@@ -275,7 +275,8 @@ the order they are set up in, and the checking tools set apart at the end.
   function per section in `SECTIONS` (`app/settings_sections/services`),
   and that read never writes.
 - **A step that is a screen** is built by the shell (`_taxScreen` for the
-  tax tabs, shared with the Administration workspace so the two cannot
+  tax tabs and `_settingsStepScreen` for the Firm, Selling and Buying tabs,
+  each shared with the workspace that owns the tab so the two cannot
   differ). **A step that is a window** shows its line, what it is set to
   now and a button that opens the same window.
 - **To do** is only for a step without which the next thing cannot be
@@ -283,6 +284,9 @@ the order they are set up in, and the checking tools set apart at the end.
   a ready-made one came from.
 - A step the role is not offered has no tab and no row; the numbers stay
   those of the full list.
+- A tool's tab says `Check:` before its label, or what the subject's
+  `toolsLabel` says instead: Firm's one tool is `Yours:`, because My branch
+  and warehouse belongs to the signed-in person, not to the firm.
 
 To add a section: an entry in `SettingsSubjects.all` with its route beside
 `MenuLayout.taxSubjectRoute` and in `MenuLayout.subjectPages`, a function in
@@ -291,3 +295,6 @@ To add a section: an entry in `SettingsSubjects.all` with its route beside
 | Section | Steps, in order | Why this order | Tools at the end | State |
 | --- | --- | --- | --- | --- |
 | Tax | 1 Rates and profiles (To do when the firm has no profile), 2 Tax rules (To do when no rule is active), 3 Tax settings, 4 GST on documents, 5 TDS on purchases (3 to 5 always Optional) | A rule picks a profile, so profiles come first; the server does take a rule that names none (the GST template's rules pick by the product's tax group), so this is what a new firm does first rather than a refusal: **decided by the loop**. A profile needs a tax system, made on the same screen as step 1. Steps 3 to 5 name no profile and no rule | Rule simulator, Execution log | Built, row T1 |
+| Firm | 1 Firm settings (`firm-profile`), 2 Financial years (`financial-years`, the one step that can be To do), 3 Numbering (`numbering-series`), 4 Goods types (`goods-types`), 5 Custom fields (`custom-fields`), 6 Custom field rules (`custom-field-rules`), 7 Messaging (`messaging`), 8 Approval levels (`approval-levels`) | 1 first because the business profile decides which features and modules the later steps offer: **decided by the loop**. 2 is required before anything posts -- no document can be posted without an open year. 3 after 2 because a series can carry the year, but numbering works without one: **decided by the loop**. 4 needs nothing before it; its place is **decided by the loop**. 5 before 6 is required: a rule names a field. 7 and 8 need nothing before them and come last as what a firm switches on later: **decided by the loop** | Yours: My branch and warehouse (the signed-in person's own, not the firm's) | Built, row T2 |
+| Selling | 1 Sales stages (`sales-stages`), 2 Salesmen (`salesmen`, To do only when Sales stages makes a salesman required on a bill), 3 Credit control (`credit-control`), 4 Price floor (`price-floor`), 5 Discount limits (`discount-limits`), 6 Loyalty scheme (`loyalty-scheme`), 7 TCS (`tcs`) | 1 before 2 is required: whether a salesman must be named on a bill is a sales-stage setting. 3 to 7 need nothing from each other; credit, then the two price controls, then loyalty and TCS, which most firms leave off, is **decided by the loop** | None | Built, row T2 |
+| Buying | 1 Purchase settings (`purchase-settings`), 2 Approval limits (`approval-limits`), 3 Purchase budgets (`purchase-budgets`) | None needs another. How purchasing behaves first, then who may approve, then budgets, which most firms leave off: **decided by the loop** | None | Built, row T2 |

@@ -208,6 +208,62 @@ void main() {
     await _unmount(tester);
   });
 
+  // Row T2: Firm, Selling and Buying open the same way, each in its own tab,
+  // and a step that is a screen shows the screen its own workspace shows.
+  for (final (String section, String code, String label, String card,
+          String screen) in const [
+    (
+      'Firm',
+      'firm',
+      'Firm settings',
+      'masters/financial-years',
+      'masters/financial-years',
+    ),
+    (
+      'Selling',
+      'selling',
+      'Selling settings',
+      'settings/credit-control',
+      'sales/salesmen',
+    ),
+    (
+      'Buying',
+      'buying',
+      'Buying settings',
+      'settings/purchase-approval-limits',
+      'purchases/purchase-settings',
+    ),
+  ]) {
+    testWidgets('Settings > $section opens as one screen in a tab of its own',
+        (tester) async {
+      await _pumpShell(tester, inFirm: true);
+
+      await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester
+          .ensureVisible(find.byKey(ValueKey('setup-section-$section')));
+      await tester.tap(find.byKey(ValueKey('setup-section-$section')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(ValueKey('setup-card-$card')), findsNothing);
+      await tester.tap(find.byKey(ValueKey('setup-subject-$code')));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final Finder tab =
+          find.byKey(ValueKey('open-screen-settings/subject/$code'));
+      expect(tab, findsOneWidget);
+      expect(find.descendant(of: tab, matching: find.text(label)),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('subject-tab-start')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(ValueKey('subject-tab-$screen')));
+      await tester.tap(find.byKey(ValueKey('subject-tab-$screen')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(ValueKey('subject-body-$screen')), findsOneWidget);
+      expect(find.text('This step has no screen here'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await _unmount(tester);
+    });
+  }
+
   testWidgets('Settings stays on the section a card was opened from',
       (tester) async {
     // D-UI-92: opening Brands from Item lists and coming back showed the

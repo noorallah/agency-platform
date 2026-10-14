@@ -45,6 +45,7 @@ class SettingsSubject {
     required this.sectionCode,
     required this.steps,
     this.tools = const [],
+    this.toolsLabel = 'Check',
     this.connects = const [],
     this.connectsNote = '',
     required this.readyNote,
@@ -66,6 +67,11 @@ class SettingsSubject {
   final List<SubjectStep> steps;
   final List<SubjectStep> tools;
 
+  /// What a tool's tab says before its label: "Check" for a tool that
+  /// checks the steps, "Yours" for one that is the signed-in person's own
+  /// rather than the firm's.
+  final String toolsLabel;
+
   /// "How they connect", link by link.
   final List<String> connects;
 
@@ -86,8 +92,8 @@ class SettingsSubject {
   int numberOf(SubjectStep step) => steps.indexOf(step) + 1;
 }
 
-/// The subjects there are. Only Tax so far; each other section of Settings
-/// joins by adding an entry here and a route beside
+/// The subjects there are: Firm, Selling, Buying and Tax. Each other section
+/// of Settings joins by adding an entry here and a route beside
 /// [MenuLayout.taxSubjectRoute].
 abstract final class SettingsSubjects {
   static const SettingsSubject tax = SettingsSubject(
@@ -167,7 +173,217 @@ abstract final class SettingsSubjects {
         'optional steps can wait until the firm needs them.',
   );
 
-  static const List<SettingsSubject> all = [tax];
+  /// Firm (row T2). Financial Years is the one step that can be To do:
+  /// nothing posts without an open year. My Branch and Warehouse is the
+  /// signed-in person's own, so it stands apart as a tool.
+  static const SettingsSubject firm = SettingsSubject(
+    section: 'Firm',
+    route: MenuLayout.firmSubjectRoute,
+    summary: 'Business profile, financial years, numbering, custom fields',
+    sectionCode: 'firm',
+    steps: [
+      SubjectStep(
+        path: 'masters/firm-settings',
+        label: 'Firm settings',
+        code: 'firm-profile',
+        summary: "The firm's business profile, which decides the features "
+            'and modules it works with.',
+        topLine: 'Start here: the business profile decides what the later '
+            'steps offer.',
+      ),
+      SubjectStep(
+        path: 'masters/financial-years',
+        label: 'Financial years',
+        code: 'financial-years',
+        summary: 'The years the books are kept in. Nothing can be posted '
+            'without an open year.',
+        topLine: 'Needs nothing from the steps before. Open the current '
+            'year before any bill is raised.',
+      ),
+      SubjectStep(
+        path: 'administration/numbering-series',
+        label: 'Numbering',
+        code: 'numbering-series',
+        summary: 'How each kind of document is numbered, such as '
+            'INV/2026-27/0001.',
+        topLine: 'A series can carry the financial year from step 2. Leave '
+            'the defaults unless the firm numbers its own way.',
+      ),
+      SubjectStep(
+        path: 'administration/goods-types',
+        label: 'Goods types',
+        code: 'goods-types',
+        summary: 'The kinds of goods the firm deals in, and what each one '
+            'tracks.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: 'administration/firm-custom-fields',
+        label: 'Custom fields',
+        code: 'custom-fields',
+        summary: "Extra fields of the firm's own on customers, products and "
+            'documents.',
+        topLine: 'Needs nothing from the steps before. Add a field here '
+            'before a rule in the next step can name it.',
+      ),
+      SubjectStep(
+        path: 'administration/firm-custom-field-rules',
+        label: 'Custom field rules',
+        code: 'custom-field-rules',
+        summary: 'Where a custom field is asked for, and whether it must be '
+            'filled.',
+        topLine: 'A rule names a field from the step before. Add the field '
+            'first if it is not in the list.',
+      ),
+      SubjectStep(
+        path: MenuLayout.messagingRoute,
+        label: 'Messaging',
+        code: 'messaging',
+        summary: "Email, WhatsApp and SMS from the firm's own accounts, and "
+            'which events send them.',
+        topLine: 'Needs nothing from the steps before. Off until the firm '
+            'switches it on.',
+      ),
+      SubjectStep(
+        path: MenuLayout.approvalRulesRoute,
+        label: 'Approval levels',
+        code: 'approval-levels',
+        summary: 'Which documents need approving, and by whom.',
+        topLine: 'Needs nothing from the steps before. Without levels, a '
+            'document is approved by whoever may approve it.',
+      ),
+    ],
+    toolsLabel: 'Yours',
+    tools: [
+      SubjectStep(
+        path: MenuLayout.workDefaultsRoute,
+        label: 'My branch and warehouse',
+        summary: "Your own usual branch and warehouse, not the firm's.",
+        topLine: "Yours, not the firm's: the branch and warehouse a new "
+            'document starts with when you raise it.',
+      ),
+    ],
+    connects: [
+      'Business profile',
+      'Financial year',
+      'Numbering',
+      'Documents',
+    ],
+    connectsNote: 'Your usual branch and warehouse are yours, not the '
+        "firm's, so they stand apart from the steps: Yours: My branch and "
+        'warehouse.',
+    readyNote: 'The firm is ready.',
+    readyDetail: 'A financial year is open, so documents can be posted. The '
+        'optional steps can wait until the firm needs them.',
+  );
+
+  /// Selling (row T2). Salesmen is To do only when Sales Stages makes a
+  /// salesman required on a bill.
+  static const SettingsSubject selling = SettingsSubject(
+    section: 'Selling',
+    route: MenuLayout.sellingSubjectRoute,
+    summary: 'Sales stages, salesmen, credit, prices, loyalty, TCS',
+    sectionCode: 'selling',
+    steps: [
+      SubjectStep(
+        path: MenuLayout.salesStagesRoute,
+        label: 'Sales stages',
+        code: 'sales-stages',
+        summary: 'Which stages of a sale people type, and which the system '
+            'raises itself.',
+        topLine: 'Start here: the stages decide what the later steps ask '
+            'for.',
+      ),
+      SubjectStep(
+        path: 'sales/salesmen',
+        label: 'Salesmen',
+        code: 'salesmen',
+        summary: "The firm's own list of salesmen, named on a bill.",
+        topLine: 'To do only when Sales stages makes a salesman required on '
+            'a bill.',
+      ),
+      SubjectStep(
+        path: MenuLayout.creditControlRoute,
+        label: 'Credit control',
+        code: 'credit-control',
+        summary: "Whether a customer's credit limit only warns or also "
+            'blocks a sale.',
+        topLine: 'Needs nothing from the steps before. Warns at 80% until '
+            'changed.',
+      ),
+      SubjectStep(
+        path: MenuLayout.priceFloorRoute,
+        label: 'Price floor',
+        code: 'price-floor',
+        summary: 'The lowest price an item may be sold at.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: MenuLayout.discountLimitsRoute,
+        label: 'Discount limits',
+        code: 'discount-limits',
+        summary: 'The most discount each role may give on a line.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: MenuLayout.loyaltySchemeRoute,
+        label: 'Loyalty scheme',
+        code: 'loyalty-scheme',
+        summary: 'Points customers earn on a sale and spend on a bill.',
+        topLine: 'Needs nothing from the steps before. Off unless the firm '
+            'runs a scheme.',
+      ),
+      SubjectStep(
+        path: MenuLayout.tcsSettingsRoute,
+        label: 'TCS',
+        code: 'tcs',
+        summary: 'Tax collected at source on what customers pay.',
+        topLine: 'Needs nothing from the steps before. Off unless the firm '
+            'collects.',
+      ),
+    ],
+    connects: ['Sales stages', 'Salesman on a bill'],
+    readyNote: 'Selling is ready for this firm.',
+    readyDetail: 'Nothing here has to be done before a sale. The optional '
+        'steps can wait until the firm needs them.',
+  );
+
+  /// Buying (row T2).
+  static const SettingsSubject buying = SettingsSubject(
+    section: 'Buying',
+    route: MenuLayout.buyingSubjectRoute,
+    summary: 'Purchase settings, approval limits, budgets',
+    sectionCode: 'buying',
+    steps: [
+      SubjectStep(
+        path: 'purchases/purchase-settings',
+        label: 'Purchase settings',
+        code: 'purchase-settings',
+        summary: 'How purchase orders and bills behave for this firm.',
+        topLine: 'Start here. Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: MenuLayout.approvalLimitsRoute,
+        label: 'Approval limits',
+        code: 'approval-limits',
+        summary: 'How large a purchase order each person may approve.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: MenuLayout.purchaseBudgetsRoute,
+        label: 'Purchase budgets',
+        code: 'purchase-budgets',
+        summary: 'How much may be bought in a period.',
+        topLine: 'Needs nothing from the steps before. Off unless the firm '
+            'budgets.',
+      ),
+    ],
+    readyNote: 'Buying is ready for this firm.',
+    readyDetail: 'Nothing here has to be done before a purchase. The '
+        'optional steps can wait until the firm needs them.',
+  );
+
+  static const List<SettingsSubject> all = [firm, selling, buying, tax];
 
   /// The subject that stands for the Settings section called [label].
   static SettingsSubject? forSection(String label) {
