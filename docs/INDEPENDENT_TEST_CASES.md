@@ -4677,6 +4677,47 @@ commission uses `commission-firm`:
   - Step 6: the transfer or voucher prints as before.
 - **Leaves:** the firm's bills in the trade layout (set it back to **Standard**).
 
+### TC-SELL-114 — A salesman with no sign-in, picked on a bill
+
+*Added 2026-10-14 (P2, the firm's own list of salesmen). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Fixture:** `selling-firm`
+- **Steps:** as the prepared **Firm admin**: Settings > Selling > **Salesmen** → New: name `Phone order`, Signs in as left empty, Earns commission off → Save. Sell > Sales Invoices → New counter bill for `<SUFFIX>-C01`, one line `<SUFFIX>-DET` × 1; open the Salesman box and choose `Phone order` → Save. Open the saved bill.
+- **Expect:** `Phone order` is saved with no user and appears in the list; it is offered in the Salesman box; the saved bill shows `Phone order` as its salesman. No user account was needed.
+
+### TC-SELL-115 — What the Salesman box starts on
+
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Fixture:** `selling-firm`
+- **Also needs:** salesman entries `Asha` (tied to the user you sign in as), `Bala` and `Chitra`; `<SUFFIX>-C01` with account manager Bala and on a round whose primary salesman is Chitra; `<SUFFIX>-C02` with no account manager and the same round; a customer with neither.
+- **Steps:** as the user tied to Asha: Sell > Sales Orders → New Order, choose `<SUFFIX>-C01`; read the Salesman box. Change it to Chitra. Repeat as a user tied to no entry with `<SUFFIX>-C01`, then `<SUFFIX>-C02`, then the customer with neither. Finally raise a delivery note and a bill from an order that names Chitra.
+- **Expect:** signed in as Asha's user, the box starts on **Asha** for every customer, and Chitra can be picked instead and saves. As the untied user: `<SUFFIX>-C01` starts on **Bala** (account manager), `<SUFFIX>-C02` on **Chitra** (round's primary salesman), the third customer **blank**. The note and the bill take **Chitra** from the order and do not ask. An inactive entry is never the starting choice.
+
+### TC-SELL-116 — "Salesman required" refuses a save without one
+
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Fixture:** `selling-firm`
+- **Steps:** as the prepared **Firm admin**: Settings > Selling > Sales Stages → switch **Salesman required** on → Save. Sell > Sales Orders → New Order for a customer with no account manager and no round, Salesman left blank → Create draft. Repeat for a delivery note and a sales bill. Switch the setting off and save each again. Last, with the setting on again, save a quotation with no salesman.
+- **Expect:** with it on, the order, the delivery note and the bill are each refused with "This firm requires a salesman on every order, delivery note and bill. Choose one in the Salesman box." and nothing is saved. With it off, all three save. The quotation saves either way. Documents already saved are untouched by turning the switch on.
+
+### TC-SELL-117 — Order By on the printed bill
+
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Fixture:** `selling-firm`
+- **Steps:** save a bill naming salesman `Asha` and a second bill with none. Print each as a full-page bill in the **Standard** layout, then in the **Trade** layout. Delete the entry `Asha` (Settings > Selling > Salesmen) and print the first bill again. Print the first bill on the half-page and on the roll.
+- **Expect:** both full-page layouts print an *Order By* row reading **Asha** (the trade layout at the head, the standard one in the particulars); the bill with no salesman prints no *Order By* row at all. After the entry is deleted the first bill still prints *Asha*. The half-page and the roll have no *Order By* row.
+
+### TC-SELL-118 — Two salesmen cannot share a name
+
+*Added 2026-10-14 (P2). **No screen was clicked**; the server half is held by unit tests.*
+
+- **Fixture:** `selling-firm`
+- **Steps:** Settings > Selling > Salesmen: with `Phone order` present, New → name `phone order` → Save. Then New → name `Phone Order 2` → Save; edit it to read `PHONE ORDER` → Save.
+- **Expect:** the first save is refused in words (the name is already on the list, whatever the case) and nothing is added; the second is saved, and the edit to `PHONE ORDER` is refused the same way.
+
 ### TC-INCENT-001 — A price list is a ladder, and a promotion still outranks it
 
 - **Covers:** plan 10.1, 10.2
@@ -4936,6 +4977,15 @@ admin**.
 - **Preconditions:** signed in as the platform administrator with a firm selected. Since migration `20261002_0231` every firm store already holds the seven southern states' places: first open a customer address on a fresh install and type PIN **600001** (Chennai) -- it must fill without any loading. Then delete nothing and continue.
 - **Steps:** open the geography screen → **Load places from India Post...**. Look at which states are ticked. Untick all but **Lakshadweep** and **Load**. Then open a customer address and type PIN **682554**. Run the load again for Lakshadweep.
 - **Expect:** the seven southern states are ticked by default, each showing its PIN codes and post offices; the source line names India Post and data.gov.in. The Lakshadweep load reports 1 district, 9 towns, 9 PIN codes and 10 localities. PIN 682554 offers town **Chetlat**, district **Lakshadweep District**, state Lakshadweep, and localities Bithra and Chetlat. The second load adds nothing and the counts stay the same.
+
+### TC-TERR-007 — A salesman with no sign-in covers a round
+
+*Added 2026-10-14 (P2, the firm's own list of salesmen). **No screen was clicked**.*
+
+- **Fixture:** `territory-firm`, plus a salesman entry `Phone order` tied to no user (Settings > Selling > Salesmen).
+- **Steps:** Settings > Set up > Territories & routes > Territories → the fixture's S1 round → **Salespeople** → add `Phone order` (not primary) → Save. Sell > Field sales > **Coverage**, read the salesman view.
+- **Expect:** the assignment is accepted: the picker lists entries of the firm's list, not users. Coverage lists `Phone order` against S1. Over the API, an assignment naming a user's id that is not an entry is refused: "That salesman is not on this firm's list of salesmen. Add him under Salesmen first."
+- **Leaves:** `Phone order` on S1 (remove it to set the round back).
 
 
 ### Known defects found while writing these cases
