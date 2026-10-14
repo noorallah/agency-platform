@@ -103,6 +103,10 @@ class BatchRecord(BaseEntity):
     #: above the MRP, and only where the firm's profile has BATCH_PTR_PTS.
     ptr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     pts: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: The retail and wholesale margins the lot's PTR and PTS were worked out
+    #: at (row L3), kept so the lot's page can say how its prices were reached.
+    retail_margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    wholesale_margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
     remarks: Mapped[str | None] = mapped_column(Text)
 
     # The lot (`docs/design/LOT_COST_DESIGN.md`): where a firm costs by lot,

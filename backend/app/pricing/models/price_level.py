@@ -48,6 +48,10 @@ class PriceLevel(BaseEntity):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    #: The customer's kind this level stands for, ``RETAILER`` or
+    #: ``STOCKIST``, on the two reserved levels Retail and Wholesale of a firm
+    #: costing by lot (row L3); null on every other level.
+    trade_class: Mapped[str | None] = mapped_column(String(20))
 
 
 class ProductPriceLevel(BaseEntity):

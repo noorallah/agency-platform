@@ -14,9 +14,10 @@ General is the absence of a type: a category or a product whose
 ``goods_type_id`` is null tracks nothing and requires nothing.
 """
 
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Index, String, Text, text
+from sqlalchemy import Boolean, ForeignKey, Index, Numeric, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
@@ -107,3 +108,8 @@ class FirmGoodsType(BaseEntity):
     #: them; never written over a product that has its own.
     default_hsn_sac: Mapped[str | None] = mapped_column(String(20))
     default_tax_profile_group_code: Mapped[str | None] = mapped_column(String(50))
+    #: The retail and wholesale margins a new product of this type starts
+    #: with, in percent, a mark-up on the purchase price (row L3). Null is no
+    #: margin set; never written over a product that has its own.
+    retail_margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    wholesale_margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))

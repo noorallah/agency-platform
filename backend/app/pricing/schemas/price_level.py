@@ -32,6 +32,8 @@ class PriceLevelResponse(PricingSchema):
     name: str
     sort_order: int
     is_active: bool
+    #: ``RETAILER`` or ``STOCKIST`` on a reserved level (row L3); never sent.
+    trade_class: str | None = None
     version: int
     created_at: datetime
     updated_at: datetime

@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.products.schemas.goods_type import ProductGoodsTypeOption
+from app.products.schemas.goods_type import MarginPercent, ProductGoodsTypeOption
 from app.uom.schemas.unit_set import ProductUnitSetOption
 
 
@@ -202,6 +202,10 @@ class ProductWrite(ProductSchema):
     #: Per stock unit. Below it, a sale warns or is refused (BACKLOG 64 row 2).
     minimum_selling_price: Decimal | None = Field(default=None, ge=0, max_digits=18)
     mrp: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    #: Retail and wholesale margins, a mark-up on the purchase price before
+    #: GST (row L3). Left out on a create, the goods type's are taken.
+    retail_margin_percent: MarginPercent | None = None
+    wholesale_margin_percent: MarginPercent | None = None
     status: ProductStatus = ProductStatus.ACTIVE
     #: Bought and stocked but never sold -- packing material, consumables
     #: (STK-17). Refused on every new sales line.
@@ -370,6 +374,8 @@ class ProductResponse(ProductSchema):
     purchase_price_in_force: Decimal | None = None
     selling_price_in_force: Decimal | None = None
     mrp_in_force: Decimal | None = None
+    retail_margin_percent: Decimal | None = None
+    wholesale_margin_percent: Decimal | None = None
     status: ProductStatus
     not_for_sale: bool = False
     shelf_life_days: int | None = None
