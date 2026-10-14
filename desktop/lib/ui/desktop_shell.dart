@@ -965,10 +965,18 @@ class _DesktopShellState extends State<DesktopShell> {
         loadState: () =>
             widget.session.api.settingsSectionState(subject.sectionCode),
         screenFor: (item) =>
-            (item.module == AppModule.administration && item.tab != null
-                ? _taxScreen(
-                    item.tab!, widget.session.api, widget.permissions)
-                : null) ??
+            (item.tab == null
+                ? null
+                : _taxScreen(
+                        item.tab!, widget.session.api, widget.permissions) ??
+                    _settingsStepScreen(
+                      context,
+                      item.tab!,
+                      widget.session.api,
+                      widget.permissions,
+                      preferences: widget.preferences,
+                      onOpenGlobalSearch: _openGlobalSearch,
+                    )) ??
             const WorkspaceEmptyState(
               title: 'This step has no screen here',
               message: 'Open it from Settings search instead.',
@@ -2797,6 +2805,83 @@ Widget? _taxScreen(
       _ => null,
     };
 
+/// The body of a Firm, Selling or Buying settings tab that is a screen, or
+/// null for any other tab.
+///
+/// Its own workspace shows it under its heading and the Settings subject
+/// screen under a step's tab (backlog 148, row T2); both come here so the
+/// two cannot build a screen differently. [preferences] is needed only by
+/// Purchase Settings, which is not built without it.
+Widget? _settingsStepScreen(
+  BuildContext context,
+  String tabId,
+  ApiClient api,
+  PermissionService permissions, {
+  DesktopPreferencesService? preferences,
+  ValueChanged<PurchaseSection>? onNavigateToSection,
+  Future<void> Function()? onOpenGlobalSearch,
+}) {
+  final bool hasActiveFirm = api.activeFirmId?.call() != null;
+  return switch (tabId) {
+    'firm-settings' => FirmSettingsPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+        activeFirmId: api.activeFirmId?.call(),
+      ),
+    'financial-years' => FinancialYearsPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+      ),
+    'numbering-series' => NumberingSeriesPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+      ),
+    'goods-types' => ResourceManagementPage<GoodsTypeRecord>(
+        api: api,
+        definition: goodsTypeDefinition(
+          api,
+          permissions,
+          context: context,
+          showFrame: false,
+        ),
+      ),
+    'firm-custom-fields' => ResourceManagementPage<AttributeDefinitionRecord>(
+        api: api,
+        definition: firmCustomFieldDefinition(
+          api,
+          permissions,
+          showFrame: false,
+        ),
+      ),
+    'firm-custom-field-rules' =>
+      ResourceManagementPage<CategoryAttributeRuleRecord>(
+        api: api,
+        definition: firmCustomFieldRuleDefinition(
+          api,
+          permissions,
+          showFrame: false,
+        ),
+      ),
+    'salesmen' => SalesmenPage(
+        api: api,
+        permissions: permissions,
+      ),
+    'purchase-settings' when preferences != null => PurchaseManagementPage(
+        api: api,
+        preferences: preferences,
+        permissions: permissions,
+        hasActiveFirm: api.activeFirmId?.call()?.isNotEmpty == true,
+        section: PurchaseSection.settings,
+        onNavigateToSection: onNavigateToSection,
+        onOpenGlobalSearch: onOpenGlobalSearch,
+      ),
+    _ => null,
+  };
+}
+
 class _AdministrationWorkspace extends StatefulWidget {
   const _AdministrationWorkspace({
     super.key,
@@ -2934,11 +3019,12 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           definition:
               userFirmAssignmentDefinition(widget.api, widget.permissions),
         ),
-      'numbering-series' => NumberingSeriesPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-        ),
+      // Built in one place: Settings > Firm shows the same (backlog 148).
+      'numbering-series' ||
+      'goods-types' ||
+      'firm-custom-fields' ||
+      'firm-custom-field-rules' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       'business-profiles' => ResourceManagementPage<BusinessProfileRecord>(
           api: widget.api,
           definition: _businessProfileDefinition(
@@ -2958,32 +3044,6 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
       'module-configuration' => ResourceManagementPage<BusinessModuleRecord>(
           api: widget.api,
           definition: _businessModuleDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
-      'goods-types' => ResourceManagementPage<GoodsTypeRecord>(
-          api: widget.api,
-          definition: goodsTypeDefinition(
-            widget.api,
-            widget.permissions,
-            context: context,
-            showFrame: false,
-          ),
-        ),
-      'firm-custom-fields' => ResourceManagementPage<AttributeDefinitionRecord>(
-          api: widget.api,
-          definition: firmCustomFieldDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
-      'firm-custom-field-rules' =>
-        ResourceManagementPage<CategoryAttributeRuleRecord>(
-          api: widget.api,
-          definition: firmCustomFieldRuleDefinition(
             widget.api,
             widget.permissions,
             showFrame: false,
@@ -3108,17 +3168,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         : visibleTabs.first.id;
     final bool hasActiveFirm = widget.api.activeFirmId?.call() != null;
     final Widget content = switch (tabId) {
-      'financial-years' => FinancialYearsPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-        ),
-      'firm-settings' => FirmSettingsPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          activeFirmId: widget.api.activeFirmId?.call(),
-        ),
+      // Built in one place: Settings > Firm shows the same (backlog 148).
+      'financial-years' || 'firm-settings' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       'customers' => CustomerManagementPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -3422,10 +3474,9 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
-      'salesmen' => SalesmenPage(
-          api: widget.api,
-          permissions: widget.permissions,
-        ),
+      // Built in one place: Settings > Selling shows the same (backlog 148).
+      'salesmen' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       'beat-plans' => BeatPlanManagementPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -3895,15 +3946,16 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           onNavigateToSection: navigateTo,
           onOpenGlobalSearch: widget.onOpenGlobalSearch,
         ),
-      'purchase-settings' => PurchaseManagementPage(
-          api: widget.api,
+      // Built in one place: Settings > Buying shows the same (backlog 148).
+      'purchase-settings' => _settingsStepScreen(
+          context,
+          tabId,
+          widget.api,
+          widget.permissions,
           preferences: widget.preferences,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: PurchaseSection.settings,
           onNavigateToSection: navigateTo,
           onOpenGlobalSearch: widget.onOpenGlobalSearch,
-        ),
+        )!,
       _ => const WorkspaceEmptyState(
           title: 'Purchase workspace unavailable',
           message: 'The selected purchase workspace is not available.',
