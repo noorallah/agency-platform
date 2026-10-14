@@ -57,6 +57,13 @@ class DocumentPrintTemplateService:
     ) -> DocumentPrintTemplateResponse:
         """Create or replace the firm's template for one document type."""
         code = self._assert_printable(document_type)
+        if data.bill_layout != "STANDARD" and code != "SALES_INVOICE":
+            # Drawn for a bill only: an order or a note saved as TRADE would
+            # be stored and printed in the standard layout all the same.
+            raise ValidationError(
+                "The trade layout is for a sales invoice. Other documents "
+                "print in the standard layout."
+            )
         row = self._row(code, firm_scope=firm_scope)
         if row is None:
             values = data.model_dump()
@@ -146,4 +153,5 @@ class DocumentPrintTemplateService:
             copy_labels=list(row.copy_labels or []),
             page_size=row.page_size,
             margin_mm=row.margin_mm,
+            bill_layout=row.bill_layout,
         )

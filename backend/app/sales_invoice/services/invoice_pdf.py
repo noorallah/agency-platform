@@ -277,6 +277,9 @@ class InvoiceDocument:
     #: bill does (row P2). The sum is of the quantities as the lines state
     #: them; free goods are counted beside it, never in it.
     show_total_quantity: bool = False
+    #: Who took the order, as the bill names him: a salesman, or an entry
+    #: such as *Phone order* (row P2). None prints nothing.
+    order_by: str | None = None
 
     @property
     def total_quantity(self) -> Decimal:
@@ -334,6 +337,14 @@ class TemplateSettings:
     #: A4, A5, HALF (half an A4 sheet, backlog 118) or THERMAL80.
     page_size: str = "A4"
     margin_mm: Decimal = Decimal("12")
+    #: STANDARD, or TRADE: the boxed bill the trade prints, laid out as the
+    #: customer's own sample (backlog 143). Read on A4 and A5 only; the half
+    #: page and the roll keep layouts of their own.
+    bill_layout: str = "STANDARD"
+
+
+#: The layout a firm may choose for its full-page bill (backlog 143).
+BILL_LAYOUTS = ("STANDARD", "TRADE")
 
 
 #: The column a bill typed with GST-inclusive rates adds (backlog 64 row 4).
@@ -475,6 +486,12 @@ class InvoicePdfRenderer:
             from app.sales_invoice.services.half_page_pdf import HalfPageRenderer
 
             return HalfPageRenderer(self._template).story(document, width)
+        if self._template.bill_layout == "TRADE" and not self._is_trade():
+            from app.sales_invoice.services.trade_invoice_pdf import (
+                TradeInvoiceRenderer,
+            )
+
+            return TradeInvoiceRenderer(self._template).story(document, width)
         story: list[object] = []
         copies = self._template.copy_labels or ("",)
         for index, label in enumerate(copies):
@@ -482,6 +499,10 @@ class InvoicePdfRenderer:
                 story.append(PageBreak())
             story.extend(self._one_copy(document, width, label))
         return story
+
+    def _is_trade(self) -> bool:
+        """Say whether this renderer draws the trade's layout itself."""
+        return False
 
     # ------------------------------------------------------------------
     def _one_copy(

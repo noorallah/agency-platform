@@ -410,3 +410,28 @@ def set_print_template(
     )
     db.commit()
     return ApiResponse(data=data, message="Print template saved.")
+
+
+@router.post("/print-templates/{document_type}/preview", response_class=Response)
+def preview_print_template(
+    document_type: str,
+    payload: DocumentPrintTemplateWrite,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Draw a sample bill with the settings sent, saved or not (backlog 143).
+
+    Membership is enough: the sample is the firm's own letterhead over lines
+    that belong to nobody, and nothing is written. Choosing a layout without
+    seeing it is a guess.
+    """
+    from app.sales_invoice.services.print_preview import sample_bill_pdf
+
+    pdf = sample_bill_pdf(
+        db, firm_scope=scope.firm_id, document_type=document_type, settings=payload
+    )
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="sample-bill.pdf"'},
+    )

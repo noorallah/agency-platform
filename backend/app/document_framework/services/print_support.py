@@ -42,6 +42,7 @@ def load_template(
     firm_scope: UUID,
     document_type: str,
     fallback: TemplateSettings | None = None,
+    with_layout: bool = False,
 ) -> TemplateSettings:
     """Return the firm's template for one document type.
 
@@ -52,6 +53,10 @@ def load_template(
         fallback: What a firm that has configured nothing gets. A tax invoice
             wants the full default; an order or a challan charges nobody and
             wants neither a bank block nor a certification.
+        with_layout: Read the firm's chosen layout (backlog 143). Only the
+            bill asks: a stock transfer, a contra voucher or a note borrows
+            the sales invoice's template for its letterhead and must not be
+            drawn as a bill because the firm chose a layout for its bills.
 
     Returns:
         The saved settings, or the fallback where the firm has saved none,
@@ -61,6 +66,8 @@ def load_template(
     settings = _saved_template(
         session, firm_scope=firm_scope, document_type=document_type, fallback=fallback
     )
+    if not with_layout:
+        settings = replace(settings, bill_layout="STANDARD")
     return with_bank_account(session, firm_scope=firm_scope, settings=settings)
 
 
@@ -127,6 +134,7 @@ def _saved_template(
         copy_labels=tuple(row.copy_labels or ()),
         page_size=row.page_size,
         margin_mm=row.margin_mm,
+        bill_layout=row.bill_layout,
     )
 
 

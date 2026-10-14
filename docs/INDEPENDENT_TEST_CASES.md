@@ -4635,6 +4635,28 @@ commission uses `commission-firm`:
   - Step 5: no Mfg column; **Total quantity** is there; each tax component has its own rate and amount columns as before.
 - **Leaves:** one order, one delivery note, one bill; the firm's terms and paper as set (set the paper back).
 
+### TC-SELL-113 — A firm chooses the trade's layout for its bill, after seeing a sample
+
+*Added 2026-10-14 (backlog 143, PRT-5). Built in the attended session; **no screen was clicked**.*
+
+- **Covers:** the bill layout in *Print settings*, the sample drawn by **Preview**, and a real bill printed in the trade layout
+- **Fixture:** `ready-firm`, with a customer on a round and a batch-tracked product with an MRP on its batch
+- **Steps**
+  1. Under *Sales > Sales Invoices > Print settings*, keep the paper on **A4** and open **Bill layout**.
+  2. Choose **Trade (boxed, with MRP and PTR)**, type a line of **Terms**, and press **Preview** without saving.
+  3. Close the sample and the dialog without saving, and print any bill.
+  4. Open *Print settings* again, choose **Trade**, save, and print the same bill.
+  5. Set the paper to **Half page**, and look for **Bill layout**.
+  6. Print a stock transfer or a contra voucher.
+- **Expect**
+  - Step 1: **Bill layout** reads **Standard**.
+  - Step 2: a sample bill opens in the boxed layout, headed *SAMPLE - NOT A TAX INVOICE*, with the firm's own name and address, the line of terms just typed, and the columns M.R.P, D.Price, QTY, Free, P.T.R., Disc., GST%, Net Value, Batch, MfgDt and ExpDt.
+  - Step 3: the bill prints in the standard layout: a preview saves nothing.
+  - Step 4: the bill prints in the boxed layout. D.Price is the rate with its GST (250.00 at 18% reads 295.000); Gross less the discount is the taxable value; CGST and SGST are named in the totals; **Net Payable** is the bill's total. The customer's licences print under his details, not at the foot.
+  - Step 5: no **Bill layout** box: the half page keeps its own layout.
+  - Step 6: the transfer or voucher prints as before.
+- **Leaves:** the firm's bills in the trade layout (set it back to **Standard**).
+
 ### TC-INCENT-001 — A price list is a ladder, and a promotion still outranks it
 
 - **Covers:** plan 10.1, 10.2

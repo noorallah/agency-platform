@@ -948,6 +948,12 @@ order. Changing needs `SETTINGS_UPDATE`.
 | How many copies | One, unlabelled | Up to four labelled copies (Original for recipient, Duplicate for transporter ...). |
 | Page size | A4 | A4, A5, half page (half of A4: a short bill in the trade's half-page layout, a bill too long for it on a full A4 page by itself), or an 80 mm thermal roll. Where the firm prints half pages, a customer's own *Bill paper* outranks it for his sales bills and the person printing may switch one print between half and full; on any other paper neither is read. |
 | Margin (mm) | 12 | 5-40. |
+| Bill layout | Standard | Sales invoice on A4 or A5 only (backlog 143). **Standard** is the bill every firm printed until now. **Trade** is the boxed bill the trade prints, laid out after a customer's own sample: the firm, its licences, *Order By* and *Market* on the left, the bill's number and date in the middle, the buyer under *Sold To* with his licences on the right; then the columns M.R.P, D.Price (the rate with its GST), QTY, Free, P.T.R. (the rate the GST is charged on), Disc., GST%, Net Value, Batch, MfgDt and ExpDt; the summary by HSN and rate; Gross, the discount, each GST head, the round off and **Net Payable**; and the terms as a list, with the jurisdiction and the bank first. The half page and the thermal roll keep their own layouts. Nothing else that borrows the bill's letterhead (a stock transfer, a contra voucher, a note) changes with it. |
+
+**Preview** (sales invoice only) draws a sample bill with the settings as they
+stand on the screen, saved or not: the firm's own name and address over sample
+lines that use every column, marked *SAMPLE - NOT A TAX INVOICE*. It saves
+nothing, and any member of the firm may use it.
 
 **Nothing statutory can be changed or hidden:** GSTINs, HSN per line, tax per
 component, the tax summary and the amount in words always print.

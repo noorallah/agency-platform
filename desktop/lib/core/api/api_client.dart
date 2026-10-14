@@ -12238,6 +12238,18 @@ class ApiClient {
         ),
       );
 
+  /// A sample bill drawn with [template] as it stands, saved or not, so a
+  /// layout can be seen before it is chosen (backlog 143).
+  Future<List<int>> printTemplatePreview(
+    String documentType,
+    PrintTemplate template,
+  ) =>
+      downloadBytes(
+        '/api/v1/document-framework/print-templates/$documentType/preview',
+        method: 'POST',
+        body: template.toJson(),
+      );
+
   /// The purchase order as the PDF a supplier is sent.
   Future<List<int>> purchaseOrderPdf(String id) =>
       downloadBytes('/api/v1/purchases/$id/print');
