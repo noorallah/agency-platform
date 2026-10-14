@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import io
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -54,6 +53,7 @@ from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
+from app.core.utils.csv_text import SheetWriter
 from app.core.utils.dates import as_utc, utc_now
 from app.core.utils.pricing import (
     LineDiscount,
@@ -2259,7 +2259,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             descending=True,
         )
         buffer = io.StringIO()
-        writer = csv.writer(buffer)
+        writer = SheetWriter(buffer)
         writer.writerow(
             [
                 "delivery_note_number",

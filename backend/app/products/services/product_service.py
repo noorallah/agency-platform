@@ -2,7 +2,6 @@
 
 # ruff: noqa: D102, D107
 
-import csv
 import io
 from collections.abc import Iterable
 from datetime import date
@@ -45,6 +44,7 @@ from app.core.exceptions import (
     ResourceNotFoundError,
     ValidationError,
 )
+from app.core.utils.csv_text import SheetWriter
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord
 from app.products.models import (
@@ -1293,7 +1293,7 @@ class ProductService:
         # Written by the csv module (D-MST-11): a plain join put a name like
         # "Rice, basmati" across two columns and shifted every one after it.
         buffer = io.StringIO()
-        writer = csv.writer(buffer, lineterminator="\n")
+        writer = SheetWriter(buffer, lineterminator="\n")
         writer.writerow(
             ["Code", "Name", "Type", "Brand", "HSN", "SellingPrice", "Status"]
         )

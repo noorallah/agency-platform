@@ -21,6 +21,7 @@ from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.utils.csv_text import SheetWriter
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
 from app.products.models import Product
@@ -579,10 +580,9 @@ class TaxRuleService:
             status=None,
             include_deleted=False,
         )
-        import csv
 
         buffer = StringIO()
-        writer = csv.writer(buffer)
+        writer = SheetWriter(buffer)
         writer.writerow(
             [
                 "code",

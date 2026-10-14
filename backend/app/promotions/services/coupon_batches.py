@@ -12,7 +12,6 @@ next one to be guessed. The key on coupon codes covers retired codes too, so a
 candidate clashing with any code the firm ever minted is drawn again.
 """
 
-import csv
 import io
 import secrets
 from datetime import date
@@ -23,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.csv_text import SheetWriter
 from app.promotions.models import Promotion, PromotionCoupon, PromotionRedemption
 
 #: Letters and digits a person cannot misread: no 0/O, 1/I/L.
@@ -165,7 +165,7 @@ class CouponBatchService:
             .order_by(PromotionCoupon.code)
         ).all()
         buffer = io.StringIO()
-        writer = csv.writer(buffer)
+        writer = SheetWriter(buffer)
         writer.writerow(
             ["Code", "Status", "Uses allowed", "Used", "From", "Until", "Description"]
         )
