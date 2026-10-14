@@ -131,6 +131,9 @@ def test_validating_a_salesman_on_create_does_not_reach_for_users_either(
     firm's people on its own documents. A stranger is refused with a
     `ValidationError` rather than a database failure, which is the difference
     between a message somebody can act on and a 503.
+
+    Since P2 the question is the firm's own salesman list rather than its
+    members, so the stranger is refused as not being on that list.
     """
     with pytest.raises(ProgrammingError):
         tenant_session.execute(text("select id from users limit 1"))
@@ -183,7 +186,7 @@ def test_validating_a_salesman_on_create_does_not_reach_for_users_either(
                 territory_id=None,
                 route_id=None,
             )
-        assert "active member" in str(refusal.value), type(service).__name__
+        assert "list of salesmen" in str(refusal.value), type(service).__name__
 
     # The invoice's own copy, which takes a narrower signature and was missed
     # when the other two were fixed -- found the next day, when the demo seed
@@ -195,4 +198,4 @@ def test_validating_a_salesman_on_create_does_not_reach_for_users_either(
             territory_id=None,
             route_id=None,
         )
-    assert "active member" in str(refusal.value)
+    assert "list of salesmen" in str(refusal.value)
