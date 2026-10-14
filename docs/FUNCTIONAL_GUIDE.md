@@ -382,6 +382,38 @@ Goods type is a dimension of the sales and purchase analyses, a column of four
 stock reports and a filter of the product list. A pack's barcode is read
 wherever a document line is written and adds what the pack holds.
 
+**Section 9 (Products, batch and serial): costing by lot.** *Written
+2026-10-14 from the build notes; the screens have not yet been clicked on a
+switched firm.* A firm values its stock on **Average** (one cost per item) or
+**By lot** (every purchase line is a lot that remembers what it cost). A firm
+that sells the same item at different prices from different purchases, such
+as a pharmacy or a wholesaler with stock bought at several rates, would use
+by lot, so each bill carries the cost of the goods it really took. To switch:
+*Settings > Stock > Costing method* (needs `INVENTORY_MANAGE_SETTINGS`). Pick
+the day and read the preview, which names the items, the lots to be made and
+every reason it cannot switch yet. Switch only when the preview is clean. **It
+cannot be undone.** Each batch holding stock becomes a lot, stock with no
+batch becomes one new lot per item, each at the item's average; nothing is
+re-valued and no journal is posted. A stock movement dated before the switch
+day is refused afterwards. A goods receipt then makes **a lot for each line**.
+Goods with no printed batch get a lot that goes by our reference, which no
+screen prints. The batch picker shows lots that agree on batch, expiry and
+prices as one row and fills them oldest first; a lot with no printed batch
+shows a dash and its received date. A bill's line takes the cost of the lots
+it drew, so two lines of one item from two lots show two costs. A customer's
+return goes back into the lots it left, at the cost it left with. A
+write-off, transfer or adjustment naming no lot takes the first lot (nearest
+expiry first) that holds all of it; the stock never runs below zero. If the
+firm switches on *allow billing when no lot holds the stock*, the bill maker is
+asked to confirm; the shortage waits and is covered at its lot's cost when the
+purchase is received. A supplier's bill at another rate than its receipt puts
+the difference on the lot. Reports: *Stock valuation by lot*, *Margin by lot*
+and *Bills waiting for their cost*; *Stock valuation* and *Stock ageing* add
+up the lots. *Trace*, in the batch details, shows a lot's arrival, every
+movement in and out, the supplier's bill and the sales bills. **Costs are
+shown only to someone holding `PRODUCT_VIEW_COST_PRICE`**; everyone else sees
+the same screens with the cost columns missing.
+
 **Section 9 (Products, batch and serial).** *Copy as new product* opens an
 unsaved form filled from a product; code, barcodes, stock, batches, serials,
 price history and prices by level are not carried. A product that tracks
