@@ -1213,6 +1213,30 @@ opens any screen by name.
   - Step 8: the note reads **2 steps to do.** and rows 1 and 2 read **To do**, *None yet*.
 - **Leaves:** nothing.
 
+### TC-CONF-011 — Settings > Firm, Selling and Buying open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** the Firm, Selling and Buying cards on the Settings page; Start here and the numbered steps of each; the one read of the states; the old items still found by search
+- **Fixture:** `ready-firm`, as its **Firm admin**; for step 6 a firm with no open financial year
+- **Steps**
+  1. Press the gear and read the cards of the Firm, Selling and Buying sections.
+  2. Press the **Firm** card and read the tabs from left to right, then Start here.
+  3. Press the **Selling** card and read Start here.
+  4. In *Sales stages*, make a salesman required on a bill; on a firm with no active salesman, open **Selling** again.
+  5. Press the **Buying** card and read the tabs.
+  6. On a firm with no open financial year, open the **Firm** card.
+  7. Go back to Settings, type **Credit Control** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: one card per section, each saying it opens one screen.
+  - Step 2: **Start here, 1 Firm settings, 2 Financial years, 3 Numbering, 4 Goods types, 5 Custom fields, 6 Custom field rules, 7 Messaging, 8 Approval levels**, then **Yours: My branch and warehouse** set apart. Row 2 reads **Done** with the open year; the others read **Optional** with what the firm holds.
+  - Step 3: seven rows, Sales stages first and Salesmen second, all **Optional**.
+  - Step 4: Salesmen reads **To do**, *None yet: every bill must name one*.
+  - Step 5: **1 Purchase settings, 2 Approval limits, 3 Purchase budgets**, all **Optional**.
+  - Step 6: row 2 reads **To do**, *None open: nothing can be posted*.
+  - Step 7: the Credit Control window opens on its own, as it always did.
+- **Leaves:** the salesman switch from step 4 on; turn it back off.
+
 ## Buying — order to payment
 
 Four documents: a purchase order, goods receipts against it, a supplier
