@@ -7,6 +7,13 @@ in `CLAUDE.md` with a pointer here. Every one was written from a defect that
 actually happened, so the story beside the rule is the part that says why it
 is the rule.
 
+**Salesmen are entries on the firm's own list** (`/api/v1/salesmen`), not
+users: `salesman_id` on a rule, a target and a payout points at `salesmen.id`,
+and the commission, targets, sales analysis and collections reports name
+people from that list. An entry with `earns_commission` false (*Phone order*,
+*Company staff*) is refused a commission rule and a target, in words, and
+cannot be paid a payout. (P2, 2026-10-14)
+
 ## A margin rule needs a cost the invoice remembers, and NULL is not zero
 
 **A margin rule needs a cost the invoice remembers, and NULL is not zero.**

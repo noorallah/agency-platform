@@ -24,7 +24,7 @@ sales_territories              every node at every level; parent_id + path
   ├ territory_route_profiles   1:1 — the row that makes a node a ROUTE
   │   └ territory_working_days weekday 1..7
   ├ territory_customer_assignments   shop ⇄ node, with visit_sequence
-  └ territory_salesman_assignments   user ⇄ node, is_primary, include_children
+  └ territory_salesman_assignments   salesman (list entry) ⇄ node, is_primary, include_children
 
 sales_route_types              the kinds of round: SALES, COLLECTION, …
 sales_beat_plans               when a route runs: WEEKLY / FORTNIGHTLY / MONTHLY / CUSTOM
@@ -73,13 +73,18 @@ the window describes the round.
 **Which salesman a document carries** (backlog 67 row 2, 2026-10-01). In
 order: the salesman the document names, or inherits from its source (an
 invoice keeps its order's); then the customer's **account manager**
-(`customers.salesman_id`), if still an active member of the firm and -- when
+(`customers.salesman_id`), if still an active entry on the firm's list of
+salesmen (`/api/v1/salesmen`; an entry need not be tied to a user) and -- when
 the document resolved a territory -- covering it; then the territory's
 salesperson as before. The account manager comes first because it is named
 for this one customer, where coverage is named for an area. One who does not
 cover the document's territory is skipped rather than used, because the same
-name typed on the document would be refused. A manager who has left stays on
-the customer's record and is skipped, the way a stale round assignment is.
+name typed on the document would be refused. A manager made inactive stays on
+the customer's record and is skipped, the way a stale round assignment is. The assignment field is `salesman_id`
+(it was `user_id`) in assignment in/out, bulk assign and `coverage/salesmen`;
+the column is `territory_salesman_assignments.salesman_id`. A user's id that is
+not an entry is refused: "That salesman is not on this firm's list of
+salesmen. Add him under Salesmen first." (P2, 2026-10-14)
 
 ## Customers on a round
 

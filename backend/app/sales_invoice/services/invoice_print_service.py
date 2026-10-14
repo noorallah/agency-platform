@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
+from app.common.report_names import salesman_names
 from app.core.exceptions import BusinessRuleError, ResourceNotFoundError
 from app.core.utils.chunks import chunks
 from app.customers.models import Customer
@@ -739,6 +740,7 @@ class SalesInvoicePrintService:
             round_off=invoice.round_off,
             grand_total=invoice.grand_total,
             show_total_quantity=True,
+            order_by=self._order_by(invoice),
             references=(
                 *references,
                 *self._market(invoice),
@@ -752,6 +754,20 @@ class SalesInvoicePrintService:
                     if invoice.reference_number
                 ),
             ),
+        )
+
+    def _order_by(self, invoice: SalesInvoice) -> str | None:
+        """Name the salesman the bill was raised for, from the firm's list.
+
+        *Order By* on the trade's bill is whoever took the order: a salesman,
+        or an entry such as *Phone order* that has no sign-in (row P2). A
+        deleted entry is still named, since the bill keeps the salesman it was
+        saved with. A bill naming nobody prints no such row.
+        """
+        if invoice.salesman_id is None:
+            return None
+        return salesman_names(self._session, [invoice.salesman_id]).get(
+            invoice.salesman_id
         )
 
     def _market(self, invoice: SalesInvoice) -> list[tuple[str, str]]:

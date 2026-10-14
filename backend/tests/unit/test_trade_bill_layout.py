@@ -351,3 +351,16 @@ def test_a_sample_is_drawn_for_a_sales_invoice_only() -> None:
             document_type="PURCHASE_ORDER",
             settings=DocumentPrintTemplateWrite(),
         )
+
+
+def test_the_standard_layout_names_who_took_the_order_too() -> None:
+    printed = _text_of(
+        InvoicePdfRenderer(TemplateSettings()).render(
+            replace(_document(), order_by="COMP STAFF")
+        )
+    )
+
+    assert "Order By" in printed and "COMP STAFF" in printed
+    assert "Order By" not in _text_of(
+        InvoicePdfRenderer(TemplateSettings()).render(_document())
+    )

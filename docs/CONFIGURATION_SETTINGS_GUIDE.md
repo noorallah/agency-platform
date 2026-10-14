@@ -91,6 +91,7 @@ Seven rules hold for every setting:
 | Messaging | Settings > Firm | **Off** | `SETTINGS_UPDATE` |
 | Approval Levels | Settings > Firm | None: one approval is enough | Manage sales / purchase settings |
 | Sales Stages | Settings > Selling | Every stage typed by hand | `SALES_MANAGE_SETTINGS` |
+| Salesmen | Settings > Selling | Empty list | `SALESMAN_MANAGE` |
 | Credit Control | Settings > Selling | **Warn** at 80% | `CUSTOMER_MANAGE_SETTINGS` |
 | Price Floor | Settings > Selling | **Warn**, cost counts | `SALES_MANAGE_SETTINGS` |
 | Discount Limits | Settings > Selling | No limits | `SALES_MANAGE_SETTINGS` |
@@ -440,6 +441,35 @@ posted in one Save.
 **When either stage is on,** a bill line must name the order or note it bills:
 *"This firm raises a sales order and a delivery note before it bills, so an
 invoice line must name the document it bills."*
+
+**Salesman required.** A switch beside the stages, off to start with. On: an
+order, a delivery note or a bill is not saved without a salesman, and the
+refusal says so: *"This firm requires a salesman on every order, delivery
+note and bill. Choose one in the Salesman box."* Documents already saved are
+not touched; the rule applies at their next save. (P2, 2026-10-14)
+
+### Salesmen
+
+**Where:** Settings > Selling > Salesmen. Reading is open to any member of the
+firm; adding, changing, deleting and restoring need `SALESMAN_MANAGE`
+(Sales Manager and Firm Manager).
+
+**Why:** the firm keeps its own list of the people who sell, and every
+document, round, target and commission rule names one of them. A salesman who
+writes his orders on paper needs no sign-in: *Phone order* and *Company staff*
+are ordinary entries.
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| Code | Blank | Optional; unique among the firm's live entries. |
+| Name | Required | What the Salesman box and *Order By* show. Two entries cannot share a name, whatever the case. |
+| Signs in as | None | The user this entry is tied to. One user is at most one entry. The Salesman box starts on the signed-in user's own entry. |
+| Phone | Blank | For the firm's own reference. |
+| Earns commission | On | Off for *Phone order* and *Company staff*: such an entry cannot be given a commission rule or a target. |
+| Active | On | An inactive entry is not offered, and stays on what he sold. |
+| Notes | Blank | Free text. |
+
+A salesman a document names is made inactive, never removed from it.
 
 ### Credit Control
 

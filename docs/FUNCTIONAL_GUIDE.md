@@ -214,7 +214,10 @@ by bank transfer, all or none; a generic NEFT file); and the supplier
 performance and price-trend reports.
 
 **Section 16 (Selling).** Several delivery notes on one bill, with a clash on
-branch, salesman, territory or route refused by name; counter billing with a
+branch, salesman (an entry on the firm's own list, Settings > Selling >
+Salesmen; the Salesman box on a new order, note or bill starts on the
+signed-in user's own entry, else the customer's account manager, else the
+round's primary salesman, else blank, and a firm may require one), territory or route refused by name; counter billing with a
 scanner, split tenders (`sales_invoice_tenders`) and *Save & print*; the UPI QR
 on a bill that still owes money; pick list and loading sheet from delivery
 notes; reservation lapse and *Reserve again*; multi-level approval; WhatsApp
@@ -1173,6 +1176,12 @@ bank details appear. One template per firm per document type.
 
 Five documents render today: purchase order, tax invoice, delivery challan,
 quotation and credit note.
+
+**Order By.** The full-page bill, in both the Standard and the Trade layout,
+prints the bill's salesman under *Order By*, named from the firm's list of
+salesmen (Settings > Selling > Salesmen). An entry since deleted is still
+named; a bill with no salesman prints no row. The half-page and the roll do
+not carry it. (P2, 2026-10-14)
 
 ## How to use it
 

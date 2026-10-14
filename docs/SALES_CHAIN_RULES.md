@@ -517,6 +517,22 @@ the line and the chain hands them to the note it raises. A bill naming none is
 refused by name in `SalesChainService._refuse_serialised` before anything is
 staged. `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md` has the rest.
 
+## The salesman box starts on a choice, and the chain keeps the source's
+
+**The Salesman box on a new order, delivery note or bill starts on a
+choice and is never locked.** `GET /api/v1/salesmen/starting-choice?customer_id=`
+answers, in order: the signed-in user's own active entry on the firm's list,
+the customer's account manager, the primary salesman of the customer's
+round, otherwise blank; the person may pick another entry, and may change it
+for as long as the document's other fields are editable. **A document raised
+from an earlier one keeps that one's salesman** and does not ask. A firm
+may require one: `sales_workflow_settings.salesman_required` (off to start
+with, read and written on `/sales-orders/workflow-settings`) refuses an
+order, a delivery note or a bill saved with none, in words, including the
+ones the chain raises for a stage the firm skips; the enquiry, quotation,
+return and notes are not held to it. A user's id that is not an entry on the
+list is refused. (P2, 2026-10-14)
+
 ## A note and a bill continue the order; they do not re-decide it
 
 **Silence on a downstream document means "as the line I continue".** The

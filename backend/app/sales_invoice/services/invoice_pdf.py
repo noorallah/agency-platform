@@ -614,6 +614,8 @@ class InvoicePdfRenderer:
         ]
         if document.due_date:
             meta.append(("Due date", document.due_date))
+        if document.order_by:
+            meta.append(("Order By", escape(document.order_by)))
         meta.extend(document.references)
         if document.show_supply_terms:
             if document.place_of_supply:

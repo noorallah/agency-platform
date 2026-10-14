@@ -297,3 +297,31 @@ def test_the_bill_names_its_market_and_when_its_lot_was_made() -> None:
     text = _printed(setup, invoice)
     assert "MarketGandhi Bazaar" in text
     assert "Mfg" in text and "01/26" in text
+
+
+def test_the_bill_names_who_took_the_order_from_the_salesman_list() -> None:
+    """*Order By* is the bill's salesman, by the name the firm's list gives.
+
+    An entry such as *Phone order* prints as any salesman does (row P2); a
+    deleted entry is still named, since the bill keeps whom it was saved with;
+    and a bill naming nobody prints no such row.
+    """
+    from app.salesmen.models import Salesman
+
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup, quantity=Decimal("4"))
+    invoice = _bill(setup, [note])
+    invoice.salesman_id = None
+    setup.session.flush()
+    assert "Order By" not in _printed(setup, invoice)
+
+    entry = Salesman(firm_id=setup.firm.id, name="Phone <order> & counter")
+    setup.session.add(entry)
+    setup.session.flush()
+    invoice.salesman_id = entry.id
+    setup.session.flush()
+    assert "Order ByPhone <order> & counter" in _printed(setup, invoice)
+
+    entry.is_deleted = True
+    setup.session.flush()
+    assert "Order ByPhone <order> & counter" in _printed(setup, invoice)
