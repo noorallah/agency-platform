@@ -98,6 +98,14 @@ class SalesOrderLineWrite(SalesOrderSchema):
     #: The batch the customer asked for; null takes earliest expiry (79.4).
     pinned_batch_id: UUID | None = None
     remarks: str | None = None
+    #: The pack size the screen added two cells up at -- boxes and pieces,
+    #: sent only by a line typed that way (L5, design 3.4). The server works
+    #: the line's pack out itself and refuses the line where this differs,
+    #: so a stale item row cannot add the cells up wrong. ``quantity`` is
+    #: the total in pieces either way.
+    pack_size: Decimal | None = Field(
+        default=None, gt=1, max_digits=18, decimal_places=4
+    )
 
     @model_validator(mode="after")
     def _orders_something(self) -> "SalesOrderLineWrite":
@@ -163,6 +171,10 @@ class SalesOrderCreate(SalesOrderSchema):
     #: shelf price -- and absent on an update keeps the
     #: order's own.
     rate_includes_tax: bool | None = None
+    #: Typed as boxes and pieces (L5, design 3.8): how the document is shown
+    #: and typed, nothing else. Absent on a new one is off; absent on an
+    #: update keeps the document's own.
+    box_and_piece_entry: bool | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -292,6 +304,11 @@ class SalesOrderLineResponse(SalesOrderSchema):
     warehouse_id: UUID | None
     storage_node_id: UUID | None
     pinned_batch_id: UUID | None = None
+    #: The pack the line was written at (L5): its unit and the stock units
+    #: in one. Boxes and pieces are worked out from ``quantity`` with it and
+    #: never stored. Null where the item has no pack.
+    pack_uom_id: UUID | None = None
+    pack_size: Decimal | None = None
     #: What the line's goods would cost: the pinned lot's cost, else the
     #: item's average (L3 step 4). Null where unknown, and to anybody not
     #: holding ``PRODUCT_VIEW_COST_PRICE``.
@@ -406,6 +423,8 @@ class SalesOrderResponse(SalesOrderSchema):
     coupon_code: str | None = None
     #: Whether the rates typed on this order include GST (backlog 64 row 4).
     rate_includes_tax: bool = False
+    #: The layout the document was saved in: boxes and pieces (L5).
+    box_and_piece_entry: bool = False
     #: What was charged for delivery, split across the lines and taxed there.
     freight_amount: Decimal = Decimal("0")
     #: What a free-shipping offer took off it. The two together are what the

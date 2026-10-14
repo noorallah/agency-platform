@@ -433,6 +433,9 @@ def in_selling_units[LineT: BaseModel](
     ``saved`` is each saved line's product and unit by line number: a line
     sent again for the same product keeps the unit it was saved in, so a
     draft saved in pieces before this rule is not re-read in boxes.
+
+    A line sending ``pack_size`` was typed as boxes and pieces, which is a
+    line in the stock unit (L5, design 3.1), and is named that unit.
     """
     unnamed = [
         line
@@ -457,13 +460,20 @@ def in_selling_units[LineT: BaseModel](
             named.append(line)
             continue
         product_id = getattr(line, "product_id", None)
+        product = None if product_id is None else products.get(product_id)
+        if getattr(line, "pack_size", None) is not None:
+            stock = stock_unit_of(product)
+            named.append(
+                line
+                if stock is None
+                else line.model_copy(update={"inventory_uom_id": stock})
+            )
+            continue
         kept = kept_units.get(getattr(line, "line_number", 0))
         unit = (
             kept[1]
             if kept is not None and kept[0] == product_id
-            else selling_unit_of(
-                None if product_id is None else products.get(product_id)
-            )
+            else selling_unit_of(product)
         )
         named.append(
             line if unit is None else line.model_copy(update={"sales_uom_id": unit})

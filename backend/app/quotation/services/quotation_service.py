@@ -112,7 +112,9 @@ from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.services import (
     UomService,
     assert_quantity_fits_unit,
+    held_packs,
     in_selling_units,
+    line_packs,
     stock_unit_of,
 )
 
@@ -465,6 +467,7 @@ class QuotationService(TransactionalDocumentService):
             coupon_code=normalized_coupon(data.coupon_code),
             # Off unless the caller says so: an import types no shelf price.
             rate_includes_tax=bool(data.rate_includes_tax),
+            box_and_piece_entry=bool(data.box_and_piece_entry),
             status=QuotationStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -568,6 +571,8 @@ class QuotationService(TransactionalDocumentService):
         # way it says, so an editor sends back the rates as typed.
         if data.rate_includes_tax is not None:
             row.rate_includes_tax = data.rate_includes_tax
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         row.updated_by = actor_id
         self._apply_children(row, data, actor_id=actor_id)
         self._record_event(
@@ -808,6 +813,8 @@ class QuotationService(TransactionalDocumentService):
                 # is handed the rates as typed and reads them back to pre-tax
                 # at its own date, as the quote did at its (backlog 64 row 4).
                 rate_includes_tax=bool(row.rate_includes_tax),
+                # Typed as it was quoted: boxes and pieces stay so (L5).
+                box_and_piece_entry=bool(row.box_and_piece_entry),
                 lines=[
                     SalesOrderLineWrite(
                         line_number=line.line_number,
@@ -847,6 +854,9 @@ class QuotationService(TransactionalDocumentService):
             ),
             firm_id=firm_scope,
             actor_id=actor_id,
+            # Each line keeps the pack it was quoted at, not today's (L5,
+            # design 3.3): 3 boxes + 5 quoted at 12 to a box are ordered so.
+            inherited_packs=held_packs(lines),
         )
         row.converted_sales_order_id = order.id
         # The enquiry behind the quotation is won (SEL-10).
@@ -1419,6 +1429,16 @@ class QuotationService(TransactionalDocumentService):
             products.append(product)
             grosses.append(ZERO)
         lines = list(lines) + gifts
+        # The pack each line is written at (L5): a saved line's own, else the
+        # item's on the quotation's date. A line typed as boxes and pieces at
+        # another size is refused here.
+        packs = line_packs(
+            self._session,
+            lines,
+            side="SELL",
+            on_date=row.quotation_date,
+            kept=held_packs(existing.values()),
+        )
         # A price list's quantity breaks count stock units, so a line quoted
         # by the box is asked about at the pieces it stands for, as the
         # order it becomes is. Only a line a list mentions needs its unit
@@ -1571,6 +1591,9 @@ class QuotationService(TransactionalDocumentService):
             line.sales_uom_id = item.sales_uom_id
             line.inventory_uom_id = item.inventory_uom_id
             line.packaging_type_id = item.packaging_type_id
+            pack = packs.get(item.line_number)
+            line.pack_uom_id = None if pack is None else pack.uom_id
+            line.pack_size = None if pack is None else pack.size
             line.unit_price = self._q(item.unit_price)
             typed = (entered or {}).get(item.line_number)
             line.entered_rate = None if typed is None else typed.entered_rate
@@ -2060,6 +2083,7 @@ class QuotationService(TransactionalDocumentService):
             remarks=row.remarks,
             coupon_code=row.coupon_code,
             rate_includes_tax=bool(row.rate_includes_tax),
+            box_and_piece_entry=bool(row.box_and_piece_entry),
             status=QuotationStatus(row.status),
             customer_discount_percent=row.customer_discount_percent,
             bill_discount_percent=row.bill_discount_percent,

@@ -149,9 +149,12 @@ from app.trade_licences.services.licence_check import (
 )
 from app.uom.schemas import ConversionRequest
 from app.uom.services import (
+    Pack,
     UomService,
     assert_quantity_fits_unit,
+    held_packs,
     in_selling_units,
+    line_packs,
     stock_unit_of,
 )
 
@@ -439,8 +442,14 @@ class SalesOrderService(TransactionalDocumentService):
         actor_id: UUID,
         raised_as: str = "sales order",
         price_batches: Mapping[int, UUID] | None = None,
+        inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
     ) -> SalesOrder:
         """Create one sales order without committing it.
+
+        ``inherited_packs`` is the pack of each source line, by line number
+        with its product, where the order continues another document -- a
+        converted quotation -- so a line keeps the pack it was quoted at
+        rather than today's (L5, design 3.3).
 
         ``price_batches`` names, by line number, the batch a line will leave
         from where the caller knows it without pinning it -- a counter bill
@@ -544,6 +553,7 @@ class SalesOrderService(TransactionalDocumentService):
             # Off unless the caller says so: a converted quotation, a counter
             # bill and an import all hand over rates already before tax.
             rate_includes_tax=bool(data.rate_includes_tax),
+            box_and_piece_entry=bool(data.box_and_piece_entry),
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -564,6 +574,7 @@ class SalesOrderService(TransactionalDocumentService):
             raised_as=raised_as,
             actor_id=actor_id,
             entered=entered,
+            inherited_packs=inherited_packs,
         )
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
@@ -694,6 +705,8 @@ class SalesOrderService(TransactionalDocumentService):
         # way it says, so an editor sends back the rates as typed.
         if data.rate_includes_tax is not None:
             row.rate_includes_tax = data.rate_includes_tax
+        if data.box_and_piece_entry is not None:
+            row.box_and_piece_entry = data.box_and_piece_entry
         row.updated_by = actor_id
         lines, entered = self._typed_rates_before_tax(
             row, self._in_selling_units(row, data.lines), actor_id=actor_id
@@ -1678,6 +1691,7 @@ class SalesOrderService(TransactionalDocumentService):
             bill_discount_source=row.bill_discount_source,
             coupon_code=row.coupon_code,
             rate_includes_tax=bool(row.rate_includes_tax),
+            box_and_piece_entry=bool(row.box_and_piece_entry),
             freight_amount=row.freight_amount,
             freight_waived_amount=row.freight_waived_amount,
             line_discount_total=row.line_discount_total,
@@ -2591,6 +2605,7 @@ class SalesOrderService(TransactionalDocumentService):
         raised_as: str = "sales order",
         actor_id: UUID,
         entered: Mapping[int, EnteredRate] | None = None,
+        inherited_packs: Mapping[int, tuple[UUID, Pack]] | None = None,
     ) -> dict[str, Decimal]:
         # Promotional stock is given, never sold at a price (BUY-1).
         assert_not_sold_at_a_price(
@@ -2712,6 +2727,16 @@ class SalesOrderService(TransactionalDocumentService):
         grosses += [ZERO] * (len(lines) - len(grosses))
         # A gift line names no unit: it is in the stock unit.
         factors += [Decimal("1")] * (len(lines) - len(factors))
+        # The pack each line is written at (L5): a saved line's own, else
+        # the source line's, else the item's on the order's date. A line
+        # typed as boxes and pieces at another size is refused here.
+        packs = line_packs(
+            self._session,
+            lines,
+            side="SELL",
+            on_date=row.order_date,
+            kept={**held_packs(existing.values()), **(inherited_packs or {})},
+        )
 
         priced: list[LineDiscount] = [
             resolve_line_discount(
@@ -2855,6 +2880,9 @@ class SalesOrderService(TransactionalDocumentService):
             line.sales_uom_id = item.sales_uom_id
             line.inventory_uom_id = inventory_uom_id
             line.packaging_type_id = item.packaging_type_id
+            pack = packs.get(item.line_number)
+            line.pack_uom_id = None if pack is None else pack.uom_id
+            line.pack_size = None if pack is None else pack.size
             # Stored as the rule gave it, not at the money scale: stock moves
             # at this factor, and 1/12 rounded to four places miscounts (D-CFG-1).
             line.conversion_factor = Decimal(str(conversion["factor"]))

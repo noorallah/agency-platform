@@ -4,6 +4,8 @@ from app.uom.services.packs import (
     BoxesAndPieces,
     Pack,
     PackSide,
+    held_packs,
+    line_packs,
     pack_of,
     packs_of_many,
 )
@@ -33,7 +35,9 @@ __all__ = [
     "assert_quantity_fits_unit",
     "buying_units_of",
     "exact_quantity",
+    "held_packs",
     "in_selling_units",
+    "line_packs",
     "pack_of",
     "packs_of_many",
     "round_by_rule",
