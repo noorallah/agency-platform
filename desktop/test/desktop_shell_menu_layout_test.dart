@@ -233,6 +233,28 @@ void main() {
       'settings/purchase-approval-limits',
       'purchases/purchase-settings',
     ),
+    (
+      'Stock',
+      'stock',
+      'Stock settings',
+      'settings/adjustment-limits',
+      'inventory/inventory-settings',
+    ),
+    (
+      'Business profile',
+      'business-profile',
+      'Business profile settings',
+      'administration/unit-sets',
+      'administration/profile-assignment',
+    ),
+    // A Set up section: one card all the same.
+    (
+      'Pricing',
+      'pricing',
+      'Pricing settings',
+      'sales/promotions',
+      'sales/price-lists',
+    ),
   ]) {
     testWidgets('Settings > $section opens as one screen in a tab of its own',
         (tester) async {
@@ -259,6 +281,29 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byKey(ValueKey('subject-body-$screen')), findsOneWidget);
       expect(find.text('This step has no screen here'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await _unmount(tester);
+    });
+  }
+
+  // The old items of Stock, Business profile and Pricing still open from
+  // search, each in its own tab, as before the subjects.
+  for (final (String query, String path) in const [
+    ('Adjustment Reasons', 'inventory/adjustment-reasons'),
+    ('Unit Sets', 'administration/unit-sets'),
+    ('Price Lists', 'sales/price-lists'),
+  ]) {
+    testWidgets('Settings search still opens $query in its own tab',
+        (tester) async {
+      await _pumpShell(tester, inFirm: true);
+
+      await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.enterText(find.byKey(const ValueKey('setup-search')), query);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byKey(ValueKey('setup-card-$path')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(ValueKey('open-screen-$path')), findsOneWidget);
       expect(tester.takeException(), isNull);
       await _unmount(tester);
     });

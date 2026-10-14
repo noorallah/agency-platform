@@ -124,7 +124,7 @@ void main() {
     );
     expect(SettingsSubjects.forSection('Tax'), same(_tax));
     expect(SettingsSubjects.forRoute(MenuLayout.taxSubjectRoute), same(_tax));
-    expect(SettingsSubjects.forSection('Stock'), isNull);
+    expect(SettingsSubjects.forSection('Territories & routes'), isNull);
     expect(_tax.page.label, 'Tax settings');
   });
 
@@ -355,9 +355,10 @@ void main() {
     expect(opened, isEmpty);
 
     // A section with no subject is cards as before.
-    await tester.tap(_key('setup-section-Stock'));
+    await tester.ensureVisible(_key('setup-section-Territories & routes'));
+    await tester.tap(_key('setup-section-Territories & routes'));
     await tester.pumpAndSettle();
-    expect(_key('setup-card-inventory/inventory-settings'), findsOneWidget);
+    expect(_key('setup-card-sales/territories'), findsOneWidget);
 
     // Search still names each item, and opens it as it always did.
     await tester.enterText(_key('setup-search'), 'Tax Rules');
@@ -631,6 +632,221 @@ void main() {
       await tester.pumpAndSettle();
       expect([for (final MenuItemSpec item in opened) item.path],
           [MenuLayout.creditControlRoute]);
+    });
+  });
+
+  // Row T2: Stock, Business profile and Pricing, on the same piece.
+  group('Stock, Business profile and Pricing', () {
+    SettingsSectionState stateOf(SettingsSubject subject) =>
+        SettingsSectionState.fromJson({
+          'section': subject.sectionCode,
+          'todo_count': 0,
+          'steps': [
+            for (final SubjectStep step in subject.steps)
+              {'code': step.code, 'state': 'OPTIONAL', 'detail': ''},
+          ],
+        });
+
+    const Map<SettingsSubject, List<String>> numbered = {
+      SettingsSubjects.stock: [
+        '1 Inventory settings',
+        '2 Adjustment reasons',
+        '3 Adjustment limits',
+        '4 Batch rules',
+      ],
+      SettingsSubjects.businessProfile: [
+        '1 Profile assignment',
+        '2 Feature management',
+        '3 Module configuration',
+        '4 Attribute definitions',
+        '5 Mandatory attributes',
+        '6 Unit sets',
+      ],
+      SettingsSubjects.pricing: [
+        '1 Price lists',
+        '2 Price levels',
+        '3 Promotions',
+        '4 Loyalty',
+      ],
+    };
+
+    test('each names the items of its section, and the codes are fixed', () {
+      for (final SettingsSubject subject in numbered.keys) {
+        expect(
+          {for (final SubjectStep step in subject.entries) step.path},
+          {
+            for (final MenuItemSpec item in _itemsOf(subject.section))
+              item.path,
+          },
+          reason: subject.section,
+        );
+        expect(SettingsSubjects.forSection(subject.section), same(subject));
+        expect(SettingsSubjects.forRoute(subject.route), same(subject));
+        expect(subject.tools, isEmpty, reason: subject.section);
+      }
+      // The server's codes, which a server branch answers for.
+      expect([for (final SubjectStep s in SettingsSubjects.stock.steps) s.code],
+          [
+            'inventory-settings',
+            'adjustment-reasons',
+            'adjustment-limits',
+            'batch-rules',
+          ]);
+      expect(
+          [
+            for (final SubjectStep s in SettingsSubjects.businessProfile.steps)
+              s.code
+          ],
+          [
+            'profile-assignment',
+            'feature-management',
+            'module-configuration',
+            'attribute-definitions',
+            'mandatory-attributes',
+            'unit-sets',
+          ]);
+      expect(
+          [for (final SubjectStep s in SettingsSubjects.pricing.steps) s.code],
+          ['price-lists', 'price-levels', 'promotions', 'loyalty']);
+      expect(SettingsSubjects.stock.route, 'settings/subject/stock');
+      expect(SettingsSubjects.businessProfile.route,
+          'settings/subject/business-profile');
+      expect(SettingsSubjects.pricing.route, 'settings/subject/pricing');
+      expect(SettingsSubjects.stock.page.label, 'Stock settings');
+      expect(SettingsSubjects.businessProfile.page.label,
+          'Business profile settings');
+      expect(SettingsSubjects.pricing.page.label, 'Pricing settings');
+      // In the order the menu lists the sections.
+      expect([for (final SettingsSubject s in SettingsSubjects.all) s.section],
+          [
+            for (final MenuGroupSpec group in MenuLayout.settings.groups)
+              if (SettingsSubjects.forSection(group.label) != null)
+                group.label,
+          ]);
+      expect([for (final SettingsSubject s in SettingsSubjects.all) s.section],
+          [
+            'Firm',
+            'Selling',
+            'Buying',
+            'Stock',
+            'Tax',
+            'Business profile',
+            'Pricing',
+          ]);
+    });
+
+    for (final MapEntry<SettingsSubject, List<String>> entry
+        in numbered.entries) {
+      final SettingsSubject subject = entry.key;
+      testWidgets(
+          '${subject.section} opens on Start here, numbers its steps and '
+          'reads once', (tester) async {
+        final _Seen seen = await _pump(
+          tester,
+          subject: subject,
+          state: () => stateOf(subject),
+        );
+
+        expect(_key('subject-start').hitTestable(), findsOneWidget);
+        expect(find.text(subject.readyNote), findsOneWidget);
+        for (final String label in entry.value) {
+          expect(find.text(label), findsOneWidget, reason: label);
+        }
+        double left(String path) =>
+            tester.getTopLeft(_key('subject-tab-$path')).dx;
+        final List<double> order = [
+          left('start'),
+          for (final SubjectStep step in subject.entries) left(step.path),
+        ];
+        expect(order, [...order]..sort());
+
+        for (final SubjectStep step in subject.entries) {
+          await _tapTab(tester, step.path);
+          expect(find.text(step.topLine).hitTestable(), findsOneWidget,
+              reason: step.path);
+        }
+        await _tapTab(tester, 'start');
+        expect(seen.reads, 1);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('Stock: a step that is a screen shows it, a window opens',
+        (tester) async {
+      final _Seen seen = await _pump(
+        tester,
+        subject: SettingsSubjects.stock,
+        state: () => stateOf(SettingsSubjects.stock),
+      );
+
+      await _tapTab(tester, 'inventory/adjustment-reasons');
+      expect(_key('screen-inventory/adjustment-reasons').hitTestable(),
+          findsOneWidget);
+      await _tapTab(tester, MenuLayout.batchRulesRoute);
+      await tester.tap(_key('subject-window-${MenuLayout.batchRulesRoute}'));
+      await tester.pumpAndSettle();
+      expect([for (final MenuItemSpec item in seen.windows) item.path],
+          [MenuLayout.batchRulesRoute]);
+      expect(seen.reads, 1);
+    });
+
+    testWidgets('Settings shows each section as one card, Set up included',
+        (tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final List<SettingsSubject> subjects = [];
+      final List<MenuItemSpec> opened = [];
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SetUpPage(
+            settings: MenuLayout.settings,
+            section: 'Firm',
+            onOpen: opened.add,
+            onOpenSubject: subjects.add,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      for (final SettingsSubject subject in numbered.keys) {
+        await tester.ensureVisible(_key('setup-section-${subject.section}'));
+        await tester.tap(_key('setup-section-${subject.section}'));
+        await tester.pumpAndSettle();
+        for (final MenuItemSpec item in _itemsOf(subject.section)) {
+          expect(_key('setup-card-${item.path}'), findsNothing,
+              reason: item.path);
+        }
+        await tester.tap(_key('setup-subject-${subject.sectionCode}'));
+        await tester.pumpAndSettle();
+      }
+      expect(subjects, numbered.keys.toList());
+      expect(opened, isEmpty);
+
+      // Pricing is a Set up section: its card says so, and is still one.
+      expect(
+        find.text('${MenuPart.setUp.note} Everything here is on one screen, '
+            'in the order it is set up in.'),
+        findsOneWidget,
+      );
+
+      // Search still finds each old item by its own name and opens it.
+      for (final String path in [
+        MenuLayout.batchRulesRoute,
+        'administration/unit-sets',
+        'sales/price-lists',
+      ]) {
+        await tester.enterText(
+            _key('setup-search'), MenuLayout.settings.item(path)!.label);
+        await tester.pumpAndSettle();
+        await tester.tap(_key('setup-card-$path'));
+        await tester.pumpAndSettle();
+      }
+      expect([for (final MenuItemSpec item in opened) item.path], [
+        MenuLayout.batchRulesRoute,
+        'administration/unit-sets',
+        'sales/price-lists',
+      ]);
     });
   });
 }
