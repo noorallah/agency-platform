@@ -7,6 +7,7 @@ firm that costs by lot makes one such row for every purchase line.
 
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -19,7 +20,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
-from app.inventory.models import StockLotSettings
+from app.inventory.models import BatchValuation, StockLotSettings
 
 #: What ``stock_lot_settings.costing_method`` reads for a firm costing by lot.
 FIRM_BY_LOT = "BY_LOT"
@@ -72,6 +73,35 @@ def costs_by_lot(session: Session, firm_id: UUID) -> bool:
         )
     )
     return method == FIRM_BY_LOT
+
+
+def newest_lot_cost(
+    session: Session, firm_id: UUID, product_id: UUID
+) -> Decimal | None:
+    """Return the item's newest valued lot's unit cost, None if it has none.
+
+    The cost of the latest purchase, as a by-lot firm states it: the lot
+    received last, then our reference, ranked explicitly rather than by the
+    backend's NULL order. Stock found with no lot named (L2 step 7) and goods
+    billed before their lot (step 7a) take it.
+    """
+    cost = session.scalar(
+        select(BatchValuation.unit_cost)
+        .join(BatchRecord, BatchRecord.id == BatchValuation.batch_id)
+        .where(
+            BatchValuation.firm_id == firm_id,
+            BatchValuation.product_id == product_id,
+            BatchValuation.is_deleted.is_(False),
+            BatchValuation.unit_cost > 0,
+        )
+        .order_by(
+            case((BatchRecord.received_on.is_(None), 1), else_=0).asc(),
+            BatchRecord.received_on.desc(),
+            BatchRecord.lot_reference.desc(),
+        )
+        .limit(1)
+    )
+    return None if cost is None else Decimal(str(cost))
 
 
 class LotNumbering(TransactionalDocumentService):

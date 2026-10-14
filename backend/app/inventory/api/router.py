@@ -54,6 +54,7 @@ from app.inventory.schemas import (
     InventoryCreate,
     InventoryListFilters,
     InventoryTransactionListFilters,
+    LotShortfallResponse,
     OpeningStockBatchCreate,
     OpeningStockBatchListFilters,
     OpeningStockImportRequest,
@@ -99,6 +100,7 @@ from app.inventory.services.count_planning import (
     abc_classes,
 )
 from app.inventory.services.free_goods import FreeGoodsRecord, free_goods_report
+from app.inventory.services.lot_shortfalls import LotShortfallService
 from app.inventory.services.opening_stock_import import OpeningStockFileImporter
 from app.inventory.services.opening_stock_import import (
     template_csv as opening_stock_template_csv,
@@ -319,6 +321,25 @@ def inventory_alerts(
     """
     alerts = stock_alerts(db, scope.firm_id, on=firm_today(db, scope.firm_id))
     return ApiResponse(data=StockAlertsRecord.model_validate(alerts))
+
+
+@router.get("/lot-shortfalls", response_model=ApiResponse[list[LotShortfallResponse]])
+def list_lot_shortfalls(
+    scope: StockValuationScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LotShortfallResponse]]:
+    """Bills waiting for their cost: units sold before any lot held them.
+
+    L2 step 7a (`docs/design/LOT_COST_DESIGN.md`, section 3.7). Every row a
+    purchase has not yet covered, oldest sale first, with its age. The cost
+    used is sent only to a holder of ``PRODUCT_VIEW_COST_PRICE``.
+    """
+    return ApiResponse(
+        data=LotShortfallService(db).report(
+            scope.firm_id,
+            show_cost=scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE"),
+        )
+    )
 
 
 @router.get(

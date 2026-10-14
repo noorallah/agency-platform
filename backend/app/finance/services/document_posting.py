@@ -3363,6 +3363,66 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_cost_correction(
+        self,
+        *,
+        firm_id: UUID,
+        document_id: UUID,
+        document_number: str,
+        correction_date: date,
+        amount: Decimal,
+        source_module: str,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Bring cost of goods sold to what the lots sold really cost.
+
+        L2 step 7a: goods billed before their purchase left at the last
+        purchase cost; the lot that later covers them knows the real one.
+        ``amount`` is the lot's cost less the cost used: above zero more cost
+        of goods sold and less stock, below zero the other way. Dated the
+        day the lot came, so no closed month is touched.
+
+        Returns:
+            The posted entry, or None when the two costs agreed.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        cost = quantize_ledger(abs(amount))
+        if cost == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, GOODS_ISSUE_PURPOSES)
+        context = self.context_for(firm_id, correction_date)
+        expense = accounts[ControlAccountPurpose.COST_OF_GOODS_SOLD]
+        stock = accounts[ControlAccountPurpose.INVENTORY]
+        debit, credit = (expense, stock) if amount > ZERO else (stock, expense)
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=correction_date,
+            reference_number=document_number,
+            description=f"Cost of goods billed before their lot, {document_number}",
+            lines=[
+                JournalLineData(
+                    ledger_account_id=debit,
+                    debit_amount=cost,
+                    description=f"Lot cost correction {document_number}",
+                ),
+                JournalLineData(
+                    ledger_account_id=credit,
+                    credit_amount=cost,
+                    description=f"Lot cost correction {document_number}",
+                ),
+            ],
+            source_module=source_module,
+            source_id=document_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_sales_return(
         self,
         *,

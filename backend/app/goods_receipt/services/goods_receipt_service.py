@@ -86,6 +86,7 @@ from app.goods_receipt.serials import ReceiptSerials
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.schemas import QuarantineAction, StockQuarantineCreate
 from app.inventory.services import InventoryService, LineConversion
+from app.inventory.services.lot_shortfalls import LotShortfallService
 from app.inventory.services.lots import LotSource, costs_by_lot
 from app.products.models import Product, ProductCategory
 from app.products.services.stockless import stockless_products
@@ -146,6 +147,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         """Bind the lifecycle base plus this module's collaborators."""
         super().__init__(session)
         self._inventory = InventoryService(session)
+        self._shortfalls = LotShortfallService(session)
         self._uom = UomService(session)
         self._tax = TaxRuleService(session)
         self._serials = ReceiptSerials(session)
@@ -2170,6 +2172,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         a service line out (backlog 87 #3).
         """
         received_cost = ZERO
+        cost_out_by = ZERO
         # An order in another currency priced its lines as the supplier bills
         # (PG-12); the stock is valued in rupees at the order's rate, which
         # for a bill that raised its own order is the bill's.
@@ -2301,6 +2304,32 @@ class GoodsReceiptService(TransactionalDocumentService):
             self._serials.receive(receipt, line, transaction, actor_id=actor_id)
             if product is not None and self._needs_inspection(product):
                 self._hold_for_inspection(receipt, line, transaction, actor_id=actor_id)
+            if by_lot and batch_id is not None:
+                # Units billed before their lot came are covered first, out
+                # of what the lot holds free (L2 step 7a).
+                cost_out_by += self._shortfalls.settle_from_lot(
+                    firm_id=receipt.firm_id,
+                    product_id=line.product_id,
+                    lot_id=batch_id,
+                    lot_place=(
+                        receipt.branch_id,
+                        line.warehouse_id,
+                        line.storage_node_id,
+                    ),
+                    available=self._inventory.available_at(
+                        firm_scope=receipt.firm_id,
+                        branch_id=receipt.branch_id,
+                        warehouse_id=line.warehouse_id,
+                        storage_node_id=line.storage_node_id,
+                        product_id=line.product_id,
+                        batch_id=batch_id,
+                    ),
+                    on=receipt.receipt_date,
+                    document_id=receipt.id,
+                    document_line_id=line.id,
+                    document_number=receipt.grn_number,
+                    actor_id=actor_id,
+                )
             line.updated_by = actor_id
             received_cost += self._receipt_cost(transaction.id)
 
@@ -2313,6 +2342,18 @@ class GoodsReceiptService(TransactionalDocumentService):
             document_number=receipt.grn_number,
             receipt_date=receipt.receipt_date,
             cost_amount=received_cost,
+            actor_id=actor_id,
+        )
+        # What the sales this receipt's lots covered were costed out by goes
+        # on the receipt's date, never back into the day of the sale, so no
+        # closed month is touched (section 3.7).
+        DocumentPostingService(self._session).post_cost_correction(
+            firm_id=receipt.firm_id,
+            document_id=receipt.id,
+            document_number=f"{receipt.grn_number}-LS",
+            correction_date=receipt.receipt_date,
+            amount=cost_out_by,
+            source_module="goods_receipt",
             actor_id=actor_id,
         )
 

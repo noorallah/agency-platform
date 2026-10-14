@@ -14,6 +14,7 @@ from app.inventory.schemas.inventory import (
     InventoryTransactionResponse,
     InventoryTransactionType,
     InventoryUpdate,
+    LotShortfallResponse,
     OpeningStockBatchCreate,
     OpeningStockBatchListFilters,
     OpeningStockBatchResponse,
@@ -71,5 +72,6 @@ __all__ = [
     "OpeningStockLineResponse",
     "OpeningStockUpdate",
     "StockLedgerListFilters",
+    "LotShortfallResponse",
     "StockLedgerResponse",
 ]

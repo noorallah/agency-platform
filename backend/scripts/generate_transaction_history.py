@@ -452,6 +452,10 @@ RESET_ORDER: tuple[str, ...] = (
     # What each lot is worth goes with the movements that valued it; the
     # batch itself survives, as the note above says.
     "batch_valuations",
+    # Units billed before their lot, and what cleared them, go with the
+    # sales and receipts that made them (L2 step 7a).
+    "lot_shortfall_settlements",
+    "lot_shortfalls",
     "document_lifecycle_events",
     # The framework's own generic document, numbered from the same series
     # as everything else; nothing seeds it, but a row left behind would

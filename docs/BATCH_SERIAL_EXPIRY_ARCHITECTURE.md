@@ -268,6 +268,55 @@ migration. A firm on Average moves exactly as before.
   return. Billing without stock, where the firm allows it and the bill maker
   confirms, is step 7a.
 
+#### Billing without stock (L2 step 7a)
+
+Section 3.7 of `docs/design/LOT_COST_DESIGN.md`, in
+`app/inventory/services/lot_shortfalls.py`, the dispatch
+(`delivery_note_service.py`), the goods receipt, the sales return and the
+year-close. Migration `20261014_0387` (`lot_shortfalls`,
+`lot_shortfall_settlements`). A firm on Average, and a by-lot firm that has
+not switched it on, are refused exactly as before.
+
+- **The switch.** `stock_lot_settings.allow_billing_without_stock` and the
+  item's own `allow_negative_stock`, both on, on a firm costing by lot
+  (`LotShortfallService.may_bill_short`). A line whose batches or serial
+  units were chosen is never billed short: what was chosen has to be there.
+  No route sets the switch yet; the settings screen is step 9.
+- **The question.** A dispatch that needs more than the lots hold answers 422
+  "Line n: no stock of ... Bill anyway?" with `details.confirm` =
+  `BILL_WITHOUT_STOCK`, until the caller sends `bill_without_stock=true`
+  (`app/inventory/api/without_stock.py`) on `POST /delivery-notes/{id}/dispatch`,
+  `.../dispatch-and-invoice` or `POST /sales-invoices/{id}/approve`. Who
+  confirmed and when is kept on the shortfall row.
+- **The cost for now.** What the lots hold leaves first, as any dispatch.
+  The rest leaves the line's place with no lot named, taking that row below
+  zero, at the item's newest lot cost (`newest_lot_cost` in `lots.py`), or
+  its average where no lot of it was ever valued (`_ship_short`). One
+  `lot_shortfalls` row per such movement. What still waits is derived: the
+  row's quantity less its live `lot_shortfall_settlements`.
+- **When the purchase is typed.** Completing a goods receipt takes each
+  stocked line into its lot (step 3), then covers the units waiting in that
+  warehouse, oldest sale first, out of what the lot holds free
+  (`settle_from_lot`): one `LOT_SETTLEMENT` pair per share, out of the lot at
+  its cost and onto the emptied row at exactly the share of the sale's cost
+  it replaces (`_Movement.value`), and a `delivery_note_line_batches` row so
+  the sale's line names the lot. The lot's cost less the cost used is posted
+  on the receipt's date (`post_cost_correction`, reference `<GRN>-LS`): Dr
+  cost of goods sold, Cr Inventory, or the other way. A receipt whose lot
+  covered a sale can no longer be cancelled whole, as for any lot that moved.
+- **A return first.** A sales return of the line brings the waiting units
+  back first, with no lot, at the cost they left at, and records a
+  `RETURNED` settlement; cancelling the return reverses that movement at the
+  same value and deletes the row, so the units wait again.
+- **Nothing waits unseen.** `GET /inventory/lot-shortfalls` lists every
+  open row with its age (cost only to `PRODUCT_VIEW_COST_PRICE`); its screen
+  is step 11. A financial year cannot be closed while a row dated in it is
+  open (`assert_none_open`, called by `close_financial_year`).
+- **Books.** Until settled the item's value is the lots less the units owed
+  (it may read below zero). Once settled the cost of the sale is what its lot
+  cost: the sale's own movement plus the correction. Stock ageing treats a
+  `LOT_SETTLEMENT` as internal, like a transfer.
+
 ### Table: `lots`
 
 | Column | Type | Notes |
