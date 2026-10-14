@@ -13,7 +13,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Warehouse
@@ -107,12 +107,21 @@ class _Held:
         return movement
 
     def rows(self) -> list[ItcReversal]:
-        """Return every credit movement of the firm, oldest first."""
+        """Return every credit movement of the firm, oldest first.
+
+        A reversal and the reclaim after it can share one timestamp, and the id
+        is random, so a tie puts the reversal first rather than leaving it to
+        the UUID: the CI run of 2026-10-14 failed on exactly that.
+        """
         return list(
             self.session.scalars(
                 select(ItcReversal)
                 .where(ItcReversal.firm_id == self.firm_id)
-                .order_by(ItcReversal.created_at, ItcReversal.id)
+                .order_by(
+                    ItcReversal.created_at,
+                    case((ItcReversal.movement == "REVERSAL", 0), else_=1),
+                    ItcReversal.id,
+                )
             )
         )
 
