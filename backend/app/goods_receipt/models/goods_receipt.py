@@ -20,9 +20,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
-class GoodsReceipt(BaseEntity):
+class GoodsReceipt(BoxAndPieceEntryMixin, BaseEntity):
     """Store one goods receipt note header."""
 
     __tablename__ = "goods_receipts"
@@ -143,7 +144,7 @@ class GoodsReceipt(BaseEntity):
     cancel_reason: Mapped[str | None] = mapped_column(Text)
 
 
-class GoodsReceiptLine(BaseEntity):
+class GoodsReceiptLine(BoxAndPieceLineMixin, BaseEntity):
     """Store one goods receipt line."""
 
     __tablename__ = "goods_receipt_lines"

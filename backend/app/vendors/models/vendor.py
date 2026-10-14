@@ -22,6 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin
 
 
 class VendorCategory(BaseEntity):
@@ -92,7 +93,7 @@ class VendorType(BaseEntity):
     )
 
 
-class Vendor(BaseEntity):
+class Vendor(BoxAndPieceEntryMixin, BaseEntity):
     """Represent one vendor master owned by a firm."""
 
     __tablename__ = "vendors"

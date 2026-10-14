@@ -33,9 +33,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
-class SalesQuotation(BaseEntity):
+class SalesQuotation(BoxAndPieceEntryMixin, BaseEntity):
     """Store one quotation header."""
 
     __tablename__ = "sales_quotations"
@@ -176,7 +177,7 @@ class SalesQuotation(BaseEntity):
     cancel_reason: Mapped[str | None] = mapped_column(Text)
 
 
-class SalesQuotationLine(BaseEntity):
+class SalesQuotationLine(BoxAndPieceLineMixin, BaseEntity):
     """Store one quotation line."""
 
     __tablename__ = "sales_quotation_lines"
