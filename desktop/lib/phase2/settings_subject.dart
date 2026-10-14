@@ -94,7 +94,8 @@ class SettingsSubject {
 
 /// The subjects there are, in the order the menu lists their sections: Firm,
 /// Selling, Buying, Stock, Tax, Business profile, Pricing, Territories &
-/// routes, Account structure, Party lists, Item lists and Locations. Each
+/// routes, Account structure, Party lists, Item lists, Locations, People and
+/// Firms. System stays as cards: every item there is a tool or a log. Each
 /// other section of Settings joins by adding an entry here and a route beside
 /// [MenuLayout.taxSubjectRoute].
 abstract final class SettingsSubjects {
@@ -821,6 +822,99 @@ abstract final class SettingsSubjects {
         'The optional steps can wait until the firm needs them.',
   );
 
+  /// People (row T2), a platform section. Roles come first because a user
+  /// template bundles roles and a user is made from a template or given
+  /// roles. User-firm assignments are a platform administrator's, so a firm
+  /// administrator is not offered that tab. Permissions is a read-only list,
+  /// so it is a tool rather than a step.
+  static const SettingsSubject people = SettingsSubject(
+    section: 'People',
+    route: MenuLayout.peopleSubjectRoute,
+    summary: 'Roles, user templates, users, which firms each may work in',
+    sectionCode: 'platform/people',
+    steps: [
+      SubjectStep(
+        path: 'administration/roles',
+        label: 'Roles',
+        code: 'roles',
+        summary: 'What a person may do, bundled under a name.',
+        topLine: 'Start here: a user template and a user both pick from '
+            'roles.',
+      ),
+      SubjectStep(
+        path: 'administration/user-templates',
+        label: 'User templates',
+        code: 'user-templates',
+        summary: 'A ready set of roles to hire a person with.',
+        topLine: 'Needs roles from step 1: a template bundles roles.',
+      ),
+      SubjectStep(
+        path: 'administration/users',
+        label: 'Users',
+        code: 'users',
+        summary: 'The people who sign in.',
+        topLine: 'Needs a template from step 2 or roles from step 1: a user '
+            'is made from a template or given roles.',
+      ),
+      SubjectStep(
+        path: 'administration/user-firms',
+        label: 'User-firm assignments',
+        code: 'user-firms',
+        summary: 'Which firms each person may work in.',
+        topLine: 'Needs a user from step 3 and a firm. For platform '
+            'administrators only.',
+      ),
+    ],
+    tools: [
+      SubjectStep(
+        path: 'administration/permissions',
+        label: 'Permissions',
+        summary: 'What each role can do, to read rather than change.',
+        topLine: 'What each role can do. A list to read: a role is changed '
+            'in step 1.',
+      ),
+    ],
+    connects: ['Role', 'User template', 'User', 'Firm'],
+    connectsNote: 'To see what a role can do, use Check: Permissions.',
+    readyNote: 'People are set up.',
+    readyDetail: 'Roles and users exist, so people can sign in and work. '
+        'The optional steps can wait until they are needed.',
+  );
+
+  /// Firms (row T2), a platform administrator's section: the server
+  /// answers 403 to anybody else, and the menu hides its items from them.
+  /// Business profiles come first because a firm's profile is picked from
+  /// them (the order is decided by the loop); Firms is To do while there is
+  /// none, because nothing works without a firm.
+  static const SettingsSubject firms = SettingsSubject(
+    section: 'Firms',
+    route: MenuLayout.firmsSubjectRoute,
+    summary: 'Business profiles, the firms on this installation',
+    sectionCode: 'platform/firms',
+    steps: [
+      SubjectStep(
+        path: 'administration/business-profiles',
+        label: 'Business profiles',
+        code: 'business-profiles',
+        summary: "The list a firm's business profile is picked from.",
+        topLine: "Start here: a firm's business profile is picked from this "
+            'list.',
+      ),
+      SubjectStep(
+        path: 'administration/firms',
+        label: 'Firms',
+        code: 'firms',
+        summary: 'The firms on this installation.',
+        topLine: 'Nothing works without a firm. Its business profile is '
+            'picked from step 1.',
+      ),
+    ],
+    connects: ['Business profile', 'Firm'],
+    readyNote: 'Firms are set up.',
+    readyDetail: 'There is a firm to work in. The optional steps can wait '
+        'until they are needed.',
+  );
+
   /// In the order the menu lists the sections.
   static const List<SettingsSubject> all = [
     firm,
@@ -835,6 +929,8 @@ abstract final class SettingsSubjects {
     partyLists,
     itemLists,
     locations,
+    people,
+    firms,
   ];
 
   /// The subject that stands for the Settings section called [label].

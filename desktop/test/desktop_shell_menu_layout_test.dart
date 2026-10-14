@@ -151,13 +151,14 @@ void main() {
     expect(find.text('PLATFORM'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('setup-section-Firms')));
     await tester.pump(const Duration(milliseconds: 300));
+    // Firms opens as one screen (row T2), from its one card.
     await tester
-        .tap(find.byKey(const ValueKey('setup-card-administration/firms')));
+        .tap(find.byKey(const ValueKey('setup-subject-platform/firms')));
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.byKey(const ValueKey('open-screen-administration/users')),
         findsOneWidget);
-    expect(find.byKey(const ValueKey('open-screen-administration/firms')),
+    expect(find.byKey(const ValueKey('open-screen-settings/subject/firms')),
         findsOneWidget);
     expect(tester.takeException(), isNull);
     await _unmount(tester);
@@ -292,6 +293,22 @@ void main() {
       'masters/branch-types',
       'masters/storage-areas',
     ),
+    // Two platform sections; the shell's platform administrator is offered
+    // every tab of both.
+    (
+      'People',
+      'platform/people',
+      'People settings',
+      'administration/users',
+      'administration/roles',
+    ),
+    (
+      'Firms',
+      'platform/firms',
+      'Firms settings',
+      'administration/firms',
+      'administration/business-profiles',
+    ),
   ]) {
     testWidgets('Settings > $section opens as one screen in a tab of its own',
         (tester) async {
@@ -299,16 +316,34 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
       await tester.pump(const Duration(milliseconds: 300));
-      await tester
-          .ensureVisible(find.byKey(ValueKey('setup-section-$section')));
+      // The section list is built as it scrolls: People and Firms are near
+      // its end.
+      await tester.scrollUntilVisible(
+        find.byKey(ValueKey('setup-section-$section')),
+        200,
+        scrollable: find
+            .ancestor(
+              of: find.byKey(const ValueKey('setup-section-Firm')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      // Centred, clear of the bottom bar laid over the list's last rows.
+      await Scrollable.ensureVisible(
+        tester.element(find.byKey(ValueKey('setup-section-$section'))),
+        alignment: 0.5,
+      );
+      await tester.pump();
       await tester.tap(find.byKey(ValueKey('setup-section-$section')));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byKey(ValueKey('setup-card-$card')), findsNothing);
       await tester.tap(find.byKey(ValueKey('setup-subject-$code')));
       await tester.pump(const Duration(milliseconds: 300));
 
-      final Finder tab =
-          find.byKey(ValueKey('open-screen-settings/subject/$code'));
+      // A platform section's server code carries a 'platform/' prefix its
+      // route does not.
+      final Finder tab = find.byKey(
+          ValueKey('open-screen-settings/subject/${code.split('/').last}'));
       expect(tab, findsOneWidget);
       expect(find.descendant(of: tab, matching: find.text(label)),
           findsOneWidget);
@@ -363,12 +398,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
     await tester.pump(const Duration(milliseconds: 300));
     // Firms is not the section Settings opens on, or this proves nothing.
-    expect(find.byKey(const ValueKey('setup-card-administration/firms')),
-        findsNothing);
+    // It opens as one screen now (row T2), so its one card stands for it.
+    const ValueKey<String> firmsCard = ValueKey('setup-subject-platform/firms');
+    expect(find.byKey(firmsCard), findsNothing);
     await tester.tap(find.byKey(const ValueKey('setup-section-Firms')));
     await tester.pump(const Duration(milliseconds: 300));
-    await tester
-        .tap(find.byKey(const ValueKey('setup-card-administration/firms')));
+    await tester.tap(find.byKey(firmsCard));
     await tester.pump(const Duration(milliseconds: 300));
     // The Firms screen is on show, not Settings.
     expect(find.byKey(const ValueKey('setup-section-Firms')), findsNothing);
@@ -376,15 +411,13 @@ void main() {
     // Back by the tab, then by the gear: Firms both times.
     await tester.tap(find.byKey(const ValueKey('open-screen-setup')));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byKey(const ValueKey('setup-card-administration/firms')),
-        findsOneWidget);
-    await tester
-        .tap(find.byKey(const ValueKey('open-screen-administration/firms')));
+    expect(find.byKey(firmsCard), findsOneWidget);
+    await tester.tap(
+        find.byKey(const ValueKey('open-screen-settings/subject/firms')));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byKey(const ValueKey('setup-card-administration/firms')),
-        findsOneWidget);
+    expect(find.byKey(firmsCard), findsOneWidget);
     expect(tester.takeException(), isNull);
     await _unmount(tester);
   });

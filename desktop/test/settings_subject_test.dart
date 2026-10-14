@@ -124,7 +124,7 @@ void main() {
     );
     expect(SettingsSubjects.forSection('Tax'), same(_tax));
     expect(SettingsSubjects.forRoute(MenuLayout.taxSubjectRoute), same(_tax));
-    expect(SettingsSubjects.forSection('People'), isNull);
+    expect(SettingsSubjects.forSection('System'), isNull);
     expect(_tax.page.label, 'Tax settings');
   });
 
@@ -355,10 +355,12 @@ void main() {
     expect(opened, isEmpty);
 
     // A section with no subject is cards as before.
-    await tester.ensureVisible(_key('setup-section-People'));
-    await tester.tap(_key('setup-section-People'));
+    // The section list is built as it scrolls, and System is near its end.
+    await tester.scrollUntilVisible(_key('setup-section-System'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(_key('setup-section-System'));
     await tester.pumpAndSettle();
-    expect(_key('setup-card-administration/users'), findsOneWidget);
+    expect(_key('setup-card-settings/audit-logs'), findsOneWidget);
 
     // Search still names each item, and opens it as it always did.
     await tester.enterText(_key('setup-search'), 'Tax Rules');
@@ -741,6 +743,8 @@ void main() {
             'Party lists',
             'Item lists',
             'Locations',
+            'People',
+            'Firms',
           ]);
     });
 
@@ -1273,6 +1277,249 @@ void main() {
         'masters/product-categories',
         'administration/uoms',
         'masters/storage-areas',
+      ]);
+    });
+  });
+
+  // Row T2: People and Firms, the two platform sections that set something
+  // up. System stays as cards: every item there is a tool or a log.
+  group('People and Firms', () {
+    SettingsSectionState stateOf(SettingsSubject subject,
+            {Map<String, String> states = const {},
+            Map<String, String> details = const {}}) =>
+        SettingsSectionState.fromJson({
+          'section': subject.sectionCode,
+          'todo_count': states.values.where((s) => s == 'TODO').length,
+          'steps': [
+            for (final SubjectStep step in subject.steps)
+              {
+                'code': step.code,
+                'state': states[step.code] ?? 'OPTIONAL',
+                'detail': details[step.code] ?? '',
+              },
+          ],
+        });
+
+    const Map<SettingsSubject, List<String>> numbered = {
+      SettingsSubjects.people: [
+        '1 Roles',
+        '2 User templates',
+        '3 Users',
+        '4 User-firm assignments',
+      ],
+      SettingsSubjects.firms: [
+        '1 Business profiles',
+        '2 Firms',
+      ],
+    };
+
+    test('each names the items of its section, and the codes are fixed', () {
+      for (final SettingsSubject subject in numbered.keys) {
+        expect(
+          {for (final SubjectStep step in subject.entries) step.path},
+          {
+            for (final MenuItemSpec item in _itemsOf(subject.section))
+              item.path,
+          },
+          reason: subject.section,
+        );
+        expect(SettingsSubjects.forSection(subject.section), same(subject));
+        expect(SettingsSubjects.forRoute(subject.route), same(subject));
+        // The step codes are the menu item keys.
+        for (final SubjectStep step in subject.steps) {
+          expect(step.path.split('/').last, step.code, reason: step.path);
+        }
+      }
+      // The server's sections and codes, which a server branch answers for.
+      expect(SettingsSubjects.people.sectionCode, 'platform/people');
+      expect(SettingsSubjects.firms.sectionCode, 'platform/firms');
+      expect(
+          [for (final SubjectStep s in SettingsSubjects.people.steps) s.code],
+          ['roles', 'user-templates', 'users', 'user-firms']);
+      expect(
+          [for (final SubjectStep s in SettingsSubjects.firms.steps) s.code],
+          ['business-profiles', 'firms']);
+      // Permissions is a list to read, so it is a Check tool.
+      expect(
+          [for (final SubjectStep s in SettingsSubjects.people.tools) s.path],
+          ['administration/permissions']);
+      expect(SettingsSubjects.people.toolsLabel, 'Check');
+      expect(SettingsSubjects.firms.tools, isEmpty);
+      expect(SettingsSubjects.people.route, 'settings/subject/people');
+      expect(SettingsSubjects.firms.route, 'settings/subject/firms');
+      expect(SettingsSubjects.people.page.label, 'People settings');
+      expect(SettingsSubjects.firms.page.label, 'Firms settings');
+      // Each step says what it needs from the step before.
+      expect(
+          SettingsSubjects.people.steps[1].topLine, contains('Needs roles'));
+      expect(SettingsSubjects.people.steps[2].topLine,
+          contains('Needs a template'));
+      expect(SettingsSubjects.people.steps[3].topLine,
+          contains('Needs a user'));
+      expect(SettingsSubjects.firms.steps[1].topLine,
+          contains('Nothing works without a firm'));
+      // System has no subject: nothing is set up there.
+      expect(SettingsSubjects.forSection('System'), isNull);
+    });
+
+    for (final MapEntry<SettingsSubject, List<String>> entry
+        in numbered.entries) {
+      final SettingsSubject subject = entry.key;
+      testWidgets(
+          '${subject.section} opens on Start here, numbers its steps and '
+          'reads once', (tester) async {
+        final _Seen seen = await _pump(
+          tester,
+          subject: subject,
+          state: () => stateOf(subject),
+        );
+
+        expect(_key('subject-start').hitTestable(), findsOneWidget);
+        expect(find.text(subject.readyNote), findsOneWidget);
+        for (final String label in entry.value) {
+          expect(find.text(label), findsOneWidget, reason: label);
+        }
+        double left(String path) =>
+            tester.getTopLeft(_key('subject-tab-$path')).dx;
+        final List<double> order = [
+          left('start'),
+          for (final SubjectStep step in subject.entries) left(step.path),
+        ];
+        expect(order, [...order]..sort());
+
+        for (final SubjectStep step in subject.entries) {
+          await _tapTab(tester, step.path);
+          expect(find.text(step.topLine).hitTestable(), findsOneWidget,
+              reason: step.path);
+          // Every step and tool here is a screen.
+          expect(_key('screen-${step.path}').hitTestable(), findsOneWidget,
+              reason: step.path);
+        }
+        await _tapTab(tester, 'start');
+        expect(seen.reads, 1);
+        expect(seen.windows, isEmpty);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('People: Permissions is a Check tool after the steps',
+        (tester) async {
+      await _pump(
+        tester,
+        subject: SettingsSubjects.people,
+        state: () => stateOf(
+          SettingsSubjects.people,
+          states: {'roles': 'DONE', 'users': 'DONE'},
+          details: {
+            'roles': '16 ready-made, 2 your own',
+            'users': '4 people',
+          },
+        ),
+      );
+
+      expect(find.text('Check: Permissions'), findsWidgets);
+      expect(find.text('16 ready-made, 2 your own'), findsOneWidget);
+      expect(find.text('4 people'), findsOneWidget);
+      expect(find.text(SettingsSubjects.people.readyNote), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'People: a firm administrator has no User-firm assignments tab or row',
+        (tester) async {
+      const String userFirms = 'administration/user-firms';
+      await _pump(
+        tester,
+        subject: SettingsSubjects.people,
+        visible: [
+          for (final MenuItemSpec item in _itemsOf('People'))
+            if (item.path != userFirms) item,
+        ],
+        state: () => stateOf(SettingsSubjects.people),
+      );
+
+      expect(_key('subject-tab-$userFirms'), findsNothing);
+      expect(_key('subject-row-$userFirms'), findsNothing);
+      expect(find.text('4 User-firm assignments'), findsNothing);
+      expect(find.text('3 Users'), findsOneWidget);
+      expect(find.text('Check: Permissions'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Firms: an installation with no firm leaves Firms To do',
+        (tester) async {
+      await _pump(
+        tester,
+        subject: SettingsSubjects.firms,
+        state: () => stateOf(
+          SettingsSubjects.firms,
+          states: {'firms': 'TODO'},
+          details: {'firms': 'None yet'},
+        ),
+      );
+
+      expect(find.text(SettingsSubjects.firms.readyNote), findsNothing);
+      expect(
+          _chip(tester, 'firms'), isNot(_chip(tester, 'business-profiles')));
+      expect(find.text('None yet'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Settings shows each section as one card, System as cards',
+        (tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final List<SettingsSubject> subjects = [];
+      final List<MenuItemSpec> opened = [];
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SetUpPage(
+            settings: MenuLayout.settings,
+            section: 'Firm',
+            onOpen: opened.add,
+            onOpenSubject: subjects.add,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      for (final SettingsSubject subject in numbered.keys) {
+        await tester.ensureVisible(_key('setup-section-${subject.section}'));
+        await tester.tap(_key('setup-section-${subject.section}'));
+        await tester.pumpAndSettle();
+        for (final MenuItemSpec item in _itemsOf(subject.section)) {
+          expect(_key('setup-card-${item.path}'), findsNothing,
+              reason: item.path);
+        }
+        await tester.tap(_key('setup-subject-${subject.sectionCode}'));
+        await tester.pumpAndSettle();
+      }
+      expect(subjects, numbered.keys.toList());
+      expect(opened, isEmpty);
+
+      await tester.scrollUntilVisible(_key('setup-section-System'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(_key('setup-section-System'));
+      await tester.pumpAndSettle();
+      expect(_key('setup-card-settings/audit-logs'), findsOneWidget);
+
+      // Search still finds each old item by its own name and opens it.
+      for (final String path in [
+        'administration/users',
+        'administration/permissions',
+        'administration/firms',
+      ]) {
+        await tester.enterText(
+            _key('setup-search'), MenuLayout.settings.item(path)!.label);
+        await tester.pumpAndSettle();
+        await tester.tap(_key('setup-card-$path'));
+        await tester.pumpAndSettle();
+      }
+      expect([for (final MenuItemSpec item in opened) item.path], [
+        'administration/users',
+        'administration/permissions',
+        'administration/firms',
       ]);
     });
   });
