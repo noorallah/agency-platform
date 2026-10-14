@@ -212,7 +212,7 @@ def _named_ids(
     if inspector.has_table("territory_salesman_assignments") and inspector.has_table(
         "sales_territories"
     ):
-        # `20261014_0381` renames the column; a store `create_all` built from
+        # `20261014_0382` renames the column; a store `create_all` built from
         # today's models already holds the new name.
         held = {
             column["name"]

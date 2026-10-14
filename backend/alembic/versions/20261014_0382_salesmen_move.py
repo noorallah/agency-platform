@@ -21,8 +21,8 @@ Firm-owned data: run ``scripts/migrate_all_stores.py``. Idempotent: every
 add, drop and key is inspected first, and a row already naming its own
 firm's entry is left alone.
 
-Revision ID: 20261014_0381
-Revises: 20261014_0380
+Revision ID: 20261014_0382
+Revises: 20261014_0381
 Create Date: 2026-10-14
 
 """
@@ -37,8 +37,8 @@ from alembic import op
 from app.core.database.types import UUIDType
 from app.salesmen.naming import NAME_LENGTH, free_name, placeholder_name
 
-revision: str = "20261014_0381"
-down_revision: str | Sequence[str] | None = "20261014_0380"
+revision: str = "20261014_0382"
+down_revision: str | Sequence[str] | None = "20261014_0381"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

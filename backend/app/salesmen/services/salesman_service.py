@@ -1,7 +1,7 @@
 """Keep the firm's own list of salesmen (P2, salesman list design step 1).
 
 Every column that names a salesman references this table (step 2,
-`20261014_0381`); who may be named is decided in
+`20261014_0382`); who may be named is decided in
 `app/salesmen/services/nameable.py`.
 """
 

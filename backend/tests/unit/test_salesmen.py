@@ -565,7 +565,7 @@ def _move_migration() -> ModuleType:
         Path(__file__).resolve().parents[2]
         / "alembic"
         / "versions"
-        / "20261014_0381_salesmen_move.py"
+        / "20261014_0382_salesmen_move.py"
     )
     spec = importlib.util.spec_from_file_location("salesmen_move", path)
     assert spec is not None and spec.loader is not None
