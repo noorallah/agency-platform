@@ -2282,7 +2282,12 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
                 ? null
                 : FilledButton.tonalIcon(
                     onPressed: () => setState(() {
-                      final _AddressDraft address = _AddressDraft.empty();
+                      // A customer's first address is where he is billed
+                      // and where his goods go, until somebody says
+                      // otherwise: one address, saved once, for both.
+                      final _AddressDraft address = _AddressDraft.empty(
+                        billingAndShipping: _addresses.isEmpty,
+                      );
                       _watchAddress(address);
                       _addresses.add(address);
                       _dirty = true;
@@ -2292,6 +2297,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
                   ),
           ),
           const SizedBox(height: 12),
+          if (_addresses.isNotEmpty) _shippingChoice(),
           if (_addresses.isEmpty)
             const StandardEmptyState(
               type: EmptyStateType.noRecords,
@@ -2301,6 +2307,80 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             _addressCard(index),
         ]),
       );
+
+  /// The address marked as where the customer is billed, if any.
+  _AddressDraft? get _billingAddress {
+    for (final _AddressDraft address in _addresses) {
+      if (address.defaultBilling) return address;
+    }
+    return null;
+  }
+
+  /// Same as billing, or a shipping address of its own.
+  ///
+  /// The two default flags on the addresses say it already; this says it in
+  /// the words a counter uses. *Same* marks the billing address as the
+  /// shipping one too. *Different* marks another address, or adds one to
+  /// fill in. Nothing is deleted either way.
+  Widget _shippingChoice() {
+    final _AddressDraft? billing = _billingAddress;
+    final Set<bool> chosen = billing == null
+        ? <bool>{}
+        : <bool>{billing.defaultShipping};
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(children: [
+        const Text('Shipping address'),
+        const SizedBox(width: 12),
+        SegmentedButton<bool>(
+          key: const ValueKey('customer-shipping-same'),
+          emptySelectionAllowed: true,
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment<bool>(value: true, label: Text('Same as billing')),
+            ButtonSegment<bool>(value: false, label: Text('Different')),
+          ],
+          selected: chosen,
+          onSelectionChanged: _readOnly
+              ? null
+              : (selection) {
+                  if (selection.isEmpty) return;
+                  setState(() => _shipToBilling(selection.first));
+                },
+        ),
+      ]),
+    );
+  }
+
+  void _shipToBilling(bool same) {
+    _AddressDraft? billing = _billingAddress;
+    if (billing == null) {
+      // Nothing is marked for billing: the first address is the billing one.
+      billing = _addresses.first;
+      billing.defaultBilling = true;
+    }
+    for (final _AddressDraft item in _addresses) {
+      item.defaultShipping = false;
+    }
+    if (same) {
+      billing.defaultShipping = true;
+    } else {
+      _AddressDraft? other;
+      for (final _AddressDraft item in _addresses) {
+        if (!identical(item, billing)) {
+          other = item;
+          break;
+        }
+      }
+      if (other == null) {
+        other = _AddressDraft.empty()..addressType = 'SHIPPING';
+        _watchAddress(other);
+        _addresses.add(other);
+      }
+      other.defaultShipping = true;
+    }
+    _dirty = true;
+  }
 
   Widget _contactTab() => Form(
         key: _forms[2],
@@ -3298,7 +3378,8 @@ class _AddressDraft {
         postalCode,
       ];
 
-  factory _AddressDraft.empty() => _AddressDraft(
+  factory _AddressDraft.empty({bool billingAndShipping = false}) =>
+      _AddressDraft(
         id: '',
         addressType: 'BILLING',
         line1: TextEditingController(),
@@ -3309,8 +3390,8 @@ class _AddressDraft {
         state: TextEditingController(),
         country: TextEditingController(text: 'IN'),
         postalCode: TextEditingController(),
-        defaultBilling: false,
-        defaultShipping: false,
+        defaultBilling: billingAndShipping,
+        defaultShipping: billingAndShipping,
       );
 
   factory _AddressDraft.fromAddress(CustomerAddress address) => _AddressDraft(
