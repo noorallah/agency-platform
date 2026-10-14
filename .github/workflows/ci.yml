@@ -23,7 +23,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Once a day means once a day (owner, 2026-10-14): when somebody has already
+  # started a run by hand on main in the last 24 hours, the 02:00 run has
+  # nothing new to say and skips. A cancelled hand run does not count.
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          skip=false
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+            ran=$(gh run list --repo "${{ github.repository }}" \
+              --workflow ci.yml --branch main --event workflow_dispatch \
+              --created ">=$since" --limit 20 --json conclusion \
+              --jq '[.[] | select(.conclusion != "cancelled")] | length')
+            if [ "$ran" -gt 0 ]; then
+              skip=true
+              echo "A hand-started run on main since $since; skipping."
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   backend:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -75,6 +105,8 @@ jobs:
     # Multi-schema tenancy, cross-schema foreign keys, the audit trigger and
     # numbering concurrency are all invisible to the SQLite unit suite. This job
     # is what catches them.
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -163,6 +195,8 @@ jobs:
         run: uv run pytest tests/integration -q
 
   desktop:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
