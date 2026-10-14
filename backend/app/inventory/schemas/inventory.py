@@ -57,6 +57,9 @@ class InventoryTransactionType(StrEnum):
     QUARANTINE_RELEASE = "QUARANTINE_RELEASE"
     #: Value added to stock on hand by a landed cost voucher (BUY-16).
     LANDED_COST = "LANDED_COST"
+    #: A lot that came in covering units billed before it (L2 step 7a): out
+    #: of the lot and into the row the sale took below zero, one pair.
+    LOT_SETTLEMENT = "LOT_SETTLEMENT"
 
 
 #: Appended by ``reverse_transaction`` to the type it reverses.
@@ -850,3 +853,28 @@ class PhysicalCountResponse(InventorySchema):
     count_plan_id: UUID | None = None
     lines: list[PhysicalCountLineResponse]
     version: int
+
+
+class LotShortfallResponse(InventorySchema):
+    """One bill waiting for its cost: units sold before any lot held them.
+
+    L2 step 7a. ``quantity_waiting`` is what no lot has covered yet, derived
+    from what cleared it. The cost figures are left out, not hidden by the
+    screen, for anybody without ``PRODUCT_VIEW_COST_PRICE``.
+    """
+
+    id: UUID
+    product_id: UUID
+    product_code: str
+    product_name: str
+    warehouse_id: UUID
+    delivery_note_id: UUID
+    document_number: str
+    sale_date: date
+    age_days: int
+    quantity: Decimal
+    quantity_waiting: Decimal
+    unit_cost: Decimal | None = None
+    cost_waiting: Decimal | None = None
+    confirmed_by: UUID
+    confirmed_at: datetime

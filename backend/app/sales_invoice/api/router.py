@@ -46,6 +46,7 @@ from app.document_framework.schemas.bulk_actions import (
     BulkCancelRequest,
 )
 from app.document_framework.services.bulk_actions import run_each
+from app.inventory.api.without_stock import BillWithoutStock
 from app.sales_invoice.models import SalesInvoiceLine
 from app.sales_invoice.schemas import (
     BillableDocument,
@@ -418,11 +419,13 @@ def approve_sales_invoice(
     invoice_id: UUID,
     licence_override_reason: LicenceOverrideReason = None,
     price_override_reason: PriceOverrideReason = None,
+    bill_without_stock: BillWithoutStock = False,
 ) -> ApiResponse[SalesInvoiceResponse]:
     """Approve a sales invoice.
 
     Under `SALES_APPROVE`, or by whoever raised it where the firm has made
-    approval no step of its own (backlog 119).
+    approval no step of its own (backlog 119). ``bill_without_stock``
+    answers the question a by-lot firm asks of units no lot holds (L2 7a).
     """
     service = SalesInvoiceService(db)
     current = service.get_invoice(invoice_id, firm_scope=scope.firm_id)
@@ -439,6 +442,7 @@ def approve_sales_invoice(
         actor_id=scope.actor_id,
         licence_override_reason=authorised_override(scope, licence_override_reason),
         price_override_reason=authorised_price_override(scope, price_override_reason),
+        bill_without_stock=bill_without_stock,
     )
     return ApiResponse(data=service.invoice_response(row))
 

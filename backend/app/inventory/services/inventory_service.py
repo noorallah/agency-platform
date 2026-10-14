@@ -72,7 +72,12 @@ from app.inventory.schemas import (
     StockWriteOffCreate,
 )
 from app.inventory.services import pipeline
-from app.inventory.services.lots import LotSource, costs_by_lot, lot_tie_break
+from app.inventory.services.lots import (
+    LotSource,
+    costs_by_lot,
+    lot_tie_break,
+    newest_lot_cost,
+)
 from app.inventory.services.movement_numbering import MovementNumbering
 from app.inventory.services.stock_evidence import StockEvidenceService
 from app.products.models import Product
@@ -185,6 +190,10 @@ class _Movement:
     #: left, so the move shifts no value and the lot's cost stands (L2 step
     #: 7); the moving average does not read it.
     carries: UUID | None = None
+    #: The exact value this movement moves, where its caller knows it: the
+    #: share of a sale's cost a lot that came in later replaces (L2 step 7a).
+    #: Read only for an item costed by lot whose movement names no lot.
+    value: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2839,22 +2848,7 @@ class InventoryService:
 
         cost = data.unit_cost
         if cost is None:
-            cost = self._session.scalar(
-                select(BatchValuation.unit_cost)
-                .join(BatchRecord, BatchRecord.id == BatchValuation.batch_id)
-                .where(
-                    BatchValuation.firm_id == firm_scope,
-                    BatchValuation.product_id == data.product_id,
-                    BatchValuation.is_deleted.is_(False),
-                    BatchValuation.unit_cost > ZERO,
-                )
-                .order_by(
-                    case((BatchRecord.received_on.is_(None), 1), else_=0).asc(),
-                    BatchRecord.received_on.desc(),
-                    BatchRecord.lot_reference.desc(),
-                )
-                .limit(1)
-            )
+            cost = newest_lot_cost(self._session, firm_scope, data.product_id)
         lot = BatchSerialService(self._session).open_lot(
             firm_scope=firm_scope,
             actor_id=actor_id,
@@ -3303,6 +3297,10 @@ class InventoryService:
             return self._apply_lot_valuation(
                 valuation, lot_id, movement, delta, actor_id
             )
+        if valuation.costing_method == COSTING_BY_LOT:
+            priced = self._unlotted_value(movement, delta)
+            if priced is not None:
+                return self._apply_priced_valuation(valuation, priced, delta, actor_id)
 
         if delta > ZERO:
             unit_cost = average if movement.unit_cost is None else movement.unit_cost
@@ -3421,6 +3419,74 @@ class InventoryService:
         valuation.average_cost = average
         valuation.updated_by = actor_id
         return unit_cost, abs(moved), average
+
+    def _unlotted_value(self, movement: _Movement, delta: Decimal) -> Decimal | None:
+        """Return what a by-lot item's movement naming no lot is worth, if known.
+
+        Goods billed before any lot held them leave at the cost stated
+        (`LotShortfall.unit_cost`), and the units a later lot or a return
+        puts back come in at exactly the share they replace (L2 step 7a). A
+        reversal of either moves the value its original carried. Anything
+        else naming no lot is valued at the average, as before (decision 6).
+        """
+        if movement.value is not None:
+            return movement.value
+        if movement.reverses is not None:
+            carried = self._carried_value(movement)
+            if carried is not None and self._was_priced(movement.reverses):
+                return carried
+        if movement.unit_cost is not None:
+            return quantize_money(abs(delta) * movement.unit_cost)
+        return None
+
+    def _was_priced(self, transaction_id: UUID) -> bool:
+        """Say whether a movement naming no lot was valued at a stated cost.
+
+        Only units billed before their lot, and the returns and settlements
+        of them, are; their reversal moves the same value back. A movement
+        valued at the average is reversed at the average, as it always was.
+        """
+        from app.inventory.models import LotShortfall, LotShortfallSettlement
+
+        return (
+            self._session.scalar(
+                select(LotShortfall.id)
+                .where(LotShortfall.inventory_transaction_id == transaction_id)
+                .limit(1)
+            )
+            is not None
+            or self._session.scalar(
+                select(LotShortfallSettlement.id)
+                .where(LotShortfallSettlement.in_transaction_id == transaction_id)
+                .limit(1)
+            )
+            is not None
+        )
+
+    @staticmethod
+    def _apply_priced_valuation(
+        valuation: ProductValuation, value: Decimal, delta: Decimal, actor_id: UUID
+    ) -> tuple[Decimal | None, Decimal | None, Decimal]:
+        """Move a stated value in or out of a by-lot item's running figure.
+
+        The item's quantity may go below zero here -- units billed before
+        their lot -- and its average is then left where it was, since there
+        is nothing on hand to divide by.
+        """
+        moved = abs(value) if delta > ZERO else -abs(value)
+        unit_cost = (abs(value) / abs(delta)).quantize(
+            UNIT_COST_SCALE, rounding=ROUND_HALF_UP
+        )
+        on_hand = Decimal(str(valuation.quantity_on_hand)) + delta
+        item_value = quantize_money(Decimal(str(valuation.total_value)) + moved)
+        average = Decimal(str(valuation.average_cost))
+        if on_hand > ZERO:
+            average = item_value / on_hand
+        valuation.quantity_on_hand = on_hand
+        valuation.total_value = item_value
+        valuation.average_cost = average
+        valuation.updated_by = actor_id
+        return unit_cost, abs(value), average
 
     def _carried_value(self, movement: _Movement) -> Decimal | None:
         """Return the value the movement reversed or carried on held, if any."""
@@ -4862,8 +4928,13 @@ class InventoryService:
         batch_id: UUID | None = None,
         serial_id: UUID | None = None,
         share_of_line: bool = False,
+        unit_cost: Decimal | None = None,
     ) -> InventoryTransaction:
         """Post the stock a delivery note dispatched, from one batch.
+
+        ``unit_cost`` is stated only for units a by-lot firm bills before any
+        lot holds them (L2 step 7a); every other dispatch leaves at the cost
+        its lot, or the average, carries.
 
         Callers holding a line that spans batches call
         ``allocate_for_dispatch`` first and then this once per allocated batch.
@@ -4919,10 +4990,86 @@ class InventoryService:
                 entered_uom_id=entered_uom_id,
                 conversion_version=conversion_version,
                 remarks=remarks or "delivery_note dispatch",
+                unit_cost=unit_cost,
             ),
         )
         self._session.flush()
         return transaction
+
+    def settle_shortfall(
+        self,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        product_id: UUID,
+        lot_id: UUID,
+        lot_place: tuple[UUID, UUID, UUID | None],
+        owed_place: tuple[UUID, UUID, UUID | None],
+        quantity: Decimal,
+        owed_value: Decimal,
+        reference_number: str,
+        transaction_date: date,
+    ) -> tuple[InventoryTransaction, InventoryTransaction, Decimal]:
+        """Move units a lot just brought onto the row a sale took below zero.
+
+        L2 step 7a: goods billed before their purchase left a row with no lot
+        below zero. The lot that comes in covers them at once -- out of the
+        lot at its own cost, into that row at exactly ``owed_value``, the
+        share of the sale's cost it replaces -- so the lot holds what is
+        really left and the row comes back towards zero. Quantities net to
+        nothing; the values differ by what the sale's cost was out, which the
+        caller posts as a correction. Each place is (branch, warehouse, bin).
+
+        Returns:
+            The movement out of the lot, the movement onto the row, and the
+            value the lot gave.
+
+        """
+        reference = reference_number.strip().upper()
+        movements: list[InventoryTransaction] = []
+        for (branch_id, warehouse_id, node_id), batch_id, delta, value in (
+            (lot_place, lot_id, -quantity, None),
+            (owed_place, None, quantity, owed_value),
+        ):
+            row = self._ensure_inventory_projection(
+                firm_id=firm_scope,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                storage_node_id=node_id,
+                product_id=product_id,
+                actor_id=actor_id,
+                batch_id=batch_id,
+            )
+            movements.append(
+                self._stage_movement(
+                    row,
+                    actor_id=actor_id,
+                    movement=_Movement(
+                        transaction_type=(
+                            InventoryTransactionType.LOT_SETTLEMENT.value
+                        ),
+                        batch_id=batch_id,
+                        reference_number=reference,
+                        reference_type="LOT_SHORTFALL",
+                        transaction_date=transaction_date,
+                        quantity=quantity,
+                        current_delta=delta,
+                        remarks=(
+                            "covers units billed before their lot"
+                            if batch_id is not None
+                            else "units billed before their lot, now covered"
+                        ),
+                        value=value,
+                    ),
+                )
+            )
+        self._session.flush()
+        given = self._session.scalar(
+            select(StockLedgerEntry.total_cost).where(
+                StockLedgerEntry.transaction_id == movements[0].id
+            )
+        )
+        return movements[0], movements[1], Decimal(str(given or ZERO))
 
     def available_at(
         self,

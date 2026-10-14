@@ -1136,6 +1136,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
         licence_override_reason: str | None = None,
         price_override_reason: str | None = None,
+        bill_without_stock: bool = False,
     ) -> SalesInvoice:
         """Approve one sales invoice and commit it."""
         row = self.stage_approval(
@@ -1144,6 +1145,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             licence_override_reason=licence_override_reason,
             price_override_reason=price_override_reason,
+            bill_without_stock=bill_without_stock,
         )
         self._session.commit()
         return row
@@ -1247,6 +1249,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         batch_reason: str | None = None,
+        bill_without_stock: bool = False,
     ) -> SalesInvoice:
         """Dispatch an approved delivery note and bill it, in one transaction.
 
@@ -1278,6 +1281,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             batch_reason=batch_reason,
             judge_batches=True,
+            bill_without_stock=bill_without_stock,
         )
         self._session.flush()
         lines = self._session.scalars(
@@ -1574,8 +1578,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
         licence_override_reason: str | None = None,
         price_override_reason: str | None = None,
+        bill_without_stock: bool = False,
     ) -> SalesInvoice:
         """Approve one sales invoice without committing it.
+
+        ``bill_without_stock`` answers, for the notes this bill ships, the
+        question a by-lot firm asks of units no lot holds (L2 step 7a).
 
         Posts the receivable and the revenue journal. `post_receivable_transaction`
         has always taken `commit=False` here for the same reason the rest of
@@ -1713,7 +1721,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         # The goods leave now, not when the draft was saved: a draft is a
         # proposal, and it used to ship the stock and post cost of goods sold
         # the moment it was typed (D-SELL-13, driven 2026-09-19).
-        self._ship_on_approval(row, to_ship, firm_scope=firm_scope, actor_id=actor_id)
+        self._ship_on_approval(
+            row,
+            to_ship,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            bill_without_stock=bill_without_stock,
+        )
         # Once every line knows its batches: none may charge above the MRP
         # printed on them (backlog 79 row 7).
         self._refuse_above_batch_mrp(row)
@@ -2874,6 +2888,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        bill_without_stock: bool = False,
     ) -> None:
         """Dispatch the notes a bill raised for itself, and cost its lines.
 
@@ -2885,7 +2900,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             return
         service = DeliveryNoteService(self._session)
         for note in notes:
-            service.stage_dispatch(note.id, firm_scope=firm_scope, actor_id=actor_id)
+            service.stage_dispatch(
+                note.id,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                bill_without_stock=bill_without_stock,
+            )
         self._session.flush()
         shipped = {note.id for note in notes}
         costs = self._dispatch_costs(shipped)

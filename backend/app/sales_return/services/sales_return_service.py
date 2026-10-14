@@ -78,8 +78,12 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
-from app.inventory.models import StockLedgerEntry
+from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.services import InventoryService
+from app.inventory.services.lot_shortfalls import (
+    LotShortfallService,
+    OpenShortfall,
+)
 from app.inventory.services.lots import costs_by_lot, lot_tie_break
 from app.products.models import Product
 from app.products.services.stockless import stockless_products
@@ -327,12 +331,15 @@ class _LotBack:
     ``quantity`` is in stock units. ``unit_cost`` is what one unit cost as it
     left in that lot, off the delivery line's lot row; None where the row
     carries no cost (written before 20261014_0385), and the lot's own cost
-    is taken instead.
+    is taken instead. ``shortfall`` marks units billed before any lot held
+    them (L2 step 7a): they go back with no lot, at the cost they left at,
+    and ``batch_id`` is None.
     """
 
-    batch_id: UUID
+    batch_id: UUID | None
     quantity: Decimal
     unit_cost: Decimal | None
+    shortfall: OpenShortfall | None = None
 
 
 class SalesReturnService(TransactionalDocumentService):
@@ -1474,10 +1481,15 @@ class SalesReturnService(TransactionalDocumentService):
                     )
                 ).all()
             )
+            # Units billed before their lot that came back clear the
+            # shortfall again once the return is undone (L2 step 7a).
+            cleared = LotShortfallService(self._session).returns_of_line(line.id)
             moved: list[UUID] = []
-            for movement_id in [line.inventory_transaction_id] + [
-                lot_row.inventory_transaction_id for lot_row in lot_rows
-            ]:
+            for movement_id in (
+                [line.inventory_transaction_id]
+                + [lot_row.inventory_transaction_id for lot_row in lot_rows]
+                + [item.in_transaction_id for item in cleared]
+            ):
                 if movement_id is not None and movement_id not in moved:
                     moved.append(movement_id)
             if not moved:
@@ -1501,11 +1513,11 @@ class SalesReturnService(TransactionalDocumentService):
                     movement_ids.append(movement.id)
             # The lots no longer hold these units, so a later return of the
             # same goods may refill them.
-            for lot_row in lot_rows:
-                lot_row.is_deleted = True
-                lot_row.deleted_at = utc_now()
-                lot_row.deleted_by = actor_id
-                lot_row.updated_by = actor_id
+            for gone in [*lot_rows, *cleared]:
+                gone.is_deleted = True
+                gone.deleted_at = utc_now()
+                gone.deleted_by = actor_id
+                gone.updated_by = actor_id
             line.inventory_transaction_id = None
             line.updated_by = actor_id
         return self._movement_value(movement_ids)
@@ -2656,6 +2668,34 @@ class SalesReturnService(TransactionalDocumentService):
         )
         if note_line is None:
             return []
+        needed = self._inventory.stock_quantity(
+            firm_scope=row.firm_id,
+            product_id=line.product_id,
+            quantity=coming.quantity,
+            uom_id=coming.uom_id,
+            conversion_version=coming.conversion_version,
+            on_date=row.return_date,
+        )
+        number = (line.batch_number or "").strip()
+        lots: list[_LotBack] = []
+        if not number:
+            # Units billed before any lot held them left last, so they are
+            # the first back, at the cost they left at (L2 step 7a).
+            for waiting in LotShortfallService(self._session).open_shortfalls(
+                row.firm_id, note_line_id=note_line.id
+            ):
+                if needed <= ZERO:
+                    break
+                share = min(waiting.quantity, needed)
+                lots.append(
+                    _LotBack(
+                        batch_id=None,
+                        quantity=share,
+                        unit_cost=Decimal(str(waiting.row.unit_cost)),
+                        shortfall=waiting,
+                    )
+                )
+                needed -= share
         shipped = list(
             self._session.execute(
                 select(DeliveryNoteLineBatch, BatchRecord)
@@ -2674,8 +2714,7 @@ class SalesReturnService(TransactionalDocumentService):
             .all()
         )
         if not shipped:
-            return []
-        number = (line.batch_number or "").strip()
+            return lots
         if number:
             shipped = [
                 (pick, lot)
@@ -2693,15 +2732,6 @@ class SalesReturnService(TransactionalDocumentService):
         back = self._lots_already_back(
             firm_id=row.firm_id, note_line_id=note_line.id, exclude_return_id=row.id
         )
-        needed = self._inventory.stock_quantity(
-            firm_scope=row.firm_id,
-            product_id=line.product_id,
-            quantity=coming.quantity,
-            uom_id=coming.uom_id,
-            conversion_version=coming.conversion_version,
-            on_date=row.return_date,
-        )
-        lots: list[_LotBack] = []
         for pick, lot in reversed(shipped):
             if needed <= ZERO:
                 break
@@ -2824,9 +2854,7 @@ class SalesReturnService(TransactionalDocumentService):
                 hold_for_check=hold_for_check,
                 unit_cost=lots[0].unit_cost,
             )
-            self._record_lot_back(
-                line, lots[0].batch_id, transaction.id, transaction.quantity, actor_id
-            )
+            self._record_back(row, line, lots[0], transaction, actor_id)
             line.batch_id = lots[0].batch_id
             line.inventory_transaction_id = transaction.id
             line.updated_by = actor_id
@@ -2837,14 +2865,19 @@ class SalesReturnService(TransactionalDocumentService):
             Decimal(str(coming.damaged)) * factor,
             Decimal(str(coming.scrap)) * factor,
         ]
-        pieces: list[tuple[UUID | None, Decimal, Decimal | None]] = [
-            (lot.batch_id, lot.quantity, lot.unit_cost) for lot in lots
-        ]
+        pieces = list(lots)
         if total > placed:
-            pieces.append((None, total - placed, None))
+            pieces.append(
+                _LotBack(batch_id=None, quantity=total - placed, unit_cost=None)
+            )
         made: list[UUID] = []
         line.inventory_transaction_id = None
-        for batch_id, quantity, unit_cost in pieces:
+        for piece in pieces:
+            batch_id, quantity, unit_cost = (
+                piece.batch_id,
+                piece.quantity,
+                piece.unit_cost,
+            )
             parts: list[Decimal] = []
             left = quantity
             for index, pool in enumerate(pools):
@@ -2873,15 +2906,50 @@ class SalesReturnService(TransactionalDocumentService):
             made.append(transaction.id)
             if batch_id is None:
                 line.inventory_transaction_id = transaction.id
-            else:
-                self._record_lot_back(
-                    line, batch_id, transaction.id, transaction.quantity, actor_id
-                )
+            self._record_back(row, line, piece, transaction, actor_id)
         if line.inventory_transaction_id is None:
             line.inventory_transaction_id = made[0]
         line.batch_id = lots[0].batch_id
         line.updated_by = actor_id
         return made
+
+    def _record_back(
+        self,
+        row: SalesReturn,
+        line: SalesReturnLine,
+        piece: _LotBack,
+        transaction: InventoryTransaction,
+        actor_id: UUID,
+    ) -> None:
+        """Write what one movement of a return line refilled.
+
+        A lot gets its lot row (step 6); units billed before their lot clear
+        that much of the shortfall, at what the movement carried (step 7a).
+        """
+        if piece.batch_id is not None:
+            self._record_lot_back(
+                line, piece.batch_id, transaction.id, transaction.quantity, actor_id
+            )
+            return
+        if piece.shortfall is None:
+            return
+        carried = self._session.scalar(
+            select(func.coalesce(func.sum(StockLedgerEntry.total_cost), 0)).where(
+                StockLedgerEntry.transaction_id == transaction.id,
+                StockLedgerEntry.is_deleted.is_(False),
+            )
+        )
+        LotShortfallService(self._session).record_return(
+            piece.shortfall,
+            quantity=Decimal(str(transaction.quantity)),
+            value=Decimal(str(carried or ZERO)),
+            movement_id=transaction.id,
+            on=row.return_date,
+            document_id=row.id,
+            document_line_id=line.id,
+            document_number=row.return_number,
+            actor_id=actor_id,
+        )
 
     def _record_lot_back(
         self,

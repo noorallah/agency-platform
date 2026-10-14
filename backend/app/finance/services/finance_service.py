@@ -392,6 +392,18 @@ class FinanceService:
                 f"{' and more' if len(drafts) > 12 else ''}. Post or delete them "
                 "first."
             )
+        # Nor while a bill dated in it waits for the purchase that gives
+        # its goods their cost (L2 step 7a, section 3.7): its cost of goods
+        # sold is still a guess. Imported here: inventory posts through
+        # finance.
+        from app.inventory.services.lot_shortfalls import LotShortfallService
+
+        LotShortfallService(self._session).assert_none_open(
+            firm_id,
+            starts_on=year.starts_on,
+            ends_on=year.ends_on,
+            label=f"Financial year {year.code}",
+        )
         before = self._year_snapshot(year)
         year.is_locked = True
         year.updated_by = actor_id

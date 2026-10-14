@@ -564,6 +564,105 @@ class StockLotSettings(BaseEntity):
     )
 
 
+class LotShortfall(BaseEntity):
+    """Units a by-lot firm billed before any lot held them (L2 step 7a).
+
+    One row per dispatch movement that took stock below what the lots held,
+    once the bill maker confirmed it (`docs/design/LOT_COST_DESIGN.md`,
+    section 3.7). The units left at ``unit_cost`` -- the item's newest lot
+    cost, or its average where it was never bought -- and wait for the
+    purchase that brings their lot. What is still waiting is never stored:
+    it is ``quantity`` less the live ``lot_shortfall_settlements`` rows.
+    Document ids are bare, the convention every downstream record follows.
+    """
+
+    __tablename__ = "lot_shortfalls"
+    __table_args__ = (
+        Index("IX_lot_shortfalls_firm_product", "firm_id", "product_id", "sale_date"),
+        Index("IX_lot_shortfalls_note_line", "delivery_note_line_id"),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    product_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "products.id", name="FK_lot_shortfalls_product_id", ondelete="RESTRICT"
+        ),
+        nullable=False,
+    )
+    branch_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    warehouse_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    storage_node_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    delivery_note_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    delivery_note_line_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    document_number: Mapped[str] = mapped_column(String(80), nullable=False)
+    #: The dispatch movement that took the units no lot held.
+    inventory_transaction_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    sale_date: Mapped[date] = mapped_column(Date, nullable=False)
+    #: In stock units.
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    #: What one unit left at until its lot is known.
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
+    #: What the movement carried, off the stock ledger.
+    cost_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    #: Who answered "bill anyway", and when.
+    confirmed_by: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+
+
+class LotShortfallSettlement(BaseEntity):
+    """What cleared part of a shortfall: a lot that came in, or a return.
+
+    ``SETTLED``: a goods receipt's lot covered the units, which left it at
+    once (``out_transaction_id``) and filled the row the sale emptied
+    (``in_transaction_id``); ``lot_cost_amount`` is what the lot gave and
+    ``cost_used_amount`` the share of the sale's cost it replaces, the
+    difference posted on the receipt's date. ``RETURNED``: the customer sent
+    the units back before their purchase was typed, at the cost used
+    (``in_transaction_id`` is the return's movement). Marked deleted when a
+    return is cancelled.
+    """
+
+    __tablename__ = "lot_shortfall_settlements"
+    __table_args__ = (
+        Index("IX_lot_shortfall_settlements_shortfall", "lot_shortfall_id"),
+        Index("IX_lot_shortfall_settlements_line", "document_line_id"),
+    )
+
+    lot_shortfall_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "lot_shortfalls.id",
+            name="FK_lot_shortfall_settlements_lot_shortfall_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    #: SETTLED or RETURNED.
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: In stock units.
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    batch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "batches.id",
+            name="FK_lot_shortfall_settlements_batch_id",
+            ondelete="RESTRICT",
+        ),
+    )
+    cost_used_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    lot_cost_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    settled_on: Mapped[date] = mapped_column(Date, nullable=False)
+    document_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    document_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    document_line_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    document_number: Mapped[str] = mapped_column(String(80), nullable=False)
+    out_transaction_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    in_transaction_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+
+
 class OpeningStockBatch(BaseEntity):
     """Persist a draft or posted opening-stock document."""
 

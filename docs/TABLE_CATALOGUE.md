@@ -371,6 +371,8 @@ trigger each schema owns its own copy of.
 | `count_plans` | firm store ¹ | What to count, where, and how often (STK-6, decision A117). | `firms` |
 | `inventories` | firm store ¹ | Persist one firm-scoped inventory projection per product location. | `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `batches`, `business_profiles`, `uoms` |
 | `inventory_transactions` | firm store ¹ | Persist one immutable inventory movement event. | `inventories`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms`, `batches`, `lots`, `serial_numbers` |
+| `lot_shortfall_settlements` | firm store ¹ | What cleared part of a shortfall: the lot a receipt brought, or a return (L2 step 7a). | `lot_shortfalls`, `batches` |
+| `lot_shortfalls` | firm store ¹ | Units a by-lot firm billed before any lot held them, once the bill maker confirmed (L2 step 7a). | `products` |
 | `opening_stock_batches` | firm store ¹ | Persist a draft or posted opening-stock document. | `firms`, `branches`, `warehouses` |
 | `opening_stock_line_serials` | firm store ¹ | One serial number typed on an opening stock line (D-STK-40). | `opening_stock_batches`, `opening_stock_lines` |
 | `opening_stock_lines` | firm store ¹ | Persist one opening-stock line before or after posting. | `opening_stock_batches`, `products`, `warehouse_storage_nodes`, `business_profiles`, `uoms`, `batches`, `inventory_transactions` |

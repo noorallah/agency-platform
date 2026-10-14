@@ -66,6 +66,7 @@ from app.document_framework.schemas.bulk_actions import (
     BulkCancelRequest,
 )
 from app.document_framework.services.bulk_actions import run_each
+from app.inventory.api.without_stock import BillWithoutStock
 from app.sales_invoice.schemas import SalesInvoiceResponse
 from app.sales_invoice.services.invoice_pdf import MAX_PRINT_RUN
 from app.sales_invoice.services.sales_invoice_service import SalesInvoiceService
@@ -102,7 +103,6 @@ BatchReason = Annotated[
         ),
     ),
 ]
-
 
 #: A delivery note has its own codes beside the sales ones (D-UI-30): the
 #: warehouse picks, packs and dispatches without `SALES_VIEW`, which would
@@ -547,11 +547,13 @@ def dispatch_delivery_note(
     scope: DeliveryNoteApproveScope,
     db: Session = Depends(get_db),
     batch_reason: BatchReason = None,
+    bill_without_stock: BillWithoutStock = False,
 ) -> ApiResponse[DeliveryNoteResponse]:
     """Dispatch one delivery note.
 
     ``batch_reason`` answers the firm's batch rules where they ask why a
-    near-expiry batch or a FEFO skip goes out (backlog 79 row 6).
+    near-expiry batch or a FEFO skip goes out (backlog 79 row 6), and
+    ``bill_without_stock`` the question about units no lot holds (L2 7a).
     """
     service = DeliveryNoteService(db)
     row = service.dispatch_note(
@@ -559,6 +561,7 @@ def dispatch_delivery_note(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
         batch_reason=batch_reason,
+        bill_without_stock=bill_without_stock,
     )
     return ApiResponse(data=service.note_response(row))
 
@@ -603,6 +606,7 @@ def dispatch_and_invoice_delivery_note(
     scope: DeliveryNoteDispatchAndInvoiceScope,
     db: Session = Depends(get_db),
     batch_reason: BatchReason = None,
+    bill_without_stock: BillWithoutStock = False,
 ) -> ApiResponse[SalesInvoiceResponse]:
     """Dispatch one approved note and raise and approve its bill, together.
 
@@ -622,6 +626,7 @@ def dispatch_and_invoice_delivery_note(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
         batch_reason=batch_reason,
+        bill_without_stock=bill_without_stock,
     )
     return ApiResponse(
         data=service.invoice_response(row),

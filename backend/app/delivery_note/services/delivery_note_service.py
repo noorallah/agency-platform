@@ -115,8 +115,13 @@ from app.document_framework.services.transactional_document_service import (
     TransactionalDocumentService,
 )
 from app.finance.services.document_posting import DocumentPostingService
-from app.inventory.models import InventoryRecord, StockLedgerEntry
+from app.inventory.models import (
+    InventoryRecord,
+    InventoryTransaction,
+    StockLedgerEntry,
+)
 from app.inventory.services import InventoryService, LineConversion
+from app.inventory.services.lot_shortfalls import LotShortfallService
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.products.services.kits import KitService
@@ -1291,6 +1296,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         batch_reason: str | None = None,
+        bill_without_stock: bool = False,
     ) -> DeliveryNote:
         """Dispatch one delivery note by hand and commit it.
 
@@ -1299,6 +1305,8 @@ class DeliveryNoteService(TransactionalDocumentService):
         `stage_dispatch` and is not judged -- the invoice is what ships it.
         The firm's batch rules are (backlog 79 row 6): ``batch_reason`` is why
         a near-expiry batch or a FEFO skip goes out, where the firm asks.
+        ``bill_without_stock`` is the person's answer to "no stock in any
+        lot, bill anyway?" (L2 step 7a).
         """
         row = self.get_note(note_id, firm_scope=firm_scope)
         warning = (
@@ -1313,6 +1321,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             gst_warning=warning,
             batch_reason=batch_reason,
             judge_batches=True,
+            bill_without_stock=bill_without_stock,
         )
         self._session.commit()
         return row
@@ -1452,8 +1461,14 @@ class DeliveryNoteService(TransactionalDocumentService):
         gst_warning: str | None = None,
         batch_reason: str | None = None,
         judge_batches: bool = False,
+        bill_without_stock: bool = False,
     ) -> DeliveryNote:
         """Dispatch one delivery note without committing it.
+
+        ``bill_without_stock`` confirms a by-lot firm's question when a line
+        needs more than its lots hold and the firm allows billing without
+        stock (L2 step 7a); without it the dispatch is refused with the
+        question in ``details``.
 
         This is where stock leaves and cost of goods sold is posted, so it is
         the step a composed chain most needs rolled back with everything else:
@@ -1483,6 +1498,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
             batch_reason=batch_reason,
             judge_batches=judge_batches,
+            bill_without_stock=bill_without_stock,
         )
         row.status = DeliveryNoteStatus.DISPATCHED.value
         row.dispatched_at = utc_now()
@@ -3624,6 +3640,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         actor_id: UUID,
         batch_reason: str | None = None,
         judge_batches: bool = False,
+        bill_without_stock: bool = False,
     ) -> list[str]:
         """Move every line's stock out, and say what the batch rules noticed."""
         policy = BatchSalePolicyService(self._session)
@@ -3770,21 +3787,34 @@ class DeliveryNoteService(TransactionalDocumentService):
                         warehouse_id=line.warehouse_id,
                     )
                     can_ship = max(can_ship, shippable)
-            if can_ship + from_bins < line.delivered_quantity:
-                raise ValidationError(
-                    "Insufficient available stock for dispatch line."
-                    + self._standing_in_bins(in_bins, drawn=not serialised)
-                )
-            across_bins = can_ship < line.delivered_quantity
             chosen = (
                 None
                 if serialised
                 else self._chosen_split(line, as_of=row.delivery_date)
             )
+            # Units no lot holds, on a by-lot firm that bills without stock
+            # and was told so (L2 step 7a); anywhere else the line is refused.
+            short = ZERO
+            if can_ship + from_bins < line.delivered_quantity:
+                short = self._billed_short(
+                    row,
+                    line,
+                    short=self._q(
+                        line.delivered_quantity - max(can_ship, ZERO) - from_bins
+                    ),
+                    refusal=(
+                        "Insufficient available stock for dispatch line."
+                        + self._standing_in_bins(in_bins, drawn=not serialised)
+                    ),
+                    ordinary=not serialised and chosen is None,
+                    confirmed=bill_without_stock,
+                )
+            ship_now = self._q(line.delivered_quantity - short)
+            across_bins = can_ship < ship_now
             release_qty = self._q(
                 min(source_line.reserved_quantity, line.delivered_quantity)
             )
-            if release_qty < line.delivered_quantity:
+            if release_qty < ship_now:
                 raise ValidationError(
                     "Reservation is insufficient for dispatch quantity."
                 )
@@ -3901,6 +3931,9 @@ class DeliveryNoteService(TransactionalDocumentService):
                 shares = self._trail.deal(
                     picks, [allocated for _, allocated in allocation]
                 )
+            elif ship_now <= ZERO:
+                # Nothing on any lot's shelf: every unit is billed short.
+                allocation, shares = [], []
             elif across_bins:
                 # The warehouse's own row first, then its bins (D-STK-54);
                 # each movement below leaves from the place it was drawn.
@@ -3909,7 +3942,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     branch_id=goods_branch_id,
                     warehouse_id=line.warehouse_id,
                     product_id=line.product_id,
-                    quantity=line.delivered_quantity,
+                    quantity=ship_now,
                     as_of=row.delivery_date,
                     keep_until=keep_until,
                     past_back_orders=past_back_orders,
@@ -3926,7 +3959,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     warehouse_id=line.warehouse_id,
                     storage_node_id=line.storage_node_id,
                     product_id=line.product_id,
-                    quantity=line.delivered_quantity,
+                    quantity=ship_now,
                     # Expired stock is not dispatched, judged on the note's
                     # own date rather than today, so rebuilding a year of
                     # history posts what it posted at the time.
@@ -3978,7 +4011,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 # it is apportioned with the split rather than repeated whole.
                 share = (
                     entered_total
-                    if len(allocation) == 1
+                    if len(allocation) == 1 and short == ZERO
                     else self._q(
                         entered_total
                         * (allocated / Decimal(str(line.delivered_quantity)))
@@ -4003,7 +4036,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                     remarks=line.remarks or row.remarks,
                     batch_id=batch_id,
                     serial_id=self._trail.single_serial(shares[index], allocated),
-                    share_of_line=len(allocation) > 1,
+                    share_of_line=len(allocation) > 1 or short > ZERO,
                 )
                 if shares[index]:
                     self._trail.mark_sold(
@@ -4022,6 +4055,27 @@ class DeliveryNoteService(TransactionalDocumentService):
                 if dispatched is None:
                     dispatched = posted
                     line.batch_id = batch_id
+            if short > ZERO:
+                posted = self._ship_short(
+                    row,
+                    line,
+                    short,
+                    entered=(
+                        entered_total
+                        if not allocation
+                        else self._q(
+                            entered_total
+                            * (short / Decimal(str(line.delivered_quantity)))
+                        )
+                    ),
+                    branch_id=goods_branch_id,
+                    actor_id=actor_id,
+                    share_of_line=bool(allocation),
+                )
+                issued_cost += self._issue_cost(posted.id)
+                if dispatched is None:
+                    dispatched = posted
+                    line.batch_id = None
             if dispatched is None:
                 raise ValidationError("Insufficient available stock for dispatch line.")
             if chosen is None:
@@ -4045,6 +4099,108 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         return batch_notes
+
+    def _billed_short(
+        self,
+        row: DeliveryNote,
+        line: DeliveryNoteLine,
+        *,
+        short: Decimal,
+        refusal: str,
+        ordinary: bool,
+        confirmed: bool,
+    ) -> Decimal:
+        """Return the units a line bills past what its lots hold, or refuse.
+
+        L2 step 7a, section 3.7. Only a by-lot firm that allows billing
+        without stock, for an item it lets run below zero, on a line nobody
+        named batches or units for (``ordinary``): those were chosen, and
+        what was chosen has to be there. The bill maker is then asked, and
+        the dispatch goes on only once they confirm. Elsewhere the line is
+        refused as it always was.
+
+        Raises:
+            ValidationError: With ``refusal``, or with the question and
+                ``details.confirm`` = ``BILL_WITHOUT_STOCK`` for a client
+                to put to the person.
+
+        """
+        shortfalls = LotShortfallService(self._session)
+        if not ordinary or not shortfalls.may_bill_short(row.firm_id, line.product_id):
+            raise ValidationError(refusal)
+        if confirmed:
+            return short
+        product = self._session.get(Product, line.product_id)
+        label = f"{product.code} - {product.name}" if product else "this item"
+        raise ValidationError(
+            f"Line {line.line_number}: no stock of {label} in any lot for "
+            f"{short.normalize():f} of it. Bill anyway? The units leave at the "
+            "last purchase cost until the purchase is entered.",
+            details={
+                "confirm": "BILL_WITHOUT_STOCK",
+                "line_number": line.line_number,
+                "product_id": str(line.product_id),
+                "short": str(short),
+            },
+        )
+
+    def _ship_short(
+        self,
+        row: DeliveryNote,
+        line: DeliveryNoteLine,
+        short: Decimal,
+        *,
+        entered: Decimal,
+        branch_id: UUID,
+        actor_id: UUID,
+        share_of_line: bool,
+    ) -> InventoryTransaction:
+        """Send the units no lot holds, at the last purchase cost, and say so.
+
+        They leave the line's place with no lot named, taking it below zero,
+        and a ``lot_shortfalls`` row waits for the purchase that brings them
+        (L2 step 7a). ``actor_id`` confirmed the bill.
+        """
+        warehouse_id = line.warehouse_id
+        if warehouse_id is None:
+            # Refused before any line moves; said again for the type.
+            raise ValidationError("Warehouse is required on all lines before dispatch.")
+        shortfalls = LotShortfallService(self._session)
+        unit_cost = shortfalls.cost_for(row.firm_id, line.product_id)
+        posted = self._inventory.record_delivery_note_dispatch(
+            firm_scope=row.firm_id,
+            actor_id=actor_id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=line.storage_node_id,
+            product_id=line.product_id,
+            reference_number=row.delivery_note_number,
+            transaction_date=row.delivery_date,
+            dispatch_quantity=short,
+            entered_quantity=entered,
+            entered_uom_id=line.sales_uom_id,
+            conversion_version=line.conversion_version,
+            line_conversion=LineConversion(
+                line.conversion_factor, line.inventory_uom_id
+            ),
+            remarks="billed before its lot",
+            batch_id=None,
+            share_of_line=share_of_line,
+            unit_cost=unit_cost,
+        )
+        shortfalls.record(
+            firm_id=row.firm_id,
+            product_id=line.product_id,
+            place=(branch_id, warehouse_id, line.storage_node_id),
+            note_id=row.id,
+            note_line_id=line.id,
+            document_number=row.delivery_note_number,
+            movement=posted,
+            sale_date=row.delivery_date,
+            unit_cost=unit_cost,
+            actor_id=actor_id,
+        )
+        return posted
 
     @staticmethod
     def _standing_in_bins(in_bins: list[tuple[str, Decimal]], *, drawn: bool) -> str:

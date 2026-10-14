@@ -52,8 +52,10 @@ AGE_BOUNDS: tuple[int, ...] = (30, 60, 90, 180)
 #: What a receipt is, for the ageing: goods arriving from outside.
 RECEIPT_TYPES = ("GOODS_RECEIPT", "OPENING_STOCK", "SALES_RETURN")
 
-#: Moves between the firm's own warehouses.
-INTERNAL_TYPES = ("TRANSFER_IN", "TRANSFER_OUT")
+#: Moves between the firm's own warehouses, and a lot covering units billed
+#: before it (L2 step 7a): out of the lot and into the row the sale emptied,
+#: so nothing new arrived.
+INTERNAL_TYPES = ("TRANSFER_IN", "TRANSFER_OUT", "LOT_SETTLEMENT")
 
 #: An issue, for slow and dead stock: goods sent to a customer.
 ISSUE_TYPES = ("DISPATCH", "DISPATCH_REVERSAL")
