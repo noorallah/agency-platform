@@ -2805,13 +2805,13 @@ Widget? _taxScreen(
       _ => null,
     };
 
-/// The body of a Firm, Selling or Buying settings tab that is a screen, or
-/// null for any other tab.
+/// The body of a Firm, Selling, Buying, Stock, Business profile or Pricing
+/// settings tab that is a screen, or null for any other tab.
 ///
 /// Its own workspace shows it under its heading and the Settings subject
 /// screen under a step's tab (backlog 148, row T2); both come here so the
 /// two cannot build a screen differently. [preferences] is needed only by
-/// Purchase Settings, which is not built without it.
+/// Purchase Settings and Inventory Settings, which are not built without it.
 Widget? _settingsStepScreen(
   BuildContext context,
   String tabId,
@@ -2819,6 +2819,7 @@ Widget? _settingsStepScreen(
   PermissionService permissions, {
   DesktopPreferencesService? preferences,
   ValueChanged<PurchaseSection>? onNavigateToSection,
+  ValueChanged<InventorySection>? onNavigateToInventorySection,
   Future<void> Function()? onOpenGlobalSearch,
 }) {
   final bool hasActiveFirm = api.activeFirmId?.call() != null;
@@ -2877,6 +2878,82 @@ Widget? _settingsStepScreen(
         section: PurchaseSection.settings,
         onNavigateToSection: onNavigateToSection,
         onOpenGlobalSearch: onOpenGlobalSearch,
+      ),
+    'inventory-settings' when preferences != null => InventoryManagementPage(
+        api: api,
+        preferences: preferences,
+        permissions: permissions,
+        hasActiveFirm: api.activeFirmId?.call()?.isNotEmpty == true,
+        section: InventorySection.settings,
+        onNavigateToSection: onNavigateToInventorySection,
+      ),
+    'adjustment-reasons' => AdjustmentReasonsPage(
+        api: api,
+        permissions: permissions,
+      ),
+    'feature-management' => ResourceManagementPage<BusinessFeatureRecord>(
+        api: api,
+        definition: _businessFeatureDefinition(
+          api,
+          permissions,
+          showFrame: false,
+        ),
+      ),
+    'module-configuration' => ResourceManagementPage<BusinessModuleRecord>(
+        api: api,
+        definition: _businessModuleDefinition(
+          api,
+          permissions,
+          showFrame: false,
+        ),
+      ),
+    'attribute-definitions' =>
+      ResourceManagementPage<AttributeDefinitionRecord>(
+        api: api,
+        definition: attributeDefinitionDefinition(
+          api,
+          permissions,
+          showFrame: false,
+        ),
+      ),
+    'category-attribute-rules' =>
+      ResourceManagementPage<CategoryAttributeRuleRecord>(
+        api: api,
+        definition: categoryAttributeRuleDefinition(
+          api,
+          permissions,
+        ),
+      ),
+    'profile-assignment' => ResourceManagementPage<Firm>(
+        api: api,
+        definition: _firmProfileAssignmentDefinition(api, permissions),
+      ),
+    'unit-sets' => ResourceManagementPage<UnitSet>(
+        api: api,
+        definition: unitSetDefinition(
+          api,
+          permissions,
+          showFrame: false,
+        ),
+      ),
+    'price-lists' => PriceListPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+      ),
+    'price-levels' => PriceLevelPage(
+        api: api,
+        permissions: permissions,
+      ),
+    'promotions' => PromotionPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+      ),
+    'loyalty' => LoyaltyPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
       ),
     _ => null,
   };
@@ -3033,44 +3110,15 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             showFrame: false,
           ),
         ),
-      'feature-management' => ResourceManagementPage<BusinessFeatureRecord>(
-          api: widget.api,
-          definition: _businessFeatureDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
-      'module-configuration' => ResourceManagementPage<BusinessModuleRecord>(
-          api: widget.api,
-          definition: _businessModuleDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
-      'attribute-definitions' =>
-        ResourceManagementPage<AttributeDefinitionRecord>(
-          api: widget.api,
-          definition: attributeDefinitionDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
-      'category-attribute-rules' =>
-        ResourceManagementPage<CategoryAttributeRuleRecord>(
-          api: widget.api,
-          definition: categoryAttributeRuleDefinition(
-            widget.api,
-            widget.permissions,
-          ),
-        ),
-      'profile-assignment' => ResourceManagementPage<Firm>(
-          api: widget.api,
-          definition:
-              _firmProfileAssignmentDefinition(widget.api, widget.permissions),
-        ),
+      // Built in one place: Settings > Business profile shows the same
+      // (backlog 148).
+      'feature-management' ||
+      'module-configuration' ||
+      'attribute-definitions' ||
+      'category-attribute-rules' ||
+      'profile-assignment' ||
+      'unit-sets' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       // Built in one place: Settings > Tax shows the same five (backlog 148).
       'tax-configuration' ||
       'tax-rules-page' ||
@@ -3106,14 +3154,6 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
           section: UomManagementSection.conversionRules,
-        ),
-      'unit-sets' => ResourceManagementPage<UnitSet>(
-          api: widget.api,
-          definition: unitSetDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
         ),
       _ => const WorkspaceEmptyState(
           title: 'User Audit is coming soon',
@@ -3193,11 +3233,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
-      'loyalty' => LoyaltyPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-        ),
+      // Built in one place: Settings > Pricing shows the same (backlog 148).
+      'loyalty' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       'products' => ProductManagementPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -3499,20 +3537,9 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
-      'price-lists' => PriceListPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-        ),
-      'price-levels' => PriceLevelPage(
-          api: widget.api,
-          permissions: widget.permissions,
-        ),
-      'promotions' => PromotionPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-        ),
+      // Built in one place: Settings > Pricing shows the same (backlog 148).
+      'price-lists' || 'price-levels' || 'promotions' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       'commission' => CommissionPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -4287,14 +4314,15 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
           section: InventorySection.inventoryExport,
           onNavigateToSection: navigateTo,
         ),
-      'inventory-settings' => InventoryManagementPage(
-          api: widget.api,
+      // Built in one place: Settings > Stock shows the same (backlog 148).
+      'inventory-settings' => _settingsStepScreen(
+          context,
+          tabId,
+          widget.api,
+          widget.permissions,
           preferences: widget.preferences,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: InventorySection.settings,
-          onNavigateToSection: navigateTo,
-        ),
+          onNavigateToInventorySection: navigateTo,
+        )!,
       'adjustment-approvals' => AdjustmentApprovalsPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -4307,10 +4335,8 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
-      'adjustment-reasons' => AdjustmentReasonsPage(
-          api: widget.api,
-          permissions: widget.permissions,
-        ),
+      'adjustment-reasons' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       'batches' => BatchManagementPage(
           api: widget.api,
           preferences: widget.preferences,

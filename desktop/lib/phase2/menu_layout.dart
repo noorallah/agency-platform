@@ -269,12 +269,23 @@ abstract final class MenuLayout {
   static const String sellingSubjectRoute = 'settings/subject/selling';
   static const String buyingSubjectRoute = 'settings/subject/buying';
 
+  /// Settings > Stock, Business profile and Pricing as one screen each (row
+  /// T2), the same way.
+  static const String stockSubjectRoute = 'settings/subject/stock';
+  static const String businessProfileSubjectRoute =
+      'settings/subject/business-profile';
+  static const String pricingSubjectRoute = 'settings/subject/pricing';
+
   /// The subject screens as items, so each tab has a label and a path.
   static const List<MenuItemSpec> subjectPages = [
     MenuItemSpec.phase2(taxSubjectRoute, 'Tax settings'),
     MenuItemSpec.phase2(firmSubjectRoute, 'Firm settings'),
     MenuItemSpec.phase2(sellingSubjectRoute, 'Selling settings'),
     MenuItemSpec.phase2(buyingSubjectRoute, 'Buying settings'),
+    MenuItemSpec.phase2(stockSubjectRoute, 'Stock settings'),
+    MenuItemSpec.phase2(
+        businessProfileSubjectRoute, 'Business profile settings'),
+    MenuItemSpec.phase2(pricingSubjectRoute, 'Pricing settings'),
   ];
 
   /// Messaging (backlog 51): the firm's switch, accounts, events and log.
