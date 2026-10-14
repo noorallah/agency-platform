@@ -458,6 +458,12 @@ Each step is one pull request, mergeable and testable alone. A firm on
 
 L3 is built later. This is what the lot must carry for it, and where.
 
+**Superseded in part by `docs/design/LOT_MARGINS_DESIGN.md` (2026-10-15):** retail is
+the lot's `ptr` and wholesale its `pts`, not `selling_price` and `ptr` as the
+table below proposes, so a retail shop (trade class RETAILER, which already
+takes PTR) is not put on the wholesale price; the margin is a pair, and there
+is no rounding setting (row F3 rounds the bill).
+
 | L3 needs | Where it lives | In L2 or L3 |
 | --- | --- | --- |
 | The purchase price the margin is worked on | `batch_valuations.unit_cost`, before GST | L2 |
