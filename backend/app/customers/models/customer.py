@@ -194,13 +194,14 @@ class Customer(BaseEntity):
     #: `app/customers/gst_registration.py`). NULL is read off the GSTIN, so
     #: every customer saved before it is billed exactly as it was.
     gst_registration_type: Mapped[str | None] = mapped_column(String(30))
-    #: The account manager: the firm member who looks after this customer
-    #: (backlog 67 row 2). A platform user id with no foreign key -- `users`
-    #: lives only in the platform store -- checked through
-    #: `FirmMetadataReader` when it is set. A sales document raised for the
+    #: The account manager: the salesman who looks after this customer
+    #: (backlog 67 row 2), an entry of the firm's salesman list (P2 step 2).
+    #: A sales document raised for the
     #: customer with no salesman of its own takes this one ahead of the
     #: territory's (`app/sales/services/scope_resolution.py`).
-    salesman_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    salesman_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("salesmen.id", ondelete="RESTRICT")
+    )
     #: Who collects this customer's dues (backlog 87 #8, SG-8): a member of
     #: the firm, checked like the account manager and with no foreign key for
     #: the same reason. Blank leaves collection to the account manager.

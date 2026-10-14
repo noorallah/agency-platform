@@ -123,7 +123,9 @@ class CustomerDebitNote(BaseEntity):
     total_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
-    salesman_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    salesman_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("salesmen.id", ondelete="RESTRICT")
+    )
     territory_id: Mapped[UUID | None] = mapped_column(UUIDType())
     reference_number: Mapped[str | None] = mapped_column(String(120))
     remarks: Mapped[str | None] = mapped_column(Text)

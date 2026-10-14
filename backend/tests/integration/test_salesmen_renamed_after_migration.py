@@ -93,7 +93,8 @@ def test_a_store_without_the_list_is_left_alone(
 ) -> None:
     """A store not yet holding ``salesmen`` answers nothing renamed."""
     with engine.begin() as connection:
-        connection.execute(text(f'DROP TABLE "{temp_schema}".salesmen'))
+        # CASCADE: every salesman column holds a key to it (`20261014_0381`).
+        connection.execute(text(f'DROP TABLE "{temp_schema}".salesmen CASCADE'))
 
     assert (
         rename_placeholder_salesmen(

@@ -50,8 +50,10 @@ class Enquiry(BaseEntity):
     prospect_city: Mapped[str | None] = mapped_column(String(100))
     #: Walk-in, phone, WhatsApp, referral, exhibition, website or other.
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="OTHER")
-    #: The salesman following it up; a user, read from the platform.
-    salesman_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: The salesman following it up, an entry of the firm's salesman list.
+    salesman_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("salesmen.id", ondelete="RESTRICT")
+    )
     expected_value: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=0, server_default="0"
     )

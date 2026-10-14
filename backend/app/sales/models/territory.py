@@ -197,16 +197,16 @@ class TerritoryCustomerAssignment(BaseEntity):
 
 
 class TerritorySalesmanAssignment(BaseEntity):
-    """Assign one salesperson user to one territory node."""
+    """Assign one salesman of the firm's list to one territory node."""
 
     __tablename__ = "territory_salesman_assignments"
     __table_args__ = (
         UniqueConstraint(
             "territory_id",
-            "user_id",
-            name="UQ_territory_salesman_assignments_territory_user",
+            "salesman_id",
+            name="UQ_territory_salesman_assignments_territory_salesman",
         ),
-        Index("IX_territory_salesman_assignments_user", "user_id"),
+        Index("IX_territory_salesman_assignments_salesman", "salesman_id"),
     )
 
     territory_id: Mapped[UUID] = mapped_column(
@@ -215,11 +215,11 @@ class TerritorySalesmanAssignment(BaseEntity):
         nullable=False,
         index=True,
     )
-    user_id: Mapped[UUID] = mapped_column(
+    #: An entry of the firm's salesman list (P2 step 2); it was a user id.
+    salesman_id: Mapped[UUID] = mapped_column(
         UUIDType(),
-        ForeignKey("users.id", ondelete="RESTRICT"),
+        ForeignKey("salesmen.id", ondelete="RESTRICT"),
         nullable=False,
-        index=True,
     )
     include_children: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

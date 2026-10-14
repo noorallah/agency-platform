@@ -1,8 +1,8 @@
 """Keep the firm's own list of salesmen (P2, salesman list design step 1).
 
-Nothing reads the list yet: the columns that name a salesman still hold user
-ids, and the migration has given each id an entry of the same id, so the move
-of those columns onto this table (step 2) changes no document row.
+Every column that names a salesman references this table (step 2,
+`20261014_0381`); who may be named is decided in
+`app/salesmen/services/nameable.py`.
 """
 
 from collections.abc import Sequence
@@ -200,7 +200,7 @@ class SalesmanService:
                 exists().where(
                     TerritorySalesmanAssignment.territory_id == SalesTerritoryNode.id,
                     SalesTerritoryNode.firm_id == firm_id,
-                    TerritorySalesmanAssignment.user_id == salesman_id,
+                    TerritorySalesmanAssignment.salesman_id == salesman_id,
                     TerritorySalesmanAssignment.is_deleted.is_(False),
                 )
             )

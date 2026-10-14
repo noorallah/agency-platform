@@ -59,7 +59,7 @@ class DeliveryNote(BaseEntity):
         UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT")
     )
     salesman_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(), ForeignKey("users.id", ondelete="RESTRICT")
+        UUIDType(), ForeignKey("salesmen.id", ondelete="RESTRICT")
     )
     route_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("territory_route_profiles.id", ondelete="RESTRICT")

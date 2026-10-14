@@ -273,7 +273,7 @@ def test_a_salesperson_who_does_not_work_here_is_refused() -> None:
     firm = _firm(session)
     customer = _customer(session, firm.id)
 
-    with pytest.raises(ValidationError, match="not an active member"):
+    with pytest.raises(ValidationError, match="not on this firm's list"):
         resolve_sales_scope(
             session,
             firm_id=firm.id,

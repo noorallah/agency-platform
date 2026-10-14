@@ -55,6 +55,8 @@ from app.finance.services.control_accounts import (
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
+from app.salesmen.models import Salesman
+from app.salesmen.services.nameable import nameable_salesman
 
 #: Statuses that still hold a claim on a period. A CANCELLED payout does not,
 #: which is what makes re-accruing a corrected period possible.
@@ -210,19 +212,38 @@ class CommissionPayoutService:
 
         """
         self._assert_period_has_ended(data, firm_id=firm_id)
+        named = data.salesman_id
+        if named is not None:
+            # One named salesman: an entry of the firm's list that earns
+            # commission (P2 step 2), refused by name otherwise.
+            named = nameable_salesman(
+                self._session,
+                firm_id,
+                named,
+                for_commission=True,
+                actor_id=actor_id,
+            )
         report = self._commission.report(
             firm_id=firm_id,
             from_date=data.period_start,
             to_date=data.last_day,
-            salesman_id=data.salesman_id,
+            salesman_id=named,
+        )
+        unpaid = self._earns_nothing(
+            firm_id, [row.salesman_id for row in report.rows if row.salesman_id]
         )
         accrued_on = data.accrued_on or data.last_day
         created: list[CommissionPayout] = []
         for row in report.rows:
             # The Unassigned bucket belongs to nobody, so there is nobody to
             # pay; it stays in the report for the cash-book reconciliation and
-            # never becomes a payout.
-            if row.salesman_id is None or row.commission_amount <= ZERO:
+            # never becomes a payout. Nor does an entry such as *Phone order*
+            # that the firm marked as earning no commission.
+            if (
+                row.salesman_id is None
+                or row.salesman_id in unpaid
+                or row.commission_amount <= ZERO
+            ):
                 continue
             self._assert_period_is_free(
                 firm_id=firm_id,
@@ -556,12 +577,28 @@ class CommissionPayoutService:
     # Approval, payment, cancellation
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _assert_not_own(row: CommissionPayout, actor_id: UUID, *, doing: str) -> None:
+    def _earns_nothing(self, firm_id: UUID, salesman_ids: list[UUID]) -> set[UUID]:
+        """Return those salesmen the firm's list marks as earning no commission."""
+        if not salesman_ids:
+            return set()
+        return set(
+            self._session.scalars(
+                select(Salesman.id).where(
+                    Salesman.firm_id == firm_id,
+                    Salesman.id.in_(salesman_ids),
+                    Salesman.earns_commission.is_(False),
+                )
+            )
+        )
+
+    def _assert_not_own(
+        self, row: CommissionPayout, actor_id: UUID, *, doing: str
+    ) -> None:
         """Refuse to let the person a payout pays approve or pay it.
 
-        Judged on `salesman_id` against the actor, whatever roles the actor
-        holds: a salesman who is also the accountant is still the payee.
+        Judged on the salesman's entry against the actor, whatever roles the
+        actor holds: a salesman who is also the accountant is still the
+        payee. The entry's own id or the user it is tied to (P2 step 2).
 
         Args:
             row: The payout being acted on.
@@ -572,7 +609,10 @@ class CommissionPayoutService:
             AuthorizationError: If the actor is the payee.
 
         """
-        if row.salesman_id == actor_id:
+        tied = self._session.scalar(
+            select(Salesman.user_id).where(Salesman.id == row.salesman_id)
+        )
+        if actor_id in {row.salesman_id, tied}:
             raise AuthorizationError(
                 f"You cannot {doing} your own commission payout. Ask somebody "
                 "else to; a payout is agreed by a person it does not pay."

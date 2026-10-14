@@ -10,10 +10,8 @@ a name looked up inside the row loop is one query per row, which is how the
 sales-order by-customer report came to open a connection per order
 (D-RPT-19). Collect the ids first, call once, then build the rows.
 
-``users`` lives only in the platform schema, so :func:`salesman_names` reads
-it through ``platform_reader()``. A tenant session raises ``UndefinedTable``
-for every firm outside the platform store, and SQLite keeps every table in one
-schema, so the unit suite can never see that on its own.
+:func:`salesman_names` reads the firm's own salesman list (P2 step 2) and no
+longer reaches the platform store.
 """
 
 from collections.abc import Iterable
@@ -24,11 +22,10 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
-from app.common.firm_metadata import platform_reader
 from app.customers.models import Customer
-from app.identity.models import User
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode
+from app.salesmen.models import Salesman
 from app.vendors.models import Vendor
 
 __all__ = [
@@ -194,21 +191,16 @@ def product_names(
 
 
 def salesman_names(session: Session, ids: Iterable[UUID | None]) -> dict[UUID, str]:
-    """Name each salesperson, in one read against the store holding ``users``.
+    """Name each salesman from the firm's own list, in one read.
 
-    ``users`` is a platform table, so on PostgreSQL a firm-owned session
-    cannot see it and the report answers 503. SQLite keeps one schema, so the
-    request session is read there and the unit suite stays able to assert the
-    names.
+    The list lives in the firm's store (P2 step 2), so this reads the session
+    given; it used to read ``users`` from the platform store, and a report
+    answered 503 whenever the platform could not be reached. Deleted entries
+    are named too: a document keeps the salesman it was saved with.
     """
     wanted = _wanted(ids)
-    if not wanted:
-        return {}
-    statement = select(User.id, User.full_name).where(User.id.in_(wanted))
-    bind = session.get_bind()
-    if bind.dialect.name != "postgresql":
-        rows = list(session.execute(statement).all())
-    else:
-        with platform_reader() as reader:
-            rows = list(reader.execute(statement).all())
-    return {row[0]: row[1] for row in rows}
+    return _labels(
+        session,
+        select(Salesman.id, Salesman.name).where(Salesman.id.in_(wanted)),
+        wanted,
+    )

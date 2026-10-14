@@ -110,7 +110,7 @@ class CommissionPayout(BaseEntity):
     #: NOT NULL, unlike a commission rule's: a rule can belong to the firm as a
     #: default, but there is nobody to pay a payout that names nobody.
     salesman_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+        UUIDType(), ForeignKey("salesmen.id", ondelete="RESTRICT"), nullable=False
     )
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)

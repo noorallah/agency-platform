@@ -51,6 +51,7 @@ from app.products.models import Product, ProductCategory
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrderLine
 from app.sales_targets.services import SalesTargetService
+from app.salesmen.services.nameable import nameable_salesman
 from app.settlements.services.net_sales import collected_net, invoiced_net
 from app.settlements.services.settlement_service import returned_units_against
 
@@ -426,9 +427,9 @@ class CommissionService:
         platform table and this one lives in every firm store -- and the
         service did not ask either, so any UUID at all was accepted as a
         salesman and the report then listed the rule's earnings against
-        "Former member" (D-TER-15). The membership is read through
-        `FirmMetadataReader`, which goes to the platform store, because a
-        tenant session cannot see `users` or `user_firms` at all.
+        "Former member" (D-TER-15). The salesman is now an entry of the
+        firm's own list, and one that earns commission (P2 step 2); the key
+        to `salesmen` is the store's, and this check names the problem.
 
         The goods do carry keys, but in the shared store a key is satisfied by
         **another firm's** row, and an id belonging to nobody reached the key
@@ -444,11 +445,14 @@ class CommissionService:
                 firm's.
 
         """
-        if candidate.salesman_id is not None and not self._members.active_member_count(
-            candidate.firm_id, [candidate.salesman_id]
-        ):
-            raise ValidationError(
-                "That salesperson is not an active member of this firm."
+        if candidate.salesman_id is not None:
+            # An entry of the firm's salesman list that earns commission
+            # (P2 step 2), read in the firm's own store.
+            candidate.salesman_id = nameable_salesman(
+                self._session,
+                candidate.firm_id,
+                candidate.salesman_id,
+                for_commission=True,
             )
         if candidate.product_id is not None and not self._session.scalar(
             select(Product.id).where(

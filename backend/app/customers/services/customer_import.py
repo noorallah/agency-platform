@@ -54,6 +54,7 @@ from app.customers.schemas.customer import (
     CustomerType,
 )
 from app.customers.services.customer_service import CustomerService
+from app.salesmen.models import Salesman
 
 #: The template, in the order it is laid out. The headings are what the notes
 #: sheet explains and what every error names.
@@ -330,6 +331,7 @@ class CustomerFileImporter(FileImporter[Customer]):
         self._groups: list[CustomerGroup] = []
         self._currency = "INR"
         self._members: list[FirmMember] = []
+        self._salesmen: list[tuple[UUID, str | None, str]] = []
         self._firm_id: UUID | None = None
 
     def _prepare(self, firm_id: UUID) -> None:
@@ -338,17 +340,32 @@ class CustomerFileImporter(FileImporter[Customer]):
         reader = FirmMetadataReader(self._session)
         self._currency = reader.get(firm_id).currency_code or "INR"
         self._members = reader.active_members(firm_id)
+        self._salesmen = list(
+            self._session.execute(
+                select(Salesman.id, Salesman.code, Salesman.name).where(
+                    Salesman.firm_id == firm_id,
+                    Salesman.is_deleted.is_(False),
+                    Salesman.is_active.is_(True),
+                )
+            ).tuples()
+        )
 
     def _member(self, reader: RowReader) -> UUID | None:
-        """Find the row's account manager among the firm's active members.
+        """Find the row's account manager on the firm's salesman list.
 
-        By email first, which is unique, then by full name -- refused by name
-        when two members share it rather than picking one.
+        By the salesman's code, then his name (P2 step 2). Until the desktop
+        moves (P2 step 4) a member's email or full name is still accepted and
+        the service makes his entry -- refused by name when two members share
+        it rather than picking one.
         """
         given = reader.text("AccountManager")
         if not given:
             return None
         wanted = given.casefold()
+        for entry_id, code, name in self._salesmen:
+            if (code or "").casefold() == wanted or name.casefold() == wanted:
+                return entry_id
+        # P2 step 4 removes this bridge: a file may still name a member.
         by_email = [m for m in self._members if m.email.casefold() == wanted]
         if by_email:
             return by_email[0].user_id
@@ -361,7 +378,7 @@ class CustomerFileImporter(FileImporter[Customer]):
             + (
                 "the name of more than one member; give their email."
                 if by_name
-                else "not an active member of the firm."
+                else "not on the firm's list of salesmen, nor an active member."
             ),
         )
         return None

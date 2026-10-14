@@ -1,4 +1,4 @@
-"""The firm's own salesman list (P2, salesman list design, build step 1).
+"""The firm's own salesman list (P2, salesman list design, build steps 1-2).
 
 Reading the list is open to any member of the firm, because whoever makes a
 bill fills its salesman box; changing it needs ``SALESMAN_MANAGE``. A name is
@@ -9,18 +9,22 @@ document names cannot be deleted.
 
 # ruff: noqa: D103
 
+import importlib.util
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
+from types import ModuleType
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Response
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch
 from app.common.audit.models import AuditLog
+from app.common.report_names import salesman_names
 from app.common.scope import (
     ResolvedFirmScope,
     optional_firm_scope,
@@ -40,6 +44,7 @@ from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
 from app.identity.system_seed import ROLE_PERMISSION_CODES
+from app.sales.models import SalesTerritoryNode, TerritorySalesmanAssignment
 from app.sales_invoice.models import SalesInvoice
 from app.salesmen.api.router import (
     SalesmanManageScope,
@@ -54,6 +59,7 @@ from app.salesmen.api.router import (
 from app.salesmen.models import Salesman
 from app.salesmen.naming import free_name, placeholder_name
 from app.salesmen.schemas import SalesmanCreate, SalesmanUpdate
+from app.salesmen.services.nameable import active_salesman, nameable_salesman
 
 MANAGE = "SALESMAN_MANAGE"
 
@@ -443,3 +449,193 @@ def test_a_clashing_name_takes_eight_characters_of_the_id() -> None:
     assert free_name("Mohan", user, {"mohan"}) == "Mohan 12345678"
     assert free_name("Mohan", user, {"mohan", "mohan 12345678"}) is None
     assert len(free_name("x" * 200, user, {"x" * 120}) or "") == 120
+
+
+# -- step 2: who may be named -------------------------------------------------
+
+
+def test_an_id_on_no_list_is_refused_by_name(shop: _Shop) -> None:
+    outsider = User(email="o@example.test", full_name="Outsider", password_hash="h")
+    shop.session.add(outsider)
+    shop.session.commit()
+
+    for stranger in (uuid4(), outsider.id):
+        with pytest.raises(ValidationError, match="not on this firm's list"):
+            nameable_salesman(shop.session, shop.firm.id, stranger)
+
+
+def test_an_inactive_entry_is_refused_and_an_active_one_answered(shop: _Shop) -> None:
+    active = shop.add("Mohan")
+    resting = shop.add("Old hand", is_active=False)
+
+    assert nameable_salesman(shop.session, shop.firm.id, active) == active
+    with pytest.raises(ValidationError, match="Old hand is an inactive salesman"):
+        nameable_salesman(shop.session, shop.firm.id, resting)
+
+
+def test_an_entry_earning_nothing_is_refused_for_commission(shop: _Shop) -> None:
+    phone = shop.add("Phone order", earns_commission=False)
+
+    # A bill may name him...
+    assert nameable_salesman(shop.session, shop.firm.id, phone) == phone
+    # ...a commission rule, a payout or a target may not.
+    with pytest.raises(ValidationError, match="Phone order earns no commission"):
+        nameable_salesman(shop.session, shop.firm.id, phone, for_commission=True)
+
+
+def test_another_firms_entry_is_refused(shop: _Shop) -> None:
+    other = Salesman(firm_id=uuid4(), name="Elsewhere")
+    shop.session.add(other)
+    shop.session.commit()
+
+    with pytest.raises(ValidationError, match="not on this firm's list"):
+        nameable_salesman(shop.session, shop.firm.id, other.id)
+
+
+def test_the_bridge_makes_an_entry_of_the_members_own_id(shop: _Shop) -> None:
+    clerk = shop.clerk.id
+
+    assert nameable_salesman(shop.session, shop.firm.id, clerk) == clerk
+    entry = shop.session.get(Salesman, clerk)
+    assert entry is not None
+    assert (entry.firm_id, entry.user_id, entry.name) == (
+        shop.firm.id,
+        clerk,
+        "Ravi Clerk",
+    )
+    assert entry.earns_commission and entry.is_active
+    trail = shop.session.scalars(
+        select(AuditLog).where(
+            AuditLog.entity_id == clerk, AuditLog.action == "salesman.created"
+        )
+    ).all()
+    assert len(trail) == 1
+    # Named again, the entry is found rather than made twice.
+    assert nameable_salesman(shop.session, shop.firm.id, clerk) == clerk
+    assert len(_names(shop)) == 1
+
+
+def test_the_bridge_takes_a_new_id_where_another_firm_holds_his(shop: _Shop) -> None:
+    clerk = shop.clerk.id
+    shop.session.add(
+        Salesman(id=clerk, firm_id=uuid4(), name="Ravi Clerk", user_id=clerk)
+    )
+    shop.session.commit()
+
+    answered = nameable_salesman(shop.session, shop.firm.id, clerk)
+    assert answered != clerk
+    entry = shop.session.get(Salesman, answered)
+    assert entry is not None
+    assert (entry.firm_id, entry.user_id) == (shop.firm.id, clerk)
+    # The user's id now finds this firm's own entry.
+    assert nameable_salesman(shop.session, shop.firm.id, clerk) == answered
+
+
+def test_a_derived_salesman_skips_one_whose_user_has_left(shop: _Shop) -> None:
+    tied = shop.add("Ravi", user_id=shop.clerk.id)
+    phone = shop.add("Phone order")
+    assert active_salesman(shop.session, shop.firm.id, tied) == tied
+
+    membership = shop.session.scalar(
+        select(UserFirm).where(UserFirm.user_id == shop.clerk.id)
+    )
+    assert membership is not None
+    membership.is_active = False
+    shop.session.commit()
+
+    assert active_salesman(shop.session, shop.firm.id, tied) is None
+    # An entry tied to nobody needs no membership.
+    assert active_salesman(shop.session, shop.firm.id, phone) == phone
+
+
+def test_names_are_read_from_the_list_deleted_entries_included(shop: _Shop) -> None:
+    mohan = shop.add("Mohan")
+    gone = shop.add("Gone")
+    delete_salesman(gone, shop.writer, db=shop.session)
+
+    assert salesman_names(shop.session, [mohan, gone, None, uuid4()]) == {
+        mohan: "Mohan",
+        gone: "Gone",
+    }
+
+
+def _move_migration() -> ModuleType:
+    """Load the migration that moves the columns onto the list."""
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "20261014_0381_salesmen_move.py"
+    )
+    spec = importlib.util.spec_from_file_location("salesmen_move", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_move_points_each_firms_rows_at_its_own_entry(shop: _Shop) -> None:
+    """Two firms in one store name one user; a third id has no entry yet."""
+    user, late = uuid4(), uuid4()
+    first, second = shop.firm.id, uuid4()
+    own = uuid4()
+    shop.session.add_all(
+        [
+            # `0380`: the firm naming him most kept the entry of his id.
+            Salesman(id=user, firm_id=first, name="Mohan", user_id=user),
+            Salesman(id=own, firm_id=second, name="Mohan", user_id=user),
+        ]
+    )
+    shop.session.flush()
+    kept = _invoice_naming(shop, user)
+    moved = SalesInvoice(
+        firm_id=second,
+        customer_id=kept.customer_id,
+        branch_id=kept.branch_id,
+        invoice_number="SI-2",
+        invoice_date=date(2026, 10, 14),
+        salesman_id=user,
+    )
+    written_since = SalesInvoice(
+        firm_id=second,
+        customer_id=kept.customer_id,
+        branch_id=kept.branch_id,
+        invoice_number="SI-3",
+        invoice_date=date(2026, 10, 14),
+        salesman_id=late,
+    )
+    territory = SalesTerritoryNode(
+        firm_id=second,
+        hierarchy_level_id=uuid4(),
+        code="R1",
+        name="Round 1",
+        path="R1",
+    )
+    shop.session.add_all([moved, written_since, territory])
+    shop.session.flush()
+    assignment = TerritorySalesmanAssignment(
+        territory_id=territory.id, salesman_id=user
+    )
+    shop.session.add(assignment)
+    shop.session.commit()
+
+    migration = _move_migration()
+    connection = shop.session.connection()
+    migration._repoint(connection, inspect(connection))
+    # A replay finds nothing to move.
+    migration._repoint(connection, inspect(connection))
+    shop.session.commit()
+    shop.session.expire_all()
+
+    assert shop.session.get(SalesInvoice, kept.id).salesman_id == user  # type: ignore[union-attr]
+    assert shop.session.get(SalesInvoice, moved.id).salesman_id == own  # type: ignore[union-attr]
+    assert (
+        shop.session.get(TerritorySalesmanAssignment, assignment.id).salesman_id  # type: ignore[union-attr]
+        == own
+    )
+    # The id written since `0380` became an entry of its own, of that id.
+    late_entry = shop.session.get(Salesman, late)
+    assert late_entry is not None
+    assert (late_entry.firm_id, late_entry.user_id) == (second, late)
+    assert shop.session.get(SalesInvoice, written_since.id).salesman_id == late  # type: ignore[union-attr]
+    assert len(shop.session.scalars(select(Salesman)).all()) == 3

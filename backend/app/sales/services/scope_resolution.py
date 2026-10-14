@@ -24,7 +24,6 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.customers.models import Customer
 from app.sales.models import (
@@ -33,6 +32,7 @@ from app.sales.models import (
     TerritoryRouteProfile,
     TerritorySalesmanAssignment,
 )
+from app.salesmen.services.nameable import active_salesman, nameable_salesman
 
 
 @dataclass(frozen=True)
@@ -281,18 +281,18 @@ def _validated_salesman(
 ) -> UUID:
     """Accept a caller's salesman only if they work here and cover the territory.
 
-    Membership first, because it is the question that has an answer whether or
-    not the firm runs territories: the order, the delivery note and the invoice
-    each asked it in their own service, and the quotation and the sales return
-    -- which do not -- took **any id at all** whenever the customer was on no
-    territory (D-TER-15). Asking it here asks it once, for all five.
+    The firm's list first, because it is the question that has an answer
+    whether or not the firm runs territories: the quotation and the sales
+    return once took **any id at all** whenever the customer was on no
+    territory (D-TER-15). Asking it here asks it once, for all five. Until
+    P2 step 4 a member's user id is still accepted, and answered with his
+    entry's id (`app/salesmen/services/nameable.py`).
 
     Coverage is still only checkable against a territory. With none, the
     caller's choice stands: refusing would block a firm that records who sold
     without running territories at all.
     """
-    if not FirmMetadataReader(session).active_member_count(firm_id, [salesman_id]):
-        raise ValidationError("Salesman is not an active member of this firm.")
+    salesman_id = nameable_salesman(session, firm_id, salesman_id)
     if territory_id is None:
         return salesman_id
     if not _covers(session, territory_id, salesman_id):
@@ -307,7 +307,8 @@ def _account_manager(
 ) -> UUID | None:
     """Return the customer's account manager, if a document may carry them.
 
-    Only an active member of the firm (a person who has left stays on the
+    Only an active entry of the firm's salesman list, and one tied to a user
+    only while he is an active member (a person who has left stays on the
     customer's record but is skipped here, as `_derived_salesman` skips a
     stale assignment), and only one who covers the document's territory
     when it has one.
@@ -321,7 +322,8 @@ def _account_manager(
     )
     if manager is None:
         return None
-    if FirmMetadataReader(session).active_member_count(firm_id, [manager]) != 1:
+    manager = active_salesman(session, firm_id, manager)
+    if manager is None:
         return None
     if territory_id is not None and not _covers(session, territory_id, manager):
         return None
@@ -357,9 +359,9 @@ def _derived_salesman(
     )
     primary = [row for row in direct if row.is_primary]
     if len(primary) == 1:
-        return primary[0].user_id
+        return primary[0].salesman_id
     if not primary and len(direct) == 1:
-        return direct[0].user_id
+        return direct[0].salesman_id
     if direct:
         # Two people share the round with neither marked primary. Same reasoning
         # as the territory above: name nobody rather than the wrong one.
@@ -370,17 +372,19 @@ def _derived_salesman(
 def _still_here(
     session: Session, firm_id: UUID, rows: list[TerritorySalesmanAssignment]
 ) -> list[TerritorySalesmanAssignment]:
-    """Keep only the assignments whose person is still an active member.
+    """Keep only the assignments whose salesman may still be named.
 
-    Through `FirmMetadataReader`, because `users` and `user_firms` live only
-    in the platform store and a tenant session cannot see them.
+    An active entry of the firm's list, and one tied to a user only while he
+    is an active member (`active_salesman`).
     """
     if not rows:
         return rows
-    members = {
-        member.user_id for member in FirmMetadataReader(session).active_members(firm_id)
+    usable = {
+        salesman_id
+        for salesman_id in {row.salesman_id for row in rows}
+        if active_salesman(session, firm_id, salesman_id) == salesman_id
     }
-    return [row for row in rows if row.user_id in members]
+    return [row for row in rows if row.salesman_id in usable]
 
 
 def _inherited_salesman(
@@ -403,20 +407,20 @@ def _inherited_salesman(
         )
         primary = [row for row in covering if row.is_primary]
         if len(primary) == 1:
-            return primary[0].user_id
+            return primary[0].salesman_id
         if len(covering) == 1:
-            return covering[0].user_id
+            return covering[0].salesman_id
         if covering:
             return None
     return None
 
 
-def _covers(session: Session, territory_id: UUID, user_id: UUID) -> bool:
+def _covers(session: Session, territory_id: UUID, salesman_id: UUID) -> bool:
     """Report whether a salesperson covers this territory, directly or by descent."""
     direct = session.scalar(
         select(TerritorySalesmanAssignment.id).where(
             TerritorySalesmanAssignment.territory_id == territory_id,
-            TerritorySalesmanAssignment.user_id == user_id,
+            TerritorySalesmanAssignment.salesman_id == salesman_id,
             TerritorySalesmanAssignment.is_deleted.is_(False),
         )
     )
@@ -426,7 +430,7 @@ def _covers(session: Session, territory_id: UUID, user_id: UUID) -> bool:
         inherited = session.scalar(
             select(TerritorySalesmanAssignment.id).where(
                 TerritorySalesmanAssignment.territory_id == ancestor_id,
-                TerritorySalesmanAssignment.user_id == user_id,
+                TerritorySalesmanAssignment.salesman_id == salesman_id,
                 TerritorySalesmanAssignment.include_children.is_(True),
                 TerritorySalesmanAssignment.is_deleted.is_(False),
             )

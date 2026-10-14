@@ -18,14 +18,12 @@ from app.branches.models import Branch, Warehouse
 from app.business.gating import resolve_profile_id
 from app.business.models import BusinessProfile
 from app.common.audit.services import record_audit, record_change, row_state
-from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.csv_text import csv_line
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer, CustomerAddress
-from app.identity.models import User
 from app.sales.models import (
     AddressMaster,
     BeatPlan,
@@ -101,6 +99,8 @@ from app.sales.schemas.territory import TerritoryStatus
 from app.sales.services.scope_resolution import route_profile_in_force
 from app.sales.services.territory_tree import live_subtree
 from app.sales_targets.models import SalesTarget
+from app.salesmen.models import Salesman
+from app.salesmen.services.nameable import nameable_salesman
 from app.tax.models import TaxCountryMapping, TaxRule, TaxSystem
 from app.vendors.models import Vendor, VendorAddress
 
@@ -1267,19 +1267,15 @@ class SalesTerritoryService:
             )
         ]
 
-    def _salesman_ids_matching(self, term: str) -> list[UUID]:
-        """Find users whose name matches, reading the platform store.
+    def _salesman_ids_matching(self, term: str) -> Select[tuple[UUID]]:
+        """Find the salesmen whose name matches, on the firm's own list.
 
-        `users` lives only in the platform schema, so a tenant session cannot
-        see it -- the same shape as `FirmMetadataReader`, and the same defect
-        this codebase has now hit three times.
+        The list lives in the firm's store (P2 step 2), so this is a subquery
+        of the same session; it used to read `users` from the platform store.
         """
-        statement = select(User.id).where(User.full_name.ilike(term))
-        bind = self._session.get_bind()
-        if bind.dialect.name != "postgresql":
-            return list(self._session.scalars(statement).all())
-        with platform_reader() as reader:
-            return list(reader.scalars(statement).all())
+        return select(Salesman.id).where(
+            Salesman.name.ilike(term), Salesman.is_deleted.is_(False)
+        )
 
     def search_territories(
         self,
@@ -1310,17 +1306,13 @@ class SalesTerritoryService:
                         Customer.name.ilike(term),
                     )
                     .exists(),
-                    # Salesman ids are resolved from the platform store first
-                    # and matched here by id. `users` exists **only** in the
-                    # platform schema, so joining it on this tenant session
-                    # raised `relation "<firm schema>.users" does not exist`
-                    # and territory search answered 503 for every firm.
+                    # Matched on the firm's own salesman list (P2 step 2).
                     TerritorySalesmanAssignment.__table__.select()
                     .where(
                         TerritorySalesmanAssignment.territory_id
                         == SalesTerritoryNode.id,
                         TerritorySalesmanAssignment.is_deleted.is_(False),
-                        TerritorySalesmanAssignment.user_id.in_(
+                        TerritorySalesmanAssignment.salesman_id.in_(
                             self._salesman_ids_matching(term)
                         ),
                     )
@@ -1543,7 +1535,7 @@ class SalesTerritoryService:
         )
         salesman_ids = list(
             self._session.scalars(
-                select(TerritorySalesmanAssignment.user_id).where(
+                select(TerritorySalesmanAssignment.salesman_id).where(
                     TerritorySalesmanAssignment.territory_id == node.id,
                     TerritorySalesmanAssignment.is_deleted.is_(False),
                 )
@@ -2289,20 +2281,8 @@ class SalesTerritoryService:
         commit: bool = True,
     ) -> list[dict[str, object]]:
         territory = self._territory(territory_id, firm_scope)
-        requested_user_ids = [item.user_id for item in payload.assignments]
-        if requested_user_ids:
-            # user_firms and users are platform tables; counting them on the
-            # request session fails for any firm outside the platform store.
-            members = FirmMetadataReader(self._session).active_member_count(
-                firm_scope, requested_user_ids
-            )
-            if members != len(set(requested_user_ids)):
-                raise ValidationError(
-                    "One or more salesmen are not active firm members."
-                )
-        self._assert_salesman_policy(firm_scope, territory, requested_user_ids)
         existing = {
-            row.user_id: row
+            row.salesman_id: row
             for row in self._session.scalars(
                 select(TerritorySalesmanAssignment).where(
                     TerritorySalesmanAssignment.territory_id == territory.id
@@ -2312,16 +2292,32 @@ class SalesTerritoryService:
         # Who was on the round before this call (D-TER-16), for the same
         # reason `set_customers` keeps it.
         live_before = {
-            user_id for user_id, row in existing.items() if not row.is_deleted
+            salesman_id for salesman_id, row in existing.items() if not row.is_deleted
         }
-        requested = {item.user_id: item for item in payload.assignments}
-        for user_id, item in requested.items():
-            row = existing.get(user_id)
+        # The request still says `user_id` until the desktop moves (P2 step
+        # 4); each is an entry of the firm's salesman list, or a member's user
+        # id that the bridge answers with his entry's id. One already on the
+        # round is kept as he is: the whole list is resent on every save, and
+        # a salesman made inactive since must not block an unrelated change.
+        requested = {
+            (
+                item.user_id
+                if item.user_id in live_before
+                else nameable_salesman(
+                    self._session, firm_scope, item.user_id, actor_id=actor_id
+                )
+            ): item
+            for item in payload.assignments
+        }
+        requested_ids = list(requested)
+        self._assert_salesman_policy(firm_scope, territory, requested_ids)
+        for salesman_id, item in requested.items():
+            row = existing.get(salesman_id)
             if row is None:
                 self._session.add(
                     TerritorySalesmanAssignment(
                         territory_id=territory.id,
-                        user_id=user_id,
+                        salesman_id=salesman_id,
                         include_children=item.include_children,
                         is_primary=item.is_primary,
                         created_by=actor_id,
@@ -2336,15 +2332,15 @@ class SalesTerritoryService:
                     row.deleted_at = None
                     row.deleted_by = None
                 row.updated_by = actor_id
-        for user_id, row in existing.items():
-            if user_id not in requested and not row.is_deleted:
+        for salesman_id, row in existing.items():
+            if salesman_id not in requested and not row.is_deleted:
                 row.is_deleted = True
                 row.deleted_at = utc_now()
                 row.deleted_by = actor_id
                 row.updated_by = actor_id
         moved_before, moved_after = _membership_audit(
             was=live_before,
-            now=set(requested_user_ids),
+            now=set(requested_ids),
             count_key="salesman_count",
         )
         record_audit(
@@ -2379,7 +2375,7 @@ class SalesTerritoryService:
         )
         return [
             {
-                "user_id": item.user_id,
+                "user_id": item.salesman_id,
                 "include_children": item.include_children,
                 "is_primary": item.is_primary,
             }
@@ -2806,8 +2802,8 @@ class SalesTerritoryService:
         )
         for row in rows:
             if row.is_primary:
-                return row.user_id
-        return rows[0].user_id if len(rows) == 1 else None
+                return row.salesman_id
+        return rows[0].salesman_id if len(rows) == 1 else None
 
     def _export_rows(self, *, firm_scope: UUID, search: str | None) -> list[list[str]]:
         """Return the export as the importer reads it, one list per territory.
@@ -2931,7 +2927,7 @@ class SalesTerritoryService:
             select(
                 SalesTerritoryNode.code,
                 SalesTerritoryNode.name,
-                TerritorySalesmanAssignment.user_id,
+                TerritorySalesmanAssignment.salesman_id,
                 TerritorySalesmanAssignment.include_children,
                 TerritorySalesmanAssignment.is_primary,
             )
@@ -3447,7 +3443,7 @@ class SalesTerritoryService:
             row[0]: int(row[1] or 0)
             for row in self._session.execute(
                 select(
-                    TerritorySalesmanAssignment.user_id,
+                    TerritorySalesmanAssignment.salesman_id,
                     func.count(TerritorySalesmanAssignment.id),
                 )
                 .join(
@@ -3459,14 +3455,14 @@ class SalesTerritoryService:
                     SalesTerritoryNode.is_deleted.is_(False),
                     TerritorySalesmanAssignment.is_deleted.is_(False),
                 )
-                .group_by(TerritorySalesmanAssignment.user_id)
+                .group_by(TerritorySalesmanAssignment.salesman_id)
             )
         }
         route_totals = {
             row[0]: int(row[1] or 0)
             for row in self._session.execute(
                 select(
-                    TerritorySalesmanAssignment.user_id,
+                    TerritorySalesmanAssignment.salesman_id,
                     func.count(TerritorySalesmanAssignment.id),
                 )
                 .join(
@@ -3483,14 +3479,14 @@ class SalesTerritoryService:
                     TerritorySalesmanAssignment.is_deleted.is_(False),
                     TerritoryRouteProfile.is_deleted.is_(False),
                 )
-                .group_by(TerritorySalesmanAssignment.user_id)
+                .group_by(TerritorySalesmanAssignment.salesman_id)
             )
         }
         customer_totals = {
             row[0]: int(row[1] or 0)
             for row in self._session.execute(
                 select(
-                    TerritorySalesmanAssignment.user_id,
+                    TerritorySalesmanAssignment.salesman_id,
                     func.count(TerritoryCustomerAssignment.id),
                 )
                 .join(
@@ -3508,7 +3504,7 @@ class SalesTerritoryService:
                     TerritorySalesmanAssignment.is_deleted.is_(False),
                     TerritoryCustomerAssignment.is_deleted.is_(False),
                 )
-                .group_by(TerritorySalesmanAssignment.user_id)
+                .group_by(TerritorySalesmanAssignment.salesman_id)
             )
         }
         total_territories = int(
@@ -3544,7 +3540,7 @@ class SalesTerritoryService:
         self,
         firm_scope: UUID,
         territory: SalesTerritoryNode,
-        user_ids: list[UUID],
+        salesman_ids: list[UUID],
     ) -> None:
         """Apply the two multi-assignment settings the firm recorded.
 
@@ -3554,12 +3550,12 @@ class SalesTerritoryService:
         config = self._hierarchy_settings(firm_scope)
         if config is None:
             return
-        if not config.allow_multi_salesman_per_route and len(set(user_ids)) > 1:
+        if not config.allow_multi_salesman_per_route and len(set(salesman_ids)) > 1:
             raise ValidationError(
                 f"{territory.code} may have only one salesperson. "
                 "Change the hierarchy settings to allow more."
             )
-        if config.allow_multi_route_per_salesman or not user_ids:
+        if config.allow_multi_route_per_salesman or not salesman_ids:
             return
         clash = self._session.scalar(
             select(SalesTerritoryNode.code)
@@ -3569,7 +3565,7 @@ class SalesTerritoryService:
                 SalesTerritoryNode.id == TerritorySalesmanAssignment.territory_id,
             )
             .where(
-                TerritorySalesmanAssignment.user_id.in_(user_ids),
+                TerritorySalesmanAssignment.salesman_id.in_(salesman_ids),
                 TerritorySalesmanAssignment.territory_id != territory.id,
                 TerritorySalesmanAssignment.is_deleted.is_(False),
                 SalesTerritoryNode.firm_id == firm_scope,
@@ -3847,7 +3843,7 @@ class SalesTerritoryService:
         if filters.salesman_id is not None:
             assignment_exists = select(TerritorySalesmanAssignment.id).where(
                 TerritorySalesmanAssignment.territory_id == SalesTerritoryNode.id,
-                TerritorySalesmanAssignment.user_id == filters.salesman_id,
+                TerritorySalesmanAssignment.salesman_id == filters.salesman_id,
                 TerritorySalesmanAssignment.is_deleted.is_(False),
             )
             statement = statement.where(assignment_exists.exists())

@@ -93,6 +93,7 @@ from app.sales_order.models import (
 )
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from app.salesmen.models import Salesman
 from app.tax.models import TaxRuleExecutionLog
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.tax.schemas import (
@@ -3249,6 +3250,16 @@ def _seller(session: Session, name: str) -> User:
         is_active=True,
     )
     session.add(person)
+    session.flush()
+    # The firm's salesman list names him (P2 step 2), with his own id.
+    session.add(
+        Salesman(
+            id=person.id,
+            firm_id=session.scalars(select(Firm.id)).first(),
+            name=name,
+            user_id=person.id,
+        )
+    )
     session.flush()
     return person
 
