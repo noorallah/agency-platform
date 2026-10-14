@@ -248,6 +248,11 @@ class DocumentPrintTemplate(BaseEntity):
     margin_mm: Mapped[Decimal] = mapped_column(
         Numeric(6, 2), nullable=False, default=Decimal("12"), server_default="12"
     )
+    #: STANDARD, or TRADE: the boxed bill the trade prints (backlog 143). A
+    #: sales invoice reads it on A4 and A5; nothing else may be set to TRADE.
+    bill_layout: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="STANDARD", server_default="STANDARD"
+    )
 
 
 class DocumentHeader(BaseEntity):
