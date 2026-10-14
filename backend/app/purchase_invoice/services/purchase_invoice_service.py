@@ -64,6 +64,7 @@ from app.finance.currency import (
     to_base,
 )
 from app.finance.models import JournalEntry, JournalStatus
+from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.goods_receipt.billing import receipt_line_billing
@@ -110,6 +111,10 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceStatus,
     PurchaseInvoiceSummary,
     PurchaseInvoiceVendorOutstandingRecord,
+)
+from app.purchase_invoice.services.lot_rate import (
+    stage_bill_rate_onto_lots,
+    take_bill_rate_off_lots,
 )
 from app.purchase_invoice.services.msme import (
     default_due_date,
@@ -1094,6 +1099,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         capital_amounts = self._stage_assets(
             row, capital_lines, firm_id=firm_scope, actor_id=actor_id
         )
+        # A firm costing by lot puts the bill's rate onto the lots still
+        # holding the goods; the rest stays variance (L2 step 8).
+        onto_lots = stage_bill_rate_onto_lots(
+            self._session, row, firm_id=firm_scope, actor_id=actor_id
+        )
         DocumentPostingService(self._session).post_purchase_invoice(
             firm_id=firm_scope,
             invoice_id=row.id,
@@ -1111,6 +1121,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             tcs_amount=row.tcs_amount,
             capital_amounts=capital_amounts,
             service_amount=self._service_amount(row),
+            inventory_amount=onto_lots,
         )
         # Warned, not refused: the bill is owed whatever its terms say, and
         # paying it in time is what the warning is for (backlog 68 row 2).
@@ -4231,6 +4242,21 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         if entry_id is None:
             # Nothing posted, so there is nothing to take back -- a firm that
             # approved bills before posting existed is in this state.
+            return
+        corrected, taken = take_bill_rate_off_lots(
+            self._session, row, firm_id=firm_scope, actor_id=actor_id
+        )
+        if corrected != ZERO:
+            # The lots give back only what they still hold of the bill's
+            # rate; what left with units sold since goes to variance.
+            DocumentPostingService(self._session).reverse_with_stock_back(
+                firm_id=firm_scope,
+                entry_id=entry_id,
+                reference_number=f"{row.invoice_number}-REV",
+                stock_back=taken,
+                rest_to=ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
+                actor_id=actor_id,
+            )
             return
         JournalEntryEngine(self._session).reverse_entry(
             entry_id,

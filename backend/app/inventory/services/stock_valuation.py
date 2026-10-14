@@ -527,9 +527,12 @@ class StockStatementService:
         )
         moved = func.coalesce(owned, 0)
         value = func.coalesce(cost.c.cost, 0)
-        # Freight added to stock on hand (BUY-16) is value in with no
-        # quantity; a cancelled voucher's movement takes it out.
-        landed = InventoryTransaction.transaction_type == "LANDED_COST"
+        # Freight added to stock on hand (BUY-16), and a bill's rate put
+        # onto its lot (L2 step 8), are value in with no quantity; a
+        # cancelled voucher's or bill's movement takes it out.
+        landed = InventoryTransaction.transaction_type.in_(
+            ("LANDED_COST", "COST_CORRECTION")
+        )
         result: dict[
             str, tuple[Decimal, Decimal, Decimal, tuple[str, str, str] | None]
         ] = {}

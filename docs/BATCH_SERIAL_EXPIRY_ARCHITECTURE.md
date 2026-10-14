@@ -317,6 +317,44 @@ not switched it on, are refused exactly as before.
   cost: the sale's own movement plus the correction. Stock ageing treats a
   `LOT_SETTLEMENT` as internal, like a transfer.
 
+### A bill's rate and a landed cost onto the lot (L2 step 8)
+
+`docs/design/LOT_COST_DESIGN.md`, section 3.3 and decision 3. For a firm
+costing by lot, value that arrives after the goods lands on the lot the
+goods came in, never on the item as a whole, so the Inventory account stays
+the sum of the lots. A firm on Average is untouched.
+
+- **A value-only movement on a lot.** `InventoryService.stage_revaluation`
+  moves value and no quantity. Where the item is costed by lot and the
+  batch it names has a `batch_valuations` row, the value goes onto that lot
+  (its value and unit cost move) and the item's running figure moves with
+  it; the ledger entry's `unit_cost` records what each unit then in the lot
+  gained. A lot with nothing left in it cannot carry value.
+- **The supplier's bill at another rate** (`app/purchase_invoice/services/lot_rate.py`).
+  At approval, per bill line raised off a receipt line with a valued lot:
+  the bill line's net before tax (in rupees) less the receipt's movement
+  cost for the units billed (pro rata, as the accrual clears it), times the
+  share of the receipt line's units the lot still holds, goes onto the lot
+  as a `COST_CORRECTION` movement dated the bill (reference type
+  `PURCHASE_INVOICE`). The journal gains an Inventory leg for it and the
+  variance shrinks by as much; the share for units already gone stays
+  purchase price variance. A cheaper bill lowers the lot, never below
+  nothing.
+- **Cancelling the bill** takes back off each lot what it still holds of the
+  correction (`value_left_in_lot`: the per-unit gain times the units the lot
+  holds now, reference type `PURCHASE_INVOICE_CANCEL`). The reversal credits
+  Inventory with that and sends the rest -- what left with units since -- to
+  purchase price variance (`reverse_with_stock_back`).
+- **A landed cost and a bill of entry** (`land_on_receipt_lines`) read the
+  receipt line's own lot for the units still held, not the item's quantity
+  on hand: freight on a lot that is gone is all cost of goods sold even when
+  newer lots of the item are on the shelf. Cancelling takes back only what
+  the lot still holds (`take_off_receipt_lines` returns what came off) and
+  the reversal sends the rest to cost of goods sold, where the units sold
+  since took it (`reverse_landing`).
+- The stock valuation report counts a `COST_CORRECTION` as value in with no
+  quantity, as it does a `LANDED_COST`.
+
 ### Table: `lots`
 
 | Column | Type | Notes |

@@ -39,6 +39,7 @@ from app.document_framework.services.transactional_document_service import (
     TransactionalDocumentService,
 )
 from app.finance.models import JournalEntry
+from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.document_posting import (
     DocumentPostingService,
     prefixed_reference,
@@ -312,12 +313,17 @@ class LandedCostService(TransactionalDocumentService):
             raise ValidationError("This voucher was already cancelled.")
         if not reason.strip():
             raise ValidationError("Say why the voucher is cancelled.")
-        take_off_receipt_lines(
+        allocations = self._allocations([row.id])
+        taken = take_off_receipt_lines(
             self._session,
             firm_id=firm_id,
             held=[
-                (allocation.goods_receipt_line_id, allocation.inventory_amount)
-                for allocation in self._allocations([row.id])
+                (
+                    allocation.goods_receipt_line_id,
+                    allocation.inventory_amount,
+                    allocation.inventory_transaction_id,
+                )
+                for allocation in allocations
             ],
             reference_number=row.voucher_number,
             on=row.voucher_date,
@@ -333,10 +339,15 @@ class LandedCostService(TransactionalDocumentService):
                 if posted is not None
                 else prefixed_reference("LCV", row.voucher_number)
             )
-            JournalEntryEngine(self._session).reverse_entry(
-                row.journal_entry_id,
+            reverse_landing(
+                self._session,
                 firm_id=firm_id,
+                entry_id=row.journal_entry_id,
                 reference_number=f"{reference}-REV",
+                landed=sum(
+                    (Decimal(str(a.inventory_amount)) for a in allocations), ZERO
+                ),
+                taken=taken,
                 actor_id=actor_id,
             )
         row.status = "CANCELLED"
@@ -598,6 +609,10 @@ def land_on_receipt_lines(
     once per product, before any line revalues it: two lines of one product
     share what is left of it. Landed cost vouchers (BUY-16) and Bills of
     Entry (PG-12) both land their cost here. Stages only; the caller commits.
+
+    For an item costed by lot the line's own lot is asked instead: the cost
+    lands on the units still in it and the share of units gone is cost of
+    goods sold (L2 step 8), whatever the item holds in other lots.
     """
     inventory = InventoryService(session)
     left: dict[UUID, Decimal] = {}
@@ -612,8 +627,14 @@ def land_on_receipt_lines(
             )
     landed: list[LandedShare] = []
     for line, quantity, share in shares:
-        on_hand = max(min(left[line.product_id], quantity), ZERO)
-        left[line.product_id] -= on_hand
+        in_lot = inventory.lot_on_hand(
+            firm_scope=firm_id, product_id=line.product_id, batch_id=line.batch_id
+        )
+        if in_lot is not None:
+            on_hand = max(min(in_lot, quantity), ZERO)
+        else:
+            on_hand = max(min(left[line.product_id], quantity), ZERO)
+            left[line.product_id] -= on_hand
         held = quantize_money(share * on_hand / quantity) if share else ZERO
         transaction_id: UUID | None = None
         if held > ZERO:
@@ -648,22 +669,32 @@ def take_off_receipt_lines(
     session: Session,
     *,
     firm_id: UUID,
-    held: list[tuple[UUID, Decimal]],
+    held: list[tuple[UUID, Decimal, UUID | None]],
     reference_number: str,
     on: date,
     remarks: str,
     actor_id: UUID,
-) -> None:
+) -> Decimal:
     """Take a landed cost's on-hand share back off the stock it revalued.
 
-    ``held`` is ``(goods receipt line id, inventory amount)`` as landed. The
-    value comes back off at today's quantity: what was sold since keeps the
-    cost it was sold at. Stages only; the caller commits.
+    ``held`` is ``(goods receipt line id, inventory amount, movement)`` as
+    landed. The value comes back off at today's quantity: what was sold
+    since keeps the cost it was sold at. A share that landed on a lot (L2
+    step 8) comes off only as far as the lot still holds its units, so a
+    lot is never taken below what it is worth. Returns what came off, for
+    the caller's reversal. Stages only; the caller commits.
     """
-    wanted = [(line_id, Decimal(str(amount))) for line_id, amount in held]
-    wanted = [(line_id, amount) for line_id, amount in wanted if amount > ZERO]
+    inventory = InventoryService(session)
+    wanted: list[tuple[UUID, Decimal]] = []
+    for line_id, amount, transaction_id in held:
+        value = Decimal(str(amount))
+        if value > ZERO and transaction_id is not None:
+            left = inventory.value_left_in_lot(transaction_id)
+            value = value if left is None else left
+        if value > ZERO:
+            wanted.append((line_id, value))
     if not wanted:
-        return
+        return ZERO
     lines = {
         line.id: line
         for line in session.scalars(
@@ -680,11 +711,12 @@ def take_off_receipt_lines(
             )
         ).all()
     }
-    inventory = InventoryService(session)
+    taken = ZERO
     for line_id, amount in wanted:
         line = lines.get(line_id)
         if line is None:
             continue
+        taken += amount
         inventory.stage_revaluation(
             firm_scope=firm_id,
             branch_id=receipts[line.goods_receipt_id].branch_id,
@@ -697,6 +729,42 @@ def take_off_receipt_lines(
             remarks=remarks,
             actor_id=actor_id,
         )
+    return taken
+
+
+def reverse_landing(
+    session: Session,
+    *,
+    firm_id: UUID,
+    entry_id: UUID,
+    reference_number: str,
+    landed: Decimal,
+    taken: Decimal,
+    actor_id: UUID,
+) -> None:
+    """Reverse a landed cost's journal at what came back off the stock.
+
+    A mirror where everything landed came back off, as it always has on
+    Average. Where a lot had sold some of its units since (L2 step 8), the
+    Inventory leg carries only what came off and the rest goes to cost of
+    goods sold, where those units took it. Stages only; the caller commits.
+    """
+    if quantize_money(taken) == quantize_money(landed):
+        JournalEntryEngine(session).reverse_entry(
+            entry_id,
+            firm_id=firm_id,
+            reference_number=reference_number,
+            actor_id=actor_id,
+        )
+        return
+    DocumentPostingService(session).reverse_with_stock_back(
+        firm_id=firm_id,
+        entry_id=entry_id,
+        reference_number=reference_number,
+        stock_back=taken,
+        rest_to=ControlAccountPurpose.COST_OF_GOODS_SOLD,
+        actor_id=actor_id,
+    )
 
 
 def _measure(
