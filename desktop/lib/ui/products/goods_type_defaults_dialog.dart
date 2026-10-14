@@ -5,8 +5,9 @@ import '../../core/design/design_tokens.dart';
 import '../../models/product.dart';
 import '../workspace/save_in_dialog.dart';
 
-/// The two defaults a firm sets on a goods type -- shared or its own: the HSN
-/// code and the tax group a new product of the type starts with.
+/// The defaults a firm sets on a goods type -- shared or its own: the HSN
+/// code, the tax group and the retail and wholesale margins a new product of
+/// the type starts with (row L3).
 ///
 /// Saves through the type's `/use` route with `in_use: true`, so setting
 /// defaults on a type also takes it into use. The dialog runs the save itself
@@ -41,11 +42,17 @@ class _GoodsTypeDefaultsDialogState extends State<_GoodsTypeDefaultsDialog>
       TextEditingController(text: widget.type.defaultHsnSac);
   late final TextEditingController _taxGroup =
       TextEditingController(text: widget.type.defaultTaxProfileGroupCode);
+  late final TextEditingController _retailMargin =
+      TextEditingController(text: widget.type.retailMarginPercent);
+  late final TextEditingController _wholesaleMargin =
+      TextEditingController(text: widget.type.wholesaleMarginPercent);
 
   @override
   void dispose() {
     _hsn.dispose();
     _taxGroup.dispose();
+    _retailMargin.dispose();
+    _wholesaleMargin.dispose();
     super.dispose();
   }
 
@@ -59,6 +66,8 @@ class _GoodsTypeDefaultsDialogState extends State<_GoodsTypeDefaultsDialog>
           'in_use': true,
           'default_hsn_sac': _blankToNull(_hsn.text),
           'default_tax_profile_group_code': _blankToNull(_taxGroup.text),
+          'retail_margin_percent': _blankToNull(_retailMargin.text),
+          'wholesale_margin_percent': _blankToNull(_wholesaleMargin.text),
         });
         return true;
       });
@@ -92,6 +101,30 @@ class _GoodsTypeDefaultsDialogState extends State<_GoodsTypeDefaultsDialog>
                   controller: _taxGroup,
                   decoration:
                       const InputDecoration(labelText: 'Default tax group'),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  key: const ValueKey('goods-type-defaults-retail-margin'),
+                  controller: _retailMargin,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Retail margin %',
+                    helperText: 'Mark-up on the purchase rate, for a firm '
+                        'costing by lot; blank sets none.',
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  key: const ValueKey('goods-type-defaults-wholesale-margin'),
+                  controller: _wholesaleMargin,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Wholesale margin %',
+                    helperText: 'Mark-up on the purchase rate; blank sets '
+                        'none.',
+                  ),
                 ),
               ],
             ),

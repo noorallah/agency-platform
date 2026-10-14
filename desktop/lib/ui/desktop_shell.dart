@@ -7663,6 +7663,22 @@ ResourceDefinition<GoodsTypeRecord> goodsTypeDefinition(
         helperText: 'Filled into a new product of this type; the person can '
             'change it.',
       ),
+      FieldSpec(
+        key: 'retail_margin_percent',
+        label: 'Retail margin %',
+        section: 'Defaults',
+        helperText: "Mark-up on the purchase rate that works a lot's retail "
+            'price, for a firm costing by lot. Filled into a new product of '
+            'this type; blank sets none.',
+      ),
+      FieldSpec(
+        key: 'wholesale_margin_percent',
+        label: 'Wholesale margin %',
+        section: 'Defaults',
+        helperText: "Mark-up on the purchase rate that works a lot's "
+            'wholesale price. Filled into a new product of this type; blank '
+            'sets none.',
+      ),
       FieldSpec(key: 'is_active', label: 'Active', boolean: true),
     ],
     initialValues: (GoodsTypeRecord? row) => row == null
@@ -7678,6 +7694,8 @@ ResourceDefinition<GoodsTypeRecord> goodsTypeDefinition(
             'track_warranty': row.trackWarranty,
             'default_hsn_sac': row.defaultHsnSac,
             'default_tax_profile_group_code': row.defaultTaxProfileGroupCode,
+            'retail_margin_percent': row.retailMarginPercent,
+            'wholesale_margin_percent': row.wholesaleMarginPercent,
             'is_active': row.isActive,
           },
     payload: (values, isCreating) => {
@@ -7693,6 +7711,9 @@ ResourceDefinition<GoodsTypeRecord> goodsTypeDefinition(
       'default_hsn_sac': _blankToNull(values['default_hsn_sac']),
       'default_tax_profile_group_code':
           _blankToNull(values['default_tax_profile_group_code']),
+      'retail_margin_percent': _blankToNull(values['retail_margin_percent']),
+      'wholesale_margin_percent':
+          _blankToNull(values['wholesale_margin_percent']),
       'is_active': values['is_active'] != false,
     },
   );

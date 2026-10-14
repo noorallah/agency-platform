@@ -146,6 +146,8 @@ class GoodsTypeRecord {
     required this.defaultHsnSac,
     required this.defaultTaxProfileGroupCode,
     required this.version,
+    this.retailMarginPercent = '',
+    this.wholesaleMarginPercent = '',
   });
 
   final String id;
@@ -167,6 +169,12 @@ class GoodsTypeRecord {
   final String defaultHsnSac;
   final String defaultTaxProfileGroupCode;
   final int version;
+
+  /// The mark-ups on the purchase rate a new product of this type starts
+  /// with (row L3): retail works the lot's PTR, wholesale its PTS. Empty is
+  /// none set.
+  final String retailMarginPercent;
+  final String wholesaleMarginPercent;
 
   bool get isShared => firmId.isEmpty;
 
@@ -199,6 +207,8 @@ class GoodsTypeRecord {
         defaultTaxProfileGroupCode:
             stringValue(json['default_tax_profile_group_code']),
         version: (json['version'] as num?)?.toInt() ?? 0,
+        retailMarginPercent: stringValue(json['retail_margin_percent']),
+        wholesaleMarginPercent: stringValue(json['wholesale_margin_percent']),
       );
 }
 
@@ -469,6 +479,8 @@ class ProductGoodsTypeOption {
     this.switches = const {},
     this.defaultHsnSac = '',
     this.defaultTaxProfileGroupCode = '',
+    this.retailMarginPercent = '',
+    this.wholesaleMarginPercent = '',
   });
 
   final String id;
@@ -479,6 +491,11 @@ class ProductGoodsTypeOption {
   final Map<String, bool> switches;
   final String defaultHsnSac;
   final String defaultTaxProfileGroupCode;
+
+  /// The margin pair the form fills in for a new product of the type (row
+  /// L3); empty is none.
+  final String retailMarginPercent;
+  final String wholesaleMarginPercent;
 
   factory ProductGoodsTypeOption.fromJson(Json json) {
     final Object? raw = json['switches'];
@@ -495,6 +512,8 @@ class ProductGoodsTypeOption {
       defaultHsnSac: stringValue(json['default_hsn_sac']),
       defaultTaxProfileGroupCode:
           stringValue(json['default_tax_profile_group_code']),
+      retailMarginPercent: stringValue(json['retail_margin_percent']),
+      wholesaleMarginPercent: stringValue(json['wholesale_margin_percent']),
     );
   }
 }
@@ -576,6 +595,8 @@ class Product {
     this.packCodes = const <String>[],
     this.goodsTypeId = '',
     this.unitSetId = '',
+    this.retailMarginPercent = '',
+    this.wholesaleMarginPercent = '',
   });
 
   final String id;
@@ -583,6 +604,12 @@ class Product {
   /// The unit set the product's units were filled from when it was created
   /// (read-only; never sent on an update). Empty when none.
   final String unitSetId;
+
+  /// The product's margin pair (row L3): the mark-up on a lot's purchase
+  /// rate that works its retail price (PTR) and its wholesale price (PTS).
+  /// Empty is none set; only a firm costing by lot uses them.
+  final String retailMarginPercent;
+  final String wholesaleMarginPercent;
 
   /// The goods type the product stores (read-only here; it changes only by
   /// moving the product to another category). Empty is General.
@@ -816,6 +843,8 @@ class Product {
         ],
         goodsTypeId: stringValue(json['goods_type_id']),
         unitSetId: stringValue(json['unit_set_id']),
+        retailMarginPercent: stringValue(json['retail_margin_percent']),
+        wholesaleMarginPercent: stringValue(json['wholesale_margin_percent']),
       );
 }
 

@@ -124,6 +124,11 @@ class _GoodsReceiptManagementPageState
   // save that this avoids.
   BusinessFeatures _features = const BusinessFeatures.unknown();
 
+  /// The firm costs its stock by lot (L3), so the editor offers each line's
+  /// retail and wholesale margins. Unreadable settings read as Average,
+  /// where the server refuses margins.
+  bool _costsByLot = false;
+
   /// Raising, editing and completing a receipt take `PURCHASE_RECEIVE`
   /// (D-ROLE-3): the job of whoever counts the goods in -- Purchasing and
   /// Warehouse -- not of whoever orders or approves.
@@ -287,6 +292,12 @@ class _GoodsReceiptManagementPageState
         _receivableOrders = const [];
       });
     }
+    try {
+      final bool byLot = (await widget.api.lotSettings()).byLot;
+      if (mounted) setState(() => _costsByLot = byLot);
+    } on Object {
+      // Not readable: the editor stays as on Average.
+    }
   }
 
   /// Open the receipt editor and reload if it saved one.
@@ -307,6 +318,7 @@ class _GoodsReceiptManagementPageState
         steps: _steps,
         canAttach: _canCreate,
         canAddBranch: widget.permissions.hasPermission('VENDOR_CREATE'),
+        costsByLot: _costsByLot,
       ),
     );
     if (outcome is DocumentStepDone) return _afterWindow(outcome);
@@ -316,7 +328,13 @@ class _GoodsReceiptManagementPageState
     await _load();
     if (!mounted) return;
     setState(() => _selected = saved);
-    final String ewayWarning = saved.ewayBillWarning;
+    // L3: a lot price above the MRP once tax is added warns, never refuses.
+    final String ewayWarning = [
+      if (saved.ewayBillWarning.isNotEmpty) saved.ewayBillWarning,
+      for (final GoodsReceiptLine line in saved.lines)
+        if (line.mrpWarning.isNotEmpty)
+          'Line ${line.lineNumber}: ${line.mrpWarning}',
+    ].join(' ');
     NotificationService.show(
       context,
       'Goods receipt ${saved.grnNumber} created as a draft. Complete it to '

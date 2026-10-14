@@ -42,6 +42,9 @@ class GoodsReceiptLine {
     this.sellingPrice = '',
     this.ptr = '',
     this.pts = '',
+    this.retailMarginPercent = '',
+    this.wholesaleMarginPercent = '',
+    this.mrpWarning = '',
     this.taxRuleCode,
     this.taxRuleVersion,
     this.schemeName = '',
@@ -75,6 +78,15 @@ class GoodsReceiptLine {
   final String sellingPrice;
   final String ptr;
   final String pts;
+
+  /// The mark-ups the line's lot was priced at, for a firm costing by lot
+  /// (L3); empty where none.
+  final String retailMarginPercent;
+  final String wholesaleMarginPercent;
+
+  /// A sentence naming a price that bills above the MRP once tax is added: a
+  /// warning, never a refusal. Empty where none.
+  final String mrpWarning;
 
   final String id;
   final int lineNumber;
@@ -156,6 +168,9 @@ class GoodsReceiptLine {
         sellingPrice: stringValue(json['selling_price']),
         ptr: stringValue(json['ptr']),
         pts: stringValue(json['pts']),
+        retailMarginPercent: stringValue(json['retail_margin_percent']),
+        wholesaleMarginPercent: stringValue(json['wholesale_margin_percent']),
+        mrpWarning: stringValue(json['mrp_warning']),
         schemeName: stringValue(json['scheme_name']),
         returnedUnbilledQuantity:
             stringValue(json['returned_unbilled_quantity']),

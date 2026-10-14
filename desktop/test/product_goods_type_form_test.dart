@@ -28,6 +28,8 @@ const ProductGoodsTypeOption _medicine = ProductGoodsTypeOption(
   },
   defaultHsnSac: '3004',
   defaultTaxProfileGroupCode: 'GST12',
+  retailMarginPercent: '20',
+  wholesaleMarginPercent: '10',
 );
 
 const ProductGoodsTypeOption _paint = ProductGoodsTypeOption(
@@ -176,6 +178,17 @@ Future<void> _save(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Bring the price boxes on screen, on whichever tab holds them.
+Future<void> _showPricing(WidgetTester tester) async {
+  final Finder box = find.widgetWithText(TextField, 'Retail margin %');
+  if (box.evaluate().isEmpty) {
+    await tester.tap(find.text('Pricing').first);
+    await tester.pumpAndSettle();
+  }
+  await tester.ensureVisible(box);
+  await tester.pumpAndSettle();
+}
+
 String _line(WidgetTester tester) =>
     (tester.widget(find.byKey(const ValueKey('product-goods-type'))) as Text)
         .data!;
@@ -312,6 +325,64 @@ void main() {
     expect(sent['track_expiry'], isFalse);
     expect(sent['hsn_sac'], '1111');
     expect(sent.containsKey('goods_type_id'), isFalse);
+  });
+
+  // Row L3: a new product takes its goods type's margins, into a box the
+  // person has not typed in; the next type replaces only what a type filled.
+  testWidgets('the goods type fills its margins into a new product',
+      (tester) async {
+    final _Harness h = await _open(tester);
+    await _pickCategory(tester, 'Medicines');
+    await _save(tester);
+    expect(h.sent.last['retail_margin_percent'], '20');
+    expect(h.sent.last['wholesale_margin_percent'], '10');
+  });
+
+  testWidgets('margins a type filled are replaced by the next type',
+      (tester) async {
+    final _Harness h = await _open(tester);
+    await _pickCategory(tester, 'Medicines');
+    // Paint has no margins, so what Medicine filled is cleared.
+    await _pickCategory(tester, 'Paints');
+    await _save(tester);
+    expect(h.sent.last['retail_margin_percent'], isNull);
+    expect(h.sent.last['wholesale_margin_percent'], isNull);
+  });
+
+  testWidgets('a typed margin is never overwritten by the goods type',
+      (tester) async {
+    final _Harness h = await _open(tester);
+    await _showPricing(tester);
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Retail margin %'), '35');
+    await _pickCategory(tester, 'Medicines');
+    await _save(tester);
+    expect(h.sent.single['retail_margin_percent'], '35');
+    expect(h.sent.single['wholesale_margin_percent'], '10');
+  });
+
+  testWidgets('an existing product sends back its own margins',
+      (tester) async {
+    final Product existing = Product.fromJson(const {
+      'id': 'product-2',
+      'code': 'PROD-002',
+      'name': 'Cold Rub',
+      'product_type': 'STOCK_ITEM',
+      'brand': 'Acme',
+      'status': 'ACTIVE',
+      'goods_type_id': 'gt-med',
+      'retail_margin_percent': '15.0000',
+      'wholesale_margin_percent': null,
+    });
+    final _Harness h = await _open(
+      tester,
+      product: existing,
+      metadata: _metadataFor('cat-med'),
+    );
+    await tester.tap(find.byKey(const ValueKey('product-save')));
+    await tester.pumpAndSettle();
+    expect(h.sent.single['retail_margin_percent'], '15.0000');
+    expect(h.sent.single['wholesale_margin_percent'], isNull);
   });
 
   testWidgets('barcode and QR code are plain fields', (tester) async {

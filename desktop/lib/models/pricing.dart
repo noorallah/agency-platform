@@ -158,6 +158,7 @@ class PriceLevelRecord {
     this.sortOrder = 0,
     this.isActive = true,
     this.version = 0,
+    this.tradeClass,
   });
 
   final String id;
@@ -166,6 +167,10 @@ class PriceLevelRecord {
   final int sortOrder;
   final bool isActive;
   final int version;
+
+  /// RETAILER or STOCKIST on a firm's reserved Retail and Wholesale levels
+  /// (LOT_MARGINS_DESIGN 3.5); null on every other level.
+  final String? tradeClass;
 
   String get label => name.isEmpty ? code : name;
 
@@ -176,6 +181,7 @@ class PriceLevelRecord {
         sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
         isActive: json['is_active'] as bool? ?? true,
         version: (json['version'] as num?)?.toInt() ?? 0,
+        tradeClass: json['trade_class'] as String?,
       );
 }
 

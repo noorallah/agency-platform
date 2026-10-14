@@ -1436,4 +1436,74 @@ void main() {
     expect(find.text('Typed as an amount: 25.00'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  // L3 step 5: a saved bill line's cost and margin, on screen only, and only
+  // for a user the server sends cost to (PRODUCT_VIEW_COST_PRICE).
+  Json costedBill({bool withCost = true}) => <String, dynamic>{
+        'id': 'inv-1',
+        'invoice_number': 'SI-1',
+        'invoice_date': '2026-08-10',
+        'customer_id': 'cust-1',
+        'branch_id': 'branch-1',
+        'status': 'DRAFT',
+        'version': 2,
+        if (withCost) 'cost_total': '240.0000',
+        if (withCost) 'margin_total': '160.0000',
+        'lines': <Json>[
+          <String, dynamic>{
+            'source_document_type': 'DELIVERY_NOTE',
+            'source_document_id': 'dn-1',
+            'source_document_number': 'DN-2026-2027-000004',
+            'source_document_line_id': 'dnl-1',
+            'line_number': 1,
+            'description': 'Shampoo Bottle 180ml',
+            'current_invoice_quantity': '4',
+            'unit_price': '100',
+            'discount_percent': '0',
+            if (withCost) 'cost_amount': '240.0000',
+            if (withCost) 'cost_is_estimate': false,
+            if (withCost) 'margin_amount': '160.0000',
+            if (withCost) 'margin_percent': '66.67',
+          },
+        ],
+      };
+
+  testWidgets('a saved bill line shows its cost and margin, and the total',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()])
+      ..existing = costedBill();
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+    expect(tester.takeException(), isNull);
+
+    expect(find.text('Cost'), findsOneWidget);
+    expect(find.text('Margin'), findsOneWidget);
+    expect(
+        tester
+            .widget<Text>(find.byKey(
+                const ValueKey<String>('sales-invoice-line-cost-0')))
+            .data,
+        '240.00');
+    expect(
+        tester
+            .widget<Text>(find.byKey(
+                const ValueKey<String>('sales-invoice-line-margin-0')))
+            .data,
+        '160.00 · 66.7%');
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('document-margin-total')))
+            .data,
+        contains('Margin 160.00 (66.7%)'));
+  });
+
+  testWidgets('a bill read without cost draws no cost or margin',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()])
+      ..existing = costedBill(withCost: false);
+    await pumpPhase2(tester, api, invoiceId: 'inv-1');
+
+    expect(find.text('Cost'), findsNothing);
+    expect(find.text('Margin'), findsNothing);
+    expect(find.byKey(const ValueKey('document-margin-total')), findsNothing);
+  });
 }

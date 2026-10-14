@@ -26,8 +26,23 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
     const DocumentColumn('Taxable', 92, numeric: true),
     const DocumentColumn('GST', 48, numeric: true),
     const DocumentColumn('Amount', 100, numeric: true),
+    // Screen only, and only for who may see cost (L3 step 5).
+    if (_showsMargin) ...const [
+      DocumentColumn('Cost', 96, numeric: true),
+      DocumentColumn('Margin', 124, numeric: true),
+    ],
     const DocumentColumn('', 28),
   ];
+
+  /// Whether the Cost and Margin columns are drawn: only where the server
+  /// sent the saved order's cost, which it does only to a holder of
+  /// PRODUCT_VIEW_COST_PRICE.
+  bool get _showsMargin => _savedMargin != null;
+
+  /// Whether every line still says what was saved, so the saved total holds.
+  bool get _marginCurrent =>
+      _lines.length == _savedMarginLines &&
+      _lines.every((_LineDraft line) => line.signature == line.savedSignature);
 
   /// Turn the order's "Rate includes GST" switch. A rate still showing the
   /// product's own price was never typed, and that price is before tax, so
@@ -274,6 +289,11 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
                                   const EdgeInsets.fromLTRB(12, 8, 12, 0),
                             ),
                             _orderTerms(context),
+                            if (_savedMargin != null)
+                              DocumentMarginStrip(
+                                margin: _savedMargin!,
+                                current: _marginCurrent,
+                              ),
                             _orderTotals(),
                           ],
                         ),
@@ -876,6 +896,10 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
         Text('', style: text),
         Text('', style: text),
         Text('', style: text),
+        if (_showsMargin) ...[
+          Text('', style: text),
+          Text('', style: text),
+        ],
         const SizedBox.shrink(),
       ],
     );
@@ -1005,6 +1029,12 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
           indianAmount(taxable + tax, full: true),
           style: text?.copyWith(fontWeight: FontWeight.w600),
         ),
+        if (_showsMargin) ...[
+          lineCostCell(line.margin, text,
+              key: ValueKey<String>('sales-order-line-cost-$index')),
+          lineMarginCell(line.margin, text,
+              key: ValueKey<String>('sales-order-line-margin-$index')),
+        ],
         IconButton(
           tooltip: _lines.length > 1
               ? 'Remove this line'

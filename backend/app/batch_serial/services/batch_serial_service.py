@@ -54,6 +54,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
+from app.goods_receipt.models import GoodsReceiptLine
 from app.inventory.models import (
     BatchValuation,
     InventoryRecord,
@@ -61,7 +62,11 @@ from app.inventory.models import (
 )
 from app.inventory.schemas import BatchStockTotals
 from app.inventory.services import InventoryService
-from app.inventory.services.lot_margins import LotPrices
+from app.inventory.services.lot_margins import (
+    LotPrices,
+    margin_from_price,
+    mrp_warning,
+)
 from app.inventory.services.lots import (
     LotNumbering,
     LotSource,
@@ -354,6 +359,7 @@ class BatchSerialService:
         products = self._names(Product, {record.product_id for record in records})
         warehouses = self._names(Warehouse, {record.warehouse_id for record in records})
         branches = self._names(Branch, {record.branch_id for record in records})
+        warnings = self._mrp_warnings(records)
         empty = BatchStockTotals()
         responses = []
         for record in records:
@@ -378,6 +384,7 @@ class BatchSerialService:
                         "warehouse_name": warehouse_name,
                         "branch_code": branch_code,
                         "branch_name": branch_name,
+                        "mrp_warning": warnings.get(record.id),
                     }
                 )
             )
@@ -657,9 +664,12 @@ class BatchSerialService:
         medicines, and a medicine is allowed one whatever the firm's profile
         says. The trade rates stay a feature of the firm, since which prices a
         distributor keeps per batch is about its trade and not about one
-        product.
+        product. A firm costing by lot needs no feature: every lot it holds
+        carries both prices (L3).
         """
         assert_product_fields(product, values)
+        if costs_by_lot(self._session, firm_scope):
+            return
         assert_feature_fields(
             self._session,
             firm_scope,
@@ -1190,6 +1200,10 @@ class BatchSerialService:
         )
         for field, value in update_data.items():
             setattr(record, field, value)
+        if update_data.keys() & {"ptr", "pts"} and costs_by_lot(
+            self._session, firm_scope
+        ):
+            self._rework_margins(record)
         record.updated_by = actor_id
         try:
             self._session.flush()
@@ -1210,6 +1224,77 @@ class BatchSerialService:
         )
         self._session.commit()
         return record
+
+    def _rework_margins(self, record: BatchRecord) -> None:
+        """Work a lot's margins back from its prices after an edit (L3).
+
+        The margin is what the price stands at on the lot's cost per stock
+        unit, so a price changed on the lot's page moves its margin with it,
+        as a price typed on the receipt line does; a price cleared clears its
+        margin. A lot with no cost keeps no margin.
+        """
+        unit_cost = self._session.scalar(
+            select(BatchValuation.unit_cost).where(
+                BatchValuation.batch_id == record.id,
+                BatchValuation.is_deleted.is_(False),
+            )
+        )
+        cost = None if unit_cost is None else Decimal(str(unit_cost))
+        record.retail_margin_percent = (
+            None if record.ptr is None else margin_from_price(cost, record.ptr)
+        )
+        record.wholesale_margin_percent = (
+            None if record.pts is None else margin_from_price(cost, record.pts)
+        )
+
+    def _mrp_warnings(self, records: Sequence[BatchRecord]) -> dict[UUID, str]:
+        """Say which lots bill above their MRP once tax is added (L3).
+
+        The tax rate is that of the receipt line that brought the lot in: its
+        tax over what it was charged on. A lot no receipt brought in (opening
+        stock, a count, a repack) is measured at no tax, so it warns only
+        where a price already exceeds the MRP, which the register refuses.
+        """
+        wanted = [
+            record
+            for record in records
+            if record.mrp is not None
+            and (record.ptr is not None or record.pts is not None)
+        ]
+        if not wanted:
+            return {}
+        rates: dict[UUID, Decimal] = {}
+        rows = self._session.execute(
+            select(
+                GoodsReceiptLine.batch_id,
+                GoodsReceiptLine.gross_amount,
+                GoodsReceiptLine.discount_amount,
+                GoodsReceiptLine.bill_discount_amount,
+                GoodsReceiptLine.tax_amount,
+            ).where(
+                GoodsReceiptLine.batch_id.in_([record.id for record in wanted]),
+                GoodsReceiptLine.is_deleted.is_(False),
+            )
+        ).all()
+        for batch_id, gross, discount, bill_discount, tax in rows:
+            taxable = (
+                Decimal(str(gross))
+                - Decimal(str(discount or 0))
+                - Decimal(str(bill_discount or 0))
+            )
+            if batch_id is not None and taxable > 0:
+                rates.setdefault(batch_id, Decimal(str(tax or 0)) / taxable)
+        warnings: dict[UUID, str] = {}
+        for record in wanted:
+            warning = mrp_warning(
+                mrp=Decimal(str(record.mrp)),
+                ptr=None if record.ptr is None else Decimal(str(record.ptr)),
+                pts=None if record.pts is None else Decimal(str(record.pts)),
+                tax_rate=rates.get(record.id, Decimal("0")),
+            )
+            if warning is not None:
+                warnings[record.id] = warning
+        return warnings
 
     def delete_batch(self, *, firm_scope: UUID, actor_id: UUID, batch_id: UUID) -> None:
         """Soft delete a batch nothing has ever used.
