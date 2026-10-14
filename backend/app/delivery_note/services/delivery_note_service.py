@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -3119,6 +3119,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         self,
         line: DeliveryNoteLine,
         allocation: list[tuple[UUID | None, Decimal]],
+        carried: Mapping[UUID, tuple[UUID, Decimal]],
         *,
         actor_id: UUID,
     ) -> None:
@@ -3127,7 +3128,8 @@ class DeliveryNoteService(TransactionalDocumentService):
         After dispatch a line's picks are what left, chosen or not, so the
         challan prints one row per batch and the note shows the split without
         rebuilding it from movements -- which carry a reference and a product,
-        not a line, and cannot tell two lines of one product apart.
+        not a line, and cannot tell two lines of one product apart. Each row
+        keeps its lot's movement and cost from ``carried`` (L2 step 5).
         """
         # One row per batch: a batch drawn from two bins is still one batch
         # on the challan (D-STK-54).
@@ -3136,16 +3138,44 @@ class DeliveryNoteService(TransactionalDocumentService):
             if batch_id is not None:
                 drawn[batch_id] = drawn.get(batch_id, ZERO) + quantity
         for batch_id, quantity in drawn.items():
+            movement_id, cost = carried.get(batch_id, (None, None))
             self._session.add(
                 DeliveryNoteLineBatch(
                     delivery_note_line_id=line.id,
                     firm_id=line.firm_id,
                     batch_id=batch_id,
                     quantity=self._q(quantity),
+                    inventory_transaction_id=movement_id,
+                    cost_amount=cost,
                     created_by=actor_id,
                     updated_by=actor_id,
                 )
             )
+
+    def _stamp_chosen(
+        self,
+        line: DeliveryNoteLine,
+        carried: Mapping[UUID, tuple[UUID, Decimal]],
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Put each chosen lot's movement and cost on its pick (L2 step 5).
+
+        A person's picks are already rows; dispatch adds what carried each lot
+        out and what it cost, so a bill line reads its own cost rather than a
+        share of every line of the product on the note.
+        """
+        for pick in self._session.scalars(
+            select(DeliveryNoteLineBatch).where(
+                DeliveryNoteLineBatch.delivery_note_line_id == line.id,
+                DeliveryNoteLineBatch.is_deleted.is_(False),
+            )
+        ).all():
+            found = carried.get(pick.batch_id)
+            if found is None:  # pragma: no cover - dispatch drew every pick
+                continue
+            pick.inventory_transaction_id, pick.cost_amount = found
+            pick.updated_by = actor_id
 
     def _record_fefo_skip(
         self,
@@ -3938,6 +3968,9 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             entered_total = self._q(line.current_delivery_quantity + line.free_quantity)
             dispatched = None
+            # Each lot's first movement and what all of its movements cost, so
+            # the bill reads this line's cost by lot (L2 step 5).
+            carried: dict[UUID, tuple[UUID, Decimal]] = {}
             if places is None:
                 places = [line.storage_node_id] * len(allocation)
             for index, (batch_id, allocated) in enumerate(allocation):
@@ -3981,14 +4014,20 @@ class DeliveryNoteService(TransactionalDocumentService):
                         reference=row.delivery_note_number,
                         actor_id=actor_id,
                     )
-                issued_cost += self._issue_cost(posted.id)
+                cost = self._issue_cost(posted.id)
+                issued_cost += cost
+                if batch_id is not None:
+                    first, so_far = carried.get(batch_id, (posted.id, ZERO))
+                    carried[batch_id] = (first, so_far + cost)
                 if dispatched is None:
                     dispatched = posted
                     line.batch_id = batch_id
             if dispatched is None:
                 raise ValidationError("Insufficient available stock for dispatch line.")
             if chosen is None:
-                self._record_drawn(line, allocation, actor_id=actor_id)
+                self._record_drawn(line, allocation, carried, actor_id=actor_id)
+            else:
+                self._stamp_chosen(line, carried, actor_id=actor_id)
             line.inventory_transaction_id = dispatched.id
             line.updated_by = actor_id
         self._session.flush()

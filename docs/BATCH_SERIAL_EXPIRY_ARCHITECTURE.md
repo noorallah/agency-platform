@@ -173,6 +173,30 @@ row and takes them in the order listed. `unit_cost` comes from
 `batch_valuations` and only to a holder of `PRODUCT_VIEW_COST_PRICE`;
 everybody else, and every firm on Average, gets null.
 
+#### Selling by lot (L2 step 5)
+
+Dispatch writes, on each `delivery_note_line_batches` row, the movement that
+carried the lot out (`inventory_transaction_id`) and what its units cost off
+the stock ledger (`cost_amount`, migration `20261014_0385`). A lot drawn
+from two bins is still one row, with its first movement and the cost of
+both. Rows chosen by a person are stamped at dispatch; rows nobody chose are
+written then, as before. Every firm gets them, Average included.
+
+A bill line's `cost_amount` is its note line's lots summed, pro rata to
+what it bills (`_lot_costs` in `sales_invoice_service.py`). Only a line
+whose lots cover all it delivered and all carry a cost reads that way; any
+other line (dispatched before 0385, or stock with no batch) reads the
+note's cost per product off the ledger, as it did. So two lines of one item
+from two lots carry two costs, and two lines of one item on Average no
+longer each carry the cost of both (D-SELL-99).
+
+The challan and the bill print lots that agree on printed batch, expiry,
+date of making and MRP as one row with their total (`_merged` in
+`challan_print_service.py`), and a lot with `has_printed_batch` false prints
+no batch, so our own reference never reaches paper. No response carries a
+lot's cost yet: the screens (step 11) and L3's margin read it with the
+`PRODUCT_VIEW_COST_PRICE` check.
+
 ### Table: `lots`
 
 | Column | Type | Notes |

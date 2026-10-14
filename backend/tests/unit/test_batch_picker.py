@@ -496,11 +496,13 @@ def test_a_share_that_does_not_divide_evenly_still_adds_up() -> None:
         taxable=Decimal("100.00"),
         total=Decimal("100.00"),
     )
-    batch = BatchRecord(batch_number="B", expiry_date=None)
-
+    # Three batches that print apart: lots that read alike are one row (L2).
     rows = _per_batch(
         whole,
-        [(batch, Decimal("1")), (batch, Decimal("1")), (batch, Decimal("1"))],
+        [
+            (BatchRecord(batch_number=number, expiry_date=None), Decimal("1"))
+            for number in ("B1", "B2", "B3")
+        ],
         Decimal("3"),
     )
 
