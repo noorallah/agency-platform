@@ -425,6 +425,13 @@ What it says:
   rows, and each item holds one lot. The lot volume the design expects --
   lots growing with purchase lines -- is not in PERF02; a seeder that trades
   after the switch is what would show it.
-- **Not re-timed over HTTP**, and PERF01 not re-timed at all: restart the
-  backend and run `scripts/time_routes.py --firm-code PERF02 --email
-  perf02.admin@agency.local` for the full sweep.
+- **Over HTTP, 2026-10-15** (`scripts/time_routes.py --firm-code PERF02
+  --only <route>`, median of 3, backend just restarted): stock valuation
+  1,496 ms (month) and 1,379 ms (year), OK; stock statement 3,399 ms and
+  4,069 ms, SLOW as on PERF01 before lots; stock ageing 1,591 / 1,041 ms,
+  OK; margin by lot 35 / 32 ms and the lot-shortfalls list 17 ms, OK (no
+  rows: nothing sold since the switch). Stock valuation by lot answered no
+  rows for both windows, since both end before the switch day and a day
+  before the switch reads on Average (decision 65); its today figure is the
+  in-process one above. PERF01 is not in this database, so it was not
+  re-timed; the stock read was compared piece by piece instead.
