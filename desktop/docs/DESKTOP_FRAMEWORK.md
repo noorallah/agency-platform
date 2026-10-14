@@ -276,9 +276,15 @@ the order they are set up in, and the checking tools set apart at the end.
   and that read never writes.
 - **A step that is a screen** is built by the shell (`_taxScreen` for the
   tax tabs and `_settingsStepScreen` for the Firm, Selling, Buying, Stock,
-  Business profile and Pricing tabs,
+  Business profile, Pricing, Territories & routes, Account structure and
+  Party lists tabs,
   each shared with the workspace that owns the tab so the two cannot
-  differ). **A step that is a window** shows its line, what it is set to
+  differ). The Account structure screens are built by
+  `accountStructureScreen` in `finance_workspace.dart`, which both the
+  Finance workspace and `_settingsStepScreen` call. A step that is a phase 2
+  page rather than a catalogue tab (Customer Groups) is answered by its
+  route, and the shell's own tab for that route goes through the same
+  function. **A step that is a window** shows its line, what it is set to
   now and a button that opens the same window.
 - **To do** is only for a step without which the next thing cannot be
   saved or would be wrong; everything else is Optional, and Done says where
@@ -302,3 +308,6 @@ To add a section: an entry in `SettingsSubjects.all` with its route beside
 | Stock | 1 Adjustment reasons (`adjustment-reasons`), 2 Adjustment limits (`adjustment-limits`), 3 Batch rules (`batch-rules`) | None needs another, so no step is To do. Reasons before limits because a person meets the reasons first when adjusting: **decided by the loop**. Batch rules last, as they matter only to goods kept by batch: **decided by the loop** | Yours: Inventory settings (the signed-in person's own defaults -- opening stock posting on save, export format -- not the firm's) | Built, row T2 |
 | Business profile | 1 Profile assignment (`profile-assignment`), 2 Feature management (`feature-management`), 3 Module configuration (`module-configuration`), 4 Attribute definitions (`attribute-definitions`), 5 Mandatory attributes (`mandatory-attributes`), 6 Unit sets (`unit-sets`) | 1 first because the profile decides which features and modules the firm works with, which steps 2 and 3 show. 4 before 5 is required: a rule names an attribute. 2 before 3, and 6 last, need nothing from the others: **decided by the loop** | None | Built, row T2 |
 | Pricing | 1 Price lists (`price-lists`), 2 Price levels (`price-levels`), 3 Promotions (`promotions`), 4 Loyalty (`loyalty`) | None needs another. Standing prices first, then the tiers, then offers for a period, then the points ledger, which is empty unless Selling's Loyalty scheme is on: **decided by the loop**. A Set up section (`MenuPart.setUp`): its tile stays under SET UP, its one card carries the Set up note, and nothing else differs | None | Built, row T2 |
+| Territories & routes | 1 Territories (`territories`), 2 Route types (`route-types`), 3 Route builder (`route-builder`), 4 Transporters (`transporters`) | 1 before 3 is required: a route is drawn inside a territory, and Route builder's line says so. 2 before 3, and transporters last, need nothing from the others: **decided by the loop**. All four Optional. A Set up section, as Pricing | None | Built, row T2 |
+| Account structure | 1 Control accounts (`control-accounts`, To do while a purpose is unmapped), 2 Cost centres (`cost-centers`), 3 Profit centres (`profit-centers`) | 1 first because nothing posts to an unmapped purpose, which is the one thing here the server refuses for want of a step. 2 and 3 need nothing from 1 or each other; cost before profit is **decided by the loop**. A Set up section, as Pricing | None | Built, row T2 |
+| Party lists | 1 Customer groups (`customer-groups`, a phase 2 page), 2 Vendor categories (`vendor-categories`), 3 Vendor types (`vendor-types`), 4 Licence types (`licence-types`), 5 Licence check (`licence-check-settings`) | None needs another, so all five are Optional. Customers before suppliers, then the licences a party holds, then whether a sale checks them: **decided by the loop**. A Set up section, as Pricing | None | Built, row T2 |

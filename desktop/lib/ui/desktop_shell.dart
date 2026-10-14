@@ -964,9 +964,18 @@ class _DesktopShellState extends State<DesktopShell> {
         visible: _subjectItems(subject),
         loadState: () =>
             widget.session.api.settingsSectionState(subject.sectionCode),
+        // A catalogue item by its tab; a phase 2 page (Customer Groups) by
+        // its route, which _settingsStepScreen answers to as well.
         screenFor: (item) =>
             (item.tab == null
-                ? null
+                ? (item.route == null
+                    ? null
+                    : _settingsStepScreen(
+                        context,
+                        item.route!,
+                        widget.session.api,
+                        widget.permissions,
+                      ))
                 : _taxScreen(
                         item.tab!, widget.session.api, widget.permissions) ??
                     _settingsStepScreen(
@@ -1173,12 +1182,18 @@ class _DesktopShellState extends State<DesktopShell> {
                     : widget.phase2 &&
                             _router.current.path ==
                                 MenuLayout.customerGroupsRoute
-                        ? CustomerGroupsPage(
+                        // Built in one place: Settings > Party lists shows
+                        // the same (backlog 148).
+                        ? KeyedSubtree(
                             key: ValueKey(
                               'customer-groups-${widget.session.firmContextVersion}',
                             ),
-                            api: widget.session.api,
-                            permissions: widget.permissions,
+                            child: _settingsStepScreen(
+                              context,
+                              MenuLayout.customerGroupsRoute,
+                              widget.session.api,
+                              widget.permissions,
+                            )!,
                           )
                         : widget.phase2 &&
                                 _router.current.path == MenuLayout.setUpRoute
@@ -2805,8 +2820,10 @@ Widget? _taxScreen(
       _ => null,
     };
 
-/// The body of a Firm, Selling, Buying, Stock, Business profile or Pricing
-/// settings tab that is a screen, or null for any other tab.
+/// The body of a Firm, Selling, Buying, Stock, Business profile, Pricing,
+/// Territories & routes, Account structure or Party lists settings tab that
+/// is a screen, or null for any other tab. Customer Groups, a phase 2 page,
+/// answers to its route ([MenuLayout.customerGroupsRoute]).
 ///
 /// Its own workspace shows it under its heading and the Settings subject
 /// screen under a step's tab (backlog 148, row T2); both come here so the
@@ -2954,6 +2971,57 @@ Widget? _settingsStepScreen(
         api: api,
         permissions: permissions,
         hasActiveFirm: hasActiveFirm,
+      ),
+    'territories' => SalesTerritoryManagementPage(
+        api: api,
+        permissions: permissions,
+      ),
+    'route-types' => RouteTypeManagementPage(
+        api: api,
+        permissions: permissions,
+      ),
+    'route-builder' => RouteBuilderPage(
+        api: api,
+        permissions: permissions,
+      ),
+    'transporters' => ResourceManagementPage<TransporterRecord>(
+        api: api,
+        definition: transporterDefinition(api, permissions),
+      ),
+    'cost-centers' || 'profit-centers' || 'control-accounts' =>
+      accountStructureScreen(
+        tabId,
+        api,
+        permissions,
+        hasActiveFirm: hasActiveFirm,
+      ),
+    MenuLayout.customerGroupsRoute => CustomerGroupsPage(
+        api: api,
+        permissions: permissions,
+      ),
+    'vendor-categories' => ResourceManagementPage<VendorClassification>(
+        api: api,
+        definition: vendorClassificationDefinition(
+          api,
+          permissions,
+          categories: true,
+        ),
+      ),
+    'vendor-types' => ResourceManagementPage<VendorClassification>(
+        api: api,
+        definition: vendorClassificationDefinition(
+          api,
+          permissions,
+          categories: false,
+        ),
+      ),
+    'licence-types' => ResourceManagementPage<TradeLicenceTypeRecord>(
+        api: api,
+        definition: tradeLicenceTypeDefinition(api, permissions),
+      ),
+    'licence-check-settings' => LicenceCheckSettingsPage(
+        api: api,
+        permissions: permissions,
       ),
     _ => null,
   };
@@ -3259,26 +3327,14 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           api: widget.api,
           definition: brandDefinition(widget.api, widget.permissions),
         ),
-      'transporters' => ResourceManagementPage<TransporterRecord>(
-          api: widget.api,
-          definition: transporterDefinition(widget.api, widget.permissions),
-        ),
-      'vendor-categories' => ResourceManagementPage<VendorClassification>(
-          api: widget.api,
-          definition: vendorClassificationDefinition(
-            widget.api,
-            widget.permissions,
-            categories: true,
-          ),
-        ),
-      'vendor-types' => ResourceManagementPage<VendorClassification>(
-          api: widget.api,
-          definition: vendorClassificationDefinition(
-            widget.api,
-            widget.permissions,
-            categories: false,
-          ),
-        ),
+      // Built in one place: Settings > Territories & routes and Party lists
+      // show the same (backlog 148).
+      'transporters' ||
+      'vendor-categories' ||
+      'vendor-types' ||
+      'licence-types' ||
+      'licence-check-settings' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       'branches' => BranchWarehouseManagementPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -3322,15 +3378,6 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
       'trade-licences' => ResourceManagementPage<TradeLicenceRecord>(
           api: widget.api,
           definition: tradeLicenceDefinition(widget.api, widget.permissions),
-        ),
-      'licence-types' => ResourceManagementPage<TradeLicenceTypeRecord>(
-          api: widget.api,
-          definition:
-              tradeLicenceTypeDefinition(widget.api, widget.permissions),
-        ),
-      'licence-check-settings' => LicenceCheckSettingsPage(
-          api: widget.api,
-          permissions: widget.permissions,
         ),
       _ => WorkspaceEmptyState(
           title:
@@ -3496,10 +3543,6 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
         : visibleTabs.first.id;
 
     final Widget content = switch (tabId) {
-      'territories' => SalesTerritoryManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-        ),
       'enquiries' => EnquiriesPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3507,10 +3550,6 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
           onOpenQuotations: () =>
               widget.router.navigate(AppModule.quotations.name),
-        ),
-      'route-types' => RouteTypeManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
         ),
       // Built in one place: Settings > Selling shows the same (backlog 148).
       'salesmen' =>
@@ -3533,12 +3572,12 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
-      'route-builder' => RouteBuilderPage(
-          api: widget.api,
-          permissions: widget.permissions,
-        ),
       // Built in one place: Settings > Pricing shows the same (backlog 148).
       'price-lists' || 'price-levels' || 'promotions' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
+      // Built in one place: Settings > Territories & routes shows the same
+      // (backlog 148).
+      'territories' || 'route-types' || 'route-builder' =>
         _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       'commission' => CommissionPage(
           api: widget.api,

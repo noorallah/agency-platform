@@ -276,6 +276,13 @@ abstract final class MenuLayout {
       'settings/subject/business-profile';
   static const String pricingSubjectRoute = 'settings/subject/pricing';
 
+  /// Settings > Territories & routes, Account structure and Party lists as
+  /// one screen each (row T2), the same way.
+  static const String territoriesSubjectRoute = 'settings/subject/territories';
+  static const String accountStructureSubjectRoute =
+      'settings/subject/account-structure';
+  static const String partyListsSubjectRoute = 'settings/subject/party-lists';
+
   /// The subject screens as items, so each tab has a label and a path.
   static const List<MenuItemSpec> subjectPages = [
     MenuItemSpec.phase2(taxSubjectRoute, 'Tax settings'),
@@ -286,6 +293,11 @@ abstract final class MenuLayout {
     MenuItemSpec.phase2(
         businessProfileSubjectRoute, 'Business profile settings'),
     MenuItemSpec.phase2(pricingSubjectRoute, 'Pricing settings'),
+    MenuItemSpec.phase2(
+        territoriesSubjectRoute, 'Territories & routes settings'),
+    MenuItemSpec.phase2(
+        accountStructureSubjectRoute, 'Account structure settings'),
+    MenuItemSpec.phase2(partyListsSubjectRoute, 'Party lists settings'),
   ];
 
   /// Messaging (backlog 51): the firm's switch, accounts, events and log.

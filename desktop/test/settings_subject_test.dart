@@ -124,7 +124,7 @@ void main() {
     );
     expect(SettingsSubjects.forSection('Tax'), same(_tax));
     expect(SettingsSubjects.forRoute(MenuLayout.taxSubjectRoute), same(_tax));
-    expect(SettingsSubjects.forSection('Territories & routes'), isNull);
+    expect(SettingsSubjects.forSection('Item lists'), isNull);
     expect(_tax.page.label, 'Tax settings');
   });
 
@@ -355,10 +355,10 @@ void main() {
     expect(opened, isEmpty);
 
     // A section with no subject is cards as before.
-    await tester.ensureVisible(_key('setup-section-Territories & routes'));
-    await tester.tap(_key('setup-section-Territories & routes'));
+    await tester.ensureVisible(_key('setup-section-Item lists'));
+    await tester.tap(_key('setup-section-Item lists'));
     await tester.pumpAndSettle();
-    expect(_key('setup-card-sales/territories'), findsOneWidget);
+    expect(_key('setup-card-masters/product-categories'), findsOneWidget);
 
     // Search still names each item, and opens it as it always did.
     await tester.enterText(_key('setup-search'), 'Tax Rules');
@@ -736,6 +736,9 @@ void main() {
             'Tax',
             'Business profile',
             'Pricing',
+            'Territories & routes',
+            'Account structure',
+            'Party lists',
           ]);
     });
 
@@ -850,6 +853,214 @@ void main() {
         MenuLayout.batchRulesRoute,
         'administration/unit-sets',
         'sales/price-lists',
+      ]);
+    });
+  });
+
+  // Row T2: Territories & routes, Account structure and Party lists, three
+  // Set up sections on the same piece.
+  group('Territories & routes, Account structure and Party lists', () {
+    SettingsSectionState stateOf(SettingsSubject subject,
+            {Map<String, String> states = const {}}) =>
+        SettingsSectionState.fromJson({
+          'section': subject.sectionCode,
+          'todo_count': states.values.where((s) => s == 'TODO').length,
+          'steps': [
+            for (final SubjectStep step in subject.steps)
+              {
+                'code': step.code,
+                'state': states[step.code] ?? 'OPTIONAL',
+                'detail': '',
+              },
+          ],
+        });
+
+    const Map<SettingsSubject, List<String>> numbered = {
+      SettingsSubjects.territories: [
+        '1 Territories',
+        '2 Route types',
+        '3 Route builder',
+        '4 Transporters',
+      ],
+      SettingsSubjects.accountStructure: [
+        '1 Control accounts',
+        '2 Cost centres',
+        '3 Profit centres',
+      ],
+      SettingsSubjects.partyLists: [
+        '1 Customer groups',
+        '2 Vendor categories',
+        '3 Vendor types',
+        '4 Licence types',
+        '5 Licence check',
+      ],
+    };
+
+    test('each names the items of its section, and the codes are fixed', () {
+      for (final SettingsSubject subject in numbered.keys) {
+        expect(
+          {for (final SubjectStep step in subject.entries) step.path},
+          {
+            for (final MenuItemSpec item in _itemsOf(subject.section))
+              item.path,
+          },
+          reason: subject.section,
+        );
+        expect(SettingsSubjects.forSection(subject.section), same(subject));
+        expect(SettingsSubjects.forRoute(subject.route), same(subject));
+        expect(subject.tools, isEmpty, reason: subject.section);
+        // The step codes are the menu item keys.
+        for (final SubjectStep step in subject.steps) {
+          expect(step.path.split('/').last, step.code, reason: step.path);
+        }
+      }
+      // The server's codes, which a server branch answers for.
+      expect(
+          [
+            for (final SubjectStep s in SettingsSubjects.territories.steps)
+              s.code
+          ],
+          ['territories', 'route-types', 'route-builder', 'transporters']);
+      expect(
+          [
+            for (final SubjectStep s
+                in SettingsSubjects.accountStructure.steps)
+              s.code
+          ],
+          ['control-accounts', 'cost-centers', 'profit-centers']);
+      expect(
+          [
+            for (final SubjectStep s in SettingsSubjects.partyLists.steps)
+              s.code
+          ],
+          [
+            'customer-groups',
+            'vendor-categories',
+            'vendor-types',
+            'licence-types',
+            'licence-check-settings',
+          ]);
+      expect(
+          SettingsSubjects.territories.route, 'settings/subject/territories');
+      expect(SettingsSubjects.accountStructure.route,
+          'settings/subject/account-structure');
+      expect(SettingsSubjects.partyLists.route, 'settings/subject/party-lists');
+      expect(SettingsSubjects.territories.page.label,
+          'Territories & routes settings');
+      expect(SettingsSubjects.accountStructure.page.label,
+          'Account structure settings');
+      expect(SettingsSubjects.partyLists.page.label, 'Party lists settings');
+      // Route Builder says it needs a territory.
+      expect(SettingsSubjects.territories.steps[2].topLine,
+          contains('Needs a territory'));
+    });
+
+    for (final MapEntry<SettingsSubject, List<String>> entry
+        in numbered.entries) {
+      final SettingsSubject subject = entry.key;
+      testWidgets(
+          '${subject.section} opens on Start here, numbers its steps and '
+          'reads once', (tester) async {
+        final _Seen seen = await _pump(
+          tester,
+          subject: subject,
+          state: () => stateOf(subject),
+        );
+
+        expect(_key('subject-start').hitTestable(), findsOneWidget);
+        expect(find.text(subject.readyNote), findsOneWidget);
+        for (final String label in entry.value) {
+          expect(find.text(label), findsOneWidget, reason: label);
+        }
+        double left(String path) =>
+            tester.getTopLeft(_key('subject-tab-$path')).dx;
+        final List<double> order = [
+          left('start'),
+          for (final SubjectStep step in subject.entries) left(step.path),
+        ];
+        expect(order, [...order]..sort());
+
+        for (final SubjectStep step in subject.entries) {
+          await _tapTab(tester, step.path);
+          expect(find.text(step.topLine).hitTestable(), findsOneWidget,
+              reason: step.path);
+          // Every step here is a screen, Customer Groups included.
+          expect(_key('screen-${step.path}').hitTestable(), findsOneWidget,
+              reason: step.path);
+        }
+        await _tapTab(tester, 'start');
+        expect(seen.reads, 1);
+        expect(seen.windows, isEmpty);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('Account structure: unmapped purposes leave Control accounts '
+        'To do', (tester) async {
+      await _pump(
+        tester,
+        subject: SettingsSubjects.accountStructure,
+        state: () => stateOf(
+          SettingsSubjects.accountStructure,
+          states: {'control-accounts': 'TODO'},
+        ),
+      );
+
+      expect(find.text(SettingsSubjects.accountStructure.readyNote),
+          findsNothing);
+      expect(_chip(tester, 'control-accounts'),
+          isNot(_chip(tester, 'cost-centers')));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Settings shows each section as one card', (tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final List<SettingsSubject> subjects = [];
+      final List<MenuItemSpec> opened = [];
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SetUpPage(
+            settings: MenuLayout.settings,
+            section: 'Firm',
+            onOpen: opened.add,
+            onOpenSubject: subjects.add,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      for (final SettingsSubject subject in numbered.keys) {
+        await tester.ensureVisible(_key('setup-section-${subject.section}'));
+        await tester.tap(_key('setup-section-${subject.section}'));
+        await tester.pumpAndSettle();
+        for (final MenuItemSpec item in _itemsOf(subject.section)) {
+          expect(_key('setup-card-${item.path}'), findsNothing,
+              reason: item.path);
+        }
+        await tester.tap(_key('setup-subject-${subject.sectionCode}'));
+        await tester.pumpAndSettle();
+      }
+      expect(subjects, numbered.keys.toList());
+      expect(opened, isEmpty);
+
+      // Search still finds each old item by its own name and opens it.
+      for (final String path in [
+        'sales/route-builder',
+        'accounting/control-accounts',
+        MenuLayout.customerGroupsRoute,
+      ]) {
+        await tester.enterText(
+            _key('setup-search'), MenuLayout.settings.item(path)!.label);
+        await tester.pumpAndSettle();
+        await tester.tap(_key('setup-card-$path'));
+        await tester.pumpAndSettle();
+      }
+      expect([for (final MenuItemSpec item in opened) item.path], [
+        'sales/route-builder',
+        'accounting/control-accounts',
+        MenuLayout.customerGroupsRoute,
       ]);
     });
   });

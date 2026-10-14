@@ -93,7 +93,8 @@ class SettingsSubject {
 }
 
 /// The subjects there are, in the order the menu lists their sections: Firm,
-/// Selling, Buying, Stock, Tax, Business profile and Pricing. Each other
+/// Selling, Buying, Stock, Tax, Business profile, Pricing, Territories &
+/// routes, Account structure and Party lists. Each other
 /// section of Settings joins by adding an entry here and a route beside
 /// [MenuLayout.taxSubjectRoute].
 abstract final class SettingsSubjects {
@@ -549,6 +550,146 @@ abstract final class SettingsSubjects {
         "list or an offer, a bill takes the product's own price.",
   );
 
+  /// Territories & routes (row T2), a Set up section: lists, so no step is
+  /// To do. A route is drawn inside a territory, so Territories comes first.
+  static const SettingsSubject territories = SettingsSubject(
+    section: 'Territories & routes',
+    route: MenuLayout.territoriesSubjectRoute,
+    summary: 'Territories, route types, routes, transporters',
+    sectionCode: 'territories',
+    steps: [
+      SubjectStep(
+        path: 'sales/territories',
+        label: 'Territories',
+        code: 'territories',
+        summary: 'The areas the firm sells in, such as a town or a district.',
+        topLine: 'Start here: a route in step 3 is drawn inside a territory.',
+      ),
+      SubjectStep(
+        path: 'sales/route-types',
+        label: 'Route types',
+        code: 'route-types',
+        summary: 'Kinds of route, such as van sales or order booking.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: 'sales/route-builder',
+        label: 'Route builder',
+        code: 'route-builder',
+        summary: 'The routes salesmen take, and the customers on each in '
+            'visiting order.',
+        topLine: 'Needs a territory from step 1. Add the territory first if '
+            'it is not in the list.',
+      ),
+      SubjectStep(
+        path: 'masters/transporters',
+        label: 'Transporters',
+        code: 'transporters',
+        summary: 'The carriers that take goods out, named on a dispatch.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+    ],
+    connects: ['Territory', 'Route', 'Customers in visiting order'],
+    readyNote: 'Territories and routes are ready for this firm.',
+    readyDetail: 'Nothing here has to be done before a sale. The optional '
+        'steps can wait until the firm plans its routes.',
+  );
+
+  /// Account structure (row T2), a Set up section. Control accounts is the
+  /// one step that can be To do: nothing posts to a purpose left unmapped.
+  static const SettingsSubject accountStructure = SettingsSubject(
+    section: 'Account structure',
+    route: MenuLayout.accountStructureSubjectRoute,
+    summary: 'Control accounts, cost centres, profit centres',
+    sectionCode: 'account-structure',
+    steps: [
+      SubjectStep(
+        path: 'accounting/control-accounts',
+        label: 'Control accounts',
+        code: 'control-accounts',
+        summary: 'Which ledger account each kind of posting lands in, such '
+            'as sales or stock.',
+        topLine: 'Start here: nothing posts to a purpose left unmapped.',
+      ),
+      SubjectStep(
+        path: 'accounting/cost-centers',
+        label: 'Cost centres',
+        code: 'cost-centers',
+        summary: 'Where the firm spends, for reports by department or '
+            'branch.',
+        topLine: 'Needs nothing from the step before. Off unless the firm '
+            'reports by cost centre.',
+      ),
+      SubjectStep(
+        path: 'accounting/profit-centers',
+        label: 'Profit centres',
+        code: 'profit-centers',
+        summary: 'Where the firm earns, for profit by line of business.',
+        topLine: 'Needs nothing from the steps before. Off unless the firm '
+            'reports by profit centre.',
+      ),
+    ],
+    connects: ['Control account', 'Posting'],
+    readyNote: 'The account structure is ready for this firm.',
+    readyDetail: 'Every control account purpose is mapped, so documents '
+        'post. The optional steps can wait until the firm needs them.',
+  );
+
+  /// Party lists (row T2), a Set up section: lists, so no step is To do.
+  /// Customer Groups is a phase 2 page rather than a catalogue tab; the
+  /// shell builds it under its route all the same.
+  static const SettingsSubject partyLists = SettingsSubject(
+    section: 'Party lists',
+    route: MenuLayout.partyListsSubjectRoute,
+    summary: 'Customer groups, vendor categories and types, licences',
+    sectionCode: 'party-lists',
+    steps: [
+      SubjectStep(
+        path: MenuLayout.customerGroupsRoute,
+        label: 'Customer groups',
+        code: 'customer-groups',
+        summary: 'Groups of customers, such as retail and wholesale, that '
+            'can carry a standing discount.',
+        topLine: 'Start here. Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: 'masters/vendor-categories',
+        label: 'Vendor categories',
+        code: 'vendor-categories',
+        summary: 'Groups of suppliers by what they supply.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: 'masters/vendor-types',
+        label: 'Vendor types',
+        code: 'vendor-types',
+        summary: 'Kinds of supplier, such as manufacturer or stockist.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: 'masters/licence-types',
+        label: 'Licence types',
+        code: 'licence-types',
+        summary: 'The trade licences a party can hold, such as a drug '
+            'licence.',
+        topLine: 'Needs nothing from the steps before. Add a type here '
+            'before a licence can name it.',
+      ),
+      SubjectStep(
+        path: 'masters/licence-check-settings',
+        label: 'Licence check',
+        code: 'licence-check-settings',
+        summary: "Whether a sale checks the customer's licence, and what "
+            'happens when it has lapsed.',
+        topLine: 'Needs nothing from the steps before. Off unless the firm '
+            'trades in licensed goods.',
+      ),
+    ],
+    readyNote: 'Party lists are ready for this firm.',
+    readyDetail: 'Nothing here has to be done before a sale or a purchase. '
+        'The optional steps can wait until the firm needs them.',
+  );
+
   /// In the order the menu lists the sections.
   static const List<SettingsSubject> all = [
     firm,
@@ -558,6 +699,9 @@ abstract final class SettingsSubjects {
     tax,
     businessProfile,
     pricing,
+    territories,
+    accountStructure,
+    partyLists,
   ];
 
   /// The subject that stands for the Settings section called [label].
