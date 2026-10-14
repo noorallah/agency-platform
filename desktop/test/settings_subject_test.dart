@@ -697,6 +697,7 @@ void main() {
             'adjustment-reasons',
             'adjustment-limits',
             'batch-rules',
+            'costing-method',
           ]);
       expect(
           [

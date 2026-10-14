@@ -392,7 +392,7 @@ abstract final class SettingsSubjects {
   static const SettingsSubject stock = SettingsSubject(
     section: 'Stock',
     route: MenuLayout.stockSubjectRoute,
-    summary: 'Adjustment reasons and limits, batch rules',
+    summary: 'Adjustment reasons and limits, batch rules, costing method',
     sectionCode: 'stock',
     steps: [
       SubjectStep(
@@ -421,6 +421,15 @@ abstract final class SettingsSubjects {
             'batch is skipped.',
         topLine: 'Needs nothing from the steps before. Matters only for '
             'goods kept by batch.',
+      ),
+      SubjectStep(
+        path: MenuLayout.stockCostingRoute,
+        label: 'Costing method',
+        code: 'costing-method',
+        summary: 'Average, or cost each purchase by its own lot; and whether '
+            'a bill may go out with no stock in a lot.',
+        topLine: 'Needs nothing from the steps before. Switching to by lot '
+            'is one way, best on the first day of a financial year.',
       ),
     ],
     toolsLabel: 'Yours',

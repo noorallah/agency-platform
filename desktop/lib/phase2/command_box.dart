@@ -96,6 +96,12 @@ const Map<String, List<String>> _synonyms = {
     'write-off limit',
     'stock approval limit',
   ],
+  MenuLayout.stockCostingRoute: [
+    'costing method',
+    'lot costing',
+    'by lot',
+    'average cost',
+  ],
   MenuLayout.approvalRulesRoute: [
     'approval levels',
     'approval rules',
