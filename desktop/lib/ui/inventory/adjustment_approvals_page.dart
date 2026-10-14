@@ -35,7 +35,14 @@ class AdjustmentApprovalsPage extends StatefulWidget {
       _AdjustmentApprovalsPageState();
 }
 
-class _AdjustmentApprovalsPageState extends State<AdjustmentApprovalsPage> {
+class _AdjustmentApprovalsPageState extends State<AdjustmentApprovalsPage>
+    with ReadsAgainWhenShown<AdjustmentApprovalsPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_load());
+  }
+
   String _status = 'PENDING';
   List<AdjustmentRequestRecord> _rows = const [];
   Map<String, String> _productNames = const {};

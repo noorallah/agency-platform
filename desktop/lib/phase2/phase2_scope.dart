@@ -58,6 +58,40 @@ class ScreenShownAgain extends InheritedWidget {
       signal != oldWidget.signal;
 }
 
+/// Reads a screen again when the shell puts it on show again (D-UI-101).
+///
+/// A list on the shared layout is told by the layout, which runs its
+/// toolbar's Refresh. A screen that draws its own header and Refresh button
+/// -- a statement, a report, a check, a settings subject -- is not, so it
+/// mixes this in and says in [readAgain] what its Refresh does, under the
+/// same conditions its button is enabled.
+mixin ReadsAgainWhenShown<T extends StatefulWidget> on State<T> {
+  ShownAgainSignal? _shownAgainSignal;
+
+  /// Read the screen again, as its Refresh would.
+  void readAgain();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ShownAgainSignal? signal = ScreenShownAgain.of(context);
+    if (signal != _shownAgainSignal) {
+      _shownAgainSignal?.removeListener(_onShownAgain);
+      _shownAgainSignal = signal?..addListener(_onShownAgain);
+    }
+  }
+
+  void _onShownAgain() {
+    if (mounted) readAgain();
+  }
+
+  @override
+  void dispose() {
+    _shownAgainSignal?.removeListener(_onShownAgain);
+    super.dispose();
+  }
+}
+
 /// What a page frame hands to the one line of its list (4.5).
 ///
 /// Phase 1 stacks a title band, a row of summary cards and a search row.

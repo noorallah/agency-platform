@@ -55,7 +55,14 @@ class ReportsWorkspace extends StatefulWidget {
   State<ReportsWorkspace> createState() => _ReportsWorkspaceState();
 }
 
-class _ReportsWorkspaceState extends State<ReportsWorkspace> {
+class _ReportsWorkspaceState extends State<ReportsWorkspace>
+    with ReadsAgainWhenShown<ReportsWorkspace> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_load());
+  }
+
   ReportDefinition? _selected;
   List<Json> _rows = const [];
 

@@ -183,7 +183,14 @@ String _iso(DateTime date) =>
 
 final RegExp _isoDate = RegExp(r'^\d{4}-\d{2}-\d{2}$');
 
-class _AnalysisPageState extends State<AnalysisPage> {
+class _AnalysisPageState extends State<AnalysisPage>
+    with ReadsAgainWhenShown<AnalysisPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_load());
+  }
+
   final TextEditingController _from = TextEditingController();
   final TextEditingController _to = TextEditingController();
   late String _rows = widget.config.defaultRows;

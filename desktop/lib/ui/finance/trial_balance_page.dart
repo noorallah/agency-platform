@@ -32,7 +32,14 @@ class TrialBalancePage extends StatefulWidget {
   State<TrialBalancePage> createState() => _TrialBalancePageState();
 }
 
-class _TrialBalancePageState extends State<TrialBalancePage> {
+class _TrialBalancePageState extends State<TrialBalancePage>
+    with ReadsAgainWhenShown<TrialBalancePage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_loadReport());
+  }
+
   List<AccountingPeriod> _periods = const [];
   AccountingPeriod? _period;
 

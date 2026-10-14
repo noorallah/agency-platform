@@ -4,6 +4,7 @@ import '../core/design/design_tokens.dart';
 import '../models/settings_sections.dart';
 import 'menu_layout.dart';
 import 'settings_subject.dart';
+import 'phase2_scope.dart';
 
 /// One subject of Settings as one screen (backlog 148): a Start here tab that
 /// says how far the firm has got, the subject's steps in the order they are
@@ -42,7 +43,14 @@ class SettingsSubjectPage extends StatefulWidget {
   State<SettingsSubjectPage> createState() => _SettingsSubjectPageState();
 }
 
-class _SettingsSubjectPageState extends State<SettingsSubjectPage> {
+class _SettingsSubjectPageState extends State<SettingsSubjectPage>
+    with ReadsAgainWhenShown<SettingsSubjectPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) _read();
+  }
+
   /// The tab on show: null is Start here, otherwise a step's path.
   String? _tab;
 
