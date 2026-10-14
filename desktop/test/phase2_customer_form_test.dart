@@ -4,7 +4,7 @@
 
 import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
-import 'package:agency_desktop/models/firm_member.dart';
+import 'package:agency_desktop/models/salesman.dart';
 import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
@@ -133,7 +133,8 @@ void main() {
   testWidgets('the account manager is picked from the firm and kept if gone',
       (tester) async {
     // Backlog 67 row 2: a stored manager who has left stays selectable and
-    // is sent back unchanged; a member picked replaces them.
+    // is sent back unchanged; a salesman picked replaces them. P2: the list
+    // is the firm's salesman list, so the id sent is a salesman's.
     tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -144,34 +145,38 @@ void main() {
         body: CustomerWorkspaceDialog(
           mode: CustomerDialogMode.edit,
           customer: Customer.fromJson(
-            <String, dynamic>{..._customerJson(), 'salesman_id': 'u-gone'},
+            <String, dynamic>{..._customerJson(), 'salesman_id': 'sm-gone'},
           ),
           onSave: (payload) async {
             sent.add(payload);
             return Customer.fromJson(_customerJson());
           },
           loadPlaces: (level, {parentId = ''}) async => const [],
-          loadMembers: () async => const [
-            FirmMember(userId: 'u-asha', fullName: 'Asha Rao'),
-            FirmMember(userId: 'u-ravi', fullName: 'Ravi K'),
+          loadSalesmen: () async => const [
+            Salesman(id: 'sm-asha', name: 'Asha Rao'),
+            Salesman(id: 'sm-ravi', name: 'Ravi K'),
+            Salesman(id: 'sm-old', name: 'Old Hand', isActive: false),
           ],
         ),
       ),
     ));
     await tester.pumpAndSettle();
     expect(find.text('Account manager'), findsOneWidget);
-    expect(find.text('Current manager (no longer a member)'), findsOneWidget);
+    expect(find.text('Current manager (no longer on the list)'),
+        findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('customer-account-manager')));
     await tester.pumpAndSettle();
+    // Only the active salesmen are offered.
+    expect(find.textContaining('Old Hand'), findsNothing);
     await tester.tap(find.text('Asha Rao').last);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('customer-save')));
     await tester.pumpAndSettle();
-    expect(sent.last['salesman_id'], 'u-asha');
+    expect(sent.last['salesman_id'], 'sm-asha');
   });
 
-  testWidgets('without the member list the manager is neither shown nor lost',
+  testWidgets('without the salesman list the manager is neither shown nor lost',
       (tester) async {
     tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1;

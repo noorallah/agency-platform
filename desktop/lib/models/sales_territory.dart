@@ -496,17 +496,25 @@ class AssignableCustomerRecord {
       );
 }
 
-/// How much of the firm's ground one salesperson covers.
+/// The salesman a round's assignment row names: an id from the firm's
+/// salesman list (P2). Read as `salesman_id`; `user_id` is the key the
+/// server used before the list existed, read only if `salesman_id` is
+/// absent.
+String assignedSalesmanId(Json row) =>
+    stringValue(row['salesman_id'] ?? row['user_id']);
+
+/// How much of the firm's ground one salesman covers.
 class TerritoryCoverageRecord {
   const TerritoryCoverageRecord({
-    required this.userId,
+    required this.salesmanId,
     required this.assignedTerritories,
     required this.assignedRoutes,
     required this.customerCount,
     required this.coveragePercent,
   });
 
-  final String userId;
+  /// An id from the firm's salesman list, not a user id (P2).
+  final String salesmanId;
   final int assignedTerritories;
   final int assignedRoutes;
   final int customerCount;
@@ -515,7 +523,7 @@ class TerritoryCoverageRecord {
   final double coveragePercent;
 
   factory TerritoryCoverageRecord.fromJson(Json json) => TerritoryCoverageRecord(
-        userId: stringValue(json['user_id']),
+        salesmanId: assignedSalesmanId(json),
         assignedTerritories: json['assigned_territories'] is num
             ? (json['assigned_territories'] as num).toInt()
             : 0,

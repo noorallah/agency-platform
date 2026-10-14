@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/security/permission_service.dart';
 import '../workspace/analysis_page.dart';
 import '../workspace/export_file.dart';
+import 'firm_salesmen.dart';
 
 /// Billed sales pivoted by one or two dimensions, with drill-down. The pivot
 /// is the shared [AnalysisPage]; this only says what a sale is called.
@@ -70,12 +71,14 @@ class SalesAnalysisPage extends StatelessWidget {
           for (final g in (await api.customerGroups(search: search)).items)
             AnalysisOption(id: g.id, label: g.name),
         ];
+      // P2: an entry of the firm's salesman list, not a user. Inactive ones
+      // too: a report looks back at sales they made.
       case 'salesman_id':
         final String needle = search.toLowerCase();
         return [
-          for (final m in await api.firmMembers())
+          for (final m in await FirmSalesmen.of(api))
             if (needle.isEmpty || m.label.toLowerCase().contains(needle))
-              AnalysisOption(id: m.userId, label: m.label),
+              AnalysisOption(id: m.id, label: m.label),
         ];
       case 'territory_id':
         return [

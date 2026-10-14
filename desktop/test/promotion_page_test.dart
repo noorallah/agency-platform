@@ -21,9 +21,9 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
-import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/pricing.dart';
 import 'package:agency_desktop/models/product.dart';
+import 'package:agency_desktop/models/salesman.dart';
 import 'package:agency_desktop/ui/pricing/promotion_dialog.dart';
 import 'package:agency_desktop/ui/pricing/promotion_page.dart';
 import 'package:agency_desktop/phase2/phase2_scope.dart';
@@ -141,9 +141,10 @@ class _PromotionApi extends ApiClient {
     return PagedResult<CustomerGroup>(items: all, total: all.length);
   }
 
+  /// The firm's salesman list (P2): a salesman condition names an entry.
   @override
-  Future<List<FirmMember>> firmMembers() async => const <FirmMember>[
-        FirmMember(userId: 'u-asha', fullName: 'Asha Rao'),
+  Future<List<Salesman>> firmSalesmen() async => const <Salesman>[
+        Salesman(id: 'sm-asha', name: 'Asha Rao'),
       ];
 
   @override

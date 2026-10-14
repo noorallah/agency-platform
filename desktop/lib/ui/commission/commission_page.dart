@@ -10,9 +10,11 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/commission.dart';
 import '../../models/firm_member.dart';
+import '../../models/salesman.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../phase2/indian_format.dart';
+import '../sales/firm_salesmen.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/discard_prompt.dart';
 import 'payout_dialogs.dart';
@@ -66,10 +68,15 @@ class _CommissionPageState extends State<CommissionPage> {
   bool _loadingRules = true;
   bool _loadingReport = false;
 
-  /// The firm's people, so a rate can be agreed with somebody who has never
-  /// had one. Without this list the picker could only offer names lifted off
-  /// existing rules, which makes every rate but the first impossible to add.
+  /// The firm's people, to name who adjusted, approved and paid a payout:
+  /// those are users who acted, not salesmen.
   List<FirmMember> _people = const <FirmMember>[];
+
+  /// The firm's salesman list (P2), so a rate can be agreed with somebody
+  /// who has never had one. A rule's `salesman_id` names an entry of it.
+  /// Without this list the picker could only offer names lifted off existing
+  /// rules, which makes every rate but the first impossible to add.
+  List<Salesman> _salesmen = const <Salesman>[];
 
   /// What a rule can be scoped to. Loaded with the rules so the editor has
   /// them the moment it opens -- a picker that fetches on open shows an empty
@@ -120,6 +127,7 @@ class _CommissionPageState extends State<CommissionPage> {
         (page) => widget.api.commissionRules(page: page),
       );
       final List<FirmMember> people = await widget.api.firmMembers();
+      final List<Salesman> salesmen = await FirmSalesmen.of(widget.api);
       final List<Product> goods = await fetchAllPages<Product>(
         (page) => widget.api.products(page: page, pageSize: 100),
       );
@@ -129,6 +137,7 @@ class _CommissionPageState extends State<CommissionPage> {
       setState(() {
         _rules = rows;
         _people = people;
+        _salesmen = salesmen;
         _goods = goods;
         _goodsCategories = categories;
         _loadingRules = false;
@@ -277,27 +286,32 @@ class _CommissionPageState extends State<CommissionPage> {
     if (saved == true) await _loadRules();
   }
 
-  /// The people this screen can name.
+  /// The salesmen this screen can name.
   ///
-  /// The firm's own members, read from `/commission/salesmen`, **plus**
-  /// anybody a rule already names who is no longer among them -- somebody who
-  /// has left still explains the payouts their rule made, and dropping them
-  /// would make `DropdownButtonFormField` assert on a stored id that is not in
-  /// its list and save the rule as firm-wide.
-  List<FirmMember> _knownSalesmen() {
-    final Map<String, FirmMember> byId = {
-      for (final FirmMember person in _people) person.userId: person,
+  /// The firm's active salesmen **plus** anybody a rule already names who is
+  /// no longer offered -- somebody who has left still explains the payouts
+  /// their rule made, and dropping them would make `DropdownButtonFormField`
+  /// assert on a stored id that is not in its list and save the rule as
+  /// firm-wide.
+  List<Salesman> _knownSalesmen() {
+    final Map<String, Salesman> byId = {
+      for (final Salesman person in _salesmen)
+        if (person.isActive) person.id: person,
     };
     for (final CommissionRuleRecord rule in _rules) {
       if (rule.salesmanId.isEmpty || byId.containsKey(rule.salesmanId)) {
         continue;
       }
-      byId[rule.salesmanId] = FirmMember(
-        userId: rule.salesmanId,
-        fullName: rule.salesmanName.isEmpty ? rule.salesmanId : rule.salesmanName,
+      String name = rule.salesmanName;
+      for (final Salesman person in _salesmen) {
+        if (person.id == rule.salesmanId) name = '${person.label} (inactive)';
+      }
+      byId[rule.salesmanId] = Salesman(
+        id: rule.salesmanId,
+        name: name.isEmpty ? rule.salesmanId : name,
       );
     }
-    return byId.values.toList()..sort((a, b) => a.fullName.compareTo(b.fullName));
+    return byId.values.toList()..sort((a, b) => a.name.compareTo(b.name));
   }
 
   Future<void> _delete(CommissionRuleRecord rule) async {
@@ -1105,8 +1119,8 @@ class CommissionRuleDialog extends StatefulWidget {
 
   final ApiClient api;
 
-  /// The people who can be named, besides the firm as a whole.
-  final List<FirmMember> known;
+  /// The salesmen who can be named, besides the firm as a whole.
+  final List<Salesman> known;
 
   /// What a rule can be scoped to. A rule naming neither is about the whole
   /// document, which is what every rule was before scoping existed.
@@ -1391,7 +1405,7 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
     // dropdown asserting on a value that is not in its list, which silently
     // saves the field as blank.
     final bool namedIsKnown = _salesmanId.isEmpty ||
-        widget.known.any((person) => person.userId == _salesmanId);
+        widget.known.any((person) => person.id == _salesmanId);
     return AskBeforeClosing(
       touched: () => _held() != _opened,
       what: 'commission rate has not been saved',
@@ -1431,11 +1445,10 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  for (final FirmMember person in widget.known)
+                  for (final Salesman person in widget.known)
                     DropdownMenuItem<String>(
-                      value: person.userId,
-                      child:
-                          Text(person.fullName, overflow: TextOverflow.ellipsis),
+                      value: person.id,
+                      child: Text(person.label, overflow: TextOverflow.ellipsis),
                     ),
                   if (!namedIsKnown)
                     DropdownMenuItem<String>(

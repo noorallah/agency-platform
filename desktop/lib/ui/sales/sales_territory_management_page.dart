@@ -6,14 +6,15 @@ import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
-import '../../models/firm_member.dart';
 import '../../models/customer.dart';
 import '../../models/geography.dart';
 import '../../models/sales_territory.dart';
+import '../../models/salesman.dart';
 import '../workspace/party_place.dart';
 import 'assignment_picker_dialog.dart';
 import 'bulk_territory_actions_dialog.dart';
 import 'call_order_dialog.dart';
+import 'firm_salesmen.dart';
 import 'territory_detail_dialog.dart';
 import 'territory_import_dialog.dart';
 import '../workspace/desktop_framework.dart';
@@ -351,44 +352,35 @@ class _SalesTerritoryManagementPageState
   Future<void> _assignSalesmen(SalesTerritory territory) async {
     if (!_canAssignSalesmen) return;
     final List<Json> current = await widget.api.territorySalesmen(territory.id);
-    final List<FirmMember> users =
-        await widget.api.firmMembers();
+    final List<Salesman> salesmen = await FirmSalesmen.of(widget.api);
     if (!mounted) return;
-    // An existing assignment carries more than a user id. Re-sending only the
-    // id would quietly clear whoever was the primary and whoever covered the
-    // child territories, because the API replaces the whole list.
+    // An existing assignment carries more than a salesman id. Re-sending only
+    // the id would quietly clear whoever was the primary and whoever covered
+    // the child territories, because the API replaces the whole list.
     final Map<String, Json> existing = <String, Json>{
-      for (final Json entry in current) stringValue(entry['user_id']): entry,
+      for (final Json entry in current) assignedSalesmanId(entry): entry,
     };
     final List<String>? chosen = await showDialog<List<String>>(
       context: context,
       builder: (context) => AssignmentPickerDialog(
-        title: 'Salespeople on ${territory.name}',
-        searchHint: 'Search people by name or email',
-        emptyMessage: 'No users to assign. Add one under Administration.',
-        selectedIds: {
-          for (final Json entry in current) stringValue(entry['user_id']),
-        }..removeWhere((id) => id.isEmpty),
+        title: 'Salesmen on ${territory.name}',
+        searchHint: 'Search salesmen by name or code',
+        emptyMessage: 'No salesmen to assign. Add one under Settings, '
+            'Salesmen.',
+        selectedIds: existing.keys.toSet()..removeWhere((id) => id.isEmpty),
         onSave: (List<String> chosen) => widget.api.setTerritorySalesmen(
           territory.id,
           [
-            for (final String userId in chosen)
+            for (final String salesmanId in chosen)
               <String, dynamic>{
-                'user_id': userId,
-                'is_primary': existing[userId]?['is_primary'] == true,
+                'salesman_id': salesmanId,
+                'is_primary': existing[salesmanId]?['is_primary'] == true,
                 'include_children':
-                    existing[userId]?['include_children'] == true,
+                    existing[salesmanId]?['include_children'] == true,
               },
           ],
         ),
-        options: [
-          for (final FirmMember user in users)
-            AssignableOption(
-              id: user.userId,
-              label: user.fullName.isEmpty ? user.email : user.fullName,
-              secondary: user.email,
-            ),
-        ],
+        options: _salesmanOptions(salesmen, keep: existing.keys.toSet()),
       ),
     );
     if (chosen == null || !mounted) return;
@@ -490,8 +482,9 @@ class _SalesTerritoryManagementPageState
               <String, dynamic>{
                 'territory_id': item.id,
                 'assignments': [
-                  for (final String userId in chosenIds ?? const <String>[])
-                    <String, dynamic>{'user_id': userId},
+                  for (final String salesmanId
+                      in chosenIds ?? const <String>[])
+                    <String, dynamic>{'salesman_id': salesmanId},
                 ],
               },
           ]),
@@ -539,29 +532,41 @@ class _SalesTerritoryManagementPageState
     );
   }
 
+  /// The salesmen a round can be given: the active ones, and any in [keep]
+  /// -- already on the round -- who are not, so a save does not drop them
+  /// unseen.
+  List<AssignableOption> _salesmanOptions(
+    List<Salesman> salesmen, {
+    Set<String> keep = const <String>{},
+  }) =>
+      [
+        for (final Salesman person in salesmen)
+          if (person.isActive || keep.contains(person.id))
+            AssignableOption(
+              id: person.id,
+              label: person.isActive
+                  ? person.label
+                  : '${person.label} (inactive)',
+              secondary: person.code,
+            ),
+      ];
+
   Future<List<String>?> _pickSalesmenForBulk(
     int count,
     Future<void> Function(List<String> ids) onSave,
   ) async {
-    final List<FirmMember> users =
-        await widget.api.firmMembers();
+    final List<Salesman> salesmen = await FirmSalesmen.of(widget.api);
     if (!mounted) return null;
     return showDialog<List<String>>(
       context: context,
       builder: (context) => AssignmentPickerDialog(
-        title: 'Salespeople for $count territories',
-        searchHint: 'Search people by name or email',
-        emptyMessage: 'No users to assign. Add one under Administration.',
+        title: 'Salesmen for $count territories',
+        searchHint: 'Search salesmen by name or code',
+        emptyMessage: 'No salesmen to assign. Add one under Settings, '
+            'Salesmen.',
         selectedIds: const <String>{},
         onSave: onSave,
-        options: [
-          for (final FirmMember user in users)
-            AssignableOption(
-              id: user.userId,
-              label: user.fullName.isEmpty ? user.email : user.fullName,
-              secondary: user.email,
-            ),
-        ],
+        options: _salesmanOptions(salesmen),
       ),
     );
   }

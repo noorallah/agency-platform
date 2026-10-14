@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/sales_territory.dart';
-import '../../models/firm_member.dart';
+import '../../models/salesman.dart';
 import '../workspace/desktop_framework.dart';
+import 'firm_salesmen.dart';
 
 /// How much ground each salesperson covers.
 ///
@@ -33,7 +34,7 @@ class _TerritoryCoveragePageState extends State<TerritoryCoveragePage> {
   final FocusNode _searchFocus = FocusNode();
 
   List<TerritoryCoverageRecord> _rows = const [];
-  Map<String, FirmMember> _people = const {};
+  List<Salesman> _salesmen = const [];
   bool _loading = false;
   String? _error;
 
@@ -64,15 +65,13 @@ class _TerritoryCoveragePageState extends State<TerritoryCoveragePage> {
     try {
       final List<TerritoryCoverageRecord> rows =
           await widget.api.territoryCoverage();
-      // The coverage rows carry user ids. Names come from the candidate list,
-      // which reads `users` through the platform store — the tenant session
-      // cannot see that table at all.
-      final List<FirmMember> people =
-          await widget.api.firmMembers();
+      // The coverage rows carry ids from the firm's salesman list (P2);
+      // their names come from that list, read once per session.
+      final List<Salesman> salesmen = await FirmSalesmen.of(widget.api);
       if (!mounted) return;
       setState(() {
         _rows = rows;
-        _people = {for (final person in people) person.userId: person};
+        _salesmen = salesmen;
         _loading = false;
       });
     } on ApiException catch (exception) {
@@ -84,17 +83,13 @@ class _TerritoryCoveragePageState extends State<TerritoryCoveragePage> {
     }
   }
 
-  String _name(String userId) {
-    final FirmMember? person = _people[userId];
-    if (person == null) return userId;
-    return person.fullName.isEmpty ? person.email : person.fullName;
-  }
+  String _name(String salesmanId) => salesmanName(_salesmen, salesmanId);
 
   List<TerritoryCoverageRecord> get _visible {
     final String term = _search.text.trim().toLowerCase();
     if (term.isEmpty) return _rows;
     return _rows
-        .where((row) => _name(row.userId).toLowerCase().contains(term))
+        .where((row) => _name(row.salesmanId).toLowerCase().contains(term))
         .toList();
   }
 
@@ -145,9 +140,9 @@ class _TerritoryCoveragePageState extends State<TerritoryCoveragePage> {
                         GridColumn(key: 'customers', label: 'Customers'),
                         GridColumn(key: 'coverage', label: 'Coverage'),
                       ],
-                      id: (row) => row.userId,
+                      id: (row) => row.salesmanId,
                       cells: (row) => [
-                        _name(row.userId),
+                        _name(row.salesmanId),
                         '${row.assignedTerritories}',
                         '${row.assignedRoutes}',
                         '${row.customerCount}',

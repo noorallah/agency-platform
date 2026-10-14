@@ -24,10 +24,10 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/customer.dart';
-import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/geography.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
+import 'package:agency_desktop/models/salesman.dart';
 import 'package:agency_desktop/ui/sales/sales_territory_management_page.dart';
 import 'package:agency_desktop/ui/sales/territory_detail_dialog.dart';
 import 'package:flutter/material.dart';
@@ -231,15 +231,12 @@ class _TerritoryApi extends ApiClient {
     return assignments;
   }
 
+  /// The firm's salesman list (P2): a round's salesman is an entry of it.
   @override
-  Future<List<FirmMember>>
-      firmMembers() async => <FirmMember>[
-            FirmMember.fromJson(<String, dynamic>{
-              'user_id': 'user-1',
-              'full_name': 'Ravi Kumar',
-              'email': 'ravi@agency.local',
-            }),
-          ];
+  Future<List<Salesman>> firmSalesmen() async => const <Salesman>[
+        Salesman(id: 'sm-1', name: 'Ravi Kumar'),
+        Salesman(id: 'sm-old', name: 'Old Hand', isActive: false),
+      ];
 
   @override
   Future<List<Json>> territorySalesmen(String territoryId) async =>
@@ -578,7 +575,7 @@ void main() {
       territory: _territoryJson(id: 't-1', code: 'RT01', name: 'North Beat'),
       assignedSalesmen: <Json>[
         <String, dynamic>{
-          'user_id': 'user-1',
+          'salesman_id': 'sm-1',
           'is_primary': true,
           'include_children': true,
         },
@@ -594,10 +591,37 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.sentSalesmen, isNotNull);
-    expect(api.sentSalesmen!.single['user_id'], 'user-1');
+    // P2: the key is `salesman_id`, an entry of the firm's salesman list.
+    expect(api.sentSalesmen!.single['salesman_id'], 'sm-1');
+    expect(api.sentSalesmen!.single.containsKey('user_id'), isFalse);
     expect(api.sentSalesmen!.single['is_primary'], isTrue,
         reason: 'the primary salesperson was silently demoted');
     expect(api.sentSalesmen!.single['include_children'], isTrue);
+  });
+
+  testWidgets('assigning a salesman sends their salesman_id', (tester) async {
+    final _TerritoryApi api = _TerritoryApi(
+      territory: _territoryJson(id: 't-1', code: 'RT01', name: 'North Beat'),
+    );
+    await _pump(tester, api);
+    await _selectRow(tester, 'RT01');
+    await _tapAssign(tester, 'Assign salesmen');
+
+    // Only the active salesmen are offered.
+    expect(_inDialog(find.text('Old Hand')), findsNothing);
+    expect(_inDialog(find.textContaining('Old Hand')), findsNothing);
+    await tester.tap(_inDialog(find.text('Ravi Kumar')));
+    await tester.pumpAndSettle();
+    await tester.tap(_inDialog(find.widgetWithText(FilledButton, 'Save')));
+    await tester.pumpAndSettle();
+
+    expect(api.sentSalesmen, <Json>[
+      <String, dynamic>{
+        'salesman_id': 'sm-1',
+        'is_primary': false,
+        'include_children': false,
+      },
+    ]);
   });
 
   testWidgets('a route can say when it runs, and keeps it on a re-save',

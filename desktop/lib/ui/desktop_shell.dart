@@ -65,6 +65,7 @@ import 'sales/geography_master_page.dart';
 import 'sales/route_builder_page.dart';
 import 'sales/territory_coverage_page.dart';
 import 'sales/route_type_management_page.dart';
+import 'sales/salesmen_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'sales/discount_limits_dialog.dart';
 import 'sales/price_floor_settings_dialog.dart';
@@ -3421,6 +3422,10 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'salesmen' => SalesmenPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       'beat-plans' => BeatPlanManagementPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -3563,6 +3568,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Enquiries',
           'What prospects and customers asked for before there is a '
               'quotation: follow up, then quote it or record why it was lost.',
+        ),
+      'salesmen' => (
+          'Salesmen',
+          'Who takes orders, makes bills and earns commission, whether or '
+              'not they sign in.',
         ),
       'route-types' => (
           'Route Types',

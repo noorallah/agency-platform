@@ -10,7 +10,9 @@ import 'menu_layout.dart';
 /// application's catalogue calls it. Keyed by router path.
 const Map<String, List<String>> _synonyms = {
   'salesInvoices/sales-invoices': ['bill', 'billing', 'invoice', 'tax invoice'],
-  'salesOrders': ['so', 'order', 'booking'],
+  // "sales" alone means the orders, not the shorter Salesmen.
+  'salesOrders': ['so', 'order', 'booking', 'sales'],
+  'sales/salesmen': ['salesman', 'salesperson', 'sales rep'],
   'quotations': ['quote', 'estimate'],
   'deliveryNotes/delivery-notes': ['dn', 'dispatch', 'challan'],
   'salesReturns': ['return', 'sales return'],

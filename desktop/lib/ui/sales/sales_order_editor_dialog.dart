@@ -11,9 +11,9 @@ import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
-import '../../models/firm_member.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
+import '../../models/salesman.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/uom_packaging.dart';
 import '../../models/document_preview.dart';
@@ -25,6 +25,7 @@ import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/party_place.dart';
 import '../workspace/price_level_box.dart';
+import 'firm_salesmen.dart';
 import 'ship_to_field.dart';
 
 part 'sales_order_editor_phase2.dart';
@@ -318,13 +319,26 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// this order collects lands in the commission report's Unassigned bucket,
   /// which belongs to nobody and pays nobody.
   ///
-  /// The picker offers every member of the firm and does not filter by who
-  /// covers the customer's round. The server refuses a salesman who does not,
-  /// in a sentence that names the reason; filtering here would need the
+  /// The picker offers the firm's active salesmen (P2: the firm's own list,
+  /// never its user accounts) and does not filter by who covers the
+  /// customer's round. The server refuses a salesman who does not, in a
+  /// sentence that names the reason; filtering here would need the
   /// customer's assignments on every keystroke and would still have to trust
   /// that refusal.
   String? _salesmanId;
-  List<FirmMember> _members = const <FirmMember>[];
+
+  /// Every salesman of the firm, inactive ones too, so a saved order still
+  /// shows the name of somebody no longer offered.
+  List<Salesman> _salesmen = const <Salesman>[];
+
+  /// Whether somebody chose the salesman by hand. A new order's box starts
+  /// on the server's starting choice and follows the customer until then;
+  /// after it, a change of customer leaves the choice alone.
+  bool _salesmanPicked = false;
+
+  /// Bumped when the box is filled for the user rather than by them, so the
+  /// dropdown -- which reads its value once -- shows the new one.
+  int _salesmanFill = 0;
   String? _branchId;
   String? _warehouseId;
   late DateTime _orderDate;
@@ -504,8 +518,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           (int page) =>
               widget.api.warehouses(page: page, pageSize: maxApiPageSize),
         ),
-        // Not paged: one firm's people, and the endpoint answers them all.
-        widget.api.firmMembers(),
+        // The firm's salesman list, read once per session and shared. An
+        // unreadable list costs the Salesman box its names, not the order.
+        FirmSalesmen.of(widget.api).catchError((Object _) => <Salesman>[]),
       ]);
       final String? id = widget.orderId;
       final Json? existing =
@@ -534,7 +549,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         _products = (loaded[1] as List<dynamic>).cast<Product>();
         _branches = (loaded[2] as List<dynamic>).cast<BranchRecord>();
         _warehouses = (loaded[3] as List<dynamic>).cast<WarehouseRecord>();
-        _members = (loaded[4] as List<dynamic>).cast<FirmMember>();
+        _salesmen = (loaded[4] as List<dynamic>).cast<Salesman>();
         _loading = false;
         if (existing != null) {
           _adoptExisting(existing);
@@ -553,6 +568,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         }
         if (_lines.isEmpty) _lines.add(_newLine());
       });
+      // A new order's Salesman box starts on the server's choice.
+      if (existing == null) unawaited(_fillSalesman());
       // After the order, so a correction opens with its stored values.
       unawaited(_customFields.start());
       if (_products.isNotEmpty) unawaited(_readBrands());
@@ -568,6 +585,35 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       });
     }
   }
+
+  /// Fill a new order's Salesman box from `GET /salesmen/starting-choice`:
+  /// the user's own entry, else the customer's account manager, else their
+  /// round's salesman. Asked again when the customer changes, until somebody
+  /// picks by hand; never for an order that already exists, whose salesman
+  /// is its own. A failed read leaves the box as it is.
+  Future<void> _fillSalesman() async {
+    if (widget.orderId != null || _salesmanPicked || _locked) return;
+    final String? customer = _customerId;
+    try {
+      final SalesmanStartingChoice choice =
+          await widget.api.salesmanStartingChoice(customerId: customer);
+      if (!mounted || _salesmanPicked || customer != _customerId) return;
+      final String? id = choice.isSomebody ? choice.salesmanId : null;
+      if (id == _salesmanId) return;
+      setState(() {
+        _salesmanId = id;
+        _salesmanFill += 1;
+      });
+    } on ApiException {
+      // The box stays as it is; the user can still choose.
+    }
+  }
+
+  /// The user chose a salesman: from now on the box is theirs.
+  void _pickSalesman(String? value) => setState(() {
+        _salesmanId = value;
+        _salesmanPicked = true;
+      });
 
   /// The warehouse to show once [branchId] is chosen: the one already chosen
   /// if it belongs there, else that branch's default. An order's warehouse
@@ -1544,6 +1590,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                           : (String? value) {
                               setState(() => _customerId = value);
                               unawaited(_quotePrices(_lines));
+                              unawaited(_fillSalesman());
                             },
                       emptyMessage: 'Choose a customer.',
                     ),
@@ -1551,21 +1598,21 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     flex: 2,
-                    child: _optionalPicker(
-                      key: const ValueKey<String>('sales-order-salesman'),
-                      label: 'Salesman',
-                      blankLabel: 'Nobody',
-                      helperText: 'Who took the order. Left blank, the '
-                          "customer's round supplies one where they are on a "
-                          'round; otherwise what this order collects earns '
-                          'nobody commission.',
-                      value: _salesmanId,
-                      options: <({String id, String label})>[
-                        for (final FirmMember item in _members)
-                          (id: item.userId, label: item.label),
-                      ],
-                      onChanged: (String? value) =>
-                          setState(() => _salesmanId = value),
+                    child: KeyedSubtree(
+                      key: ValueKey<int>(_salesmanFill),
+                      child: _optionalPicker(
+                        key: const ValueKey<String>('sales-order-salesman'),
+                        label: 'Salesman',
+                        blankLabel: 'Nobody',
+                        helperText: 'Who took the order. Left blank, the '
+                            "customer's round supplies one where they are on a "
+                            'round; otherwise what this order collects earns '
+                            'nobody commission.',
+                        value: _salesmanId,
+                        options:
+                            salesmanOptions(_salesmen, current: _salesmanId),
+                        onChanged: _pickSalesman,
+                      ),
                     ),
                   ),
                 ],

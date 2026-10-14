@@ -177,6 +177,7 @@ class SalesWorkflowSettings {
     this.deliveryNoteApproval = true,
     this.salesInvoiceApproval = true,
     this.roundBillsToRupee = false,
+    this.salesmanRequired = false,
   });
 
   final bool quotationStage;
@@ -218,6 +219,10 @@ class SalesWorkflowSettings {
   /// credit note to the nearest rupee. Default off.
   final bool roundBillsToRupee;
 
+  /// P2: whether an order, a delivery note and a bill are refused without a
+  /// salesman. Default off.
+  final bool salesmanRequired;
+
   /// What a firm gets before anybody configures anything, and what the client
   /// falls back to when the settings cannot be read. Failing open matters: an
   /// unreachable endpoint must not hide screens a firm depends on.
@@ -249,6 +254,7 @@ class SalesWorkflowSettings {
         deliveryNoteApproval: json['delivery_note_approval'] != false,
         salesInvoiceApproval: json['sales_invoice_approval'] != false,
         roundBillsToRupee: boolValue(json['round_bills_to_rupee']),
+        salesmanRequired: boolValue(json['salesman_required']),
       );
 
   /// The three switches only. No screen here edits the default branch or
@@ -269,6 +275,7 @@ class SalesWorkflowSettings {
         'delivery_note_approval': deliveryNoteApproval,
         'sales_invoice_approval': salesInvoiceApproval,
         'round_bills_to_rupee': roundBillsToRupee,
+        'salesman_required': salesmanRequired,
       };
 
   SalesWorkflowSettings copyWith({
@@ -284,6 +291,7 @@ class SalesWorkflowSettings {
     bool? deliveryNoteApproval,
     bool? salesInvoiceApproval,
     bool? roundBillsToRupee,
+    bool? salesmanRequired,
   }) =>
       SalesWorkflowSettings(
         quotationStage: quotationStage ?? this.quotationStage,
@@ -306,6 +314,7 @@ class SalesWorkflowSettings {
         deliveryNoteApproval: deliveryNoteApproval ?? this.deliveryNoteApproval,
         salesInvoiceApproval: salesInvoiceApproval ?? this.salesInvoiceApproval,
         roundBillsToRupee: roundBillsToRupee ?? this.roundBillsToRupee,
+        salesmanRequired: salesmanRequired ?? this.salesmanRequired,
       );
 }
 

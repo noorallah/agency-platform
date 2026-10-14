@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/sales_territory.dart';
-import '../../models/firm_member.dart';
+import '../../models/salesman.dart';
 import '../workspace/desktop_framework.dart';
+import 'firm_salesmen.dart';
 
 /// Who is called today.
 ///
@@ -33,7 +34,8 @@ class CallListPage extends StatefulWidget {
 class _CallListPageState extends State<CallListPage> {
   DateTime _date = DateTime.now();
   String _salesmanId = '';
-  List<FirmMember> _salesmen = const [];
+  /// The firm's salesman list (P2): a round's salesman is an entry of it.
+  List<Salesman> _salesmen = const [];
   CallListRecord? _result;
   bool _loading = false;
   String? _error;
@@ -47,12 +49,11 @@ class _CallListPageState extends State<CallListPage> {
     _load();
   }
 
-  /// Not `/api/v1/users`: that is guarded by `USER_VIEW`, a platform-admin
-  /// permission the roles that run territories do not hold.
+  /// The firm's own salesman list, readable by any member of the firm.
   Future<void> _loadSalesmen() async {
     if (!_canView) return;
     try {
-      final List<FirmMember> rows = await widget.api.firmMembers();
+      final List<Salesman> rows = await FirmSalesmen.of(widget.api);
       if (!mounted) return;
       setState(() => _salesmen = rows);
     } on ApiException {
@@ -161,8 +162,13 @@ class _CallListPageState extends State<CallListPage> {
           ),
           for (final candidate in _salesmen)
             DropdownMenuItem<String>(
-              value: candidate.userId,
-              child: Text(candidate.fullName, overflow: TextOverflow.ellipsis),
+              value: candidate.id,
+              child: Text(
+                candidate.isActive
+                    ? candidate.label
+                    : '${candidate.label} (inactive)',
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
         ],
         onChanged: (value) {

@@ -563,6 +563,8 @@ abstract final class ModuleCatalog {
         'PROMOTION_VIEW',
         'COMMISSION_VIEW',
         'SALES_TARGET_VIEW',
+        // Whoever keeps the firm's salesman list (P2) reaches it here.
+        'SALESMAN_MANAGE',
       ],
       requiresAnyPermission: true,
       tabs: [
@@ -696,6 +698,13 @@ abstract final class ModuleCatalog {
           id: 'tcs',
           label: 'TCS',
           requiredPermissions: ['TCS_VIEW'],
+        ),
+        // The firm's own salesman list (P2). Reading it needs only
+        // membership, but this screen changes it.
+        ModuleTabDefinition(
+          id: 'salesmen',
+          label: 'Salesmen',
+          requiredPermissions: ['SALESMAN_MANAGE'],
         ),
         ModuleTabDefinition(
           id: 'route-types',

@@ -394,6 +394,10 @@ void main() {
     MenuGroupSpec selling() => MenuLayout.settings.groups
         .singleWhere((group) => group.label == 'Selling');
 
+    /// The six dialogs; the salesman list (P2) closes the group as a screen.
+    List<MenuItemSpec> dialogs() =>
+        selling().items.where((item) => item.isSetting).toList();
+
     test('holds the six settings that were only behind a screen', () {
       expect(selling().items.map((item) => item.label), [
         'Sales Stages',
@@ -402,9 +406,10 @@ void main() {
         'Discount Limits',
         'Loyalty Scheme',
         'TCS Settings',
+        'Salesmen',
       ]);
-      expect(selling().items.every((item) => item.isSetting), isTrue);
-      expect(selling().items.map((item) => item.path), [
+      expect(dialogs(), hasLength(6));
+      expect(dialogs().map((item) => item.path), [
         MenuLayout.salesStagesRoute,
         MenuLayout.creditControlRoute,
         MenuLayout.priceFloorRoute,
@@ -412,10 +417,12 @@ void main() {
         MenuLayout.loyaltySchemeRoute,
         MenuLayout.tcsSettingsRoute,
       ]);
+      // P2: the firm's salesman list is the Sales module's own screen.
+      expect(selling().items.last.path, 'sales/salesmen');
     });
 
     test('each is gated by the permission its own screen asks', () {
-      expect(selling().items.map((item) => item.permission), [
+      expect(dialogs().map((item) => item.permission), [
         'SALES_VIEW',
         'CUSTOMER_VIEW',
         'SALES_VIEW',
@@ -424,6 +431,7 @@ void main() {
         'TCS_MANAGE',
       ]);
     });
+
 
     List<String> offered(List<String> codes, {bool firm = true}) {
       final ModuleVisibility visibility = ModuleVisibility(
@@ -455,6 +463,11 @@ void main() {
             ['SALES_VIEW', 'CUSTOMER_VIEW', 'LOYALTY_VIEW', 'TCS_MANAGE']),
         hasLength(6),
       );
+    });
+
+    test('the salesman list is offered to whoever may change it', () {
+      expect(offered(['SALESMAN_MANAGE']), ['Salesmen']);
+      expect(offered(['SALES_VIEW']), isNot(contains('Salesmen')));
     });
 
     test('a firm-scoped setting is not offered with no firm chosen', () {
