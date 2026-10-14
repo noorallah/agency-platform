@@ -404,7 +404,12 @@ def test_a_shops_bill_cannot_be_overpaid_and_nothing_is_written() -> None:
 
 
 def test_an_advance_refunded_since_cannot_be_moved_to_a_shop() -> None:
-    """Money the parent no longer holds is not spread."""
+    """Money the parent no longer holds is not spread.
+
+    The receipt itself now says so: the refund came off it (D-FIN-30), so
+    it reads 100.00 unapplied and refuses before the account is asked. It
+    used to read 500.00 and leave the account to refuse.
+    """
     chain = _Chain()
     settlement = chain.receipt(chain.parent, "500.00", [])
     RefundService(chain.session).create(
@@ -420,7 +425,7 @@ def test_an_advance_refunded_since_cannot_be_moved_to_a_shop() -> None:
     chain.session.commit()
     bill = chain.bill(chain.shops[0], "SI-1", "300.00")
 
-    with pytest.raises(ValidationError, match="holds only 100.00 on account"):
+    with pytest.raises(ValidationError, match="has only 100.00 left unapplied"):
         chain.allocate(settlement, bill, "300.00")
     chain.session.rollback()
 
