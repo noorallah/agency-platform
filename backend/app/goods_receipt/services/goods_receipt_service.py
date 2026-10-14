@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, func, or_, select
+from sqlalchemy import ColumnElement, Select, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord
@@ -84,7 +84,11 @@ from app.goods_receipt.schemas import (
 )
 from app.goods_receipt.serials import ReceiptSerials
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
-from app.inventory.schemas import QuarantineAction, StockQuarantineCreate
+from app.inventory.schemas import (
+    InventoryTransactionType,
+    QuarantineAction,
+    StockQuarantineCreate,
+)
 from app.inventory.services import InventoryService, LineConversion
 from app.inventory.services.lot_shortfalls import LotShortfallService
 from app.inventory.services.lots import LotSource, costs_by_lot
@@ -2411,6 +2415,11 @@ class GoodsReceiptService(TransactionalDocumentService):
         A lot that has been sold from, transferred, adjusted or sent back is
         named by documents that would be left pointing at nothing. Only the
         receipt's own movement and its inspection holds may name it.
+
+        A sales order's reservation and its release are not movements of the
+        goods, so they never refuse on their own (D-BUY-76). A reservation
+        still held does: an open order counts on that stock, and the receipt
+        may not vanish under it.
         """
         lots = BatchSerialService(self._session).lots_of(
             firm_scope=firm_scope,
@@ -2419,28 +2428,62 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
         if not lots:
             return lots
+        references = {lot.id: lot.lot_reference for lot in lots}
+        holds = (
+            InventoryTransactionType.RESERVE.value,
+            InventoryTransactionType.UNRESERVE.value,
+        )
         moved = self._session.execute(
             select(InventoryTransaction.reference_number, InventoryTransaction.batch_id)
             .where(
                 InventoryTransaction.firm_id == firm_scope,
-                InventoryTransaction.batch_id.in_([lot.id for lot in lots]),
+                InventoryTransaction.batch_id.in_(list(references)),
                 InventoryTransaction.reference_number != receipt.grn_number,
                 InventoryTransaction.reference_number.not_like(
                     f"{receipt.grn_number}-QC%"
                 ),
+                InventoryTransaction.transaction_type.not_in(holds),
             )
             .order_by(InventoryTransaction.created_at, InventoryTransaction.id)
             .limit(1)
         ).first()
         if moved is not None:
-            reference = next(
-                lot.lot_reference for lot in lots if lot.id == moved.batch_id
-            )
             raise ValidationError(
                 f"{receipt.grn_number} cannot be cancelled: goods of its lot "
-                f"{reference} have moved since they arrived "
+                f"{references[moved.batch_id]} have moved since they arrived "
                 f"({moved.reference_number}). Send the goods back with a "
                 "purchase return instead."
+            )
+        held = func.sum(
+            case(
+                (
+                    InventoryTransaction.transaction_type
+                    == InventoryTransactionType.RESERVE.value,
+                    InventoryTransaction.quantity,
+                ),
+                else_=-InventoryTransaction.quantity,
+            )
+        )
+        reserved = self._session.execute(
+            select(InventoryTransaction.reference_number, InventoryTransaction.batch_id)
+            .where(
+                InventoryTransaction.firm_id == firm_scope,
+                InventoryTransaction.batch_id.in_(list(references)),
+                InventoryTransaction.transaction_type.in_(holds),
+            )
+            .group_by(
+                InventoryTransaction.reference_number, InventoryTransaction.batch_id
+            )
+            .having(held > 0)
+            .order_by(InventoryTransaction.reference_number)
+            .limit(1)
+        ).first()
+        if reserved is not None:
+            raise ValidationError(
+                f"{receipt.grn_number} cannot be cancelled: sales order "
+                f"{reserved.reference_number} holds goods of its lot "
+                f"{references[reserved.batch_id]}. Cancel the order or release "
+                "its hold first."
             )
         return lots
 

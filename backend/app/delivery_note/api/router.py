@@ -629,7 +629,10 @@ def dispatch_and_invoice_delivery_note(
         bill_without_stock=bill_without_stock,
     )
     return ApiResponse(
-        data=service.invoice_response(row),
+        data=service.invoice_response(
+            row,
+            show_cost=scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE"),
+        ),
         message=f"Dispatched and invoiced as {row.invoice_number}.",
     )
 

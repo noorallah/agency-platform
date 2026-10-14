@@ -200,6 +200,18 @@ def test_lots_that_agree_share_a_picker_row_and_cost_needs_the_right() -> None:
     }
 
 
+def test_a_round_mrp_is_written_plainly_in_the_group() -> None:
+    """D-STK-74: an MRP of 150 reads 150, never 1.5E+2; 150.00 is the same row."""
+    shop = _Shop(by_lot=True)
+    first = shop.lot("LOT-0001", received_on=date(2026, 8, 1), number="B1", mrp="150")
+    second = shop.lot(
+        "LOT-0002", received_on=date(2026, 8, 2), number="B1", mrp="150.00"
+    )
+    rows = {row.batch_id: row for row in shop.picker()}
+    assert rows[first].pick_group == "B1||150|||"
+    assert rows[second].pick_group == rows[first].pick_group
+
+
 def test_a_firm_on_average_gets_no_groups_and_no_cost() -> None:
     """Average is untouched: no group key, no lot cost even to a cost viewer."""
     shop = _Shop(by_lot=False)

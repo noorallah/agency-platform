@@ -155,6 +155,25 @@ def test_a_firm_on_average_bills_each_line_its_own_share() -> None:
     assert shop.bill_costs(invoice_id) == [Decimal("176.0000"), Decimal("176.0000")]
 
 
+
+def test_the_bill_shows_its_line_costs_only_to_who_may_see_cost() -> None:
+    """D-SELL-100: the response carries the stored cost, behind the permission.
+
+    The single read and the list page are one builder, so both agree.
+    """
+    shop = _ByLot()
+    invoice_id = shop.approved(shop.two_lines())
+    row = shop.bills.get_invoice(invoice_id, firm_scope=shop.firm.id)
+
+    shown = shop.bills.invoice_response(row, show_cost=True)
+    [listed] = shop.bills.invoice_responses([row], show_cost=True)
+    hidden = shop.bills.invoice_response(row)
+
+    expected = [Decimal("160.0000"), Decimal("144.0000")]
+    assert [line.cost_amount for line in shown.lines] == expected
+    assert [line.cost_amount for line in listed.lines] == expected
+    assert [line.cost_amount for line in hidden.lines] == [None, None]
+
 def test_a_pick_with_no_cost_leaves_the_line_to_the_ledger() -> None:
     """A row written before the lots kept their cost reads the old figure."""
     shop = _ByLot()

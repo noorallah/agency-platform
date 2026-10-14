@@ -11,7 +11,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord
@@ -24,6 +24,7 @@ from app.finance.models import JournalEntry
 from app.inventory.models import (
     BatchValuation,
     InventoryRecord,
+    InventoryTransaction,
     ProductValuation,
     StockLotSettings,
 )
@@ -164,10 +165,35 @@ def test_the_preview_counts_what_the_switch_would_carry() -> None:
     assert preview.lots == 4
     assert preview.quantity == Decimal("136")
     assert preview.stock_value == Decimal("8110")
-    assert preview.suggested_on == date(2026, 4, 1)
+    assert preview.suggested_on == date(2026, 8, 2)
     assert (
         firm.session.scalar(select(func.count(BatchValuation.id))) == 0
     ), "a preview writes nothing"
+
+
+def test_the_suggested_day_is_one_the_switch_accepts() -> None:
+    """D-STK-73: stock moved after the year began, so that day is suggested.
+
+    The year start was suggested and then refused as earlier than the last
+    movement; the suggestion is now the later of the two.
+    """
+    firm = _Trader()
+
+    suggested = firm.service.suggested_day(firm.firm.id)
+
+    assert suggested == date(2026, 8, 2)
+    assert firm.service.preview(firm.firm.id, suggested).refusals == ()
+
+
+def test_with_no_movement_since_the_year_began_its_first_day_is_suggested() -> None:
+    """D-STK-73: stock last moved in the year before, so the year start."""
+    firm = _Trader()
+    firm.session.execute(
+        update(InventoryTransaction).values(transaction_date=date(2025, 12, 1))
+    )
+    firm.session.commit()
+
+    assert firm.service.suggested_day(firm.firm.id) == date(2026, 4, 1)
 
 
 def test_the_switch_carries_every_item_into_lots_at_its_average() -> None:

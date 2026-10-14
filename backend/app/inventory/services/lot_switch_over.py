@@ -251,12 +251,32 @@ class LotSwitchOverService:
         return self._view(row)
 
     def suggested_day(self, firm_id: UUID) -> date:
-        """Return the first day of the firm's current financial year.
+        """Return the earliest day the switch-over would be accepted on.
 
-        The year the books hold for today, where one is set up; otherwise
-        the year the firm's own start month gives (section 4.4, rule 6).
+        The first day of the firm's current financial year -- the year the
+        books hold for today, where one is set up; otherwise the year the
+        firm's own start month gives (section 4.4, rule 6) -- unless stock
+        moved later than that, which ``_plan`` refuses to switch before; then
+        the day stock last moved (D-STK-73). Never later than today.
         """
         today = firm_today(self._session, firm_id)
+        latest = self._last_moved(firm_id)
+        year_start = self._year_start(firm_id, today)
+        if latest is None or latest <= year_start:
+            return year_start
+        return min(latest, today)
+
+    def _last_moved(self, firm_id: UUID) -> date | None:
+        """Return the latest day any stock of the firm moved, if it ever did."""
+        return self._session.scalar(
+            select(func.max(InventoryTransaction.transaction_date)).where(
+                InventoryTransaction.firm_id == firm_id,
+                InventoryTransaction.is_deleted.is_(False),
+            )
+        )
+
+    def _year_start(self, firm_id: UUID, today: date) -> date:
+        """Return the first day of the financial year holding ``today``."""
         starts_on = self._session.scalar(
             select(FinancialYear.starts_on)
             .where(
@@ -289,12 +309,7 @@ class LotSwitchOverService:
                 f"The switch-over day {on.isoformat()} is after today "
                 f"({today.isoformat()})."
             )
-        latest = self._session.scalar(
-            select(func.max(InventoryTransaction.transaction_date)).where(
-                InventoryTransaction.firm_id == firm_id,
-                InventoryTransaction.is_deleted.is_(False),
-            )
-        )
+        latest = self._last_moved(firm_id)
         if latest is not None and on < latest:
             refusals.append(
                 f"Stock last moved on {latest.isoformat()}, so the switch-over "
