@@ -71,7 +71,11 @@ from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService, LineConversion
 from app.messaging.services import MessagingDocument, stage_document_event
 from app.pricing.services.price_list_service import PriceListResolver
-from app.pricing.services.unit_price import UnitPriceResolver, document_price_level
+from app.pricing.services.unit_price import (
+    StockPlace,
+    UnitPriceResolver,
+    document_price_level,
+)
 from app.products.models import Product
 from app.products.services.free_issue import assert_not_sold_at_a_price
 from app.products.services.stockless import is_stockless, stockless_products
@@ -3367,6 +3371,8 @@ class SalesOrderService(TransactionalDocumentService):
                 customer_id=row.customer_id,
                 territory_id=row.territory_id,
                 on=row.order_date,
+                branch_id=row.branch_id,
+                warehouse_id=row.warehouse_id,
             ),
         )
 
@@ -3424,6 +3430,9 @@ class SalesOrderService(TransactionalDocumentService):
         twelve pieces' worth, where it was given the price of one piece
         (D-PRC-25). A price somebody typed is the price of the unit on the
         line and is never converted.
+
+        For a firm costing by lot a line naming no batch is priced at the lot
+        that would leave its warehouse first (row L3), the one dispatch takes.
         """
         if all(line.unit_price is not None for line in lines):
             return lines
@@ -3448,6 +3457,10 @@ class SalesOrderService(TransactionalDocumentService):
                             stock_uom_id=line.inventory_uom_id,
                             batch_id=line.pinned_batch_id
                             or (price_batches or {}).get(line.line_number),
+                            place=StockPlace(
+                                branch_id=row.branch_id,
+                                warehouse_id=line.warehouse_id or row.warehouse_id,
+                            ),
                         ).price
                     }
                 )

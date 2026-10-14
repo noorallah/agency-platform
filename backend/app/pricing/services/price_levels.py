@@ -17,6 +17,9 @@ from app.pricing.schemas.price_level import (
 )
 from app.products.models import Product
 
+#: The customer's kind a reserved level stands for, in the words a bill uses.
+_KIND_WORDS = {"RETAILER": "retail", "STOCKIST": "wholesale"}
+
 
 class PriceLevelService:
     """Create, change and retire price levels, and price products on them."""
@@ -67,6 +70,12 @@ class PriceLevelService:
         """Replace one level's details; the caller commits."""
         row = self.get(level_id, firm_id=firm_id)
         self._assert_code_free(firm_id, data.code, excluding=row.id)
+        if row.trade_class and not data.is_active:
+            raise ValidationError(
+                f"{row.name} is the level a bill switches to for "
+                f"{_KIND_WORDS.get(row.trade_class, row.trade_class)} prices. It "
+                "can be renamed or reordered, but not taken out of use."
+            )
         row.code = data.code
         row.name = data.name.strip()
         row.sort_order = data.sort_order
@@ -84,6 +93,12 @@ class PriceLevelService:
         every picker while still pricing their documents.
         """
         row = self.get(level_id, firm_id=firm_id)
+        if row.trade_class:
+            raise ConflictError(
+                f"{row.name} is the level a bill switches to for "
+                f"{_KIND_WORDS.get(row.trade_class, row.trade_class)} prices, "
+                "and cannot be deleted. It can be renamed or reordered."
+            )
         held = (
             self._session.scalar(
                 select(func.count(Customer.id)).where(

@@ -68,7 +68,7 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.core.utils.dates import utc_now
-from app.pricing.services.unit_price import UnitPriceResolver
+from app.pricing.services.unit_price import StockPlace, UnitPriceResolver
 from app.sales_order.models import RoleDiscountLimit
 
 _ZERO = Decimal("0")
@@ -391,6 +391,9 @@ class DiscountLimitService:
         customer_id: UUID | None,
         territory_id: UUID | None,
         on: date,
+        branch_id: UUID | None = None,
+        warehouse_id: UUID | None = None,
+        batches: Mapping[int, UUID] | None = None,
     ) -> dict[int, Decimal]:
         """Return, by line number, the price each order line would start at.
 
@@ -402,6 +405,11 @@ class DiscountLimitService:
         ranking's price carries no unit, so 2 BOX of 12 at a typed 600.00 a
         box, half of twelve pieces at 100.00, was approved by somebody
         limited to 5% (D-PRC-24). A line that charges nothing is left out.
+
+        For a firm costing by lot a line is judged at the lot it was priced
+        from (row L3): ``batches`` names, by line number, the lot a line left
+        from, and a line naming none is judged at the lot that would leave
+        the line's warehouse (else ``warehouse_id``) of ``branch_id`` first.
         """
         resolver = UnitPriceResolver(
             self._session,
@@ -415,11 +423,19 @@ class DiscountLimitService:
             quantity = Decimal(getattr(line, "quantity", None) or _ZERO)
             if quantity <= _ZERO:
                 continue
-            prices[int(getattr(line, "line_number", 0))] = resolver.price_at_factor(
+            line_number = int(getattr(line, "line_number", 0))
+            place_id = getattr(line, "warehouse_id", None) or warehouse_id
+            prices[line_number] = resolver.price_at_factor(
                 getattr(line, "product_id"),  # noqa: B009
                 quantity,
                 factor=Decimal(str(getattr(line, "conversion_factor", None) or 1)),
-                batch_id=getattr(line, "pinned_batch_id", None),
+                batch_id=getattr(line, "pinned_batch_id", None)
+                or (batches or {}).get(line_number),
+                place=(
+                    StockPlace(branch_id=branch_id, warehouse_id=place_id)
+                    if branch_id is not None and place_id is not None
+                    else None
+                ),
             ).price
         return prices
 
