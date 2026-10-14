@@ -292,6 +292,18 @@ class SalesOrderLineResponse(SalesOrderSchema):
     warehouse_id: UUID | None
     storage_node_id: UUID | None
     pinned_batch_id: UUID | None = None
+    #: What the line's goods would cost: the pinned lot's cost, else the
+    #: item's average (L3 step 4). Null where unknown, and to anybody not
+    #: holding ``PRODUCT_VIEW_COST_PRICE``.
+    cost_amount: Decimal | None = None
+    #: True where ``cost_amount`` is worked out rather than recorded: the
+    #: lots the line takes, else the item's average (L3 step 4).
+    cost_is_estimate: bool = False
+    #: Taxable value less cost, and that as a percentage of cost. Like the
+    #: cost, sent only to a holder of ``PRODUCT_VIEW_COST_PRICE``; never
+    #: printed.
+    margin_amount: Decimal | None = None
+    margin_percent: Decimal | None = None
     remarks: str | None
     created_at: datetime
     updated_at: datetime
@@ -405,6 +417,11 @@ class SalesOrderResponse(SalesOrderSchema):
     additional_charges: Decimal
     round_off: Decimal
     grand_total: Decimal
+    #: What the goods cost and what the order earns over that, in total
+    #: (L3 step 4). Sent only to a holder of ``PRODUCT_VIEW_COST_PRICE``, and
+    #: null where any line's cost is unknown. Never printed.
+    cost_total: Decimal | None = None
+    margin_total: Decimal | None = None
     approved_at: datetime | None
     closed_at: datetime | None
     cancel_reason: str | None

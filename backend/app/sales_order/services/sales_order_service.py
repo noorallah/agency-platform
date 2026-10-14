@@ -126,6 +126,7 @@ from app.sales_order.services.discount_limit import (
     DiscountLimitService,
     order_discounts,
 )
+from app.sales_order.services.line_margin import cost_order_lines
 from app.sales_order.services.offer_echoes import without_what_an_offer_gave
 from app.sales_order.services.price_floor import PriceFloorService, order_lines
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
@@ -1549,16 +1550,24 @@ class SalesOrderService(TransactionalDocumentService):
         customer = self._session.get(Customer, customer_id)
         return "" if customer is None else (customer.display_name or customer.name)
 
-    def order_response(self, row: SalesOrder) -> SalesOrderResponse:
+    def order_response(
+        self, row: SalesOrder, *, show_cost: bool = False
+    ) -> SalesOrderResponse:
         """Render one sales order row as its API contract."""
-        return self.order_responses([row])[0]
+        return self.order_responses([row], show_cost=show_cost)[0]
 
-    def order_responses(self, rows: Sequence[SalesOrder]) -> list[SalesOrderResponse]:
+    def order_responses(
+        self, rows: Sequence[SalesOrder], *, show_cost: bool = False
+    ) -> list[SalesOrderResponse]:
         """Render a page of orders, reading each child table once.
 
         One query per child table for the whole page, grouped by order in
         Python, rather than four per order (backlog 56 C, step 3). The
         single-order builder is this with a list of one.
+
+        ``show_cost`` says the caller may see what the goods cost
+        (``PRODUCT_VIEW_COST_PRICE``): each line then carries its cost and
+        margin and the order its totals (L3 step 4); without it they are null.
         """
         if not rows:
             return []
@@ -1608,6 +1617,12 @@ class SalesOrderService(TransactionalDocumentService):
         for response in answer:
             response.attributes = fields.get(response.id, [])
             response.attached_file_count = files.get(response.id, 0)
+        if show_cost:
+            cost_order_lines(
+                self._session,
+                rows[0].firm_id,
+                [(response, response.lines) for response in answer],
+            )
         return answer
 
     def _order_response(

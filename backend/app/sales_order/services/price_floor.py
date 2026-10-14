@@ -305,6 +305,41 @@ class PriceFloorService:
             )
         return found
 
+    def unit_costs(
+        self, firm_id: UUID, lines: Sequence[PricedLine]
+    ) -> dict[PricedLine, Decimal]:
+        """Return each line's cost per stock unit, as the floor would judge it.
+
+        The lots the line takes where all are known (a firm costing by lot),
+        else the item's moving average, else its purchase price; a line with
+        none of the three is left out. A few reads for every line given, so a
+        page of documents is costed at once (L3 step 4).
+        """
+        product_ids = sorted({line.product_id for line in lines}, key=str)
+        if not product_ids:
+            return {}
+        averages = self._costs(firm_id, product_ids)
+        lots = self._lot_costs(firm_id, lines)
+        purchase = {
+            product_id: Decimal(price)
+            for product_id, price in self._session.execute(
+                select(Product.id, Product.purchase_price).where(
+                    Product.id.in_(product_ids)
+                )
+            ).all()
+            if price
+        }
+        found: dict[PricedLine, Decimal] = {}
+        for line in lines:
+            cost = (
+                lots.get(line)
+                or averages.get(line.product_id)
+                or purchase.get(line.product_id)
+            )
+            if cost is not None:
+                found[line] = cost
+        return found
+
     def _split(
         self, firm_id: UUID, line: PricedLine, *, as_of: date
     ) -> list[tuple[UUID | None, Decimal]]:
