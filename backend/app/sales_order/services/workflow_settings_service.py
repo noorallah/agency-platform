@@ -44,6 +44,7 @@ DEFAULT_SETTINGS = SalesWorkflowSettings(
     delivery_note_approval=True,
     sales_invoice_approval=True,
     round_bills_to_rupee=False,
+    salesman_required=False,
 )
 
 #: The approval switch of each document that has one (backlog 119).
@@ -97,6 +98,13 @@ class SalesWorkflowService:
         """
         return bool(self.settings_for(firm_id).round_bills_to_rupee)
 
+    def requires_salesman(self, firm_id: UUID) -> bool:
+        """Say whether the firm requires a salesman on its sales documents.
+
+        No row means off (P2, salesman list design section 6).
+        """
+        return bool(self.settings_for(firm_id).salesman_required)
+
     def settings_response(self, firm_id: UUID) -> SalesWorkflowSettingsResponse:
         """Report the configuration and whether the firm actually chose it."""
         stored = self._stored_settings(firm_id)
@@ -116,6 +124,7 @@ class SalesWorkflowService:
             delivery_note_approval=bool(policy.delivery_note_approval),
             sales_invoice_approval=bool(policy.sales_invoice_approval),
             round_bills_to_rupee=bool(policy.round_bills_to_rupee),
+            salesman_required=bool(policy.salesman_required),
             is_configured=stored is not None,
         )
 
@@ -153,7 +162,10 @@ class SalesWorkflowService:
         if row is None:
             # Off until chosen: a row not yet flushed has no column default.
             row = SalesWorkflowSettings(
-                firm_id=firm_id, created_by=actor_id, round_bills_to_rupee=False
+                firm_id=firm_id,
+                created_by=actor_id,
+                round_bills_to_rupee=False,
+                salesman_required=False,
             )
             self._session.add(row)
         else:
@@ -186,6 +198,8 @@ class SalesWorkflowService:
                 setattr(row, switch, True)
         if data.round_bills_to_rupee is not None:
             row.round_bills_to_rupee = data.round_bills_to_rupee
+        if data.salesman_required is not None:
+            row.salesman_required = data.salesman_required
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -218,6 +232,7 @@ class SalesWorkflowService:
             delivery_note_approval=row.delivery_note_approval,
             sales_invoice_approval=row.sales_invoice_approval,
             round_bills_to_rupee=row.round_bills_to_rupee,
+            salesman_required=row.salesman_required,
             is_configured=True,
         )
 
@@ -288,6 +303,7 @@ class SalesWorkflowService:
             "reservation_lapse_days": row.reservation_lapse_days,
             **{switch: getattr(row, switch) for switch in APPROVAL_SWITCHES},
             "round_bills_to_rupee": row.round_bills_to_rupee,
+            "salesman_required": row.salesman_required,
             "quotation_stage": row.quotation_stage,
             "sales_order_stage": row.sales_order_stage,
             "delivery_note_stage": row.delivery_note_stage,

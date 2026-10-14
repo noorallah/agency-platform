@@ -126,6 +126,7 @@ from app.sales_order.services.offer_echoes import without_what_an_offer_gave
 from app.sales_order.services.price_floor import PriceFloorService, order_lines
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.salesmen.services.nameable import nameable_salesman
+from app.salesmen.services.required import assert_salesman_named
 from app.settlements.models import Settlement
 from app.tax.schemas import TaxRuleSimulationRequest, TaxRuleSimulationResponse
 from app.tax.services.inclusive_rate import (
@@ -477,6 +478,7 @@ class SalesOrderService(TransactionalDocumentService):
             route_id=data.route_id,
             on_date=data.order_date,
         )
+        assert_salesman_named(self._session, firm_id, scope.salesman_id)
         order_number = self._issue_number(
             numbering_rule,
             typed=data.order_number,
@@ -621,6 +623,7 @@ class SalesOrderService(TransactionalDocumentService):
             route_id=data.route_id,
             on_date=data.order_date,
         )
+        assert_salesman_named(self._session, firm_scope, scope.salesman_id)
         # Absent keeps the order's own ship-to -- unless the order moved to
         # another customer, whose addresses the old one is not among.
         if "shipping_address_id" in data.model_fields_set:

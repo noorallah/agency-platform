@@ -44,13 +44,18 @@ from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
 from app.identity.system_seed import ROLE_PERMISSION_CODES
-from app.sales.models import SalesTerritoryNode, TerritorySalesmanAssignment
+from app.sales.models import (
+    SalesTerritoryNode,
+    TerritoryCustomerAssignment,
+    TerritorySalesmanAssignment,
+)
 from app.sales_invoice.models import SalesInvoice
 from app.salesmen.api.router import (
     SalesmanManageScope,
     create_salesman,
     delete_salesman,
     get_salesman,
+    get_starting_choice,
     list_salesmen,
     restore_salesman,
     router,
@@ -639,3 +644,124 @@ def test_the_move_points_each_firms_rows_at_its_own_entry(shop: _Shop) -> None:
     assert (late_entry.firm_id, late_entry.user_id) == (second, late)
     assert shop.session.get(SalesInvoice, written_since.id).salesman_id == late  # type: ignore[union-attr]
     assert len(shop.session.scalars(select(Salesman)).all()) == 3
+
+
+# -- step 3: what the box starts on -------------------------------------------
+
+
+def _customer_on_a_round(
+    shop: _Shop,
+    *,
+    manager: UUID | None,
+    round_salesman: UUID | None,
+    also_covers: UUID | None = None,
+) -> UUID:
+    """Add a customer, his account manager, and a round with a primary salesman.
+
+    The account manager is skipped unless he covers the customer's round, as
+    on save; ``also_covers`` puts a second, non-primary salesman on it.
+    """
+    customer = Customer(
+        firm_id=shop.firm.id,
+        code=f"CUS-{uuid4().hex[:6]}",
+        customer_type="BUSINESS",
+        name="Corner Shop",
+        display_name="Corner Shop",
+        currency_code="INR",
+        status="ACTIVE",
+        credit_limit=Decimal("0"),
+        opening_balance=Decimal("0"),
+        salesman_id=manager,
+    )
+    territory = SalesTerritoryNode(
+        firm_id=shop.firm.id,
+        hierarchy_level_id=uuid4(),
+        code=f"R{uuid4().hex[:4]}",
+        name="Round",
+        path="R",
+        status="ACTIVE",
+    )
+    shop.session.add_all([customer, territory])
+    shop.session.flush()
+    shop.session.add(
+        TerritoryCustomerAssignment(
+            territory_id=territory.id, customer_id=customer.id, is_primary=True
+        )
+    )
+    if round_salesman is not None:
+        shop.session.add(
+            TerritorySalesmanAssignment(
+                territory_id=territory.id, salesman_id=round_salesman, is_primary=True
+            )
+        )
+    if also_covers is not None:
+        shop.session.add(
+            TerritorySalesmanAssignment(
+                territory_id=territory.id, salesman_id=also_covers, is_primary=False
+            )
+        )
+    shop.session.commit()
+    return customer.id
+
+
+def _start(shop: _Shop, user: User, customer_id: UUID | None) -> tuple[str, str]:
+    """Ask the route what the box starts on: (source, name or '')."""
+    result = get_starting_choice(
+        shop.scope(user, set()), customer_id=customer_id, db=shop.session
+    )
+    assert result.data is not None
+    return result.data.source, result.data.name or ""
+
+
+def test_the_box_starts_on_the_users_own_entry(shop: _Shop) -> None:
+    shop.add("Ravi", user_id=shop.clerk.id)
+    manager = shop.add("Mohan")
+    customer = _customer_on_a_round(shop, manager=manager, round_salesman=None)
+
+    assert _start(shop, shop.clerk, customer) == ("USER", "Ravi")
+    assert _start(shop, shop.clerk, None) == ("USER", "Ravi")
+
+
+def test_then_the_account_manager_then_the_rounds_primary(shop: _Shop) -> None:
+    manager = shop.add("Mohan")
+    beat = shop.add("Sita")
+    with_manager = _customer_on_a_round(
+        shop, manager=manager, round_salesman=beat, also_covers=manager
+    )
+    without = _customer_on_a_round(shop, manager=None, round_salesman=beat)
+
+    assert _start(shop, shop.clerk, with_manager) == ("ACCOUNT_MANAGER", "Mohan")
+    assert _start(shop, shop.clerk, without) == ("ROUND", "Sita")
+
+
+def test_an_inactive_entry_is_never_the_start(shop: _Shop) -> None:
+    shop.add("Ravi", user_id=shop.clerk.id, is_active=False)
+    manager = shop.add("Mohan")
+    beat = shop.add("Sita")
+    customer = _customer_on_a_round(shop, manager=manager, round_salesman=beat)
+    for entry in (manager, beat):
+        update_salesman(
+            entry,
+            SalesmanUpdate(is_active=False),
+            shop.writer,
+            Response(),
+            db=shop.session,
+        )
+
+    assert _start(shop, shop.clerk, customer) == ("NONE", "")
+
+
+def test_the_box_starts_blank_with_nothing_to_go_on(shop: _Shop) -> None:
+    customer = _customer_on_a_round(shop, manager=None, round_salesman=None)
+
+    assert _start(shop, shop.clerk, customer) == ("NONE", "")
+    assert _start(shop, shop.clerk, None) == ("NONE", "")
+    with pytest.raises(ResourceNotFoundError, match="Customer"):
+        _start(shop, shop.clerk, uuid4())
+
+
+def test_the_starting_choice_is_declared_before_the_id_route() -> None:
+    paths = [getattr(item, "path", "") for item in router.routes]
+    assert paths.index("/api/v1/salesmen/starting-choice") < paths.index(
+        "/api/v1/salesmen/{salesman_id}"
+    )

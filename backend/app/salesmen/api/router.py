@@ -19,9 +19,15 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.salesmen.schemas import SalesmanCreate, SalesmanResponse, SalesmanUpdate
+from app.salesmen.schemas import (
+    SalesmanCreate,
+    SalesmanResponse,
+    SalesmanStartingChoice,
+    SalesmanUpdate,
+)
 from app.salesmen.services import SalesmanService
 from app.salesmen.services.salesman_service import SalesmanSort
+from app.salesmen.services.starting_choice import starting_choice
 
 router = APIRouter(
     prefix="/api/v1/salesmen",
@@ -78,6 +84,29 @@ def create_salesman(
     )
     set_etag(response, row)
     return ApiResponse(data=SalesmanResponse.model_validate(row))
+
+
+# Declared before "/{salesman_id}", which would read "starting-choice" as an id.
+@router.get("/starting-choice", response_model=ApiResponse[SalesmanStartingChoice])
+def get_starting_choice(
+    scope: RequiredFirmScope,
+    customer_id: Annotated[UUID | None, Query()] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesmanStartingChoice]:
+    """Say what a new document's Salesman box starts on, and why.
+
+    The signed-in user's own entry, else the customer's account manager,
+    else the primary salesman of the customer's round, else nobody (P2,
+    salesman list design section 5). Gated on membership, like the list.
+    """
+    return ApiResponse(
+        data=starting_choice(
+            db,
+            firm_id=scope.firm_id,
+            user_id=scope.actor_id,
+            customer_id=customer_id,
+        )
+    )
 
 
 @router.get("/{salesman_id}", response_model=ApiResponse[SalesmanResponse])

@@ -19,6 +19,7 @@ add a sixth caller's entry point.
 
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -91,8 +92,7 @@ def resolve_sales_scope(
     resolved_salesman = (
         _validated_salesman(session, firm_id, resolved_territory, salesman_id)
         if salesman_id is not None
-        else _account_manager(session, firm_id, customer_id, resolved_territory)
-        or _derived_salesman(session, firm_id, resolved_territory)
+        else filled_salesman(session, firm_id, customer_id, resolved_territory)[0]
     )
     return ResolvedSalesScope(
         territory_id=resolved_territory,
@@ -113,6 +113,45 @@ def resolve_sales_scope(
             else _route_profile_for(session, resolved_territory, on_date)
         ),
         salesman_id=resolved_salesman,
+    )
+
+
+#: Where a filled-in salesman came from: the customer's account manager, the
+#: salesman of the customer's round (or of a round above it), or nobody.
+FilledFrom = Literal["ACCOUNT_MANAGER", "ROUND", "NONE"]
+
+
+def filled_salesman(
+    session: Session,
+    firm_id: UUID,
+    customer_id: UUID,
+    territory_id: UUID | None,
+) -> tuple[UUID | None, FilledFrom]:
+    """Return the salesman a blank is filled with, and where he came from.
+
+    The account manager first, then the round's salesman, as
+    `resolve_sales_scope` fills a blank on save. Shared with the salesman
+    box's starting choice (P2, salesman list design section 5), so the box
+    shows on screen what the server would have filled.
+    """
+    manager = _account_manager(session, firm_id, customer_id, territory_id)
+    if manager is not None:
+        return manager, "ACCOUNT_MANAGER"
+    derived = _derived_salesman(session, firm_id, territory_id)
+    if derived is not None:
+        return derived, "ROUND"
+    return None, "NONE"
+
+
+def customer_salesman(
+    session: Session, firm_id: UUID, customer_id: UUID
+) -> tuple[UUID | None, FilledFrom]:
+    """Return what a blank salesman on a new document for this customer takes.
+
+    The territory is the one a blank territory derives to, as on save.
+    """
+    return filled_salesman(
+        session, firm_id, customer_id, _derived_territory(session, customer_id)
     )
 
 

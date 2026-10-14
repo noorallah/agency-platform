@@ -585,6 +585,9 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     #: Whether the server rounds every sales bill and credit note to the
     #: nearest rupee (backlog 134).
     round_bills_to_rupee: bool = False
+    #: Whether the order, the delivery note and the bill must name a
+    #: salesman (P2, salesman list design section 6).
+    salesman_required: bool = False
     is_configured: bool
 
 
@@ -630,6 +633,9 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     #: (backlog 134). Omitted is left as it is; a change reaches documents
     #: saved from then on.
     round_bills_to_rupee: bool | None = None
+    #: Require a salesman on every order, delivery note and bill (P2).
+    #: Omitted is left as it is; the rule applies to each document's next save.
+    salesman_required: bool | None = None
 
 
 class SalesOrderPreview(SalesOrderSchema):

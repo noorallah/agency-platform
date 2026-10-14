@@ -161,6 +161,7 @@ from app.sales_order.services.sales_order_service import (
 )
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.salesmen.services.nameable import nameable_salesman
+from app.salesmen.services.required import assert_salesman_named
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.gst_buckets import TaxComponent, split_components
@@ -655,6 +656,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             territory_id=territory_id,
             on_date=data.invoice_date,
         )
+        assert_salesman_named(self._session, firm_id, salesman_id)
         self._validate_customer_invoice_number(
             firm_id=firm_id,
             customer_id=customer_id,
@@ -1022,6 +1024,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             territory_id=row.territory_id,
             route_id=row.route_id,
         )
+        assert_salesman_named(self._session, firm_id, row.salesman_id)
         self._validate_customer_invoice_number(
             firm_id=firm_id,
             customer_id=row.customer_id,
