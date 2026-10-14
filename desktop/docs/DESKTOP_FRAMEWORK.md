@@ -254,3 +254,40 @@ every date. Where the dates hold nothing, show `PeriodEmptyState` rather than
 trailing widget is given `DateRangeFilter.room` and may shrink; anything
 else trailing is budgeted 120 px and may not.
 
+## A Settings section that opens as one screen
+
+Backlog 148. A section of Settings is a **subject** when
+`SettingsSubjects` (`lib/phase2/settings_subject.dart`) holds an entry for
+its label. The Settings page then shows one card for it, and the card opens
+`SettingsSubjectPage`: a **Start here** tab, the steps as numbered tabs in
+the order they are set up in, and the checking tools set apart at the end.
+
+- **A subject declares no screen.** Each `SubjectStep` names the path of an
+  item already in `MenuLayout.settings`; what it opens, who is offered it
+  and what search calls it are still said there, once. Do not move or
+  rename the items: `reachable_features_test.dart` and
+  `test_search_navigation_targets.py` parse them, and search must go on
+  finding each by its own name.
+- **One call, and only when the subject is opened.** The page reads
+  `GET /api/v1/settings-sections/{section}/state` once; switching tabs asks
+  nothing, the Settings page asks nothing, and only Refresh asks again.
+  `settings_subject_test.dart` counts the calls. The server holds one
+  function per section in `SECTIONS` (`app/settings_sections/services`),
+  and that read never writes.
+- **A step that is a screen** is built by the shell (`_taxScreen` for the
+  tax tabs, shared with the Administration workspace so the two cannot
+  differ). **A step that is a window** shows its line, what it is set to
+  now and a button that opens the same window.
+- **To do** is only for a step without which the next thing cannot be
+  saved or would be wrong; everything else is Optional, and Done says where
+  a ready-made one came from.
+- A step the role is not offered has no tab and no row; the numbers stay
+  those of the full list.
+
+To add a section: an entry in `SettingsSubjects.all` with its route beside
+`MenuLayout.taxSubjectRoute` and in `MenuLayout.subjectPages`, a function in
+`SECTIONS`, and a row in the table below.
+
+| Section | Steps, in order | Why this order | Tools at the end | State |
+| --- | --- | --- | --- | --- |
+| Tax | 1 Rates and profiles (To do when the firm has no profile), 2 Tax rules (To do when no rule is active), 3 Tax settings, 4 GST on documents, 5 TDS on purchases (3 to 5 always Optional) | A rule picks a profile, so profiles come first; the server does take a rule that names none (the GST template's rules pick by the product's tax group), so this is what a new firm does first rather than a refusal: **decided by the loop**. A profile needs a tax system, made on the same screen as step 1. Steps 3 to 5 name no profile and no rule | Rule simulator, Execution log | Built, row T1 |

@@ -150,6 +150,8 @@ import '../phase2/home_page.dart';
 import '../phase2/menu_layout.dart';
 import '../phase2/my_preferences_dialog.dart';
 import '../phase2/set_up_page.dart';
+import '../phase2/settings_subject.dart';
+import '../phase2/settings_subject_page.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/module_visibility.dart';
@@ -909,6 +911,11 @@ class _DesktopShellState extends State<DesktopShell> {
   /// longer allowed (a changed role, another firm).
   bool _pathAllowed(String path) {
     if (path == MenuLayout.homeRoute) return widget.phase2;
+    // A Settings subject is open to whoever is offered one of its tabs.
+    final SettingsSubject? subject = SettingsSubjects.forRoute(path);
+    if (subject != null) {
+      return widget.phase2 && _subjectItems(subject).isNotEmpty;
+    }
     // A phase 2 screen follows the catalogue screen it is gated on.
     final MenuItemSpec? phase2Item = MenuLayout.itemFor(path);
     if (phase2Item != null && phase2Item.module == null) {
@@ -926,6 +933,47 @@ class _DesktopShellState extends State<DesktopShell> {
         module.tabs.isEmpty ||
         _visibility.tabIds(module).contains(location.tab);
   }
+
+  /// The items of [subject]'s Settings section this user is offered: the
+  /// menu's own answer, so the subject screen shows a tab exactly where the
+  /// Settings page would have shown a card.
+  List<MenuItemSpec> _subjectItems(SettingsSubject subject) {
+    final Set<String> tabs = {
+      for (final SubjectStep step in subject.entries) step.path,
+    };
+    return [
+      for (final MenuGroupSpec group
+          in MenuLayout.visible(MenuLayout.settings, _visibility)?.groups ??
+              const <MenuGroupSpec>[])
+        if (group.label == subject.section)
+          for (final MenuItemSpec item in group.items)
+            if (tabs.contains(item.path)) item,
+    ];
+  }
+
+  /// A Settings subject as one screen (backlog 148). Keyed on the firm, so
+  /// another firm's states are read afresh; the read itself is the page's
+  /// one call.
+  Widget _subjectPage(SettingsSubject subject) => SettingsSubjectPage(
+        key: ValueKey(
+          'subject-${subject.sectionCode}-'
+          '${widget.session.firmContextVersion}',
+        ),
+        subject: subject,
+        visible: _subjectItems(subject),
+        loadState: () =>
+            widget.session.api.settingsSectionState(subject.sectionCode),
+        screenFor: (item) =>
+            (item.module == AppModule.administration && item.tab != null
+                ? _taxScreen(
+                    item.tab!, widget.session.api, widget.permissions)
+                : null) ??
+            const WorkspaceEmptyState(
+              title: 'This step has no screen here',
+              message: 'Open it from Settings search instead.',
+            ),
+        openWindow: (item) => unawaited(_openSettingDialog(item)),
+      );
 
   String _screenLabel(String path) {
     final MenuItemSpec? item = MenuLayout.itemFor(path);
@@ -1135,7 +1183,15 @@ class _DesktopShellState extends State<DesktopShell> {
                                 onSection: (section) =>
                                     _setUpSection = section,
                                 onOpen: _openFromMenu,
+                                onOpenSubject: (subject) =>
+                                    _openFromMenu(subject.page),
                               )
+                        : widget.phase2 &&
+                                SettingsSubjects.forRoute(
+                                        _router.current.path) !=
+                                    null
+                            ? _subjectPage(SettingsSubjects.forRoute(
+                                _router.current.path)!)
                         : widget.phase2 &&
                                 _router.current.path ==
                                     MenuLayout.payablesRoute
@@ -2702,6 +2758,44 @@ class _FirmSwitcherDialogState extends State<FirmSwitcherDialog> {
   }
 }
 
+/// The body of one of Administration's tax tabs, or null for any other tab.
+///
+/// The Administration workspace shows it under its own heading and the
+/// Settings > Tax screen shows it under a step's tab (backlog 148); both come
+/// here so the two cannot build a screen differently.
+Widget? _taxScreen(
+  String tabId,
+  ApiClient api,
+  PermissionService permissions,
+) =>
+    switch (tabId) {
+      'tax-configuration' => TaxConfigurationPage(
+          api: api,
+          permissions: permissions,
+        ),
+      'tax-rules-page' => TaxRulesPage(
+          api: api,
+          permissions: permissions,
+        ),
+      'tax-rule-simulator' => TaxRuleSimulatorPage(
+          api: api,
+          permissions: permissions,
+        ),
+      'tax-execution-log' => TaxManagementPage(
+          api: api,
+          permissions: permissions,
+          hasActiveFirm: api.activeFirmId?.call() != null,
+          section: TaxManagementSection.executionLog,
+        ),
+      'tax-settings' => TaxManagementPage(
+          api: api,
+          permissions: permissions,
+          hasActiveFirm: api.activeFirmId?.call() != null,
+          section: TaxManagementSection.settings,
+        ),
+      _ => null,
+    };
+
 class _AdministrationWorkspace extends StatefulWidget {
   const _AdministrationWorkspace({
     super.key,
@@ -2916,30 +3010,13 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           definition:
               _firmProfileAssignmentDefinition(widget.api, widget.permissions),
         ),
-      'tax-configuration' => TaxConfigurationPage(
-          api: widget.api,
-          permissions: widget.permissions,
-        ),
-      'tax-rules-page' => TaxRulesPage(
-          api: widget.api,
-          permissions: widget.permissions,
-        ),
-      'tax-rule-simulator' => TaxRuleSimulatorPage(
-          api: widget.api,
-          permissions: widget.permissions,
-        ),
-      'tax-execution-log' => TaxManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.executionLog,
-        ),
-      'tax-settings' => TaxManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.settings,
-        ),
+      // Built in one place: Settings > Tax shows the same five (backlog 148).
+      'tax-configuration' ||
+      'tax-rules-page' ||
+      'tax-rule-simulator' ||
+      'tax-execution-log' ||
+      'tax-settings' =>
+        _taxScreen(tabId, widget.api, widget.permissions)!,
       'uoms' => UomManagementPage(
           api: widget.api,
           permissions: widget.permissions,

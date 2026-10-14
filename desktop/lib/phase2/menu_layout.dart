@@ -257,6 +257,17 @@ abstract final class MenuLayout {
   /// dispatching a sale before its invoice. A dialog, under Tax.
   static const String gstDocumentsRoute = 'settings/gst-documents';
 
+  /// Settings > Tax as one screen (backlog 148): a Start here tab, the
+  /// section's steps in order and its checking tools. The section's items
+  /// stay in [settings] under their own names; `settings_subject.dart` says
+  /// which of them the screen shows.
+  static const String taxSubjectRoute = 'settings/subject/tax';
+
+  /// The subject screens as items, so each tab has a label and a path.
+  static const List<MenuItemSpec> subjectPages = [
+    MenuItemSpec.phase2(taxSubjectRoute, 'Tax settings'),
+  ];
+
   /// Messaging (backlog 51): the firm's switch, accounts, events and log.
   static const String messagingRoute = 'settings/messaging';
 
@@ -726,6 +737,9 @@ abstract final class MenuLayout {
   /// The item a router path names, for an open-screen tab's label.
   static MenuItemSpec? itemFor(String path) {
     if (path == setUpRoute) return setUpPage;
+    for (final MenuItemSpec page in subjectPages) {
+      if (page.path == path) return page;
+    }
     for (final MenuAreaSpec area in all) {
       for (final MenuItemSpec item in area.items) {
         if (item.path == path) return item;

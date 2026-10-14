@@ -1167,6 +1167,32 @@ opens any screen by name.
 ---
 
 
+### TC-CONF-010 — Settings > Tax opens as one screen, and Start here says where the firm stands
+
+*Added 2026-10-14 (customer task T1, backlog 148). Covered by widget tests and by the state read over HTTP; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** the Tax card on the Settings page; the *Tax settings* screen (Start here, the numbered steps, the checking tools); the one read of the states; search for a tax item by its own name
+- **Fixture:** `ready-firm` (set up from the GST template), as its **Firm admin**; for step 8 a firm with no tax set up
+- **Steps**
+  1. Press the gear, choose the **Tax** section and read what it shows.
+  2. Press the **Tax** card and read the tabs from left to right.
+  3. Read the note on top of **Start here** and the five rows.
+  4. Press **Open** on row 2.
+  5. Go to tab **4 GST on documents** and press **Open GST on documents**; close the window.
+  6. Go to **Check: Rule simulator**, then back to **Start here**.
+  7. Go back to Settings, type **Tax Rules** in *Search settings* and press the card found.
+  8. On a firm with no tax set up, open the **Tax** card.
+- **Expect**
+  - Step 1: one card, **Tax**, *GST rates and rules, GST on documents, TDS*, *Opens one screen*; not seven cards.
+  - Step 2: a tab **Tax settings** opens on **Start here**, then **1 Rates and profiles, 2 Tax rules, 3 Tax settings, 4 GST on documents, 5 TDS on purchases**, and after them **Check: Rule simulator** and **Check: Execution log**.
+  - Step 3: *Tax is ready for this firm.* Rows 1 and 2 read **Done** with a count and *from the GST template*; rows 3, 4 and 5 read **Optional** (*Set for this firm*, *Off*, *Off*).
+  - Step 4: the Tax Rules list, as it is under its own name, with one line above it saying a rule picks a profile from step 1.
+  - Step 5: the tab says what the step is and what it is set to; the button opens the same GST Documents window as before.
+  - Step 6: each tab shows its screen; Start here shows the same states without reading them again.
+  - Step 7: the Tax Rules screen opens on its own, as it always did.
+  - Step 8: the note reads **2 steps to do.** and rows 1 and 2 read **To do**, *None yet*.
+- **Leaves:** nothing.
+
 ## Buying — order to payment
 
 Four documents: a purchase order, goods receipts against it, a supplier
