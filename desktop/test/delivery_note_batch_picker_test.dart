@@ -60,6 +60,35 @@ BatchAvailabilityRecord _batch(
       'fefo': fefo.toString(),
     });
 
+/// A lot of a firm costing by lot (L2 step 11).
+BatchAvailabilityRecord _lot(
+  String id, {
+  required String batch,
+  required double available,
+  required double fefo,
+  String? group,
+  bool printed = true,
+  String? cost,
+}) =>
+    BatchAvailabilityRecord.fromJson(<String, dynamic>{
+      'batch_id': id,
+      'batch_number': batch,
+      'expiry_date': '2027-06-01',
+      'days_to_expiry': 200,
+      'on_hand': '$available',
+      'reserved': '0',
+      'available': '$available',
+      'available_to_line': '$available',
+      'expired': false,
+      'near_expiry': false,
+      'fefo': '$fefo',
+      'lot_reference': 'LOT-$id',
+      'received_on': '2026-07-0${id.length}',
+      'has_printed_batch': printed,
+      'pick_group': group,
+      if (cost != null) 'unit_cost': cost,
+    });
+
 class _NoteApi extends ApiClient {
   _NoteApi()
       : super(
@@ -71,6 +100,9 @@ class _NoteApi extends ApiClient {
 
   Json? sent;
   Map<String, Object?>? asked;
+
+  /// What the picker is told, in place of the four batches below.
+  List<BatchAvailabilityRecord>? rows;
 
   @override
   Future<List<BatchAvailabilityRecord>> batchAvailability({
@@ -90,6 +122,8 @@ class _NoteApi extends ApiClient {
       'sales_order_line_id': salesOrderLineId,
       'customer_id': customerId,
     };
+    final List<BatchAvailabilityRecord>? given = rows;
+    if (given != null) return given;
     return [
       _batch('old', expiry: '2026-12-01', days: 20, fefo: 6, near: true),
       _batch('new', expiry: '2027-06-01', days: 200, fefo: 4),
@@ -285,5 +319,93 @@ void main() {
         (api.sent!['lines'] as List<dynamic>).single as Map<String, dynamic>;
     expect(line['batches'], isNull);
     expect(line.containsKey('batches'), isFalse);
+  });
+
+  testWidgets('lots sharing a pick group are one row, split oldest first',
+      (tester) async {
+    final _NoteApi api = _NoteApi()
+      ..rows = [
+        _lot('a1', batch: 'BN-A', available: 4, fefo: 4, group: 'g-a'),
+        _lot('a22', batch: 'BN-A', available: 20, fefo: 6, group: 'g-a'),
+        _lot('b333', batch: 'BN-B', available: 20, fefo: 0, group: 'g-b'),
+      ];
+    await _open(tester, api);
+
+    // One row for the two lots of BN-A, with their total.
+    expect(find.text('BN-A'), findsOneWidget);
+    expect(find.textContaining('2 lots'), findsOneWidget);
+    expect(find.textContaining('can take 24'), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('batch-pick-so-line-1-a22')),
+        findsNothing);
+    TextField box(String id) => tester.widget<TextField>(find.descendant(
+        of: find.byKey(ValueKey<String>('batch-pick-so-line-1-$id')),
+        matching: find.byType(TextField)));
+    expect(box('a1').controller!.text, '10');
+    // Nobody may see cost here: no cost column.
+    expect(find.byKey(const ValueKey<String>('batch-cost-so-line-1-a1')),
+        findsNothing);
+
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('batch-pick-so-line-1-a1')), '7');
+    await tester.pump();
+    await tester.enterText(
+        find.byKey(const ValueKey<String>('batch-pick-so-line-1-b333')), '3');
+    await tester.pump();
+    expect(find.textContaining('Chosen 10 of 10'), findsOneWidget);
+
+    await _save(tester);
+    final Map<String, dynamic> line =
+        (api.sent!['lines'] as List<dynamic>).single as Map<String, dynamic>;
+    final List<dynamic> batches = line['batches'] as List<dynamic>;
+    expect([
+      for (final dynamic pick in batches)
+        '${pick['batch_id']}=${num.parse('${pick['quantity']}')}',
+    ], ['a1=4', 'a22=3', 'b333=3']);
+  });
+
+  testWidgets('an unprinted lot shows no batch number', (tester) async {
+    final _NoteApi api = _NoteApi()
+      ..rows = [
+        _lot('u1', batch: 'LOT-OURS-1', available: 20, fefo: 10,
+            printed: false),
+      ];
+    await _open(tester, api);
+
+    expect(find.text('LOT-OURS-1'), findsNothing);
+    expect(
+        tester
+            .widget<Text>(find.byKey(
+                const ValueKey<String>('batch-label-so-line-1-u1')))
+            .data,
+        '-');
+    expect(find.textContaining('received'), findsOneWidget);
+  });
+
+  testWidgets('the cost column shows only when a lot carries a cost',
+      (tester) async {
+    final _NoteApi api = _NoteApi()
+      ..rows = [
+        _lot('c1', batch: 'BN-C', available: 4, fefo: 4, group: 'g-c',
+            cost: '12.5'),
+        _lot('c22', batch: 'BN-C', available: 20, fefo: 6, group: 'g-c',
+            cost: '13'),
+        _lot('d333', batch: 'BN-D', available: 20, fefo: 0, group: 'g-d',
+            cost: '11'),
+      ];
+    await _open(tester, api);
+
+    Text cost(String id) => tester.widget<Text>(
+        find.byKey(ValueKey<String>('batch-cost-so-line-1-$id')));
+    expect(cost('c1').data, '12.50-13.00');
+    expect(cost('d333').data, '11.00');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a firm on Average sees every batch as before', (tester) async {
+    final _NoteApi api = _NoteApi();
+    await _open(tester, api);
+    expect(find.textContaining('lots'), findsNothing);
+    expect(find.byKey(const ValueKey<String>('batch-cost-so-line-1-old')),
+        findsNothing);
   });
 }

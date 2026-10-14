@@ -336,7 +336,28 @@ class BatchAvailabilityRecord {
     this.sellingPrice,
     this.ptr,
     this.pts,
+    this.lotReference,
+    this.receivedOn = '',
+    this.hasPrintedBatch = true,
+    this.pickGroup,
+    this.unitCost,
   });
+
+  /// The lot (L2 step 4): our own reference and the day it arrived. Where
+  /// [hasPrintedBatch] is false the goods carry no printed batch and
+  /// [batchNumber] is only that reference, so no screen shows it as one.
+  final String? lotReference;
+  final String receivedOn;
+  final bool hasPrintedBatch;
+
+  /// For a firm costing by lot: lots sharing this key agree on batch,
+  /// expiry, MRP and selling prices and are one row in the picker, taken in
+  /// the order the server listed them. Null for a firm on Average.
+  final String? pickGroup;
+
+  /// What one stock unit of the lot cost; sent only to somebody allowed to
+  /// see cost, and only for a firm costing by lot.
+  final double? unitCost;
 
   /// Retailer / stockist rate per stock unit; null when the batch has none.
   final double? ptr;
@@ -390,6 +411,16 @@ class BatchAvailabilityRecord {
             json['selling_price'] == null ? null : _num(json['selling_price']),
         ptr: json['ptr'] == null ? null : _num(json['ptr']),
         pts: json['pts'] == null ? null : _num(json['pts']),
+        lotReference: json['lot_reference'] == null
+            ? null
+            : stringValue(json['lot_reference']),
+        receivedOn: stringValue(json['received_on']),
+        hasPrintedBatch: json['has_printed_batch'] != false,
+        pickGroup: json['pick_group'] == null ||
+                stringValue(json['pick_group']).isEmpty
+            ? null
+            : stringValue(json['pick_group']),
+        unitCost: json['unit_cost'] == null ? null : _num(json['unit_cost']),
       );
 }
 
@@ -642,4 +673,94 @@ class SerialTrailEvent {
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         movedAt: stringValue(json['moved_at']),
       );
+}
+
+double? _optionalNumber(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse('$value');
+}
+
+/// One document a lot passed through (`/batches/{id}/trail`, L2 step 11).
+/// [quantity] is signed -- in positive, out negative, zero for a bill that
+/// moved no goods; [costAmount] is null where the server sent no cost.
+class LotTrailEvent {
+  const LotTrailEvent({
+    required this.documentType,
+    required this.documentId,
+    required this.documentNumber,
+    required this.documentDate,
+    required this.partyName,
+    required this.quantity,
+    required this.costAmount,
+    required this.lineNumber,
+  });
+
+  final String documentType;
+  final String documentId;
+  final String documentNumber;
+  final String documentDate;
+  final String partyName;
+  final double quantity;
+  final double? costAmount;
+  final int? lineNumber;
+
+  factory LotTrailEvent.fromJson(Json json) => LotTrailEvent(
+        documentType: stringValue(json['document_type']),
+        documentId: stringValue(json['document_id']),
+        documentNumber: stringValue(json['document_number']),
+        documentDate: stringValue(json['document_date']),
+        partyName: stringValue(json['party_name']),
+        quantity: _optionalNumber(json['quantity']) ?? 0,
+        costAmount: _optionalNumber(json['cost_amount']),
+        lineNumber: json['line_number'] == null
+            ? null
+            : _intValue(json['line_number']),
+      );
+}
+
+/// A lot and every document it passed through, its arrival first
+/// (`GET /batch-serial/batches/{id}/trail`, L2 step 11). Where
+/// [hasPrintedBatch] is false the batch number is only our own reference and
+/// is never shown as a batch.
+class LotTrail {
+  const LotTrail({
+    required this.batch,
+    required this.lotReference,
+    required this.hasPrintedBatch,
+    required this.receivedOn,
+    required this.sourceType,
+    required this.unitCost,
+    required this.events,
+  });
+
+  final BatchRecord batch;
+  final String lotReference;
+  final bool hasPrintedBatch;
+  final String receivedOn;
+  final String sourceType;
+
+  /// Null where the server sent no cost.
+  final double? unitCost;
+  final List<LotTrailEvent> events;
+
+  factory LotTrail.fromJson(Json json) {
+    final dynamic batch = json['batch'];
+    final dynamic events = json['events'];
+    return LotTrail(
+      batch: BatchRecord.fromJson(
+          batch is Map ? Map<String, dynamic>.from(batch) : <String, dynamic>{}),
+      lotReference: stringValue(json['lot_reference']),
+      hasPrintedBatch: json['has_printed_batch'] != false,
+      receivedOn: stringValue(json['received_on']),
+      sourceType: stringValue(json['source_type']),
+      unitCost: _optionalNumber(json['unit_cost']),
+      events: [
+        if (events is List)
+          for (final dynamic item in events)
+            if (item is Map)
+              LotTrailEvent.fromJson(Map<String, dynamic>.from(item)),
+      ],
+    );
+  }
 }

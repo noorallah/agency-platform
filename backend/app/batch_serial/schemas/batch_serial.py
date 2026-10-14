@@ -462,6 +462,47 @@ class SerialTrail(SerialSchema):
     events: list[SerialTrailEvent]
 
 
+class LotTrailEvent(BatchSchema):
+    """One document that moved a lot, billed it, or corrected its cost (L2)."""
+
+    #: ``GOODS_RECEIPT``, ``OPENING_STOCK``, ``PURCHASE_INVOICE``,
+    #: ``DELIVERY_NOTE``, ``SALES_INVOICE``, ``SALES_RETURN``,
+    #: ``PURCHASE_RETURN``, ``STOCK_TRANSFER``, ``ADJUSTMENT``, ``REPACK``,
+    #: ``COST_CORRECTION`` or ``OTHER``.
+    document_type: str
+    #: None where the movement names no document the firm keeps.
+    document_id: UUID | None
+    document_number: str
+    document_date: date | None
+    #: The supplier on a receipt, supplier's bill or purchase return; the
+    #: customer on a delivery note, sales bill or sales return; else None.
+    party_name: str | None
+    #: Signed, in the stock unit: + into the lot, - out of it, 0 for a bill or
+    #: a cost correction.
+    quantity: Decimal
+    #: The value the movement carried, or the bill line's amount before tax;
+    #: None for a caller without ``PRODUCT_VIEW_COST_PRICE``.
+    cost_amount: Decimal | None = None
+    line_number: int | None = None
+
+
+class LotTrail(BatchSchema):
+    """A lot's page: the batch, where it came from, and everything since."""
+
+    batch: BatchResponse
+    lot_reference: str | None
+    has_printed_batch: bool
+    received_on: date | None
+    #: What made the lot: GOODS_RECEIPT, OPENING_STOCK, ADJUSTMENT, REPACK or
+    #: CARRIED_FORWARD; None on a batch older than the lots.
+    source_type: str | None
+    #: One stock unit's cost now, from ``batch_valuations``; None without
+    #: ``PRODUCT_VIEW_COST_PRICE`` or where the lot carries no valuation.
+    unit_cost: Decimal | None = None
+    #: Oldest first, the arrival first.
+    events: list[LotTrailEvent]
+
+
 class SerialListFilters(SerialSchema):
     """Validated filters for serial number listing."""
 

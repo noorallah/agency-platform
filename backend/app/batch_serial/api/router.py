@@ -27,9 +27,14 @@ from app.batch_serial.schemas import (
     SerialResponse,
     SerialUpdate,
 )
-from app.batch_serial.schemas.batch_serial import ReturnDueResponse, SerialTrail
+from app.batch_serial.schemas.batch_serial import (
+    LotTrail,
+    ReturnDueResponse,
+    SerialTrail,
+)
 from app.batch_serial.services import BatchSalePolicyService, BatchSerialService
 from app.batch_serial.services.expiry_rules import expiry_rules, returns_due
+from app.batch_serial.services.lot_history import lot_trail
 from app.batch_serial.services.serial_history import serial_trail
 from app.common.firm_metadata import firm_today
 from app.common.scope import (
@@ -251,6 +256,27 @@ def get_batch(
     service = BatchSerialService(db)
     record = service.get_batch(firm_scope=scope.firm_id, batch_id=batch_id)
     return ApiResponse(data=service.batch_response(record, firm_scope=scope.firm_id))
+
+
+@router.get("/batches/{batch_id}/trail", response_model=ApiResponse[LotTrail])
+def get_lot_trail(
+    batch_id: UUID,
+    scope: BatchViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[LotTrail]:
+    """Return a lot and every document since it arrived (L2 step 11).
+
+    The receipt or opening stock first, then its moves, the supplier's bill
+    and the sales bills; cost only for ``PRODUCT_VIEW_COST_PRICE``.
+    """
+    return ApiResponse(
+        data=lot_trail(
+            db,
+            firm_id=scope.firm_id,
+            batch_id=batch_id,
+            show_cost=scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE"),
+        )
+    )
 
 
 @router.post(

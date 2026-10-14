@@ -10,6 +10,42 @@ import 'desktop_framework.dart';
 String _trimmed(double value) =>
     value == value.roundToDouble() ? value.toStringAsFixed(0) : '$value';
 
+/// The lots one picker row stands for. A firm costing by lot sends a
+/// `pick_group` shared by lots that agree on batch, expiry, MRP and selling
+/// prices (L2 step 11): they are one row, filled in the order the server
+/// listed them, oldest first. Everything else -- every batch of a firm on
+/// Average -- is a row of its own, exactly as before.
+class _PickRow {
+  _PickRow(this.lots);
+
+  final List<BatchAvailabilityRecord> lots;
+
+  BatchAvailabilityRecord get first => lots.first;
+
+  bool get expired => first.expired;
+
+  double get availableToLine =>
+      lots.fold(0, (double sum, lot) => sum + lot.availableToLine);
+
+  double get fefo => lots.fold(0, (double sum, lot) => sum + lot.fefo);
+
+  static String groupOf(BatchAvailabilityRecord lot) =>
+      lot.pickGroup ?? 'batch:${lot.batchId}';
+
+  static List<_PickRow> of(List<BatchAvailabilityRecord> lots) {
+    final Map<String, _PickRow> rows = {};
+    for (final BatchAvailabilityRecord lot in lots) {
+      final _PickRow? row = rows[groupOf(lot)];
+      if (row == null) {
+        rows[groupOf(lot)] = _PickRow([lot]);
+      } else {
+        row.lots.add(lot);
+      }
+    }
+    return rows.values.toList();
+  }
+}
+
 /// The batch picker of a line that ships goods (backlog 79): every batch of
 /// the product in the warehouse with what it can give, earliest expiry first
 /// as the default, and the person's own split reported through [onChanged].
@@ -176,7 +212,25 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
     return batch.fefo;
   }
 
-  /// The selling price of the single batch the split takes from, if any.
+  double _rowShown(_PickRow row) =>
+      row.lots.fold(0, (double sum, lot) => sum + _shown(lot));
+
+  /// What one unit of the row's lots cost: one figure when they agree, the
+  /// range when they do not, blank when the server sent none.
+  String _costOf(_PickRow row) {
+    final List<double> costs = [
+      for (final BatchAvailabilityRecord lot in row.lots)
+        if (lot.unitCost != null) lot.unitCost!,
+    ];
+    if (costs.isEmpty) return '';
+    costs.sort();
+    final String low = costs.first.toStringAsFixed(2);
+    final String high = costs.last.toStringAsFixed(2);
+    return low == high ? low : '$low-$high';
+  }
+
+  /// The selling price of the single batch the split takes from, if any. Lots
+  /// of one picker row agree on their prices, so they count as one batch.
   void _reportPrice(
     List<BatchAvailabilityRecord> batches,
     Map<String, double>? picks,
@@ -192,12 +246,16 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
                 0)
           batch,
     ];
-    report(taking.length == 1 ? taking.single.sellingPrice : null);
+    final Set<String> groups = {
+      for (final BatchAvailabilityRecord batch in taking)
+        _PickRow.groupOf(batch),
+    };
+    report(groups.length == 1 ? taking.first.sellingPrice : null);
   }
 
   void _pick(
     List<BatchAvailabilityRecord> batches,
-    BatchAvailabilityRecord edited,
+    _PickRow edited,
     String text,
   ) {
     // The first edit makes the whole split the person's own, starting from
@@ -206,9 +264,149 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
       for (final BatchAvailabilityRecord batch in batches)
         if (!batch.expired) batch.batchId: _shown(batch),
     };
-    next[edited.batchId] = _number(text);
+    // A row of several lots is filled oldest first, each up to what it can
+    // give; whatever is left lands on the last, so an over-ask still shows.
+    double left = _number(text);
+    for (int i = 0; i < edited.lots.length; i++) {
+      final BatchAvailabilityRecord lot = edited.lots[i];
+      final double room = lot.availableToLine < 0 ? 0 : lot.availableToLine;
+      final double take = i == edited.lots.length - 1
+          ? left
+          : (left < room ? left : room);
+      next[lot.batchId] = take;
+      left -= take;
+    }
     widget.onChanged(next);
     _reportPrice(batches, next);
+  }
+
+  /// One row of the picker: a batch, or the lots of one pick group.
+  Widget _rowTile({
+    required BuildContext context,
+    required _PickRow row,
+    required List<BatchAvailabilityRecord> batches,
+    required bool showCost,
+    required TextStyle? small,
+    required TextStyle? quiet,
+  }) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final String id = widget.lineId;
+    final BatchAvailabilityRecord batch = row.first;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Opacity(
+        opacity: row.expired ? 0.5 : 1,
+        child: Row(children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  // An unprinted lot's batch number is only our own
+                  // reference: it is never shown as a batch.
+                  !batch.hasPrintedBatch
+                      ? '-'
+                      : batch.batchNumber.isEmpty
+                          ? 'untracked stock'
+                          : batch.batchNumber,
+                  key: ValueKey<String>('batch-label-$id-${batch.batchId}'),
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      small?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  [
+                    if (row.lots.length > 1) '${row.lots.length} lots',
+                    if (!batch.hasPrintedBatch &&
+                        row.lots.length == 1 &&
+                        batch.receivedOn.isNotEmpty)
+                      'received ${_dayOf(batch.receivedOn)}',
+                    if (batch.expiryDate.isNotEmpty)
+                      'exp ${_dayOf(batch.expiryDate)}'
+                    else
+                      'no expiry',
+                    if (batch.daysToExpiry != null && !batch.expired)
+                      '${batch.daysToExpiry}d left',
+                    'can take ${_trimmed(row.availableToLine)}',
+                    if (batch.mrp != null)
+                      'MRP ${batch.mrp!.toStringAsFixed(2)}',
+                    if (widget.showPtrPts && batch.ptr != null)
+                      'PTR ${batch.ptr!.toStringAsFixed(2)}',
+                    if (widget.showPtrPts && batch.pts != null)
+                      'PTS ${batch.pts!.toStringAsFixed(2)}',
+                    if (batch.sellingPrice != null)
+                      'price ${batch.sellingPrice!.toStringAsFixed(2)}',
+                  ].join(' · '),
+                  overflow: TextOverflow.ellipsis,
+                  style: quiet,
+                ),
+                if (row.lots.any((lot) => lot.shortForCustomer) &&
+                    !batch.expired)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: StatusBadge(
+                      label: 'Too short for customer',
+                      tone: StatusBadgeTone.warning,
+                    ),
+                  ),
+                if (batch.expired || batch.nearExpiry)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: StatusBadge(
+                      label:
+                          batch.expired ? 'Expired' : 'Near expiry',
+                      tone: batch.expired
+                          ? StatusBadgeTone.danger
+                          : StatusBadgeTone.warning,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (showCost) ...[
+            const SizedBox(width: 6),
+            SizedBox(
+              width: 56,
+              child: Text(
+                _costOf(row),
+                key: ValueKey<String>('batch-cost-$id-${batch.batchId}'),
+                textAlign: TextAlign.right,
+                overflow: TextOverflow.ellipsis,
+                style: quiet,
+              ),
+            ),
+          ],
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 64,
+            child: KeyedSubtree(
+              key: ValueKey<String>(
+                'batch-pick-box-$id-${batch.batchId}-$_epoch-'
+                '${_trimmed(row.fefo)}',
+              ),
+              child: TextFormField(
+                key: ValueKey<String>(
+                    'batch-pick-$id-${batch.batchId}'),
+                initialValue: _trimmed(_rowShown(row)),
+                enabled: !batch.expired,
+                readOnly: !widget.enabled,
+                textAlign: TextAlign.right,
+                keyboardType: TextInputType.number,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontSize: 13,
+                  color: _rowShown(row) > row.availableToLine
+                      ? scheme.error
+                      : null,
+                ),
+                decoration: documentCellDecoration(context),
+                onChanged: (value) => _pick(batches, row, value),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 
   @override
@@ -217,7 +415,6 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
     final ColorScheme scheme = theme.colorScheme;
     final TextStyle? small = theme.textTheme.bodySmall?.copyWith(fontSize: 11);
     final TextStyle? quiet = small?.copyWith(color: scheme.onSurfaceVariant);
-    final String id = widget.lineId;
     final List<BatchAvailabilityRecord>? batches = _rows;
     final Map<String, double>? picks = widget.picks;
     final bool explicit = picks != null && picks.isNotEmpty;
@@ -248,6 +445,9 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
     for (final BatchAvailabilityRecord batch in batches) {
       chosen += _shown(batch);
     }
+    final List<_PickRow> rows = _PickRow.of(batches);
+    final bool showCost =
+        batches.any((BatchAvailabilityRecord batch) => batch.unitCost != null);
     final bool mismatch = widget.comparable &&
         shipping > 0 &&
         (chosen - shipping).abs() > 0.0005;
@@ -259,96 +459,14 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
           key: ValueKey<String>('${widget.keyPrefix}-batch-picker'),
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final BatchAvailabilityRecord batch in batches)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Opacity(
-                  opacity: batch.expired ? 0.5 : 1,
-                  child: Row(children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            batch.batchNumber.isEmpty
-                                ? 'untracked stock'
-                                : batch.batchNumber,
-                            overflow: TextOverflow.ellipsis,
-                            style:
-                                small?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                          Text(
-                            [
-                              if (batch.expiryDate.isNotEmpty)
-                                'exp ${_dayOf(batch.expiryDate)}'
-                              else
-                                'no expiry',
-                              if (batch.daysToExpiry != null && !batch.expired)
-                                '${batch.daysToExpiry}d left',
-                              'can take ${_trimmed(batch.availableToLine)}',
-                              if (batch.mrp != null)
-                                'MRP ${batch.mrp!.toStringAsFixed(2)}',
-                              if (widget.showPtrPts && batch.ptr != null)
-                                'PTR ${batch.ptr!.toStringAsFixed(2)}',
-                              if (widget.showPtrPts && batch.pts != null)
-                                'PTS ${batch.pts!.toStringAsFixed(2)}',
-                              if (batch.sellingPrice != null)
-                                'price ${batch.sellingPrice!.toStringAsFixed(2)}',
-                            ].join(' · '),
-                            overflow: TextOverflow.ellipsis,
-                            style: quiet,
-                          ),
-                          if (batch.shortForCustomer && !batch.expired)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 2),
-                              child: StatusBadge(
-                                label: 'Too short for customer',
-                                tone: StatusBadgeTone.warning,
-                              ),
-                            ),
-                          if (batch.expired || batch.nearExpiry)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: StatusBadge(
-                                label:
-                                    batch.expired ? 'Expired' : 'Near expiry',
-                                tone: batch.expired
-                                    ? StatusBadgeTone.danger
-                                    : StatusBadgeTone.warning,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    SizedBox(
-                      width: 64,
-                      child: KeyedSubtree(
-                        key: ValueKey<String>(
-                          'batch-pick-box-$id-${batch.batchId}-$_epoch-'
-                          '${_trimmed(batch.fefo)}',
-                        ),
-                        child: TextFormField(
-                          key: ValueKey<String>(
-                              'batch-pick-$id-${batch.batchId}'),
-                          initialValue: _trimmed(_shown(batch)),
-                          enabled: !batch.expired,
-                          readOnly: !widget.enabled,
-                          textAlign: TextAlign.right,
-                          keyboardType: TextInputType.number,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontSize: 13,
-                            color: _shown(batch) > batch.availableToLine
-                                ? scheme.error
-                                : null,
-                          ),
-                          decoration: documentCellDecoration(context),
-                          onChanged: (value) => _pick(batches, batch, value),
-                        ),
-                      ),
-                    ),
-                  ]),
-                ),
+            for (final _PickRow row in rows)
+              _rowTile(
+                context: context,
+                row: row,
+                batches: batches,
+                showCost: showCost,
+                small: small,
+                quiet: quiet,
               ),
             DocumentSidePair(
               'Chosen ${_trimmed(chosen)} of ${_trimmed(shipping)}',

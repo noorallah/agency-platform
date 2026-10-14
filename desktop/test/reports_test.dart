@@ -997,4 +997,54 @@ void main() {
           'Free units given');
     });
   });
+
+  group('bills waiting for their cost (L2 step 11)', () {
+    ReportDefinition shortfalls() =>
+        reportCatalog.singleWhere((report) => report.id == 'lot-shortfalls');
+
+    Json row({String? unitCost, String? costWaiting}) => <String, dynamic>{
+          'id': 's-1',
+          'product_id': 'p-1',
+          'product_code': 'SKU-1',
+          'product_name': 'Amoxicillin 500mg',
+          'warehouse_id': 'wh-1',
+          'delivery_note_id': 'dn-1',
+          'document_number': 'DN-4',
+          'sale_date': '2026-07-10',
+          'age_days': 12,
+          'quantity': '6.0000',
+          'quantity_waiting': '4.0000',
+          'unit_cost': unitCost,
+          'cost_waiting': costWaiting,
+          'confirmed_by': 'u-1',
+          'confirmed_at': '2026-07-10T09:00:00Z',
+        };
+
+    test('is a snapshot under Financial, beside the lots valuation', () {
+      final ReportDefinition report = shortfalls();
+      expect(report.label, 'Bills waiting for their cost');
+      expect(report.path, '/api/v1/inventory/lot-shortfalls');
+      expect(report.area, ReportArea.financial);
+      expect(report.needsPeriod, isFalse);
+    });
+
+    test('the cost columns show only when the server sent cost', () {
+      final List<String> without = [
+        for (final ReportColumn column
+            in columnsFor(shortfalls(), [row()]))
+          column.key,
+      ];
+      expect(without, isNot(contains('unit_cost')));
+      expect(without, isNot(contains('cost_waiting')));
+      expect(without, contains('quantity_waiting'));
+      expect(without, contains('document_number'));
+
+      final List<String> withCost = [
+        for (final ReportColumn column in columnsFor(shortfalls(),
+            [row(unitCost: '31.25', costWaiting: '125.00')]))
+          column.key,
+      ];
+      expect(withCost, containsAll(<String>['unit_cost', 'cost_waiting']));
+    });
+  });
 }

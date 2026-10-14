@@ -2,12 +2,21 @@ import 'entities.dart';
 
 /// One column of a report grid.
 class ReportColumn {
-  const ReportColumn(
-      {required this.key, required this.label, this.numeric = false});
+  const ReportColumn({
+    required this.key,
+    required this.label,
+    this.numeric = false,
+    this.onlyWhenSent = false,
+  });
 
   final String key;
   final String label;
   final bool numeric;
+
+  /// Shown only when some row carries a value: a cost the server leaves out
+  /// for somebody not allowed to see cost (L2 step 11) is no column at all,
+  /// rather than a column of dashes.
+  final bool onlyWhenSent;
 }
 
 /// Which part of the business a report belongs to, and therefore which tab it
@@ -173,7 +182,14 @@ List<ReportColumn> columnsFor(
           ),
     ];
   }
-  if (definition.columns.isNotEmpty) return definition.columns;
+  if (definition.columns.isNotEmpty) {
+    return [
+      for (final ReportColumn column in definition.columns)
+        if (!column.onlyWhenSent ||
+            rows.any((Json row) => row[column.key] != null))
+          column,
+    ];
+  }
   if (rows.isEmpty) return const [];
   return [
     for (final MapEntry<String, dynamic> entry in rows.first.entries)
