@@ -2821,8 +2821,8 @@ Widget? _taxScreen(
     };
 
 /// The body of a Firm, Selling, Buying, Stock, Business profile, Pricing,
-/// Territories & routes, Account structure or Party lists settings tab that
-/// is a screen, or null for any other tab. Customer Groups, a phase 2 page,
+/// Territories & routes, Account structure, Party lists, Item lists or
+/// Locations settings tab that is a screen, or null for any other tab. Customer Groups, a phase 2 page,
 /// answers to its route ([MenuLayout.customerGroupsRoute]).
 ///
 /// Its own workspace shows it under its heading and the Settings subject
@@ -3023,6 +3023,69 @@ Widget? _settingsStepScreen(
         api: api,
         permissions: permissions,
       ),
+    'uoms' => UomManagementPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+        section: UomManagementSection.uoms,
+      ),
+    'uom-groups' => UomManagementPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+        section: UomManagementSection.uomGroups,
+      ),
+    'conversion-rules' => UomManagementPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+        section: UomManagementSection.conversionRules,
+      ),
+    'packaging-types' => UomManagementPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+        section: UomManagementSection.packagingTypes,
+      ),
+    'packaging-levels' => PackagingLevelsPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+      ),
+    'product-categories' => ResourceManagementPage<ProductCategoryRecord>(
+        api: api,
+        definition: productCategoryDefinition(api, permissions),
+      ),
+    'principals' => ResourceManagementPage<PrincipalRecord>(
+        api: api,
+        definition: principalDefinition(api, permissions),
+      ),
+    'brands' => ResourceManagementPage<BrandRecord>(
+        api: api,
+        definition: brandDefinition(api, permissions),
+      ),
+    'geography-masters' => GeographyMasterPage(
+        api: api,
+        permissions: permissions,
+      ),
+    'branch-types' => BranchWarehouseManagementPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+        section: BranchWarehouseSection.branchTypes,
+      ),
+    'warehouse-types' => BranchWarehouseManagementPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+        section: BranchWarehouseSection.warehouseTypes,
+      ),
+    'storage-areas' => BranchWarehouseManagementPage(
+        api: api,
+        permissions: permissions,
+        hasActiveFirm: hasActiveFirm,
+        section: BranchWarehouseSection.storageAreas,
+      ),
     _ => null,
   };
 }
@@ -3194,35 +3257,14 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
       'tax-execution-log' ||
       'tax-settings' =>
         _taxScreen(tabId, widget.api, widget.permissions)!,
-      'uoms' => UomManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: UomManagementSection.uoms,
-        ),
-      'uom-groups' => UomManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: UomManagementSection.uomGroups,
-        ),
-      'packaging-types' => UomManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: UomManagementSection.packagingTypes,
-        ),
-      'packaging-levels' => PackagingLevelsPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-        ),
-      'conversion-rules' => UomManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: UomManagementSection.conversionRules,
-        ),
+      // Built in one place: Settings > Item lists shows the same (backlog
+      // 148).
+      'uoms' ||
+      'uom-groups' ||
+      'packaging-types' ||
+      'packaging-levels' ||
+      'conversion-rules' =>
+        _settingsStepScreen(context, tabId, widget.api, widget.permissions)!,
       _ => const WorkspaceEmptyState(
           title: 'User Audit is coming soon',
           message: 'Audit records are not available from the current API.',
@@ -3315,20 +3357,15 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
-      'product-categories' => ResourceManagementPage<ProductCategoryRecord>(
-          api: widget.api,
-          definition: productCategoryDefinition(widget.api, widget.permissions),
-        ),
-      'principals' => ResourceManagementPage<PrincipalRecord>(
-          api: widget.api,
-          definition: principalDefinition(widget.api, widget.permissions),
-        ),
-      'brands' => ResourceManagementPage<BrandRecord>(
-          api: widget.api,
-          definition: brandDefinition(widget.api, widget.permissions),
-        ),
-      // Built in one place: Settings > Territories & routes and Party lists
-      // show the same (backlog 148).
+      // Built in one place: Settings > Territories & routes, Party lists,
+      // Item lists and Locations show the same (backlog 148).
+      'product-categories' ||
+      'principals' ||
+      'brands' ||
+      'storage-areas' ||
+      'warehouse-types' ||
+      'branch-types' ||
+      'geography-masters' ||
       'transporters' ||
       'vendor-categories' ||
       'vendor-types' ||
@@ -3347,33 +3384,11 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           hasActiveFirm: hasActiveFirm,
           section: BranchWarehouseSection.warehouses,
         ),
-      'storage-areas' => BranchWarehouseManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: BranchWarehouseSection.storageAreas,
-        ),
-      'warehouse-types' => BranchWarehouseManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: BranchWarehouseSection.warehouseTypes,
-        ),
-      'branch-types' => BranchWarehouseManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: BranchWarehouseSection.branchTypes,
-        ),
       'branch-warehouse-settings' => BranchWarehouseManagementPage(
           api: widget.api,
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
           section: BranchWarehouseSection.settings,
-        ),
-      'geography-masters' => GeographyMasterPage(
-          api: widget.api,
-          permissions: widget.permissions,
         ),
       'trade-licences' => ResourceManagementPage<TradeLicenceRecord>(
           api: widget.api,
