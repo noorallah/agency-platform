@@ -42,11 +42,23 @@ class BatchRecord {
     this.sellingPrice = '',
     this.ptr = '',
     this.pts = '',
+    this.retailMarginPercent = '',
+    this.wholesaleMarginPercent = '',
+    this.mrpWarning = '',
   });
 
-  /// Per stock unit; empty when none is recorded (BATCH_PTR_PTS).
+  /// Per stock unit; empty when none is recorded (BATCH_PTR_PTS). For a firm
+  /// costing by lot, the lot's retail and wholesale prices.
   final String ptr;
   final String pts;
+
+  /// The mark-ups the lot was priced at (L3); read-only, empty where none.
+  final String retailMarginPercent;
+  final String wholesaleMarginPercent;
+
+  /// A sentence naming a price that bills above the MRP once tax is added: a
+  /// warning, never a refusal. Empty where none.
+  final String mrpWarning;
 
   /// Per stock unit, tax included; empty when none is recorded.
   final String mrp;
@@ -126,6 +138,9 @@ class BatchRecord {
       sellingPrice: stringValue(d['selling_price']),
       ptr: stringValue(d['ptr']),
       pts: stringValue(d['pts']),
+      retailMarginPercent: stringValue(d['retail_margin_percent']),
+      wholesaleMarginPercent: stringValue(d['wholesale_margin_percent']),
+      mrpWarning: stringValue(d['mrp_warning']),
     );
   }
 }

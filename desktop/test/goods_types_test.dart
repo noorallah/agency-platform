@@ -229,6 +229,11 @@ void main() {
     final Finder boxes = find.byType(TextFormField);
     await tester.enterText(boxes.at(0), 'PAINT_TINT');
     await tester.enterText(boxes.at(1), 'Tinted paint');
+    // Row L3: the retail margin a new product of the type starts with.
+    final Finder retail =
+        find.widgetWithText(TextFormField, 'Retail margin %');
+    await tester.ensureVisible(retail);
+    await tester.enterText(retail, '20');
     await tester.pumpAndSettle();
     await tester.tap(find.text('Save & Close').hitTestable());
     await tester.pumpAndSettle();
@@ -247,6 +252,8 @@ void main() {
       'track_warranty': false,
       'default_hsn_sac': null,
       'default_tax_profile_group_code': null,
+      'retail_margin_percent': '20',
+      'wholesale_margin_percent': null,
       'is_active': true,
     });
   });
@@ -364,6 +371,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.byKey(const ValueKey('goods-type-defaults-hsn')), '3004');
+    await tester.enterText(
+        find.byKey(const ValueKey('goods-type-defaults-wholesale-margin')),
+        '8.5');
     await tester.tap(find.byKey(const ValueKey('goods-type-defaults-save')));
     await tester.pumpAndSettle();
 
@@ -373,6 +383,8 @@ void main() {
       'in_use': true,
       'default_hsn_sac': '3004',
       'default_tax_profile_group_code': null,
+      'retail_margin_percent': null,
+      'wholesale_margin_percent': '8.5',
     });
   });
 
