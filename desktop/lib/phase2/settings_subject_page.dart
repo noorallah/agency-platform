@@ -112,7 +112,7 @@ class _SettingsSubjectPageState extends State<SettingsSubjectPage>
       });
 
   String _tabLabel(SubjectStep step) => step.code == null
-      ? 'Check: ${step.label}'
+      ? '${widget.subject.toolsLabel}: ${step.label}'
       : '${widget.subject.numberOf(step)} ${step.label}';
 
   @override
