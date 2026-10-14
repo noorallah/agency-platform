@@ -492,3 +492,53 @@ class CustomerCreditApplication(BaseEntity):
     reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     reversed_by: Mapped[UUID | None] = mapped_column(UUIDType())
     reversal_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class RefundReceiptDraw(BaseEntity):
+    """Store how much of one receipt's unapplied money a refund handed back.
+
+    A refund pays back first what returns and credit notes left on the
+    customer's account (``CustomerCreditApplication``), and the rest is money
+    the customer's receipts brought in and nothing has been set against. It
+    took that much off the customer's advance and named no receipt, so the
+    receipts still read it as unapplied: a receipt of 500.00 with 200.00
+    handed back read 500.00, and the period close and the order's advance
+    list with it (D-FIN-30). A row says which receipt gave how much, oldest
+    first; the receipt's ``unallocated_amount`` comes down by it, and
+    reversing the refund puts back exactly that. A row is reversed, never
+    edited or deleted.
+    """
+
+    __tablename__ = "refund_receipt_draws"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="CK_refund_receipt_draws_positive"),
+        Index("IX_refund_receipt_draws_refund", "firm_id", "refund_id"),
+        Index("IX_refund_receipt_draws_receipt", "firm_id", "receipt_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    refund_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "settlements.id",
+            ondelete="RESTRICT",
+            name="FK_refund_receipt_draws_refund_id",
+        ),
+        nullable=False,
+    )
+    receipt_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "settlements.id",
+            ondelete="RESTRICT",
+            name="FK_refund_receipt_draws_receipt_id",
+        ),
+        nullable=False,
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    #: ``POSTED`` or ``REVERSED``.
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="POSTED", server_default="POSTED"
+    )
+    reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    reversed_by: Mapped[UUID | None] = mapped_column(UUIDType())

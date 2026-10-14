@@ -2,6 +2,7 @@
 
 from app.settlements.models.settlement import (
     CustomerCreditApplication,
+    RefundReceiptDraw,
     Settlement,
     SettlementAllocation,
     SettlementDirection,
@@ -13,6 +14,7 @@ from app.settlements.models.settlement import (
 
 __all__ = [
     "CustomerCreditApplication",
+    "RefundReceiptDraw",
     "Settlement",
     "SettlementAllocation",
     "SettlementDirection",
