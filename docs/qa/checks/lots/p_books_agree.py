@@ -4,7 +4,7 @@ from _lot import *  # noqa: F401,F403
 
 c0 = Check("p_books_agree")
 api = lot_admin()
-rows = rows_of(api.get(f"{INV}/reports/stock-valuation?page_size=100&include_zero=true"))
+rows = all_rows(api, f"{INV}/reports/stock-valuation?include_zero=true")
 total = next(D(r["value"]) for r in rows if r["row_type"] == "TOTAL")
 books = next(D(r["value"]) for r in rows if r["row_type"] == "BOOKS")
 diff = next(D(r["value"]) for r in rows if r["row_type"] == "DIFFERENCE")
