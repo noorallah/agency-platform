@@ -1237,6 +1237,25 @@ opens any screen by name.
   - Step 7: the Credit Control window opens on its own, as it always did.
 - **Leaves:** the salesman switch from step 4 on; turn it back off.
 
+### TC-CONF-012 — Settings > Stock, Business profile and Pricing open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** the Stock, Business profile and Pricing cards on the Settings page; Start here and the numbered steps of each; Inventory settings set apart as the person's own; the old items still found by search
+- **Fixture:** `ready-firm`, as its **Firm admin**
+- **Steps**
+  1. Press the gear and press the **Stock** card; read the tabs from left to right, then Start here.
+  2. Press the **Business profile** card and read the tabs and Start here.
+  3. Press the **Pricing** card (under SET UP) and read the tabs and Start here.
+  4. Go back to Settings, type **Unit Sets** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: **Start here, 1 Adjustment reasons, 2 Adjustment limits, 3 Batch rules**, then **Yours: Inventory settings** set apart. Row 1 reads **Optional**, *8 built in* (and the firm's own count where it has any).
+  - Step 2: **1 Profile assignment, 2 Feature management, 3 Module configuration, 4 Attribute definitions, 5 Mandatory attributes, 6 Unit sets**, all **Optional**; row 1 names the firm's profile, rows 2 and 3 read *N of M features on* / *modules on*.
+  - Step 3: **1 Price lists, 2 Price levels, 3 Promotions, 4 Loyalty**, all **Optional**, each with what the firm holds or *None yet*.
+  - No section shows a **To do**, and the note on top says the section is ready.
+  - Step 4: Unit Sets opens on its own, as it always did.
+- **Leaves:** nothing.
+
 ## Buying — order to payment
 
 Four documents: a purchase order, goods receipts against it, a supplier
