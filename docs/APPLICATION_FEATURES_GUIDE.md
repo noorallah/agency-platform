@@ -556,6 +556,16 @@ their cost*, and *Trace* in the batch details shows a lot's whole trail.
 Cost is shown only to a holder of the cost permission
 (`PRODUCT_VIEW_COST_PRICE`). Not yet clicked on a switched firm.
 
+**Margins on the lot.** For a firm costing by lot, a goods type and a product
+hold a retail and a wholesale margin (PTR and PTS where the profile has
+them); a receipt line can override them for that lot, shows the worked prices
+and warns when a price with tax is above the MRP; the lot page lets a holder
+of `BATCH_UPDATE` change the prices. A customer is Retailer or Wholesaler, a
+new bill starts on that kind and the *Price level* box (Retail or Wholesale)
+switches the whole bill. Saved order and bill lines show Cost (*est.* where
+estimated) and Margin to a holder of `PRODUCT_VIEW_COST_PRICE`, on screen
+only. Not yet clicked.
+
 Every delivery note says **why the goods go out**: *Sale* (the default),
 *Van or route sale*, *Supply on approval*, *Quantity not known*, *Job work* or
 *Other* (with words). The reason prints on the challan. GST wants a sale's tax

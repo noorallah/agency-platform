@@ -536,6 +536,70 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Also needs:** the lot `LOTA` received, billed by a supplier, partly sold, partly returned, with one write-off.
 - **Steps:** (1) Inventory > Batch & Serial > Batches: open the batch and press **Trace** in the details. (2) Read the events top to bottom. (3) **(HTTP)** `GET /api/v1/batch-serial/batches/{id}/trail` for the batch, then for a made-up id.
 - **Expect:** (1)-(2) The arrival comes first (the goods receipt, supplier, date, source), then every movement signed in and out (+ into the lot, - out of it), with the supplier's bill and the sales bills, each found by its number. A reservation and its release are not listed. A write-off shows with its own number and date. A bill appears only once APPROVED or CLOSED, at quantity 0. (3) The lot, its reference, whether it carries a printed batch, its unit cost now and the events; **404** for an unknown id.
+### TC-LOT-015 — A goods type hands its margins to a new product
+
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** a goods type with retail 25 and wholesale 12.5, the Firm admin.
+- **Steps:** (1) Create a product of that goods type giving no margins. (2) Create another giving retail 30 only. (3) Change the goods type to 20 and 10 and open the first product. (4) Try a margin of -1, then 1000.
+- **Expect:** (1) The product holds 25 and 12.5. (2) Retail 30; wholesale still follows the type (12.5). (3) The first product still holds 25 and 12.5: the type never writes over a product afterwards. (4) Both refused naming the field.
+### TC-LOT-016 — A receipt line works its prices from the margins, blank or typed
+
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** product LOT-MARGIN (retail 25, wholesale 12.5, GST 18 local, batch-tracked), a supplier.
+- **Steps:** (1) Receive 10 at 80.00 with both margins blank. (2) Receive 10 at 80.00 with MRP 130 and a retail margin of 40, wholesale blank. (3) Open each lot.
+- **Expect:** (1) The line and its lot carry PTR 100.00 and PTS 90.00 (80 x 1.25, 80 x 1.125), margins 25 and 12.5. (2) PTR 112.00 (80 x 1.40), PTS 90.00; the lot holds margins 40 and 12.5. Nothing is rounded beyond the paisa.
+### TC-LOT-017 — A typed price wins and its margin is worked back
+
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** product LOT-MARGIN and a supplier.
+- **Steps:** (1) Receive 10 at 80.00 typing PTR 104.00 and leaving the retail margin blank. (2) Receive 10 at 80.00 typing PTR 104.00 and a retail margin of 40. (3) Read each line and lot.
+- **Expect:** (1) The price stays 104.00 and the line shows retail margin 30.00 (worked back). (2) The price 104.00 stands over the margin 40, and the margin shown is 30.00. Wholesale is worked from the product as usual (90.00).
+### TC-LOT-018 — Above the MRP warns with tax and is refused before tax
+
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** TEST03-M2 (MRP 130, PTR 112.00, GST 18), a supplier.
+- **Steps:** (1) Read the receipt line of TEST03-M2. (2) Receive a line at 80.00 with MRP 100 and a retail margin of 40, so PTR 112.00 is above the MRP before tax. (3) Receive a line at 80.00 with retail margin 10 and wholesale margin 40.
+- **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.17). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line: wholesale (112.00) is above retail (88.00).
+### TC-LOT-019 — Changing a price on the lot page works the margin back
+
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** TEST03-M1 (cost 80, PTR 100.00, PTS 90.00), a user holding `BATCH_UPDATE` but not `BATCH_PTR_PTS`, and one holding neither.
+- **Steps:** (1) Open the lot page of TEST03-M1. (2) Change the retail price to 108.00 and save. (3) Change it to 85.00 and save. (4) Repeat step 2 as the user without `BATCH_UPDATE`.
+- **Expect:** (1) Both prices, both margins and any warning show. (2) Saved; the retail margin reads 35.00 (108 over cost 80) and wholesale is unchanged. (3) Refused: the retail price may not be below the wholesale price 90.00. (4) The price boxes are read-only, or the save is refused (403).
+### TC-LOT-020 — The bill switch: Retail or Wholesale, from the customer's kind
+
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** TEST03-M1 and TEST03-M2 with stock, customers LOT-R (Retailer) and LOT-W (Wholesaler), neither with a level of their own.
+- **Steps:** (1) Start a sales order for LOT-R and add LOT-MARGIN, naming no lot. (2) Switch the *Price level* box to Wholesale. (3) Start an order for LOT-W with the same line. (4) Switch it to Retail. (5) In *Price levels* rename Retail, then try to delete it.
+- **Expect:** (1) The level box reads Retail and the line is priced at the lot that leaves first, TEST03-M1: 100.00. (2) Every line reprices to 90.00 (its PTS). (3) The box reads Wholesale and the line is 90.00. (4) 100.00. (5) Renaming is accepted; deleting or making it inactive is refused.
+### TC-LOT-021 — Cost and margin on the line, only with the cost permission, never printed
+
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** a saved bill of 2 at 100.00 from TEST03-M1 (cost 80), a user with `PRODUCT_VIEW_COST_PRICE`, a user without.
+- **Steps:** (1) As the user with the permission open the saved order and the saved bill. (2) Change the quantity on the screen without saving. (3) **(HTTP)** `GET` the bill as the user without the permission. (4) Print the bill and open its PDF.
+- **Expect:** (1) Cost 160.00 (marked *est.* on an order or an undispatched bill line), margin 40.00 on a taxable value of 200.00, which is 25.00 % of cost, with totals. (2) The figures drop and the total says *as last saved*. (3) No cost or margin fields, and no Cost or Margin column on screen. (4) Neither the print nor the PDF shows cost or margin.
+### TC-LOT-022 — A counter bill line over lots at two prices is split
+
+*Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** TEST03-M1 (PTR 100.00) and TEST03-M2 (PTR 112.00) with stock, customer LOT-R, a counter bill open.
+- **Steps:** (1) Add LOT-MARGIN, quantity 15, choosing both lots in the picker. (2) Wait for the picks to settle. (3) **(HTTP)** post a bill line with both lots and no typed price. (4) Type a rate of 105.00 on the line and repeat.
+- **Expect:** (1)-(2) After about a second the line is split into two: 10 at 100.00 from M1 and 5 at 112.00 from M2. (3) Refused, naming both prices. (4) A typed rate stays on every part and the server takes nothing from the lots.
 ---
 
 ## Screen checks
