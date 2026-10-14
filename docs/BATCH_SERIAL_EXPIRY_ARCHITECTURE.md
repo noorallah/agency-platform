@@ -530,6 +530,63 @@ DECIDED: (77) Several lots are a quantity-weighted mean; a line with any lot
 holding no cost, or no lot at all, is judged on the item's average as before.
 A firm on Average never reads lot costs.
 
+### The lot's trail (L2 step 11)
+
+`docs/design/LOT_COST_DESIGN.md`, section 6 row 11.
+`GET /api/v1/batch-serial/batches/{batch_id}/trail` (`BATCH_VIEW`, as the batch
+itself; 404 for an unknown or another firm's batch) answers `LotTrail`: the
+batch as `GET /batches/{batch_id}` gives it, its lot reference, whether the
+goods carry a printed batch, the day it arrived, what made it
+(`source_type`), its unit cost now from `batch_valuations`, and its events
+oldest first. Built in `app/batch_serial/services/lot_history.py` on the
+shape of `serial_history`: one read for the movements, one per document type
+for the headers, one each for supplier and customer names, one for the
+supplier's bills and one for the sales bills. No migration.
+
+Event types: `GOODS_RECEIPT`, `OPENING_STOCK`, `PURCHASE_INVOICE`,
+`DELIVERY_NOTE`, `SALES_INVOICE`, `SALES_RETURN`, `PURCHASE_RETURN`,
+`STOCK_TRANSFER`, `ADJUSTMENT`, `REPACK`, `COST_CORRECTION`, `OTHER`.
+
+DECIDED: (78) The movements are the `inventory_transactions` rows carrying
+the lot's `batch_id`. An event's quantity is what the valuation counts: the
+owned delta where the movement records one, else the shelf delta, so + is
+into the lot and - out of it. A movement that changed neither (a reservation
+or its release, a move between buckets that owned nothing new) is not listed.
+A cost correction or landed cost is listed as `COST_CORRECTION` at zero, and
+a reversal (`X_REVERSAL`) as the type it reverses, with its own sign.
+
+DECIDED: (79) A movement names its document by `reference_type` and number,
+not by id, so the document is found by its number within the firm. Where
+none is kept under it (a write-off, a receipt recorded straight to stock)
+the event has no `document_id` and shows the movement's own number and date.
+`reference_type` decides the event type where it names a document; a
+write-off or adjustment is `ADJUSTMENT`, a transfer leg `STOCK_TRANSFER`,
+anything else `OTHER`.
+
+DECIDED: (80) The supplier's bill is each APPROVED or CLOSED purchase
+invoice line billing a receipt line that holds the lot (the receipt line's
+`batch_id`, or the lot's own source line), at quantity zero and its net
+before tax. The sales bill is each APPROVED or CLOSED sales invoice line
+continuing a delivery note line that drew from the lot, the join
+`LotMarginService` makes, at zero and the line's value before tax split by
+the lot's share of the note line's quantity, as the margin by lot splits it.
+Drafts and cancelled bills are not listed.
+
+DECIDED: (81) `cost_amount` is the ledger entry's `total_cost` for a
+movement, as stored, and the bill line's amount for a bill. It and
+`unit_cost` are left out (null), not zeroed, without
+`PRODUCT_VIEW_COST_PRICE` -- the sales bill's amount too, since one field
+carries both.
+
+DECIDED: (82) Order: the arrival -- the first movement into the lot -- comes
+first; then by date, and within a day the movement, then the bill, then the
+cost the bill moved. Party: the supplier on a receipt, supplier's bill or
+purchase return, the customer on a delivery note, sales bill or sales
+return, none otherwise (a cost correction included).
+
+DECIDED: (83) `has_printed_batch` is the batch's own column, the one
+`batch_availability` reads; there is no second rule.
+
 ### Table: `lots`
 
 | Column | Type | Notes |

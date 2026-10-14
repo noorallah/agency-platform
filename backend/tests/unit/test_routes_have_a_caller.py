@@ -135,10 +135,6 @@ _ACCEPTED: dict[str, str] = {
     "DELETE /api/v1/finance/financial-years/{year_id}": _SCREEN_GAP,
     "GET /api/v1/branch-warehouse/settings": _SCREEN_GAP,
     "GET /api/v1/sales-returns/summary": _SCREEN_GAP,
-    "GET /api/v1/inventory/lot-shortfalls": (
-        "Bills waiting for their cost, built with billing without stock (L2 "
-        "step 7a); its screen is L2 step 11, with the lots' own pages"
-    ),
 }
 
 
