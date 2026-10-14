@@ -24,7 +24,7 @@ from uuid import UUID
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.batch_serial.models import SerialNumber
+from app.batch_serial.models import BatchRecord, SerialNumber
 from app.batch_serial.schemas import PickedSerial, ReturnableSerials, SerialStatus
 from app.batch_serial.services import BatchSerialService
 from app.batch_serial.services.serial_trail_service import (
@@ -59,7 +59,11 @@ from app.customers.schemas import (
     CustomerReceivableTransactionType,
 )
 from app.customers.services import CustomerService
-from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.models import (
+    DeliveryNote,
+    DeliveryNoteLine,
+    DeliveryNoteLineBatch,
+)
 from app.delivery_note.rules import goods_have_left
 from app.document_files.services import FileParent, document_file_counts
 from app.document_framework.models import (
@@ -76,6 +80,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
+from app.inventory.services.lots import costs_by_lot, lot_tie_break
 from app.products.models import Product
 from app.products.services.stockless import stockless_products
 from app.sales.services.document_preview import line_companions
@@ -103,6 +108,7 @@ from app.sales_return.models import (
     SalesReturnAttachment,
     SalesReturnBillPlacement,
     SalesReturnLine,
+    SalesReturnLineBatch,
     SalesReturnLineTax,
     SalesReturnNote,
     SalesReturnSource,
@@ -312,6 +318,21 @@ class _OnBills:
             self.ledger.hold_through_note(
                 quantity=self.billed_units, taxable=taxable / self.scale
             )
+
+
+@dataclass(frozen=True)
+class _LotBack:
+    """One lot a return line puts goods back into, and at what cost (L2 step 6).
+
+    ``quantity`` is in stock units. ``unit_cost`` is what one unit cost as it
+    left in that lot, off the delivery line's lot row; None where the row
+    carries no cost (written before 20261014_0385), and the lot's own cost
+    is taken instead.
+    """
+
+    batch_id: UUID
+    quantity: Decimal
+    unit_cost: Decimal | None
 
 
 class SalesReturnService(TransactionalDocumentService):
@@ -891,15 +912,13 @@ class SalesReturnService(TransactionalDocumentService):
         services = stockless_products(
             self._session, (line.product_id for line in lines)
         )
+        by_lot = costs_by_lot(self._session, firm_scope)
         for line in lines:
             if line.product_id in services:
                 # A service is credited; there is nothing to put back
                 # on a shelf (backlog 87 #3).
                 continue
             warehouse_id = line.warehouse_id or row.warehouse_id
-            batch_id = self._resolve_return_batch(line)
-            if batch_id is not None:
-                line.batch_id = batch_id
             # The goods go back into the warehouse's own branch. The return's
             # branch comes from the document it credits, and pairing it with
             # another branch's warehouse was refused at completion, "Warehouse
@@ -929,6 +948,27 @@ class SalesReturnService(TransactionalDocumentService):
                     ),
                 )
             coming = self._coming_back(line)
+            if by_lot and not serialised:
+                # A firm costing by lot takes the goods back into the lots
+                # its source line shipped, each at the cost it left with.
+                lots = self._lots_going_back(row, line, coming)
+                if lots:
+                    movement_ids.extend(
+                        self._take_back_into_lots(
+                            row,
+                            line,
+                            coming,
+                            lots,
+                            branch_id=goods_branch_id,
+                            warehouse_id=warehouse_id,
+                            hold_for_check=hold_for_check,
+                            actor_id=actor_id,
+                        )
+                    )
+                    continue
+            batch_id = self._resolve_return_batch(line)
+            if batch_id is not None:
+                line.batch_id = batch_id
             transaction = self._inventory.record_sales_return(
                 firm_scope=firm_scope,
                 actor_id=actor_id,
@@ -975,6 +1015,10 @@ class SalesReturnService(TransactionalDocumentService):
             line.inventory_transaction_id = transaction.id
             line.updated_by = actor_id
             movement_ids.append(transaction.id)
+            if batch_id is not None:
+                self._record_lot_back(
+                    line, batch_id, transaction.id, transaction.quantity, actor_id
+                )
         # What the goods are worth coming back, read from the ledger rows the
         # movements above wrote rather than from the return's own prices. The
         # customer is credited a selling price; stock returns at the cost it is
@@ -1420,7 +1464,23 @@ class SalesReturnService(TransactionalDocumentService):
         movement_ids: list[UUID] = []
         owner = self._customer_name(row.customer_id)
         for line in self._lines_of(row.id):
-            if line.inventory_transaction_id is None:
+            # A line that went back into several lots made one movement per
+            # lot; the line names one of them and its lot rows name them all.
+            lot_rows = list(
+                self._session.scalars(
+                    select(SalesReturnLineBatch).where(
+                        SalesReturnLineBatch.sales_return_line_id == line.id,
+                        SalesReturnLineBatch.is_deleted.is_(False),
+                    )
+                ).all()
+            )
+            moved: list[UUID] = []
+            for movement_id in [line.inventory_transaction_id] + [
+                lot_row.inventory_transaction_id for lot_row in lot_rows
+            ]:
+                if movement_id is not None and movement_id not in moved:
+                    moved.append(movement_id)
+            if not moved:
                 continue
             # The units it brought back leave with the stock, so they are the
             # customer's again -- refused by name if one was sold on since.
@@ -1430,14 +1490,22 @@ class SalesReturnService(TransactionalDocumentService):
                 reference=f"{row.return_number} cancelled",
                 actor_id=actor_id,
             )
-            movement = self._inventory.reverse_transaction(
-                line.inventory_transaction_id,
-                firm_scope=firm_scope,
-                actor_id=actor_id,
-                reason=f"Cancelled sales return {row.return_number}",
-            )
-            if movement is not None:
-                movement_ids.append(movement.id)
+            for movement_id in moved:
+                movement = self._inventory.reverse_transaction(
+                    movement_id,
+                    firm_scope=firm_scope,
+                    actor_id=actor_id,
+                    reason=f"Cancelled sales return {row.return_number}",
+                )
+                if movement is not None:
+                    movement_ids.append(movement.id)
+            # The lots no longer hold these units, so a later return of the
+            # same goods may refill them.
+            for lot_row in lot_rows:
+                lot_row.is_deleted = True
+                lot_row.deleted_at = utc_now()
+                lot_row.deleted_by = actor_id
+                lot_row.updated_by = actor_id
             line.inventory_transaction_id = None
             line.updated_by = actor_id
         return self._movement_value(movement_ids)
@@ -2563,6 +2631,285 @@ class SalesReturnService(TransactionalDocumentService):
             statement = statement.where(SalesReturn.id != exclude_return_id)
         charged, free = self._session.execute(statement).one()
         return self._q(charged or ZERO), self._q(free or ZERO)
+
+    def _lots_going_back(
+        self, row: SalesReturn, line: SalesReturnLine, coming: _ComingBack
+    ) -> list[_LotBack]:
+        """Return the lots a by-lot firm's return line refills, and how much.
+
+        Only lots the source line shipped may be named: the delivery line's
+        lot rows, less what earlier returns of the same goods put back. The
+        last lot taken is the first refilled, so the dispatch order (nearest
+        expiry, then oldest received) is read backwards. A line that names a
+        batch goes back only into the shipped lots of that batch, by printed
+        number or by our reference. Empty where the goods left through no
+        delivery line or its lots were not recorded; the line then goes back
+        as it did before.
+
+        Raises:
+            ValidationError: If the line names a batch its source line did
+                not ship.
+
+        """
+        note_line = self._goods_behind(
+            self._source_line(line.source_document_type, line.source_document_line_id)
+        )
+        if note_line is None:
+            return []
+        shipped = list(
+            self._session.execute(
+                select(DeliveryNoteLineBatch, BatchRecord)
+                .join(BatchRecord, BatchRecord.id == DeliveryNoteLineBatch.batch_id)
+                .where(
+                    DeliveryNoteLineBatch.delivery_note_line_id == note_line.id,
+                    DeliveryNoteLineBatch.is_deleted.is_(False),
+                )
+                .order_by(
+                    case((BatchRecord.expiry_date.is_(None), 1), else_=0).asc(),
+                    BatchRecord.expiry_date.asc(),
+                    *lot_tie_break(),
+                )
+            )
+            .tuples()
+            .all()
+        )
+        if not shipped:
+            return []
+        number = (line.batch_number or "").strip()
+        if number:
+            shipped = [
+                (pick, lot)
+                for pick, lot in shipped
+                if number in {lot.batch_number, lot.lot_reference}
+            ]
+            if not shipped:
+                raise ValidationError(
+                    f"Line {line.line_number}: batch {number} did not leave on "
+                    "the delivery these goods came from, so they cannot go "
+                    "back into it. Clear the batch, or name one that line "
+                    "shipped.",
+                    details={"field": "lines"},
+                )
+        back = self._lots_already_back(
+            firm_id=row.firm_id, note_line_id=note_line.id, exclude_return_id=row.id
+        )
+        needed = self._inventory.stock_quantity(
+            firm_scope=row.firm_id,
+            product_id=line.product_id,
+            quantity=coming.quantity,
+            uom_id=coming.uom_id,
+            conversion_version=coming.conversion_version,
+            on_date=row.return_date,
+        )
+        lots: list[_LotBack] = []
+        for pick, lot in reversed(shipped):
+            if needed <= ZERO:
+                break
+            sent = Decimal(str(pick.quantity))
+            refilled = min(back.get(lot.id, ZERO), sent)
+            back[lot.id] = back.get(lot.id, ZERO) - refilled
+            share = min(sent - refilled, needed)
+            if share <= ZERO:
+                continue
+            cost = (
+                None
+                if pick.cost_amount is None or sent <= ZERO
+                else Decimal(str(pick.cost_amount)) / sent
+            )
+            lots.append(_LotBack(batch_id=lot.id, quantity=share, unit_cost=cost))
+            needed -= share
+        return lots
+
+    def _lots_already_back(
+        self, *, firm_id: UUID, note_line_id: UUID, exclude_return_id: UUID
+    ) -> dict[UUID, Decimal]:
+        """Sum, per lot, what live returns of one note line's goods put back.
+
+        Either route counts: a return raised on the note line and one raised
+        on a bill line that billed it bring back the same goods.
+        """
+        billed = select(SalesInvoiceLine.id).where(
+            SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
+            SalesInvoiceLine.source_document_line_id == note_line_id,
+            SalesInvoiceLine.is_deleted.is_(False),
+        )
+        rows = self._session.execute(
+            select(
+                SalesReturnLineBatch.batch_id,
+                func.coalesce(func.sum(SalesReturnLineBatch.quantity), 0),
+            )
+            .join(
+                SalesReturnLine,
+                SalesReturnLine.id == SalesReturnLineBatch.sales_return_line_id,
+            )
+            .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+            .where(
+                SalesReturn.firm_id == firm_id,
+                SalesReturn.id != exclude_return_id,
+                SalesReturn.is_deleted.is_(False),
+                SalesReturn.status.not_in(_SPENT_STATUSES),
+                SalesReturnLine.is_deleted.is_(False),
+                SalesReturnLineBatch.is_deleted.is_(False),
+                or_(
+                    and_(
+                        SalesReturnLine.source_document_type
+                        == SalesReturnSourceType.DELIVERY_NOTE.value,
+                        SalesReturnLine.source_document_line_id == note_line_id,
+                    ),
+                    and_(
+                        SalesReturnLine.source_document_type
+                        == SalesReturnSourceType.SALES_INVOICE.value,
+                        SalesReturnLine.source_document_line_id.in_(billed),
+                    ),
+                ),
+            )
+            .group_by(SalesReturnLineBatch.batch_id)
+        ).all()
+        return {batch_id: Decimal(str(total)) for batch_id, total in rows}
+
+    def _take_back_into_lots(
+        self,
+        row: SalesReturn,
+        line: SalesReturnLine,
+        coming: _ComingBack,
+        lots: list[_LotBack],
+        *,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        hold_for_check: bool,
+        actor_id: UUID,
+    ) -> list[UUID]:
+        """Bring a by-lot line's goods back, one movement per lot it refills.
+
+        A line that fits one lot keeps the unit it was typed in, as before.
+        One split across lots moves each lot's share in the stock unit, with
+        the sellable, damaged and scrapped parts handed out lot by lot in that
+        order. Whatever the shipped lots cannot take -- goods that left with
+        no lot recorded -- comes back with no lot, at the item's average, as
+        a movement naming no lot always has (decision 6).
+
+        Returns:
+            The movements made.
+
+        """
+        total = self._inventory.stock_quantity(
+            firm_scope=row.firm_id,
+            product_id=line.product_id,
+            quantity=coming.quantity,
+            uom_id=coming.uom_id,
+            conversion_version=coming.conversion_version,
+            on_date=row.return_date,
+        )
+        placed = sum((lot.quantity for lot in lots), ZERO)
+        remarks = line.remarks or row.remarks
+        if len(lots) == 1 and placed >= total:
+            transaction = self._inventory.record_sales_return(
+                firm_scope=row.firm_id,
+                actor_id=actor_id,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                storage_node_id=line.storage_node_id,
+                product_id=line.product_id,
+                reference_number=row.return_number,
+                transaction_date=row.return_date,
+                return_quantity=coming.quantity,
+                restock_quantity=coming.restock,
+                damaged_quantity=coming.damaged,
+                scrap_quantity=coming.scrap,
+                entered_quantity=coming.quantity,
+                entered_uom_id=coming.uom_id,
+                conversion_version=coming.conversion_version,
+                remarks=remarks,
+                batch_id=lots[0].batch_id,
+                hold_for_check=hold_for_check,
+                unit_cost=lots[0].unit_cost,
+            )
+            self._record_lot_back(
+                line, lots[0].batch_id, transaction.id, transaction.quantity, actor_id
+            )
+            line.batch_id = lots[0].batch_id
+            line.inventory_transaction_id = transaction.id
+            line.updated_by = actor_id
+            return [transaction.id]
+        factor = total / coming.quantity if coming.quantity > ZERO else Decimal("1")
+        pools = [
+            Decimal(str(coming.restock)) * factor,
+            Decimal(str(coming.damaged)) * factor,
+            Decimal(str(coming.scrap)) * factor,
+        ]
+        pieces: list[tuple[UUID | None, Decimal, Decimal | None]] = [
+            (lot.batch_id, lot.quantity, lot.unit_cost) for lot in lots
+        ]
+        if total > placed:
+            pieces.append((None, total - placed, None))
+        made: list[UUID] = []
+        line.inventory_transaction_id = None
+        for batch_id, quantity, unit_cost in pieces:
+            parts: list[Decimal] = []
+            left = quantity
+            for index, pool in enumerate(pools):
+                part = min(pool, left)
+                pools[index] = pool - part
+                left -= part
+                parts.append(part)
+            transaction = self._inventory.record_sales_return(
+                firm_scope=row.firm_id,
+                actor_id=actor_id,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                storage_node_id=line.storage_node_id,
+                product_id=line.product_id,
+                reference_number=row.return_number,
+                transaction_date=row.return_date,
+                return_quantity=quantity,
+                restock_quantity=parts[0],
+                damaged_quantity=parts[1],
+                scrap_quantity=parts[2],
+                remarks=remarks,
+                batch_id=batch_id,
+                hold_for_check=hold_for_check,
+                unit_cost=unit_cost,
+            )
+            made.append(transaction.id)
+            if batch_id is None:
+                line.inventory_transaction_id = transaction.id
+            else:
+                self._record_lot_back(
+                    line, batch_id, transaction.id, transaction.quantity, actor_id
+                )
+        if line.inventory_transaction_id is None:
+            line.inventory_transaction_id = made[0]
+        line.batch_id = lots[0].batch_id
+        line.updated_by = actor_id
+        return made
+
+    def _record_lot_back(
+        self,
+        line: SalesReturnLine,
+        batch_id: UUID,
+        movement_id: UUID,
+        quantity: Decimal,
+        actor_id: UUID,
+    ) -> None:
+        """Write which lot a movement refilled, with what it carried."""
+        cost = self._session.scalar(
+            select(func.sum(StockLedgerEntry.total_cost)).where(
+                StockLedgerEntry.transaction_id == movement_id,
+                StockLedgerEntry.is_deleted.is_(False),
+            )
+        )
+        self._session.add(
+            SalesReturnLineBatch(
+                sales_return_line_id=line.id,
+                firm_id=line.firm_id,
+                batch_id=batch_id,
+                quantity=quantity,
+                cost_amount=None if cost is None else Decimal(str(cost)),
+                inventory_transaction_id=movement_id,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
 
     def _resolve_return_batch(self, line: SalesReturnLine) -> UUID | None:
         """Resolve the batch these goods are going back into.

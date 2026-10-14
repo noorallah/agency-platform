@@ -197,6 +197,40 @@ no batch, so our own reference never reaches paper. No response carries a
 lot's cost yet: the screens (step 11) and L3's margin read it with the
 `PRODUCT_VIEW_COST_PRICE` check.
 
+#### Returns by lot (L2 step 6)
+
+A firm costing by lot takes a customer's goods back into the lots the
+source line shipped (`_lots_going_back` in `sales_return_service.py`): the
+delivery line's `delivery_note_line_batches` rows, less what live returns of
+the same goods (off the note or off a bill of it) already put back. The last
+lot taken is the first refilled, read as the dispatch order backwards
+(nearest expiry, then oldest received, then our reference). Each lot's units
+come back at the cost they left with, the row's `cost_amount` over its
+quantity; a row with no cost (before 0385) leaves the lot's own cost. A line
+that names a batch goes back only into the shipped lots of that batch, by
+printed number or by our reference, and a batch the line did not ship is
+refused. A line that fits one lot moves once in the unit it was typed in; a
+line split over lots moves once per lot in the stock unit, the sellable,
+damaged and scrapped parts handed out lot by lot in that order. Whatever the
+shipped lots cannot take comes back with no lot, at the item's average.
+
+Each lot refilled is a `sales_return_line_batches` row (migration
+`20261014_0386`): quantity in stock units, the movement, and what it carried
+off the stock ledger. Cancelling reverses every movement the line made (its
+own `inventory_transaction_id` and every lot row's), each at the value its
+original carried, and marks the rows deleted, so the lots hold exactly what
+they held before and the goods may come back again. A serial-tracked line,
+and every line of a firm on Average, comes back in one movement as before;
+on Average a line that names a batch also writes its one lot row.
+
+A purchase return leaves the lot its receipt line made: where the receipt
+line resolved a batch and the return names no other, `_resolve_return_batch`
+in `purchase_return_service.py` takes that row, not a lookup by number. In a
+by-lot firm a printed number can name several lots and unprinted goods carry
+none, so the number alone took another delivery's lot or the untracked row.
+The movement leaves at the lot's own cost, so a return of what was bought
+leaves no variance.
+
 ### Table: `lots`
 
 | Column | Type | Notes |

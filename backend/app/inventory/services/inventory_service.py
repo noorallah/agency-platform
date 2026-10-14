@@ -3460,6 +3460,7 @@ class InventoryService:
         batch_id: UUID | None = None,
         serial_id: UUID | None = None,
         hold_for_check: bool = False,
+        unit_cost: Decimal | None = None,
     ) -> InventoryTransaction:
         """Take back into stock the goods a customer sent back.
 
@@ -3475,7 +3476,9 @@ class InventoryService:
 
         The unit cost is left unset so the goods return at the moving average
         the product is carried at. Bringing them back at the selling price
-        would revalue stock at a number no purchase ever paid.
+        would revalue stock at a number no purchase ever paid. A firm costing
+        by lot passes ``unit_cost``, the cost of one stock unit as it left in
+        the lot it goes back into (L2 step 6).
 
         ``hold_for_check`` (the firm's *hold customer returns until checked*,
         STK-13) puts the sellable part in quarantine instead of on the shelf;
@@ -3540,6 +3543,7 @@ class InventoryService:
                 # value follows the whole return rather than the shelf-ready
                 # part of it.
                 owned_delta=base_quantity,
+                unit_cost=unit_cost,
                 entered_quantity=entered_quantity,
                 entered_uom_id=entered_uom_id,
                 conversion_version=conversion_version,
@@ -3552,6 +3556,32 @@ class InventoryService:
         )
         self._session.flush()
         return transaction
+
+    def stock_quantity(
+        self,
+        *,
+        firm_scope: UUID,
+        product_id: UUID,
+        quantity: Decimal,
+        uom_id: UUID | None,
+        conversion_version: int | None,
+        on_date: date,
+    ) -> Decimal:
+        """Return a quantity typed in ``uom_id`` restated in the stock unit.
+
+        The conversion a movement applies, asked ahead of the movement by a
+        document that has to split one line across several lots.
+        """
+        base, _entered, _uom, _version = self._resolve_base_quantity(
+            firm_scope=firm_scope,
+            product_id=product_id,
+            quantity=quantity,
+            entered_uom_id=uom_id,
+            conversion_version=conversion_version,
+            on_date=on_date,
+            enforce_whole_units=False,
+        )
+        return base
 
     def record_sales_order_reservation(
         self,

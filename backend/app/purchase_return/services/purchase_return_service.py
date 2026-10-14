@@ -1742,6 +1742,13 @@ class PurchaseReturnService(TransactionalDocumentService):
         or off a bill line billing it; a receipt line that named no batch says
         nothing about which may go back.
         """
+        receipt_line = self._receipt_line_of(line)
+        if receipt_line is None:
+            return None
+        return (receipt_line.batch_number or "").strip() or None
+
+    def _receipt_line_of(self, line: PurchaseReturnLine) -> GoodsReceiptLine | None:
+        """Return the receipt line a saved return line's goods came in on."""
         source_line: SourceLine | None = None
         if line.source_document_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
             source_line = self._session.get(
@@ -1755,10 +1762,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
         if source_line is None:
             return None
-        receipt_line = self._receipt_line_behind(source_line)
-        if receipt_line is None:
-            return None
-        return (receipt_line.batch_number or "").strip() or None
+        return self._receipt_line_behind(source_line)
 
     def _resolve_return_batch(self, line: PurchaseReturnLine) -> UUID | None:
         """Return the batch this line is sending back, if it names one.
@@ -1778,6 +1782,11 @@ class PurchaseReturnService(TransactionalDocumentService):
         already refuses to ship it untracked; a return that did not would be
         the same hole in the same guarantee, one document along.
 
+        A receipt line that resolved its batch goes back out of exactly that
+        row (L2 step 6): in a firm costing by lot a printed number can name
+        several lots, and goods with no printed batch carry no number at all,
+        so the number alone would take another delivery's lot or none.
+
         Returns:
             The batch id, or None where the line names no batch and the product
             does not require one -- which posts against the product exactly as
@@ -1785,7 +1794,18 @@ class PurchaseReturnService(TransactionalDocumentService):
 
         """
         number = (line.batch_number or "").strip()
-        brought = self._batch_brought_in(line)
+        receipt_line = self._receipt_line_of(line)
+        brought = (
+            None
+            if receipt_line is None
+            else (receipt_line.batch_number or "").strip() or None
+        )
+        if (
+            receipt_line is not None
+            and receipt_line.batch_id is not None
+            and (not number or number == brought)
+        ):
+            return receipt_line.batch_id
         if number and brought and number != brought:
             # Any batch the product was ever received into used to be taken,
             # and its stock went back on another delivery's paper (D-BUY-64).
