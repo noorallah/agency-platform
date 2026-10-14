@@ -263,6 +263,12 @@ class Product(BaseEntity):
     #: (BACKLOG 64 row 2). None sets no minimum.
     minimum_selling_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     mrp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: The product's retail and wholesale margins, in percent, a mark-up on
+    #: the purchase price before GST (row L3). Taken from its goods type when
+    #: it is made and none is given; a lot of a firm costing by lot works its
+    #: retail price (PTR) and wholesale price (PTS) out from them.
+    retail_margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    wholesale_margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     #: Bought and stocked but never sold -- packing material, consumables
     #: (STK-17). Every new sales line naming it is refused.

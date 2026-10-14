@@ -2165,6 +2165,8 @@ class ProductService:
             "selling_price": product.selling_price,
             "minimum_selling_price": product.minimum_selling_price,
             "mrp": product.mrp,
+            "retail_margin_percent": product.retail_margin_percent,
+            "wholesale_margin_percent": product.wholesale_margin_percent,
             "status": product.status,
             "not_for_sale": product.not_for_sale,
             "shelf_life_days": product.shelf_life_days,

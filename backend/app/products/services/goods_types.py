@@ -14,7 +14,12 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.common.audit.services import record_audit, record_change, row_state
+from app.common.audit.services import (
+    audit_value,
+    record_audit,
+    record_change,
+    row_state,
+)
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -29,7 +34,14 @@ from app.products.schemas.goods_type import (
     ProductGoodsTypeOption,
 )
 
-_DEFAULTS = ("default_hsn_sac", "default_tax_profile_group_code")
+_DEFAULTS = (
+    "default_hsn_sac",
+    "default_tax_profile_group_code",
+    "retail_margin_percent",
+    "wholesale_margin_percent",
+)
+#: The margins a type hands a new product, by the same name on both (row L3).
+_MARGINS = ("retail_margin_percent", "wholesale_margin_percent")
 #: The switches a type holds, which a new product of it starts with.
 _SWITCHES = (
     "track_batch",
@@ -120,6 +132,12 @@ class GoodsTypeService:
                     default_tax_profile_group_code=(
                         tax_group if tax_group in tax_groups else None
                     ),
+                    retail_margin_percent=(
+                        None if use is None else use.retail_margin_percent
+                    ),
+                    wholesale_margin_percent=(
+                        None if use is None else use.wholesale_margin_percent
+                    ),
                 )
             )
         return options
@@ -139,9 +157,9 @@ class GoodsTypeService:
         product differs from its line. The rest take the type's, and a
         "must be named" rule follows its switch as it ends up, so a product
         sent with batch tracking off is not left demanding a batch. The HSN
-        code and tax group are filled only where the product has none, and a
-        tax group the firm no longer has is passed over rather than refused.
-        General fills nothing.
+        code, tax group and each margin are filled only where the product has
+        none, and a tax group the firm no longer has is passed over rather than
+        refused. General fills nothing.
         """
         row = None if goods_type_id is None else self._repository.find(goods_type_id)
         if row is None:
@@ -165,6 +183,10 @@ class GoodsTypeService:
             and self._has_tax_group(firm_id, tax_group)
         ):
             filled["tax_profile_group_code"] = tax_group
+        for name in _MARGINS:
+            margin = getattr(use, name)
+            if values.get(name) is None and margin is not None:
+                filled[name] = margin
         return filled
 
     def assert_offered(self, firm_id: UUID, goods_type_id: UUID | None) -> None:
@@ -211,6 +233,8 @@ class GoodsTypeService:
             goods_type_id=row.id,
             default_hsn_sac=data.default_hsn_sac,
             default_tax_profile_group_code=data.default_tax_profile_group_code,
+            retail_margin_percent=data.retail_margin_percent,
+            wholesale_margin_percent=data.wholesale_margin_percent,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -373,7 +397,11 @@ class GoodsTypeService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={"code": row.code, "in_use": data.in_use, **defaults},
+            after_data={
+                "code": row.code,
+                "in_use": data.in_use,
+                **{name: audit_value(value) for name, value in defaults.items()},
+            },
         )
         self._session.commit()
         return self._response(row, use)
@@ -383,10 +411,11 @@ class GoodsTypeService:
         """Return the firm's live use rows by goods type."""
         return self._repository.uses(firm_id)
 
-    def _assert_defaults(self, firm_id: UUID, defaults: dict[str, str | None]) -> None:
+    def _assert_defaults(self, firm_id: UUID, defaults: dict[str, object]) -> None:
         """Refuse a default tax group the firm does not have."""
         if "default_tax_profile_group_code" in defaults:
-            self._assert_tax_group(firm_id, defaults["default_tax_profile_group_code"])
+            group = defaults["default_tax_profile_group_code"]
+            self._assert_tax_group(firm_id, None if group is None else str(group))
 
     def _write_use(
         self,
@@ -395,7 +424,7 @@ class GoodsTypeService:
         *,
         firm_id: UUID,
         actor_id: UUID,
-        defaults: dict[str, str | None],
+        defaults: dict[str, object],
     ) -> FirmGoodsType:
         """Create or bring back the firm's use row and write the defaults."""
         self._assert_defaults(firm_id, defaults)
@@ -478,6 +507,10 @@ class GoodsTypeService:
             default_hsn_sac=None if use is None else use.default_hsn_sac,
             default_tax_profile_group_code=(
                 None if use is None else use.default_tax_profile_group_code
+            ),
+            retail_margin_percent=None if use is None else use.retail_margin_percent,
+            wholesale_margin_percent=(
+                None if use is None else use.wholesale_margin_percent
             ),
             version=row.version,
         )

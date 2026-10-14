@@ -1,8 +1,14 @@
 """API contracts for goods types (backlog 89)."""
 
+from decimal import Decimal
+from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+#: A retail or wholesale margin, in percent: a mark-up on the purchase price
+#: before GST (row L3). At or above zero and below 1,000, four places.
+MarginPercent = Annotated[Decimal, Field(ge=0, lt=1000, max_digits=8, decimal_places=4)]
 
 
 class GoodsTypeSchema(BaseModel):
@@ -26,6 +32,9 @@ class GoodsTypeCreate(GoodsTypeSchema):
     #: What a new product of this type starts with, in this firm.
     default_hsn_sac: str | None = Field(default=None, max_length=20)
     default_tax_profile_group_code: str | None = Field(default=None, max_length=50)
+    #: The margins a new product of this type starts with (row L3).
+    retail_margin_percent: MarginPercent | None = None
+    wholesale_margin_percent: MarginPercent | None = None
 
     @field_validator("code", mode="before")
     @classmethod
@@ -58,6 +67,9 @@ class GoodsTypeUpdate(GoodsTypeSchema):
     is_active: bool | None = None
     default_hsn_sac: str | None = Field(default=None, max_length=20)
     default_tax_profile_group_code: str | None = Field(default=None, max_length=50)
+    #: The margins a new product of this type starts with (row L3).
+    retail_margin_percent: MarginPercent | None = None
+    wholesale_margin_percent: MarginPercent | None = None
 
     @field_validator("code", mode="before")
     @classmethod
@@ -84,6 +96,9 @@ class GoodsTypeUse(GoodsTypeSchema):
     in_use: bool
     default_hsn_sac: str | None = Field(default=None, max_length=20)
     default_tax_profile_group_code: str | None = Field(default=None, max_length=50)
+    #: The margins a new product of this type starts with (row L3).
+    retail_margin_percent: MarginPercent | None = None
+    wholesale_margin_percent: MarginPercent | None = None
 
     @field_validator("default_hsn_sac", "default_tax_profile_group_code", mode="before")
     @classmethod
@@ -113,6 +128,8 @@ class GoodsTypeResponse(GoodsTypeSchema):
     in_use: bool
     default_hsn_sac: str | None
     default_tax_profile_group_code: str | None
+    retail_margin_percent: Decimal | None = None
+    wholesale_margin_percent: Decimal | None = None
     #: The concurrency counter, echoed as ``If-Match`` on the next edit.
     version: int
 
@@ -133,3 +150,6 @@ class ProductGoodsTypeOption(GoodsTypeSchema):
     default_hsn_sac: str | None
     #: Only ever a tax group the firm has today.
     default_tax_profile_group_code: str | None
+    #: The margins the form fills in for a new product of the type (row L3).
+    retail_margin_percent: Decimal | None = None
+    wholesale_margin_percent: Decimal | None = None

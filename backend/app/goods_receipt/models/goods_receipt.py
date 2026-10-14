@@ -261,6 +261,10 @@ class GoodsReceiptLine(BaseEntity):
     #: per stock unit before tax: handed to the batch on completion.
     ptr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     pts: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: The retail and wholesale margins this line priced its lot at: the
+    #: product's unless changed on the line (row L3).
+    retail_margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    wholesale_margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
     #: Capital goods (PG-13, D-BUY-40): received, but put into no stock and
     #: accrued nothing -- the bill debits it to a fixed asset. Taken from the
     #: order line unless the receipt says otherwise, and fixed once the
