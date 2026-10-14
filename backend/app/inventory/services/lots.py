@@ -75,6 +75,25 @@ def costs_by_lot(session: Session, firm_id: UUID) -> bool:
     return method == FIRM_BY_LOT
 
 
+def switch_over_day(session: Session, firm_id: UUID) -> date | None:
+    """Return the day a by-lot firm switched from Average, None otherwise.
+
+    A firm that started on by-lot, or is still on Average, has none. Stock
+    may not move on an earlier day once a firm has switched (section 4.4,
+    rule 5).
+    """
+    row = session.execute(
+        select(StockLotSettings.costing_method, StockLotSettings.switched_on).where(
+            StockLotSettings.firm_id == firm_id,
+            StockLotSettings.is_deleted.is_(False),
+        )
+    ).first()
+    if row is None or row[0] != FIRM_BY_LOT:
+        return None
+    switched_on: date | None = row[1]
+    return switched_on
+
+
 def newest_lot_cost(
     session: Session, firm_id: UUID, product_id: UUID
 ) -> Decimal | None:

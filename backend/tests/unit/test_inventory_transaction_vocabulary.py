@@ -28,6 +28,16 @@ _SERVICE = (
     / "services"
     / "inventory_service.py"
 )
+#: Modules that hand the service a type to write rather than writing a
+#: literal themselves: a bill's rate onto the lot is a ``COST_CORRECTION``
+#: staged through ``stage_revaluation`` (L2 step 8).
+_CALLERS = (
+    Path(__file__).resolve().parents[2]
+    / "app"
+    / "purchase_invoice"
+    / "services"
+    / "lot_rate.py",
+)
 
 
 def _written_types() -> set[str]:
@@ -53,7 +63,9 @@ def test_the_enum_declares_nothing_the_system_cannot_produce() -> None:
     Transfers, physical counts and damage write-offs are not built. Declaring
     them offered a filter that could only ever return an empty page.
     """
-    source = _SERVICE.read_text(encoding="utf-8")
+    source = "\n".join(
+        path.read_text(encoding="utf-8") for path in (_SERVICE, *_CALLERS)
+    )
     unwritten = sorted(
         member.value
         for member in InventoryTransactionType

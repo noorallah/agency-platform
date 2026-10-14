@@ -281,7 +281,7 @@ not switched it on, are refused exactly as before.
   item's own `allow_negative_stock`, both on, on a firm costing by lot
   (`LotShortfallService.may_bill_short`). A line whose batches or serial
   units were chosen is never billed short: what was chosen has to be there.
-  No route sets the switch yet; the settings screen is step 9.
+  `PUT /inventory/lot-settings` sets the switch (step 9).
 - **The question.** A dispatch that needs more than the lots hold answers 422
   "Line n: no stock of ... Bill anyway?" with `details.confirm` =
   `BILL_WITHOUT_STOCK`, until the caller sends `bill_without_stock=true`
@@ -354,6 +354,84 @@ the sum of the lots. A firm on Average is untouched.
   since took it (`reverse_landing`).
 - The stock valuation report counts a `COST_CORRECTION` as value in with no
   quantity, as it does a `LANDED_COST`.
+
+### The switch-over (L2 step 9)
+
+`docs/design/LOT_COST_DESIGN.md`, section 4.4, in
+`app/inventory/services/lot_switch_over.py` (`LotSwitchOverService`). No
+migration: `stock_lot_settings` already carries `costing_method`,
+`switched_on` and `allow_billing_without_stock`.
+
+- **Routes** (`/api/v1/inventory`). `GET /lot-settings` (`INVENTORY_VIEW`)
+  and `PUT /lot-settings` (`INVENTORY_MANAGE_SETTINGS`, body
+  `{allow_billing_without_stock}`) answer `{costing_method, switched_on,
+  allow_billing_without_stock, version}` with the version as an `ETag`.
+  `GET /lot-settings/switch-preview?on=` answers `{on, suggested_on, items,
+  lots, quantity, stock_value, refusals}` and writes nothing. `POST
+  /lot-settings/switch` with `{on}` switches, or answers 422 naming every
+  refusal (also in `details.refusals`).
+- **What the switch does**, in one transaction committed once: the settings
+  row is locked (made if missing); each batch that holds stock becomes a lot
+  (source `CARRIED_FORWARD`, its `received_on` kept, else the day); each
+  item's stock that names no batch becomes one new lot with our reference
+  and no printed batch, and every such stock row, in any warehouse, now names
+  it; each lot gets a `batch_valuations` row at the item's average, the
+  rounding on its largest lot; every `product_valuations.costing_method` of
+  the firm reads `BY_LOT`; the firm reads `BY_LOT` from the day. Each item's
+  lots are then compared with its value and quantity, and any difference
+  undoes the whole switch. No journal, no re-valuation, no saved bill line
+  touched.
+- **Rule 5.** `InventoryService._stage_movement`, the one place a movement
+  is staged, refuses any movement dated before `switched_on`
+  (`switch_over_day` in `lots.py`). A firm on Average, or one that started by
+  lot, has no such day.
+- **The Settings screen.** The Stock subject's `costing-method` step reads
+  "Average" or "By lot since <day>" (`app/settings_sections/services/stock.py`).
+
+DECIDED: (57) A lot's quantity is what the firm **owns** of it: the sum over
+its movements of `owned_quantity_delta`, else `current_quantity_delta`,
+leaving out quarantine holds and releases -- exactly what the valuation
+rolls. The buckets alone cannot say it (a damaged return is owned without
+being on the shelf).
+
+DECIDED: (58) Refused, in plain words, naming the items: already by lot; a
+day after today; a day before the latest stock movement; an item below zero
+(any lot, any stock row, or its valuation); an item whose movements do not
+add up to the quantity it is valued at; and an item with unbatched stock
+reserved for an order or in transit -- releasing or receiving it later would
+look for a stock row with no batch that no longer exists.
+
+DECIDED: (59) Every lot's unit cost is the item's average as stored (six
+places). Each lot's value is quantity times that, to the storage scale
+(`quantize_money`, four places), and the residual goes on the lot holding
+most (ties by id), so the lots sum to the item's value exactly; the issue
+that empties a lot takes the residual with it.
+
+DECIDED: (60) A batch turned into a lot keeps `per_purchase_line` false, so
+the firm's "same number, same batch" key still holds for it; the new lot for
+unbatched stock is made as any lot is (`open_lot`), with no branch or
+warehouse, as it spans them. Both name the settings row as their source
+document, numbered `CARRIED FORWARD <day>`; each batch changed is audited
+(`batch.carried_forward`), and the switch itself
+(`stock_lot_settings.switched_to_by_lot`) with the counts and value.
+
+DECIDED: (61) The permission is `INVENTORY_MANAGE_SETTINGS`, not a finance
+code as section 4.4 rule 1 says: the method is a stock setting kept on an
+inventory table, and the code is already held by the firm administrator and
+withheld from the inventory manager. No new code.
+
+DECIDED: (62) `PUT` writes only `allow_billing_without_stock`, refused while
+the firm is on Average where it has no effect. A firm with no row reads
+Average with `version` null and no `ETag`.
+
+DECIDED: (63) The suggested day is the start of the financial year the books
+hold for today, else the firm's own start month; with no `on` the preview
+previews that day. The stock value goes only to a holder of
+`PRODUCT_VIEW_COST_PRICE`, as the shortfall list's cost does.
+
+DECIDED: (64) A reversal of a movement made before the switch is dated the
+day it is made, as every reversal is, so rule 5 does not stop it; it moves
+the stock row the original moved, which now names the lot.
 
 ### Table: `lots`
 

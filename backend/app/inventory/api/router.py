@@ -31,7 +31,7 @@ from app.common.scope import (
     firm_any_permission_scope,
     firm_permission_scope,
 )
-from app.core.concurrency import ExpectedVersion, set_etag
+from app.core.concurrency import ExpectedVersion, publish_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
@@ -76,6 +76,10 @@ from app.inventory.schemas.inventory import (
     InventorySummary,
     InventoryTransactionResponse,
     InventoryUpdate,
+    LotSettingsResponse,
+    LotSettingsUpdate,
+    LotSwitchPreviewResponse,
+    LotSwitchRequest,
     OpeningStockBatchResponse,
     StockLedgerResponse,
 )
@@ -101,6 +105,10 @@ from app.inventory.services.count_planning import (
 )
 from app.inventory.services.free_goods import FreeGoodsRecord, free_goods_report
 from app.inventory.services.lot_shortfalls import LotShortfallService
+from app.inventory.services.lot_switch_over import (
+    LotSettingsView,
+    LotSwitchOverService,
+)
 from app.inventory.services.opening_stock_import import OpeningStockFileImporter
 from app.inventory.services.opening_stock_import import (
     template_csv as opening_stock_template_csv,
@@ -1156,6 +1164,114 @@ def replace_adjustment_limits(
             StockAdjustmentLimitItem(role_code=row.role_code, max_value=row.max_value)
             for row in rows
         ]
+    )
+
+
+def _lot_settings_response(
+    view: LotSettingsView, response: Response | None = None
+) -> LotSettingsResponse:
+    """Return the lot settings, publishing their version where there is one."""
+    if response is not None and view.version is not None:
+        publish_version(response, view.version)
+    return LotSettingsResponse(
+        costing_method=view.costing_method,
+        switched_on=view.switched_on,
+        allow_billing_without_stock=view.allow_billing_without_stock,
+        version=view.version,
+    )
+
+
+@router.get("/lot-settings", response_model=ApiResponse[LotSettingsResponse])
+def get_lot_settings(
+    response: Response,
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[LotSettingsResponse]:
+    """Return the firm's costing method and its billing-without-stock switch.
+
+    L2 step 9. A firm that never switched reads Average, with no version.
+    """
+    view = LotSwitchOverService(db).settings(scope.firm_id)
+    return ApiResponse(data=_lot_settings_response(view, response))
+
+
+@router.put("/lot-settings", response_model=ApiResponse[LotSettingsResponse])
+def update_lot_settings(
+    data: LotSettingsUpdate,
+    response: Response,
+    scope: InventorySettingsScope,
+    expected_version: ExpectedVersion = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[LotSettingsResponse]:
+    """Allow or refuse billing goods no lot holds (section 3.7).
+
+    Refused while the firm is on Average. The costing method is never written
+    here; ``POST /lot-settings/switch`` moves it.
+    """
+    view = LotSwitchOverService(db).update_settings(
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        allow_billing_without_stock=data.allow_billing_without_stock,
+        expected_version=expected_version,
+    )
+    return ApiResponse(
+        data=_lot_settings_response(view, response), message="Lot settings saved."
+    )
+
+
+@router.get(
+    "/lot-settings/switch-preview",
+    response_model=ApiResponse[LotSwitchPreviewResponse],
+)
+def preview_lot_switch(
+    scope: InventorySettingsScope,
+    on: Annotated[date | None, Query()] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[LotSwitchPreviewResponse]:
+    """Show what switching to costing by lot on a day would do; writes nothing.
+
+    Section 4.4, rule 1. With no day, the suggested one -- the start of the
+    current financial year -- is previewed. The stock value is sent only to a
+    holder of ``PRODUCT_VIEW_COST_PRICE``.
+    """
+    service = LotSwitchOverService(db)
+    preview = service.preview(
+        scope.firm_id, on if on is not None else service.suggested_day(scope.firm_id)
+    )
+    return ApiResponse(
+        data=LotSwitchPreviewResponse(
+            on=preview.on,
+            suggested_on=preview.suggested_on,
+            items=preview.items,
+            lots=preview.lots,
+            quantity=preview.quantity,
+            stock_value=(
+                preview.stock_value
+                if scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
+                else None
+            ),
+            refusals=list(preview.refusals),
+        )
+    )
+
+
+@router.post("/lot-settings/switch", response_model=ApiResponse[LotSettingsResponse])
+def switch_to_lot_costing(
+    data: LotSwitchRequest,
+    response: Response,
+    scope: InventorySettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[LotSettingsResponse]:
+    """Move the firm from Average to costing by lot, from the day named.
+
+    Section 4.4: every item's stock becomes lots at its average, no journal
+    is posted and nothing is re-valued. One way. Refused, naming every
+    reason, where the preview shows one.
+    """
+    view = LotSwitchOverService(db).switch(scope.firm_id, data.on, scope.actor_id)
+    return ApiResponse(
+        data=_lot_settings_response(view, response),
+        message="The firm now costs its stock by lot.",
     )
 
 

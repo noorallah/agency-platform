@@ -881,3 +881,44 @@ class LotShortfallResponse(InventorySchema):
     cost_waiting: Decimal | None = None
     confirmed_by: UUID
     confirmed_at: datetime
+
+
+class LotSettingsResponse(InventorySchema):
+    """A firm's costing method, and whether it may bill without stock.
+
+    L2 step 9 (`docs/design/LOT_COST_DESIGN.md`, sections 3.7, 4.3). A firm
+    with no row reads ``AVERAGE``, no day, not allowed, and no version.
+    """
+
+    costing_method: str
+    switched_on: date | None = None
+    allow_billing_without_stock: bool
+    version: int | None = None
+
+
+class LotSettingsUpdate(InventorySchema):
+    """The one lot setting written by a form; the method moves by the switch."""
+
+    allow_billing_without_stock: bool
+
+
+class LotSwitchRequest(InventorySchema):
+    """The day a firm on Average starts costing its stock by lot."""
+
+    on: date
+
+
+class LotSwitchPreviewResponse(InventorySchema):
+    """What switching on a day would carry into lots, and what stops it.
+
+    ``stock_value`` is sent only to a holder of ``PRODUCT_VIEW_COST_PRICE``.
+    ``refusals`` is empty when the switch may go ahead.
+    """
+
+    on: date
+    suggested_on: date
+    items: int
+    lots: int
+    quantity: Decimal
+    stock_value: Decimal | None = None
+    refusals: list[str]

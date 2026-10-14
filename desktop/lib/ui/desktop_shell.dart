@@ -48,6 +48,7 @@ import 'inventory/adjustment_approvals_page.dart';
 import 'inventory/adjustment_limits_dialog.dart';
 import 'inventory/adjustment_reasons_page.dart';
 import 'inventory/repacking_page.dart';
+import 'inventory/stock_costing_dialog.dart';
 import 'inventory/stock_transfers_page.dart';
 import 'inventory/inventory_management_page.dart';
 import 'inventory/inventory_details_dialog.dart';
@@ -694,6 +695,14 @@ class _DesktopShellState extends State<DesktopShell> {
         await showDialog<bool>(
           context: context,
           builder: (_) => AdjustmentLimitsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.stockCostingRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => StockCostingDialog(
             api: api,
             permissions: widget.permissions,
           ),

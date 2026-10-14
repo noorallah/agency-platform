@@ -8,11 +8,13 @@ preferences, not the firm's, so the desktop shows it apart as theirs.
 
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models.batch_serial import BatchSaleSettings
 from app.inventory.models.adjustment_approval import RoleStockAdjustmentLimit
 from app.inventory.models.adjustment_reason import StockAdjustmentReason
+from app.inventory.models.inventory import StockLotSettings
 from app.inventory.services.adjustment_reasons import SYSTEM_REASONS
 from app.settings_sections.services.steps import (
     OPTIONAL,
@@ -43,8 +45,25 @@ def _adjustment_reasons_step(session: Session, firm_id: UUID) -> SettingsStep:
     return SettingsStep("adjustment-reasons", OPTIONAL, detail)
 
 
+def _costing_method_step(session: Session, firm_id: UUID) -> SettingsStep:
+    """Say how the firm costs its stock: Average, or by lot since a day.
+
+    A firm with no ``stock_lot_settings`` row is on Average (L2 step 9).
+    """
+    row = session.execute(
+        select(StockLotSettings.costing_method, StockLotSettings.switched_on).where(
+            StockLotSettings.firm_id == firm_id,
+            StockLotSettings.is_deleted.is_(False),
+        )
+    ).first()
+    if row is None or row[0] != "BY_LOT":
+        return SettingsStep("costing-method", OPTIONAL, "Average")
+    since = f" since {row[1].isoformat()}" if row[1] is not None else ""
+    return SettingsStep("costing-method", OPTIONAL, f"By lot{since}")
+
+
 def stock_section(session: Session, firm_id: UUID) -> list[SettingsStep]:
-    """Return the three steps of the Stock subject, in set-up order."""
+    """Return the four steps of the Stock subject, in set-up order."""
     return [
         _adjustment_reasons_step(session, firm_id),
         counted_step(
@@ -55,6 +74,7 @@ def stock_section(session: Session, firm_id: UUID) -> list[SettingsStep]:
             ("role limit", "role limits"),
         ),
         saved_step(session, BatchSaleSettings, firm_id, "batch-rules"),
+        _costing_method_step(session, firm_id),
     ]
 
 

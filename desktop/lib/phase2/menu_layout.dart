@@ -240,6 +240,10 @@ abstract final class MenuLayout {
   /// The largest stock adjustment or write-off each role may post directly
   /// (STK-8). A dialog, under Stock.
   static const String adjustmentLimitsRoute = 'settings/adjustment-limits';
+
+  /// Average or by lot, and whether a bill may go out with no stock in a lot
+  /// (L2 step 9). A dialog, under Stock.
+  static const String stockCostingRoute = 'settings/stock-costing';
   static const String loyaltySchemeRoute = 'settings/loyalty-scheme';
   static const String tcsSettingsRoute = 'settings/tcs';
 
@@ -662,6 +666,8 @@ abstract final class MenuLayout {
       MenuItemSpec.setting(adjustmentLimitsRoute, 'Adjustment Limits',
           permission: 'INVENTORY_VIEW'),
       MenuItemSpec.setting(batchRulesRoute, 'Batch Rules',
+          permission: 'INVENTORY_VIEW'),
+      MenuItemSpec.setting(stockCostingRoute, 'Costing Method',
           permission: 'INVENTORY_VIEW'),
       // Branch & Warehouse Settings is left out (MenuLayout.notOffered).
     ]),

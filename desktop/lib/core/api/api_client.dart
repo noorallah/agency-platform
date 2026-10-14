@@ -59,6 +59,7 @@ import '../../models/rate_contract.dart';
 import '../../models/supplier_scheme.dart';
 import '../../models/kit.dart';
 import '../../models/repack.dart';
+import '../../models/stock_costing.dart';
 import '../../models/stock_transfer.dart';
 import '../../models/quality_inspection.dart';
 import '../../models/bank_account_details.dart';
@@ -4215,6 +4216,42 @@ class ApiClient {
         ),
         RoleAdjustmentLimit.fromJson,
       );
+
+  /// How the firm costs its stock: Average, or by lot since a day (L2 step 9).
+  Future<LotSettings> lotSettings() async => LotSettings.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/inventory/lot-settings')),
+      );
+
+  /// Whether a bill may go out when no lot holds the stock. Refused while the
+  /// firm is on Average.
+  Future<LotSettings> updateLotSettings({
+    required bool allowBillingWithoutStock,
+  }) async =>
+      LotSettings.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/inventory/lot-settings',
+        body: <String, dynamic>{
+          'allow_billing_without_stock': allowBillingWithoutStock,
+        },
+      )));
+
+  /// What switching to by lot on [on] (`YYYY-MM-DD`) would do, with the day
+  /// the server suggests beside it. Writes nothing.
+  Future<LotSwitchPreview> lotSwitchPreview(String on) async =>
+      LotSwitchPreview.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/inventory/lot-settings/switch-preview',
+        query: <String, String>{'on': on},
+      )));
+
+  /// Switches the firm to by lot from [on]. One way; refused with the
+  /// server's reason when the preview has any.
+  Future<LotSettings> switchToLotCosting(String on) async =>
+      LotSettings.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/inventory/lot-settings/switch',
+        body: <String, dynamic>{'on': on},
+      )));
 
   /// Send a refused-as-too-large movement for approval (STK-8). [kind] is
   /// `ADJUSTMENT` or `WRITE_OFF`; [body] is exactly what the direct post took.
