@@ -112,7 +112,8 @@ class BatchUpdate(BatchSchema):
         default=None, ge=0, max_digits=18, decimal_places=2
     )
     #: Price to retailer and to stockist, per stock unit before tax, never
-    #: above the MRP (PG-14). Needs the firm's BATCH_PTR_PTS feature.
+    #: above the MRP (PG-14). Needs the firm's BATCH_PTR_PTS feature unless
+    #: the firm costs by lot, where a change works the lot's margins back (L3).
     ptr: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
     pts: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
     remarks: str | None = None
@@ -159,6 +160,11 @@ class BatchResponse(BatchSchema):
     #: Price to retailer and to stockist (PG-14).
     ptr: Decimal | None = None
     pts: Decimal | None = None
+    #: The mark-ups the two prices stand at on the lot's cost (L3); read only.
+    retail_margin_percent: Decimal | None = None
+    wholesale_margin_percent: Decimal | None = None
+    #: Which price bills above the MRP once tax is added, or None (L3).
+    mrp_warning: str | None = None
     remarks: str | None
     is_deleted: bool
     #: Optimistic-concurrency counter, echoed back as ``If-Match``.
