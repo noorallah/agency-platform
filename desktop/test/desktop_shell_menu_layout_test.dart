@@ -59,10 +59,29 @@ Future<DesktopPreferencesService> _preferences(String? workspace) async {
   return preferences;
 }
 
+/// A session with a firm chosen, for what is only offered inside one.
+class _FirmSession extends SessionController {
+  _FirmSession(DesktopPreferencesService preferences, PermissionService held)
+      : super(
+          baseUrl: 'http://127.0.0.1:9',
+          preferences: preferences,
+          isPlatformAdmin: () => held.isPlatformAdmin,
+        );
+
+  @override
+  AssignedFirm? get currentFirm => const AssignedFirm(
+        id: 'f1',
+        code: 'QA01',
+        name: 'QA01 Traders',
+        isPrimary: true,
+      );
+}
+
 Future<DesktopPreferencesService> _pumpShell(
   WidgetTester tester, {
   bool phase2 = true,
   String? workspace = 'administration/users',
+  bool inFirm = false,
 }) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
@@ -73,11 +92,13 @@ Future<DesktopPreferencesService> _pumpShell(
   });
   final PermissionService permissions = PermissionService()
     ..applyAccessToken(_token());
-  final SessionController session = SessionController(
-    baseUrl: 'http://127.0.0.1:9',
-    preferences: preferences,
-    isPlatformAdmin: () => permissions.isPlatformAdmin,
-  );
+  final SessionController session = inFirm
+      ? _FirmSession(preferences, permissions)
+      : SessionController(
+          baseUrl: 'http://127.0.0.1:9',
+          preferences: preferences,
+          isPlatformAdmin: () => permissions.isPlatformAdmin,
+        );
   final ThemeManager themes = ThemeManager(preferences);
   await tester.pumpWidget(MaterialApp(
     theme: themes.lightTheme,
@@ -137,6 +158,51 @@ void main() {
     expect(find.byKey(const ValueKey('open-screen-administration/users')),
         findsOneWidget);
     expect(find.byKey(const ValueKey('open-screen-administration/firms')),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
+  testWidgets('Settings > Tax opens as one screen in a tab of its own',
+      (tester) async {
+    // Backlog 148: one card for the section, one tab called Tax settings,
+    // and the screen survives a server that does not answer.
+    await _pumpShell(tester, inFirm: true);
+
+    await tester.tap(find.byKey(const ValueKey('menu-area-settings')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.ensureVisible(find.byKey(const ValueKey('setup-section-Tax')));
+    await tester.tap(find.byKey(const ValueKey('setup-section-Tax')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+        find.byKey(const ValueKey('setup-card-administration/tax-rules-page')),
+        findsNothing);
+    await tester.tap(find.byKey(const ValueKey('setup-subject-tax')));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byKey(const ValueKey('open-screen-settings/subject/tax')),
+        findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('open-screen-settings/subject/tax')),
+        matching: find.text('Tax settings'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('subject-tab-start')), findsOneWidget);
+    // A step's tab shows today's screen, built by the shell.
+    await tester.tap(find.byKey(
+        const ValueKey('subject-tab-administration/tax-configuration')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+        find.byKey(
+            const ValueKey('subject-body-administration/tax-configuration')),
+        findsOneWidget);
+    // Back on Settings, the tab is still there to return to.
+    await tester.tap(find.byKey(const ValueKey('open-screen-setup')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('setup-subject-tax')), findsOneWidget);
+    expect(find.byKey(const ValueKey('open-screen-settings/subject/tax')),
         findsOneWidget);
     expect(tester.takeException(), isNull);
     await _unmount(tester);

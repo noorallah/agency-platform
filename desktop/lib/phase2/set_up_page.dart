@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'menu_layout.dart';
+import 'settings_subject.dart';
 
 /// Settings, behind the gear (backlog 72, owner-approved 2026-10-04): the
 /// firm's settings as before, then SET UP -- the lists the menus carried
@@ -18,7 +19,13 @@ class SetUpPage extends StatefulWidget {
     required this.onOpen,
     this.section,
     this.onSection,
+    this.onOpenSubject,
   });
+
+  /// Opens a section that is one screen (backlog 148). With it, such a
+  /// section shows one card instead of a card per item; search still finds
+  /// each item by its own name and opens it through [onOpen].
+  final ValueChanged<SettingsSubject>? onOpenSubject;
 
   /// The sections this person is offered, or null for none.
   final MenuAreaSpec? settings;
@@ -189,17 +196,72 @@ class _SetUpPageState extends State<SetUpPage> {
   /// One section: its heading, where it came from, its cards.
   List<Widget> _sectionBody(BuildContext context, MenuGroupSpec group) {
     final ThemeData theme = Theme.of(context);
+    final SettingsSubject? subject = widget.onOpenSubject == null
+        ? null
+        : SettingsSubjects.forSection(group.label);
     return [
       Text(group.label, style: theme.textTheme.titleLarge),
       const SizedBox(height: 4),
       Text(
-        '${group.part.note} Each opens in its own tab, or as a window.',
+        subject == null
+            ? '${group.part.note} Each opens in its own tab, or as a window.'
+            : '${group.part.note} Everything here is on one screen, in the '
+                'order it is set up in.',
         style: theme.textTheme.bodySmall
             ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
       ),
       const SizedBox(height: 12),
-      _cards(context, group.items),
+      if (subject == null)
+        _cards(context, group.items)
+      else
+        _subjectCard(context, subject),
     ];
+  }
+
+  /// The one card of a section that opens as one screen.
+  Widget _subjectCard(BuildContext context, SettingsSubject subject) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        width: 320,
+        child: Material(
+          color: scheme.surfaceContainerLowest,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: scheme.outlineVariant),
+          ),
+          child: InkWell(
+            key: ValueKey('setup-subject-${subject.sectionCode}'),
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => widget.onOpenSubject!(subject),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    subject.section,
+                    style: theme.textTheme.titleSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(subject.summary, style: theme.textTheme.bodySmall),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Opens one screen',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// What the search finds, under the section each item is in.

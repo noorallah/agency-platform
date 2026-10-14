@@ -77,6 +77,7 @@ import '../../models/sales_return.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/purchase.dart';
 import '../../models/sales_territory.dart';
+import '../../models/settings_sections.dart';
 import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
 import '../../models/inventory.dart';
@@ -1177,6 +1178,14 @@ class ApiClient {
 
   Future<TaxSettingsRecord> taxSettings() async => TaxSettingsRecord.fromJson(
         _unwrapMap(await request('GET', '/api/v1/tax-framework/settings')),
+      );
+
+  /// How far the firm has got with each step of one Settings subject
+  /// (`tax`): one read for the whole subject screen.
+  Future<SettingsSectionState> settingsSectionState(String section) async =>
+      SettingsSectionState.fromJson(
+        _unwrapMap(
+            await request('GET', '/api/v1/settings-sections/$section/state')),
       );
 
   Future<TaxSettingsRecord> updateTaxSettings(Json data) async =>
