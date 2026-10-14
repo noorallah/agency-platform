@@ -92,7 +92,10 @@ def test_a_batch_expiring_today_has_no_days_left() -> None:
     shop.session.commit()
 
     rows = batch_availability(
-        scope=SimpleNamespace(firm_id=shop.firm_id),  # type: ignore[arg-type]
+        scope=SimpleNamespace(  # type: ignore[arg-type]
+            firm_id=shop.firm_id,
+            principal=SimpleNamespace(has_permission=lambda code: False),
+        ),
         product_id=shop.product.id,
         warehouse_id=shop.warehouse_id,
         storage_node_id=None,
