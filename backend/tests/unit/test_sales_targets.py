@@ -52,6 +52,7 @@ from app.sales_targets.schemas import (
     SalesTargetWrite,
 )
 from app.sales_targets.services import SalesTargetService
+from app.salesmen.models import Salesman
 
 # Fixtures here type their document numbers; see conftest (D-CFG-2).
 pytestmark = pytest.mark.typed_document_numbers
@@ -115,6 +116,9 @@ def _salesman(session: Session, *, firm_id: UUID, email: str = "asha") -> UUID:
     session.add(row)
     session.flush()
     session.add(UserFirm(user_id=row.id, firm_id=firm_id, is_active=True))
+    session.add(
+        Salesman(id=row.id, firm_id=firm_id, name=row.full_name, user_id=row.id)
+    )
     session.commit()
     return row.id
 

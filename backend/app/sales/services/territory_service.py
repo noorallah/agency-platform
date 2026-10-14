@@ -2294,18 +2294,15 @@ class SalesTerritoryService:
         live_before = {
             salesman_id for salesman_id, row in existing.items() if not row.is_deleted
         }
-        # The request still says `user_id` until the desktop moves (P2 step
-        # 4); each is an entry of the firm's salesman list, or a member's user
-        # id that the bridge answers with his entry's id. One already on the
-        # round is kept as he is: the whole list is resent on every save, and
-        # a salesman made inactive since must not block an unrelated change.
+        # Each is an entry of the firm's salesman list; any other id -- a
+        # user's included -- is refused. One already on the round is kept as
+        # he is: the whole list is resent on every save, and a salesman made
+        # inactive since must not block an unrelated change.
         requested = {
             (
-                item.user_id
-                if item.user_id in live_before
-                else nameable_salesman(
-                    self._session, firm_scope, item.user_id, actor_id=actor_id
-                )
+                item.salesman_id
+                if item.salesman_id in live_before
+                else nameable_salesman(self._session, firm_scope, item.salesman_id)
             ): item
             for item in payload.assignments
         }
@@ -2375,7 +2372,7 @@ class SalesTerritoryService:
         )
         return [
             {
-                "user_id": item.salesman_id,
+                "salesman_id": item.salesman_id,
                 "include_children": item.include_children,
                 "is_primary": item.is_primary,
             }
@@ -3515,19 +3512,21 @@ class SalesTerritoryService:
             )
             or 0
         )
-        users = sorted(set(assigned_totals) | set(route_totals) | set(customer_totals))
+        salesmen = sorted(
+            set(assigned_totals) | set(route_totals) | set(customer_totals)
+        )
         result: list[TerritorySalesmanCoverage] = []
-        for user_id in users:
-            assigned = assigned_totals.get(user_id, 0)
+        for salesman_id in salesmen:
+            assigned = assigned_totals.get(salesman_id, 0)
             coverage = (
                 (assigned / total_territories * 100) if total_territories else 0.0
             )
             result.append(
                 TerritorySalesmanCoverage(
-                    user_id=user_id,
+                    salesman_id=salesman_id,
                     assigned_territories=assigned,
-                    assigned_routes=route_totals.get(user_id, 0),
-                    customer_count=customer_totals.get(user_id, 0),
+                    assigned_routes=route_totals.get(salesman_id, 0),
+                    customer_count=customer_totals.get(salesman_id, 0),
                     coverage_percent=round(coverage, 2),
                 )
             )

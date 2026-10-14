@@ -38,7 +38,6 @@ from app.commission.schemas import (
     SalesmanCommissionRecord,
 )
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import chunks
@@ -51,6 +50,7 @@ from app.products.models import Product, ProductCategory
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrderLine
 from app.sales_targets.services import SalesTargetService
+from app.salesmen.models import Salesman
 from app.salesmen.services.nameable import nameable_salesman
 from app.settlements.services.net_sales import collected_net, invoiced_net
 from app.settlements.services.settlement_service import returned_units_against
@@ -133,7 +133,6 @@ class CommissionService:
     def __init__(self, session: Session) -> None:
         """Bind the service to the request unit of work."""
         self._session = session
-        self._members = FirmMetadataReader(session)
         self._names_cache: dict[UUID, str] | None = None
 
     # ------------------------------------------------------------------
@@ -821,22 +820,25 @@ class CommissionService:
     # ------------------------------------------------------------------
 
     def names_for(self, firm_id: UUID) -> dict[UUID, str]:
-        """Return the firm's people by id.
+        """Return the firm's salesmen by id, named from its own salesman list.
 
-        `users` and `user_firms` are platform tables, so this goes through
-        ``FirmMetadataReader``, which opens the platform store when the request
-        session cannot see them.
+        Every `salesman_id` a rule, a payout or a report row carries is an
+        entry of `salesmen`, which lives in the firm's own store, so this reads
+        the session given. Deleted entries are named too: a rule or payout
+        keeps the salesman it was saved with.
 
         Args:
-            firm_id: The firm whose members to name.
+            firm_id: The firm whose salesmen to name.
 
         Returns:
-            A mapping of user id to display name.
+            A mapping of salesman id to the name on the list.
 
         """
         return {
-            member.user_id: member.full_name or member.email
-            for member in self._members.active_members(firm_id)
+            row_id: name
+            for row_id, name in self._session.execute(
+                select(Salesman.id, Salesman.name).where(Salesman.firm_id == firm_id)
+            ).tuples()
         }
 
     def rule_response(

@@ -205,7 +205,7 @@ class CustomerService:
             self._session, values, _CUSTOMER_REFERENCES, firm_id=firm_id
         )
         values["salesman_id"] = self._account_manager(
-            firm_id, data.salesman_id, current=None, actor_id=actor_id
+            firm_id, data.salesman_id, current=None
         )
         self._assert_collector(firm_id, data.collector_id, current=None)
         self._assert_linked_vendor(
@@ -369,7 +369,6 @@ class CustomerService:
                 customer.firm_id,
                 sent if isinstance(sent, UUID) else None,
                 current=customer.salesman_id,
-                actor_id=actor_id,
             )
         if "collector_id" in values:
             collector = values["collector_id"]
@@ -1049,7 +1048,6 @@ class CustomerService:
         salesman_id: UUID | None,
         *,
         current: UUID | None,
-        actor_id: UUID | None = None,
     ) -> UUID | None:
         """Settle the account manager to store: an entry of the salesman list.
 
@@ -1060,7 +1058,7 @@ class CustomerService:
         """
         if salesman_id is None or salesman_id == current:
             return salesman_id
-        return nameable_salesman(self._session, firm_id, salesman_id, actor_id=actor_id)
+        return nameable_salesman(self._session, firm_id, salesman_id)
 
     def _assert_collector(
         self, firm_id: UUID, collector_id: UUID | None, *, current: UUID | None

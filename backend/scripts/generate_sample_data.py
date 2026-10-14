@@ -3244,7 +3244,7 @@ def _assign_routes(
                 TerritoryAssignSalesmenRequest(
                     assignments=[
                         SalesmanAssignmentInput(
-                            user_id=salesman.id,
+                            salesman_id=salesman.id,
                             include_children=False,
                             is_primary=True,
                         )

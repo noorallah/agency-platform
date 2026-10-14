@@ -1992,7 +1992,7 @@ def _seed_territories(
             TerritoryAssignSalesmenRequest(
                 assignments=[
                     SalesmanAssignmentInput(
-                        user_id=salesman_ids[index % len(salesman_ids)],
+                        salesman_id=salesman_ids[index % len(salesman_ids)],
                         is_primary=True,
                     )
                 ]

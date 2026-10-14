@@ -2389,7 +2389,7 @@ def build_territory_firm(built: Built) -> None:
         admin.call(
             "PUT",
             f"{base}/{routes[route]}/salesmen",
-            {"assignments": [{"user_id": people[person], "is_primary": True}]},
+            {"assignments": [{"salesman_id": people[person], "is_primary": True}]},
         )
     names = {1: "MON", 2: "TUE", 3: "WED", 4: "THU", 5: "FRI"}
     plans = []

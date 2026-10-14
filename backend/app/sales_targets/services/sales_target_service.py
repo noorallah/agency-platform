@@ -29,7 +29,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
@@ -43,6 +42,7 @@ from app.sales_targets.schemas import (
     SalesTargetUpdate,
     SalesTargetWrite,
 )
+from app.salesmen.models import Salesman
 from app.salesmen.services.nameable import nameable_salesman
 from app.settlements.services.net_sales import (
     NetSale,
@@ -192,7 +192,6 @@ class SalesTargetService:
             firm_id=firm_id,
             salesman_id=data.salesman_id,
             territory_id=data.territory_id,
-            actor_id=actor_id,
         )
         self._assert_free(
             firm_id=firm_id,
@@ -280,7 +279,6 @@ class SalesTargetService:
             firm_id=firm_scope,
             salesman_id=_optional_uuid(merged["salesman_id"]),
             territory_id=_optional_uuid(merged["territory_id"]),
-            actor_id=actor_id,
         )
         self._assert_free(
             firm_id=firm_scope,
@@ -555,19 +553,23 @@ class SalesTargetService:
         return {row_id: TerritoryLabel(code, name) for row_id, code, name in rows}
 
     def _names_for(self, salesman_ids: set[UUID], firm_scope: UUID) -> dict[UUID, str]:
-        """Resolve salesman names through the platform store.
+        """Name the salesmen from the firm's own salesman list, in one read.
 
-        `users` and `user_firms` exist only in the platform schema, so a tenant
-        session cannot see them -- reading them here would answer 503 for every
-        firm outside the platform store, which this codebase has recorded seven
-        separate times.
+        A target's `salesman_id` is an entry of `salesmen`, which lives in the
+        firm's store beside the target, so this reads the session given and
+        never the platform's members. Deleted entries are named too: a target
+        keeps the salesman it was set for.
         """
         if not salesman_ids:
             return {}
         return {
-            member.user_id: member.full_name or member.email
-            for member in FirmMetadataReader(self._session).active_members(firm_scope)
-            if member.user_id in salesman_ids
+            row_id: name
+            for row_id, name in self._session.execute(
+                select(Salesman.id, Salesman.name).where(
+                    Salesman.id.in_(list(salesman_ids)),
+                    Salesman.firm_id == firm_scope,
+                )
+            ).tuples()
         }
 
     def target_response(
@@ -580,7 +582,7 @@ class SalesTargetService:
 
         Args:
             row: The target.
-            names: Salesman names already resolved, keyed by user id. Looked
+            names: Salesman names already resolved, keyed by salesman id. Looked
                 up for this row when not given.
             territories: Territory labels already resolved, keyed by node
                 id. Looked up for this row when not given.
@@ -622,7 +624,6 @@ class SalesTargetService:
         firm_id: UUID,
         salesman_id: UUID | None,
         territory_id: UUID | None,
-        actor_id: UUID | None = None,
     ) -> UUID | None:
         """Refuse a target set for somebody, or somewhere, that is not the firm's.
 
@@ -641,7 +642,6 @@ class SalesTargetService:
             firm_id: The owning firm.
             salesman_id: The person the target is for, if anyone.
             territory_id: The round or region it is for, if any.
-            actor_id: Who is saving, for the audit row of a bridged entry.
 
         Returns:
             The salesman id to store.
@@ -658,7 +658,6 @@ class SalesTargetService:
                 firm_id,
                 salesman_id,
                 for_commission=True,
-                actor_id=actor_id,
             )
         if territory_id is not None and not self._session.scalar(
             select(SalesTerritoryNode.id).where(

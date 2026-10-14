@@ -41,7 +41,7 @@ from app.common.file_import import (
     schema_issues,
     service_issue,
 )
-from app.common.firm_metadata import FirmMember, FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ApplicationError
 from app.customers.gst_registration import GstRegistrationType
 from app.customers.models import Customer, CustomerGroup
@@ -244,8 +244,9 @@ COLUMNS: tuple[Column, ...] = (
         "AccountManager",
         ("salesman", "salesperson", "accountmanager", "relationshipmanager"),
         False,
-        "The firm member who looks after this customer, by email or full "
-        "name; documents raised for the customer default to them.",
+        "The salesman who looks after this customer, by his code or name on "
+        "the firm's list of salesmen; documents raised for the customer "
+        "default to him.",
         "",
     ),
     Column("Notes", ("remarks", "narration"), False, "Free text.", ""),
@@ -330,7 +331,6 @@ class CustomerFileImporter(FileImporter[Customer]):
         self._may_manage_settings = may_manage_settings
         self._groups: list[CustomerGroup] = []
         self._currency = "INR"
-        self._members: list[FirmMember] = []
         self._salesmen: list[tuple[UUID, str | None, str]] = []
         self._firm_id: UUID | None = None
 
@@ -339,7 +339,6 @@ class CustomerFileImporter(FileImporter[Customer]):
         self._groups = firm_segments(self._session, firm_id)
         reader = FirmMetadataReader(self._session)
         self._currency = reader.get(firm_id).currency_code or "INR"
-        self._members = reader.active_members(firm_id)
         self._salesmen = list(
             self._session.execute(
                 select(Salesman.id, Salesman.code, Salesman.name).where(
@@ -353,10 +352,9 @@ class CustomerFileImporter(FileImporter[Customer]):
     def _member(self, reader: RowReader) -> UUID | None:
         """Find the row's account manager on the firm's salesman list.
 
-        By the salesman's code, then his name (P2 step 2). Until the desktop
-        moves (P2 step 4) a member's email or full name is still accepted and
-        the service makes his entry -- refused by name when two members share
-        it rather than picking one.
+        By the salesman's code, then his name (P2 step 2). Nothing else is
+        looked up: a member's email or full name is refused like any other
+        stranger, since the list is the authority on who may be named.
         """
         given = reader.text("AccountManager")
         if not given:
@@ -365,21 +363,8 @@ class CustomerFileImporter(FileImporter[Customer]):
         for entry_id, code, name in self._salesmen:
             if (code or "").casefold() == wanted or name.casefold() == wanted:
                 return entry_id
-        # P2 step 4 removes this bridge: a file may still name a member.
-        by_email = [m for m in self._members if m.email.casefold() == wanted]
-        if by_email:
-            return by_email[0].user_id
-        by_name = [m for m in self._members if m.full_name.casefold() == wanted]
-        if len(by_name) == 1:
-            return by_name[0].user_id
         reader.fail(
-            "AccountManager",
-            f"'{given}' is "
-            + (
-                "the name of more than one member; give their email."
-                if by_name
-                else "not on the firm's list of salesmen, nor an active member."
-            ),
+            "AccountManager", f"'{given}' is not on the firm's list of salesmen."
         )
         return None
 

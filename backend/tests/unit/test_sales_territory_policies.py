@@ -49,6 +49,7 @@ from app.sales.schemas.territory import (
     VisitFrequency,
 )
 from app.sales.services import SalesTerritoryService
+from app.salesmen.models import Salesman
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -90,12 +91,15 @@ def _customer(session: Session, firm_id: UUID, code: str) -> Customer:
 
 
 def _salesman(session: Session, firm_id: UUID, email: str) -> UUID:
+    """Make a member and his entry on the firm's salesman list; return the entry."""
     row = User(email=email, full_name="Rep", password_hash="hash")
     session.add(row)
     session.flush()
     session.add(UserFirm(user_id=row.id, firm_id=firm_id, is_active=True))
+    entry = Salesman(firm_id=firm_id, name=email, user_id=row.id)
+    session.add(entry)
     session.commit()
-    return row.id
+    return entry.id
 
 
 def _node(
@@ -209,8 +213,8 @@ def test_one_salesperson_per_route_is_enforced_when_the_firm_asks() -> None:
             route,
             TerritoryAssignSalesmenRequest(
                 assignments=[
-                    SalesmanAssignmentInput(user_id=first),
-                    SalesmanAssignmentInput(user_id=second),
+                    SalesmanAssignmentInput(salesman_id=first),
+                    SalesmanAssignmentInput(salesman_id=second),
                 ]
             ),
             firm_scope=firm.id,
@@ -231,7 +235,7 @@ def test_one_route_per_salesperson_is_enforced_when_the_firm_asks() -> None:
     service.set_salesmen(
         first,
         TerritoryAssignSalesmenRequest(
-            assignments=[SalesmanAssignmentInput(user_id=rep)]
+            assignments=[SalesmanAssignmentInput(salesman_id=rep)]
         ),
         firm_scope=firm.id,
         actor_id=actor,
@@ -240,11 +244,51 @@ def test_one_route_per_salesperson_is_enforced_when_the_firm_asks() -> None:
         service.set_salesmen(
             second,
             TerritoryAssignSalesmenRequest(
-                assignments=[SalesmanAssignmentInput(user_id=rep)]
+                assignments=[SalesmanAssignmentInput(salesman_id=rep)]
             ),
             firm_scope=firm.id,
             actor_id=actor,
         )
+
+
+def test_a_round_takes_a_salesman_id_and_refuses_a_users_id() -> None:
+    """P2 step 4: an assignment carries `salesman_id`, an entry of the list.
+
+    The member's own user id names nobody now the bridge is gone, and the
+    list the round answers carries the same `salesman_id` key it was sent.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "POL9")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _node(service, firm.id, actor, "RT01", is_route=True)
+    rep = _salesman(session, firm.id, "rep@example.local")
+    entry = session.get(Salesman, rep)
+    assert entry is not None and entry.user_id is not None
+
+    with pytest.raises(ValidationError, match="not on this firm's list"):
+        service.set_salesmen(
+            route,
+            TerritoryAssignSalesmenRequest(
+                assignments=[SalesmanAssignmentInput(salesman_id=entry.user_id)]
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+    session.rollback()
+
+    answered = service.set_salesmen(
+        route,
+        TerritoryAssignSalesmenRequest.model_validate(
+            {"assignments": [{"salesman_id": str(rep), "is_primary": True}]}
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert answered == [
+        {"salesman_id": rep, "include_children": False, "is_primary": True}
+    ]
+    assert service.salesmen(route, firm_scope=firm.id) == answered
 
 
 def test_customers_can_be_held_to_the_lowest_level() -> None:
@@ -320,7 +364,7 @@ def test_a_firm_with_no_settings_row_keeps_the_permissive_defaults() -> None:
         service.set_salesmen(
             route,
             TerritoryAssignSalesmenRequest(
-                assignments=[SalesmanAssignmentInput(user_id=rep)]
+                assignments=[SalesmanAssignmentInput(salesman_id=rep)]
             ),
             firm_scope=firm.id,
             actor_id=actor,

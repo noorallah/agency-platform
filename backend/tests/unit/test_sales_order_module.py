@@ -33,6 +33,7 @@ from app.document_framework.models import (
 )
 from app.firms.models import Firm
 from app.goods_receipt.schemas import GoodsReceiptCreate, GoodsReceiptUpdate
+from app.identity.models import User, UserFirm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import InventoryTransaction
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
@@ -1302,6 +1303,52 @@ def test_a_product_that_is_not_active_is_not_ordered(status: str, words: str) ->
     assert words in str(refused.value)
     assert "new sales order" in str(refused.value)
     assert session.scalar(select(SalesOrder.id)) is None
+
+
+def test_a_users_id_is_refused_as_the_salesman_and_the_entrys_id_taken() -> None:
+    """P2 step 4: an order names an entry of the salesman list, nothing else.
+
+    The bridge that took a member's user id and answered with his entry is
+    gone, so the user's id is refused even though he has an entry -- under
+    another id -- and the entry's id is stored as sent.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    user = User(email="asha@order.example", full_name="Asha Rao", password_hash="h")
+    session.add(user)
+    session.flush()
+    session.add(UserFirm(user_id=user.id, firm_id=firm.id, is_active=True))
+    entry = Salesman(firm_id=firm.id, name="Asha Rao", user_id=user.id)
+    session.add(entry)
+    session.commit()
+    assert entry.id != user.id
+    order = _order_for(
+        customer_id=customer.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        product_id=product.id,
+    )
+
+    with pytest.raises(ValidationError, match="not on this firm's list of salesmen"):
+        SalesOrderService(session).create_order(
+            order.model_copy(update={"salesman_id": user.id}),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+    session.rollback()
+    assert session.scalar(select(SalesOrder.id)) is None
+    assert session.scalar(select(Salesman.id).where(Salesman.id == user.id)) is None
+
+    created = SalesOrderService(session).create_order(
+        order.model_copy(update={"salesman_id": entry.id}),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    assert created.salesman_id == entry.id
 
 
 def test_a_draft_order_is_edited_but_takes_no_withdrawn_product() -> None:

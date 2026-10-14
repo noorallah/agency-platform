@@ -40,6 +40,7 @@ from app.firms.models import Firm
 from app.identity.models import User, UserFirm
 from app.products.models import Product
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.salesmen.models import Salesman
 
 WHEN = date(2026, 6, 10)
 PERIOD = (date(2026, 6, 1), date(2026, 6, 30))
@@ -73,7 +74,8 @@ class _Books:
         session.add(self.firm)
         session.commit()
         # A rule names somebody the firm actually employs (D-TER-15), so the
-        # salesman here is a real user with a live membership.
+        # salesman here is a real user with a live membership and an entry of
+        # the firm's salesman list, of his own id as the migration gave it.
         salesman = User(
             email="asha@margin.example.com",
             full_name="Asha Rao",
@@ -83,6 +85,14 @@ class _Books:
         session.add(salesman)
         session.flush()
         session.add(UserFirm(user_id=salesman.id, firm_id=self.firm.id, is_active=True))
+        session.add(
+            Salesman(
+                id=salesman.id,
+                firm_id=self.firm.id,
+                name="Asha Rao",
+                user_id=salesman.id,
+            )
+        )
         session.commit()
         self.salesman_id = salesman.id
         self.branch = Branch(

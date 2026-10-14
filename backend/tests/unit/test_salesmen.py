@@ -497,43 +497,25 @@ def test_another_firms_entry_is_refused(shop: _Shop) -> None:
         nameable_salesman(shop.session, shop.firm.id, other.id)
 
 
-def test_the_bridge_makes_an_entry_of_the_members_own_id(shop: _Shop) -> None:
+def test_a_members_user_id_with_no_entry_is_refused_and_makes_none(
+    shop: _Shop,
+) -> None:
     clerk = shop.clerk.id
 
-    assert nameable_salesman(shop.session, shop.firm.id, clerk) == clerk
-    entry = shop.session.get(Salesman, clerk)
-    assert entry is not None
-    assert (entry.firm_id, entry.user_id, entry.name) == (
-        shop.firm.id,
-        clerk,
-        "Ravi Clerk",
-    )
-    assert entry.earns_commission and entry.is_active
-    trail = shop.session.scalars(
-        select(AuditLog).where(
-            AuditLog.entity_id == clerk, AuditLog.action == "salesman.created"
-        )
-    ).all()
-    assert len(trail) == 1
-    # Named again, the entry is found rather than made twice.
-    assert nameable_salesman(shop.session, shop.firm.id, clerk) == clerk
-    assert len(_names(shop)) == 1
+    with pytest.raises(ValidationError, match="not on this firm's list"):
+        nameable_salesman(shop.session, shop.firm.id, clerk)
+    assert shop.session.get(Salesman, clerk) is None
+    assert _names(shop) == []
 
 
-def test_the_bridge_takes_a_new_id_where_another_firm_holds_his(shop: _Shop) -> None:
-    clerk = shop.clerk.id
-    shop.session.add(
-        Salesman(id=clerk, firm_id=uuid4(), name="Ravi Clerk", user_id=clerk)
-    )
-    shop.session.commit()
+def test_a_members_user_id_is_refused_though_he_has_an_entry(shop: _Shop) -> None:
+    entry = shop.add("Ravi", user_id=str(shop.clerk.id))
+    assert entry != shop.clerk.id
 
-    answered = nameable_salesman(shop.session, shop.firm.id, clerk)
-    assert answered != clerk
-    entry = shop.session.get(Salesman, answered)
-    assert entry is not None
-    assert (entry.firm_id, entry.user_id) == (shop.firm.id, clerk)
-    # The user's id now finds this firm's own entry.
-    assert nameable_salesman(shop.session, shop.firm.id, clerk) == answered
+    # The entry's id is the one to send; the user's id names nobody.
+    assert nameable_salesman(shop.session, shop.firm.id, entry) == entry
+    with pytest.raises(ValidationError, match="not on this firm's list"):
+        nameable_salesman(shop.session, shop.firm.id, shop.clerk.id)
 
 
 def test_a_derived_salesman_skips_one_whose_user_has_left(shop: _Shop) -> None:

@@ -40,6 +40,7 @@ from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
 from app.sales_invoice.models import SalesInvoice
+from app.salesmen.models import Salesman
 from app.settlements.models import Settlement
 from app.settlements.schemas import (
     SettlementAllocationWrite,
@@ -106,12 +107,15 @@ class _Books:
         self.bala = self.salesman("Bala Iyer", f"bala@{code.lower()}.example.com")
 
     def salesman(self, name: str, email: str) -> UUID:
-        """Add one active member of the firm and return their id."""
+        """Add one active member and his salesman entry of his own id."""
         user = User(email=email, full_name=name, password_hash="x", is_active=True)
         self.session.add(user)
         self.session.flush()
         self.session.add(
             UserFirm(user_id=user.id, firm_id=self.firm.id, is_active=True)
+        )
+        self.session.add(
+            Salesman(id=user.id, firm_id=self.firm.id, name=name, user_id=user.id)
         )
         self.session.commit()
         return user.id

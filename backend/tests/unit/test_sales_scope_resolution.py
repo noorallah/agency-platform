@@ -51,6 +51,7 @@ from app.sales.services import SalesTerritoryService
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from app.salesmen.models import Salesman
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
 
@@ -152,6 +153,7 @@ def _salesman(session: Session, firm_id: UUID, email: str) -> UUID:
     session.add(row)
     session.flush()
     session.add(UserFirm(user_id=row.id, firm_id=firm_id, is_active=True))
+    session.add(Salesman(id=row.id, firm_id=firm_id, name=email, user_id=row.id))
     session.commit()
     return row.id
 
@@ -294,7 +296,7 @@ def test_the_round_names_its_salesperson() -> None:
     service.set_salesmen(
         route,
         TerritoryAssignSalesmenRequest(
-            assignments=[SalesmanAssignmentInput(user_id=salesman, is_primary=True)]
+            assignments=[SalesmanAssignmentInput(salesman_id=salesman, is_primary=True)]
         ),
         firm_scope=firm.id,
         actor_id=actor,
@@ -328,7 +330,7 @@ def test_a_manager_covering_children_is_inherited_by_the_route() -> None:
         TerritoryAssignSalesmenRequest(
             assignments=[
                 SalesmanAssignmentInput(
-                    user_id=manager, is_primary=True, include_children=True
+                    salesman_id=manager, is_primary=True, include_children=True
                 )
             ]
         ),
@@ -407,7 +409,7 @@ def test_a_sales_order_saves_the_scope_the_reports_read() -> None:
     territory_service.set_salesmen(
         route,
         TerritoryAssignSalesmenRequest(
-            assignments=[SalesmanAssignmentInput(user_id=salesman, is_primary=True)]
+            assignments=[SalesmanAssignmentInput(salesman_id=salesman, is_primary=True)]
         ),
         firm_scope=firm.id,
         actor_id=actor,
@@ -686,7 +688,7 @@ def test_somebody_who_has_left_is_not_derived_on_to_a_document() -> None:
     service.set_salesmen(
         route,
         TerritoryAssignSalesmenRequest(
-            assignments=[SalesmanAssignmentInput(user_id=asha, is_primary=True)]
+            assignments=[SalesmanAssignmentInput(salesman_id=asha, is_primary=True)]
         ),
         firm_scope=firm.id,
         actor_id=actor,
@@ -716,8 +718,8 @@ def test_the_round_s_remaining_person_takes_over_from_one_who_left() -> None:
         route,
         TerritoryAssignSalesmenRequest(
             assignments=[
-                SalesmanAssignmentInput(user_id=asha, is_primary=True),
-                SalesmanAssignmentInput(user_id=bala, is_primary=False),
+                SalesmanAssignmentInput(salesman_id=asha, is_primary=True),
+                SalesmanAssignmentInput(salesman_id=bala, is_primary=False),
             ]
         ),
         firm_scope=firm.id,
@@ -748,7 +750,7 @@ def test_a_manager_who_has_left_is_not_inherited_either() -> None:
         TerritoryAssignSalesmenRequest(
             assignments=[
                 SalesmanAssignmentInput(
-                    user_id=manager, is_primary=True, include_children=True
+                    salesman_id=manager, is_primary=True, include_children=True
                 )
             ]
         ),

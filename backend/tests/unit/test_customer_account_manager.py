@@ -1,10 +1,11 @@
 """A customer's account manager (backlog 67 row 2).
 
-``customers.salesman_id`` names the firm member who looks after the customer.
-It must be an active member when it is set, it comes in from the customer
-file by email or name, and a sales document raised for the customer with no
-salesman of its own takes it -- ahead of the territory's salesperson, but
-only when the manager is still here and covers the document's territory.
+``customers.salesman_id`` names the entry of the firm's salesman list who looks
+after the customer. It must be an active entry when it is set, it comes in
+from the customer file by the list's code or name, and a sales document
+raised for the customer with no salesman of its own takes it -- ahead of the
+territory's salesperson, but only when the manager is still here and covers
+the document's territory.
 What the caller names still wins.
 """
 
@@ -38,6 +39,7 @@ from app.sales.schemas.territory import (
 )
 from app.sales.services import SalesTerritoryService
 from app.sales.services.scope_resolution import resolve_sales_scope
+from app.salesmen.models import Salesman
 
 
 @pytest.fixture
@@ -70,15 +72,31 @@ def _member(
     session: Session,
     firm_id: UUID,
     email: str,
-    name: str = "Rep",
+    name: str | None = None,
     *,
     active: bool = True,
+    code: str | None = None,
 ) -> UUID:
-    """Add a user and their membership of the firm."""
-    user = User(email=email, full_name=name, password_hash="hash")
+    """Add a user, their membership and, while active, their salesman entry.
+
+    The entry takes the user's own id, as the migration gave it, and the
+    user's name -- or the email, so two unnamed reps do not share a name on
+    the list. A member who has left has no entry to be named by.
+    """
+    user = User(email=email, full_name=name or "Rep", password_hash="hash")
     session.add(user)
     session.flush()
     session.add(UserFirm(user_id=user.id, firm_id=firm_id, is_active=active))
+    if active:
+        session.add(
+            Salesman(
+                id=user.id,
+                firm_id=firm_id,
+                code=code,
+                name=name or email,
+                user_id=user.id,
+            )
+        )
     session.commit()
     return user.id
 
@@ -146,7 +164,7 @@ def _on_round(
         route,
         TerritoryAssignSalesmenRequest(
             assignments=[
-                SalesmanAssignmentInput(user_id=user, is_primary=index == 0)
+                SalesmanAssignmentInput(salesman_id=user, is_primary=index == 0)
                 for index, user in enumerate(salesmen)
             ]
         ),
@@ -289,21 +307,20 @@ def _import(
     )
 
 
-def test_the_file_names_the_manager_by_email_or_name(session: Session) -> None:
-    """Email first, then a unique full name; anything else is refused."""
+def test_the_file_names_the_manager_by_list_code_or_name(session: Session) -> None:
+    """The salesman's code or his name on the list; a member's email is refused."""
     firm = _firm(session)
-    asha = _member(session, firm.id, "asha@example.local", "Asha Rao")
+    asha = _member(session, firm.id, "asha@example.local", "Asha Rao", code="AR")
     ravi = _member(session, firm.id, "ravi@example.local", "Ravi K")
-    _member(session, firm.id, "ravi2@example.local", "Ravi K")
 
     report = _import(
         session,
         firm.id,
-        "S1,One,BUSINESS,asha@example.local\n"
+        "S1,One,BUSINESS,ar\n"
         "S2,Two,BUSINESS,asha rao\n"
-        "S3,Three,BUSINESS,Ravi K\n"
-        "S4,Four,BUSINESS,nobody@example.local\n"
-        "S5,Five,BUSINESS,RAVI@example.local\n",
+        "S3,Three,BUSINESS,asha@example.local\n"
+        "S4,Four,BUSINESS,nobody\n"
+        "S5,Five,BUSINESS,RAVI K\n",
         apply=False,
     )
 
@@ -313,8 +330,8 @@ def test_the_file_names_the_manager_by_email_or_name(session: Session) -> None:
     report = _import(
         session,
         firm.id,
-        "S1,One,BUSINESS,asha@example.local\nS2,Two,BUSINESS,Asha Rao\n"
-        "S5,Five,BUSINESS,RAVI@example.local\nS6,Six,BUSINESS,\n",
+        "S1,One,BUSINESS,AR\nS2,Two,BUSINESS,Asha Rao\n"
+        "S5,Five,BUSINESS,Ravi K\nS6,Six,BUSINESS,\n",
         apply=True,
     )
     assert not report.issues

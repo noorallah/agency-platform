@@ -52,6 +52,7 @@ from app.sales.schemas.territory import (
 )
 from app.sales.services import SalesTerritoryService
 from app.sales_targets.models import SalesTarget
+from app.salesmen.models import Salesman
 
 
 def _firm_scope(
@@ -151,6 +152,8 @@ def test_territory_service_supports_hierarchy_tree_and_assignments() -> None:
     session.add(salesman)
     session.flush()
     session.add(UserFirm(user_id=salesman.id, firm_id=firm.id, is_active=True))
+    entry = Salesman(firm_id=firm.id, name="Salesman", user_id=salesman.id)
+    session.add(entry)
     session.commit()
 
     assignments = service.set_customers(
@@ -164,12 +167,12 @@ def test_territory_service_supports_hierarchy_tree_and_assignments() -> None:
     salesmen = service.set_salesmen(
         child.id,
         TerritoryAssignSalesmenRequest(
-            assignments=[{"user_id": salesman.id, "include_children": True}]
+            assignments=[{"salesman_id": entry.id, "include_children": True}]
         ),
         firm_scope=firm.id,
         actor_id=actor,
     )
-    assert salesmen[0]["user_id"] == salesman.id
+    assert salesmen[0]["salesman_id"] == entry.id
     assert salesmen[0]["include_children"] is True
 
     tree = service.tree(firm_scope=firm.id)

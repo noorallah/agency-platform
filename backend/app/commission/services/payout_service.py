@@ -221,7 +221,6 @@ class CommissionPayoutService:
                 firm_id,
                 named,
                 for_commission=True,
-                actor_id=actor_id,
             )
         report = self._commission.report(
             firm_id=firm_id,
@@ -1022,13 +1021,13 @@ class CommissionPayoutService:
         }
 
     def names_for(self, firm_id: UUID) -> dict[UUID, str]:
-        """Return the firm's people by id, through the platform store.
+        """Return the firm's salesmen by id, from its own salesman list.
 
         Args:
-            firm_id: The firm whose members to name.
+            firm_id: The firm whose salesmen to name.
 
         Returns:
-            A mapping of user id to display name.
+            A mapping of salesman id to the name on the list.
 
         """
         return self._commission.names_for(firm_id)

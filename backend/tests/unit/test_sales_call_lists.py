@@ -44,6 +44,7 @@ from app.sales.schemas.territory import (
     VisitFrequency,
 )
 from app.sales.services import SalesTerritoryService
+from app.salesmen.models import Salesman
 
 #: 2026-08-17 is a Monday, and every weekday assertion below counts from it.
 MONDAY = date(2026, 8, 17)
@@ -336,11 +337,12 @@ def test_a_call_list_can_be_narrowed_to_one_salesperson() -> None:
     session.add(rep)
     session.flush()
     session.add(UserFirm(user_id=rep.id, firm_id=firm.id, is_active=True))
+    session.add(Salesman(id=rep.id, firm_id=firm.id, name="Rep", user_id=rep.id))
     session.commit()
     service.set_salesmen(
         mine,
         TerritoryAssignSalesmenRequest(
-            assignments=[SalesmanAssignmentInput(user_id=rep.id, is_primary=True)]
+            assignments=[SalesmanAssignmentInput(salesman_id=rep.id, is_primary=True)]
         ),
         firm_scope=firm.id,
         actor_id=actor,
