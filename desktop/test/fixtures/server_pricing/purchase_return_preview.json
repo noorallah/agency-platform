@@ -55,6 +55,7 @@
     "branch_id": "id-4",
     "business_profile_id": null,
     "cancel_reason": null,
+    "claimed_amount": "0.0000",
     "close_reason": null,
     "closed_at": null,
     "created_at": "2026-08-04T00:00:00Z",

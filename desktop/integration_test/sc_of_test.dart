@@ -78,7 +78,7 @@ void main() {
       final String raceCode = 'OFR$stamp';
       final String retireCode = 'OFT$stamp';
       final String staleCode = 'OFS$stamp';
-      final Json live = await apiOffer(liveCode);
+      await apiOffer(liveCode);
       await apiOffer(dupCode);
       await apiOffer(raceCode);
       final Json forRetire = await apiOffer(retireCode);

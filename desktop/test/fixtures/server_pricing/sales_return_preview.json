@@ -26,6 +26,7 @@
     "completed_at": null,
     "cost_journal_entry_id": null,
     "created_at": "2026-08-04T00:00:00Z",
+    "credited_amount": "0.0000",
     "currency_code": null,
     "customer_code": "CUS-001",
     "customer_id": "id-3",

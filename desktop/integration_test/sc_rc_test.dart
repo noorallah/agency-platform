@@ -128,7 +128,6 @@ void main() {
         await openDialog();
         await pickParty();
         await typeLabelled(tester, 'Amount', '10');
-        final String todayText = DateTime.now().toIso8601String().substring(0, 10);
         await tester.ensureVisible(find.text('Date the money moved').last);
         await pumpFor(tester, const Duration(milliseconds: 500));
         await tester.tap(find.text('Date the money moved').last);
@@ -287,8 +286,10 @@ void main() {
         log.saw = 'advance notice shown=$notice, saved '
             '${await totalOf(me, 'receipts') - before}, newest unallocated '
             '${rc?['unallocated_amount']}';
-        if (!notice) throw StateError('the dialog did not say it will be held '
-            'as an advance');
+        if (!notice) {
+          throw StateError('the dialog did not say it will be held '
+              'as an advance');
+        }
         if (rc == null || num2(rc['unallocated_amount']) != 137) {
           throw StateError('newest receipt is not a 137 advance');
         }

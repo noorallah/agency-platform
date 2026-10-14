@@ -308,7 +308,9 @@ class StockCreditService:
             .order_by(
                 dated.desc(),
                 PurchaseInvoice.created_at.desc(),
+                PurchaseInvoice.id.desc(),
                 PurchaseInvoiceLine.line_number,
+                PurchaseInvoiceLine.id,
             )
             .limit(1)
         ).first()
