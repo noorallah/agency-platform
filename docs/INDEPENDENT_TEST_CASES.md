@@ -683,6 +683,26 @@ that an edit changes what it names and nothing else.
   - Step 3: the bill dated today saves and posts (Dr 1100 Trade Receivables 900.00); the one dated tomorrow is refused: "An opening bill is one raised before the books here start, so its date cannot be after <today>.", where today is the firm's own day. The cancel reverses the journal. The file check reports one bill to create and writes nothing; Apply posts it. The same date rule holds for a supplier's opening bill.
 - **Leaves:** a cancelled opening bill, and one imported.
 
+### TC-CUST-011 — Shipping address: the same as billing, or different
+
+*Added 2026-10-14, asked for by the owner. Built in the attended session; **no screen was clicked**.*
+
+- **Covers:** the **Shipping address** choice on the customer's Address tab, and what a bill prints from it
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. *Masters > Customers > New*, open **Address**, press **Add address** and fill it in.
+  2. Save, and raise and print a bill for the customer.
+  3. Edit the customer, choose **Shipping address: Different**, fill in the address that opens, save, and raise and print another bill.
+  4. Edit the customer again and choose **Same as billing**; save.
+  5. Press **Add address** once more on any customer that has an address.
+- **Expect**
+  - Step 1: the address is ticked **Default billing** and **Default shipping**, and the choice reads **Same as billing**.
+  - Step 2: the bill names the one address as Sold To and ships to it.
+  - Step 3: a second address opens ticked **Default shipping**; the first keeps **Default billing** only. The bill's Sold To is the first address and Shipped to the second, and the order and delivery note start on the second as their *Ship to*.
+  - Step 4: the first address is ticked for both again; the second address stays on the customer, ticked for neither.
+  - Step 5: the new address is ticked for neither.
+- **Leaves:** a customer with two addresses.
+
 ---
 
 

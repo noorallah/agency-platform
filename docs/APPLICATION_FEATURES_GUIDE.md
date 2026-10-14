@@ -2144,7 +2144,9 @@ year by themselves.
 *Customers* and *Vendors* are in the Masters drop-down.
 
 **Customers.** Name, code, GSTIN, PAN, contacts, billing and shipping
-addresses, payment terms, credit limit, standing discount, price list,
+addresses (a customer's first address is both; **Shipping address: Same as
+billing / Different** on the Address tab gives him a shipping address of his
+own, and *Same* puts it back without deleting anything), payment terms, credit limit, standing discount, price list,
 salesman and territory, opening balance, minimum shelf life, and any extra
 fields the business
 profile adds (a pharmacy's drug licence number, for example). Customers can be
