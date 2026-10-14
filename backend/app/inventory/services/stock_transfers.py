@@ -344,6 +344,16 @@ class StockTransferService(TransactionalDocumentService):
         total = ZERO
         for line in self.lines(row.id):
             units = serials.check_dispatch(row, line)
+            if line.batch_id is None:
+                # A firm costing by lot sends a line from a lot; a line that
+                # named none leaves the first lot holding it (L2 step 7).
+                line.batch_id = inventory.lot_for_transfer(
+                    firm_scope=firm_id,
+                    branch_id=row.from_branch_id,
+                    warehouse_id=row.from_warehouse_id,
+                    product_id=line.product_id,
+                    quantity=Decimal(str(line.quantity)),
+                )
             out, value = inventory.stage_transfer_leg(
                 firm_scope=firm_id,
                 branch_id=row.from_branch_id,
@@ -375,6 +385,7 @@ class StockTransferService(TransactionalDocumentService):
                 transaction_date=on,
                 remarks=f"Transfer {row.transfer_number}: in transit",
                 actor_id=actor_id,
+                carries=out.id,
             )
             line.unit_cost = unit_cost
             line.dispatch_transaction_id = out.id

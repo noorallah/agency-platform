@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -15,7 +15,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlalchemy.sql import Select
+from sqlalchemy.sql import ColumnElement, Select
 
 from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
@@ -180,6 +180,11 @@ class _Movement:
     #: lot puts back, or takes out, the value that movement carried rather
     #: than today's cost; the moving average does not read it.
     reverses: UUID | None = None
+    #: The movement whose value this one moves on, when it is the arriving
+    #: leg of a transfer. An item costed by lot arrives with exactly what
+    #: left, so the move shifts no value and the lot's cost stands (L2 step
+    #: 7); the moving average does not read it.
+    carries: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1910,6 +1915,30 @@ class InventoryService:
             conversion_version=None,
             on_date=data.transaction_date,
         )
+        to_customer = data.reason.strip().upper() in CUSTOMER_REASONS
+        if data.batch_id is None:
+            data = data.model_copy(
+                update={
+                    "batch_id": self._lot_to_take(
+                        firm_scope=firm_scope,
+                        branch_id=data.branch_id,
+                        warehouse_id=data.warehouse_id,
+                        storage_node_id=data.storage_node_id,
+                        product_id=data.product_id,
+                        quantity=base_quantity,
+                        holds=lambda row: (
+                            row.current_quantity
+                            + row.quarantine_quantity
+                            + (
+                                ZERO
+                                if to_customer
+                                else self._damaged_off_the_shelf(row)
+                            )
+                        ),
+                        what="written off",
+                    )
+                }
+            )
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=data.branch_id,
@@ -1922,11 +1951,7 @@ class InventoryService:
         # What a customer sent back damaged or as scrap is held off the
         # shelf, in the damaged bucket alone, and nothing could take it out
         # again (D-STK-46). Goods given to a customer are never drawn from it.
-        set_aside = (
-            ZERO
-            if data.reason.strip().upper() in CUSTOMER_REASONS
-            else self._damaged_off_the_shelf(inventory)
-        )
+        set_aside = ZERO if to_customer else self._damaged_off_the_shelf(inventory)
         held = inventory.current_quantity + inventory.quarantine_quantity + set_aside
         if base_quantity > held:
             raise ValidationError(
@@ -2110,6 +2135,26 @@ class InventoryService:
         A goods receipt holds what needs inspection in the same transaction
         that brought it in (BUY-9).
         """
+        holding = data.action == QuarantineAction.HOLD
+        if data.batch_id is None:
+            data = data.model_copy(
+                update={
+                    "batch_id": self._lot_to_take(
+                        firm_scope=firm_scope,
+                        branch_id=data.branch_id,
+                        warehouse_id=data.warehouse_id,
+                        storage_node_id=data.storage_node_id,
+                        product_id=data.product_id,
+                        quantity=data.quantity,
+                        holds=lambda row: (
+                            row.current_quantity - row.reserved_quantity
+                            if holding
+                            else row.quarantine_quantity
+                        ),
+                        what="held" if holding else "released",
+                    )
+                }
+            )
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=data.branch_id,
@@ -2119,7 +2164,6 @@ class InventoryService:
             actor_id=actor_id,
             batch_id=data.batch_id,
         )
-        holding = data.action == QuarantineAction.HOLD
         available = (
             inventory.current_quantity - inventory.reserved_quantity
             if holding
@@ -2229,6 +2273,21 @@ class InventoryService:
             conversion_version=None,
             on_date=data.transaction_date,
         )
+        if data.batch_id is None:
+            data = data.model_copy(
+                update={
+                    "batch_id": self._lot_to_take(
+                        firm_scope=firm_scope,
+                        branch_id=data.branch_id,
+                        warehouse_id=data.from_warehouse_id,
+                        storage_node_id=data.from_storage_node_id,
+                        product_id=data.product_id,
+                        quantity=base_quantity,
+                        holds=lambda row: row.current_quantity - row.reserved_quantity,
+                        what="transferred",
+                    )
+                }
+            )
         source = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=data.branch_id,
@@ -2298,6 +2357,9 @@ class InventoryService:
                 "between two registrations that is a supply, so raise a sales "
                 "invoice to the other branch instead of a transfer."
             )
+        # Request sessions do not autoflush: the outbound ledger row has to
+        # be written for the inbound leg to read the value it carried.
+        self._session.flush()
         destination = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=to_branch_id,
@@ -2318,8 +2380,10 @@ class InventoryService:
                 transaction_date=data.transaction_date,
                 quantity=base_quantity,
                 current_delta=base_quantity,
-                # Arrives at what it left at, so the move is value-neutral.
+                # Arrives at what it left at, so the move is value-neutral:
+                # the average, or by lot exactly the value that left.
                 unit_cost=held_average,
+                carries=outbound.id,
                 entered_quantity=entered_quantity,
                 entered_uom_id=entered_uom_id,
                 conversion_version=conversion_version,
@@ -2445,6 +2509,23 @@ class InventoryService:
             if not data.remarks:
                 update["remarks"] = listed.name
             data = data.model_copy(update=update)
+        if data.quantity < 0 and data.batch_id is None:
+            # A count line counts one stock row and composes the movement
+            # below directly; only a typed adjustment down is given a lot.
+            data = data.model_copy(
+                update={
+                    "batch_id": self._lot_to_take(
+                        firm_scope=firm_scope,
+                        branch_id=data.branch_id,
+                        warehouse_id=data.warehouse_id,
+                        storage_node_id=data.storage_node_id,
+                        product_id=data.product_id,
+                        quantity=-self.moved_base_quantity(data, firm_scope=firm_scope),
+                        holds=lambda row: row.current_quantity,
+                        what="taken off",
+                    )
+                }
+            )
         transaction, value_delta = self.stage_adjustment_movement(
             data, firm_scope=firm_scope, actor_id=actor_id
         )
@@ -2523,6 +2604,25 @@ class InventoryService:
         )
         delta_sign = Decimal("1") if data.quantity >= 0 else Decimal("-1")
         delta = abs(base_quantity) * delta_sign
+        reference = self._movement_reference(
+            data, "ADJUSTMENT", firm_id=firm_scope, actor_id=actor_id
+        )
+        by_lot = costs_by_lot(self._session, firm_scope)
+        found: BatchRecord | None = None
+        unit_cost: Decimal | None = None
+        if data.unit_cost is not None and (
+            not by_lot or delta <= ZERO or data.batch_id is not None
+        ):
+            raise ValidationError(
+                "A cost is typed only for goods found that go into a new lot, "
+                "on a firm costing by lot: a named lot takes them at its own "
+                "cost, and on Average they come in at the average."
+            )
+        if by_lot and delta > ZERO and data.batch_id is None:
+            found, unit_cost = self._found_lot(
+                data, firm_scope=firm_scope, actor_id=actor_id, reference=reference
+            )
+            data = data.model_copy(update={"batch_id": found.id})
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
             branch_id=data.branch_id,
@@ -2547,9 +2647,7 @@ class InventoryService:
             movement=_Movement(
                 transaction_type=InventoryTransactionType.ADJUSTMENT.value,
                 batch_id=data.batch_id,
-                reference_number=self._movement_reference(
-                    data, "ADJUSTMENT", firm_id=firm_scope, actor_id=actor_id
-                ),
+                reference_number=reference,
                 reference_type=data.reference_type.strip().upper(),
                 transaction_date=data.transaction_date,
                 quantity=abs(base_quantity),
@@ -2558,8 +2656,11 @@ class InventoryService:
                 entered_uom_id=entered_uom_id,
                 conversion_version=conversion_version,
                 remarks=data.remarks,
+                unit_cost=unit_cost,
             ),
         )
+        if found is not None:
+            self._trace_lot_to(found, transaction)
         # An adjustment is the movement with no paperwork behind it, so nothing
         # on screen would ever hint that the ledger had stopped agreeing with
         # the stock it controls. The value is taken from the stock ledger row
@@ -2603,7 +2704,14 @@ class InventoryService:
         if quantity <= available:
             return
         product = self._session.get(Product, inventory.product_id)
-        if product is not None and product.allow_negative_stock:
+        if (
+            product is not None
+            and product.allow_negative_stock
+            and not costs_by_lot(self._session, inventory.firm_id)
+        ):
+            # A firm costing by lot never runs below zero: units no lot holds
+            # have no cost to leave at (L2 step 7; billing without stock is
+            # step 7a's, and asks first).
             return
         label = f"{product.code} - {product.name}" if product else "This product"
         what = "holds" if held is not None else "has free"
@@ -2611,6 +2719,165 @@ class InventoryService:
             f"{label}: this location {what} {_plain(available)}, so "
             f"{_plain(quantity)} cannot be {done}."
         )
+
+    def _lot_to_take(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_id: UUID | None,
+        product_id: UUID,
+        quantity: Decimal,
+        holds: Callable[[InventoryRecord], Decimal],
+        what: str,
+    ) -> UUID | None:
+        """Name the lot a movement leaves when the person named none.
+
+        For a firm costing by lot every unit is in a lot, so a write-off, an
+        adjustment down, a hold or a transfer that names none would find
+        nothing on the row with no batch. It takes the first lot, in the
+        order goods leave (nearest expiry, then oldest received), that holds
+        the whole quantity at that place (`docs/design/LOT_COST_DESIGN.md`,
+        section 3.6). One movement names one lot, so a quantity no single lot
+        holds is refused with the lots listed, to be taken lot by lot.
+
+        Returns:
+            The lot, or None for a firm on Average and where the row with no
+            batch -- stock from before the switch-over -- holds it.
+
+        Raises:
+            ValidationError: If lots hold the goods but no one lot holds all.
+
+        """
+        if not costs_by_lot(self._session, firm_scope):
+            return None
+        rows = [
+            row
+            for row in self._expiry_ranked_rows(
+                firm_scope=firm_scope,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                product_id=product_id,
+                column=(
+                    InventoryRecord.current_quantity
+                    + InventoryRecord.quarantine_quantity
+                    + InventoryRecord.damaged_quantity
+                ),
+            )
+            if row.storage_node_id == storage_node_id and holds(row) > ZERO
+        ]
+        for row in rows:
+            if row.batch_id is not None and holds(row) >= quantity:
+                return row.batch_id
+        lots = [row for row in rows if row.batch_id is not None]
+        if not lots or any(
+            row.batch_id is None and holds(row) >= quantity for row in rows
+        ):
+            # Nothing in lots, or the old untracked row covers it: the
+            # movement's own check speaks for the row with no batch.
+            return None
+        held = ", ".join(
+            f"{self._lot_label(row.batch_id)} {_plain(holds(row))}"
+            for row in lots
+            if row.batch_id is not None
+        )
+        raise ValidationError(
+            f"No one lot here holds {_plain(quantity)}, and each movement "
+            f"names one lot. Name the lots it is {what} from, one at a time: "
+            f"{held}."
+        )
+
+    def lot_for_transfer(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        quantity: Decimal,
+    ) -> UUID | None:
+        """Name the lot a transfer document's line leaves, if it named none.
+
+        See `_lot_to_take`: None for a firm on Average.
+        """
+        return self._lot_to_take(
+            firm_scope=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=None,
+            product_id=product_id,
+            quantity=quantity,
+            holds=lambda row: row.current_quantity - row.reserved_quantity,
+            what="sent",
+        )
+
+    def _lot_label(self, batch_id: UUID) -> str:
+        """Return the name a person knows a lot by: its batch, else ours."""
+        batch = self._session.get(BatchRecord, batch_id)
+        if batch is None:
+            return str(batch_id)
+        return batch.batch_number if batch.has_printed_batch else batch.lot_reference
+
+    def _found_lot(
+        self,
+        data: InventoryAdjustmentCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reference: str,
+    ) -> tuple[BatchRecord, Decimal | None]:
+        """Open the lot goods found or added are taken into, and their cost.
+
+        Section 3.6: stock that turns up with no lot named is a new lot of
+        its own, source ``ADJUSTMENT``, at the cost typed, or else at the
+        item's newest lot cost (None -- the item's average -- where no lot
+        of it was ever valued). The lot's source names the movement once it
+        is written (`_trace_lot_to`).
+        """
+        from app.batch_serial.services import BatchSerialService
+
+        cost = data.unit_cost
+        if cost is None:
+            cost = self._session.scalar(
+                select(BatchValuation.unit_cost)
+                .join(BatchRecord, BatchRecord.id == BatchValuation.batch_id)
+                .where(
+                    BatchValuation.firm_id == firm_scope,
+                    BatchValuation.product_id == data.product_id,
+                    BatchValuation.is_deleted.is_(False),
+                    BatchValuation.unit_cost > ZERO,
+                )
+                .order_by(
+                    case((BatchRecord.received_on.is_(None), 1), else_=0).asc(),
+                    BatchRecord.received_on.desc(),
+                    BatchRecord.lot_reference.desc(),
+                )
+                .limit(1)
+            )
+        lot = BatchSerialService(self._session).open_lot(
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            product_id=data.product_id,
+            source=LotSource(
+                document_type="ADJUSTMENT",
+                # The movement is not written yet; `_trace_lot_to` puts its
+                # id here once it is.
+                document_id=data.product_id,
+                line_id=data.product_id,
+                document_number=reference,
+                received_on=data.transaction_date,
+            ),
+            branch_id=data.branch_id,
+            warehouse_id=data.warehouse_id,
+        )
+        return lot, None if cost is None else Decimal(str(cost))
+
+    @staticmethod
+    def _trace_lot_to(lot: BatchRecord, transaction: InventoryTransaction) -> None:
+        """Point a lot made by a movement at that movement."""
+        lot.source_document_id = transaction.id
+        lot.source_document_line_id = transaction.id
 
     def stage_repack_movement(
         self,
@@ -2726,6 +2993,7 @@ class InventoryService:
         owned_delta: Decimal | None = None,
         unit_cost: Decimal | None = None,
         require_available: bool = False,
+        carries: UUID | None = None,
     ) -> tuple[InventoryTransaction, Decimal]:
         """Move one leg of a transfer document, unposted (STK-1).
 
@@ -2736,7 +3004,9 @@ class InventoryService:
         on its way. The receiving leg takes them out of transit onto the shelf
         and gives up ownership only of what never arrived, at the average.
         Damaged goods arrive blocked from sale, as on a goods receipt.
-        Returns the movement and the value it moved.
+        Returns the movement and the value it moved. ``carries`` names the
+        leg whose value this one takes on, so an item costed by lot arrives
+        in transit with exactly what left its lot (L2 step 7).
 
         Raises:
             ValidationError: If ``require_available`` and the location does
@@ -2776,6 +3046,7 @@ class InventoryService:
                 owned_delta=owned_delta,
                 unit_cost=unit_cost,
                 remarks=remarks,
+                carries=carries,
             ),
         )
         self._session.flush()
@@ -3152,12 +3423,13 @@ class InventoryService:
         return unit_cost, abs(moved), average
 
     def _carried_value(self, movement: _Movement) -> Decimal | None:
-        """Return the value the movement being reversed carried, if any."""
-        if movement.reverses is None:
+        """Return the value the movement reversed or carried on held, if any."""
+        source = movement.reverses or movement.carries
+        if source is None:
             return None
         carried = self._session.scalar(
             select(StockLedgerEntry.total_cost).where(
-                StockLedgerEntry.transaction_id == movement.reverses
+                StockLedgerEntry.transaction_id == source
             )
         )
         return None if carried is None else Decimal(str(carried))
@@ -3360,7 +3632,11 @@ class InventoryService:
         available = inventory.current_quantity - inventory.reserved_quantity
         if from_sellable > ZERO and from_sellable > available:
             product = self._session.get(Product, product_id)
-            if product is None or not product.allow_negative_stock:
+            if (
+                product is None
+                or not product.allow_negative_stock
+                or costs_by_lot(self._session, firm_scope)
+            ):
                 hint = (
                     " Name the batch the goods are leaving."
                     if batch_id is None
@@ -4156,7 +4432,7 @@ class InventoryService:
         branch_id: UUID,
         warehouse_id: UUID,
         product_id: UUID,
-        column: InstrumentedAttribute[Decimal],
+        column: InstrumentedAttribute[Decimal] | ColumnElement[Decimal],
     ) -> list[InventoryRecord]:
         """Return this product's stock rows in the order its goods leave.
 
