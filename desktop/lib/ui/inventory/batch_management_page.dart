@@ -15,6 +15,7 @@ import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../purchases/purchase_requisition_page.dart' show ProductSearchBox;
 import '../workspace/desktop_framework.dart';
+import 'lot_trail_dialog.dart';
 
 enum BatchSerialSection {
   batches,
@@ -1159,6 +1160,15 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
           ),
         ),
         actions: [
+          // Every document the lot passed through (L2 step 11).
+          TextButton(
+            key: const ValueKey('batch-trace'),
+            onPressed: () {
+              Navigator.pop(context);
+              _openLotTrail(batch);
+            },
+            child: const Text('Trace'),
+          ),
           if (_canEditBatch)
             TextButton(
               onPressed: () {
@@ -1172,6 +1182,17 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
             child: const Text('Close'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _openLotTrail(BatchRecord batch) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => LotTrailDialog(
+        api: widget.api,
+        batchId: batch.id,
+        title: batch.batchNumber,
       ),
     );
   }

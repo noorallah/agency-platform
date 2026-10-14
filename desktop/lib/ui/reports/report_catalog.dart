@@ -1153,6 +1153,41 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'mrp_value', label: 'Value at MRP', numeric: true),
     ],
   ),
+  // Bills waiting for their cost (L2 step 7a, its screen L2 step 11): units
+  // a firm costing by lot billed before any lot held them, oldest sale first,
+  // until a purchase fills the lot. A snapshot, so no dates. The cost goes
+  // only to a holder of PRODUCT_VIEW_COST_PRICE, and its columns show only
+  // when it came.
+  ReportDefinition(
+    id: 'lot-shortfalls',
+    label: 'Bills waiting for their cost',
+    description: 'Goods billed before any lot held them, oldest sale first: '
+        'the quantity still waiting for a purchase to bring it in, and how '
+        'long it has waited. For a firm that costs its stock by lot.',
+    path: '/api/v1/inventory/lot-shortfalls',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'document_number', label: 'Delivery note'),
+      ReportColumn(key: 'sale_date', label: 'Sold on'),
+      ReportColumn(key: 'age_days', label: 'Days waiting', numeric: true),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(
+          key: 'quantity_waiting', label: 'Still waiting', numeric: true),
+      ReportColumn(
+          key: 'unit_cost',
+          label: 'Cost used',
+          numeric: true,
+          onlyWhenSent: true),
+      ReportColumn(
+          key: 'cost_waiting',
+          label: 'Cost waiting',
+          numeric: true,
+          onlyWhenSent: true),
+    ],
+  ),
   // How old the stock on hand is (55 S7): FIFO's answer -- what is left is
   // what came in last -- in buckets of days, valued at the average cost; by
   // lot, each lot from the day it was received (L2 step 10).

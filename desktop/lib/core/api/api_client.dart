@@ -3138,6 +3138,15 @@ class ApiClient {
     ];
   }
 
+  /// A lot with every document it passed through, its arrival first
+  /// (L2 step 11).
+  Future<LotTrail> lotTrail(String batchId) async => LotTrail.fromJson(
+        _unwrapMap(await request(
+          'GET',
+          '/api/v1/batch-serial/batches/$batchId/trail',
+        )),
+      );
+
   Future<void> deleteSerial(String id) =>
       request('DELETE', '/api/v1/batch-serial/serials/$id');
 
