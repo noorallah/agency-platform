@@ -94,8 +94,8 @@ class SettingsSubject {
 
 /// The subjects there are, in the order the menu lists their sections: Firm,
 /// Selling, Buying, Stock, Tax, Business profile, Pricing, Territories &
-/// routes, Account structure and Party lists. Each other
-/// section of Settings joins by adding an entry here and a route beside
+/// routes, Account structure, Party lists, Item lists and Locations. Each
+/// other section of Settings joins by adding an entry here and a route beside
 /// [MenuLayout.taxSubjectRoute].
 abstract final class SettingsSubjects {
   static const SettingsSubject tax = SettingsSubject(
@@ -691,6 +691,136 @@ abstract final class SettingsSubjects {
         'The optional steps can wait until the firm needs them.',
   );
 
+  /// Item lists (row T2), a Set up section. Units of Measure is To do while
+  /// the firm has none: a UOM group or a conversion rule cannot be saved
+  /// without a unit. A new firm sets its units first, so they lead and the
+  /// product lists follow (the order is decided by the loop).
+  static const SettingsSubject itemLists = SettingsSubject(
+    section: 'Item lists',
+    route: MenuLayout.itemListsSubjectRoute,
+    summary: 'Units, packaging, product categories, principals, brands',
+    sectionCode: 'item-lists',
+    steps: [
+      SubjectStep(
+        path: 'administration/uoms',
+        label: 'Units of Measure',
+        code: 'uoms',
+        summary: 'The units goods are counted in, such as pieces, boxes or '
+            'kilograms.',
+        topLine: 'Start here: a UOM group or a conversion rule cannot be '
+            'saved without a unit.',
+      ),
+      SubjectStep(
+        path: 'administration/uom-groups',
+        label: 'UOM groups',
+        code: 'uom-groups',
+        summary: 'Units that belong together, such as pieces and boxes.',
+        topLine: 'Needs units from step 1. Add the unit first if it is not '
+            'in the list.',
+      ),
+      SubjectStep(
+        path: 'administration/conversion-rules',
+        label: 'Conversion rules',
+        code: 'conversion-rules',
+        summary: 'How many of one unit make another, such as 12 pieces to a '
+            'box.',
+        topLine: 'Needs two units from step 1: a rule converts one unit '
+            'into another.',
+      ),
+      SubjectStep(
+        path: 'administration/packaging-types',
+        label: 'Packaging types',
+        code: 'packaging-types',
+        summary: 'Kinds of pack, such as a carton, a case or a strip.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: 'administration/packaging-levels',
+        label: 'Packaging levels',
+        code: 'packaging-levels',
+        summary: 'How a product is packed, level by level, each naming a '
+            'packaging type.',
+        topLine: 'Needs a packaging type from step 4. A level belongs to a '
+            'product and names its packaging type.',
+      ),
+      SubjectStep(
+        path: 'masters/product-categories',
+        label: 'Product categories',
+        code: 'product-categories',
+        summary: 'Groups of products, for lists, reports and tax rules.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: 'masters/principals',
+        label: 'Principals',
+        code: 'principals',
+        summary: 'The companies whose goods the firm distributes.',
+        topLine: 'Needs nothing from the steps before. Add a principal here '
+            'before a brand can name it.',
+      ),
+      SubjectStep(
+        path: 'masters/brands',
+        label: 'Brands',
+        code: 'brands',
+        summary: 'The brands a product is sold under.',
+        topLine: 'Needs a principal from step 7: a brand names its '
+            'principal.',
+      ),
+    ],
+    connects: ['Unit', 'UOM group', 'Conversion rule'],
+    readyNote: 'Item lists are ready for this firm.',
+    readyDetail: 'The firm has units, so products can be counted. The '
+        'optional steps can wait until the firm needs them.',
+  );
+
+  /// Locations (row T2), a Set up section: lists, so no step is To do.
+  /// Places are named by branch and warehouse addresses, and the types by
+  /// the branches and warehouses themselves, so they come first (the order
+  /// is decided by the loop).
+  static const SettingsSubject locations = SettingsSubject(
+    section: 'Locations',
+    route: MenuLayout.locationsSubjectRoute,
+    summary: 'Places, branch and warehouse types, storage areas',
+    sectionCode: 'locations',
+    steps: [
+      SubjectStep(
+        path: 'masters/geography-masters',
+        label: 'Places',
+        code: 'geography-masters',
+        summary: 'Countries, states, districts and towns that an address '
+            'names.',
+        topLine: 'Start here: a branch or warehouse address names a place.',
+      ),
+      SubjectStep(
+        path: 'masters/branch-types',
+        label: 'Branch types',
+        code: 'branch-types',
+        summary: 'Kinds of branch, such as head office or depot.',
+        topLine: 'Needs nothing from the step before. Add a type here before '
+            'a branch can name it.',
+      ),
+      SubjectStep(
+        path: 'masters/warehouse-types',
+        label: 'Warehouse types',
+        code: 'warehouse-types',
+        summary: 'Kinds of warehouse, such as main store or cold store.',
+        topLine: 'Needs nothing from the steps before. Add a type here '
+            'before a warehouse can name it.',
+      ),
+      SubjectStep(
+        path: 'masters/storage-areas',
+        label: 'Storage areas',
+        code: 'storage-areas',
+        summary: 'Racks, bins and rooms inside a warehouse.',
+        topLine: 'Needs a warehouse: a storage area sits in a warehouse. '
+            'Add the warehouse first if the firm has none.',
+      ),
+    ],
+    readyNote: 'Locations are ready for this firm.',
+    readyDetail: 'Nothing here has to be done before a sale or a purchase. '
+        'The optional steps can wait until the firm needs them.',
+  );
+
   /// In the order the menu lists the sections.
   static const List<SettingsSubject> all = [
     firm,
@@ -703,6 +833,8 @@ abstract final class SettingsSubjects {
     territories,
     accountStructure,
     partyLists,
+    itemLists,
+    locations,
   ];
 
   /// The subject that stands for the Settings section called [label].
