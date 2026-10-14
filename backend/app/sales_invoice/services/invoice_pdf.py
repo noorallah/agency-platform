@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from xml.sax.saxutils import escape
@@ -175,6 +176,8 @@ class InvoiceLineBlock:
     free_quantity: Decimal = ZERO
     batch: str | None = None
     expiry: str | None = None
+    #: The date the lot was made, where the lot records one (row P2).
+    manufactured: str | None = None
     #: The MRP printed on the batch, per stock unit (backlog 79 row 7).
     mrp: Decimal | None = None
     #: (code, percentage, amount) as recorded on the line.
@@ -270,6 +273,20 @@ class InvoiceDocument:
     #: firm's UPI ID. None where the firm has no UPI ID, nothing is owed, or
     #: the document is not a bill that stands.
     upi: UpiPayment | None = None
+    #: Whether the quantities are added up under the lines, as the trade's
+    #: bill does (row P2). The sum is of the quantities as the lines state
+    #: them; free goods are counted beside it, never in it.
+    show_total_quantity: bool = False
+
+    @property
+    def total_quantity(self) -> Decimal:
+        """Return the sum of the quantities the lines state."""
+        return sum((line.quantity for line in self.lines), ZERO)
+
+    @property
+    def total_free_quantity(self) -> Decimal:
+        """Return the sum of the free goods the lines state."""
+        return sum((line.free_quantity for line in self.lines), ZERO)
 
 
 def qr_drawing(payload: str, side: float) -> Flowable:
@@ -308,6 +325,9 @@ class TemplateSettings:
     show_discount_column: bool = True
     show_batch_column: bool = False
     show_expiry_column: bool = False
+    #: Turned on by a document with a lot that records when it was made
+    #: (row P2). A line whose lot records none prints the cell blank.
+    show_manufactured_column: bool = False
     #: Turned on by a document whose batches carry an MRP (79 row 7).
     show_mrp_column: bool = False
     copy_labels: tuple[str, ...] = ()
@@ -318,6 +338,28 @@ class TemplateSettings:
 
 #: The column a bill typed with GST-inclusive rates adds (backlog 64 row 4).
 INCLUSIVE_RATE = "Rate incl. GST"
+#: The column of the date a lot was made, and the row adding the lines up.
+MANUFACTURED = "Mfg"
+TOTAL_QUANTITY = "Total quantity"
+#: The two columns a crowded bill states its GST in, in place of a rate and
+#: an amount for each half of it.
+GST_RATE = "GST %"
+GST_AMOUNT = "GST"
+
+
+def made_in(on: date | None) -> str | None:
+    """Return when a lot was made as the trade's bill prints it: ``01/26``.
+
+    Month and year, which is what a pack carries and what the customer's own
+    bill prints under MfgDt (row P2). None where the lot records no date.
+    """
+    return f"{on:%m/%y}" if on is not None else None
+
+
+#: The side padding of a cell in the lines table, and the size its figures
+#: are set at once the columns have had to be scaled down to fit.
+_LINE_PADDING = 2
+_CROWDED_FONT = 7.0
 
 
 def _money(value: Decimal) -> str:
@@ -609,6 +651,8 @@ class InvoicePdfRenderer:
         columns.append("Rate")
         if self._template.show_batch_column:
             columns.append("Batch")
+        if self._template.show_manufactured_column:
+            columns.append(MANUFACTURED)
         if self._template.show_expiry_column:
             columns.append("Expiry")
         if self._template.show_mrp_column:
@@ -628,8 +672,18 @@ class InvoicePdfRenderer:
 
         inclusive = any(line.entered_rate is not None for line in document.lines)
         header = self._line_columns(inclusive)
+        split: list[str] = []
         for code in component_codes:
-            header.extend([f"{code} %", f"{code} amt"])
+            split.extend([f"{code} %", f"{code} amt"])
+        # CGST and SGST each as a rate and an amount are four columns, and a
+        # bill that also carries its batches cannot hold them: the lines then
+        # state GST as one rate and one amount, as the half page and the
+        # trade's own bills do. The halves stay by name in the totals and in
+        # the HSN summary under the lines.
+        together = len(component_codes) > 1 and self._is_crowded(
+            [*header, *split, "Amount"]
+        )
+        header.extend([GST_RATE, GST_AMOUNT] if together else split)
         header.append("Amount")
 
         rows: list[list[object]] = [
@@ -644,8 +698,10 @@ class InvoicePdfRenderer:
                 Paragraph(line.description, self._body),
                 line.hsn or "",
                 (
-                    f"{_quantity(line.quantity)} + "
-                    f"{_quantity(line.free_quantity)} free"
+                    # The free goods under the quantity: side by side they
+                    # ran over the HSN beside them on a crowded bill.
+                    f"{_quantity(line.quantity)}\n"
+                    f"+{_quantity(line.free_quantity)} free"
                     if line.free_quantity
                     else _quantity(line.quantity)
                 ),
@@ -658,6 +714,8 @@ class InvoicePdfRenderer:
             cells.append(_money(line.rate))
             if self._template.show_batch_column:
                 cells.append(line.batch or "")
+            if self._template.show_manufactured_column:
+                cells.append(line.manufactured or "")
             if self._template.show_expiry_column:
                 cells.append(line.expiry or "")
             if self._template.show_mrp_column:
@@ -665,37 +723,81 @@ class InvoicePdfRenderer:
             if self._template.show_discount_column:
                 cells.append(_money(line.discount))
             cells.append(_money(line.taxable))
-            for code in component_codes:
-                percent, amount = charged.get(code, (ZERO, ZERO))
-                cells.extend([f"{percent:.2f}", _money(amount)])
+            if together:
+                cells.extend(
+                    [
+                        f"{sum((rate for _, rate, _ in line.taxes), ZERO):.2f}",
+                        _money(sum((tax for _, _, tax in line.taxes), ZERO)),
+                    ]
+                )
+            else:
+                for code in component_codes:
+                    percent, amount = charged.get(code, (ZERO, ZERO))
+                    cells.extend([f"{percent:.2f}", _money(amount)])
             cells.append(_money(line.total))
             rows.append(cells)
+        totalled = document.show_total_quantity and bool(document.lines)
+        if totalled:
+            rows.append(self._total_quantity_row(document, header))
 
         table = Table(rows, colWidths=self._line_widths(width, header), repeatRows=1)
         style = self._boxed()
+        # Close-set, as the half page is: sixteen columns do not fit an A4
+        # page at the padding a five-column table can afford.
+        style.add("LEFTPADDING", (0, 0), (-1, -1), _LINE_PADDING)
+        style.add("RIGHTPADDING", (0, 0), (-1, -1), _LINE_PADDING)
+        if totalled:
+            style.add("LINEABOVE", (0, -1), (-1, -1), 0.9, colors.black)
+            style.add("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")
         style.add("BACKGROUND", (0, 0), (-1, 0), self._tint)
         style.add("TEXTCOLOR", (0, 0), (-1, 0), self._accent)
         style.add("INNERGRID", (0, 0), (-1, -1), 0.4, self._rule)
         style.add("ALIGN", (2, 1), (-1, -1), "RIGHT")
         style.add("ALIGN", (0, 0), (0, -1), "CENTER")
-        style.add("FONTSIZE", (0, 1), (-1, -1), 7.6)
+        style.add(
+            "FONTSIZE",
+            (0, 1),
+            (-1, -1),
+            _CROWDED_FONT if self._is_crowded(header) else 7.6,
+        )
         style.add("VALIGN", (0, 0), (-1, -1), "MIDDLE")
         table.setStyle(style)
         return table
+
+    def _total_quantity_row(
+        self, document: InvoiceDocument, header: list[str]
+    ) -> list[object]:
+        """Return the row under the lines that adds their quantities up.
+
+        The free goods are named beside the words rather than added in: what
+        was charged for and what was given are two different counts.
+        """
+        free = document.total_free_quantity
+        words = TOTAL_QUANTITY
+        if free:
+            words = f"{words}, and {_quantity(free)} free"
+        cells: list[object] = ["" for _ in header]
+        cells[header.index("Description")] = Paragraph(f"<b>{words}</b>", self._body)
+        cells[header.index("Qty")] = _quantity(document.total_quantity)
+        return cells
 
     #: What each column needs, as a share of the table. An even split made a
     #: bill with batch, expiry and two tax components wrap its own headings
     #: mid-word -- "Expir / y" -- because a heading is a paragraph and a
     #: paragraph in a narrow cell breaks wherever it must.
     _COLUMN_WEIGHTS = {
-        "Sl": 0.030,
-        "HSN": 0.060,
-        "Qty": 0.050,
+        "Sl": 0.026,
+        "HSN": 0.068,
+        "Qty": 0.058,
         "UOM": 0.052,
         "Rate": 0.070,
         INCLUSIVE_RATE: 0.070,
-        "Batch": 0.064,
-        "Expiry": 0.062,
+        "Batch": 0.074,
+        GST_RATE: 0.042,
+        GST_AMOUNT: 0.068,
+        MANUFACTURED: 0.042,
+        # A whole date, which is ten characters and may not be cut.
+        "Expiry": 0.090,
         "MRP": 0.06,
         "Disc.": 0.060,
         "Taxable": 0.080,
@@ -705,10 +807,10 @@ class InvoicePdfRenderer:
     _RATE_WEIGHT = 0.052
     _AMOUNT_WEIGHT = 0.068
     #: The description gives up its room first, but never all of it.
-    _MIN_DESCRIPTION = 0.14
+    _MIN_DESCRIPTION = 0.125
 
-    def _line_widths(self, width: float, header: list[str]) -> list[float]:
-        """Return each column's width, the description absorbing the slack."""
+    def _column_weights(self, header: list[str]) -> list[float]:
+        """Return what each column asks for; the description asks for none."""
         weights: list[float] = []
         for column in header:
             if column == "Description":
@@ -719,7 +821,19 @@ class InvoicePdfRenderer:
                 weights.append(self._RATE_WEIGHT)
             else:
                 weights.append(self._AMOUNT_WEIGHT)
+        return weights
 
+    def _is_crowded(self, header: list[str]) -> bool:
+        """Say whether the columns ask for more than the page can give.
+
+        They are then scaled down together, and the figures are set a little
+        smaller so that a whole date still fits the cell it is in.
+        """
+        return 1.0 - sum(self._column_weights(header)) < self._MIN_DESCRIPTION
+
+    def _line_widths(self, width: float, header: list[str]) -> list[float]:
+        """Return each column's width, the description absorbing the slack."""
+        weights = self._column_weights(header)
         described = 1.0 - sum(weights)
         if described < self._MIN_DESCRIPTION:
             # More columns than the page can hold at full width: scale the

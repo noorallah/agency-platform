@@ -30,6 +30,7 @@ from app.document_framework.services.print_support import (
 )
 from app.products.models import Product
 from app.promotions.models import Promotion, PromotionRedemption
+from app.sales.models.territory import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_invoice.models import (
     SalesInvoice,
     SalesInvoiceCharge,
@@ -45,6 +46,7 @@ from app.sales_invoice.services.invoice_pdf import (
     InvoicePdfRenderer,
     PartyBlock,
     TemplateSettings,
+    made_in,
     render_together,
     settled_paper,
 )
@@ -516,6 +518,10 @@ class SalesInvoicePrintService:
                 show_expiry_column=True,
                 show_mrp_column=any(line.mrp is not None for line in document.lines),
             )
+        if any(line.manufactured for line in document.lines):
+            # Only a bill with a lot that records when it was made carries
+            # the column; a line whose lot records none is blank (row P2).
+            template = replace(template, show_manufactured_column=True)
         return template, document
 
     # ------------------------------------------------------------------
@@ -652,6 +658,7 @@ class SalesInvoicePrintService:
                 total=line.net_amount,
                 batch=line.batch_number,
                 expiry=line.expiry_date.isoformat() if line.expiry_date else None,
+                manufactured=made_in(line.manufacturing_date),
                 taxes=tuple(
                     (item.component_code, item.percentage, item.amount)
                     for item in taxes.get(line.id, [])
@@ -730,8 +737,10 @@ class SalesInvoicePrintService:
             taxed_charges=charge_blocks(self._session, invoice.id),
             round_off=invoice.round_off,
             grand_total=invoice.grand_total,
+            show_total_quantity=True,
             references=(
                 *references,
+                *self._market(invoice),
                 # The firm's own fields marked to print (MST-6).
                 *document_attributes.printed(
                     self._session, AttributeEntityType.SALES_INVOICE, invoice.id
@@ -743,6 +752,26 @@ class SalesInvoicePrintService:
                 ),
             ),
         )
+
+    def _market(self, invoice: SalesInvoice) -> list[tuple[str, str]]:
+        """Name the round the bill was raised on, as the trade's bill does.
+
+        The market is the area or beat the shop belongs to, which the bill
+        holds as its route (row P2). Read off the bill rather than the
+        customer, so a shop moved to another round later does not reprint an
+        old bill under the new one. A bill on no round prints no such row.
+        """
+        if invoice.route_id is None:
+            return []
+        name = self._session.scalar(
+            select(SalesTerritoryNode.name)
+            .join(
+                TerritoryRouteProfile,
+                TerritoryRouteProfile.territory_id == SalesTerritoryNode.id,
+            )
+            .where(TerritoryRouteProfile.id == invoice.route_id)
+        )
+        return [("Market", name)] if name else []
 
     def _typed_on_the_order(self, lines: list[SalesInvoiceLine]) -> dict[UUID, Decimal]:
         """Return the GST-inclusive rate each line's order was typed at (D-SELL-95).

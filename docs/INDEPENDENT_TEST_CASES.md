@@ -4617,6 +4617,24 @@ commission uses `commission-firm`:
   - Step 8: the list says **Nothing in these dates** and how to see older ones, not *No search results*.
 - **Leaves:** one sales return (step 5).
 
+### TC-SELL-112 — The full-page bill carries what the trade's bill carries
+
+*Added 2026-10-14 (customer task P2, PRT-4). Printed over HTTP by the build loop; **no screen was clicked**.*
+
+- **Covers:** the manufacture date, the total quantity, the firm's terms and Market on the printed bill
+- **Fixture:** `ready-firm`, with a round the customer belongs to, and two batch-tracked products: one received with a manufacture date on its batch, one without
+- **Steps**
+  1. Under *Sales > Sales Invoices > Print settings > Payment and terms*, type two lines of **Terms** and save.
+  2. Sell and dispatch both products to the customer on his round (say 4 of the first with 1 free, 6 of the second) and raise the bill from the delivery note.
+  3. Print the bill on a full page.
+  4. Set the paper to **Half page** under *Print settings* and print the same bill.
+  5. Print a bill of a product that keeps no batches.
+- **Expect**
+  - Step 3: the particulars name **Market** with the round's name. The lines have a **Mfg** column between Batch and Expiry: the first line reads the month and year its batch was made (`01/26`), the second is blank. The expiry is a whole date and no figure prints over the one beside it. The free goods print under the quantity. Under the lines **Total quantity** reads 10, and names 1 free beside it. Each line states **GST %** and **GST**; CGST and SGST are named in the totals and in the HSN summary. The terms print line by line under **TERMS**.
+  - Step 4: the half page names **Market**, has the **Total quantity** row (10, and 1 under Free), and prints the terms under the amount in words. It has no Mfg column.
+  - Step 5: no Mfg column; **Total quantity** is there; each tax component has its own rate and amount columns as before.
+- **Leaves:** one order, one delivery note, one bill; the firm's terms and paper as set (set the paper back).
+
 ### TC-INCENT-001 — A price list is a ladder, and a promotion still outranks it
 
 - **Covers:** plan 10.1, 10.2

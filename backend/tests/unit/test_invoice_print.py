@@ -446,7 +446,8 @@ def test_a_challan_states_the_free_goods_travelling() -> None:
     """The storekeeper at the other end counts eleven."""
     printed = _text_of(InvoicePdfRenderer(TemplateSettings()).render(_challan()))
 
-    assert "10 + 1 free" in printed
+    # Under the quantity, on a line of its own in the cell.
+    assert "10 | +1 free" in printed
 
 
 def test_a_challan_is_not_a_tax_invoice() -> None:
@@ -744,3 +745,144 @@ def test_a_run_gives_each_bill_the_paper_it_prints_on_alone() -> None:
     assert all(_is(size, _FULL) for size in sizes[1:-2]), sizes
     printed = _text_of(pdf)
     assert printed.index("SI-LAST") < printed.index("SI-FULL")
+
+
+def _lot_bill() -> InvoiceDocument:
+    """Two lines from two lots: one records when it was made, one does not."""
+    line = _trade_bill().lines[0]
+    return replace(
+        _trade_bill(),
+        show_total_quantity=True,
+        lines=(
+            replace(line, quantity=Decimal("4"), manufactured="01/26"),
+            replace(
+                line,
+                number=2,
+                quantity=Decimal("6.5"),
+                free_quantity=Decimal("2"),
+                batch="B2408",
+            ),
+        ),
+    )
+
+
+def test_the_full_page_prints_when_a_lot_was_made_and_leaves_the_rest_blank() -> None:
+    """A column of its own, only on a bill with a lot that records the date.
+
+    The customer's full-page sample carries the manufacture date beside the
+    batch (row P2). The line whose lot records none prints the cell empty,
+    and a bill with no such lot does not carry the column at all.
+    """
+    template = TemplateSettings(
+        show_batch_column=True,
+        show_expiry_column=True,
+        show_manufactured_column=True,
+    )
+    printed = _text_of(InvoicePdfRenderer(template).render(_lot_bill()))
+    assert " | Mfg | " in printed
+    assert printed.count("01/26") == 1
+    # Between the batch and the expiry, as the sample has it.
+    assert printed.index("Batch") < printed.index(" | Mfg | ") < printed.index("Expiry")
+
+    without = _text_of(
+        InvoicePdfRenderer(replace(template, show_manufactured_column=False)).render(
+            _lot_bill()
+        )
+    )
+    assert " | Mfg | " not in without and "01/26" not in without
+
+
+@pytest.mark.parametrize("paper", ["A4", "HALF"])
+def test_the_quantities_are_added_up_under_the_lines(paper: str) -> None:
+    """The total is the sum of the lines; free goods are counted beside it."""
+    document = _lot_bill()
+    assert document.total_quantity == Decimal("10.5")
+    assert document.total_free_quantity == Decimal("3")
+
+    printed = _text_of(
+        InvoicePdfRenderer(TemplateSettings(page_size=paper)).render(document)
+    )
+    assert "Total quantity" in printed
+    after = printed[printed.index("Total quantity") :]
+    assert "10.5" in after and "3" in after
+
+    # Only a document that asks: an order or a challan is not changed.
+    plain = replace(document, show_total_quantity=False)
+    assert "Total quantity" not in _text_of(
+        InvoicePdfRenderer(TemplateSettings(page_size=paper)).render(plain)
+    )
+
+
+@pytest.mark.parametrize("paper", ["A4", "HALF"])
+def test_the_firms_terms_print_on_both_sizes(paper: str) -> None:
+    """Typed once under Print settings, at the foot of either paper."""
+    template = TemplateSettings(
+        page_size=paper, terms="Goods once sold are not taken back."
+    )
+    pdf = InvoicePdfRenderer(template).render(_trade_bill())
+    assert _is(_page_sizes(pdf)[0], _HALF if paper == "HALF" else (595.28, 841.89))
+    assert "Goods once sold are not taken back." in _text_of(pdf)
+
+
+def test_a_whole_expiry_date_fits_its_cell_on_the_most_crowded_bill() -> None:
+    """Sixteen columns on A4, and no figure runs over the cell beside it.
+
+    Batch, manufacture date, expiry, MRP, discount and two tax components
+    were sixteen columns: scaled down together, a whole date printed over the
+    batch beside it and the free goods over the HSN. Such a bill now states
+    GST as one rate and one amount a line, and every column has the room
+    its widest figure needs.
+    """
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    from app.sales_invoice.services import invoice_pdf
+
+    renderer = InvoicePdfRenderer(
+        TemplateSettings(
+            show_batch_column=True,
+            show_manufactured_column=True,
+            show_expiry_column=True,
+            show_mrp_column=True,
+        )
+    )
+    split = ["CGST %", "CGST amt", "SGST %", "SGST amt", "Amount"]
+    assert renderer._is_crowded([*renderer._line_columns(), *split])
+    # So the lines state GST as one rate and one amount.
+    header = [*renderer._line_columns(), "GST %", "GST", "Amount"]
+    width = 595.28 - 2 * 12 * 2.8346
+    room = dict(zip(header, renderer._line_widths(width, header), strict=True))
+    for column, widest in (
+        ("Expiry", "2028-03-31"),
+        ("Mfg", "01/26"),
+        ("Qty", "+12 free"),
+        ("HSN", "30049086"),
+        ("Batch", "SXH1183B"),
+        ("Rate", "2,462.00"),
+        ("MRP", "4,750.00"),
+        ("Disc.", "1,196.96"),
+        ("Taxable", "12,345.00"),
+        ("GST %", "18.00"),
+        ("GST", "1,234.00"),
+        ("Amount", "112,345.00"),
+    ):
+        needed = stringWidth(widest, "Helvetica", invoice_pdf._CROWDED_FONT)
+        assert needed <= room[column] - 2 * invoice_pdf._LINE_PADDING, column
+
+
+def test_a_bill_with_its_batches_states_gst_as_one_rate_and_one_amount() -> None:
+    """The halves stay by name under the lines; a plain bill is unchanged."""
+    template = TemplateSettings(
+        show_batch_column=True, show_expiry_column=True, show_mrp_column=True
+    )
+    printed = _text_of(InvoicePdfRenderer(template).render(_lot_bill()))
+    lines = printed[printed.index("Description") : printed.index("Total quantity")]
+    assert "GST | %" in lines or "GST %" in lines
+    assert "18.00" in lines and "180.00" in lines
+    assert "CGST" not in lines and "SGST" not in lines
+    after = printed[printed.index("Total quantity") :]
+    assert "CGST" in after and "SGST" in after and "HSN / SAC" in after
+
+    # A heading wraps in its cell, so the runs are joined back up.
+    plain = _text_of(InvoicePdfRenderer(TemplateSettings()).render(_document()))
+    plain = plain.replace(" | ", " ")
+    assert "CGST %" in plain and "SGST amt" in plain

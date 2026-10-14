@@ -46,6 +46,7 @@ from app.sales_invoice.services.invoice_pdf import (
     InvoicePdfRenderer,
     PartyBlock,
     TemplateSettings,
+    made_in,
     render_together,
 )
 from app.tax.services.gst_compliance import CHALLAN_REASONS
@@ -87,6 +88,7 @@ def _per_batch(
                 whole,
                 batch=batch.batch_number,
                 expiry=batch.expiry_date.isoformat() if batch.expiry_date else None,
+                manufactured=made_in(batch.manufacturing_date),
                 mrp=batch.mrp,
             )
         ]
@@ -126,6 +128,7 @@ def _per_batch(
                 description=whole.description if index == 0 else "",
                 batch=batch.batch_number,
                 expiry=batch.expiry_date.isoformat() if batch.expiry_date else None,
+                manufactured=made_in(batch.manufacturing_date),
                 mrp=batch.mrp,
                 quantity=values["quantity"],
                 free_quantity=values["free_quantity"],

@@ -620,6 +620,18 @@ types it. A bill returned in full is credited the same rounded figure. Off,
 which is how every firm starts, a bill is left as worked out. Supplier bills
 are not rounded.
 
+**What the trade's bill carries.** A bill names its **Market**: the round
+the bill is on, beside its number and date. Under the lines a row adds the
+quantities up (**Total quantity**); free goods are counted beside it, not in
+it. On a full page a bill with a lot that records when it was made carries a
+**Mfg** column between the batch and the expiry, printed as month and year
+(`01/26`); a line whose lot records no date is blank there, and a bill with
+no such lot has no such column. The firm's **terms** are typed once, under
+*Print settings* > *Payment and terms* > *Terms*, and print at the foot of
+the full page and of the half page. A full-page bill that carries its batches
+states GST on each line as one rate and one amount; CGST and SGST are named
+in the totals and in the HSN summary under the lines.
+
 **The half-page bill.** Under *Print settings* a firm can choose **Half page
 (half of A4)** as its paper. A short bill then prints on half a sheet, in the
 layout the distribution trade uses: the firm and its licence numbers beside

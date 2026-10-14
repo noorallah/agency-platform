@@ -36,6 +36,7 @@ from reportlab.platypus import (
 
 from app.sales_invoice.services.invoice_pdf import (
     INCLUSIVE_RATE,
+    TOTAL_QUANTITY,
     InvoiceDocument,
     InvoiceLineBlock,
     PartyBlock,
@@ -280,7 +281,8 @@ class HalfPageRenderer:
         "GST": 0.070,
         "Net Amount": 0.088,
         "Batch": 0.078,
-        "Exp. Dt": 0.060,
+        # A whole date, which is ten characters and ran past the edge at 0.060.
+        "Exp. Dt": 0.076,
     }
 
     def _lines(self, document: InvoiceDocument, width: float) -> Table:
@@ -296,6 +298,18 @@ class HalfPageRenderer:
         ]
         for line in document.lines:
             rows.append(self._line_cells(line, inclusive=inclusive))
+        totalled = document.show_total_quantity and bool(document.lines)
+        if totalled:
+            # The quantities added up under the lines (row P2); the free
+            # goods in their own column, as the lines state them.
+            total: list[object] = ["" for _ in header]
+            total[header.index("Product Details")] = Paragraph(
+                f"<b>{TOTAL_QUANTITY}</b>", self._text
+            )
+            total[header.index("Qty")] = _quantity(document.total_quantity)
+            if document.total_free_quantity:
+                total[header.index("Free")] = _quantity(document.total_free_quantity)
+            rows.append(total)
 
         weights = [self._WEIGHTS.get(column, 0.0) for column in header]
         described = 1.0 - sum(weights)
@@ -318,6 +332,9 @@ class HalfPageRenderer:
         style.add("RIGHTPADDING", (0, 0), (-1, -1), 2)
         style.add("TOPPADDING", (0, 1), (-1, -1), 1.5)
         style.add("BOTTOMPADDING", (0, 1), (-1, -1), 1.5)
+        if totalled:
+            style.add("LINEABOVE", (0, -1), (-1, -1), 0.6, colors.black)
+            style.add("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")
         table.setStyle(style)
         return table
 

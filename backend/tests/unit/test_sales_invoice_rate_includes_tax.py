@@ -381,8 +381,9 @@ def _inclusive_document() -> InvoiceDocument:
 def test_the_print_states_both_rates() -> None:
     """The A4 bill and the counter roll show the rate typed and the taxable one."""
     a4 = _text_of(InvoicePdfRenderer().render(_inclusive_document()))
-    # The heading wraps in its cell, as the tax headings do.
-    assert "Rate | incl. | GST | Rate" in a4
+    # The heading wraps in its cell, as the tax headings do, and where it
+    # wraps depends on the cell's padding: the runs are joined back up.
+    assert "Rate incl. GST Rate" in a4.replace(" | ", " ")
     assert "295.00 | 250.00" in a4
 
     roll = _text_of(
