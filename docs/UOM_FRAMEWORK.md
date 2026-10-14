@@ -720,8 +720,36 @@ read here, in `backend/app/uom/services/packs.py`, and nowhere else.
   pairs, not one, because an item can be bought by the case and sold by the
   box, and the row does not know which editor reads it.
 
-Nothing writes a line's `pack_size` yet; the documents take it from step 3.
 `tests/unit/test_item_packs.py` is the guard.
+
+### The pack on a quotation and a sales order line (L5 step 3)
+
+`line_packs(session, lines, side=, on_date=, kept=)` in the same file is the
+pack each line is **written at**, and both documents store it on the line
+(`pack_uom_id`, `pack_size`) for every line of an item that has a pack,
+however the line was typed -- a line in BOX included:
+
+- a saved draft line sent again for the same product keeps its own pack, so
+  a draft saved at 12 to a box still reads 12 after the item moved to 10
+  (design 3.3); `held_packs(rows)` reads the saved lines for it;
+- an order raised from a quotation is handed each quoted line's pack
+  (`stage_order(..., inherited_packs=)`), so it is ordered at the quoted
+  size, not today's;
+- any other line takes the item's selling pack on the document's date.
+
+A line typed as boxes and pieces sends `quantity` in pieces and `pack_size`,
+the size the screen added the cells up at. The server never stores the figure
+sent: it **refuses the line where it differs** from the pack the line is
+written at ("Line 1: a box of this item holds 12, not 10. Open the line
+again."), where the item has no pack, and where the line names a unit other
+than the stock unit. A line sending `pack_size` and no unit is named the
+stock unit before it is priced, so D-PRC-53 does not read it in boxes. The
+rate is per piece and nothing about tax, offers or reservation changes.
+
+Each header carries `box_and_piece_entry`, the layout it was saved in: off
+when absent on create, kept when absent on update, and handed from a quotation
+to the order it becomes. `tests/unit/test_box_and_piece_sales.py` is the
+guard, with the worked example sold to the paisa (410.00 + 49.20).
 
 ## Effective dating
 

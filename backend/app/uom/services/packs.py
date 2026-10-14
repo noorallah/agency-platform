@@ -10,13 +10,14 @@ so they cannot disagree with the quantity.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import UUID
 
+from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -221,3 +222,123 @@ def _rules_in_force(
             )
         )
     )
+
+
+def line_packs(
+    session: Session,
+    lines: Sequence[BaseModel],
+    *,
+    side: PackSide,
+    on_date: date,
+    kept: Mapping[int, tuple[UUID, Pack]] | None = None,
+) -> dict[int, Pack]:
+    """Return the pack each typed line is written at, by line number.
+
+    Design 3.3 and 3.4. ``kept`` is the pack a line already holds, by line
+    number with the product it was held for: a saved draft line, or the
+    source line a line continues. A line sent again for that product keeps
+    it, so a draft saved at 12 to a box still reads 12 after the item moved
+    to 10; any other line takes the item's pack on ``on_date``. A line of an
+    item with no pack is absent.
+
+    A line sending ``pack_size`` was typed as boxes and pieces. The server
+    never takes the figure: it is refused where it differs from the pack the
+    line is written at -- the item row the screen read went stale -- or
+    where the line names a unit other than the stock unit, since such a line
+    is counted in pieces.
+
+    Raises:
+        ValidationError: A sent ``pack_size`` is not the line's pack, or a
+            line typed as boxes and pieces names another unit.
+
+    """
+    held = kept or {}
+    product_ids = {getattr(line, "product_id", None) for line in lines} - {None}
+    products = {
+        product.id: product
+        for product in session.scalars(
+            select(Product).where(Product.id.in_(product_ids))
+        )
+    }
+    fresh = packs_of_many(session, products.values(), side=side, on_date=on_date)
+    packs: dict[int, Pack] = {}
+    for line in lines:
+        number = int(getattr(line, "line_number", 0))
+        product_id: UUID | None = getattr(line, "product_id", None)
+        product = None if product_id is None else products.get(product_id)
+        saved = held.get(number)
+        pack = (
+            saved[1]
+            if saved is not None and saved[0] == product_id
+            else None if product is None else fresh.get(product.id)
+        )
+        sent: Decimal | None = getattr(line, "pack_size", None)
+        if sent is not None:
+            _assert_typed_at(
+                number,
+                sent=sent,
+                pack=pack,
+                unit=getattr(line, "sales_uom_id", None),
+                stock=stock_unit_of(product),
+            )
+        if pack is not None:
+            packs[number] = pack
+    return packs
+
+
+def _assert_typed_at(
+    number: int,
+    *,
+    sent: Decimal,
+    pack: Pack | None,
+    unit: UUID | None,
+    stock: UUID | None,
+) -> None:
+    """Refuse a line typed as boxes and pieces that the server reads otherwise."""
+    if pack is None:
+        raise ValidationError(
+            f"Line {number}: this item has no box to type it in. "
+            "Type the quantity in pieces."
+        )
+    if sent != pack.size:
+        raise ValidationError(
+            f"Line {number}: a box of this item holds {pack.size.normalize():f}, "
+            f"not {sent.normalize():f}. Open the line again."
+        )
+    if unit is not None and unit != stock:
+        raise ValidationError(
+            f"Line {number} is typed in boxes and pieces, so it is counted in "
+            "the item's stock unit, not in another unit."
+        )
+
+
+class _HeldLine(Protocol):
+    """A saved or source line row, as `held_packs` reads it."""
+
+    @property
+    def line_number(self) -> int:
+        """Return the line's number on its document."""
+
+    @property
+    def product_id(self) -> UUID:
+        """Return the item on the line."""
+
+    @property
+    def pack_uom_id(self) -> UUID | None:
+        """Return the pack's unit the line holds, if any."""
+
+    @property
+    def pack_size(self) -> Decimal | None:
+        """Return the pack size the line holds, if any."""
+
+
+def held_packs(rows: Iterable[_HeldLine]) -> dict[int, tuple[UUID, Pack]]:
+    """Return the pack each saved or source line holds, keyed for `line_packs`.
+
+    A row holding no pack is left out.
+    """
+    return {
+        row.line_number: (row.product_id, Pack(row.pack_uom_id, None, row.pack_size))
+        for row in rows
+        if row.pack_uom_id is not None and row.pack_size is not None
+    }

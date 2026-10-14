@@ -89,6 +89,14 @@ class QuotationLineWrite(QuotationSchema):
     tax_profile_id: UUID | None = None
     warehouse_id: UUID | None = None
     remarks: str | None = None
+    #: The pack size the screen added two cells up at -- boxes and pieces,
+    #: sent only by a line typed that way (L5, design 3.4). The server works
+    #: the line's pack out itself and refuses the line where this differs,
+    #: so a stale item row cannot add the cells up wrong. ``quantity`` is
+    #: the total in pieces either way.
+    pack_size: Decimal | None = Field(
+        default=None, gt=1, max_digits=18, decimal_places=4
+    )
 
     @model_validator(mode="after")
     def _quotes_something(self) -> "QuotationLineWrite":
@@ -134,6 +142,10 @@ class QuotationCreate(QuotationSchema):
     #: new quotation is off -- an import types no shelf price -- and absent
     #: on an update keeps the quotation's own.
     rate_includes_tax: bool | None = None
+    #: Typed as boxes and pieces (L5, design 3.8): how the document is shown
+    #: and typed, nothing else. Absent on a new one is off; absent on an
+    #: update keeps the document's own.
+    box_and_piece_entry: bool | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -288,6 +300,11 @@ class QuotationLineResponse(QuotationSchema):
     freight_amount: Decimal = Decimal("0")
     net_amount: Decimal
     warehouse_id: UUID | None
+    #: The pack the line was written at (L5): its unit and the stock units
+    #: in one. Boxes and pieces are worked out from ``quantity`` with it and
+    #: never stored. Null where the item has no pack.
+    pack_uom_id: UUID | None = None
+    pack_size: Decimal | None = None
     remarks: str | None
     created_at: datetime
     updated_at: datetime
@@ -336,6 +353,8 @@ class QuotationResponse(QuotationSchema):
     coupon_code: str | None = None
     #: Whether the rates typed on this quotation include GST (backlog 64 row 4).
     rate_includes_tax: bool = False
+    #: The layout the document was saved in: boxes and pieces (L5).
+    box_and_piece_entry: bool = False
     status: QuotationStatus
     #: The customer's standing discount on the day this was raised.
     customer_discount_percent: Decimal
