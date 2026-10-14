@@ -10806,7 +10806,7 @@ sit beside it.
 
 **Size.** Large; a design note first.
 
-## 148. Settings: one screen per subject, its items as tabs in set-up order, with a Start here tab -- part built: Tax and the shared piece (row T1, #1507); every other section is row T2, open
+## 148. Settings: one screen per subject, its items as tabs in set-up order, with a Start here tab -- part built: Tax and the shared piece (row T1, #1508); every other section is row T2, open
 
 **The owner, 2026-10-13.** Every setting is a menu item of its own and
 nothing says where to start: under Tax a user sees Tax Configuration, Tax
@@ -10872,7 +10872,7 @@ refuses without what and written in a table in
 
 **Size.** Medium for the first section, small for each one after it.
 
-**Built 2026-10-14, row T1 (#1507): Tax, and the piece every section will
+**Built 2026-10-14, row T1 (#1508): Tax, and the piece every section will
 use.** No server rule changed. No screen was clicked.
 
 - *Settings > Tax* shows **one card**, and it opens one screen, *Tax
