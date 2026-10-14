@@ -419,7 +419,7 @@ class TerritoryDashboardStats(TerritorySchema):
 
 
 class TerritorySalesmanCoverage(TerritorySchema):
-    user_id: UUID
+    salesman_id: UUID
     assigned_territories: int
     assigned_routes: int
     customer_count: int
@@ -523,7 +523,7 @@ class SalesmanAssignmentInput(TerritorySchema):
     entry you mean to keep primary (D-TER-16).
     """
 
-    user_id: UUID
+    salesman_id: UUID
     include_children: bool = False
     is_primary: bool = False
 

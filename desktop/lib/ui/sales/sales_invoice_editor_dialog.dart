@@ -15,6 +15,7 @@ import '../../models/customer.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/sales_invoice.dart';
+import '../../models/salesman.dart';
 import '../../models/document_preview.dart';
 import '../../models/line_tax_rule.dart';
 import '../../models/tax_framework.dart';
@@ -31,6 +32,7 @@ import '../workspace/party_place.dart';
 import '../workspace/price_level_box.dart';
 import '../workspace/printed_document.dart';
 import 'counter_shift_widgets.dart';
+import 'firm_salesmen.dart';
 import 'ship_to_field.dart';
 import 'bill_paper_prompt.dart';
 
@@ -211,6 +213,25 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   /// Phase 2: the customer chosen before any note is ticked (SEL-1).
   String? _billCustomerId;
+
+  /// Phase 2 (P2): who made the sale -- an id from the firm's own salesman
+  /// list, never a user id. A new bill starts on the note's or order's own
+  /// salesman, else on the server's starting choice, and follows the
+  /// customer until somebody picks by hand.
+  String? _salesmanId;
+
+  /// Every salesman of the firm, inactive ones too, so a saved bill still
+  /// shows the name of somebody no longer offered.
+  List<Salesman> _salesmen = const <Salesman>[];
+  bool _salesmanPicked = false;
+
+  /// Set once the first fill has been asked for, after the bill was read; a
+  /// note chosen before then is filled by that first ask.
+  bool _salesmanAsked = false;
+
+  /// Bumped when the box is filled for the user, so the dropdown -- which
+  /// reads its value once -- shows the new one.
+  int _salesmanFill = 0;
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -600,6 +621,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       });
       // After the invoice, so a correction opens with its stored values.
       unawaited(_customFields.start());
+      if (_phase2) unawaited(_readSalesmen(fill: existing == null));
       if (_products.isNotEmpty) unawaited(_readBrands());
       if (_phase2 && _direct) unawaited(_readPriceLevels());
       unawaited(_readCounterState());
@@ -618,6 +640,60 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     return data is Map ? Map<String, dynamic>.from(data) : response;
   }
 
+  /// Read the firm's salesman list for the Salesman box, once per session,
+  /// and on a new bill [fill] the box the first time. An unreadable list
+  /// leaves the box with whatever it holds.
+  Future<void> _readSalesmen({required bool fill}) async {
+    try {
+      final List<Salesman> read = await FirmSalesmen.of(widget.api);
+      if (mounted) setState(() => _salesmen = read);
+    } on Object {
+      // The box offers nobody but keeps a saved bill's own salesman.
+    }
+    _salesmanAsked = true;
+    if (fill && _salesmanId == null) unawaited(_fillSalesman());
+  }
+
+  /// Fill a new bill's Salesman box: the note's or order's own salesman
+  /// where the bill continues one, else `GET /salesmen/starting-choice` for
+  /// the customer -- the user's own entry, the customer's account manager,
+  /// their round's salesman. Never once somebody picked by hand, and never
+  /// on a saved bill, whose salesman is its own.
+  Future<void> _fillSalesman() async {
+    if (!_phase2 || _salesmanPicked || widget.invoiceId != null) return;
+    final String own = _document?.salesmanId ?? '';
+    if (own.isNotEmpty) {
+      if (own != _salesmanId) {
+        setState(() {
+          _salesmanId = own;
+          _salesmanFill += 1;
+        });
+      }
+      return;
+    }
+    final String? customer = _direct ? _customerId : _document?.customerId;
+    try {
+      final SalesmanStartingChoice choice =
+          await widget.api.salesmanStartingChoice(customerId: customer);
+      final String? now = _direct ? _customerId : _document?.customerId;
+      if (!mounted || _salesmanPicked || customer != now) return;
+      final String? id = choice.isSomebody ? choice.salesmanId : null;
+      if (id == _salesmanId) return;
+      setState(() {
+        _salesmanId = id;
+        _salesmanFill += 1;
+      });
+    } on ApiException {
+      // The box stays as it is; the user can still choose.
+    }
+  }
+
+  /// The user chose a salesman: from now on the box is theirs.
+  void _pickSalesman(String? value) => setState(() {
+        _salesmanId = value;
+        _salesmanPicked = true;
+      });
+
   /// Build the form from a draft that already exists.
   ///
   /// Its lines are the truth about what it bills; the billable list only
@@ -625,6 +701,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// correction can go up as well as down.
   void _adoptExisting(Json invoice) {
     _raisedItsOwnChain = invoice['allow_direct_sales_order'] == true;
+    _salesmanId = _blankToNull('${invoice['salesman_id'] ?? ''}');
     // A saved counter bill starts with no product added beside its lines.
     if (_raisedItsOwnChain && _stages.billsDirectly) {
       _directLines.clear();
@@ -899,6 +976,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     // address goes back to "as delivered".
     _shipToId = null;
     unawaited(_loadAddresses(document.customerId));
+    // Its salesman follows, until somebody picks one by hand.
+    // After the frame's own setState, which this is called inside.
+    if (_phase2 && _salesmanAsked) scheduleMicrotask(_fillSalesman);
   }
 
   String? _blankToNull(String value) => value.isEmpty ? null : value;
@@ -1089,6 +1169,17 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   String _iso(DateTime value) => value.toIso8601String().split('T').first;
 
+  /// The Salesman box, phase 2 only: phase 1 has no box and says nothing.
+  /// A named salesman is always sent; an emptied box is sent as null only on
+  /// a saved bill, where silence would keep the one it had -- on a new bill
+  /// absent is already nobody.
+  Json _salesmanPayload() => <String, dynamic>{
+        if (_phase2 && _salesmanId != null)
+          'salesman_id': _salesmanId
+        else if (_phase2 && _editing)
+          'salesman_id': null,
+      };
+
   Json? _payload() {
     if (_direct) return _directPayload();
     final BillableDocument? document = _document;
@@ -1145,6 +1236,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     if (lines.isEmpty) return null;
     return <String, dynamic>{
       'customer_id': document.customerId,
+      ..._salesmanPayload(),
       if (adds && _drafting) 'rate_includes_tax': _rateIncludesTax,
       if (document.branchId.isNotEmpty) 'branch_id': document.branchId,
       'invoice_date': _iso(widget.today),
@@ -1301,6 +1393,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     if (lines.isEmpty) return null;
     return <String, dynamic>{
       'customer_id': customerId,
+      ..._salesmanPayload(),
       'invoice_date': _iso(widget.today),
       // Sent on every bill of products: the phase 1 screen types rates
       // before tax, whatever the firm's default.

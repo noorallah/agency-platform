@@ -13,6 +13,7 @@ import 'phase2/sign_in_screen.dart';
 import 'ui/auth_screens.dart';
 import 'ui/desktop_shell.dart';
 import 'ui/document_framework/history_words.dart';
+import 'ui/sales/firm_salesmen.dart';
 import 'ui/server_connection_gate.dart';
 
 const String _configuredApiUrl = String.fromEnvironment('API_BASE_URL',
@@ -102,6 +103,12 @@ class _AgencyAppState extends State<AgencyApp> {
     // /firm-members per firm, shared by every timeline.
     FirmPeople.configure(
       load: () => _session.api.firmMembers(),
+      firmId: () => _session.currentFirm?.id,
+    );
+    // The firm's salesman list: one read per firm, shared by every Salesman
+    // box, and read again after the Salesmen screen changes it.
+    FirmSalesmen.configure(
+      api: () => _session.api,
       firmId: () => _session.currentFirm?.id,
     );
     _themes.bindServerSync((palette, mode, highContrast) {

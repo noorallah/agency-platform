@@ -66,6 +66,7 @@ import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
+import '../../models/salesman.dart';
 import '../../models/messaging.dart';
 import '../../models/notification_feed.dart';
 import '../../models/price_floor.dart';
@@ -87,6 +88,7 @@ import '../../models/vendor_opening_bill.dart';
 import '../../models/vendor_rating.dart';
 import '../../models/report.dart';
 import '../../models/trade_licence.dart';
+import '../../ui/workspace/paged_fetch.dart';
 import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
 
@@ -4978,6 +4980,87 @@ class ApiClient {
   Future<List<FirmMember>> firmMembers() async => _unwrapList(
         await request('GET', '/api/v1/firm-members'),
         FirmMember.fromJson,
+      );
+
+  // ---- the firm's salesman list (P2) --------------------------------------
+
+  /// One page of the firm's salesmen, by name unless asked otherwise.
+  ///
+  /// Reading is gated on membership alone, like [firmMembers]; changing the
+  /// list needs `SALESMAN_MANAGE`. [active] null answers everybody.
+  Future<PagedResult<Salesman>> salesmenPage({
+    int page = 1,
+    int pageSize = maxApiPageSize,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+    bool? active,
+  }) =>
+      _list(
+        '/api/v1/salesmen',
+        Salesman.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: {if (active != null) 'active': '$active'},
+      );
+
+  /// Every salesman of the firm, active or not, read page by page: a
+  /// document keeps naming somebody who has since been made inactive, so a
+  /// picker needs their name even though it no longer offers them.
+  Future<List<Salesman>> firmSalesmen() => fetchAllPages<Salesman>(
+        (int page) => salesmenPage(page: page, pageSize: maxApiPageSize),
+      );
+
+  Future<Salesman> salesman(String id) async => Salesman.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/salesmen/$id')),
+      );
+
+  Future<Salesman> createSalesman(Json data) async => Salesman.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/salesmen', body: data)),
+      );
+
+  /// A field left out is left alone; `null` clears it.
+  Future<Salesman> updateSalesman(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
+      Salesman.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/salesmen/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  /// Deletes a salesman nothing names; the server makes one in use inactive
+  /// instead.
+  Future<void> deleteSalesman(String id) =>
+      request('DELETE', '/api/v1/salesmen/$id');
+
+  Future<Salesman> restoreSalesman(String id) async => Salesman.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/salesmen/$id/restore')),
+      );
+
+  /// What a new order, delivery note or bill's Salesman box starts on: the
+  /// signed-in user's own entry, else [customerId]'s account manager, else
+  /// the primary salesman of their round, else nobody.
+  Future<SalesmanStartingChoice> salesmanStartingChoice({
+    String? customerId,
+  }) async =>
+      SalesmanStartingChoice.fromJson(
+        _unwrapMap(await request(
+          'GET',
+          '/api/v1/salesmen/starting-choice',
+          query: {
+            if (customerId != null && customerId.isNotEmpty)
+              'customer_id': customerId,
+          },
+        )),
       );
 
   Future<List<Json>> territorySalesmen(String territoryId) async {

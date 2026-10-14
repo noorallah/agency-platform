@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.branches.models import Branch
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.report_names import salesman_names
 from app.core.exceptions import ValidationError
 from app.credit_note.models import CreditNote, CreditNoteLine
 from app.customer_debit_note.models import CustomerDebitNote, CustomerDebitNoteLine
@@ -858,11 +858,8 @@ class SalesAnalysisService:
                     select(Branch.id, Branch.name).where(Branch.id.in_(ids))
                 ).all()
             }
-        # salesman: a person, from the platform store's members list.
-        members = FirmMetadataReader(self._session).active_members(firm_id)
-        return {
-            str(member.user_id): member.full_name or member.email for member in members
-        }
+        # salesman: an entry of the firm's own salesman list, in this store.
+        return {str(i): name for i, name in salesman_names(self._session, ids).items()}
 
 
 def year_earlier(day: date) -> date:

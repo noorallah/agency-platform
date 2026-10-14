@@ -34,6 +34,7 @@ from app.sales_targets.schemas import (
     SalesTargetWrite,
 )
 from app.sales_targets.services import SalesTargetService
+from app.salesmen.models import Salesman
 
 APRIL = (date(2026, 4, 1), date(2026, 4, 30))
 MAY = (date(2026, 5, 1), date(2026, 5, 31))
@@ -87,6 +88,9 @@ class _Books:
         session.add(user)
         session.flush()
         session.add(UserFirm(user_id=user.id, firm_id=self.firm.id, is_active=True))
+        session.add(
+            Salesman(id=user.id, firm_id=self.firm.id, name="Asha Rao", user_id=user.id)
+        )
         self.asha = user.id
         session.commit()
 

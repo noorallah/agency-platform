@@ -17,7 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _StagesApi extends ApiClient {
-  _StagesApi({required this.failReads})
+  _StagesApi({required this.failReads, this.salesmanRequired = false})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -27,6 +27,9 @@ class _StagesApi extends ApiClient {
 
   /// How many reads fail before one succeeds.
   int failReads;
+
+  /// What the firm's `salesman_required` reads as.
+  final bool salesmanRequired;
   final List<Json> saved = [];
 
   @override
@@ -42,6 +45,7 @@ class _StagesApi extends ApiClient {
       'default_branch_id': 'branch-1',
       'default_warehouse_id': 'warehouse-1',
       'is_configured': true,
+      'salesman_required': salesmanRequired,
     });
   }
 
@@ -126,7 +130,33 @@ void main() {
       'delivery_note_approval': true,
       'sales_invoice_approval': true,
       'round_bills_to_rupee': false,
+      'salesman_required': false,
     });
+  });
+
+  testWidgets('a salesman required reads as on, is switched off and sent',
+      (tester) async {
+    // P2: an order, a delivery note and a bill refused without a salesman.
+    final _StagesApi api = _StagesApi(failReads: 0, salesmanRequired: true);
+    await _open(tester, api);
+
+    final Finder toggle =
+        find.byKey(const ValueKey('sales-settings-salesman-required'));
+    await tester.ensureVisible(toggle);
+    expect(
+      find.text('Salesman required on orders, delivery notes and bills'),
+      findsOneWidget,
+    );
+    final Finder tile =
+        find.descendant(of: toggle, matching: find.byType(SwitchListTile));
+    expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(tile).value, isFalse);
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+    expect(api.saved.single['salesman_required'], isFalse);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('rounding every bill to the rupee is off, switched here and sent',

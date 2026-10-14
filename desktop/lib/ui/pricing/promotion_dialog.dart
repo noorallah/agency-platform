@@ -8,10 +8,11 @@ import '../../core/design/design_tokens.dart';
 import '../../models/customer.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
-import '../../models/firm_member.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/sales_territory.dart';
+import '../../models/salesman.dart';
+import '../sales/firm_salesmen.dart';
 import '../workspace/discard_prompt.dart';
 import '../workspace/party_place.dart';
 
@@ -151,9 +152,11 @@ class _PromotionDialogState extends State<PromotionDialog> {
           _names[b.id] = _coded(b.code, b.name);
         }
       }
+      // P2: a salesman condition names an entry of the firm's salesman
+      // list, not a user.
       if (wanted.contains('salesman_id')) {
-        for (final FirmMember m in await widget.api.firmMembers()) {
-          _names[m.userId] = m.label;
+        for (final Salesman m in await FirmSalesmen.of(widget.api)) {
+          _names[m.id] = m.label;
         }
       }
     } on Exception {
@@ -1056,11 +1059,12 @@ class _PromotionDialogState extends State<PromotionDialog> {
         case 'salesman_id':
           final String needle = search.toLowerCase();
           return [
-            for (final FirmMember item in await widget.api.firmMembers())
-              if (needle.isEmpty ||
-                  item.label.toLowerCase().contains(needle) ||
-                  item.email.toLowerCase().contains(needle))
-                _named(item.userId, item.label),
+            for (final Salesman item in await FirmSalesmen.of(widget.api))
+              if (item.isActive &&
+                  (needle.isEmpty ||
+                      item.label.toLowerCase().contains(needle) ||
+                      item.code.toLowerCase().contains(needle)))
+                _named(item.id, item.label),
           ].take(_pickerPageSize).toList();
         case 'territory_id':
           final PagedResult<SalesTerritory> page = await widget.api

@@ -37,6 +37,7 @@ from app.identity.models import User, UserFirm
 from app.products.models import Product, ProductCategory
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_return.models import SalesReturn, SalesReturnLine
+from app.salesmen.models import Salesman
 
 # Fixtures here type their document numbers; see conftest (D-CFG-2).
 pytestmark = pytest.mark.typed_document_numbers
@@ -92,6 +93,9 @@ class _Books:
         session.add(user)
         session.flush()
         session.add(UserFirm(user_id=user.id, firm_id=self.firm.id, is_active=True))
+        session.add(
+            Salesman(id=user.id, firm_id=self.firm.id, name="Asha Rao", user_id=user.id)
+        )
         self.asha = user.id
         self.chilled = ProductCategory(
             firm_id=self.firm.id, code="COLD", name="Cold chain", path="COLD"

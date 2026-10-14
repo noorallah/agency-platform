@@ -92,8 +92,41 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       _resetPriceLevelFor(id);
     });
     unawaited(_quoteDirect(_directLines));
+    unawaited(_fillSalesman());
     _schedulePreview();
   }
+
+  /// P2: who made the sale, from the firm's salesman list. The active ones
+  /// are offered; a saved bill's salesman no longer offered stays visible
+  /// under their name.
+  Widget _salesmanField(BuildContext context) => DocumentField(
+        label: 'Salesman',
+        width: 200,
+        // Keyed on the fill, so a box filled for the user shows it.
+        child: KeyedSubtree(
+          key: ValueKey<int>(_salesmanFill),
+          child: DropdownButtonFormField<String?>(
+            key: const ValueKey('sales-invoice-salesman'),
+            initialValue: _salesmanId,
+            isExpanded: true,
+            isDense: true,
+            decoration: documentBoxDecoration(context),
+            items: [
+              const DropdownMenuItem<String?>(
+                value: null,
+                child: Text('Nobody', overflow: TextOverflow.ellipsis),
+              ),
+              for (final ({String id, String label}) option
+                  in salesmanOptions(_salesmen, current: _salesmanId))
+                DropdownMenuItem<String?>(
+                  value: option.id,
+                  child: Text(option.label, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: _saving ? null : _pickSalesman,
+          ),
+        ),
+      );
 
   /// The bill's switch: on a new bill of products, the switch itself; on a
   /// draft, what its rates were typed as, which an edit cannot change.
@@ -411,6 +444,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         _error = null;
       });
       unawaited(_quoteDirect(_directLines));
+      unawaited(_fillSalesman());
       _schedulePreview();
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -680,6 +714,11 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             child: const Text('Walk-in'),
           ),
         ),
+      // The counter's till screen has no room for a row more in its header
+      // at 800x600 (as the Brand box): there the box waits for a wider
+      // window, and the bill still carries the salesman it started on.
+      if (!_counterMode || MediaQuery.sizeOf(context).width >= 1100)
+        _salesmanField(context),
       if (buyer != null) buyer,
       if (notes != null) notes,
       // "(as delivered)" is null: the server takes the address from the notes

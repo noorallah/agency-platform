@@ -18,9 +18,9 @@ read off the *stored* shape -- a field key with its `value_text` /
 revising it and copying it all ask through one function.
 
 A salesman condition is checked against the firm's own salesman list, which
-lives in the firm's store beside the offer (P2 step 2). Until the desktop's
-pickers move (P2 step 4) a member's user id is still accepted, and the member
-is given an entry of his own id.
+lives in the firm's store beside the offer (P2 step 2). An id that is not a
+live entry of this firm -- a member's user id included -- is refused like any
+other missing master.
 """
 
 from __future__ import annotations
@@ -43,7 +43,6 @@ from app.promotions.schemas import (
 )
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.salesmen.models import Salesman
-from app.salesmen.services.nameable import nameable_salesman
 
 #: ``{condition field: (master model, what to call it in a refusal)}``.
 _CONDITION_MASTERS: Mapping[str, tuple[type[BaseEntity], str]] = {
@@ -115,30 +114,6 @@ def _is_live(found: set[UUID], value: object) -> bool:
         return False
 
 
-def _bridged_salesmen(
-    session: Session, firm_id: UUID, named: Iterable[object], found: set[UUID]
-) -> set[UUID]:
-    """Give a member named by user id an entry of that id; return those made.
-
-    P2 step 4 removes this bridge, once the offer screen's salesman picker
-    reads the list.
-    """
-    made: set[UUID] = set()
-    for item in named:
-        try:
-            wanted = UUID(str(item).strip())
-        except ValueError:
-            continue
-        if wanted in found:
-            continue
-        try:
-            if nameable_salesman(session, firm_id, wanted) == wanted:
-                made.add(wanted)
-        except ValidationError:
-            continue
-    return made
-
-
 def assert_offer_references(
     session: Session,
     *,
@@ -174,8 +149,6 @@ def assert_offer_references(
             text = getattr(condition, "value_text", None)
             named = [] if text is None else [text]
         found = live_row_ids(session, model, named, firm_id=firm_id)
-        if model is Salesman:
-            found |= _bridged_salesmen(session, firm_id, named, found)
         if any(not _is_live(found, item) for item in named):
             raise ValidationError(
                 f"{prefix}Condition {getattr(condition, 'sequence', 1)}: the "

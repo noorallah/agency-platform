@@ -66,6 +66,7 @@ from app.sales_return.services import SalesReturnService
 from app.sales_return.services.credit_note_print_service import (
     CreditNotePrintService,
 )
+from app.salesmen.models import Salesman
 from app.uom.models import ConversionRule, Uom
 from tests.unit.test_purchase_management import _vendor
 from tests.unit.test_sales_chain_synthesis import _Firm, _request_session
@@ -814,6 +815,9 @@ def test_a_per_unit_commission_pays_for_the_pieces_in_a_box() -> None:
     shop.session.add(seller)
     shop.session.flush()
     shop.session.add(UserFirm(user_id=seller.id, firm_id=shop.firm_id, is_active=True))
+    shop.session.add(
+        Salesman(id=seller.id, firm_id=shop.firm_id, name="Asha Rao", user_id=seller.id)
+    )
     bill = _billed_by_the_box(shop)
     bill.salesman_id = seller.id
     bill.status = "APPROVED"
@@ -1228,6 +1232,9 @@ def test_a_per_unit_commission_stops_paying_for_pieces_that_came_back() -> None:
     shop.session.add(seller)
     shop.session.flush()
     shop.session.add(UserFirm(user_id=seller.id, firm_id=shop.firm_id, is_active=True))
+    shop.session.add(
+        Salesman(id=seller.id, firm_id=shop.firm_id, name="Asha Rao", user_id=seller.id)
+    )
     bill, billed = _bill(shop, _shipped(shop), "2")
     bill.salesman_id = seller.id
     shop.session.commit()

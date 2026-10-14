@@ -94,14 +94,32 @@ class _OrderApi extends ApiClient {
   final List<Json> customerRows;
   final List<Json> productRows;
 
-  /// The firm's people, as `GET /api/v1/firm-members` answers them.
-  List<Json> members = <Json>[
+  /// The firm's salesman list, as `GET /api/v1/salesmen` answers it (P2).
+  List<Json> salesmen = <Json>[
     <String, dynamic>{
-      'user_id': 'u1',
-      'full_name': 'Meera Raghavan',
-      'email': 'meera@firm.local',
+      'id': 'sm-meera',
+      'name': 'Meera Raghavan',
+      'code': 'MR',
+      'is_active': true,
+    },
+    <String, dynamic>{
+      'id': 'sm-ravi',
+      'name': 'Ravi Kumar',
+      'is_active': true,
+    },
+    <String, dynamic>{
+      'id': 'sm-old',
+      'name': 'Old Hand',
+      'is_active': false,
     },
   ];
+
+  /// What `GET /salesmen/starting-choice` answers, by customer id; '' is
+  /// the answer with no customer named. Nobody where nothing is said.
+  Map<String, Json> startingChoices = <String, Json>{};
+
+  /// The customer each starting-choice request named, in order.
+  final List<String> startingAsked = <String>[];
 
   /// The order an edit reads back, when one is being corrected.
   Json? existing;
@@ -194,8 +212,20 @@ class _OrderApi extends ApiClient {
         'data': <String, dynamic>{'id': 'so-1', 'order_number': 'SO-1'},
       };
     }
-    if (path == '/api/v1/firm-members') {
-      return <String, dynamic>{'data': members};
+    if (path == '/api/v1/salesmen/starting-choice') {
+      final String customer = query?['customer_id'] ?? '';
+      startingAsked.add(customer);
+      return <String, dynamic>{
+        'data': startingChoices[customer] ??
+            <String, dynamic>{
+              'salesman_id': null,
+              'name': null,
+              'source': 'NONE',
+            },
+      };
+    }
+    if (path == '/api/v1/salesmen') {
+      return _paged(salesmen);
     }
     if (path == '/api/v1/uom-framework/uoms') {
       return _paged(<Json>[
@@ -364,7 +394,35 @@ void main() {
       await _choose(tester, 'sales-order-salesman', 'Meera Raghavan');
       await _create(tester);
 
-      expect(api.created!['salesman_id'], 'u1');
+      // P2: an entry of the firm's salesman list, never a user id.
+      expect(api.created!['salesman_id'], 'sm-meera');
+    });
+
+    testWidgets('only the active salesmen are offered', (tester) async {
+      final _OrderApi api = _api();
+      await _pump(tester, api);
+      await tester.tap(find.byKey(const ValueKey<String>('sales-order-salesman')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ravi Kumar'), findsWidgets);
+      expect(find.textContaining('Old Hand'), findsNothing);
+    });
+
+    testWidgets('a salesman made inactive keeps their name on the order',
+        (tester) async {
+      final _OrderApi api = _api();
+      api.existing = <String, dynamic>{
+        ..._draft(),
+        'salesman_id': 'sm-old',
+      };
+      await _pump(tester, api, orderId: 'so-1');
+
+      expect(find.text('Old Hand (inactive)'), findsOneWidget);
+      // An order that exists is never refilled from the starting choice.
+      expect(api.startingAsked, isEmpty);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+      expect(api.updated!['salesman_id'], 'sm-old');
     });
 
     testWidgets('an order nobody in particular took says so, and says why',
@@ -396,7 +454,7 @@ void main() {
       // assert, and the form then saves as though no salesman had ever been
       // on the order -- silently moving its collections to Unassigned.
       final _OrderApi api = _api();
-      api.members = <Json>[];
+      api.salesmen = <Json>[];
       api.existing = <String, dynamic>{
         ..._draft(),
         'salesman_id': 'u-gone',
@@ -1232,6 +1290,68 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.created?['lines'][0]['quantity'], '5');
     expect(saved, isTrue);
+  });
+
+  testWidgets(
+      'phase 2: a new order starts on the starting choice and follows the '
+      'customer until somebody picks', (tester) async {
+    // P2: the user's own entry with no customer, the customer's account
+    // manager once one is chosen -- and nothing the server says moves a
+    // salesman somebody chose by hand.
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _OrderApi api = _api()
+      ..startingChoices = <String, Json>{
+        '': <String, dynamic>{
+          'salesman_id': 'sm-meera',
+          'name': 'Meera Raghavan',
+          'source': 'USER',
+        },
+        'c2': <String, dynamic>{
+          'salesman_id': 'sm-ravi',
+          'name': 'Ravi Kumar',
+          'source': 'ACCOUNT_MANAGER',
+        },
+      };
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: SalesOrderEditorDialog(
+            api: api,
+            today: DateTime(2026, 8, 14),
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final Finder box = find.byKey(const ValueKey('sales-order-salesman'));
+    Finder shown(String name) =>
+        find.descendant(of: box, matching: find.text(name));
+
+    expect(api.startingAsked, <String>['']);
+    expect(shown('Meera Raghavan'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sales-order-customer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Bright Stores').last);
+    await tester.pumpAndSettle();
+    expect(api.startingAsked.last, 'c2');
+    expect(shown('Ravi Kumar'), findsOneWidget);
+
+    // Picked by hand: the next customer asks nothing and moves nothing.
+    await tester.tap(box);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Meera Raghavan').last);
+    await tester.pumpAndSettle();
+    final int asked = api.startingAsked.length;
+    await tester.tap(find.byKey(const ValueKey('sales-order-customer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Anand Agencies').last);
+    await tester.pumpAndSettle();
+    expect(api.startingAsked.length, asked);
+    expect(shown('Meera Raghavan'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   // D-UI-17: Save with no customer and no product has to say what is missing.

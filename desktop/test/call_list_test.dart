@@ -11,7 +11,7 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
-import 'package:agency_desktop/models/firm_member.dart';
+import 'package:agency_desktop/models/salesman.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/ui/sales/call_list_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
@@ -81,14 +81,10 @@ class _CallListApi extends ApiClient {
     });
   }
 
+  /// The firm's salesman list (P2): a round's salesman is an entry of it.
   @override
-  Future<List<FirmMember>> firmMembers() async =>
-      <FirmMember>[
-        const FirmMember(
-          userId: 'user-1',
-          fullName: 'Ravi Kumar',
-          email: 'ravi@example.local',
-        ),
+  Future<List<Salesman>> firmSalesmen() async => const <Salesman>[
+        Salesman(id: 'sm-1', name: 'Ravi Kumar'),
       ];
 }
 
@@ -222,7 +218,7 @@ void main() {
     await tester.tap(find.text('Ravi Kumar').last);
     await tester.pumpAndSettle();
 
-    expect(api.requestedSalesman, 'user-1');
+    expect(api.requestedSalesman, 'sm-1');
   });
 
   testWidgets('a firm with no beat plans is told where to make one',

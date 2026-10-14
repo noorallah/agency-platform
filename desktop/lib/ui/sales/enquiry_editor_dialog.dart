@@ -12,10 +12,11 @@ import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/enquiry.dart';
 import '../../models/entities.dart';
-import '../../models/firm_member.dart';
 import '../../models/product.dart';
+import '../../models/salesman.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/party_place.dart';
+import 'firm_salesmen.dart';
 
 String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
 
@@ -79,7 +80,9 @@ class _EnquiryEditorDialogState extends State<EnquiryEditorDialog>
   List<Customer> _customers = const [];
   List<Product> _products = const [];
   List<BranchRecord> _branches = const [];
-  List<FirmMember> _members = const [];
+  /// The firm's salesman list (P2): an enquiry's `salesman_id` names an
+  /// entry of it, not a user.
+  List<Salesman> _salesmen = const [];
   bool _loading = true;
   String? _loadNote;
   String? _problem;
@@ -160,14 +163,15 @@ class _EnquiryEditorDialogState extends State<EnquiryEditorDialog>
           (int page) =>
               widget.api.branches(page: page, pageSize: maxApiPageSize),
         ),
-        widget.api.firmMembers(),
+        // An unreadable salesman list costs the box, not the enquiry.
+        FirmSalesmen.of(widget.api).catchError((Object _) => <Salesman>[]),
       ]);
       if (!mounted) return;
       setState(() {
         _customers = (loaded[0] as List<dynamic>).cast<Customer>();
         _products = (loaded[1] as List<dynamic>).cast<Product>();
         _branches = (loaded[2] as List<dynamic>).cast<BranchRecord>();
-        _members = (loaded[3] as List<dynamic>).cast<FirmMember>();
+        _salesmen = (loaded[3] as List<dynamic>).cast<Salesman>();
         _branchId ??= preferredBranchId(_branches);
         _loading = false;
       });
@@ -507,8 +511,8 @@ class _EnquiryEditorDialogState extends State<EnquiryEditorDialog>
                         child: DropdownButtonFormField<String?>(
                           key: const ValueKey('enquiry-salesman'),
                           isExpanded: true,
-                          initialValue: _members
-                                  .any((m) => m.userId == _salesmanId)
+                          initialValue: _salesmen
+                                  .any((m) => m.id == _salesmanId)
                               ? _salesmanId
                               : null,
                           decoration:
@@ -516,9 +520,17 @@ class _EnquiryEditorDialogState extends State<EnquiryEditorDialog>
                           items: [
                             const DropdownMenuItem<String?>(
                                 value: null, child: Text('Nobody')),
-                            for (final FirmMember m in _members)
+                            // The active salesmen; a saved one since made
+                            // inactive keeps their name.
+                            for (final ({String id, String label}) m
+                                in salesmanOptions(
+                              _salesmen,
+                              current: _salesmen.any((s) => s.id == _salesmanId)
+                                  ? _salesmanId
+                                  : null,
+                            ))
                               DropdownMenuItem<String?>(
-                                value: m.userId,
+                                value: m.id,
                                 child: Text(m.label,
                                     overflow: TextOverflow.ellipsis),
                               ),

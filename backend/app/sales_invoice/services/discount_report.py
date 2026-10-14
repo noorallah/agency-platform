@@ -41,7 +41,7 @@ from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.report_names import salesman_names
 from app.core.exceptions import ValidationError
 from app.core.pagination.reports import ReportRows, ReportWindow
 from app.core.utils.chunks import over_chunks
@@ -290,12 +290,11 @@ class DiscountReportService:
     ) -> dict[UUID | None, tuple[str, str]]:
         """Name the page's customers, products or salesmen, once for the page."""
         if dimension == "salesman":
-            members = FirmMetadataReader(self._session).active_members(firm_id)
+            # An entry of the firm's own salesman list, deleted ones included.
             wanted = set(ids)
             found: dict[UUID | None, tuple[str, str]] = {
-                member.user_id: ("", member.full_name or member.email)
-                for member in members
-                if member.user_id in wanted
+                entry_id: ("", name)
+                for entry_id, name in salesman_names(self._session, wanted).items()
             }
             for missing in wanted - set(found):
                 found[missing] = ("", "Former member")

@@ -323,9 +323,9 @@ def _validated_salesman(
     The firm's list first, because it is the question that has an answer
     whether or not the firm runs territories: the quotation and the sales
     return once took **any id at all** whenever the customer was on no
-    territory (D-TER-15). Asking it here asks it once, for all five. Until
-    P2 step 4 a member's user id is still accepted, and answered with his
-    entry's id (`app/salesmen/services/nameable.py`).
+    territory (D-TER-15). Asking it here asks it once, for all five. The id
+    is an entry's id; a user's id is refused like any other stranger
+    (`app/salesmen/services/nameable.py`).
 
     Coverage is still only checkable against a territory. With none, the
     caller's choice stands: refusing would block a firm that records who sold

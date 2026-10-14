@@ -33,7 +33,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.report_names import salesman_names
 from app.core.exceptions import ValidationError
 from app.core.pagination.reports import ReportWindow
 from app.finance.models import JournalEntry
@@ -288,9 +288,10 @@ class CollectionReportService:
             return {key: MODE_LABELS.get(key, key.title()) for key in keys}
         if grouping == "day":
             return {key: date.fromisoformat(key[:10]).isoformat() for key in keys}
+        named = [UUID(key) for key in keys if key not in (ON_ACCOUNT, NO_SALESMAN)]
         members = {
-            str(member.user_id): member.full_name or member.email
-            for member in FirmMetadataReader(self._session).active_members(firm_id)
+            str(salesman_id): name
+            for salesman_id, name in salesman_names(self._session, named).items()
         }
         return {
             key: (

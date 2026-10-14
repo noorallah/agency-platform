@@ -244,7 +244,7 @@ class EnquiryService(TransactionalDocumentService):
 
     def create(self, data: EnquiryWrite, *, firm_id: UUID, actor_id: UUID) -> Enquiry:
         """Record an enquiry and number it; commit."""
-        salesman_id = self._check(data, firm_id, actor_id=actor_id)
+        salesman_id = self._check(data, firm_id)
         _, rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
         number = self._issue_number(
             rule,
@@ -291,9 +291,7 @@ class EnquiryService(TransactionalDocumentService):
         assert_version(row.version, expected_version)
         if row.status != "OPEN":
             raise ValidationError("Only an open enquiry can be changed.")
-        salesman_id = self._check(
-            data, firm_id, current=row.salesman_id, actor_id=actor_id
-        )
+        salesman_id = self._check(data, firm_id, current=row.salesman_id)
         for name, value in self._fields(data).items():
             setattr(row, name, value)
         row.salesman_id = salesman_id
@@ -700,7 +698,6 @@ class EnquiryService(TransactionalDocumentService):
         firm_id: UUID,
         *,
         current: UUID | None = None,
-        actor_id: UUID | None = None,
     ) -> UUID | None:
         """Refuse a customer, branch, product or salesman that is not the firm's.
 
@@ -737,9 +734,7 @@ class EnquiryService(TransactionalDocumentService):
             raise ValidationError("A follow-up comes on or after the enquiry.")
         if data.salesman_id is None or data.salesman_id == current:
             return data.salesman_id
-        return nameable_salesman(
-            self._session, firm_id, data.salesman_id, actor_id=actor_id
-        )
+        return nameable_salesman(self._session, firm_id, data.salesman_id)
 
     @staticmethod
     def _fields(data: EnquiryWrite) -> dict[str, object]:

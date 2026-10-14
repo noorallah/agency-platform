@@ -296,9 +296,9 @@ class FirmMetadataReader:
     ) -> dict[UUID, str]:
         """Name those of ``user_ids`` who are active members of the firm.
 
-        The salesman list's bridge (P2 step 2) makes an entry for a member
-        named before the desktop's pickers read the list, and needs the name
-        as well as the answer; both live in platform tables.
+        A salesman entry tied to a user counts only while he is an active
+        member, and a seeded entry takes his name; both live in platform
+        tables.
 
         Args:
             firm_id: The firm the users must belong to.

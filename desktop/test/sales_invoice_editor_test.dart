@@ -74,6 +74,19 @@ class _InvoiceApi extends ApiClient {
   /// The draft an edit reads back, when one is being corrected.
   Json? existing;
 
+  /// The firm's salesman list, as `GET /api/v1/salesmen` answers it (P2).
+  List<Json> salesmen = <Json>[
+    <String, dynamic>{'id': 'sm-meera', 'name': 'Meera Raghavan'},
+    <String, dynamic>{'id': 'sm-ravi', 'name': 'Ravi Kumar'},
+  ];
+
+  /// What `GET /salesmen/starting-choice` answers, by customer id ('' for
+  /// none named); nobody where nothing is said.
+  Map<String, Json> startingChoices = <String, Json>{};
+
+  /// The customer each starting-choice request named, in order.
+  final List<String> startingAsked = <String>[];
+
   /// Every draft phase 2 asked to be priced.
   final List<Json> previews = <Json>[];
 
@@ -131,6 +144,24 @@ class _InvoiceApi extends ApiClient {
     }
     if (path.contains('billable')) {
       return <String, dynamic>{'data': billable};
+    }
+    if (path == '/api/v1/salesmen/starting-choice') {
+      final String customer = query?['customer_id'] ?? '';
+      startingAsked.add(customer);
+      return <String, dynamic>{
+        'data': startingChoices[customer] ??
+            <String, dynamic>{
+              'salesman_id': null,
+              'name': null,
+              'source': 'NONE',
+            },
+      };
+    }
+    if (path == '/api/v1/salesmen') {
+      return <String, dynamic>{
+        'data': salesmen,
+        'pagination': <String, dynamic>{'total_records': salesmen.length},
+      };
     }
     if (method == 'GET' && path.startsWith('/api/v1/customers')) {
       return <String, dynamic>{
@@ -776,6 +807,70 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
     await tester.pumpAndSettle();
     expect(api.created?['coupon_code'], 'SAVE10');
+  });
+
+  testWidgets(
+      'phase 2 direct bill starts its salesman on the starting choice and '
+      'sends salesman_id', (tester) async {
+    // P2: the customer's account manager once the customer is chosen; a
+    // salesman picked by hand is the one sent.
+    final _InvoiceApi api = _InvoiceApi()
+      ..salesOrderStage = false
+      ..deliveryNoteStage = false
+      ..startingChoices = <String, Json>{
+        'cust-1': <String, dynamic>{
+          'salesman_id': 'sm-ravi',
+          'name': 'Ravi Kumar',
+          'source': 'ACCOUNT_MANAGER',
+        },
+      };
+    await pumpPhase2(tester, api);
+    await fillDirectBill(tester);
+    final Finder box = find.byKey(const ValueKey('sales-invoice-salesman'));
+    expect(api.startingAsked.last, 'cust-1');
+    expect(find.descendant(of: box, matching: find.text('Ravi Kumar')),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created?['salesman_id'], 'sm-ravi');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('phase 2 bill sends the salesman picked by hand',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi()
+      ..salesOrderStage = false
+      ..deliveryNoteStage = false;
+    await pumpPhase2(tester, api);
+    await fillDirectBill(tester);
+    final Finder box = find.byKey(const ValueKey('sales-invoice-salesman'));
+    await tester.ensureVisible(box);
+    await tester.tap(box);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Meera Raghavan').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created?['salesman_id'], 'sm-meera');
+  });
+
+  testWidgets('phase 2 bill of a note starts on the note salesman',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[
+      <String, dynamic>{..._billable(), 'salesman_id': 'sm-meera'},
+    ]);
+    await pumpPhase2(tester, api);
+    final Finder box = find.byKey(const ValueKey('sales-invoice-salesman'));
+    expect(find.descendant(of: box, matching: find.text('Meera Raghavan')),
+        findsOneWidget);
+    // The note says who; the server is not asked.
+    expect(api.startingAsked, isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created?['salesman_id'], 'sm-meera');
   });
 
   testWidgets('phase 2 direct bill with no coupon omits the key',

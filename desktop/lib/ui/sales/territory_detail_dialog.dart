@@ -4,9 +4,10 @@ import '../../core/api/api_client.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
-import '../../models/firm_member.dart';
 import '../../models/sales_territory.dart';
+import '../../models/salesman.dart';
 import '../workspace/desktop_framework.dart';
+import 'firm_salesmen.dart';
 
 /// Everything about one territory, with room to work in.
 ///
@@ -67,7 +68,8 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
 
   List<Json> _salesmen = const [];
   Set<String> _chosenSalesmen = <String>{};
-  List<FirmMember> _candidates = const [];
+  /// The firm's salesman list (P2), inactive entries too.
+  List<Salesman> _candidates = const [];
   bool _salesmenLoaded = false;
 
   bool get _canAssignCustomers =>
@@ -138,14 +140,13 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
     try {
       final List<Json> current =
           await widget.api.territorySalesmen(widget.territory.id);
-      final List<FirmMember> candidates =
-          await widget.api.firmMembers();
+      final List<Salesman> candidates = await FirmSalesmen.of(widget.api);
       if (!mounted) return;
       setState(() {
         _salesmen = current;
         _candidates = candidates;
         _chosenSalesmen = {
-          for (final Json row in current) stringValue(row['user_id']),
+          for (final Json row in current) assignedSalesmanId(row),
         }..removeWhere((id) => id.isEmpty);
         _salesmenLoaded = true;
         _loading = false;
@@ -241,14 +242,15 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
       // carried back. Sending only ids silently demotes the primary and drops
       // whoever covered the child territories.
       final Map<String, Json> existing = <String, Json>{
-        for (final Json row in _salesmen) stringValue(row['user_id']): row,
+        for (final Json row in _salesmen) assignedSalesmanId(row): row,
       };
       await widget.api.setTerritorySalesmen(widget.territory.id, [
-        for (final String userId in _chosenSalesmen)
+        for (final String salesmanId in _chosenSalesmen)
           <String, dynamic>{
-            'user_id': userId,
-            'is_primary': existing[userId]?['is_primary'] == true,
-            'include_children': existing[userId]?['include_children'] == true,
+            'salesman_id': salesmanId,
+            'is_primary': existing[salesmanId]?['is_primary'] == true,
+            'include_children':
+                existing[salesmanId]?['include_children'] == true,
           },
       ]);
       if (!mounted) return;
@@ -582,29 +584,34 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
     if (!_salesmenLoaded) {
       return const Center(child: Text('Loading salespeople...'));
     }
-    if (_candidates.isEmpty) {
+    // The active salesmen, and anybody already on the round who is not, so
+    // a save does not drop them unseen.
+    final List<Salesman> offered = [
+      for (final Salesman person in _candidates)
+        if (person.isActive || _chosenSalesmen.contains(person.id)) person,
+    ];
+    if (offered.isEmpty) {
       return const StandardEmptyState(
         type: EmptyStateType.noRecords,
         title: 'Nobody to assign',
-        message: 'Add a user under Administration and give them access to '
-            'this firm.',
+        message: 'Add a salesman under Settings, Salesmen.',
       );
     }
     return ListView(
       children: [
-        for (final FirmMember person in _candidates)
+        for (final Salesman person in offered)
           CheckboxListTile(
-            value: _chosenSalesmen.contains(person.userId),
+            value: _chosenSalesmen.contains(person.id),
             title: Text(
-              person.fullName.isEmpty ? person.email : person.fullName,
+              person.isActive ? person.label : '${person.label} (inactive)',
             ),
-            subtitle: Text(person.email),
+            subtitle: person.code.isEmpty ? null : Text(person.code),
             onChanged: _canAssignSalesmen
                 ? (value) => setState(() {
                       if (value == true) {
-                        _chosenSalesmen.add(person.userId);
+                        _chosenSalesmen.add(person.id);
                       } else {
-                        _chosenSalesmen.remove(person.userId);
+                        _chosenSalesmen.remove(person.id);
                       }
                     })
                 : null,

@@ -20,9 +20,9 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/customer.dart';
-import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
+import 'package:agency_desktop/models/salesman.dart';
 import 'package:agency_desktop/ui/sales/bulk_territory_actions_dialog.dart';
 import 'package:agency_desktop/ui/sales/sales_territory_management_page.dart';
 import 'package:agency_desktop/phase2/phase2_scope.dart';
@@ -153,15 +153,12 @@ class _BulkApi extends ApiClient {
         total: 2,
       );
 
+  /// The firm's salesman list (P2): a round's salesman is an entry of it.
   @override
-  Future<List<FirmMember>>
-      firmMembers() async => <FirmMember>[
-            FirmMember.fromJson(<String, dynamic>{
-              'user_id': 'user-1',
-              'full_name': 'Ravi Kumar',
-              'email': 'ravi@agency.local',
-            }),
-          ];
+  Future<List<Salesman>> firmSalesmen() async => const <Salesman>[
+        Salesman(id: 'sm-1', name: 'Ravi Kumar'),
+        Salesman(id: 'sm-old', name: 'Old Hand', isActive: false),
+      ];
 
   @override
   Future<int> bulkTerritoryStatus(Json body) async {
@@ -301,6 +298,33 @@ void main() {
     expect(api.customerItems!.length, 2);
     for (final Json item in api.customerItems!) {
       expect(item['customer_ids'], <String>['c-1']);
+    }
+  });
+
+  testWidgets('a bulk salesman assignment sends salesman_id to every territory',
+      (tester) async {
+    final api = _BulkApi();
+    await _pump(tester, api);
+    await _tick(tester, 2);
+
+    await tester.tap(find.text('Bulk actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Set salespeople'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Ravi Kumar'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.salesmanItems, isNotNull);
+    expect(api.salesmanItems!.length, 2);
+    for (final Json item in api.salesmanItems!) {
+      expect(item['assignments'], <Json>[
+        <String, dynamic>{'salesman_id': 'sm-1'},
+      ]);
     }
   });
 

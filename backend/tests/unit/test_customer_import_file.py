@@ -41,6 +41,8 @@ from app.customers.services.customer_import import (
 from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
+from app.identity.models import User, UserFirm
+from app.salesmen.models import Salesman
 
 
 def _factory() -> sessionmaker[Session]:
@@ -376,3 +378,45 @@ def test_the_template_round_trips_and_lists_the_firms_segments() -> None:
     report = _run(session, firm.id, content, apply=True, file_format="xlsx")
     assert report.issues == [], [issue.describe() for issue in report.issues]
     assert _codes(factory) == ["SHOP-001"]
+
+
+def test_an_account_manager_is_named_from_the_salesman_list_not_the_members() -> None:
+    """A member's email names nobody; the list's code or name names the entry.
+
+    The member fallback went with the bridge: the firm's list of salesmen is
+    the one authority on who may look after a customer.
+    """
+    factory = _factory()
+    session = factory()
+    firm = _firm(session)
+    user = User(email="ravi@import.example", full_name="Ravi Kumar", password_hash="h")
+    session.add(user)
+    session.flush()
+    session.add(UserFirm(user_id=user.id, firm_id=firm.id, is_active=True))
+    entry = Salesman(firm_id=firm.id, code="RK", name="Ravi K", user_id=user.id)
+    session.add(entry)
+    session.commit()
+
+    for given in ("ravi@import.example", "Ravi Kumar"):
+        refused = _run(
+            session,
+            firm.id,
+            _csv("Code,Name,AccountManager", f"SHOP-1,Shop,{given}"),
+            apply=True,
+        )
+        assert [(issue.column, issue.message) for issue in refused.issues] == [
+            ("AccountManager", f"'{given}' is not on the firm's list of salesmen.")
+        ]
+    assert _codes(factory) == []
+
+    taken = _run(
+        session,
+        firm.id,
+        _csv("Code,Name,AccountManager", "SHOP-1,Shop,rk"),
+        apply=True,
+    )
+    assert taken.issues == [], [issue.describe() for issue in taken.issues]
+    with factory() as fresh:
+        stored = fresh.scalar(select(Customer).where(Customer.code == "SHOP-1"))
+        assert stored is not None
+        assert stored.salesman_id == entry.id

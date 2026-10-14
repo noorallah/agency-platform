@@ -63,8 +63,10 @@ class _CommissionApi extends ApiClient {
   /// A refusal the server raises on a write, if any.
   final ApiException? refusal;
 
-  /// What `GET /firm-members` answers with -- the firm's own people,
-  /// which is what makes a rate for somebody who has never had one possible.
+  /// The firm's salesman list (P2), written as `GET /firm-members` rows
+  /// (`user_id`, `full_name`) and answered by `GET /salesmen` as entries
+  /// with those ids -- which is what makes a rate for somebody who has never
+  /// had one possible.
   final List<Json> salesmen;
 
   /// What `GET /commission/payouts` answers with.
@@ -128,6 +130,19 @@ class _CommissionApi extends ApiClient {
     }
     if (path.contains('/firm-members')) {
       return <String, dynamic>{'data': salesmen};
+    }
+    if (path == '/api/v1/salesmen') {
+      return <String, dynamic>{
+        'data': <Json>[
+          for (final Json person in salesmen)
+            <String, dynamic>{
+              'id': person['user_id'],
+              'name': person['full_name'],
+              'is_active': true,
+            },
+        ],
+        'pagination': <String, dynamic>{'total_records': salesmen.length},
+      };
     }
     if (path.contains('/commission/rules')) {
       if (method == 'POST') {
