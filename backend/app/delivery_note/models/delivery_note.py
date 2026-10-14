@@ -384,6 +384,13 @@ class DeliveryNoteLineBatch(BaseEntity):
         UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), nullable=False
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    #: The movement that carried the lot out, set at dispatch (L2 step 5); a
+    #: bare id, as every downstream document records its source.
+    inventory_transaction_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: What the lot's units cost when they left, off the stock ledger. Null
+    #: before dispatch and on rows written before 20261014_0385, where the
+    #: bill reads the note's cost by product instead.
+    cost_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
 
 
 class DeliveryNoteAttachment(BaseEntity):

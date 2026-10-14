@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -67,6 +68,40 @@ DEFAULT_COPIES: tuple[str, ...] = (
 )
 
 
+def _printed_number(batch: BatchRecord) -> str | None:
+    """Return the batch number the goods carry; None for our own lot reference.
+
+    A lot of goods with no printed batch holds its reference in
+    ``batch_number``, and no print shows it (L2, section 3.1 of the lot note).
+    """
+    return None if batch.has_printed_batch is False else batch.batch_number
+
+
+def _merged(
+    batches: list[tuple[BatchRecord, Decimal]],
+) -> list[tuple[BatchRecord, Decimal]]:
+    """Fold lots that print alike into one row, first lot taken first (L2).
+
+    Two lots of one printed batch, expiry, date of making and MRP read the
+    same on paper, so the paper shows them once with their total; lots that
+    differ in any of the four stay rows of their own (lot note, section 5).
+    """
+    rows: dict[
+        tuple[str | None, date | None, date | None, Decimal | None],
+        tuple[BatchRecord, Decimal],
+    ] = {}
+    for batch, quantity in batches:
+        key = (
+            _printed_number(batch),
+            batch.expiry_date,
+            batch.manufacturing_date,
+            batch.mrp,
+        )
+        first, so_far = rows.get(key, (batch, ZERO))
+        rows[key] = (first, so_far + quantity)
+    return list(rows.values())
+
+
 def _per_batch(
     whole: InvoiceLineBlock,
     batches: list[tuple[BatchRecord, Decimal]],
@@ -77,16 +112,18 @@ def _per_batch(
     Each row states its batch and expiry and its share of the quantity, the
     free goods and the value, in proportion to the stock units it takes; the
     last row takes what rounding left, so the rows add up to the line exactly.
-    One batch, or none recorded, prints the line as it is.
+    One batch, or none recorded, prints the line as it is. Lots that print
+    alike are one row (L2 step 5), and our own lot reference never prints.
     """
     if not batches:
         return [whole]
+    batches = _merged(batches)
     if len(batches) == 1 or stock_quantity <= ZERO:
         batch = batches[0][0]
         return [
             replace(
                 whole,
-                batch=batch.batch_number,
+                batch=_printed_number(batch),
                 expiry=batch.expiry_date.isoformat() if batch.expiry_date else None,
                 manufactured=made_in(batch.manufacturing_date),
                 mrp=batch.mrp,
@@ -126,7 +163,7 @@ def _per_batch(
                 # read as one line taken from several batches.
                 number=whole.number if index == 0 else 0,
                 description=whole.description if index == 0 else "",
-                batch=batch.batch_number,
+                batch=_printed_number(batch),
                 expiry=batch.expiry_date.isoformat() if batch.expiry_date else None,
                 manufactured=made_in(batch.manufacturing_date),
                 mrp=batch.mrp,

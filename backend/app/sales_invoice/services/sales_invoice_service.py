@@ -277,6 +277,20 @@ class _LineTax:
 
 
 @dataclass(frozen=True, slots=True)
+class _DispatchCosts:
+    """What the dispatch behind a bill cost, two ways (L2 step 5).
+
+    ``by_line`` is a note line's own cost, the sum of the lots it took, and
+    holds only lines whose every lot carries one. ``by_product`` is the
+    note's cost per product off the stock ledger, read for the rest: a line
+    dispatched before the lots kept their cost, or stock that names no batch.
+    """
+
+    by_line: Mapping[UUID, Decimal]
+    by_product: Mapping[tuple[UUID, UUID], Decimal]
+
+
+@dataclass(frozen=True, slots=True)
 class _PricedInvoiceLine:
     """One invoice line, priced but not yet taxed or written.
 
@@ -6102,7 +6116,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         source_type: str,
         invoice_quantity: Decimal,
         source_quantity: Decimal,
-        costs: dict[tuple[UUID, UUID], Decimal],
+        costs: _DispatchCosts,
     ) -> Decimal | None:
         """Return what the goods on this line cost, or None where nothing says.
 
@@ -6115,12 +6129,16 @@ class SalesInvoiceService(TransactionalDocumentService):
         discount already are: a note dispatching ten and an invoice billing
         four take four tenths of what the dispatch cost.
 
+        The note line's own lots answer first, so two lines of one product
+        from two lots carry two costs; the note's cost by product answers
+        where the lots do not.
+
         Args:
             source_line: The delivery note line being billed.
             source_type: What kind of document that is.
             invoice_quantity: How much of it this bill takes.
             source_quantity: How much the note carried.
-            costs: What each note and product's dispatch cost.
+            costs: What each note line, and each note and product, cost.
 
         Returns:
             The cost attributable to this line, or None where it is unknown.
@@ -6132,7 +6150,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         product_id = getattr(source_line, "product_id", None)
         if note_id is None or product_id is None:
             return None
-        total = costs.get((note_id, product_id))
+        line_id = getattr(source_line, "id", None)
+        total = costs.by_line.get(line_id) if line_id is not None else None
+        if total is None:
+            total = costs.by_product.get((note_id, product_id))
         if total is None:
             return None
         if source_quantity <= ZERO:
@@ -6142,8 +6163,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         share = self._q(invoice_quantity) / self._q(source_quantity)
         return self._q(total * share)
 
-    def _dispatch_costs(self, note_ids: set[UUID]) -> dict[tuple[UUID, UUID], Decimal]:
-        """Return what each delivery note's dispatch cost, by note and product.
+    def _dispatch_costs(self, note_ids: set[UUID]) -> _DispatchCosts:
+        """Return what each delivery note's dispatch cost, by line and product.
 
         Read off the stock ledger, which is where the moving average that
         actually left the warehouse is recorded -- the same source every
@@ -6158,13 +6179,19 @@ class SalesInvoiceService(TransactionalDocumentService):
         Args:
             note_ids: The delivery notes to cost.
 
+        Each note line's own cost comes first, from the lots it took
+        (``delivery_note_line_batches.cost_amount``, L2 step 5); a line counts
+        only when its lots cover all it delivered and every one is costed.
+
         Returns:
-            Total dispatch cost per (note, product). Absent where nothing was
-            costed, which the caller must read as "unknown" and not as zero.
+            Dispatch cost per note line, and per (note, product). Absent where
+            nothing was costed, which the caller must read as "unknown" and
+            not as zero.
 
         """
         if not note_ids:
-            return {}
+            return _DispatchCosts(by_line={}, by_product={})
+        by_line = self._lot_costs(note_ids)
         numbers = {
             number: note_id
             for note_id, number in self._session.execute(
@@ -6174,7 +6201,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             ).all()
         }
         if not numbers:
-            return {}
+            return _DispatchCosts(by_line=by_line, by_product={})
         costs: dict[tuple[UUID, UUID], Decimal] = {}
         rows = self._session.execute(
             select(
@@ -6195,7 +6222,43 @@ class SalesInvoiceService(TransactionalDocumentService):
                 continue
             key = (note_id, product_id)
             costs[key] = costs.get(key, ZERO) + self._q(total)
-        return costs
+        return _DispatchCosts(by_line=by_line, by_product=costs)
+
+    def _lot_costs(self, note_ids: set[UUID]) -> dict[UUID, Decimal]:
+        """Return each note line's cost as the sum of its lots (L2 step 5).
+
+        Only a line whose lots add up to what it delivered and all carry a
+        cost: a row written before the lots kept theirs, or a share of the
+        line that left with no batch, leaves the line to the ledger's figure.
+        """
+        found: dict[UUID, Decimal] = {}
+        for line_id, delivered, costed, quantity, uncosted in self._session.execute(
+            select(
+                DeliveryNoteLine.id,
+                DeliveryNoteLine.delivered_quantity,
+                func.sum(DeliveryNoteLineBatch.cost_amount),
+                func.sum(DeliveryNoteLineBatch.quantity),
+                func.sum(
+                    case((DeliveryNoteLineBatch.cost_amount.is_(None), 1), else_=0)
+                ),
+            )
+            .join(
+                DeliveryNoteLineBatch,
+                DeliveryNoteLineBatch.delivery_note_line_id == DeliveryNoteLine.id,
+            )
+            .where(
+                DeliveryNoteLine.delivery_note_id.in_(note_ids),
+                DeliveryNoteLine.is_deleted.is_(False),
+                DeliveryNoteLineBatch.is_deleted.is_(False),
+            )
+            .group_by(DeliveryNoteLine.id, DeliveryNoteLine.delivered_quantity)
+        ).all():
+            if uncosted or costed is None:
+                continue
+            if self._q(quantity) != self._q(delivered):
+                continue
+            found[line_id] = self._q(costed)
+        return found
 
     def _line_net_amount(
         self,
