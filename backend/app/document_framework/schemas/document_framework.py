@@ -418,6 +418,9 @@ class DocumentPrintTemplateWrite(DocumentFrameworkSchema):
     #: long for it prints on a full A4 page by itself (backlog 118).
     page_size: Literal["A4", "A5", "HALF", "THERMAL80"] = "A4"
     margin_mm: Decimal = Field(default=Decimal("12"), ge=5, le=40)
+    #: How a full page (A4 or A5) is laid out: STANDARD, or TRADE, the boxed
+    #: bill the trade prints (backlog 143). Only a sales invoice takes TRADE.
+    bill_layout: Literal["STANDARD", "TRADE"] = "STANDARD"
 
     @field_validator("upi_id")
     @classmethod

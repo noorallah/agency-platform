@@ -51,6 +51,23 @@ class _TemplateApi extends ApiClient {
   final Json? stored;
   Json? saved;
 
+  /// What Preview sent, and where (backlog 143).
+  Json? previewed;
+  String? previewPath;
+
+  @override
+  Future<List<int>> downloadBytes(
+    String path, {
+    Map<String, String>? query,
+    String method = 'GET',
+    Json? body,
+    bool retrying = false,
+  }) async {
+    previewPath = '$method $path';
+    previewed = Map<String, dynamic>.from(body ?? const <String, dynamic>{});
+    return <int>[37, 80, 68, 70];
+  }
+
   @override
   Future<Json> request(
     String method,
@@ -88,6 +105,7 @@ Future<void> _open(
   WidgetTester tester,
   _TemplateApi api, {
   bool mayManage = true,
+  List<String>? opened,
 }) async {
   tester.view.physicalSize = const Size(1400, 1100);
   tester.view.devicePixelRatio = 1;
@@ -99,13 +117,94 @@ Future<void> _open(
         permissions: _permissions(mayManage: mayManage),
         documentType: 'SALES_INVOICE',
         documentLabel: 'sales invoice',
+        openPdfOverride: (name, bytes) async => opened?.add(name),
       ),
     ),
   ));
   await tester.pumpAndSettle();
 }
 
+Future<void> _chooseLayout(WidgetTester tester, String label) async {
+  await tester.ensureVisible(find.byKey(const ValueKey('print-bill-layout')));
+  await tester.tap(find.byKey(const ValueKey('print-bill-layout')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  // A bill may be laid out as the trade's boxed bill, and a layout nobody
+  // can see before choosing it is a guess (backlog 143).
+  group('the layout of the bill, seen before it is chosen', () {
+    testWidgets('a firm that chose nothing is on the standard layout',
+        (tester) async {
+      await _open(tester, _TemplateApi());
+
+      final DropdownButton<String> box = tester.widget(
+          find.byKey(const ValueKey('print-bill-layout')));
+      expect(box.value, 'STANDARD');
+    });
+
+    testWidgets('the trade layout can be chosen and is what gets saved',
+        (tester) async {
+      final _TemplateApi api = _TemplateApi();
+      await _open(tester, api);
+
+      await _chooseLayout(tester, 'Trade (boxed, with MRP and PTR)');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.saved?['bill_layout'], 'TRADE');
+    });
+
+    testWidgets('Preview draws the screen as it stands and saves nothing',
+        (tester) async {
+      final _TemplateApi api = _TemplateApi();
+      final List<String> opened = <String>[];
+      await _open(tester, api, opened: opened);
+
+      await _chooseLayout(tester, 'Trade (boxed, with MRP and PTR)');
+      await tester.tap(find.byKey(const ValueKey('print-preview')));
+      await tester.pumpAndSettle();
+
+      expect(api.previewPath,
+          'POST /api/v1/document-framework/print-templates/SALES_INVOICE/preview');
+      expect(api.previewed?['bill_layout'], 'TRADE');
+      expect(opened, <String>['Sample bill']);
+      expect(api.saved, isNull, reason: 'a preview is not a save');
+    });
+
+    testWidgets('a half page offers no layout, it has its own',
+        (tester) async {
+      await _open(tester, _TemplateApi());
+
+      await tester.ensureVisible(find.byType(DropdownButton<String>).last);
+      await tester.tap(find.byType(DropdownButton<String>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Half page (half of A4)').last);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('print-bill-layout')), findsNothing);
+    });
+
+    testWidgets('a saved layout comes back on the next open', (tester) async {
+      await _open(
+        tester,
+        _TemplateApi(stored: <String, dynamic>{
+          'document_type': 'SALES_INVOICE',
+          'copy_labels': <String>[],
+          'page_size': 'A4',
+          'bill_layout': 'TRADE',
+          'is_customised': true,
+        }),
+      );
+
+      final DropdownButton<String> box = tester.widget(
+          find.byKey(const ValueKey('print-bill-layout')));
+      expect(box.value, 'TRADE');
+    });
+  });
+
   group('the copies are a preference, saved and changeable', () {
     testWidgets('a firm that has saved nothing prints one, and is told so',
         (tester) async {

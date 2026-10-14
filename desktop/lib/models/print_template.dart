@@ -27,6 +27,7 @@ class PrintTemplate {
     this.copyLabels = const <String>[],
     this.pageSize = 'A4',
     this.marginMm = '12',
+    this.billLayout = 'STANDARD',
     this.isCustomised = false,
   });
 
@@ -52,6 +53,10 @@ class PrintTemplate {
 
   final String pageSize;
   final String marginMm;
+
+  /// STANDARD, or TRADE: the boxed bill the trade prints (backlog 143). A
+  /// sales invoice reads it on A4 and A5.
+  final String billLayout;
 
   /// False where the firm has saved nothing and these are platform defaults.
   final bool isCustomised;
@@ -87,6 +92,9 @@ class PrintTemplate {
         marginMm: stringValue(json['margin_mm']).isEmpty
             ? '12'
             : stringValue(json['margin_mm']),
+        billLayout: stringValue(json['bill_layout']).isEmpty
+            ? 'STANDARD'
+            : stringValue(json['bill_layout']),
         isCustomised: boolValue(json['is_customised']),
       );
 
@@ -107,6 +115,7 @@ class PrintTemplate {
         'copy_labels': copyLabels,
         'page_size': pageSize,
         'margin_mm': marginMm,
+        'bill_layout': billLayout,
       };
 
   PrintTemplate copyWith({
@@ -125,6 +134,7 @@ class PrintTemplate {
     List<String>? copyLabels,
     String? pageSize,
     String? marginMm,
+    String? billLayout,
   }) =>
       PrintTemplate(
         documentType: documentType,
@@ -144,6 +154,7 @@ class PrintTemplate {
         copyLabels: copyLabels ?? this.copyLabels,
         pageSize: pageSize ?? this.pageSize,
         marginMm: marginMm ?? this.marginMm,
+        billLayout: billLayout ?? this.billLayout,
         isCustomised: isCustomised,
       );
 }

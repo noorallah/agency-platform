@@ -4,6 +4,8 @@ import '../../core/api/api_client.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/print_template.dart';
+import 'balance_confirmation.dart' show OpenPdfOverride;
+import 'printed_document.dart';
 
 /// How this firm prints one kind of document.
 ///
@@ -19,6 +21,7 @@ class PrintSettingsDialog extends StatefulWidget {
     required this.documentType,
     required this.documentLabel,
     this.managePermission = 'SETTINGS_UPDATE',
+    this.openPdfOverride,
   });
 
   final ApiClient api;
@@ -35,6 +38,9 @@ class PrintSettingsDialog extends StatefulWidget {
   /// own administrator saw these settings read-only (plan item 9.17). The
   /// server gates the save on `SETTINGS_UPDATE`.
   final String managePermission;
+
+  /// Tests inject one, because a widget test cannot open a print dialog.
+  final OpenPdfOverride? openPdfOverride;
 
   @override
   State<PrintSettingsDialog> createState() => _PrintSettingsDialogState();
@@ -58,8 +64,10 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
   bool _showBatch = false;
   bool _showExpiry = false;
   String _pageSize = 'A4';
+  String _billLayout = 'STANDARD';
   bool _loading = true;
   bool _saving = false;
+  bool _previewing = false;
   bool _isCustomised = false;
   String? _error;
 
@@ -113,6 +121,7 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
         _showBatch = template.showBatchColumn;
         _showExpiry = template.showExpiryColumn;
         _pageSize = template.pageSize;
+        _billLayout = template.billLayout;
         _copies = [
           for (final String label in template.copyLabels)
             TextEditingController(text: label),
@@ -152,39 +161,62 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
     });
   }
 
+  /// The settings as they stand on the screen, saved or not.
+  PrintTemplate _current() => PrintTemplate(
+        documentType: widget.documentType,
+        titleText:
+            _title.text.trim().isEmpty ? 'TAX INVOICE' : _title.text.trim(),
+        showBankDetails: _showBank,
+        bankDetails: _bank.text.trim(),
+        upiId: _upi.text.trim(),
+        terms: _terms.text.trim(),
+        declaration: _declaration.text.trim(),
+        jurisdiction: _jurisdiction.text.trim(),
+        signatoryText: _signatory.text.trim(),
+        footerNote: _footer.text.trim(),
+        showDiscountColumn: _showDiscount,
+        showBatchColumn: _showBatch,
+        showExpiryColumn: _showExpiry,
+        // A copy with no name is not a copy: an empty box would print a
+        // blank banner rather than saying which copy the page is.
+        copyLabels: [
+          for (final TextEditingController copy in _copies)
+            if (copy.text.trim().isNotEmpty) copy.text.trim(),
+        ],
+        pageSize: _pageSize,
+        billLayout: _billLayout,
+      );
+
+  /// Draw a sample bill with the settings on the screen, saving nothing,
+  /// so a layout is seen before it is chosen (backlog 143).
+  Future<void> _preview() async {
+    setState(() {
+      _previewing = true;
+      _error = null;
+    });
+    try {
+      final List<int> pdf =
+          await widget.api.printTemplatePreview(widget.documentType, _current());
+      if (!mounted) return;
+      if (widget.openPdfOverride != null) {
+        await widget.openPdfOverride!('Sample bill', pdf);
+      } else {
+        await printDocument(context, bytes: pdf, documentName: 'Sample bill');
+      }
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _previewing = false);
+    }
+  }
+
   Future<void> _save() async {
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      await widget.api.savePrintTemplate(
-        widget.documentType,
-        PrintTemplate(
-          documentType: widget.documentType,
-          titleText: _title.text.trim().isEmpty
-              ? 'TAX INVOICE'
-              : _title.text.trim(),
-          showBankDetails: _showBank,
-          bankDetails: _bank.text.trim(),
-          upiId: _upi.text.trim(),
-          terms: _terms.text.trim(),
-          declaration: _declaration.text.trim(),
-          jurisdiction: _jurisdiction.text.trim(),
-          signatoryText: _signatory.text.trim(),
-          footerNote: _footer.text.trim(),
-          showDiscountColumn: _showDiscount,
-          showBatchColumn: _showBatch,
-          showExpiryColumn: _showExpiry,
-          // A copy with no name is not a copy: an empty box would print a
-          // blank banner rather than saying which copy the page is.
-          copyLabels: [
-            for (final TextEditingController copy in _copies)
-              if (copy.text.trim().isNotEmpty) copy.text.trim(),
-          ],
-          pageSize: _pageSize,
-        ),
-      );
+      await widget.api.savePrintTemplate(widget.documentType, _current());
       if (!mounted) return;
       NotificationService.show(
         context,
@@ -307,6 +339,41 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                         (value) => setState(() => _showBatch = value)),
                     _toggle('Expiry column', _showExpiry,
                         (value) => setState(() => _showExpiry = value)),
+                    // A bill may be laid out as the trade's boxed bill
+                    // (backlog 143); the half page and the roll keep their
+                    // own layouts.
+                    if (widget.documentType == 'SALES_INVOICE' &&
+                        (_pageSize == 'A4' || _pageSize == 'A5')) ...[
+                      Row(
+                        children: [
+                          const Text('Bill layout'),
+                          const SizedBox(width: 12),
+                          DropdownButton<String>(
+                            key: const ValueKey('print-bill-layout'),
+                            value: _billLayout,
+                            onChanged: _mayManage
+                                ? (value) => setState(
+                                    () => _billLayout = value ?? 'STANDARD')
+                                : null,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'STANDARD',
+                                child: Text('Standard'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'TRADE',
+                                child: Text('Trade (boxed, with MRP and PTR)'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'Preview draws a sample bill with the settings on '
+                        'this screen, before they are saved.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
                     Row(
                       children: [
                         const Text('Paper'),
@@ -363,6 +430,12 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
           onPressed: () => Navigator.of(context).pop(false),
           child: const Text('Close'),
         ),
+        if (widget.documentType == 'SALES_INVOICE')
+          OutlinedButton(
+            key: const ValueKey('print-preview'),
+            onPressed: !_previewing && !_loading ? _preview : null,
+            child: Text(_previewing ? 'Drawing…' : 'Preview'),
+          ),
         FilledButton(
           onPressed: _mayManage && !_saving && !_loading ? _save : null,
           child: Text(_saving ? 'Saving…' : 'Save'),

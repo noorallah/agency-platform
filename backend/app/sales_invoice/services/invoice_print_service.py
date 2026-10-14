@@ -556,6 +556,7 @@ class SalesInvoicePrintService:
             firm_scope=firm_scope,
             document_type=DOCUMENT_TYPE,
             fallback=TemplateSettings(copy_labels=DEFAULT_COPIES),
+            with_layout=True,
         )
 
     def _document(self, invoice: SalesInvoice, *, firm_scope: UUID) -> InvoiceDocument:

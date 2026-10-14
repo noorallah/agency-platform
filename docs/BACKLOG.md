@@ -10428,7 +10428,7 @@ TC-BUY-108. PR #1484.
   months, as asked.
 - No screen was clicked in the running app.
 
-## 143. Bill layout settings: the bill in fixed parts, lines per page, long names -- open, not built
+## 143. Bill layout settings: the bill in fixed parts, lines per page, long names -- part built (a choice of layout and a preview)
 
 **Customer task F12**, the owner, 2026-10-13: log it in `docs/BACKLOG.md` as
 an open item and no build, "when finalised". The ask: the bill in fixed parts
@@ -10436,7 +10436,46 @@ an open item and no build, "when finalised". The ask: the bill in fixed parts
 page shows, and a rule for long shop and product names so the columns hold.
 It is PRT-5 in `docs/CUSTOMER_REQUIREMENTS.md`.
 
-**Nothing is built by this entry.** It records what the print does today,
+**Built 2026-10-14, asked for by the owner** ("we will have different layouts
+a firm can choose ... use as is what the customer has, apart from the
+customer's licence place"; and "a sample layout where we can see sample
+bills"):
+
+- **A choice of layout for the full-page bill**, in *Print settings*:
+  `document_print_templates.bill_layout`, `STANDARD` or `TRADE` (migration
+  `20261014_0381`). *Trade* is the boxed bill laid out after the customer's
+  `long bill.pdf`: `TradeInvoiceRenderer` in
+  `backend/app/sales_invoice/services/trade_invoice_pdf.py`, built on the
+  standard renderer so the paper, copies, e-invoice block and UPI block are
+  the same. The buyer's licences print under his details, not at the foot
+  as the sample has them. Read on A4 and A5 for a sales invoice only: the
+  half page and the roll keep their layouts, and `load_template` hands
+  `STANDARD` to everything that borrows the bill's template for its
+  letterhead (a stock transfer, a contra voucher, a note) unless it asks
+  with `with_layout=True`, which only the bill does. Saving `TRADE` for any
+  other document is refused.
+- **Preview**: `POST /api/v1/document-framework/print-templates/{type}/preview`
+  draws a sample bill with the settings sent, saved or not, over the firm's
+  own name and address, marked *SAMPLE - NOT A TAX INVOICE*; it writes
+  nothing and needs only membership. The dialog sends what is on the screen.
+- `InvoiceDocument.order_by` is the field *Order By* prints from. Nothing
+  fills it yet: the salesman list (row P2, build step 5) fills it, and the
+  standard layout prints it then.
+- Decided, for the owner to confirm: the trade layout prints MRP, D.Price
+  and P.T.R. three decimals below a thousand, as the sample does; it prints
+  Batch, MfgDt and ExpDt always, whatever the column switches say, as the
+  sample does; the declaration is the last of the terms.
+
+**Still open:** how many lines a page shows; how a long name prints;
+the boxes D1, D2 and D3 and the letter and nought under the sample's lines
+(the customer's answers, PRT-4); and **a layout a firm arranges itself,
+field by field** (the owner, 2026-10-14, "possibly we can change the layout
+by moving fields"). That last is a designer -- a stored list of blocks and
+columns with their order and widths, drawn by one renderer -- and wants a
+design note before anything is built; the two fixed layouts stand until
+then and would become its first two presets.
+
+The rest of this entry is as written on 2026-10-13: what the print did then,
 the design a build would follow, and what is not known.
 
 **What we do today.**
