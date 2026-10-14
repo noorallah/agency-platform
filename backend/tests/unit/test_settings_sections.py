@@ -35,7 +35,6 @@ from app.finance.models.tds_194q import Tds194QSettings
 from app.firms.models import Firm
 from app.inventory.models.adjustment_approval import RoleStockAdjustmentLimit
 from app.inventory.models.adjustment_reason import StockAdjustmentReason
-from app.inventory.models.inventory import StockLotSettings
 from app.loyalty.models.loyalty import LoyaltyEntry, LoyaltySettings
 from app.messaging.models.messaging import MessagingSettings
 from app.pricing.models.price_level import PriceLevel
@@ -606,7 +605,6 @@ def test_the_route_serves_each_new_section(session: Session, section: str) -> No
 
 
 STOCK_CODES = [
-    "inventory-settings",
     "adjustment-reasons",
     "adjustment-limits",
     "batch-rules",
@@ -631,7 +629,6 @@ def test_stock_reads_as_it_comes_then_what_was_set(session: Session) -> None:
     assert [step.code for step in bare.steps] == STOCK_CODES
     assert bare.todo_count == 0
     assert _details(bare) == {
-        "inventory-settings": ("OPTIONAL", "Left as it comes: average cost"),
         "adjustment-reasons": ("OPTIONAL", "8 built in"),
         "adjustment-limits": ("OPTIONAL", "None yet"),
         "batch-rules": ("OPTIONAL", "Left as it comes"),
@@ -640,7 +637,6 @@ def test_stock_reads_as_it_comes_then_what_was_set(session: Session) -> None:
     other = _firm(session, "SET02")
     session.add_all(
         [
-            StockLotSettings(firm_id=firm.id, costing_method="BY_LOT"),
             # A built-in reason the list wrote is not the firm's own.
             StockAdjustmentReason(
                 firm_id=firm.id, code="DAMAGE", name="Damage", is_system=True
@@ -659,7 +655,6 @@ def test_stock_reads_as_it_comes_then_what_was_set(session: Session) -> None:
     session.commit()
 
     assert _details(_state(session, firm.id, "stock")) == {
-        "inventory-settings": ("OPTIONAL", "Costed by lot"),
         "adjustment-reasons": ("OPTIONAL", "8 built in, 1 own"),
         "adjustment-limits": ("OPTIONAL", "1 role limit"),
         "batch-rules": ("OPTIONAL", "Set for this firm"),
