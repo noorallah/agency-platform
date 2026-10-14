@@ -92,8 +92,9 @@ class SettingsSubject {
   int numberOf(SubjectStep step) => steps.indexOf(step) + 1;
 }
 
-/// The subjects there are: Firm, Selling, Buying and Tax. Each other section
-/// of Settings joins by adding an entry here and a route beside
+/// The subjects there are, in the order the menu lists their sections: Firm,
+/// Selling, Buying, Stock, Tax, Business profile and Pricing. Each other
+/// section of Settings joins by adding an entry here and a route beside
 /// [MenuLayout.taxSubjectRoute].
 abstract final class SettingsSubjects {
   static const SettingsSubject tax = SettingsSubject(
@@ -383,7 +384,181 @@ abstract final class SettingsSubjects {
         'optional steps can wait until the firm needs them.',
   );
 
-  static const List<SettingsSubject> all = [firm, selling, buying, tax];
+  /// Stock (row T2). No step needs another, so none is To do. Inventory
+  /// Settings holds the signed-in person's own defaults, so it stands apart
+  /// as a tool, as My Branch and Warehouse does on Firm.
+  static const SettingsSubject stock = SettingsSubject(
+    section: 'Stock',
+    route: MenuLayout.stockSubjectRoute,
+    summary: 'Adjustment reasons and limits, batch rules',
+    sectionCode: 'stock',
+    steps: [
+      SubjectStep(
+        path: 'inventory/adjustment-reasons',
+        label: 'Adjustment reasons',
+        code: 'adjustment-reasons',
+        summary: 'The reasons a person picks when stock is adjusted or '
+            'written off.',
+        topLine: 'Start here. Leave the ready-made reasons unless the firm '
+            'uses its own.',
+      ),
+      SubjectStep(
+        path: MenuLayout.adjustmentLimitsRoute,
+        label: 'Adjustment limits',
+        code: 'adjustment-limits',
+        summary: 'The largest adjustment or write-off each role may post '
+            'directly.',
+        topLine: 'Needs nothing from the steps before. Above its limit, an '
+            'adjustment waits for approval.',
+      ),
+      SubjectStep(
+        path: MenuLayout.batchRulesRoute,
+        label: 'Batch rules',
+        code: 'batch-rules',
+        summary: 'The near-expiry window, and what dispatch needs when a '
+            'batch is skipped.',
+        topLine: 'Needs nothing from the steps before. Matters only for '
+            'goods kept by batch.',
+      ),
+    ],
+    toolsLabel: 'Yours',
+    tools: [
+      SubjectStep(
+        path: 'inventory/inventory-settings',
+        label: 'Inventory settings',
+        summary: "Your own defaults for stock screens, not the firm's.",
+        topLine: "Yours, not the firm's: whether opening stock posts when "
+            'you save it, and the format you export in.',
+      ),
+    ],
+    readyNote: 'Stock is ready for this firm.',
+    readyDetail: 'Nothing here has to be done before stock moves. The '
+        'optional steps can wait until the firm needs them.',
+  );
+
+  /// Business profile (row T2). The profile decides which features and
+  /// modules the firm works with, so it comes first.
+  static const SettingsSubject businessProfile = SettingsSubject(
+    section: 'Business profile',
+    route: MenuLayout.businessProfileSubjectRoute,
+    summary: 'Profile, features, modules, attributes, unit sets',
+    sectionCode: 'business-profile',
+    steps: [
+      SubjectStep(
+        path: 'administration/profile-assignment',
+        label: 'Profile assignment',
+        code: 'profile-assignment',
+        summary: "The firm's business profile, such as pharmacy or "
+            'distributor.',
+        topLine: 'Start here: the profile decides which features and '
+            'modules the firm works with.',
+      ),
+      SubjectStep(
+        path: 'administration/feature-management',
+        label: 'Feature management',
+        code: 'feature-management',
+        summary: 'The features a profile can switch on, such as batches or '
+            'commission.',
+        topLine: 'What the profile from step 1 offers. Change it only when '
+            'the firm needs a feature the profile leaves off.',
+      ),
+      SubjectStep(
+        path: 'administration/module-configuration',
+        label: 'Module configuration',
+        code: 'module-configuration',
+        summary: 'The modules a profile switches on.',
+        topLine: 'What the profile from step 1 offers. Leave it as it comes '
+            'unless the firm works differently.',
+      ),
+      SubjectStep(
+        path: 'administration/attribute-definitions',
+        label: 'Attribute definitions',
+        code: 'attribute-definitions',
+        summary: 'Extra details a product can carry, such as expiry date or '
+            'IMEI.',
+        topLine: 'Needs nothing from the steps before. Add an attribute here '
+            'before a rule in the next step can name it.',
+      ),
+      SubjectStep(
+        path: 'administration/category-attribute-rules',
+        label: 'Mandatory attributes',
+        code: 'mandatory-attributes',
+        summary: 'Which attributes must be filled for a category of '
+            'product.',
+        topLine: 'A rule names an attribute from the step before. Add the '
+            'attribute first if it is not in the list.',
+      ),
+      SubjectStep(
+        path: 'administration/unit-sets',
+        label: 'Unit sets',
+        code: 'unit-sets',
+        summary: 'The units a product is bought and sold in, such as box '
+            'and strip.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+    ],
+    connects: ['Business profile', 'Features and modules', 'Attributes'],
+    readyNote: 'The business profile is ready for this firm.',
+    readyDetail: 'Nothing here has to be done before a bill is raised. The '
+        'optional steps can wait until the firm needs them.',
+  );
+
+  /// Pricing (row T2), a Set up section: lists rather than switches, so no
+  /// step is To do.
+  static const SettingsSubject pricing = SettingsSubject(
+    section: 'Pricing',
+    route: MenuLayout.pricingSubjectRoute,
+    summary: 'Price lists, price levels, promotions, loyalty',
+    sectionCode: 'pricing',
+    steps: [
+      SubjectStep(
+        path: 'sales/price-lists',
+        label: 'Price lists',
+        code: 'price-lists',
+        summary: "The firm's own prices for a customer or a group of "
+            'customers.',
+        topLine: "Start here. Without a list, a bill takes the product's "
+            'own price.',
+      ),
+      SubjectStep(
+        path: 'sales/price-levels',
+        label: 'Price levels',
+        code: 'price-levels',
+        summary: 'Named tiers of price, such as retail and wholesale.',
+        topLine: 'Needs nothing from the steps before.',
+      ),
+      SubjectStep(
+        path: 'sales/promotions',
+        label: 'Promotions',
+        code: 'promotions',
+        summary: 'Offers for a period: a discount or free goods on a sale.',
+        topLine: 'Needs nothing from the steps before. A promotion beats '
+            'the price list on a line.',
+      ),
+      SubjectStep(
+        path: 'masters/loyalty',
+        label: 'Loyalty',
+        code: 'loyalty',
+        summary: 'Points customers have earned and spent.',
+        topLine: 'Needs nothing from the steps before. Empty unless the '
+            'firm runs a scheme, switched on under Selling.',
+      ),
+    ],
+    readyNote: 'Pricing is ready for this firm.',
+    readyDetail: 'Nothing here has to be done before a sale. Without a '
+        "list or an offer, a bill takes the product's own price.",
+  );
+
+  /// In the order the menu lists the sections.
+  static const List<SettingsSubject> all = [
+    firm,
+    selling,
+    buying,
+    stock,
+    tax,
+    businessProfile,
+    pricing,
+  ];
 
   /// The subject that stands for the Settings section called [label].
   static SettingsSubject? forSection(String label) {

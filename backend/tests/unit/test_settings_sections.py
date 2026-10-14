@@ -11,11 +11,17 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.approvals.models import ApprovalRule
+from app.batch_serial.models.batch_serial import BatchSaleSettings
 from app.business.models.framework import (
     AttributeDefinition,
+    BusinessFeature,
+    BusinessModule,
     BusinessProfile,
     CategoryAttributeRule,
+    FirmAttributeSwitch,
     FirmBusinessProfile,
+    ProfileFeature,
+    ProfileModule,
 )
 from app.common.scope import ResolvedFirmScope
 from app.core.database.base import Base
@@ -27,8 +33,13 @@ from app.customers.models.customer import CreditControlSettings
 from app.finance.models.finance import FinancialYear
 from app.finance.models.tds_194q import Tds194QSettings
 from app.firms.models import Firm
-from app.loyalty.models.loyalty import LoyaltySettings
+from app.inventory.models.adjustment_approval import RoleStockAdjustmentLimit
+from app.inventory.models.adjustment_reason import StockAdjustmentReason
+from app.loyalty.models.loyalty import LoyaltyEntry, LoyaltySettings
 from app.messaging.models.messaging import MessagingSettings
+from app.pricing.models.price_level import PriceLevel
+from app.pricing.models.price_list import PriceList
+from app.promotions.models.promotion import Promotion
 from app.purchase.models.purchase import (
     PurchaseBudget,
     PurchaseWorkflowSettings,
@@ -48,6 +59,7 @@ from app.tax.models import GstComplianceSettings, TaxProfile, TaxRule
 from app.tax.schemas import TaxProfileWrite, TaxStatus, TaxSystemWrite
 from app.tax.services import TaxFrameworkService, gst_template
 from app.tcs.models.tcs import TcsSettings
+from app.uom.models.unit_set import UnitSet
 
 STEP_CODES = [
     "rates-and-profiles",
@@ -293,7 +305,10 @@ def test_an_unknown_section_is_refused(session: Session) -> None:
     assert "no-such-section" not in SECTIONS
 
 
-@pytest.mark.parametrize("section", ["tax", "firm", "selling", "buying"])
+@pytest.mark.parametrize(
+    "section",
+    ["tax", "firm", "selling", "buying", "stock", "business-profile", "pricing"],
+)
 def test_reading_the_state_writes_nothing(session: Session, section: str) -> None:
     """Opening a Settings subject issues selects and nothing else."""
     firm = _firm(session)
@@ -575,7 +590,9 @@ def test_buying_reads_as_it_comes_then_what_was_set(session: Session) -> None:
     }
 
 
-@pytest.mark.parametrize("section", ["firm", "selling", "buying"])
+@pytest.mark.parametrize(
+    "section", ["firm", "selling", "buying", "stock", "business-profile", "pricing"]
+)
 def test_the_route_serves_each_new_section(session: Session, section: str) -> None:
     """Each subject is registered and answered by the one endpoint."""
     firm = _firm(session)
@@ -585,3 +602,276 @@ def test_the_route_serves_each_new_section(session: Session, section: str) -> No
     assert section in SECTIONS
     assert state.section == section
     assert state.steps
+
+
+STOCK_CODES = [
+    "adjustment-reasons",
+    "adjustment-limits",
+    "batch-rules",
+]
+BUSINESS_PROFILE_CODES = [
+    "profile-assignment",
+    "feature-management",
+    "module-configuration",
+    "attribute-definitions",
+    "mandatory-attributes",
+    "unit-sets",
+]
+PRICING_CODES = ["price-lists", "price-levels", "promotions", "loyalty"]
+
+
+def test_stock_reads_as_it_comes_then_what_was_set(session: Session) -> None:
+    """A bare firm owes nothing; a set-up one is told what it holds."""
+    firm = _firm(session)
+
+    bare = _state(session, firm.id, "stock")
+    assert bare.section == "stock"
+    assert [step.code for step in bare.steps] == STOCK_CODES
+    assert bare.todo_count == 0
+    assert _details(bare) == {
+        "adjustment-reasons": ("OPTIONAL", "8 built in"),
+        "adjustment-limits": ("OPTIONAL", "None yet"),
+        "batch-rules": ("OPTIONAL", "Left as it comes"),
+    }
+
+    other = _firm(session, "SET02")
+    session.add_all(
+        [
+            # A built-in reason the list wrote is not the firm's own.
+            StockAdjustmentReason(
+                firm_id=firm.id, code="DAMAGE", name="Damage", is_system=True
+            ),
+            StockAdjustmentReason(firm_id=firm.id, code="RATS", name="Rats"),
+            StockAdjustmentReason(
+                firm_id=firm.id, code="OLD", name="Old", is_active=False
+            ),
+            StockAdjustmentReason(firm_id=other.id, code="MINE", name="Mine"),
+            RoleStockAdjustmentLimit(
+                firm_id=firm.id, role_code="STORE_KEEPER", max_value=Decimal("500")
+            ),
+            BatchSaleSettings(firm_id=firm.id),
+        ]
+    )
+    session.commit()
+
+    assert _details(_state(session, firm.id, "stock")) == {
+        "adjustment-reasons": ("OPTIONAL", "8 built in, 1 own"),
+        "adjustment-limits": ("OPTIONAL", "1 role limit"),
+        "batch-rules": ("OPTIONAL", "Set for this firm"),
+    }
+
+
+def test_a_bare_firm_owes_nothing_in_business_profile(session: Session) -> None:
+    """No profile gates nothing, and no field leaves a rule nothing to name."""
+    firm = _firm(session)
+
+    state = _state(session, firm.id, "business-profile")
+
+    assert state.section == "business-profile"
+    assert [step.code for step in state.steps] == BUSINESS_PROFILE_CODES
+    assert state.todo_count == 0
+    assert _details(state) == {
+        "profile-assignment": ("OPTIONAL", "Not chosen: the firm runs as General"),
+        "feature-management": ("OPTIONAL", "No profile: nothing is switched off"),
+        "module-configuration": ("OPTIONAL", "No profile: nothing is switched off"),
+        "attribute-definitions": ("OPTIONAL", "None yet"),
+        "mandatory-attributes": ("OPTIONAL", "None yet: add a field first"),
+        "unit-sets": ("OPTIONAL", "None yet"),
+    }
+
+
+def test_a_profiled_firm_is_told_what_its_profile_switches_on(
+    session: Session,
+) -> None:
+    """The profile is named, its switches counted, own and shared told apart."""
+    firm = _firm(session)
+    other = _firm(session, "SET02")
+    profile = BusinessProfile(code="PHARMA", name="Pharmacy", industry_type="PHARMA")
+    batch = BusinessFeature(code="BATCH", name="Batch", default_enabled=False)
+    expiry = BusinessFeature(code="EXPIRY", name="Expiry", default_enabled=True)
+    serial = BusinessFeature(code="SERIAL", name="Serial", default_enabled=True)
+    sales = BusinessModule(code="SALES", name="Sales")
+    hr = BusinessModule(code="HR", name="HR")
+    session.add_all([profile, batch, expiry, serial, sales, hr])
+    session.flush()
+    hidden = AttributeDefinition(
+        firm_id=None, code="IMEI", name="IMEI", data_type="TEXT"
+    )
+    shared = AttributeDefinition(
+        firm_id=None, code="BRAND", name="Brand", data_type="TEXT"
+    )
+    mine = AttributeDefinition(
+        firm_id=firm.id, code="SHADE", name="Shade", data_type="TEXT"
+    )
+    session.add_all(
+        [
+            FirmBusinessProfile(
+                firm_id=firm.id,
+                business_profile_id=profile.id,
+                effective_from=datetime(2026, 4, 1, tzinfo=UTC),
+            ),
+            # Batch is switched on against its default, Serial off against it.
+            ProfileFeature(business_profile_id=profile.id, feature_id=batch.id),
+            ProfileFeature(
+                business_profile_id=profile.id, feature_id=serial.id, is_enabled=False
+            ),
+            ProfileModule(
+                business_profile_id=profile.id, module_id=hr.id, is_enabled=False
+            ),
+            hidden,
+            shared,
+            mine,
+            AttributeDefinition(
+                firm_id=other.id, code="SIZE", name="Size", data_type="TEXT"
+            ),
+            UnitSet(firm_id=None, name="Strip of 10", base_uom_id=uuid4()),
+            UnitSet(firm_id=firm.id, name="Box of 6", base_uom_id=uuid4()),
+            UnitSet(firm_id=other.id, name="Crate", base_uom_id=uuid4()),
+        ]
+    )
+    session.flush()
+    session.add_all(
+        [
+            # A shared field this firm switched off is not offered to it.
+            FirmAttributeSwitch(
+                firm_id=firm.id, attribute_definition_id=hidden.id, is_enabled=False
+            ),
+            CategoryAttributeRule(
+                firm_id=None,
+                category_code="TABLETS",
+                attribute_definition_id=shared.id,
+            ),
+            CategoryAttributeRule(
+                firm_id=firm.id,
+                category_code="TABLETS",
+                attribute_definition_id=mine.id,
+            ),
+            # A rule that ties a field without requiring it is not counted.
+            CategoryAttributeRule(
+                firm_id=firm.id,
+                category_code="SYRUPS",
+                attribute_definition_id=mine.id,
+                is_mandatory=False,
+            ),
+            CategoryAttributeRule(
+                firm_id=other.id,
+                category_code="TABLETS",
+                attribute_definition_id=shared.id,
+            ),
+        ]
+    )
+    session.commit()
+
+    state = _state(session, firm.id, "business-profile")
+
+    assert state.todo_count == 0
+    assert _details(state) == {
+        "profile-assignment": ("OPTIONAL", "Pharmacy"),
+        "feature-management": ("OPTIONAL", "2 of 3 features on"),
+        "module-configuration": ("OPTIONAL", "1 of 2 modules on"),
+        "attribute-definitions": ("OPTIONAL", "1 own, 1 shared"),
+        "mandatory-attributes": ("OPTIONAL", "1 own, 1 shared"),
+        "unit-sets": ("OPTIONAL", "1 own, 1 shared"),
+    }
+
+
+def test_a_firm_with_a_field_but_no_rule_is_simply_none_yet(
+    session: Session,
+) -> None:
+    """Once a field exists, no compulsory rule is just an empty list."""
+    firm = _firm(session)
+    session.add(
+        AttributeDefinition(firm_id=None, code="IMEI", name="IMEI", data_type="TEXT")
+    )
+    session.commit()
+
+    details = _details(_state(session, firm.id, "business-profile"))
+
+    assert details["attribute-definitions"] == ("OPTIONAL", "1 shared")
+    assert details["mandatory-attributes"] == ("OPTIONAL", "None yet")
+
+
+def test_pricing_reads_as_it_comes_then_what_was_set(session: Session) -> None:
+    """A bare firm owes nothing; a set-up one is told what it holds."""
+    firm = _firm(session)
+
+    bare = _state(session, firm.id, "pricing")
+    assert bare.section == "pricing"
+    assert [step.code for step in bare.steps] == PRICING_CODES
+    assert bare.todo_count == 0
+    assert _details(bare) == {
+        "price-lists": ("OPTIONAL", "None yet"),
+        "price-levels": ("OPTIONAL", "None yet"),
+        "promotions": ("OPTIONAL", "None yet"),
+        "loyalty": ("OPTIONAL", "Scheme off: none yet"),
+    }
+
+    other = _firm(session, "SET02")
+    diwali = uuid4()
+    customer = uuid4()
+    session.add_all(
+        [
+            PriceList(
+                firm_id=firm.id,
+                code="STD",
+                name="Standard",
+                effective_from=date(2026, 4, 1),
+            ),
+            PriceList(
+                firm_id=other.id,
+                code="STD",
+                name="Standard",
+                effective_from=date(2026, 4, 1),
+            ),
+            PriceLevel(firm_id=firm.id, code="A", name="Retail"),
+            PriceLevel(firm_id=firm.id, code="B", name="Wholesale"),
+            PriceLevel(firm_id=firm.id, code="C", name="Old", is_active=False),
+            # One offer in two revisions is one offer.
+            Promotion(
+                firm_id=firm.id,
+                code="DIWALI",
+                name="Diwali",
+                status="INACTIVE",
+                version_group_id=diwali,
+                version_number=1,
+            ),
+            Promotion(
+                firm_id=firm.id,
+                code="DIWALI",
+                name="Diwali",
+                status="ACTIVE",
+                version_group_id=diwali,
+                version_number=2,
+            ),
+            Promotion(
+                firm_id=firm.id,
+                code="SUMMER",
+                name="Summer",
+                status="DRAFT",
+                version_group_id=uuid4(),
+            ),
+            LoyaltySettings(firm_id=firm.id, is_enabled=True),
+            LoyaltyEntry(
+                firm_id=firm.id,
+                customer_id=customer,
+                kind="EARNED",
+                points=Decimal("10"),
+                earned_on=date(2026, 4, 1),
+            ),
+            LoyaltyEntry(
+                firm_id=firm.id,
+                customer_id=customer,
+                kind="EARNED",
+                points=Decimal("5"),
+                earned_on=date(2026, 4, 2),
+            ),
+        ]
+    )
+    session.commit()
+
+    assert _details(_state(session, firm.id, "pricing")) == {
+        "price-lists": ("OPTIONAL", "1 list"),
+        "price-levels": ("OPTIONAL", "2 levels"),
+        "promotions": ("OPTIONAL", "2 offers, 1 running"),
+        "loyalty": ("OPTIONAL", "1 customer"),
+    }

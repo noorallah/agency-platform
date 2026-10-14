@@ -17,8 +17,12 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
 from app.finance.models.tds_194q import Tds194QSettings
+from app.settings_sections.services.business_profile import (
+    business_profile_section,
+)
 from app.settings_sections.services.buying import buying_section
 from app.settings_sections.services.firm import firm_section
+from app.settings_sections.services.pricing import pricing_section
 from app.settings_sections.services.selling import selling_section
 from app.settings_sections.services.steps import (
     DONE,
@@ -31,6 +35,7 @@ from app.settings_sections.services.steps import (
     saved_step,
     switch_step,
 )
+from app.settings_sections.services.stock import stock_section
 from app.tax.models import GstComplianceSettings, TaxProfile, TaxRule, TaxSettings
 from app.tax.services.gst_template import (
     TEMPLATE_RULE_CODES,
@@ -126,6 +131,9 @@ SECTIONS: dict[str, SectionReader] = {
     "firm": firm_section,
     "selling": selling_section,
     "buying": buying_section,
+    "stock": stock_section,
+    "business-profile": business_profile_section,
+    "pricing": pricing_section,
 }
 
 
@@ -148,9 +156,12 @@ __all__ = [
     "SECTIONS",
     "TODO",
     "SettingsStep",
+    "business_profile_section",
     "buying_section",
     "firm_section",
+    "pricing_section",
     "section_state",
     "selling_section",
+    "stock_section",
     "tax_section",
 ]
