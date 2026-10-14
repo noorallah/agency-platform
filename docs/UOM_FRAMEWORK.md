@@ -694,6 +694,35 @@ Note the division of labour: packaging levels describe the **physical**
 hierarchy and carry the barcodes; `uom_conversion_rules` are what documents
 actually convert with. They are not the same table and do not read each other.
 
+## An item's pack, for boxes and pieces on one line (L5 step 2, 2026-10-15)
+
+A line typed as boxes and pieces is a line in the stock unit
+(`docs/design/BOX_AND_PIECE_LINE_DESIGN.md`, 3.1); the pack it adds up with is
+read here, in `backend/app/uom/services/packs.py`, and nowhere else.
+
+- **`pack_unit_of(product, side)`** is the pack's unit: buying reads the
+  purchase unit where it is not the stock unit, else the sales unit; selling
+  the other way about.
+- **`pack_of(session, product, side=, on_date=)`** is its size: the factor of
+  the rule from that unit to the stock unit in force on the date, resolved as
+  every line resolves it (the item's own rule before the firm-wide one, then
+  the latest version). A factor that is not a whole number above one, or no
+  rule, is no pack: the item's lines show pieces only.
+  **`packs_of_many`** answers a page in one read of the rules and one of the
+  unit codes; `pack_of` is it for one item.
+- **`BoxesAndPieces`** splits a total into full packs and loose (41 of 12 is
+  3 + 5; 53.5 kg of a 25 kg bag is 2 + 3.5) and adds two typed cells up into
+  full packs again (2 + 17 is 3 + 5), refusing a part box or a negative cell.
+- **Item rows** (`ProductResponse`) carry `pack_size` and `pack_unit_code` for
+  the selling side and `buying_pack_size` and `buying_pack_unit_code` for the
+  buying side, on the firm's own today, read once per page
+  (`ProductService.packs_for_many`). Null where the item has no pack. Two
+  pairs, not one, because an item can be bought by the case and sold by the
+  box, and the row does not know which editor reads it.
+
+Nothing writes a line's `pack_size` yet; the documents take it from step 3.
+`tests/unit/test_item_packs.py` is the guard.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and

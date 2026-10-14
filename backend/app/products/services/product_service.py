@@ -27,7 +27,7 @@ from app.business.models import (
 )
 from app.business.services import AttributeInput, AttributeService, RecordKind
 from app.common.audit.services import record_audit, record_change, row_state
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, firm_today
 from app.common.master_code_series import MasterCodeNumbering
 from app.common.master_codes import assert_codes_free
 from app.common.open_documents import (
@@ -83,7 +83,7 @@ from app.uom.models import (
     Uom,
 )
 from app.uom.schemas import ConversionRuleCreate
-from app.uom.services import UnitSetService, UomService
+from app.uom.services import Pack, UnitSetService, UomService, packs_of_many
 
 #: The product fields that are somebody's separate duty, by the code that owns
 #: them, with what each is called in a refusal. A price decides what the firm
@@ -370,6 +370,24 @@ class ProductService:
                 code for code in codes if code and code.strip() and code not in held
             )
         return {product_id: codes for product_id, codes in found.items() if codes}
+
+    def packs_for_many(
+        self, rows: Iterable[Product]
+    ) -> tuple[dict[UUID, Pack], dict[UUID, Pack]]:
+        """Return each product's selling pack and buying pack today, read at once.
+
+        The pack a line typed as boxes and pieces adds up with (L5, design
+        3.2), on the firm's own today, so a screen knows how many pieces a
+        box holds. A product with no pack on a side is absent from that side.
+        """
+        listed = list(rows)
+        if not listed:
+            return {}, {}
+        today = firm_today(self._session, listed[0].firm_id)
+        return (
+            packs_of_many(self._session, listed, side="SELL", on_date=today),
+            packs_of_many(self._session, listed, side="BUY", on_date=today),
+        )
 
     def unit_codes_for_many(self, rows: Iterable[Product]) -> dict[UUID, str]:
         """Return the code of the unit each product is sold in, read at once.

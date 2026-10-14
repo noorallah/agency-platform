@@ -93,6 +93,7 @@ from app.products.services.price_revisions import (
 )
 from app.products.services.product_import import template_csv, template_workbook
 from app.products.services.product_service import PRODUCT_DUTIES
+from app.uom.services import Pack
 
 
 def _can_view_cost(scope: ResolvedFirmScope) -> bool:
@@ -877,6 +878,7 @@ def _response(
     revised: dict[UUID, dict[str, Decimal]] | None = None,
     pack_codes: dict[UUID, list[str]] | None = None,
     unit_codes: dict[UUID, str] | None = None,
+    packs: tuple[dict[UUID, Pack], dict[UUID, Pack]] | None = None,
 ) -> ProductResponse:
     """Build one product response with its attributes, stock and prices."""
     payload = ProductResponse.model_validate(row).model_dump(mode="python")
@@ -905,6 +907,14 @@ def _response(
         if unit_codes is None
         else unit_codes
     ).get(row.id)
+    selling, buying = (
+        ProductService(db).packs_for_many([row]) if packs is None else packs
+    )
+    for prefix, held_packs in (("", selling), ("buying_", buying)):
+        pack = held_packs.get(row.id)
+        if pack is not None:
+            payload[f"{prefix}pack_size"] = pack.size
+            payload[f"{prefix}pack_unit_code"] = pack.unit_code
     if not can_view_cost:
         payload["purchase_price"] = None
         payload["purchase_price_in_force"] = None
@@ -920,6 +930,7 @@ def _responses(
     stock = service.stock_for_many(rows)
     pack_codes = service.pack_codes_for_many(rows)
     unit_codes = service.unit_codes_for_many(rows)
+    packs = service.packs_for_many(rows)
     revised = (
         prices_in_force_today(db, rows[0].firm_id, [row.id for row in rows])
         if rows
@@ -935,6 +946,7 @@ def _responses(
             revised=revised,
             pack_codes=pack_codes,
             unit_codes=unit_codes,
+            packs=packs,
         )
         for row in rows
     ]
