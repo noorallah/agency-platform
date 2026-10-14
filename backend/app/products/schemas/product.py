@@ -423,6 +423,16 @@ class ProductResponse(ProductSchema):
     #: line's Unit column has a name to show and not an id (D-UI-98). Null
     #: for a product that names no unit.
     unit_code: str | None = None
+    #: Read from the conversion rules by the router, not the ORM row: the
+    #: stock units in one pack of the item as it is sold today, and that
+    #: pack's unit code, for a line typed as boxes and pieces (L5, design
+    #: 3.2). Null where the item has no pack: its lines show pieces only.
+    pack_size: Decimal | None = None
+    pack_unit_code: str | None = None
+    #: The same two for the pack the item is bought in, which differs only
+    #: where the item's buying and selling units do.
+    buying_pack_size: Decimal | None = None
+    buying_pack_unit_code: str | None = None
 
 
 class ProductSummary(ProductSchema):
