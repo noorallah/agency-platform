@@ -278,6 +278,91 @@ with the `transaction_id` it produced, so day-one stock is as explainable as
 everything after it. Batches can be built from JSON, CSV or XLSX
 (`/opening-stock/import`).
 
+## Costing by lot
+
+*Built in L2, steps 1 to 11, 2026-10-13 and 14. Steps 1 to 11 were checked by unit tests and, for ordering and the switch-over, on PostgreSQL; the routes have not yet been driven over HTTP on a firm that is switched. The decisions, numbered 1 to 85, are in the L2 row of `docs/CUSTOMER_BUILD_TASKS.md`; the design is `docs/design/LOT_COST_DESIGN.md`; the table-level detail is in `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`.*
+
+A firm values its stock one of two ways. **Average** is the default and is
+everything described under *Valuation* above. **By lot** values each purchase
+line as a lot of its own and keeps what that lot cost.
+
+**What a lot is.** A lot is a `batches` row made finer. Every batch has a
+`lot_reference` from the firm's *Stock Lot* numbering series (`LOT...`). A
+lot made for one purchase line also records the day it arrived and the
+document that made it. `batch_valuations` holds what the lot is worth, one row
+per lot: quantity, unit cost, total value. It is the shape of
+`product_valuations` one level down, and an item's figure is always the sum of
+its lots. Goods with no printed batch get a lot that goes by our reference;
+the reference is never printed.
+
+**The setting.** `stock_lot_settings` holds one live row per firm:
+`costing_method`, `switched_on` and `allow_billing_without_stock`. A firm with
+no row is on Average. The screen is *Settings > Stock > Costing method*. On
+Average it previews a switch on a chosen day and names every refusal: the
+firm is already by lot, the day is after today or before the latest stock
+movement, an item is below zero, an item's movements do not add up to its
+value, or unbatched stock is reserved or in transit. It switches only on a
+clean preview and a confirmation. **The switch is one way.** In one
+transaction every batch holding stock becomes a lot, and unbatched stock
+becomes one new lot per item (source `CARRIED_FORWARD`), each at the item's
+average. Each item is compared with its value and quantity before, and the
+switch rolls back on any difference. No journal is posted and no bill is
+touched. Afterwards a stock movement dated before the day is refused. The
+permission is `INVENTORY_MANAGE_SETTINGS`.
+
+**How each movement is valued** (`_apply_lot_valuation`):
+
+- **Receipt.** Each stocked goods receipt line, and each opening stock line,
+  makes a lot of its own, at the cost stated. Cancelling the receipt removes
+  its lots, and is refused once a lot has moved.
+- **Choosing.** Lots leave nearest expiry first (no expiry last), then oldest
+  received, then our reference (`lot_tie_break` in
+  `app/inventory/services/lots.py`). That order is used at reservation,
+  release, dispatch and in the picker. A firm on Average keeps its old order.
+- **Dispatch.** Goods leave at the lot's own cost, never the average, and the
+  issue that empties a lot takes everything left, so a lot closes at zero. The
+  delivery line keeps the lots it took and their cost. The bill's cost is its
+  note line's lots, pro rata, so two lines of one item from two lots carry two
+  costs.
+- **Returns.** A customer's goods go back into the lots the source line
+  shipped, the last taken first refilled, each at the cost its units left with.
+  A purchase return leaves the lot its receipt line made.
+- **Other moves.** A write-off, adjustment, hold, release and transfer that
+  name no lot take the first lot, in the order above, that holds all of it.
+  A quantity no single lot holds is refused, with the lots and what each
+  holds. A transfer carries exactly the value that left. Stock found with no
+  lot named is a new lot at a typed cost or the newest lot's. A repack's
+  output is a new lot.
+- **No negative stock.** A firm costing by lot never runs below zero, even for
+  an item that allows it, except through the next point.
+- **Billing without stock.** If the firm switches on
+  `allow_billing_without_stock`, an item that may run below zero can be billed
+  past its lots once the bill maker confirms (`details.confirm` =
+  `BILL_WITHOUT_STOCK`). What the lots hold leaves first. The rest leaves with
+  no lot at the newest lot's cost and waits in `lot_shortfalls`, derived with
+  `lot_shortfall_settlements`, never a counter. The goods receipt that brings
+  the item in covers it, oldest sale first, and posts the lot's cost less the
+  cost used (`<GRN>-LS`). A return before then clears it. A year with a bill
+  waiting cannot be closed.
+- **A supplier's bill at another rate** puts the difference for the units
+  still in the lot onto that lot (a `COST_CORRECTION` movement, no quantity,
+  dated the bill). The share for units gone stays purchase price variance.
+  Landed cost and bill of entry judge the units still held by the receipt
+  line's own lot.
+
+The invariant is checked by ledger tests: the Inventory account equals the sum
+of the lots after each step (`tests/unit/test_lot_cost_correction.py`).
+
+**Reports.** *Stock valuation* values each item as the sum of its lots, with a
+line of its own, *Units owed to lots*, so the total still compares with the
+Inventory account. *Stock valuation by lot* lists every lot holding stock.
+*Stock ageing* ages each lot from its own received date. *Margin by lot* gives
+quantity, sales value, cost and margin per item and lot. *Bills waiting for
+their cost* lists the shortfalls. A lot's *Trace* page shows the arrival, then
+every movement signed in and out, the supplier's bill and the sales bills.
+**Cost is shown only to a holder of `PRODUCT_VIEW_COST_PRICE`**, here and in
+the picker; for anyone else the cost columns are left out.
+
 ## API surface
 
 Everything under `/api/v1/inventory`:
@@ -292,6 +377,13 @@ Everything under `/api/v1/inventory`:
 | `POST /opening-stock`, `/opening-stock/{id}/post` | `OPENING_STOCK_CREATE` |
 | `PUT /opening-stock/{id}` | `OPENING_STOCK_UPDATE` |
 | `POST /opening-stock/import` | `INVENTORY_IMPORT` |
+| `GET /lot-settings` | `INVENTORY_VIEW` |
+| `PUT /lot-settings`, `GET /lot-settings/switch-preview`, `POST /lot-settings/switch` | `INVENTORY_MANAGE_SETTINGS` |
+| `GET /lot-shortfalls`, `GET /reports/stock-valuation/lots` | stock valuation scope (`INVENTORY_VIEW` or `REPORT_VIEW`) |
+
+Outside this prefix: `GET /api/v1/sales-invoices/reports/margin-by-lot` (`SALES_VIEW` or `REPORT_VIEW`, margin
+by lot) and `GET /api/v1/batch-serial/batches/{id}/trail` (a lot's trail,
+`BATCH_VIEW`). Cost fields are blank without `PRODUCT_VIEW_COST_PRICE`.
 
 ## Live, in the seeded data
 

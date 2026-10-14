@@ -8452,6 +8452,168 @@ Recorded for the owner, **not fixed** — this pass changes documents only.
 - **Leaves:** a firm-owned field.
 
 
+## Costing by lot
+
+Costing by lot is a firm setting (*Settings > Stock > Costing method*) that values stock by the purchase lot it came in, instead of one average per item. `docs/INVENTORY_FRAMEWORK.md`, "Costing by lot", is the reference, and the decisions are numbered in the L2 row of `docs/CUSTOMER_BUILD_TASKS.md`.
+
+These cases use the fixture `lot-firm` (firm TEST03, *Test Fixtures Lot Firm*, already switched by lot). It holds a batch-tracked product with two lots at two costs, an untracked product, a supplier and a customer. Run it from `backend` with `python scripts/test_fixture.py lot-firm`. The switch-over cases need a firm still on Average, so they name `selling-firm`.
+
+**Every case here was written from the code and the build notes, and none has been driven against a server.**
+
+### TC-LOT-001 — The switch-over preview and its refusals
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 9; decisions 57 to 64
+- **Fixture:** `selling-firm`
+- **Also needs:** a firm still on Average (`lot-firm` is already switched); a product with 10 in MAIN and a second product with stock below zero, if the firm allows it; the Firm admin and a user without `INVENTORY_MANAGE_SETTINGS`.
+- **Steps:** (1) As the Firm admin, *Settings > Stock > Costing method*. Read the method shown. Pick today's date and read the preview. (2) Pick a day after today, then a day before the latest stock movement. (3) With the second product below zero, read the preview again. (4) **(HTTP)** as the user without the permission, `GET /api/v1/inventory/lot-settings/switch-preview` and `POST /api/v1/inventory/lot-settings/switch`.
+- **Expect:** (1) The firm shows *Average*. The preview lists items, lots to be made and quantity, and the stock value only to a holder of `PRODUCT_VIEW_COST_PRICE`; with no refusal the switch button is offered. (2) Each is refused and named: a day after today; a day before the latest stock movement. The switch button stays off. (3) The refusal names the item that is below zero. (4) **403** on both; nothing changes.
+- **Leaves:** nothing; the firm is still on Average.
+
+### TC-LOT-002 — The one-way switch
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 9; decisions 57 to 64
+- **Fixture:** `selling-firm`
+- **Also needs:** a firm of its own still on Average, made for this case on the Firms screen -- **never TEST01, TEST02 or a demo firm**, because the switch cannot be undone and every other case needs them on Average; in it a batch-tracked product with two batches holding stock, a plain product with unbatched stock, and the stock valuation read before the switch.
+- **Steps:** (1) Note *Stock valuation* for both products and the Inventory account balance. (2) *Settings > Stock > Costing method*: pick today, confirm the one-way warning, switch. (3) Reopen the screen. (4) Read *Stock valuation by lot* and *Stock valuation* again. (5) **(HTTP)** `POST /api/v1/inventory/lot-settings/switch` a second time. (6) Try an adjustment dated before the switch day.
+- **Expect:** (2) The switch succeeds. (3) The screen shows *By lot*, the switch day, and the switch *allow billing when no lot holds the stock*; there is no way back. (4) Each batch is a lot; the unbatched stock is one new lot (source *Carried forward*) at the item's average. Totals per item, and the Inventory account, are exactly what they were before; no journal was posted. (5) Refused: already by lot. (6) Refused: dated before the switch.
+- **Leaves:** that firm switched by lot, for good.
+
+### TC-LOT-003 — A receipt makes a lot for each line
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 3; decisions 9 to 17
+- **Fixture:** `lot-firm`
+- **Also needs:** the batch-tracked product and the untracked product, the supplier, a warehouse MAIN.
+- **Steps:** (1) Buy > Goods Receipts: receive 10 of the batch-tracked product with batch `LOTA`, expiry in 6 months, MRP 60, at cost 40.00, and 5 more on a second line with batch `LOTB`, at cost 42.00. Complete it. (2) Receive 8 of the untracked product with no batch, cost 30.00. (3) Open *Stock valuation by lot*. (4) Try cancelling the receipt of step 1 after selling 1 from `LOTA`.
+- **Expect:** (1) Two lots, one per line, each with its own batch, expiry, MRP, quantity and cost, and the receipt's number and date as its source. (2) One lot, which carries a *LOT...* reference of the firm's *Stock Lot* series and no printed batch. (3) Each lot is one row, at its own cost. (4) Refused: a lot of the receipt has moved. A receipt whose lots are untouched cancels, and its lots go with it.
+- **Leaves:** lots from the case's own receipts.
+
+### TC-LOT-004 — The picker groups lots and shows a dash for an unprinted lot
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 steps 4 and 11; decisions 18, 19, 84
+- **Fixture:** `lot-firm`
+- **Also needs:** the fixture's two lots of the batch-tracked product at two costs, and the untracked product with a lot that has no printed batch.
+- **Steps:** (1) Receive 5 more of the batch-tracked product with the same batch, expiry, MRP and prices as one of the lots, at a third cost. (2) Sell > Delivery Notes: add a line for the batch-tracked product and open the batch picker. (3) Type a quantity larger than the first lot of the group holds. (4) Open the picker for the untracked product. (5) Sign in as a user without `PRODUCT_VIEW_COST_PRICE` and open the picker again.
+- **Expect:** (2) The lots that agree on batch, expiry, MRP and prices are one row with their total; other lots are rows of their own, nearest expiry first. (3) The quantity fills the oldest lot, then the next; the rest goes on the last lot, so an over-ask still shows red. (4) The lot shows a **dash** for batch and its received date; our *LOT...* reference is not shown. (5) The cost column is gone.
+- **Leaves:** nothing, if the delivery note is not saved.
+
+### TC-LOT-005 — Dispatch takes the nearest-expiry lot and the bill carries its cost
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 steps 4 and 5; decisions 20 to 26
+- **Fixture:** `lot-firm`
+- **Also needs:** the fixture's two lots, a customer, and a rate typed on the line.
+- **Steps:** (1) Create a sales order for the batch-tracked product for a quantity that fits the lot expiring first. Approve it, create a delivery note with no batch chosen, dispatch it. (2) Create the bill. (3) Open *Stock valuation by lot*. (4) Print the bill and the challan.
+- **Expect:** (1) The lot expiring first gives the goods, never the second. (2) The bill line's cost is that lot's cost, not the average of the two. (3) The first lot's quantity falls by the sale and the second is untouched; if the quantity took the lot to zero, that lot reads zero value. (4) The challan and bill print the lot's batch, expiry and MRP and never our reference.
+- **Leaves:** a dispatched sale.
+
+### TC-LOT-006 — Two lines of one item from two lots
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 5 (D-SELL-99); decision 22
+- **Fixture:** `lot-firm`
+- **Also needs:** the fixture's two lots, and a customer.
+- **Steps:** (1) Create a delivery note with two lines for the batch-tracked product. Pick lot `LOTA` on the first and `LOTB` on the second, quantity 2 each. Dispatch. (2) Raise the bill and read both lines. (3) Open *Margin by lot*.
+- **Expect:** (2) Each line carries **its own lot's** cost: 2 x 40.00 and 2 x 42.00, and not the cost of both on each line. (3) One row per lot with the quantity, sales value, cost and margin of each.
+- **Leaves:** a dispatched sale.
+
+### TC-LOT-007 — A sales return goes back into the lots it left
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 6; decisions 27 to 33
+- **Fixture:** `lot-firm`
+- **Also needs:** a bill that drew 3 from `LOTA` and 2 from `LOTB`, dispatched as in the cases before.
+- **Steps:** (1) Raise a sales return of 4 off the bill's line and complete it. (2) Read the two lots in *Stock valuation by lot*. (3) Raise a return naming a batch that the line did not ship. (4) Cancel the first return. (5) Return the same line for 100.
+- **Expect:** (1)-(2) The last lot taken is refilled first: 2 back into `LOTB`, then 2 into `LOTA`, each at the cost its units left with, so each lot's unit cost does not move. (3) Refused: the batch was not shipped on that line. (4) Every movement reverses and the lots hold what they held before. (5) Refused: more than was sold.
+- **Leaves:** a sale, partly returned, with the return cancelled.
+
+### TC-LOT-008 — A write-off or a transfer that names no lot
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 7; decisions 34 to 38
+- **Fixture:** `lot-firm`
+- **Also needs:** the fixture's two lots, a second warehouse.
+- **Steps:** (1) Stock > Inventory: write off 2 of the batch-tracked product without choosing a batch. (2) Transfer 3 to the second warehouse without choosing a batch. (3) Write off a quantity larger than either lot holds on its own but smaller than both together. (4) Adjust stock up by 4 with no lot chosen and a unit cost of 45.00. (5) Repeat step 4 naming an existing lot and a unit cost.
+- **Expect:** (1) The 2 leave the first lot, nearest expiry first, at that lot's cost. (2) The 3 leave the first lot that holds all of them and arrive at the same value, so the lot's cost stands. (3) Refused, naming both lots and what each holds; take them lot by lot. (4) A new lot (source *Adjustment*) at 45.00. (5) Refused: a cost is not allowed on a named lot.
+- **Leaves:** lots reduced, a new lot found.
+
+### TC-LOT-009 — Stock never runs below zero
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 7; decision 39
+- **Fixture:** `lot-firm`
+- **Also needs:** the untracked product with 8 in MAIN, *allow billing when no lot holds the stock* **off**, and a customer.
+- **Steps:** (1) Adjust stock down by 9. (2) Raise a purchase return of 9. (3) Dispatch a delivery note for 9. (4) Repeat with a product whose settings allow negative stock.
+- **Expect:** (1)-(3) Each is refused, naming the shortage, and the stock still reads 8. (4) Refused all the same: a firm by lot never runs below zero, however the product is set, unless billing without stock is on and the bill maker confirms (the next case).
+- **Leaves:** nothing.
+
+### TC-LOT-010 — Billing without stock: the confirmation, and settlement when the purchase comes
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 7a; decisions 41 to 51
+- **Fixture:** `lot-firm`
+- **Also needs:** the untracked product with 8 in MAIN and allowed to run below zero, a customer, a supplier; then *allow billing when no lot holds the stock* switched on in *Settings > Stock > Costing method*.
+- **Steps:** (1) Create and approve a delivery note for 10. Dispatch it without confirming. (2) Dispatch again, now confirming the question *no stock in any lot, bill anyway?* (`details.confirm` = `BILL_WITHOUT_STOCK`). (3) Open *Bills waiting for their cost*. (4) Receive 10 at cost 35.00 in the same warehouse, and complete the receipt. (5) Open the report again, and the ledger. (6) Try closing the financial year before step 4.
+- **Expect:** (1) Refused with the question. (2) The 8 held leave from the lot at its cost; the other 2 leave with no lot at the newest lot's cost; the dispatch records who confirmed. (3) The report lists 2 units, the bill, the warehouse and the cost used (cost columns only with the cost permission). (4)-(5) The receipt covers the 2 units, oldest sale first; the report is empty; a correction journal `<GRN>-LS` posts the lot's cost less the cost used, so the sale ends costing what its lot cost. (6) Refused while a bill waits.
+- **Leaves:** a firm with the setting on; keep this case apart from the one before it.
+
+### TC-LOT-011 — A supplier's bill at another rate corrects the lot
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 8; decisions 52 to 56
+- **Fixture:** `lot-firm`
+- **Also needs:** a goods receipt of 10 at 40.00 with 3 already sold, and a supplier.
+- **Steps:** (1) Raise a supplier bill against the receipt line at 44.00 for 10. Approve it. (2) Read the lot in *Stock valuation by lot*, and the bill's journal. (3) Cancel the bill. (4) Raise a bill at 38.00 and approve it.
+- **Expect:** (1)-(2) The lot's unit cost rises by the extra for the 7 units still in it; the share for the 3 sold is purchase price variance. The Inventory account equals the sum of the lots. (3) The lot gives back what it still holds of the correction and the rest goes to variance. (4) The lot takes the cheaper rate for the 7 held and never falls below nothing.
+- **Leaves:** a lot at a corrected cost, or back to its first.
+
+### TC-LOT-012 — Stock valuation by lot, Margin by lot and Stock ageing
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 10; decisions 65 to 77
+- **Fixture:** `lot-firm`
+- **Also needs:** the fixture's lots with one sold and one returned, a customer, and the Firm admin.
+- **Steps:** (1) Open *Reports > Stock valuation* and *Stock valuation by lot* for today. (2) Pick a day before the switch. (3) Open *Stock ageing*. (4) Open *Margin by lot* for the month. (5) Raise a bill, approve it, and open the report again.
+- **Expect:** (1) *Stock valuation* is the sum of each item's lots; the lot report lists a row per lot holding stock with reference, batch, received date, expiry, MRP, quantity, cost and value, and its rows add up to the valuation. (2) A day before the switch reads on Average and the lot report is empty. (3) Each lot is aged from its own received date at its own cost. (4) One row per item and lot: quantity sold, sales value, cost and margin, with returns taken back. (5) The new bill is counted once it is approved.
+- **Leaves:** nothing.
+
+### TC-LOT-013 — Costs are hidden without the cost permission
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 steps 4, 10 and 11; decisions 26, 83
+- **Fixture:** `lot-firm`
+- **Also needs:** the Firm admin, and a user holding `INVENTORY_VIEW`, `BATCH_VIEW` and the report permissions but **not** `PRODUCT_VIEW_COST_PRICE`.
+- **Steps:** (1) As the user without the cost permission open *Stock valuation by lot*, *Margin by lot*, *Bills waiting for their cost*, the batch picker and a lot's *Trace*. (2) **(HTTP)** `GET /api/v1/inventory/reports/stock-valuation/lots`, `GET /api/v1/sales-invoices/reports/margin-by-lot`, `GET /api/v1/inventory/lot-shortfalls`, `GET /api/v1/batch-serial/batches/{id}/trail`. (3) Repeat as the Firm admin.
+- **Expect:** (1)-(2) Quantities, dates and references are shown; every cost, value and margin is **left out or blank**, and on the *Trace* the sales bill's amount too. The pages open and do not fail. (3) The Firm admin sees all of them.
+- **Leaves:** nothing.
+
+### TC-LOT-014 — A lot's Trace page
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Covers:** L2 step 11; decisions 78 to 83, 85
+- **Fixture:** `lot-firm`
+- **Also needs:** the lot `LOTA` received, billed by a supplier, partly sold, partly returned, with one write-off.
+- **Steps:** (1) Inventory > Batch & Serial > Batches: open the batch and press **Trace** in the details. (2) Read the events top to bottom. (3) **(HTTP)** `GET /api/v1/batch-serial/batches/{id}/trail` for the batch, then for a made-up id.
+- **Expect:** (1)-(2) The arrival comes first (the goods receipt, supplier, date, source), then every movement signed in and out (+ into the lot, - out of it), with the supplier's bill and the sales bills, each found by its number. A reservation and its release are not listed. A write-off shows with its own number and date. A bill appears only once APPROVED or CLOSED, at quantity 0. (3) The lot, its reference, whether it carries a printed batch, its unit cost now and the events; **404** for an unknown id.
+- **Leaves:** nothing.
+
 ---
 
 ## Adding a case

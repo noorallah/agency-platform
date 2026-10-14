@@ -10,6 +10,12 @@ numbering, stock movements and journals.
     uv run python scripts/seed_volume_firm.py                 # scale 1.0
     uv run python scripts/seed_volume_firm.py --scale 0.1     # a quick run
     uv run python scripts/seed_volume_firm.py --reset         # rebuild PERF01
+    uv run python scripts/seed_volume_firm.py --by-lot        # PERF02, by lot
+
+``--by-lot`` builds **PERF02** in schema ``perf02`` instead -- the same
+trading -- and once it is in, switches the firm to costing by lot through
+``LotSwitchOverService``, the service the switch route calls (L2 step 12).
+PERF01 is never touched by it.
 
 The firm lives in its **own dedicated schema** (``perf01``), provisioned the
 way every SCHEMA firm is, so it never mixes with another firm's rows and
@@ -81,10 +87,25 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
 )
 
-FIRM_CODE = "PERF01"
-FIRM_NAME = "Performance test firm"
-SCHEMA_NAME = "perf01"
-ADMIN_EMAIL = "perf01.admin@agency.local"
+
+@dataclass(frozen=True)
+class VolumeFirm:
+    """Which firm a run builds: its code, name, schema and administrator."""
+
+    code: str
+    name: str
+    schema: str
+    admin_email: str
+
+
+#: The firm on Average, and the default.
+PERF01 = VolumeFirm(
+    "PERF01", "Performance test firm", "perf01", "perf01.admin@agency.local"
+)
+#: The same trading, then switched to costing by lot (``--by-lot``; L2 step 12).
+PERF02 = VolumeFirm(
+    "PERF02", "Performance test firm by lot", "perf02", "perf02.admin@agency.local"
+)
 DEFAULT_PASSWORD = "PerfAdmin@12345"
 BATCH_SIZE = 5_000
 TRADING_DAYS = 730
@@ -287,6 +308,7 @@ class FirmContext:
     start: date
     end: date
     place_of_supply: str = f"{STATE_NAME} ({STATE_CODE})"
+    firm_code: str = PERF01.code
 
 
 @dataclass
@@ -924,7 +946,7 @@ class TradeSimulator:
         """Lay down day-one stock per warehouse, posted as the service posts it."""
         on = self.ctx.start
         for warehouse_index, warehouse_id in enumerate(self.ctx.warehouse_ids):
-            reference = f"OS-{FIRM_CODE}-W{warehouse_index + 1}"
+            reference = f"OS-{self.ctx.firm_code}-W{warehouse_index + 1}"
             batch = self._base(on)
             self.sink.add(
                 "opening_stock_batches",
@@ -2146,8 +2168,10 @@ def _say(message: str) -> None:
     print(message, flush=True)
 
 
-def setup_firm(reset: bool, password: str) -> tuple[Any, Any, FirmContext]:
-    """Create or rebuild PERF01 through the services and return its context.
+def setup_firm(
+    reset: bool, password: str, spec: VolumeFirm = PERF01
+) -> tuple[Any, Any, FirmContext]:
+    """Create or rebuild the volume firm through the services and return its context.
 
     Returns the store's ``DatabaseManager``, the tenant schema name, and the
     context. Everything here is the real set-up path: ``FirmService.create``
@@ -2200,68 +2224,72 @@ def setup_firm(reset: bool, password: str) -> tuple[Any, Any, FirmContext]:
             select(User).where(User.email == "platform-admin@agency.local")
         )
         if actor is None:
-            raise SystemExit("platform-admin@agency.local is needed to create PERF01.")
+            raise SystemExit(
+                f"platform-admin@agency.local is needed to create {spec.code}."
+            )
         actor_id = actor.id
         service = FirmService(
             session, storage_lifecycle=lifecycle, tenancy_settings=settings.tenancy
         )
         firm = session.scalar(
-            select(Firm).where(Firm.code == FIRM_CODE, Firm.is_deleted.is_(False))
+            select(Firm).where(Firm.code == spec.code, Firm.is_deleted.is_(False))
         )
         if firm is None:
             firm = service.create(
                 FirmCreate(
-                    name=FIRM_NAME,
-                    code=FIRM_CODE,
+                    name=spec.name,
+                    code=spec.code,
                     address_line1="Performance Park",
                     city="Bengaluru",
                     postal_code="560001",
                     country="IN",
                     state=STATE_NAME,
-                    contact_name="PERF01 Admin Desk",
-                    contact_email="hello@perf01.agency.local",
+                    contact_name=f"{spec.code} Admin Desk",
+                    contact_email=f"hello@{spec.schema}.agency.local",
                     contact_phone="+919900056056",
                     currency_code="INR",
-                    gst_number=_gstin("PERF01", 1),
+                    gst_number=_gstin(spec.code, 1),
                     financial_year_start=fy_start(start),
                     deployment_mode=DeploymentMode.SCHEMA,
                     database_name=settings.tenancy.shared_database_name,
-                    schema_name=SCHEMA_NAME,
+                    schema_name=spec.schema,
                     database_type="postgresql",
                     notes="Volume test firm (backlog 56 C, step 5).",
                 ),
                 actor_id=actor_id,
             )
-            _say(f"created firm {FIRM_CODE}")
+            _say(f"created firm {spec.code}")
         mapping = next(
             row for row in firm.storage_mappings if row.is_active and not row.is_deleted
         )
-        if mapping.schema_name != SCHEMA_NAME:
+        if mapping.schema_name != spec.schema:
             raise SystemExit(
-                f"{FIRM_CODE} is routed to schema {mapping.schema_name!r}, not "
-                f"{SCHEMA_NAME!r}; refusing to touch it."
+                f"{spec.code} is routed to schema {mapping.schema_name!r}, not "
+                f"{spec.schema!r}; refusing to touch it."
             )
         if reset:
             with platform.engine.begin() as connection:
                 connection.execute(
-                    text(f'DROP SCHEMA IF EXISTS "{SCHEMA_NAME}" CASCADE')
+                    text(f'DROP SCHEMA IF EXISTS "{spec.schema}" CASCADE')
                 )
-            _say(f"dropped schema {SCHEMA_NAME}")
+            _say(f"dropped schema {spec.schema}")
             lifecycle.provision_new_firm(firm)
             mapping.provisioned_at = utc_now()
             session.commit()
         else:
             service.provision(firm.id, actor_id)
-        _say(f"storage ready: schema {SCHEMA_NAME}")
+        _say(f"storage ready: schema {spec.schema}")
         identity = IdentityService(session, settings)
         admin = session.scalar(
-            select(User).where(User.email == ADMIN_EMAIL, User.is_deleted.is_(False))
+            select(User).where(
+                User.email == spec.admin_email, User.is_deleted.is_(False)
+            )
         )
         if admin is None:
             admin = identity.create_user(
                 UserCreate(
-                    email=ADMIN_EMAIL,
-                    full_name="PERF01 Admin",
+                    email=spec.admin_email,
+                    full_name=f"{spec.code} Admin",
                     password=password,
                     is_active=True,
                     force_password_change=False,
@@ -2283,7 +2311,7 @@ def setup_firm(reset: bool, password: str) -> tuple[Any, Any, FirmContext]:
             deployment_mode=DeploymentMode.SCHEMA,
             database_name=mapping.database_name
             or settings.tenancy.shared_database_name,
-            schema_name=SCHEMA_NAME,
+            schema_name=spec.schema,
             database_type=mapping.database_type,
         )
         manager = provider.manager_for(tenant)
@@ -2291,7 +2319,7 @@ def setup_firm(reset: bool, password: str) -> tuple[Any, Any, FirmContext]:
         with manager.sessions(schema=schema).session() as store:
             if store.execute(text("select count(*) from sales_invoices")).scalar():
                 raise SystemExit(
-                    f"{FIRM_CODE} already holds trading; pass --reset to rebuild it."
+                    f"{spec.code} already holds trading; pass --reset to rebuild it."
                 )
             profile = store.scalar(
                 select(BusinessProfile).where(BusinessProfile.code == "WHOLESALE")
@@ -2362,6 +2390,7 @@ def setup_firm(reset: bool, password: str) -> tuple[Any, Any, FirmContext]:
                 business_profile_id=profile.id if profile is not None else None,
                 start=start,
                 end=end,
+                firm_code=spec.code,
             )
             store.commit()
         session.commit()
@@ -2410,6 +2439,7 @@ def read_context(
     business_profile_id: UUID | None,
     start: date,
     end: date,
+    firm_code: str = PERF01.code,
 ) -> FirmContext:
     """Read every id the trading needs, and bootstrap each document series.
 
@@ -2538,6 +2568,7 @@ def read_context(
         uom_id=uom_id,
         start=start,
         end=end,
+        firm_code=firm_code,
     )
 
 
@@ -2578,8 +2609,48 @@ def _print_counts(sink: Sink, elapsed: float) -> None:
     _say(f"  {'total':<40} {sum(sink.counts.values()):>12,}")
 
 
+#: What the switch-over writes, re-analysed after it as the trading was.
+LOT_TABLES = (
+    "batches",
+    "batch_valuations",
+    "inventories",
+    "product_valuations",
+    "stock_lot_settings",
+)
+
+
+def switch_to_lots(manager: Any, schema: str, ctx: FirmContext) -> None:  # noqa: ANN401
+    """Switch the firm to costing by lot, through the service the route calls.
+
+    ``LotSwitchOverService.switch`` on the firm's own today: the trading ends
+    yesterday, so the day is after the last movement and not in the future,
+    the two things the switch refuses. Every item's stock becomes lots at its
+    average, checked to the paisa, in one transaction.
+    """
+    from app.common.firm_metadata import firm_today
+    from app.inventory.services.lot_switch_over import LotSwitchOverService
+
+    began = time.monotonic()
+    with manager.sessions(schema=schema).session() as store:
+        on = firm_today(store, ctx.firm_id)
+        service = LotSwitchOverService(store)
+        preview = service.preview(ctx.firm_id, on)
+        if preview.refusals:
+            raise SystemExit("The switch is refused: " + " ".join(preview.refusals))
+        service.switch(ctx.firm_id, on, ctx.actor_id)
+    _say(
+        f"switched to costing by lot on {on}: {preview.items:,} items, "
+        f"{preview.lots:,} lots, value {preview.stock_value:,} in "
+        f"{time.monotonic() - began:,.0f}s"
+    )
+    with manager.engine.connect() as connection:
+        for table in LOT_TABLES:
+            connection.execute(text(f'ANALYZE "{schema}"."{table}"'))
+        connection.commit()
+
+
 def main() -> int:
-    """Build PERF01 and its two years of trading."""
+    """Build PERF01 (or PERF02, by lot) and its two years of trading."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
         "--scale",
@@ -2590,16 +2661,25 @@ def main() -> int:
     parser.add_argument(
         "--reset",
         action="store_true",
-        help=f"Drop and rebuild the {SCHEMA_NAME} schema first.",
+        help="Drop and rebuild the firm's schema (perf01, or perf02) first.",
+    )
+    parser.add_argument(
+        "--by-lot",
+        action="store_true",
+        help=(
+            f"Build {PERF02.code} in schema {PERF02.schema} instead, and switch "
+            "it to costing by lot once the trading is in."
+        ),
     )
     parser.add_argument(
         "--password",
         default=os.environ.get("PERF01_PASSWORD", DEFAULT_PASSWORD),
-        help=f"Password for {ADMIN_EMAIL} when it is created.",
+        help="Password for the firm's administrator when it is created.",
     )
     args = parser.parse_args()
+    spec = PERF02 if args.by_lot else PERF01
     started = time.monotonic()
-    manager, schema, ctx = setup_firm(args.reset, args.password)
+    manager, schema, ctx = setup_firm(args.reset, args.password, spec)
     _say(
         f"set-up done in {time.monotonic() - started:,.0f}s; trading "
         f"{ctx.start} to {ctx.end} at scale {args.scale}"
@@ -2620,6 +2700,8 @@ def main() -> int:
         for table in sorted(sink.counts):
             connection.execute(text(f'ANALYZE "{schema}"."{table}"'))
         connection.commit()
+    if args.by_lot:
+        switch_to_lots(manager, schema, ctx)
     _print_counts(sink, time.monotonic() - started)
     _say(f"tally: {dict(simulator.tally)}")
     return 0

@@ -368,3 +368,70 @@ statement is still over the three-second target; what is left is the two
 valuations it is built from, and has not been re-timed over HTTP on an idle
 machine.
 
+
+## Costing by lot (L2 step 12), 2026-10-14
+
+`scripts/seed_volume_firm.py --by-lot` builds **PERF02** in its own schema
+`perf02` -- the same trading as PERF01 at `--scale 1.0` -- and once it is in,
+switches the firm to costing by lot through `LotSwitchOverService`, the
+service `POST /inventory/lot-settings/switch` calls, on the firm's today.
+PERF01 and the default run are unchanged.
+
+Seed: **41.7 minutes**, 11.26 million rows (109,566 invoices, 20,434
+purchase bills, 1.69 million movements) on a machine also running Docker,
+the dev server and a unit-test run for the first minutes -- PERF01's 16.9
+minutes on 2026-10-01 is the idle figure. The switch-over carried **5,000
+items into 5,000 lots** (500 batches and 4,500 new lots, one per untracked
+item, since the seeder buys each product at one cost), stock value
+654,027,813.71, in **127 s**, checked to the paisa.
+
+How it was measured: the backend on :8000 had stopped by the time the seed
+finished and was not restarted, and PERF01 does not exist on this machine's
+database, so the figures are **in process** -- each route function called
+on a fresh session, as a request would be, no HTTP or serialisation -- three
+calls, median, on PERF02, three passes taken back to back. They are noisy:
+the same route moved by up to 40% between passes.
+
+| Route | Window | Median ms (three passes) | Rows | Target |
+| --- | --- | --- | ---: | --- |
+| `/inventory/reports/stock-valuation` | today | 3,855 / 3,545 / 3,509 | 100 | SLOW |
+| `/inventory/reports/stock-valuation/lots` | today | 2,141 / 2,754 / 2,948 | 100 | OK |
+| `/inventory/reports/stock-statement` | Sept 2026 (Average) | 5,101 / 6,112 / 5,924 | 100 | SLOW |
+| `/inventory/reports/stock-statement` | FY 2025-26 (Average) | 4,800 / 6,730 / 6,390 | 100 | SLOW |
+| `/inventory/reports/stock-statement` | Oct 1-15, closes by lot | 7,427 | 100 | SLOW |
+| `/inventory/reports/stock-ageing` | today | 1,688 / 3,110 / 2,982 | 100 | OK |
+| `/sales-invoices/reports/margin-by-lot` | month, year | 7-18 | 0 | OK |
+| `/batch-serial/batches/availability` | a batched item | 12-16 | 1 | OK |
+| `/batch-serial/batches/availability` | an untracked item | 10-12 | 1 | OK |
+
+What it says:
+
+- **The by-lot read costs what the Average read costs.** Timed piece by
+  piece on the same data, `lot_stock` (every lot's quantity and value for
+  the firm) took 1.1-1.2 s; the Average path's two reads it replaces,
+  `_owned_by_product` and `_rates`, took 1.2-1.5 s together. Both sum every
+  movement the firm ever made; the lots add one grouped read of
+  `batch_valuations` (0.1-1.0 s, as noisy as the rest).
+- **The valuation and the stock statement are over target on both paths,**
+  as they were on PERF01 on 2026-10-08 (1.7 s and 4.3 s then, on a quieter
+  machine). The statement is two valuations and a period's movements, so it
+  inherits the valuation's cost twice; a statement whose closing day is by
+  lot (7.4 s) pays the lot read on top of an opening on Average. Not a
+  per-row query to batch: what is left is summing 1.69 million movements per
+  valuation, which wants a stored closing position per period -- not done
+  here.
+- **The switch-over day is today**, so every historical window is valued on
+  Average, and no invoice has been costed by lot: margin by lot answers no
+  rows, and each item holds one lot. The lot volume the design expects --
+  lots growing with purchase lines -- is not in PERF02; a seeder that trades
+  after the switch is what would show it.
+- **Over HTTP, 2026-10-15** (`scripts/time_routes.py --firm-code PERF02
+  --only <route>`, median of 3, backend just restarted): stock valuation
+  1,496 ms (month) and 1,379 ms (year), OK; stock statement 3,399 ms and
+  4,069 ms, SLOW as on PERF01 before lots; stock ageing 1,591 / 1,041 ms,
+  OK; margin by lot 35 / 32 ms and the lot-shortfalls list 17 ms, OK (no
+  rows: nothing sold since the switch). Stock valuation by lot answered no
+  rows for both windows, since both end before the switch day and a day
+  before the switch reads on Average (decision 65); its today figure is the
+  in-process one above. PERF01 is not in this database, so it was not
+  re-timed; the stock read was compared piece by piece instead.

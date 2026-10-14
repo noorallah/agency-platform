@@ -537,6 +537,25 @@ the goods receipt. No bill may charge more, tax included, than the lowest MRP
 of the batches a line ships; a firm may switch on *Price from batch* so the
 chosen batch's selling price fills the rate.
 
+**Costing by lot.** A firm may value its stock **by lot** instead of on
+one average (*Settings → Stock → Costing method*). Every purchase line then
+becomes a lot that remembers what it cost, and a sale costs what the lots it
+took cost. It suits a firm whose stock of one item was bought at several
+rates. The screen previews a switch on a day, names anything that blocks it,
+and switches only after a one-way confirmation. After it, a goods receipt
+makes a lot per line (goods with no printed batch go by our reference, never
+printed); the batch picker groups lots that agree on batch, expiry and prices
+and fills the oldest first, with a dash where no batch is printed; a bill
+carries the cost of the lots it took; a customer's return goes back into
+those lots; a write-off or transfer takes the first lot that holds it; and
+stock never runs below zero unless the firm allows billing with no stock in
+any lot, which asks the bill maker to confirm and is settled when the
+purchase comes in. A supplier's bill at another rate corrects the lot. The
+reports are *Stock valuation by lot*, *Margin by lot* and *Bills waiting for
+their cost*, and *Trace* in the batch details shows a lot's whole trail.
+Cost is shown only to a holder of the cost permission
+(`PRODUCT_VIEW_COST_PRICE`). Not yet clicked on a switched firm.
+
 Every delivery note says **why the goods go out**: *Sale* (the default),
 *Van or route sale*, *Supply on approval*, *Quantity not known*, *Job work* or
 *Other* (with words). The reason prints on the challan. GST wants a sale's tax

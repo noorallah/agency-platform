@@ -18,7 +18,8 @@ schema of its own, so the four demo firms are never touched and a table check
 against ``test_fixtures`` shows only test data. The first run builds them --
 create, provision, open the books, apply the GST template, create the head
 office, assign the Wholesale profile -- through the same endpoints plan
-section 27 tests. Later runs find them and move on.
+section 27 tests. Later runs find them and move on. A third, **TEST03** in
+``test_fixtures_3``, costs its stock by lot; only ``lot-firm`` builds it.
 
 **One step is not an API call, on purpose.** Nothing in the API grants the
 platform-administrator designation: a ``platform_admins`` row is deliberately
@@ -75,6 +76,10 @@ class FixtureFirm:
 TEST01 = FixtureFirm("TEST01", "test_fixtures", "Test Fixtures Firm")
 TEST02 = FixtureFirm("TEST02", "test_fixtures_2", "Test Fixtures Second Firm")
 FIXTURE_FIRMS = (TEST01, TEST02)
+#: A firm costing by lot (L2 step 12), for the cases about lots. Built the
+#: first time `lot-firm` runs and never otherwise, so a run that needs only
+#: TEST01 does not wait for a third store to be provisioned.
+TEST03 = FixtureFirm("TEST03", "test_fixtures_3", "Test Fixtures Lot Firm")
 
 #: Two firms in the **shared** store, for the only cases that are about sharing
 #: one: a unit of measure every firm in the store reads, and a custom-field
@@ -2853,6 +2858,193 @@ def build_policy_firm(built: Built) -> None:
     )
 
 
+def _find(admin: Api, path: str, code: str) -> Json | None:
+    """Return the row with this code from a list, or None where there is none."""
+    rows = admin.call("GET", f"{path}?search={code}&page_size=100")
+    return next((dict(row) for row in rows if row.get("code") == code), None)
+
+
+def _ensure_by_lot(admin: Api) -> str:
+    """Switch the firm to costing by lot, unless it already is; say which.
+
+    Through the two routes the settings screen calls: the preview first, then
+    the switch on the day it previewed, only when it names no refusal.
+    """
+    settings = admin.call("GET", "/api/v1/inventory/lot-settings")
+    if settings["costing_method"] == "BY_LOT":
+        return f"BY_LOT since {settings.get('switched_on')} (already)"
+    preview = admin.call("GET", "/api/v1/inventory/lot-settings/switch-preview")
+    if preview["refusals"]:
+        raise FixtureError(f"{TEST03.code} cannot switch: {preview['refusals']}")
+    print(f"  {TEST03.code}: switching to costing by lot from {preview['on']}")
+    switched = admin.call(
+        "POST", "/api/v1/inventory/lot-settings/switch", {"on": preview["on"]}
+    )
+    return f"BY_LOT since {switched.get('switched_on')} (switched by this run)"
+
+
+def _lot_product(admin: Api, code: str, name: str, batches: bool, piece: str) -> Json:
+    """Find or make one TEST03 product: GST 18 local, PIECE, bought at 50."""
+    found = _find(admin, "/api/v1/products", code)
+    if found is not None:
+        return found
+    return dict(
+        admin.call(
+            "POST",
+            "/api/v1/products",
+            {
+                "code": code,
+                "brand_id": fixture_brand(admin),
+                "name": name,
+                "product_type": "STOCK_ITEM",
+                "tax_profile_group_code": "GST_18_LOCAL",
+                "selling_price": "100",
+                "purchase_price": "50",
+                "base_uom_id": piece,
+                "inventory_uom_id": piece,
+                "sales_uom_id": piece,
+                "purchase_uom_id": piece,
+                "track_batch": batches,
+            },
+        )
+    )
+
+
+def _lot_receipt(
+    admin: Api, reference: str, rate: str, batch: str | None, parties: dict[str, Json]
+) -> Json:
+    """Find, or order and receive, 10 of the batched item at one rate.
+
+    The receipt carries ``reference`` as its supplier invoice reference, which
+    the receipt list searches, so a rerun finds it rather than buying again.
+    A draft left by a run that stopped half-way is completed, not duplicated.
+    """
+    found = admin.call("GET", f"/api/v1/goods-receipts?search={reference}")
+    receipt = next(
+        (dict(row) for row in found if row.get("invoice_reference") == reference),
+        None,
+    )
+    if receipt is None:
+        piece = parties["piece"]["id"]
+        order = admin.call(
+            "POST",
+            "/api/v1/purchases",
+            {
+                "branch_id": parties["branch"]["id"],
+                "warehouse_id": parties["warehouse"]["id"],
+                "vendor_id": parties["vendor"]["id"],
+                "purchase_date": date.today().isoformat(),
+                "lines": [
+                    {
+                        "product_id": parties["product"]["id"],
+                        "ordered_quantity": "10",
+                        "unit_price": rate,
+                        "purchase_uom_id": piece,
+                        "inventory_uom_id": piece,
+                    }
+                ],
+            },
+        )
+        admin.call("POST", f"/api/v1/purchases/{order['id']}/submit")
+        admin.call("POST", f"/api/v1/purchases/{order['id']}/approve")
+        order_line = admin.call("GET", f"/api/v1/purchases/{order['id']}")["lines"][0]
+        line: Json = {
+            "purchase_order_line_id": order_line["id"],
+            "line_number": 1,
+            "current_receipt_quantity": "10",
+            "unit_price": rate,
+            "warehouse_id": parties["warehouse"]["id"],
+        }
+        if batch is not None:
+            line["batch_number"] = batch
+        receipt = admin.call(
+            "POST",
+            "/api/v1/goods-receipts",
+            {
+                "purchase_order_id": order["id"],
+                "receipt_date": date.today().isoformat(),
+                "invoice_reference": reference,
+                "lines": [line],
+            },
+        )
+    if receipt.get("status") != "COMPLETED":
+        receipt = admin.call("POST", f"/api/v1/goods-receipts/{receipt['id']}/complete")
+    return dict(receipt)
+
+
+def build_lot_firm(built: Built) -> None:
+    """Make TEST03, a firm costing by lot, holding one item in two lots.
+
+    TEST03 is built on first use, the way TEST01 is, then switched to costing
+    by lot through the preview and switch routes while it is still empty. It
+    holds a batch-tracked item ``LOT-BATCH`` and an untracked stocked item
+    ``LOT-PLAIN``, a supplier ``LOT-V`` and a customer ``LOT-C``; two receipts
+    of 10 ``LOT-BATCH`` at 50 (printed batch ``TEST03-B1``) and at 65 (no
+    printed batch) leave two lots of one item at two costs. Fixed codes,
+    found on a rerun: only the firm administrator is new each run.
+    """
+    firm_id = ensure_firm(built.admin, TEST03)
+    built.add_firm(TEST03, firm_id)
+    built.firms_used = [TEST03.code]
+    admin = built.admin.as_user(built.admin.token or "", firm_id)
+    method = _ensure_by_lot(admin)
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    units = admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
+    piece = next(dict(u) for u in units if u["code"] == "PIECE")
+    batched = _lot_product(admin, "LOT-BATCH", "Lot Batched Item", True, piece["id"])
+    plain = _lot_product(admin, "LOT-PLAIN", "Lot Plain Item", False, piece["id"])
+    vendor = _find(admin, "/api/v1/vendors", "LOT-V") or dict(
+        admin.call("POST", "/api/v1/vendors", {"code": "LOT-V", "name": "Lot Supplier"})
+    )
+    customer = _find(admin, "/api/v1/customers", "LOT-C") or dict(
+        admin.call(
+            "POST",
+            "/api/v1/customers",
+            {
+                "code": "LOT-C",
+                "name": "Lot Buyer",
+                "customer_type": "BUSINESS",
+                "currency_code": "INR",
+            },
+        )
+    )
+    parties = {
+        "product": batched,
+        "piece": piece,
+        "branch": branch,
+        "warehouse": warehouse,
+        "vendor": vendor,
+    }
+    first = _lot_receipt(admin, "TEST03-LOT-1", "50", "TEST03-B1", parties)
+    second = _lot_receipt(admin, "TEST03-LOT-2", "65", None, parties)
+    lots = admin.call(
+        "GET",
+        f"/api/v1/inventory/reports/stock-valuation/lots?product_id={batched['id']}",
+    )
+    user_id = new_user(built, "lotadmin", "Lot Firm Admin", firms=(TEST03,))
+    firm_roles(built, user_id, TEST03, ["FIRM_ADMIN"])
+    built.say("Firm", f"{TEST03.code}  ({TEST03.name}), id {firm_id}")
+    built.say("Costing", method)
+    built.say("Firm admin", f"{built.email('lotadmin')} / {FIXTURE_PASSWORD}")
+    built.say("Batched item", f"LOT-BATCH  ({batched['name']}), batch-tracked")
+    built.say("Plain item", f"LOT-PLAIN  ({plain['name']}), untracked, none on hand")
+    built.say("Supplier", f"LOT-V  ({vendor['name']})")
+    built.say("Customer", f"LOT-C  ({customer['name']})")
+    built.say("Receipt at 50", f"{first.get('grn_number')}: 10 LOT-BATCH, TEST03-B1")
+    built.say("Receipt at 65", f"{second.get('grn_number')}: 10 LOT-BATCH, no batch")
+    built.say(
+        "Lots of LOT-BATCH",
+        "; ".join(
+            f"{row['lot_reference'] or '(no lot)'} "
+            f"[{row['batch_number'] or 'no batch'}] {row['quantity']} at "
+            f"{row.get('rate')}"
+            for row in lots
+        )
+        or "none",
+    )
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -3122,6 +3314,11 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "selling-firm + a blocking credit policy + the delivery-note stage off.",
         build_policy_firm,
         "TC-FIN-008, TC-FIN-009",
+    ),
+    "lot-firm": (
+        "TEST03 costing by lot: one item in two lots at 50 and 65, fixed codes.",
+        build_lot_firm,
+        "costing by lot (L2)",
     ),
 }
 

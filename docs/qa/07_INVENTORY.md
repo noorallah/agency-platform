@@ -4,8 +4,8 @@ Part of the QA test suite in `docs/qa/` for **release 1.3.0**, the first
 end-to-end test pass (it includes 1.2.0). Read `00_README.md` first: it
 explains the preparations, the accounts and how to record results. Every menu
 path is the 1.3.0 menu: `Sell > Quotations` is the Sell drop-down on the menu
-bar, `Sell > Documents > Proforma` is a screen in the
-Documents column, and `Settings > Set up > Pricing > Price Lists` is the gear at the
+bar, `Sell > All Sell screens > Documents > Proforma` is a screen that is not
+daily work, and `Settings > Set up > Pricing > Price Lists` is the gear at the
 right of the bar. Generated on 2026-10-05 from `docs/INDEPENDENT_TEST_CASES.md` (cases driven against a
 running server) and the application's own screen catalogue; regenerate
 rather than hand-edit when those change.
@@ -21,6 +21,58 @@ open: **Stock** (Inventory, Opening Stock, Physical Count, Stock Ledger,
 Transactions, Stock Summary, Stock Search) and **Batch & Serial** (Batches,
 Lots, Serial Numbers, Expiry Monitor). Transfer, Write off and Quarantine are
 toolbar buttons on the Inventory tab and act on the selected row.
+### TC-BUY-109 — Purchase returns: the paisa, the second bill, held and warned
+
+*Added 2026-10-13 (D-BUY-68 to D-BUY-72, row G2). Driven over HTTP on a preparation firm; the screens were not clicked.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** orders and goods receipts both switched on; a product at 100 plus 18% local GST; a supplier of its own for each part, so what each is owed reads clean.
+- **Steps**
+  1. Supplier `A`: order **3** with **100.00** off the whole order, receive 3, bill 3. Raise a purchase return of **1** off the bill and read its line.
+  2. Supplier `B`: order and receive **2**; bill **1**, then bill the other **1**. Return **1** off the goods receipt and complete it. Return **1** off the first bill and complete it. Open *Record Payment* for `B`, then *Supplier credits*.
+  3. Supplier `C`: order, receive and bill **2**. Save and approve a return of **2** off the bill; do not complete it. Raise a debit note of **40.00** on the bill. Complete the return, and raise the debit note again.
+  4. Supplier `D`: order, receive and bill **2**. Return **1** off the goods receipt and complete it. Record a payment of **236.00** against the bill.
+  5. Supplier `E`: order and receive **2** three days ago; bill 1 and 1; approve a debit note of **40.00** on the second bill. Save and approve a return of **1** off the first bill, dated today. Return **1** off the receipt dated yesterday and complete it. Complete the first return.
+- **Expect**
+  - Step 1: the return line's share of the order's discount is **33.33**, not 33.3333: the figure a bill of one unit states.
+  - Step 2: *Record Payment* lists the **first** bill at **118.00** and not the second. *Supplier credits* shows 118.00, from the return off the receipt. Together the supplier is owed nothing.
+  - Step 3: the first debit note is refused: "200.00 billed, 0.00 already claimed, **0.00 already returned, 200.00 held by purchase return** ..., not completed yet. Complete or cancel what holds it, or claim less." The second is refused: "0.00 already claimed, 200.00 already returned."
+  - Step 4: the bill reads 236.00 owed and the payment is **taken**. The screen shows the supplier's credit before saving; the server's answer carries a warning that the supplier holds 118.00 of supplier credit, naming the return.
+  - Step 5: completing is refused. The message names the debit note for 40.00 on the second bill and the return for 100.00 on the first, and does not say a debit note was "approved since".
+
+### TC-BUY-110 — A bill of free goods alone, with receipts off
+
+*Added 2026-10-13 (D-PRC-94, row G3). Driven over HTTP on a preparation firm; the screens were not clicked.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** orders switched on and goods receipts switched **off** (put back afterwards); two products at 60.00 plus 18% local GST with nothing in stock; a supplier of the case's own.
+- **Steps**
+  1. Order the first product: quantity **0** at 60.00 with **5** free. Approve it. Raise a supplier bill off the order line, quantity 0.
+  2. Order the second product: quantity **1** at **0.00** with **5** free. Approve it. Raise a supplier bill off the order line, quantity 1.
+  3. Open *Record Payment* for the supplier, and Accounts > Journal Entries.
+- **Expect**
+  - Steps 1 and 2: each order comes to 0.00. Each bill is **taken and approved** at 0.00; it is not refused with "A journal entry needs at least one debit and one credit line." Stock reads **5** of the first product and **6** of the second, valued at nothing, and each order reads received.
+  - Step 3: the supplier is owed nothing, and neither bill has a journal entry: a bill whose every figure is nothing posts none.
+
+### TC-BUY-111 — A Draft supplier bill is edited
+
+*Added 2026-10-14 (D-UI-39, row G6). Covered by widget tests and a reading of the service; **no screen was clicked and nothing was driven over HTTP**, so the steps are written from the build.*
+
+- **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
+- **Also needs:** a completed goods receipt of 10 of a product at 60.00 from a supplier; a user holding `PURCHASE_UPDATE` and one who does not.
+- **Steps**
+  1. Buy > Purchase Invoices > **New**: the supplier, tick the receipt, quantity **10**, a supplier invoice number, payment terms if the screen offers them. Save draft.
+  2. Select the draft. Press **Edit**. Read the window. Change nothing. Save.
+  3. **Edit** again. Change the quantity to **8**. Save.
+  4. Approve the bill. Select it.
+  5. Sign in as the user without `PURCHASE_UPDATE` and select another Draft bill.
+- **Expect**
+  1. A Draft bill of 10.
+  2. The window says it is editing, with the bill's own number and its own invoice date; the supplier is fixed; the line reads 10 with **10 left to bill**, not 0. The rate box is blank where the bill took the receipt's rate. After Save the bill's lines and totals are what they were.
+  3. The bill reads 8 and its total follows; the supplier's number, the dates and anything recorded on the bill outside the window are unchanged.
+  4. No **Edit** on an Approved bill.
+  5. No **Edit** for that user.
+- **Also:** a bill typed as products (orders and receipts switched off) opens with its product lines and is saved by raising the order and receipt behind it again. A bill raised off an order opens with its quantities read-only and says so (D-UI-100). While an edit of a bill of receipts is typed its tax and total are not worked out again; the window says so (D-UI-99).
 ### TC-STOCK-001 — The summary and the rows agree; the ledger explains the balance
 
 - **Preconditions:** As *po-approved*, plus goods receipts of **4** and **6** against it, both completed: 10 on hand in MAIN. (`QA-B` received 4 then 6 into MAIN: 10 on hand.)
@@ -56,7 +108,7 @@ toolbar buttons on the Inventory tab and act on the selected row.
 
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Steps:** as the prepared **Firm admin**, Stock > **Physical Count** → **+ New count**: branch HO, warehouse MAIN, today → Open. On the sheet find `QA-P - Fixture Product qa` (code and name, never an id); type **49** in Counted (Expected is 50); leave every other line blank. **Save progress**, close, reopen from the list → **Post count** → confirm.
-- **Expect:** "PC-… opened over N lines." (N is every product in MAIN — other runs' too). Difference reads `-1` while typing. The list reads "1 of N lines counted", then "N lines · posted". After posting: MAIN **49**; ledger `ADJUSTMENT` −1 referencing the count; Journal Entries shows the adjustment; the uncounted lines moved nothing. The posted sheet is read-only: "Posted. The differences are in the ledger." If stock moved between opening the sheet and posting it, the difference posted is against the stock at posting, and the posted sheet's Expected column shows that figure, so Expected, Counted and Difference add up (`p_count_adds_up.py`).
+- **Expect:** "PC-… opened over N lines." (N is every product in MAIN — other runs' too). Difference reads `-1` while typing. The list reads "1 of N lines counted", then "N lines · posted". After posting: MAIN **49**; ledger `ADJUSTMENT` −1 referencing the count; Journal Entries shows the adjustment; the uncounted lines moved nothing. The posted sheet is read-only: "Posted. The differences are in the ledger." If stock moved between opening the sheet and posting it, the difference posted is against the stock at posting, not the Expected column (D-STK-45).
 ### TC-STOCK-005 — Dispatch draws the earliest-expiring batch first
 
 - **Preconditions:** A firm on the **Pharmacy** profile, with a batch-tracked product in two batches with different expiry dates, and two orders for it. (`QA-AMX` in three batches of 10: `-B1` **expired 30 days ago**, `-B2` expiring in 20 days, `-B3` in 400; an approved order for **5**.)
@@ -170,7 +222,7 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Preconditions:** A firm administrator of QA01, 50 of a product in MAIN, and an empty second warehouse.
 - **Also needs:** one product below reorder level, one out of stock, one over its maximum.
 - **Steps:** as the prepared **Firm admin**: open Home and read the to-do. Reports > Operational → Stock ageing.
-- **Expect:** Home lists stock lines to attend to, each counted with the worst rows: at or below reorder level, out of stock, over the maximum, batches near expiry, goods in transit, open count sheets. Where a kind has more than ten, the ten listed are the worst first: the largest shortfall, the largest excess, the nearest expiry; a product that is counted and not listed is less short than every one that is. The ageing report carries *issued last year* and *turnover* columns. Nothing is stored; the figures change as the stock does.
+- **Expect:** Home lists stock lines to attend to, each counted with the worst rows: at or below reorder level, out of stock, over the maximum, batches near expiry, goods in transit, open count sheets. The ageing report carries *issued last year* and *turnover* columns. Nothing is stored; the figures change as the stock does.
 ### TC-STOCK-020 — Barcode labels, and the product's selling status
 
 *Added 2026-10-03 from the code and the build notes. Driven over HTTP on 2026-10-08 (inventory round 1, `docs/qa/checks/inventory/`); the screens were clicked separately.*
@@ -251,124 +303,240 @@ toolbar buttons on the Inventory tab and act on the selected row.
 - **Also needs:** a Medicine product with one batch expiring in **20** days on the shelf, one expiring in 20 days held in quarantine, and one expiring in **45** days; *Batch sale rules* at the default 30 days.
 - **Steps:** as the prepared **Firm admin**: read the *near expiry* count on Home's stock alerts and on the Stock > Batches card. Set the firm's window to **60** days under *Batch sale rules*; read both again; read the Expiry Monitor's *7 days* and *30 days* cards.
 - **Expect:** Home and the batch card count the **same two** batches at 30 days (a batch held in quarantine holds stock) and the same three at 60. The Expiry Monitor's two cards are named for their windows and do not move with the firm's setting.
-
 ### TC-STOCK-030 — A kit is made and broken on screen where a batch has to be named
 
 *Added 2026-10-09 with inventory round 5 (D-UI-85). On screen SC-ST-094 to 097; the server's half is `docs/qa/checks/inventory/p_kit_break_batch.py` and `p_kit_tracked_parts.py`.*
 
-- **Covers:** D-UI-85, D-STK-51, D-STK-53
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** the Medicine goods type in use; a Medicine product **MED** with batch **KA** holding stock in MAIN; a kit whose part is 1 of MED, **two** of it brought in as opening stock in MAIN and none assembled there.
 - **Steps:** as the prepared **Firm admin**: Masters > Products, pick the kit. (a) **Disassemble kits**: MAIN, 1 kit, leave **Batch for MED** empty; Disassemble. (b) type **KA** in the box; Disassemble. (c) **Assemble kits**: MAIN, 1 kit; Assemble. (d) **Disassemble kits** again: MAIN, 1 kit, the box empty; Disassemble.
 - **Expect:** (a) the dialog shows **Batch for MED** and is refused inside it: *MED is kept in batches, and no assembly of the kit in this warehouse says which batch it came from. Name the batch it goes back into.*; nothing moves. (b) the kit is broken and KA holds one more. (c) the Assemble dialog has no batch box for a kit that is not itself kept in batches; one kit more, one of MED less, taken from its batches earliest expiry first. (d) broken with the box empty: the part goes back into the batch the assembly took it from. A kit that is itself kept in batches shows **Batch number** and **Expiry date** on Assemble.
-
 ### TC-STOCK-031 — A kit that is itself kept in batches
 
 *Added 2026-10-09 with inventory round 6. On screen SC-ST-098; over HTTP `docs/qa/checks/inventory/p_kit_batch_tracked_kit.py`.*
 
-- **Covers:** D-UI-85, D-STK-53
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** the Medicine goods type in use; a plain product **PART** holding 10 in MAIN; a kit **under a Medicine category** (so it is kept in batches and dated) whose part is 2 of PART.
 - **Steps:** as the prepared **Firm admin**: Masters > Products, pick the kit. (a) **Assemble kits**: MAIN, 1 kit, **Batch number** empty; Assemble. (b) Batch number **KX**, Expiry date 200 days on, 2 kits; Assemble. (c) Batch number **KY**, Expiry date 90 days on, 1 kit; Assemble. (d) Batch number **KX** again with an expiry date 5 days on, 1 kit; Assemble. (e) **Disassemble kits**: MAIN, 2 kits; Disassemble. (f) Disassemble 3 more.
 - **Expect:** (a) the dialog shows **Batch number** and **Expiry date** and is refused inside it: *... is kept in batches. Name the batch the repacked goods go into: one it already has, or a new number with its dates.*; nothing moves. (b) and (c) the kits stand in KX (2) and KY (1) and PART holds 4. (d) accepted: the kit joins KX, and KX keeps the expiry date it was made with -- a date typed beside a batch that already exists is not taken, as on a goods receipt. (e) the kits leave soonest expiry first: KY is emptied, KX holds 2, PART holds 6. (f) refused naming the kit, with 2 held; nothing moves.
 - **Also:** the component list of a kit (`GET /products/{id}/components`) says of each part whether it is kept in batches as the part is **now**: switch a part's batch tracking on, while it holds nothing, and the list follows without the kit being saved again. Moving a product to a category of another goods type changes its type and leaves its switches as they were.
 - **Also (a note never assembles it):** with 2 of the kit in KX and parts on the shelf, a delivery note for **3** is refused at dispatch (*Insufficient available stock for dispatch line.*) and no part is taken; assemble 1 more into KX and the same note ships. A kit **not** kept in batches has what it lacks assembled behind the note. Over HTTP `docs/qa/checks/inventory/p_kit_batch_kit_dispatch.py` (round 7).
-
 ### TC-STOCK-032 — An opening-stock import refused at posting writes nothing
 
 *Added 2026-10-09 with inventory round 8 (D-STK-56). Driven over HTTP by `docs/qa/checks/inventory/p_opening_import_json.py`.*
 
-- **Covers:** D-STK-56
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** two plain products **P1** and **P2** holding nothing in MAIN, with no opening stock posted for either.
 - **Steps:** **(HTTP)** as the prepared **Firm admin** (no screen offers this route; Opening Stock's **Import from file** is another route, over HTTP in `p_opening_import.py`): `POST /api/v1/inventory/opening-stock/import` as a form with `format=json` and a `payload` of one line. (1) Reference **OS-A**, 10 of P1. (2) Reference **OS-B**, 10 of P1 again. (3) Reference **OS-B**, 4 of P2. (4) Reference **OS-C**, 1 of P2 with `auto_post` false.
 - **Expect:** (1) **201**, the document is POSTED and MAIN holds 10 of P1. (2) **422**, "Line 1 already has posted opening stock in this warehouse (OS-A). Opening stock is posted once per item; correct it with a stock adjustment."; the Opening Stock list shows **no** document OS-B and P1 still holds 10. (3) **201**, POSTED under OS-B: the refused import did not use the number up; MAIN holds 4 of P2. (4) **201**, a DRAFT that stocks nothing.
-
 ### TC-STOCK-033 — An opening-stock CSV with an unreadable cell is refused by line
 
 *Added 2026-10-09 with inventory round 9 (D-STK-58). Driven over HTTP by `docs/qa/checks/inventory/p_opening_import_csv.py`.*
 
-- **Covers:** D-STK-58
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** two plain products **P1** and **P2** holding nothing in MAIN, with no opening stock posted for either.
 - **Steps:** **(HTTP)** as the prepared **Firm admin** (no screen offers this route): `POST /api/v1/inventory/opening-stock/import` as a form with `format=csv`, a reference number, today's posting date, the branch and MAIN, and a file headed `ProductId,Quantity`. (1) One row, 10 of P1. (2) Two rows of P2, the second with a product id of **not-an-id**. (3) The second row's quantity **lots**. (4) One row, quantity **-4**. (5) A column `ReorderLevel` holding **few**. (6) The heading alone. (7) A file that is not text; and `format=xlsx` with a file that is not a workbook. (8) The file of (2) corrected, under (2)'s number.
 - **Expect:** (1) **201**, POSTED, MAIN holds 10 of P1. (2) to (5) **422** naming the line and the field (`lines[2].product_id`, `lines[2].quantity`, `lines[1].quantity`, `lines[1].reorder_level`); (6) **422**, "The file has no row with a ProductId and a Quantity, so nothing was imported."; (7) **422** each, saying the file is not UTF-8 text, or could not be opened as an XLSX workbook. After each refusal the Opening Stock list shows **no** document under that number and P2 holds nothing. (8) **201**, POSTED: the refused number was not used up.
-
 ### TC-STOCK-034 — A stock adjustment request is judged when it is decided
 
 *Added 2026-10-09 with inventory round 10 (D-STK-59, D-STK-60). Driven over HTTP by `docs/qa/checks/inventory/p_request_lifecycle.py`.*
 
-- **Covers:** D-STK-59, D-STK-60, STK-8
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a plain product **P** with 200 in MAIN at a cost of 10 and nothing elsewhere; a second warehouse **W2**; under *Settings → Stock → Adjustment Limits* a limit of **500** for the storekeeper's role; a **storekeeper** signed in beside the firm administrator.
 - **Steps:** (1) As the storekeeper, *Stock → Inventory → Write off*: 40 of P, reason Damage, **Submit for approval**. (2) As the prepared **Firm admin**, post opening stock of 200 of P at **190** into W2 (the average cost becomes 100). (3) As the storekeeper, open **Adjustment Approvals** and approve the request. (4) As the prepared **Firm admin**, reject it with the reason box empty; then approve it. (5) Approve it again; then reject it. (6) **(HTTP)** `POST /api/v1/inventory/adjustment-requests` with a write-off naming a product id that is not the firm's; a warehouse id that is not the firm's; the reason `NOSUCHREASON`. (7) As the storekeeper, submit a write-off of **5000** of P; as the prepared **Firm admin**, approve it.
 - **Expect:** (1) Saved; the request says **400.00**. (3) The list now says **4,000.00**; the approval is refused, "This request moves stock worth 4000.00, above your limit of 500.00. It needs somebody allowed more."; MAIN still holds 200 and the request still waits. (4) The empty rejection is refused; the approval posts: MAIN holds **160**, the request is Approved at 4,000.00 and names its movement. (5) Both refused, "This request was already approved."; MAIN still 160. (6) **422** each, in the words a direct post uses ("Product does not belong to the active firm.", "Warehouse does not belong to the selected branch.", "'NOSUCHREASON' is not an active stock adjustment reason of this firm..."); no request is saved. (7) The request is accepted (the goods may yet arrive); approving it is refused, saying the location holds only 160, and it still waits.
-- **Leaves:** one approved write-off of 40, one waiting request (reject it), 200 of P in W2.
-
 ### TC-STOCK-035 — Evidence files: a name, a place, and ten to a record
 
 *Added 2026-10-09 with inventory round 10 (D-STK-61, D-STK-62). Driven over HTTP by `docs/qa/checks/inventory/p_evidence_edges.py`.*
 
-- **Covers:** D-STK-61, D-STK-62, STK-9
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a plain product **P** with 50 in MAIN.
 - **Steps:** as the prepared **Firm admin**. (1) Submit a write-off of 2 of P for approval with one photo attached, and approve it. (2) Write off **9999** of P with a photo attached. (3) **(HTTP)** `POST /api/v1/inventory/transactions/{id}/attachments` on the write-off of (1) with a `file_name` of three spaces; with a `file_path` of three spaces; with eleven files. (4) The same route with nine more files. (5) With one more. (6) Remove one, then add one. (7) Open a count sheet for MAIN, attach a file, cancel the sheet, open its files.
 - **Expect:** (1) The movement the approval posted lists the photo. (2) Refused (more than the location holds); no movement and no file is kept. (3) **422** each; the movement still lists one file. (4) Saved: ten files. (5) Refused: "A stock movement keeps at most 10 files and this one holds 10, so 1 more cannot be added. Remove one first." (6) Both saved: ten files again. (7) The cancelled sheet still lists its file.
-- **Leaves:** one write-off holding ten files, one cancelled count sheet.
-
 ### TC-STOCK-036 — No stock write is dated after today
 
 *Added 2026-10-09 with inventory round 11 (D-STK-66). Driven over HTTP by `docs/qa/checks/inventory/p_dated_ahead.py`.*
 
-- **Covers:** D-STK-66
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a plain product **P** with 20 in MAIN at a cost of 10; a second warehouse **W2**; books opened with the current period open.
 - **Steps:** as the storekeeper, each dated **tomorrow**. (1) *Stock → Inventory → Write off*: 1 of P, reason Damage. (2) *Adjust*: 1 of P. (3) The write-off of (1) again, **Submit for approval**. (4) *Transfer*: 1 of P from MAIN to W2. (5) *Stock → Physical Count → New* for MAIN. (6) *Stock → Opening Stock → New* for W2, 1 of P at 10. (7) As the prepared **Firm admin**, a count plan over MAIN: *Draw sheet* dated tomorrow. (8) Save the opening stock of (6) dated today, reopen the draft and change its date to tomorrow. (9) Steps (1) to (5) again dated **today**.
 - **Expect:** (1) to (7) each refused, the dialog staying open: "A write-off cannot be dated 2026-10-10: that is after today (2026-10-09), and stock moves the moment it is saved. Date it today or earlier." (with the movement's own name and the real dates). P is still 20. (8) Refused the same way; the draft is still dated today. (9) Each saved. The trial balance's Inventory equals the stock valuation's books figure before and after.
-- **Leaves:** one write-off, one adjustment, one transfer of 1, one count sheet (cancel it), one waiting request (reject it).
-
 ### TC-STOCK-037 — Count plans: a name, a switch, and a plan removed with its sheet open
 
 *Added 2026-10-09 with inventory round 11 (D-STK-63, D-STK-64). Driven over HTTP by `docs/qa/checks/inventory/p_count_plan_edges.py`.*
 
-- **Covers:** D-STK-63, D-STK-64, STK-6
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a plain product **P** with 10 in MAIN at a cost of 10; an empty warehouse **E**.
 - **Steps:** as the prepared **Firm admin**, *Stock → Physical Count → Count plans*. (1) **(HTTP)** `POST /api/v1/inventory/count-plans` with a name of three spaces; with `frequency_days` 0, -1 and 367; with class `D`. (2) A plan over **E**, every 7 days; *Draw sheet*. (3) A plan over MAIN; *Draw sheet* twice; count **9** of P on both sheets and post both. (4) A second plan over MAIN; *Draw sheet*; cancel the sheet. (5) Switch that plan off; *Draw sheet*. (6) A third plan over MAIN; *Draw sheet*; delete the plan; count **8** on its sheet and post it.
 - **Expect:** (1) **422** each. (2) Saved and due; the sheet is refused, "... covers no stock to count.", and no sheet is left. (3) Both post and P is **9**, not 8: a sheet is measured against the stock at the moment of posting. The plan shows *last counted* today, *next due* in 7 days, not due. (4) The plan is still due and never counted: a cancelled sheet is not a count. (5) Not due; refused, "... is switched off, so it draws no sheet. Switch the plan on again, or open a count sheet for the warehouse." (6) The plan is gone from the list; its sheet still opens, takes the count and posts; P is **8**.
-- **Leaves:** three posted count sheets, one cancelled, P at 8.
-
 ### TC-STOCK-038 — Adjustment reasons and limits as settings
 
 *Added 2026-10-09 with inventory round 11 (D-STK-63, D-STK-65, D-STK-67). Driven over HTTP by `docs/qa/checks/inventory/p_reason_limit_settings.py`.*
 
-- **Covers:** D-STK-63, D-STK-65, D-STK-67, STK-7, STK-8
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a plain product **P** with 50 in MAIN at a cost of 10; a product **Z** with 50 in MAIN at a cost of 0; the storekeeper (Inventory manager) and the Firm admin.
 - **Steps:** (1) As the prepared **Firm admin**, *Settings → Stock → Adjustment Reasons*: add a reason named with three spaces; add **RX** "Probe reason". (2) As the storekeeper, submit a write-off of 2 of P for approval with reason RX. (3) Delete RX; approve the request. (4) Add RX again; approve the request. (5) Submit another of 3 with RX; switch RX off; approve it; switch RX on; approve it. (6) **(HTTP)** `POST /api/v1/inventory/adjustment-reasons` with `code` sent as the number 12345. (7) **(HTTP)** `PUT /api/v1/inventory/adjustment-limits` with a role of three spaces; with a role `NO_SUCH_ROLE`; with one role twice; with a negative amount; as the storekeeper. (8) The same route with `inventory_manager` in lower case and 5. (9) *Settings → Stock → Adjustment Limits*: Inventory manager **0**. As the storekeeper write off 1 of P, then 1 of Z. As the Firm admin write off 1 of P. (10) Replace the list with a limit on the Firm manager only; as the storekeeper write off 1 of P.
 - **Expect:** (1) The blank name is refused, "Give the reason a name."; RX is saved. (3) The reason leaves the list; the approval is refused, "'RX' is not an active stock adjustment reason of this firm. ...", nothing moves and the request still waits. (4) The code is free again; the request is approved and P is 48. (5) Refused while the reason is off; approved once it is on: P is 45. (6) **422**, not 500. (7) **422** each ("NO_SUCH_ROLE is not a role of this firm, so a limit on it would bind nobody. ..."), **403** for the storekeeper, and the saved list is unchanged. (8) Saved as `INVENTORY_MANAGER`, and the storekeeper's write-off of 1 of P (worth 10) is refused as above their limit of 5. (9) P refused, offering approval; Z (worth nothing) saved; the Firm admin's saved. (10) The storekeeper posts again: a role left out of the list has no limit.
-- **Leaves:** the limits as they were found; P a few pieces lower.
-
 ### TC-STOCK-039 — Text that is only spaces, and a reference left blank
 
 *Added 2026-10-09 with inventory round 12 (D-STK-68). Driven over HTTP by `docs/qa/checks/inventory/p_blank_text.py`.*
 
-- **Covers:** D-STK-68, D-QA-16
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a plain product **P** with 100 in MAIN at a cost of 10; a second warehouse **B**; the storekeeper (Inventory manager) and the Firm admin.
 - **Steps:** (1) As the prepared **Firm admin**, save a draft stock transfer of 5 of P from MAIN to B; cancel it with a reason of three spaces; then with " wrong warehouse ". (2) Post a repack that consumes 2 of P and produces 2 of P; reverse it with a reason of three spaces; then with "miscounted". (3) As the storekeeper, submit a write-off of 1 of P for approval; as the Firm admin reject it with a reason of three spaces; then with "not damaged". (4) Save opening stock for P with a reference of four spaces; with " X "; **(HTTP)** the JSON import with a reference of spaces. (5) Write off 1 of P, adjust P by 1, hold 1 of P in quarantine and transfer 1 of P to B, each with a reference of three spaces. (6) Save opening stock for P with a reference typed " bo1 " and a batch number of three spaces.
 - **Expect:** (1) The blank reason is refused and the transfer stays a draft; the second cancels it and the reason is kept as "wrong warehouse". (2) Refused, the repack still stands; then reversed with "miscounted". (3) Refused, the request still waits; then rejected. (4) Each refused, **422**, "Give the reference number, at least two characters."; nothing is saved. (5) Each is saved and carries the next number of its own series; none carries an empty reference. (6) Saved under **BO1**; the line names no batch.
-- **Leaves:** P a few pieces lower in MAIN, 1 in B, one opening-stock draft.
-
 ### TC-STOCK-040 — Stock levels, wherever they are typed, and a figure too large
 
 *Added 2026-10-09 with inventory round 12 (D-STK-69, D-STK-70, D-STK-72). Driven over HTTP by `docs/qa/checks/inventory/p_level_settings.py`.*
 
-- **Covers:** D-STK-69, D-STK-70, D-STK-72
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a plain product **P** with 10 in MAIN; products **H** and **O** with no stock; the storekeeper, a sales user, a read-only user and the Firm admin.
 - **Steps:** (1) As the prepared **Firm admin**, *Stock → Inventory*, edit P's row: minimum 2, maximum 50, reorder 5, safety 1. Save the same as the storekeeper; as the sales user; as the read-only user. (2) Edit the row with a reorder level of 50.0001; a minimum of -0.0001; **(HTTP)** a level of "plenty", "NaN", "Infinity", and a maximum of 999999999999999999. (3) **(HTTP)** `PUT` the row naming only `minimum_level`. (4) **(HTTP)** `POST /api/v1/inventory` for H with a reorder level of 4; the same again; delete the row; `PUT` its levels. (5) Save opening stock for O with a line whose minimum is 9 and maximum 3; whose reorder level is 9 and maximum 3; whose quantity is 999999999999999999; whose cost is 999999999999999999. (6) **(HTTP)** adjust, write off and hold in quarantine 999999999999999999 of P; import opening stock of 99999999999999 of O at a cost of 999999999999.
 - **Expect:** (1) Saved by the Firm admin and the storekeeper; **403** for the other two. (2) Each refused, **422**, and the levels stay 2 / 50 / 5 / 1; the eighteen-digit figure is a 422 naming the field, not "The database is temporarily unavailable". (3) Saved; the levels left out are cleared, as the editor's whole-row save means. (4) **201** holding nothing; **409**; removed; **404**, and the row does not come back. (5) Each refused, **422** ("Maximum level must be greater than or equal to minimum level.", "Reorder level cannot exceed maximum level.", the field named for the two large figures); O gets no row. (6) Each **422**; the import says "The line is worth more than can be recorded. ..."; P still holds 10.
-- **Leaves:** P's levels at 2 / 50 / 5 / 1.
-
 ### TC-STOCK-041 — A service is never held as stock
 
 *Added 2026-10-09 with inventory round 12 (D-STK-71). Driven over HTTP by `docs/qa/checks/inventory/p_level_settings.py`.*
 
-- **Covers:** D-STK-71, SG-3
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Also needs:** a product **S** of type *Service*; a plain product **P** with 10 in MAIN; the storekeeper and the Firm admin.
 - **Steps:** (1) As the prepared **Firm admin**, *Stock → Adjust Stock*: add 5 of S. (2) As the storekeeper, submit the same adjustment for approval. (3) *Opening Stock*: a document with 3 of S. (4) *Repacking*: consume 1 of P, produce 1 of S. (5) **(HTTP)** `POST /api/v1/inventory` for S in MAIN.
 - **Expect:** Each is refused, **422**: "S is a service, and a service is never held as stock. Bill it; there is nothing to bring into a warehouse." S has no stock row and P still holds 10. (A firm that already holds units of a service may still adjust them **down**; a goods receipt of a service is D-BUY-74, open.)
-- **Leaves:** nothing.
+### TC-STOCK-042 — Stock valuation states the stock at its MRP beside its cost
+
+*Added 2026-10-13 (backlog 109). Driven over HTTP on the day it was built; the screen was not clicked.*
+
+- **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
+- **Also needs:** two warehouses and three new products, none with stock: **P** with MRP 65 (selling price 55); **B**, kept by batch, with MRP 40 (selling price 30) and three batches -- `A` with MRP 42, `B` with MRP 45.50, `C` with no MRP; **N** with no MRP. Opening stock, posted, in the first warehouse: P 10 at 50; B 4 of batch A, 6 of batch B, 2 of batch C, each at 25.50; N 3 at 100. In the second warehouse: P 5 at 50.
+- **Steps:** as the **Firm admin**: (1) Reports > Financial > **Stock valuation**, as on today. (2) The same report for the second warehouse only. (3) Export to Excel.
+- **Expect:** (1) the columns read *Cost rate*, *Value at cost*, *MRP*, *Value at MRP*. P: quantity 15, value at cost 750.00, MRP 65.00, value at MRP **975.00**. B: quantity 12, value at cost 306.00, MRP **blank** (its batches differ), value at MRP **521.00** (4 x 42 + 6 x 45.50 + 2 x 40). N: value at cost 300.00, MRP and value at MRP both **blank**, not 0.00. Against a firm with nothing else in stock the grand total reads 1,356.00 at cost and **1,496.00** at MRP; otherwise it is the sum of the rows, the blank ones adding nothing. The *Inventory account in the books* and *Difference* rows are blank under Value at MRP. (2) one row, P: 5, 250.00 at cost, 325.00 at MRP, and the same two figures as the total; no books rows. (3) the file has the same four columns and figures.
+### TC-STOCK-043 — Opening stock from a file carries the MRP, the prices and the purchase date
+
+*Added 2026-10-14 (row L2, step 3). Covered by `backend/tests/unit/test_lot_receiving.py`; not yet driven on a screen.*
+
+- **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
+- **Also needs:** a batch-tracked, expiry-tracked product **B** and a plain product **P**, neither with opening stock posted in the warehouse; an opening date **D**.
+- **Steps:** as the **Firm admin**: (1) *Stock → Opening Stock → Import from file*, download the template. (2) Fill one row for B: quantity 10, unit cost 20, batch `B-MARCH`, an expiry, MRP 40, SellingPrice 32, PurchaseDate two months before D, SupplierBill `INV-881`; check, then import with opening date D. (3) A file with one row for P and a PurchaseDate the day after D; check. (4) A file with one row for B, batch `B-APRIL`, MRP 30 and SellingPrice 32; check.
+- **Expect:** (1) the template has the columns **MRP**, **SellingPrice**, **PTR**, **PTS**, **PurchaseDate** and **SupplierBill** after *Expiry*, each with a note. (2) the check is clean; after the import the document is posted, batch `B-MARCH` of B shows MRP 40.00 and selling price 32.00, and stock is 10 at 20.00. (3) the check names the row and the column: *PurchaseDate is after the opening date*; nothing is written. (4) refused: the selling price is above the MRP; nothing is written.
+
+## Costing by lot
+
+Costing by lot is a firm setting (*Settings > Stock > Costing method*) that values stock by the purchase lot it came in, instead of one average per item. `docs/INVENTORY_FRAMEWORK.md`, "Costing by lot", is the reference, and the decisions are numbered in the L2 row of `docs/CUSTOMER_BUILD_TASKS.md`.
+
+**Every case here was written from the code and the build notes, and none has been driven against a server.**
+
+### TC-LOT-001 — The switch-over preview and its refusals
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** a firm still on Average (`lot-firm` is already switched); a product with 10 in MAIN and a second product with stock below zero, if the firm allows it; the Firm admin and a user without `INVENTORY_MANAGE_SETTINGS`.
+- **Steps:** (1) As the Firm admin, *Settings > Stock > Costing method*. Read the method shown. Pick today's date and read the preview. (2) Pick a day after today, then a day before the latest stock movement. (3) With the second product below zero, read the preview again. (4) **(HTTP)** as the user without the permission, `GET /api/v1/inventory/lot-settings/switch-preview` and `POST /api/v1/inventory/lot-settings/switch`.
+- **Expect:** (1) The firm shows *Average*. The preview lists items, lots to be made and quantity, and the stock value only to a holder of `PRODUCT_VIEW_COST_PRICE`; with no refusal the switch button is offered. (2) Each is refused and named: a day after today; a day before the latest stock movement. The switch button stays off. (3) The refusal names the item that is below zero. (4) **403** on both; nothing changes.
+### TC-LOT-002 — The one-way switch
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
+- **Also needs:** a firm of its own still on Average, made for this case on the Firms screen -- **never TEST01, TEST02 or a demo firm**, because the switch cannot be undone and every other case needs them on Average; in it a batch-tracked product with two batches holding stock, a plain product with unbatched stock, and the stock valuation read before the switch.
+- **Steps:** (1) Note *Stock valuation* for both products and the Inventory account balance. (2) *Settings > Stock > Costing method*: pick today, confirm the one-way warning, switch. (3) Reopen the screen. (4) Read *Stock valuation by lot* and *Stock valuation* again. (5) **(HTTP)** `POST /api/v1/inventory/lot-settings/switch` a second time. (6) Try an adjustment dated before the switch day.
+- **Expect:** (2) The switch succeeds. (3) The screen shows *By lot*, the switch day, and the switch *allow billing when no lot holds the stock*; there is no way back. (4) Each batch is a lot; the unbatched stock is one new lot (source *Carried forward*) at the item's average. Totals per item, and the Inventory account, are exactly what they were before; no journal was posted. (5) Refused: already by lot. (6) Refused: dated before the switch.
+### TC-LOT-003 — A receipt makes a lot for each line
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the batch-tracked product and the untracked product, the supplier, a warehouse MAIN.
+- **Steps:** (1) Buy > Goods Receipts: receive 10 of the batch-tracked product with batch `LOTA`, expiry in 6 months, MRP 60, at cost 40.00, and 5 more on a second line with batch `LOTB`, at cost 42.00. Complete it. (2) Receive 8 of the untracked product with no batch, cost 30.00. (3) Open *Stock valuation by lot*. (4) Try cancelling the receipt of step 1 after selling 1 from `LOTA`.
+- **Expect:** (1) Two lots, one per line, each with its own batch, expiry, MRP, quantity and cost, and the receipt's number and date as its source. (2) One lot, which carries a *LOT...* reference of the firm's *Stock Lot* series and no printed batch. (3) Each lot is one row, at its own cost. (4) Refused: a lot of the receipt has moved. A receipt whose lots are untouched cancels, and its lots go with it.
+### TC-LOT-004 — The picker groups lots and shows a dash for an unprinted lot
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the prepared two lots of the batch-tracked product at two costs, and the untracked product with a lot that has no printed batch.
+- **Steps:** (1) Receive 5 more of the batch-tracked product with the same batch, expiry, MRP and prices as one of the lots, at a third cost. (2) Sell > Delivery Notes: add a line for the batch-tracked product and open the batch picker. (3) Type a quantity larger than the first lot of the group holds. (4) Open the picker for the untracked product. (5) Sign in as a user without `PRODUCT_VIEW_COST_PRICE` and open the picker again.
+- **Expect:** (2) The lots that agree on batch, expiry, MRP and prices are one row with their total; other lots are rows of their own, nearest expiry first. (3) The quantity fills the oldest lot, then the next; the rest goes on the last lot, so an over-ask still shows red. (4) The lot shows a **dash** for batch and its received date; our *LOT...* reference is not shown. (5) The cost column is gone.
+### TC-LOT-005 — Dispatch takes the nearest-expiry lot and the bill carries its cost
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the prepared two lots, a customer, and a rate typed on the line.
+- **Steps:** (1) Create a sales order for the batch-tracked product for a quantity that fits the lot expiring first. Approve it, create a delivery note with no batch chosen, dispatch it. (2) Create the bill. (3) Open *Stock valuation by lot*. (4) Print the bill and the challan.
+- **Expect:** (1) The lot expiring first gives the goods, never the second. (2) The bill line's cost is that lot's cost, not the average of the two. (3) The first lot's quantity falls by the sale and the second is untouched; if the quantity took the lot to zero, that lot reads zero value. (4) The challan and bill print the lot's batch, expiry and MRP and never our reference.
+### TC-LOT-006 — Two lines of one item from two lots
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the prepared two lots, and a customer.
+- **Steps:** (1) Create a delivery note with two lines for the batch-tracked product. Pick lot `LOTA` on the first and `LOTB` on the second, quantity 2 each. Dispatch. (2) Raise the bill and read both lines. (3) Open *Margin by lot*.
+- **Expect:** (2) Each line carries **its own lot's** cost: 2 x 40.00 and 2 x 42.00, and not the cost of both on each line. (3) One row per lot with the quantity, sales value, cost and margin of each.
+### TC-LOT-007 — A sales return goes back into the lots it left
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** a bill that drew 3 from `LOTA` and 2 from `LOTB`, dispatched as in the cases before.
+- **Steps:** (1) Raise a sales return of 4 off the bill's line and complete it. (2) Read the two lots in *Stock valuation by lot*. (3) Raise a return naming a batch that the line did not ship. (4) Cancel the first return. (5) Return the same line for 100.
+- **Expect:** (1)-(2) The last lot taken is refilled first: 2 back into `LOTB`, then 2 into `LOTA`, each at the cost its units left with, so each lot's unit cost does not move. (3) Refused: the batch was not shipped on that line. (4) Every movement reverses and the lots hold what they held before. (5) Refused: more than was sold.
+### TC-LOT-008 — A write-off or a transfer that names no lot
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the prepared two lots, a second warehouse.
+- **Steps:** (1) Stock > Inventory: write off 2 of the batch-tracked product without choosing a batch. (2) Transfer 3 to the second warehouse without choosing a batch. (3) Write off a quantity larger than either lot holds on its own but smaller than both together. (4) Adjust stock up by 4 with no lot chosen and a unit cost of 45.00. (5) Repeat step 4 naming an existing lot and a unit cost.
+- **Expect:** (1) The 2 leave the first lot, nearest expiry first, at that lot's cost. (2) The 3 leave the first lot that holds all of them and arrive at the same value, so the lot's cost stands. (3) Refused, naming both lots and what each holds; take them lot by lot. (4) A new lot (source *Adjustment*) at 45.00. (5) Refused: a cost is not allowed on a named lot.
+### TC-LOT-009 — Stock never runs below zero
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the untracked product with 8 in MAIN, *allow billing when no lot holds the stock* **off**, and a customer.
+- **Steps:** (1) Adjust stock down by 9. (2) Raise a purchase return of 9. (3) Dispatch a delivery note for 9. (4) Repeat with a product whose settings allow negative stock.
+- **Expect:** (1)-(3) Each is refused, naming the shortage, and the stock still reads 8. (4) Refused all the same: a firm by lot never runs below zero, however the product is set, unless billing without stock is on and the bill maker confirms (the next case).
+### TC-LOT-010 — Billing without stock: the confirmation, and settlement when the purchase comes
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the untracked product with 8 in MAIN and allowed to run below zero, a customer, a supplier; then *allow billing when no lot holds the stock* switched on in *Settings > Stock > Costing method*.
+- **Steps:** (1) Create and approve a delivery note for 10. Dispatch it without confirming. (2) Dispatch again, now confirming the question *no stock in any lot, bill anyway?* (`details.confirm` = `BILL_WITHOUT_STOCK`). (3) Open *Bills waiting for their cost*. (4) Receive 10 at cost 35.00 in the same warehouse, and complete the receipt. (5) Open the report again, and the ledger. (6) Try closing the financial year before step 4.
+- **Expect:** (1) Refused with the question. (2) The 8 held leave from the lot at its cost; the other 2 leave with no lot at the newest lot's cost; the dispatch records who confirmed. (3) The report lists 2 units, the bill, the warehouse and the cost used (cost columns only with the cost permission). (4)-(5) The receipt covers the 2 units, oldest sale first; the report is empty; a correction journal `<GRN>-LS` posts the lot's cost less the cost used, so the sale ends costing what its lot cost. (6) Refused while a bill waits.
+### TC-LOT-011 — A supplier's bill at another rate corrects the lot
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** a goods receipt of 10 at 40.00 with 3 already sold, and a supplier.
+- **Steps:** (1) Raise a supplier bill against the receipt line at 44.00 for 10. Approve it. (2) Read the lot in *Stock valuation by lot*, and the bill's journal. (3) Cancel the bill. (4) Raise a bill at 38.00 and approve it.
+- **Expect:** (1)-(2) The lot's unit cost rises by the extra for the 7 units still in it; the share for the 3 sold is purchase price variance. The Inventory account equals the sum of the lots. (3) The lot gives back what it still holds of the correction and the rest goes to variance. (4) The lot takes the cheaper rate for the 7 held and never falls below nothing.
+### TC-LOT-012 — Stock valuation by lot, Margin by lot and Stock ageing
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the prepared lots with one sold and one returned, a customer, and the Firm admin.
+- **Steps:** (1) Open *Reports > Stock valuation* and *Stock valuation by lot* for today. (2) Pick a day before the switch. (3) Open *Stock ageing*. (4) Open *Margin by lot* for the month. (5) Raise a bill, approve it, and open the report again.
+- **Expect:** (1) *Stock valuation* is the sum of each item's lots; the lot report lists a row per lot holding stock with reference, batch, received date, expiry, MRP, quantity, cost and value, and its rows add up to the valuation. (2) A day before the switch reads on Average and the lot report is empty. (3) Each lot is aged from its own received date at its own cost. (4) One row per item and lot: quantity sold, sales value, cost and margin, with returns taken back. (5) The new bill is counted once it is approved.
+### TC-LOT-013 — Costs are hidden without the cost permission
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the Firm admin, and a user holding `INVENTORY_VIEW`, `BATCH_VIEW` and the report permissions but **not** `PRODUCT_VIEW_COST_PRICE`.
+- **Steps:** (1) As the user without the cost permission open *Stock valuation by lot*, *Margin by lot*, *Bills waiting for their cost*, the batch picker and a lot's *Trace*. (2) **(HTTP)** `GET /api/v1/inventory/reports/stock-valuation/lots`, `GET /api/v1/sales-invoices/reports/margin-by-lot`, `GET /api/v1/inventory/lot-shortfalls`, `GET /api/v1/batch-serial/batches/{id}/trail`. (3) Repeat as the Firm admin.
+- **Expect:** (1)-(2) Quantities, dates and references are shown; every cost, value and margin is **left out or blank**, and on the *Trace* the sales bill's amount too. The pages open and do not fail. (3) The Firm admin sees all of them.
+### TC-LOT-014 — A lot's Trace page
+
+*Added 2026-10-14 (L2 costing by lot, steps 1 to 11) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
+
+- **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
+- **Also needs:** the lot `LOTA` received, billed by a supplier, partly sold, partly returned, with one write-off.
+- **Steps:** (1) Inventory > Batch & Serial > Batches: open the batch and press **Trace** in the details. (2) Read the events top to bottom. (3) **(HTTP)** `GET /api/v1/batch-serial/batches/{id}/trail` for the batch, then for a made-up id.
+- **Expect:** (1)-(2) The arrival comes first (the goods receipt, supplier, date, source), then every movement signed in and out (+ into the lot, - out of it), with the supplier's bill and the sales bills, each found by its number. A reservation and its release are not listed. A write-off shows with its own number and date. A bill appears only once APPROVED or CLOSED, at quantity 0. (3) The lot, its reference, whether it carries a printed batch, its unit cost now and the events; **404** for an unknown id.
+---
 
 ## Screen checks
 
