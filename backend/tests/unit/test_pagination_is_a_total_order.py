@@ -57,7 +57,7 @@ def test_every_paginated_timestamp_sort_ends_with_the_primary_key() -> None:
                 continue
             # A tiebreaker may be in this call or appended by a later one:
             # SQLAlchemy's order_by adds to the clause rather than replacing it.
-            if re.search(r"\.id[\.\s,)]", columns) or re.search(
+            if re.search(r"\.id(?:[\.\s,)]|$)", columns) or re.search(
                 r"\.order_by\([^)]*\.id[\.\s,)]", tail
             ):
                 continue

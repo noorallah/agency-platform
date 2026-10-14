@@ -2388,7 +2388,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                     f"{receipt.grn_number}-QC%"
                 ),
             )
-            .order_by(InventoryTransaction.created_at)
+            .order_by(InventoryTransaction.created_at, InventoryTransaction.id)
             .limit(1)
         ).first()
         if moved is not None:
