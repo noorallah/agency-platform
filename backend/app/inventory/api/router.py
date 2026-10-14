@@ -250,7 +250,8 @@ class StockValuationRecord(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    #: ITEM, or TOTAL / BOOKS / DIFFERENCE for the three closing rows.
+    #: ITEM; OWED for the units owed to lots, on a firm costing by lot; or
+    #: TOTAL / BOOKS / DIFFERENCE for the three closing rows.
     row_type: str
     product_code: str
     product_name: str
@@ -385,6 +386,79 @@ def stock_valuation(
     )
 
 
+class StockValuationLotRecord(BaseModel):
+    """One lot holding stock, behind the stock valuation (L2 step 10)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    product_code: str
+    product_name: str
+    #: Our own reference; empty on the row for stock that names no lot.
+    lot_reference: str
+    #: The batch printed on the packs; empty where the goods carry none.
+    batch_number: str
+    received_on: date | None
+    expiry_date: date | None
+    mrp: Decimal | None
+    quantity: Decimal
+    #: The lot's cost of one unit and its value, sent only to a holder of
+    #: ``PRODUCT_VIEW_COST_PRICE``.
+    rate: Decimal | None = None
+    value: Decimal | None = None
+    mrp_value: Decimal | None
+
+
+@router.get(
+    "/reports/stock-valuation/lots",
+    response_model=PaginatedResponse[StockValuationLotRecord],
+)
+def stock_valuation_lots(
+    scope: StockValuationScope,
+    to_date: date | None = None,
+    from_date: date | None = None,
+    warehouse_id: UUID | None = None,
+    product_id: UUID | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[StockValuationLotRecord]:
+    """List the lots behind the stock valuation as on ``to_date``.
+
+    For a firm costing by lot (`docs/design/LOT_COST_DESIGN.md`, section 5):
+    each lot holding stock with its reference, printed batch, received and
+    expiry dates, MRP, quantity, cost and value, so an item's line in *Stock
+    valuation* opens into the lots it adds up. The values add up to the
+    grand total less the units owed to lots. A firm on Average has no lots
+    and answers an empty list. Cost and value go only to a holder of
+    ``PRODUCT_VIEW_COST_PRICE``; ``from_date`` is accepted and ignored, as
+    the valuation's is.
+    """
+    del from_date
+    today = firm_today(db, scope.firm_id)
+    on = min(to_date or today, today)
+    show_cost = scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
+    records = [
+        StockValuationLotRecord(
+            product_code=row.product_code,
+            product_name=row.product_name,
+            lot_reference=row.lot_reference,
+            batch_number=row.batch_number,
+            received_on=row.received_on,
+            expiry_date=row.expiry_date,
+            mrp=row.mrp,
+            quantity=row.quantity,
+            rate=row.rate if show_cost else None,
+            value=row.value if show_cost else None,
+            mrp_value=row.mrp_value,
+        )
+        for row in StockValuationService(db).lots(
+            scope.firm_id, on=on, warehouse_id=warehouse_id, product_id=product_id
+        )
+    ]
+    window = ReportWindow(None, None, page, page_size)
+    return window.respond(records)
+
+
 class StockStatementRecord(BaseModel):
     """One item's opening, in, out and closing over a period, or the total."""
 
@@ -497,7 +571,8 @@ def stock_ageing(
     """Age the stock on hand as on ``to_date`` (today when left out).
 
     What is on hand is taken to be the most recently received, as FIFO would
-    leave it (``app/inventory/services/stock_ageing.py`` says how).
+    leave it (``app/inventory/services/stock_ageing.py`` says how); a firm
+    costing by lot ages each lot from the day it was received, exactly.
     ``from_date`` is accepted and ignored, as the valuation's is.
     """
     del from_date

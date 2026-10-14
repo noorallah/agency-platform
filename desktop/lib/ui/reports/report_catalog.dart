@@ -1098,8 +1098,38 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'mrp_value', label: 'Value at MRP', numeric: true),
     ],
   ),
+  // The lots behind the stock valuation, for a firm costing by lot (L2 step
+  // 10): each lot holding stock with its cost, MRP and value; they add up to
+  // the grand total less the units owed to lots. Cost and value go only to a
+  // holder of PRODUCT_VIEW_COST_PRICE; a firm on Average lists nothing.
+  ReportDefinition(
+    id: 'stock-valuation-lots',
+    label: 'Stock valuation by lot',
+    description: 'Each lot holding stock as on the day, with its reference, '
+        'printed batch, received and expiry dates, MRP, quantity, cost and '
+        'value. For a firm that costs its stock by lot.',
+    path: '/api/v1/inventory/reports/stock-valuation/lots',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    asOnDate: true,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'lot_reference', label: 'Lot'),
+      ReportColumn(key: 'batch_number', label: 'Batch'),
+      ReportColumn(key: 'received_on', label: 'Received'),
+      ReportColumn(key: 'expiry_date', label: 'Expiry'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'rate', label: 'Cost rate', numeric: true),
+      ReportColumn(key: 'value', label: 'Value at cost', numeric: true),
+      ReportColumn(key: 'mrp', label: 'MRP', numeric: true),
+      ReportColumn(key: 'mrp_value', label: 'Value at MRP', numeric: true),
+    ],
+  ),
   // How old the stock on hand is (55 S7): FIFO's answer -- what is left is
-  // what came in last -- in buckets of days, valued at the average cost.
+  // what came in last -- in buckets of days, valued at the average cost; by
+  // lot, each lot from the day it was received (L2 step 10).
   ReportDefinition(
     id: 'stock-ageing',
     label: 'Stock ageing',

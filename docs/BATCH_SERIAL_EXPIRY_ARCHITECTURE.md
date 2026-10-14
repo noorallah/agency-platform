@@ -433,6 +433,81 @@ DECIDED: (64) A reversal of a movement made before the switch is dated the
 day it is made, as every reversal is, so rule 5 does not stop it; it moves
 the stock row the original moved, which now names the lot.
 
+### Reports by lot (L2 step 10)
+
+`docs/design/LOT_COST_DESIGN.md`, section 5 and section 3.7, in
+`app/inventory/services/stock_valuation.py` (`lot_stock`,
+`StockValuationService.lots`) and `app/inventory/services/stock_ageing.py`.
+No migration. A firm on Average reports exactly as before.
+
+- **Stock valuation.** For a firm costing by lot an item's line is the sum of
+  its lots as on the day, and the cost rate is that value over the quantity.
+  Units billed before their lot (step 7a) and still waiting on the day are
+  a line of their own, `row_type` `OWED`, *Units owed to lots*, before the
+  grand total, so the total still compares with the Inventory account.
+- **The drill-down.** `GET /api/v1/inventory/reports/stock-valuation/lots`
+  (`INVENTORY_VIEW` or `REPORT_VIEW`, as the valuation; `to_date`,
+  `warehouse_id`, `product_id`): one row per lot holding stock with its
+  reference, printed batch (blank where the goods carry none), received and
+  expiry dates, MRP, quantity, cost rate, value and value at MRP. The rows
+  add up to the grand total less the units owed. Desktop entry
+  `stock-valuation-lots` in `report_catalog.dart`.
+- **Stock ageing.** Each lot's quantity is aged from its own `received_on`
+  and valued at its own cost: exact, no FIFO assumption.
+
+DECIDED: (65) A day before the firm switched (`switched_on`) is valued and
+aged on Average, as the firm was then, and the drill-down lists nothing for
+it.
+
+DECIDED: (66) A lot's value on a day is what `batch_valuations` holds now
+less the signed value of the lot's movements dated after the day, added up
+by the database -- read backwards, because a lot carried forward at the
+switch-over has movements from before it that name no batch. A lot's
+quantity is the sum of what its movements did to the owned quantity up to
+the day, matched through the stock row (the movement's batch, else its
+row's, which the switch-over pointed at the lot). A movement's signed value
+is its `total_cost` with the direction of its owned delta, else its shelf
+delta; a value-only movement (landed cost, correction) carries its own sign.
+
+DECIDED: (67) The units owed are each shortfall dated on or before the day
+less its settlements dated on or before it, at the cost used; quantity and
+value are stated negative, since they are what the books hold below the
+lots. With a warehouse named, only that warehouse's. A settlement deleted by
+a cancelled return reads as never made, also for a day before the cancel.
+
+DECIDED: (68) Stock that names no lot and is not owed -- a customer's goods
+back from a sale that left with no lot (decision 29) -- is counted in the
+item's line and listed in the drill-down as one row with no reference, so
+the drill-down still adds up to the item.
+
+DECIDED: (69) With a warehouse named, a lot's value is its whole value pro
+rata to the units in that warehouse: a lot has one cost.
+
+DECIDED: (70) An item is worth its lots' value rounded once to the books'
+two places; each lot is rounded on its own and the residual put on the lot
+worth most, so the drill-down adds up to the item to the paisa.
+
+DECIDED: (71) The stock statement (`StockStatementService`) folds the units
+owed back into each item's line (`valuation(..., owed_apart=False)`), so its
+opening, in, out and closing still add up movement by movement.
+
+DECIDED: (72) On a firm on Average the drill-down answers an empty list:
+the books hold one average per item, and listing batches at it would show a
+breakdown nothing records.
+
+DECIDED: (73) The drill-down's cost rate and value are left out (null), not
+zeroed, without `PRODUCT_VIEW_COST_PRICE`, as the shortfall list's are. The
+valuation route itself still sends cost to every holder of its permissions,
+unchanged.
+
+DECIDED: (74) A by-lot item holding no units but some value (a lot emptied
+with value left on it) keeps its line, so the total never parts from the
+books without saying where.
+
+DECIDED: (75) In the ageing a lot with no received date, and stock that
+names no lot, go in the oldest bucket. Slow-moving and dead stock still value
+at the item's average; this step does not change them.
+
 ### Table: `lots`
 
 | Column | Type | Notes |
