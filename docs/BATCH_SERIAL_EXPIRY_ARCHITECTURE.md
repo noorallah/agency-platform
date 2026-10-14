@@ -508,6 +508,28 @@ DECIDED: (75) In the ageing a lot with no received date, and stock that
 names no lot, go in the oldest bucket. Slow-moving and dead stock still value
 at the item's average; this step does not change them.
 
+**Margin by lot** (`GET /api/v1/sales-invoices/reports/margin-by-lot`,
+`app/sales_invoice/services/lot_margin.py`) gives one row per item and lot:
+quantity sold, sales value, cost, margin and margin %, the last three only to
+a holder of `PRODUCT_VIEW_COST_PRICE`.
+
+DECIDED: (76) It counts bills APPROVED or CLOSED by bill date, lines shipped
+by a delivery note only, and returns COMPLETED or CLOSED by return date, as
+the sales analysis does. A lot's quantity and cost are its
+`delivery_note_line_batches` row scaled by the share billed; its sales value
+is the line's taxable value split by lot quantity; a return takes back
+quantity, value and cost per lot from `sales_return_line_batches`. A lot with
+any row holding no cost shows no cost rather than zero. A firm on Average
+sees one row per batch for batch-tracked items, at the cost they left with.
+
+**The price floor** (`app/sales_order/services/price_floor.py`) judges a line
+of a by-lot firm against the cost of its lots where they are known: the batch
+an order line pins, or the lots its bill's delivery note line recorded.
+
+DECIDED: (77) Several lots are a quantity-weighted mean; a line with any lot
+holding no cost, or no lot at all, is judged on the item's average as before.
+A firm on Average never reads lot costs.
+
 ### Table: `lots`
 
 | Column | Type | Notes |
