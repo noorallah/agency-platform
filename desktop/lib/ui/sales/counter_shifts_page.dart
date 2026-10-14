@@ -50,7 +50,7 @@ class CounterShiftsPage extends StatefulWidget {
 class _CounterShiftsPageState extends State<CounterShiftsPage> {
   List<Json> _rows = const [];
   String _status = '';
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   int _page = 1;
   int _total = 0;
   bool _loading = true;

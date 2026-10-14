@@ -4554,6 +4554,32 @@ commission uses `commission-firm`:
 - **Also true, by the server:** a licence type on a product's or a category's list cannot be deleted; an edit that does not mention the list leaves it alone; the purchase check asks the supplier for every one the same way and only warns.
 - **Leaves:** P with no licences of its own; its category naming L1 and L2.
 
+### TC-SELL-111 — A list opens on the financial year, and an older bill is one step back
+
+*Added 2026-10-14 (customer task P6, IMP-3, backlog 155). Covered by widget tests; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** the **Period** on a list of documents; the reports' opening dates; a list opened from Home
+- **Fixture:** a firm with sales bills in two financial years (a demo firm with two years of trading; `ready-firm` holds one year only)
+- **Steps**
+  1. Open *Sales > Sales Invoices* and read the Period button.
+  2. Look for a bill of last year by scrolling to the end of the list.
+  3. Press the arrow to the left of the Period.
+  4. Open the Period and choose **All dates**.
+  5. Open a bill of last year and raise a sales return against it.
+  6. Open *Sales > Sales Orders* from the menu, then go to Home and press **Orders to approve**.
+  7. Open *Reports* and read the From and To dates.
+  8. Open *Sales > Sales Returns* on a firm that has raised none this year.
+- **Expect**
+  - Step 1: the button reads **This financial year** and the list holds this year's bills only.
+  - Step 2: no bill dated before the first day of the year is listed.
+  - Step 3: the list shows last year's bills and the button reads its dates.
+  - Step 4: bills of both years are listed, newest first.
+  - Step 5: the return is taken; nothing asks which year to work in.
+  - Step 6: from the menu the list is on **This financial year**; from Home it shows the drafts over **All dates**.
+  - Step 7: From is the first day of the firm's financial year and To is today.
+  - Step 8: the list says **Nothing in these dates** and how to see older ones, not *No search results*.
+- **Leaves:** one sales return (step 5).
+
 ### TC-INCENT-001 — A price list is a ladder, and a promotion still outranks it
 
 - **Covers:** plan 10.1, 10.2

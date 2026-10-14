@@ -148,8 +148,12 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
   void initState() {
     super.initState();
     final DateTime now = DateTime.now();
-    _from.text = _iso(DateTime(now.year, now.month, 1));
-    _to.text = _iso(DateTime(now.year, now.month + 1, 0));
+    // The working year is a filter (the owner, 2026-10-13): a report
+    // opens on the firm's financial year so far, and the dates are
+    // there to widen. To today, because a report as on a date reads
+    // the same box.
+    _from.text = _iso(openingPeriod(context, today: now).from!);
+    _to.text = _iso(now);
     final (String year, int quarter) = lastEndedReturnQuarter(now);
     _financialYear.text = year;
     _quarter = quarter;

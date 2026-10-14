@@ -11256,3 +11256,70 @@ bill was only the list of bills a receipt may name.
 - A payment to a supplier has no twin of this (one supplier's advance for
   another supplier's bill); it was not asked for.
 - No screen was clicked.
+
+## 155. The working year is a filter, not a wall (row P6, IMP-3) -- built 2026-10-14
+
+**The owner, 2026-10-13.** All of a firm's years stay in one place. Every list
+of documents and every report opens on the current financial year, and an
+older bill is reached by widening the dates, with nothing to switch. A closed
+year is already locked against change, which is the safety a wall would give.
+No year selector beside the firm.
+
+**What was there.** Every dated list had the **Period** control (this month,
+this quarter, this financial year, the last one, a custom range, the arrows
+that step back and forward) and opened on *All dates*. The reports opened on
+the current month. Nothing kept a year apart: no working year is stored
+anywhere, a return is raised from the bill itself whatever its date, and the
+year in the Period was April to March whatever the firm's own year.
+
+**Built.**
+
+- **A list opens on the firm's current financial year.** Twenty-two lists:
+  quotations, sales orders, delivery notes, sales bills, proformas, sales
+  returns, credit notes, customer debit notes, counter shifts, the TCS
+  register, purchase orders, goods receipts, supplier bills, purchase
+  returns, supplier debit notes, the stock ledger, stock counts, receipts and
+  payments, expenses, journal entries, contra entries, party adjustments and
+  TDS challans. The button reads *This financial year*; the arrow beside it
+  steps to last year, and *All dates* is one choice away.
+- **The year is the firm's own.** `GET /api/v1/me/firms` now carries
+  `financial_year_start`, so the month travels on the one read the shell
+  already holds and no list asks for it. `FirmYearScope` hands it to
+  everything under the shell; `DatePeriod.of` counts the year, last year and
+  the quarters from that month. April where nothing says.
+- **Opened from Home for a reason, a list shows every date.** Home counts
+  *Orders to approve* over every date, so the list it opens does too: an
+  order waiting since last year is still waiting.
+- **The reports open on the financial year so far**, from the first day of
+  the firm's year to today, instead of the current month.
+- **An empty list says why.** Six lists said *No search results* when their
+  dates held nothing; they now say *Nothing in these dates* and how to see
+  older ones.
+- **The line above a list keeps its room.** The Period with its arrows and a
+  longer name is wider than *All dates*; the toolbar now reserves that width
+  and the Period shortens its name before the line runs past the window.
+
+**Decided by the loop, each easy to turn round.**
+
+1. A report opens on the year **to today**, not to the year's last day: a
+   report *as on* a date reads the same box, and an ageing as on next March
+   would be wrong.
+2. The counters above a list (*Draft 3*, *Approved 5*) still count every
+   date, as they did whenever a period was chosen. On the first days of a new
+   year a draft from the year before is counted there and is not in the list
+   until the dates are widened.
+3. The statements, commission, sales targets and the audit trail open as they
+   did; they are not lists of documents.
+4. "Today" for the opening year is the computer's date, as for every other
+   period on the screen.
+
+**Not built, not verified.**
+
+- The counters do not follow the dates (point 2). Making them follow needs
+  the dates on ten summary routes.
+- A list opened on one of its own tabs (*Approved*, *Dispatched*) opens on
+  the year too; only Home's reasons widen it.
+- The reports were not timed over a year on the volume firm.
+- No screen was clicked. The fixture firm has bills in one year only, so the
+  second year was shown by widget tests and not over HTTP; a return against a
+  bill of an earlier year was not driven.

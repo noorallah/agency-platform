@@ -111,7 +111,7 @@ class _SalesInvoiceManagementPageState
   final TextEditingController _search = TextEditingController();
 
   /// The document dates the list is narrowed to (owner, 2026-09-27).
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   late SalesInvoiceView _view = widget.initialView;
   bool _loading = false;
   static const int _rowsPerPage = 50;

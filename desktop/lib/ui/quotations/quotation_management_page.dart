@@ -65,7 +65,7 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
   final TextEditingController _search = TextEditingController();
 
   /// The quotation dates the list is narrowed to (owner, 2026-09-27).
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   List<Quotation> _quotations = const [];
   Quotation? _selected;
   int _page = 1;
@@ -579,8 +579,9 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
                             'customer. It reserves no stock and puts nothing '
                             'on their account until it becomes an order.',
                       )
-                    : const StandardEmptyState(
-                        type: EmptyStateType.noSearchResults,
+                    : PeriodEmptyState(
+                        period: _period,
+                        searching: _search.text.trim().isNotEmpty,
                       ))
                 : EnterpriseDataGrid<Quotation>(
                     columns: _columns.gridColumns,

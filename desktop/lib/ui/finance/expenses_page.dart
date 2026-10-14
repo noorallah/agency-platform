@@ -59,7 +59,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
   Expense? _selected;
 
   /// The expense dates the list is narrowed to.
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   int _page = 1;
   int _total = 0;
 
@@ -317,8 +317,9 @@ class _ExpensesPageState extends State<ExpensesPage> {
                                 'running costs here. Each one posts to the '
                                 'ledger as it is saved.',
                           )
-                        : const StandardEmptyState(
-                            type: EmptyStateType.noSearchResults,
+                        : PeriodEmptyState(
+                            period: _period,
+                            searching: _search.text.trim().isNotEmpty,
                           ))
                     : EnterpriseDataGrid<Expense>(
                         columns: _columns.gridColumns,

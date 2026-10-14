@@ -58,7 +58,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
   Settlement? _selected;
 
   /// The settlement dates the list is narrowed to (owner, 2026-09-27).
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   int _page = 1;
   int _total = 0;
   bool _loading = false;
@@ -498,8 +498,9 @@ class _SettlementsPageState extends State<SettlementsPage> {
                         title: 'No ${_noun}s yet',
                         message: _emptyMessage,
                       )
-                    : const StandardEmptyState(
-                        type: EmptyStateType.noSearchResults,
+                    : PeriodEmptyState(
+                        period: _period,
+                        searching: _search.text.trim().isNotEmpty,
                       ))
                 : EnterpriseDataGrid<Settlement>(
                     columns: _columns.gridColumns,

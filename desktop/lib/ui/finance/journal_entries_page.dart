@@ -75,7 +75,7 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
   String? _sourceModule;
 
   /// The journal dates the list is narrowed to (owner, 2026-09-27).
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   List<JournalEntry> _entries = const [];
   JournalEntry? _selected;
 
@@ -685,8 +685,10 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
                             'delivery note or approving an invoice writes '
                             'one. You can also write one by hand.',
                       )
-                    : const StandardEmptyState(
-                        type: EmptyStateType.noSearchResults,
+                    : PeriodEmptyState(
+                        period: _period,
+                        searching: _search.text.trim().isNotEmpty ||
+                            _sourceModule != null,
                       ))
                 : EnterpriseDataGrid<JournalEntry>(
                     columns: _columns.gridColumns,

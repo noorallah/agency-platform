@@ -55,7 +55,7 @@ class _DebitNotePageState extends State<DebitNotePage> {
 
   /// Search (number, vendor or bill) and the Period, as the other lists.
   final TextEditingController _search = TextEditingController();
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
 
 
   String? get _from =>

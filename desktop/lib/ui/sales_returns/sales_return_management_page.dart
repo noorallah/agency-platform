@@ -60,7 +60,7 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
   final TextEditingController _search = TextEditingController();
 
   /// The return dates the list is narrowed to (owner, 2026-09-27).
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   List<SalesReturn> _returns = const [];
   SalesReturn? _selected;
 
@@ -715,8 +715,9 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
                             'goods back on the shelf and credits what the '
                             'customer owes.',
                       )
-                    : const StandardEmptyState(
-                        type: EmptyStateType.noSearchResults,
+                    : PeriodEmptyState(
+                        period: _period,
+                        searching: _search.text.trim().isNotEmpty,
                       ))
                 : EnterpriseDataGrid<SalesReturn>(
                     columns: _columns.gridColumns,

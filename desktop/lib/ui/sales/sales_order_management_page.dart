@@ -75,7 +75,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   final TextEditingController _search = TextEditingController();
 
   /// The document dates the list is narrowed to (owner, 2026-09-27).
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   bool _loading = false;
   static const int _rowsPerPage = 50;
   int _page = 1;
@@ -128,6 +128,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         .firstOrNull;
     if (view != null && view != _view) {
       _view = view;
+      // Home counted these over every date, so the list it opens shows
+      // every date: an order waiting since last year is still waiting.
+      _period = const DatePeriod.all();
       _page = 1;
       _selected = null;
       // initState has already asked for the unfiltered list; ask again.

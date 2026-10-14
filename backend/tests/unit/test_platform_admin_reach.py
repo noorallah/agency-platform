@@ -367,6 +367,26 @@ def test_an_all_firms_administrator_is_offered_every_firm() -> None:
     assert _offered(session, principal, admin.id) == ["ALPHA", "BETA"]
 
 
+def test_each_firm_offered_says_when_its_year_begins() -> None:
+    """A list of documents opens on the firm's financial year (IMP-3).
+
+    The switcher's list is the one read the shell already holds, so the month
+    travels on it rather than on a call every list would otherwise make.
+    """
+    service, session = _service()
+    january = _named_firm(session, "JANUARY")
+    january.financial_year_start = date(2026, 1, 1)
+    session.commit()
+    _named_firm(session, "APRIL")
+    admin = _admin(service, session, PlatformAdminScope.ALL_FIRMS)
+    principal = _principal(_claims(service, admin), admin.id)
+
+    response = list_my_firms(principal=principal, db=session, settings=Settings())
+    starts = {firm.code: firm.financial_year_start for firm in response.data or []}
+
+    assert starts == {"APRIL": date(2026, 4, 1), "JANUARY": date(2026, 1, 1)}
+
+
 def test_a_platform_operator_is_offered_no_firm_they_do_not_belong_to() -> None:
     """Tier 1 is refused firm-owned routes, so a full switcher is 403s.
 

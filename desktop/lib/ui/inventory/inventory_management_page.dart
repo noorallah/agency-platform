@@ -933,7 +933,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
 
   /// The dates a movement list is narrowed to (review, 2026-09-27): stock
   /// ledger, transactions and opening stock are dated, and had no Period.
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   String? get _periodFrom =>
       _period.from == null ? null : DatePeriod.iso(_period.from!);
   String? get _periodTo =>

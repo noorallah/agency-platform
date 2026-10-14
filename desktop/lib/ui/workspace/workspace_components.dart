@@ -7,6 +7,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../phase2/indian_format.dart';
 import '../../phase2/phase2_scope.dart';
+import 'date_range_filter.dart';
 import 'workspace_interactions.dart';
 
 /// What to put in a telephone box, for the fields the server checks.
@@ -1404,8 +1405,14 @@ class WorkspaceToolbar extends StatelessWidget {
         // "..." is always there once anything folds.
         46 +
         (shown.contains(ToolbarAction.newItem) ? text(newLabel) + 36 : 0) +
-        // Trailing widgets cannot be measured before they are laid out.
-        120.0 * trailing.length;
+        // Trailing widgets cannot be measured before they are laid out. The
+        // Period control says what it needs: a list opens on the year, so
+        // its arrows and its longer name are there from the start.
+        trailing.fold<double>(
+          0,
+          (double sum, Widget widget) =>
+              sum + (widget is DateRangeFilter ? DateRangeFilter.room : 120),
+        );
   }
 
   /// The commands that fit beside everything else in [available], from the
@@ -1524,7 +1531,8 @@ class WorkspaceToolbar extends StatelessWidget {
         .toList();
     return Row(mainAxisSize: MainAxisSize.min, children: [
       for (final Widget widget in trailing) ...[
-        widget,
+        // The Period shortens its name before the line runs past the window.
+        if (widget is DateRangeFilter) Flexible(child: widget) else widget,
         const SizedBox(width: 6),
       ],
       for (final ToolbarAction action in icons) ...[

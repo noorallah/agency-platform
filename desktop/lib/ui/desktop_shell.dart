@@ -1315,26 +1315,32 @@ class _DesktopShellState extends State<DesktopShell> {
           // Documents stay built while another tab is on show, so an order
           // half entered is still there when somebody comes back to it.
           Expanded(
-            child: Phase2Scope(
-              child: Phase2StatusScope(
-                left: _statusLeft,
-                alive: () => mounted,
-                child: DocumentTabsScope(
-                  controller: _documents,
-                  child: ListViewRequestScope(
-                    request: _viewRequest,
-                    child: Phase2ScreenTitle(
-                      title: MenuLayout.itemFor(_router.current.path)?.label,
-                      child: IndexedStack(
-                        index: activeIndex,
-                        children: [
-                          ScreenShownAgain(signal: _shownAgain, child: page),
-                          for (final OpenDocument document in documents)
-                            DocumentNavigator(
-                              key: ValueKey(document.id),
-                              document: document,
-                            ),
-                        ],
+            // The firm's own year, for every list that opens on it.
+            child: FirmYearScope(
+              startMonth:
+                  widget.session.currentFirm?.financialYearStartMonth ??
+                      DateTime.april,
+              child: Phase2Scope(
+                child: Phase2StatusScope(
+                  left: _statusLeft,
+                  alive: () => mounted,
+                  child: DocumentTabsScope(
+                    controller: _documents,
+                    child: ListViewRequestScope(
+                      request: _viewRequest,
+                      child: Phase2ScreenTitle(
+                        title: MenuLayout.itemFor(_router.current.path)?.label,
+                        child: IndexedStack(
+                          index: activeIndex,
+                          children: [
+                            ScreenShownAgain(signal: _shownAgain, child: page),
+                            for (final OpenDocument document in documents)
+                              DocumentNavigator(
+                                key: ValueKey(document.id),
+                                document: document,
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

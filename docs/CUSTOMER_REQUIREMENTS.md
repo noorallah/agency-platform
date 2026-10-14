@@ -216,7 +216,7 @@ customer to agree, and the smaller firm goes first.
 | IMP-1 | Masters and opening figures brought across | Products, customers, suppliers, opening bills, opening stock by lot, opening balances | Later | |
 | IMP-2 | Old bills kept for reference | As history bills: stored as issued, moving no stock and no books. Wanted as a record for audit; how many years is the customer's to say | Later | |
 | IMP-4 | The start date | Not fixed (the owner, 2026-10-13): the application is tested first, then the import, then the customer tries it. A start in the middle of a year is possible: the year's bills up to that day come in as history and the books open from that day's figures | Open | |
-| IMP-3 | The working year | A filter, not a wall: all years in one place, every list opens on the current year, an older bill is reached by widening the dates. Old years archived when they grow is backlog 147 | Planned | P6 |
+| IMP-3 | The working year | A filter, not a wall: all years in one place, every list opens on the current year, an older bill is reached by widening the dates. Old years archived when they grow is backlog 147 | Built (not yet clicked) | P6, backlog 155 |
 
 ## 17. Open questions
 
@@ -277,3 +277,4 @@ customer to agree, and the smaller firm goes first.
 | 2026-10-14 | LIC-6 (P3, backlog 152): a product and a category name a list of licences; the buyer (and on a purchase the supplier) must hold every one on the document's date, and the check names each one missing or lapsed. Existing products and categories keep theirs as a list of one. Not yet clicked |
 | 2026-10-14 | USR-3 (P4, backlog 153): *Accounts > Books > Staff Advances*. Each employee has an account of his own; an advance is paid from cash or a bank account, a recovery is taken from salary or paid back, and the list shows what each still owes, read from the books. No payroll. Not yet clicked |
 | 2026-10-14 | COL-12 (P5, backlog 154): **Paid by** on Record Receipt. One customer pays another's bill: the receipt is the payer's, the bill is closed, the bill's customer's account reads *Paid by* and the payer's *Paid for*; money a customer holds on account clears another's bill by **Apply**; a reversal puts both back. No right of its own, a question on the screen (still for the owner to confirm). A return's or credit note's credit cannot yet be used this way. Not yet clicked |
+| 2026-10-14 | IMP-3 (P6, backlog 155): every list of documents opens on the firm's current financial year and the reports on the year so far; an older bill is one step back or under **All dates**, and nothing is switched. The year is the firm's own, not always April. The counters above a list still count every date. Not clicked |

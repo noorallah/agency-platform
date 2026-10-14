@@ -53,7 +53,7 @@ class _ContraVoucherPageState extends State<ContraVoucherPage> {
   bool _loading = true;
 
   final TextEditingController _search = TextEditingController();
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
 
   String? get _from =>
       _period.from == null ? null : DatePeriod.iso(_period.from!);

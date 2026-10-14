@@ -79,7 +79,10 @@ class _ReceiptApi extends ApiClient {
     bool descending = true,
     Map<String, String> filters = const <String, String>{},
   }) async {
-    requests.add(Map<String, String>.from(filters));
+    // Without the dates the list opens on (the financial year): these are
+    // about the status.
+    requests.add(Map<String, String>.from(filters)
+      ..removeWhere((key, _) => key.endsWith('_from') || key.endsWith('_to')));
     return PagedResult<GoodsReceiptRecord>(
       items: <GoodsReceiptRecord>[
         GoodsReceiptRecord.fromJson(_receiptJson('GRN-0001', 'DRAFT')),
