@@ -31,8 +31,14 @@ from app.settings_sections.services.steps import (
 )
 
 
-def _profile_step(session: Session, firm_id: UUID) -> SettingsStep:
-    """Name the business profile assigned to the firm, if one is."""
+def profile_step(
+    session: Session, firm_id: UUID, code: str = "firm-profile"
+) -> SettingsStep:
+    """Name the business profile assigned to the firm, if one is.
+
+    Shared with the Business profile subject, whose first step asks the same
+    question under its own code.
+    """
     name = session.scalar(
         select(func.coalesce(BusinessProfile.name, BusinessProfile.code))
         .join(
@@ -46,7 +52,7 @@ def _profile_step(session: Session, firm_id: UUID) -> SettingsStep:
         )
     )
     return SettingsStep(
-        "firm-profile",
+        code,
         OPTIONAL,
         name if name else "Not chosen: the firm runs as General",
     )
@@ -90,7 +96,7 @@ def _numbering_step(session: Session, firm_id: UUID) -> SettingsStep:
 def firm_section(session: Session, firm_id: UUID) -> list[SettingsStep]:
     """Return the eight steps of the Firm subject, in set-up order."""
     return [
-        _profile_step(session, firm_id),
+        profile_step(session, firm_id),
         _financial_years_step(session, firm_id),
         _numbering_step(session, firm_id),
         counted_step(
@@ -124,4 +130,4 @@ def firm_section(session: Session, firm_id: UUID) -> list[SettingsStep]:
     ]
 
 
-__all__ = ["firm_section"]
+__all__ = ["firm_section", "profile_step"]
