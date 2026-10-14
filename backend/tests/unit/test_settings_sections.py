@@ -1,6 +1,7 @@
 """Where a firm stands on each step of a Settings subject."""
 
-from datetime import date
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,21 +10,44 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.approvals.models import ApprovalRule
+from app.business.models.framework import (
+    AttributeDefinition,
+    BusinessProfile,
+    CategoryAttributeRule,
+    FirmBusinessProfile,
+)
 from app.common.scope import ResolvedFirmScope
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import ResourceNotFoundError
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
+from app.customers.models.customer import CreditControlSettings
+from app.finance.models.finance import FinancialYear
 from app.finance.models.tds_194q import Tds194QSettings
 from app.firms.models import Firm
+from app.loyalty.models.loyalty import LoyaltySettings
+from app.messaging.models.messaging import MessagingSettings
+from app.purchase.models.purchase import (
+    PurchaseBudget,
+    PurchaseWorkflowSettings,
+    RolePurchaseApprovalLimit,
+)
 from app.sales.models import GeoCountry
+from app.sales_order.models.sales_order import (
+    PriceFloorSettings,
+    RoleDiscountLimit,
+    SalesWorkflowSettings,
+)
+from app.salesmen.models.salesman import Salesman
 from app.settings_sections.api.router import settings_section_state
 from app.settings_sections.schemas import SettingsSectionStateResponse
 from app.settings_sections.services import SECTIONS
 from app.tax.models import GstComplianceSettings, TaxProfile, TaxRule
 from app.tax.schemas import TaxProfileWrite, TaxStatus, TaxSystemWrite
 from app.tax.services import TaxFrameworkService, gst_template
+from app.tcs.models.tcs import TcsSettings
 
 STEP_CODES = [
     "rates-and-profiles",
@@ -269,7 +293,8 @@ def test_an_unknown_section_is_refused(session: Session) -> None:
     assert "no-such-section" not in SECTIONS
 
 
-def test_reading_the_state_writes_nothing(session: Session) -> None:
+@pytest.mark.parametrize("section", ["tax", "firm", "selling", "buying"])
+def test_reading_the_state_writes_nothing(session: Session, section: str) -> None:
     """Opening a Settings subject issues selects and nothing else."""
     firm = _firm(session)
     gst_template.apply_india_gst_template(session, firm_id=firm.id, actor_id=uuid4())
@@ -290,9 +315,9 @@ def test_reading_the_state_writes_nothing(session: Session) -> None:
     engine = session.get_bind()
     event.listen(engine, "before_cursor_execute", record)
     try:
-        _state(session, firm.id)
+        _state(session, firm.id, section)
         # And a firm that has saved nothing: no row is made for it either.
-        _state(session, uuid4())
+        _state(session, uuid4(), section)
     finally:
         event.remove(engine, "before_cursor_execute", record)
 
@@ -300,3 +325,263 @@ def test_reading_the_state_writes_nothing(session: Session) -> None:
     assert all(statement.startswith("SELECT") for statement in statements)
     assert not session.new
     assert not session.dirty
+
+
+FIRM_CODES = [
+    "firm-profile",
+    "financial-years",
+    "numbering-series",
+    "goods-types",
+    "custom-fields",
+    "custom-field-rules",
+    "messaging",
+    "approval-levels",
+]
+SELLING_CODES = [
+    "sales-stages",
+    "salesmen",
+    "credit-control",
+    "price-floor",
+    "discount-limits",
+    "loyalty-scheme",
+    "tcs",
+]
+BUYING_CODES = ["purchase-settings", "approval-limits", "purchase-budgets"]
+
+
+def _year(session: Session, firm_id: UUID, code: str, **values: object) -> None:
+    """Give the firm one financial year."""
+    start = int(code[:4])
+    session.add(
+        FinancialYear(
+            firm_id=firm_id,
+            code=code,
+            name=f"FY {code}",
+            starts_on=date(start, 4, 1),
+            ends_on=date(start + 1, 3, 31),
+            **values,
+        )
+    )
+    session.commit()
+
+
+def test_a_bare_firm_has_one_firm_step_to_do(session: Session) -> None:
+    """Only an open year is owed; everything else is the firm's choice."""
+    firm = _firm(session)
+
+    state = _state(session, firm.id, "firm")
+
+    assert state.section == "firm"
+    assert [step.code for step in state.steps] == FIRM_CODES
+    assert state.todo_count == 1
+    assert _details(state) == {
+        "firm-profile": ("OPTIONAL", "Not chosen: the firm runs as General"),
+        "financial-years": ("TODO", "None open: nothing can be posted"),
+        "numbering-series": ("OPTIONAL", "As each document comes"),
+        "goods-types": ("OPTIONAL", "None yet"),
+        "custom-fields": ("OPTIONAL", "None yet"),
+        "custom-field-rules": ("OPTIONAL", "None yet"),
+        "messaging": ("OPTIONAL", "Off"),
+        "approval-levels": ("OPTIONAL", "None yet"),
+    }
+
+
+def test_a_year_is_done_while_open_and_owed_once_locked(session: Session) -> None:
+    """A locked year is a closed one and does not count as open."""
+    firm = _firm(session)
+    _year(session, firm.id, "2025-26", is_locked=True)
+
+    assert _details(_state(session, firm.id, "firm"))["financial-years"] == (
+        "TODO",
+        "None open: nothing can be posted",
+    )
+
+    _year(session, firm.id, "2026-27")
+    assert _details(_state(session, firm.id, "firm"))["financial-years"] == (
+        "DONE",
+        "2026-27 open",
+    )
+
+    _year(session, firm.id, "2027-28")
+    assert _details(_state(session, firm.id, "firm"))["financial-years"] == (
+        "DONE",
+        "2 years open",
+    )
+
+
+def test_a_firm_holding_things_is_told_what_it_holds(session: Session) -> None:
+    """The profile is named, lists are counted and the switch reads On."""
+    firm = _firm(session)
+    other = _firm(session, "SET02")
+    profile = BusinessProfile(code="PHARMA", name="Pharmacy", industry_type="PHARMA")
+    session.add(profile)
+    session.flush()
+    session.add(
+        FirmBusinessProfile(
+            firm_id=firm.id,
+            business_profile_id=profile.id,
+            effective_from=datetime(2026, 4, 1, tzinfo=UTC),
+        )
+    )
+    mine = AttributeDefinition(
+        firm_id=firm.id, code="SHADE", name="Shade", data_type="TEXT"
+    )
+    session.add_all(
+        [
+            mine,
+            # The platform's own definition and another firm's are not counted.
+            AttributeDefinition(
+                firm_id=None, code="IMEI", name="IMEI", data_type="TEXT"
+            ),
+            AttributeDefinition(
+                firm_id=other.id, code="SIZE", name="Size", data_type="TEXT"
+            ),
+            MessagingSettings(firm_id=firm.id, is_enabled=True),
+        ]
+    )
+    session.flush()
+    session.add(CategoryAttributeRule(firm_id=firm.id, attribute_definition_id=mine.id))
+    for level in (1, 2):
+        session.add(
+            ApprovalRule(
+                firm_id=firm.id,
+                document_type="PURCHASE_ORDER",
+                level=level,
+                min_amount=Decimal("1000"),
+                role_code="FIRM_ADMIN",
+            )
+        )
+    session.commit()
+    _year(session, firm.id, "2026-27")
+
+    state = _state(session, firm.id, "firm")
+
+    assert state.todo_count == 0
+    details = _details(state)
+    assert details["firm-profile"] == ("OPTIONAL", "Pharmacy")
+    assert details["custom-fields"] == ("OPTIONAL", "1 field")
+    assert details["custom-field-rules"] == ("OPTIONAL", "1 rule")
+    assert details["messaging"] == ("OPTIONAL", "On")
+    assert details["approval-levels"] == ("OPTIONAL", "2 levels")
+
+
+def test_a_bare_firm_owes_nothing_in_selling(session: Session) -> None:
+    """Every selling step is optional and reads as it comes."""
+    firm = _firm(session)
+
+    state = _state(session, firm.id, "selling")
+
+    assert [step.code for step in state.steps] == SELLING_CODES
+    assert state.todo_count == 0
+    assert _details(state) == {
+        "sales-stages": ("OPTIONAL", "Left as it comes"),
+        "salesmen": ("OPTIONAL", "None yet"),
+        "credit-control": ("OPTIONAL", "Left as it comes: warns at 80%"),
+        "price-floor": ("OPTIONAL", "Left as it comes"),
+        "discount-limits": ("OPTIONAL", "None yet"),
+        "loyalty-scheme": ("OPTIONAL", "Off"),
+        "tcs": ("OPTIONAL", "Off"),
+    }
+
+
+def test_a_firm_that_needs_a_salesman_owes_one_until_it_has_one(
+    session: Session,
+) -> None:
+    """Required salesmen turn the step TODO, then DONE once one is active."""
+    firm = _firm(session)
+    session.add(SalesWorkflowSettings(firm_id=firm.id, salesman_required=True))
+    session.add(Salesman(firm_id=firm.id, name="Gone", is_active=False))
+    session.commit()
+
+    state = _state(session, firm.id, "selling")
+    assert state.todo_count == 1
+    assert _details(state)["salesmen"] == ("TODO", "None yet: every bill must name one")
+
+    session.add(Salesman(firm_id=firm.id, name="Ravi"))
+    session.commit()
+    assert _details(_state(session, firm.id, "selling"))["salesmen"] == (
+        "DONE",
+        "1 salesman",
+    )
+
+
+def test_a_firm_that_has_set_up_selling_is_told_so(session: Session) -> None:
+    """Saved rows, counted limits and switches on are all named."""
+    firm = _firm(session)
+    session.add_all(
+        [
+            SalesWorkflowSettings(firm_id=firm.id),
+            Salesman(firm_id=firm.id, name="Ravi"),
+            Salesman(firm_id=firm.id, name="Sunil"),
+            CreditControlSettings(firm_id=firm.id),
+            PriceFloorSettings(firm_id=firm.id),
+            RoleDiscountLimit(
+                firm_id=firm.id,
+                role_code="SALES_EXECUTIVE",
+                max_discount_percent=Decimal("5"),
+            ),
+            LoyaltySettings(firm_id=firm.id, is_enabled=True),
+            TcsSettings(firm_id=firm.id, is_enabled=True),
+        ]
+    )
+    session.commit()
+
+    assert _details(_state(session, firm.id, "selling")) == {
+        "sales-stages": ("OPTIONAL", "Set for this firm"),
+        "salesmen": ("OPTIONAL", "2 salesmen"),
+        "credit-control": ("OPTIONAL", "Set for this firm"),
+        "price-floor": ("OPTIONAL", "Set for this firm"),
+        "discount-limits": ("OPTIONAL", "1 role limit"),
+        "loyalty-scheme": ("OPTIONAL", "On"),
+        "tcs": ("OPTIONAL", "On"),
+    }
+
+
+def test_buying_reads_as_it_comes_then_what_was_set(session: Session) -> None:
+    """A bare firm owes nothing; a set-up one is told what it holds."""
+    firm = _firm(session)
+
+    bare = _state(session, firm.id, "buying")
+    assert [step.code for step in bare.steps] == BUYING_CODES
+    assert bare.todo_count == 0
+    assert _details(bare) == {
+        "purchase-settings": ("OPTIONAL", "Left as it comes"),
+        "approval-limits": ("OPTIONAL", "None yet"),
+        "purchase-budgets": ("OPTIONAL", "None yet"),
+    }
+
+    session.add_all(
+        [
+            PurchaseWorkflowSettings(firm_id=firm.id),
+            RolePurchaseApprovalLimit(
+                firm_id=firm.id,
+                role_code="PURCHASE_MANAGER",
+                max_order_amount=Decimal("50000"),
+            ),
+            PurchaseBudget(
+                firm_id=firm.id, budget_month=date(2026, 4, 1), amount=Decimal("1")
+            ),
+            PurchaseBudget(
+                firm_id=firm.id, budget_month=date(2026, 5, 1), amount=Decimal("1")
+            ),
+        ]
+    )
+    session.commit()
+
+    assert _details(_state(session, firm.id, "buying")) == {
+        "purchase-settings": ("OPTIONAL", "Set for this firm"),
+        "approval-limits": ("OPTIONAL", "1 role limit"),
+        "purchase-budgets": ("OPTIONAL", "2 budgets"),
+    }
+
+
+@pytest.mark.parametrize("section", ["firm", "selling", "buying"])
+def test_the_route_serves_each_new_section(session: Session, section: str) -> None:
+    """Each subject is registered and answered by the one endpoint."""
+    firm = _firm(session)
+
+    state = _state(session, firm.id, section)
+
+    assert section in SECTIONS
+    assert state.section == section
+    assert state.steps

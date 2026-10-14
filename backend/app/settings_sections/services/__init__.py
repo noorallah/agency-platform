@@ -10,9 +10,6 @@ models directly so that opening a screen can never leave a row behind, and so
 "never saved" stays distinguishable from "saved as the default".
 """
 
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -20,35 +17,27 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
 from app.finance.models.tds_194q import Tds194QSettings
+from app.settings_sections.services.buying import buying_section
+from app.settings_sections.services.firm import firm_section
+from app.settings_sections.services.selling import selling_section
+from app.settings_sections.services.steps import (
+    DONE,
+    NONE_YET,
+    OPTIONAL,
+    TODO,
+    SectionReader,
+    SettingsStep,
+    counted,
+    saved_step,
+    switch_step,
+)
 from app.tax.models import GstComplianceSettings, TaxProfile, TaxRule, TaxSettings
 from app.tax.services.gst_template import (
     TEMPLATE_RULE_CODES,
     template_profile_codes,
 )
 
-DONE: Literal["DONE"] = "DONE"
-TODO: Literal["TODO"] = "TODO"
-OPTIONAL: Literal["OPTIONAL"] = "OPTIONAL"
-
 _FROM_TEMPLATE = ", from the GST template"
-_NONE_YET = "None yet"
-
-
-@dataclass(frozen=True, slots=True)
-class SettingsStep:
-    """One set-up step and where the firm stands on it."""
-
-    code: str
-    state: Literal["DONE", "TODO", "OPTIONAL"]
-    detail: str
-
-
-SectionReader = Callable[[Session, UUID], list[SettingsStep]]
-
-
-def _counted(count: int, singular: str, plural: str) -> str:
-    """Return ``count`` with the noun that agrees with it."""
-    return f"{count} {singular if count == 1 else plural}"
 
 
 def _profiles_step(session: Session, firm_id: UUID) -> SettingsStep:
@@ -56,7 +45,7 @@ def _profiles_step(session: Session, firm_id: UUID) -> SettingsStep:
     live = (TaxProfile.firm_id == firm_id, TaxProfile.is_deleted.is_(False))
     count = session.scalar(select(func.count()).select_from(TaxProfile).where(*live))
     if not count:
-        return SettingsStep("rates-and-profiles", TODO, _NONE_YET)
+        return SettingsStep("rates-and-profiles", TODO, NONE_YET)
     # A profile is versioned under its group code, and a rate change mints a
     # new code beneath it, so the template's slabs are looked for by group.
     name = func.coalesce(TaxProfile.group_code, TaxProfile.code)
@@ -64,7 +53,7 @@ def _profiles_step(session: Session, firm_id: UUID) -> SettingsStep:
     held = session.scalar(
         select(func.count(func.distinct(name))).where(*live, name.in_(wanted))
     )
-    detail = _counted(count, "profile", "profiles")
+    detail = counted(count, "profile", "profiles")
     if held == len(wanted):
         detail += _FROM_TEMPLATE
     return SettingsStep("rates-and-profiles", DONE, detail)
@@ -79,13 +68,13 @@ def _rules_step(session: Session, firm_id: UUID) -> SettingsStep:
     )
     count = session.scalar(select(func.count()).select_from(TaxRule).where(*active))
     if not count:
-        return SettingsStep("tax-rules", TODO, _NONE_YET)
+        return SettingsStep("tax-rules", TODO, NONE_YET)
     held = session.scalar(
         select(func.count(func.distinct(TaxRule.code))).where(
             *active, TaxRule.code.in_(TEMPLATE_RULE_CODES)
         )
     )
-    detail = _counted(count, "active rule", "active rules")
+    detail = counted(count, "active rule", "active rules")
     if held == len(TEMPLATE_RULE_CODES):
         detail += _FROM_TEMPLATE
     return SettingsStep("tax-rules", DONE, detail)
@@ -93,16 +82,7 @@ def _rules_step(session: Session, firm_id: UUID) -> SettingsStep:
 
 def _tax_settings_step(session: Session, firm_id: UUID) -> SettingsStep:
     """Say whether the firm has saved tax settings of its own."""
-    saved = session.scalar(
-        select(func.count())
-        .select_from(TaxSettings)
-        .where(TaxSettings.firm_id == firm_id, TaxSettings.is_deleted.is_(False))
-    )
-    return SettingsStep(
-        "tax-settings",
-        OPTIONAL,
-        "Set for this firm" if saved else "Left as it comes",
-    )
+    return saved_step(session, TaxSettings, firm_id, "tax-settings")
 
 
 def _gst_documents_step(session: Session, firm_id: UUID) -> SettingsStep:
@@ -126,13 +106,7 @@ def _gst_documents_step(session: Session, firm_id: UUID) -> SettingsStep:
 
 def _tds_purchases_step(session: Session, firm_id: UUID) -> SettingsStep:
     """Say whether TDS on the purchase of goods (194Q) is switched on."""
-    enabled = session.scalar(
-        select(Tds194QSettings.is_enabled).where(
-            Tds194QSettings.firm_id == firm_id,
-            Tds194QSettings.is_deleted.is_(False),
-        )
-    )
-    return SettingsStep("tds-purchases", OPTIONAL, "On" if enabled else "Off")
+    return switch_step(session, Tds194QSettings, firm_id, "tds-purchases")
 
 
 def tax_section(session: Session, firm_id: UUID) -> list[SettingsStep]:
@@ -147,7 +121,12 @@ def tax_section(session: Session, firm_id: UUID) -> list[SettingsStep]:
 
 
 #: Every Settings subject that can say where a firm stands, by its code.
-SECTIONS: dict[str, SectionReader] = {"tax": tax_section}
+SECTIONS: dict[str, SectionReader] = {
+    "tax": tax_section,
+    "firm": firm_section,
+    "selling": selling_section,
+    "buying": buying_section,
+}
 
 
 def section_state(session: Session, firm_id: UUID, section: str) -> list[SettingsStep]:
@@ -163,4 +142,15 @@ def section_state(session: Session, firm_id: UUID, section: str) -> list[Setting
     return reader(session, firm_id)
 
 
-__all__ = ["SECTIONS", "SettingsStep", "section_state", "tax_section"]
+__all__ = [
+    "DONE",
+    "OPTIONAL",
+    "SECTIONS",
+    "TODO",
+    "SettingsStep",
+    "buying_section",
+    "firm_section",
+    "section_state",
+    "selling_section",
+    "tax_section",
+]
