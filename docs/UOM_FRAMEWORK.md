@@ -114,9 +114,17 @@ two sides of a document do not agree on how much of a default they take:
 | `sales_order` | `line.sales_uom_id` only — no fallback to the product; its **stock** unit is the product's (below) |
 | `sales_invoice` | the invoice line's unit against the *source line's* unit, stored in the source line's |
 
-So a sales order raised without a unit on the line converts nothing, whatever
-the product says. Worth knowing before assuming a product's `sales_uom_id`
-governs what leaves the shelf.
+**A quotation or order line that names no unit is in the product's selling
+unit** (D-PRC-53, 2026-10-15), as a purchase line naming none is in its
+buying unit. `in_selling_units` (`app/uom/services/uom_service.py`) names
+`sales_uom_id` on such a line before anything prices it, where the product's
+`sales_uom_id` is not its stock unit; the line then converts as any line in
+another unit does. A line naming either unit is left as sent, so a client
+that means pieces names them. A saved line sent again for the same product
+keeps the unit it was saved in, and a quotation line saved in no unit is
+ordered in the stock unit, so nothing saved before the rule is re-read. A
+counter bill follows through the order it raises. The screens' Unit column
+already showed the selling unit (D-UI-98).
 
 **A sales order line that names a selling unit converts to the product's
 stock unit, whatever stock unit it was sent** (D-PRC-26, 2026-10-06). The

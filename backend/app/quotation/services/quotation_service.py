@@ -109,7 +109,12 @@ from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
-from app.uom.services import UomService, assert_quantity_fits_unit, stock_unit_of
+from app.uom.services import (
+    UomService,
+    assert_quantity_fits_unit,
+    in_selling_units,
+    stock_unit_of,
+)
 
 ZERO = Decimal("0")
 
@@ -810,7 +815,14 @@ class QuotationService(TransactionalDocumentService):
                         description=line.description,
                         quantity=line.quantity,
                         free_quantity=self._free_goods_for_the_order(line),
-                        sales_uom_id=line.sales_uom_id,
+                        # A line quoted in no unit was quoted in the
+                        # stock unit and is ordered in it, not in the
+                        # selling unit a fresh line takes (D-PRC-53).
+                        sales_uom_id=line.sales_uom_id
+                        or stock_unit_of(
+                            self._session.get(Product, line.product_id),
+                            line.inventory_uom_id,
+                        ),
                         inventory_uom_id=line.inventory_uom_id,
                         packaging_type_id=line.packaging_type_id,
                         unit_price=(
@@ -959,7 +971,7 @@ class QuotationService(TransactionalDocumentService):
         self, row: SalesQuotation, data: QuotationCreate, *, actor_id: UUID
     ) -> None:
         lines, entered = self._typed_rates_before_tax(
-            row, data.lines, actor_id=actor_id
+            row, self._in_selling_units(row, data.lines), actor_id=actor_id
         )
         totals = self._replace_lines(
             row,
@@ -1758,6 +1770,25 @@ class QuotationService(TransactionalDocumentService):
             document_id=document_id,
             line_number=line_number,
         )
+
+    def _in_selling_units(
+        self, row: SalesQuotation, lines: list[QuotationLineWrite]
+    ) -> list[QuotationLineWrite]:
+        """Name the selling unit of each line that names none (D-PRC-53).
+
+        Asked before anything prices a line, since a price list is read in
+        the line's unit. A line sent again for the product it was saved with
+        keeps the unit it was saved in.
+        """
+        saved = {
+            line.line_number: (line.product_id, line.sales_uom_id)
+            for line in self._session.scalars(
+                select(SalesQuotationLine).where(
+                    SalesQuotationLine.sales_quotation_id == row.id
+                )
+            )
+        }
+        return in_selling_units(self._session, lines, saved=saved)
 
     def _typed_rates_before_tax(
         self,

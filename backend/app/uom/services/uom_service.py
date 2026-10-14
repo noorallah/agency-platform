@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import (
@@ -16,6 +17,7 @@ from decimal import (
 )
 from uuid import UUID
 
+from pydantic import BaseModel
 from sqlalchemy import and_, case, func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -398,6 +400,75 @@ def buying_units_of(
         own = product.inventory_uom_id if product is not None else None
         return None, stock_unit or own
     return unit, stock_unit_of(product, stock_unit)
+
+
+def selling_unit_of(product: Product | None) -> UUID | None:
+    """Return the unit a sales line naming none is counted in, where not stock.
+
+    The product's selling unit where it has one other than the unit its stock
+    is kept in, else None: the line is in the stock unit, as it always was.
+    """
+    if product is None or product.sales_uom_id is None:
+        return None
+    if product.sales_uom_id == stock_unit_of(product):
+        return None
+    return product.sales_uom_id
+
+
+def in_selling_units[LineT: BaseModel](
+    session: Session,
+    lines: Sequence[LineT],
+    *,
+    saved: Mapping[int, tuple[UUID, UUID | None]] | None = None,
+) -> list[LineT]:
+    """Name the unit of each typed sales line that names none (D-PRC-53).
+
+    A quotation or order line naming neither ``sales_uom_id`` nor
+    ``inventory_uom_id`` is counted in the product's selling unit
+    (`selling_unit_of`), as a purchase line naming none is in its buying
+    unit. It was read in the stock unit: 2 of a product sold by the BOX of 12
+    were 2 pieces at the box's price. A line naming either unit is left as
+    sent, so a screen that shows the stock unit says so by naming it.
+
+    ``saved`` is each saved line's product and unit by line number: a line
+    sent again for the same product keeps the unit it was saved in, so a
+    draft saved in pieces before this rule is not re-read in boxes.
+    """
+    unnamed = [
+        line
+        for line in lines
+        if getattr(line, "sales_uom_id", None) is None
+        and getattr(line, "inventory_uom_id", None) is None
+    ]
+    if not unnamed:
+        return list(lines)
+    product_ids = {getattr(line, "product_id", None) for line in unnamed} - {None}
+    products = {
+        product.id: product
+        for product in session.scalars(
+            select(Product).where(Product.id.in_(product_ids))
+        )
+    }
+    kept_units = saved or {}
+    named: list[LineT] = []
+    unnamed_ids = {id(line) for line in unnamed}
+    for line in lines:
+        if id(line) not in unnamed_ids:
+            named.append(line)
+            continue
+        product_id = getattr(line, "product_id", None)
+        kept = kept_units.get(getattr(line, "line_number", 0))
+        unit = (
+            kept[1]
+            if kept is not None and kept[0] == product_id
+            else selling_unit_of(
+                None if product_id is None else products.get(product_id)
+            )
+        )
+        named.append(
+            line if unit is None else line.model_copy(update={"sales_uom_id": unit})
+        )
+    return named
 
 
 class UomService:
