@@ -959,7 +959,18 @@ class _GstReturnPageState extends State<GstReturnPage> {
       ('eligible_itc', '4(A)(5) All other ITC (includes blocked credit)'),
       ('itc_reverse_charge', '4(A)(3) Reverse charge'),
       ('itc_reclaimed_stock', '4(A)(5) ITC claimed again — stock that came back'),
+      // Rule 42's year-end true-up and its reversal of common credit are in
+      // the net below, so they are lines of their own here or table 4 does
+      // not add up to its own 4(C) (D-CMP-28).
+      (
+        'itc_reclaimed_rule42',
+        '4(A)(5) ITC claimed again — rule 42 year-end',
+      ),
       ('itc_reversed_blocked', '4(B)(1) ITC reversed — blocked (s.17(5))'),
+      (
+        'itc_reversed_rule42',
+        '4(B)(1) ITC reversed — common credit (rule 42)',
+      ),
       (
         'itc_reversed_stock',
         '4(B)(1) ITC reversed — stock given free, lost or written off',

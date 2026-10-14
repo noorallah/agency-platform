@@ -310,6 +310,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('table 4 shows common credit reversed and reclaimed under rule 42',
+      (tester) async {
+    // The return took both into 4(C) and the screen named neither, so table
+    // 4 did not add up to its own net for a firm with common credit
+    // (D-CMP-28).
+    Json block(double central) => <String, dynamic>{
+          'integrated_tax': 0,
+          'central_tax': central,
+          'state_tax': central,
+          'cess': 0,
+        };
+    final Json summary = <String, dynamic>{
+      ..._gstr3b(),
+      'itc_reversed_rule42': block(41.75),
+      'itc_reclaimed_rule42': block(7.25),
+    };
+    await _pump(tester, _ReturnsApi(one: _gstr1(), summary: summary));
+    await tester.tap(find.text('GSTR-3B'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('4(B)(1) ITC reversed — common credit (rule 42)'),
+      findsOneWidget,
+    );
+    expect(find.text('41.75'), findsNWidgets(2));
+    expect(
+      find.text('4(A)(5) ITC claimed again — rule 42 year-end'),
+      findsOneWidget,
+    );
+    expect(find.text('7.25'), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a refused refresh reports the refusal instead of figures',
       (tester) async {
     // Loads once, then every later call is refused.
