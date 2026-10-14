@@ -9,9 +9,9 @@
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/api/concurrency.dart';
 import 'package:agency_desktop/models/entities.dart';
-import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/pricing.dart';
 import 'package:agency_desktop/models/product.dart';
+import 'package:agency_desktop/models/salesman.dart';
 import 'package:agency_desktop/ui/pricing/promotion_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -43,7 +43,7 @@ class _Api extends ApiClient {
       const <PrincipalRecord>[];
 
   @override
-  Future<List<FirmMember>> firmMembers() async => const <FirmMember>[];
+  Future<List<Salesman>> firmSalesmen() async => const <Salesman>[];
 
   @override
   Future<PromotionRecord> updatePromotion(

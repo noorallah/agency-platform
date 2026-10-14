@@ -4,7 +4,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/commission.dart';
 import 'package:agency_desktop/models/entities.dart';
-import 'package:agency_desktop/models/firm_member.dart';
+import 'package:agency_desktop/models/salesman.dart';
 import 'package:agency_desktop/ui/commission/sales_target_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
@@ -53,10 +53,12 @@ class _TargetApi extends ApiClient {
   @override
   Future<void> deleteSalesTarget(String id) async => deleted.add(id);
 
+  /// The firm's salesman list (P2): a target names an entry of it.
   @override
-  Future<List<FirmMember>> firmMembers() async => const [
-        FirmMember(userId: 'user-asha', fullName: 'Asha Rao'),
-        FirmMember(userId: 'user-ravi', fullName: 'Ravi Kumar'),
+  Future<List<Salesman>> firmSalesmen() async => const [
+        Salesman(id: 'sm-asha', name: 'Asha Rao'),
+        Salesman(id: 'sm-ravi', name: 'Ravi Kumar'),
+        Salesman(id: 'sm-gone', name: 'Gone Away', isActive: false),
       ];
 
   @override
@@ -109,7 +111,32 @@ void main() {
     await _newTarget(tester, api, salesperson: 'Ravi Kumar');
 
     expect(api.created, hasLength(1));
-    expect(api.created.single['salesman_id'], 'user-ravi');
+    expect(api.created.single['salesman_id'], 'sm-ravi');
+  });
+
+  testWidgets('an inactive salesman is not offered for a new target',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _TargetApi api = _TargetApi();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SalesTargetPage(
+          api: api,
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'New target'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sales-target-salesperson')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ravi Kumar'), findsWidgets);
+    expect(find.textContaining('Gone Away'), findsNothing);
   });
 
   testWidgets('choosing "Whole firm" sends null', (tester) async {

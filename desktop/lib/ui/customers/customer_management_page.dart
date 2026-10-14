@@ -18,9 +18,11 @@ import '../../models/firm_member.dart';
 import '../../models/geography.dart';
 import '../../models/product.dart';
 import '../../models/sales_territory.dart';
+import '../../models/salesman.dart';
 import '../../models/trade_licence.dart';
 import '../../models/vendor.dart';
 import '../../models/bulk_action.dart';
+import '../sales/firm_salesmen.dart';
 import '../workspace/bulk_action.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
@@ -344,8 +346,11 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           loadGroups: () => widget.api
               .customerGroups(pageSize: 100)
               .then((page) => page.items),
-          // The account manager picker (backlog 67 row 2), phase 2 only.
+          // The collector picker (backlog 87 #8), phase 2 only: a user.
           loadMembers: phase2 ? widget.api.firmMembers : null,
+          // The account manager picker (backlog 67 row 2), phase 2 only:
+          // an entry of the firm's salesman list (P2), not a user.
+          loadSalesmen: phase2 ? () => FirmSalesmen.of(widget.api) : null,
           // "Also a supplier" (ACC-11), phase 2 only, for somebody who may
           // read suppliers at all.
           loadVendors: phase2 && widget.permissions.hasPermission('VENDOR_VIEW')
@@ -1108,6 +1113,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadAttributes,
     this.loadGroups,
     this.loadMembers,
+    this.loadSalesmen,
     this.loadVendors,
     this.loadPriceLevels,
     this.searchParents,
@@ -1156,9 +1162,14 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// caller supplies none and the dropdown is omitted.
   final Future<List<CustomerGroup>> Function()? loadGroups;
 
-  /// The firm's people, for the account manager picker (backlog 67 row 2).
-  /// Null omits the picker; the stored manager is still sent back unchanged.
+  /// The firm's people, for the collector picker (backlog 87 #8). Null
+  /// omits the picker, and then `collector_id` is not sent at all.
   final Future<List<FirmMember>> Function()? loadMembers;
+
+  /// The firm's salesman list, for the account manager picker (backlog 67
+  /// row 2; P2: a `salesman_id` names an entry of the list, not a user).
+  /// Null omits the picker; the stored manager is still sent back unchanged.
+  final Future<List<Salesman>> Function()? loadSalesmen;
 
   /// The firm's suppliers, for the "Also a supplier" picker (ACC-11). Null
   /// omits the picker, and then `linked_vendor_id` is not sent at all, so a
@@ -1319,6 +1330,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   bool _groupsRequested = false;
   // Empty string is "nobody", sent as null.
   late String _salesmanId = widget.customer?.salesmanId ?? '';
+  List<Salesman> _salesmen = const [];
   List<FirmMember> _members = const [];
   // Empty string is "nobody", sent as null -- and only once the member list
   // arrived (`_collectorsLoaded`): absent leaves the collector alone.
@@ -1394,6 +1406,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     _customFields?.start();
     _loadGroups();
     _loadMembers();
+    _loadSalesmen();
     _loadVendors();
     _loadPriceLevels();
     unawaited(_loadFamily());
@@ -1461,6 +1474,16 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           _collectorsLoaded = false;
         });
       }
+    }
+  }
+
+  Future<void> _loadSalesmen() async {
+    if (widget.loadSalesmen == null) return;
+    try {
+      final List<Salesman> salesmen = await widget.loadSalesmen!();
+      if (mounted) setState(() => _salesmen = salesmen);
+    } on Object {
+      // Unreadable leaves the picker with just the stored manager.
     }
   }
 
@@ -1807,21 +1830,25 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     );
   }
 
-  /// The account manager picker (backlog 67 row 2). Values are user ids;
-  /// '' is nobody. A stored manager who has since left the firm is not in
-  /// the list and stays selectable as its own item, so a save does not
-  /// silently clear them.
+  /// The account manager picker (backlog 67 row 2). Values are ids from the
+  /// firm's salesman list (P2); '' is nobody. The active salesmen are
+  /// offered; a stored manager since made inactive keeps their name, and one
+  /// the list no longer has stays selectable as its own item, so a save does
+  /// not silently clear them.
   Widget _managerDropdown() {
+    final bool known = _salesmen.any((item) => item.id == _salesmanId);
     final List<DropdownMenuItem<String>> items = [
       const DropdownMenuItem(value: '', child: Text('Nobody in particular')),
-      for (final FirmMember member in _members)
-        DropdownMenuItem(value: member.userId, child: Text(member.label)),
+      for (final ({String id, String label}) option in salesmanOptions(
+        _salesmen,
+        current: known ? _salesmanId : null,
+      ))
+        DropdownMenuItem(value: option.id, child: Text(option.label)),
     ];
-    if (_salesmanId.isNotEmpty &&
-        !_members.any((member) => member.userId == _salesmanId)) {
+    if (_salesmanId.isNotEmpty && !known) {
       items.add(DropdownMenuItem(
         value: _salesmanId,
-        child: const Text('Current manager (no longer a member)'),
+        child: const Text('Current manager (no longer on the list)'),
       ));
     }
     return DropdownButtonFormField<String>(
@@ -2230,7 +2257,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
                 _dirty = true;
               }),
             ),
-            if (widget.loadMembers != null) _managerDropdown(),
+            if (widget.loadSalesmen != null) _managerDropdown(),
             if (widget.loadMembers != null && _collectorsLoaded)
               _collectorDropdown(),
             if (widget.loadVendors != null && _vendorsLoaded)

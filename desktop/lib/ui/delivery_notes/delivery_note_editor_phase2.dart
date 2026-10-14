@@ -232,6 +232,21 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
           },
         ),
       ),
+      // P2: the note follows its order's salesman; shown, never sent.
+      if (stringValue(order?['salesman_id']).isNotEmpty)
+        DocumentField(
+          label: 'Salesman (from the order)',
+          auto: true,
+          width: 200,
+          child: InputDecorator(
+            key: const ValueKey('delivery-note-salesman'),
+            decoration: documentBoxDecoration(context),
+            child: Text(
+              salesmanName(_salesmen, stringValue(order?['salesman_id'])),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
       if (_addresses.isNotEmpty)
         ShipToField(
           key: const ValueKey('delivery-note-ship-to'),

@@ -597,6 +597,8 @@ abstract final class MenuLayout {
           permission: 'LOYALTY_VIEW'),
       MenuItemSpec.setting(tcsSettingsRoute, 'TCS Settings',
           permission: 'TCS_MANAGE'),
+      // The firm's own salesman list (P2): a screen, not a dialog.
+      MenuItemSpec(AppModule.sales, 'salesmen', 'Salesmen'),
     ]),
     MenuGroupSpec('Buying', [
       MenuItemSpec(

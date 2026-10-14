@@ -14,10 +14,12 @@ import '../../models/gst_documents.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import '../../models/sales_invoice.dart';
+import '../../models/salesman.dart';
 import '../../models/transporter.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../document_framework/document_steps.dart';
+import '../sales/firm_salesmen.dart';
 import '../sales/ship_to_field.dart';
 import '../workspace/batch_picker_panel.dart';
 import '../workspace/custom_fields_section.dart';
@@ -260,6 +262,12 @@ class DeliveryNoteEditorDialog extends StatefulWidget {
 
 class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   Json? _order;
+
+  /// Phase 2 (P2): the firm's salesman list, read only to name the order's
+  /// salesman. A note follows its order's salesman and sends none of its
+  /// own, so the box is read-only.
+  List<Salesman> _salesmen = const [];
+  bool _salesmenRequested = false;
   List<DeliveryDraftLine> _lines = const [];
   // Stock available per product in the chosen warehouse, one row per batch.
   Map<String, List<InventoryRecord>> _stockByProduct = const {};
@@ -399,6 +407,18 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
     return productId;
   }
 
+  /// Read the salesman list once, the first time an order naming one is
+  /// chosen: an order with nobody on it needs no names.
+  Future<void> _loadSalesmen() async {
+    _salesmenRequested = true;
+    try {
+      final List<Salesman> rows = await FirmSalesmen.of(widget.api);
+      if (mounted) setState(() => _salesmen = rows);
+    } on Object {
+      // The box shows the order's id rather than a name.
+    }
+  }
+
   Future<void> _selectOrder(Json order) async {
     setState(() {
       _order = order;
@@ -408,6 +428,11 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       _shippingAddressId = null;
     });
     unawaited(_loadAddresses(order));
+    if (!_salesmenRequested &&
+        stringValue(order['salesman_id']).isNotEmpty &&
+        Phase2Scope.of(context)) {
+      unawaited(_loadSalesmen());
+    }
     final List<Json> orderLines = [
       for (final dynamic line in (order['lines'] as List<dynamic>? ?? const []))
         if (line is Map) Map<String, dynamic>.from(line),

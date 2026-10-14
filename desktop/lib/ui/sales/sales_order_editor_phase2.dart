@@ -391,6 +391,7 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
               _resetPriceLevelFor(value);
             });
             unawaited(_quotePrices(_lines));
+            unawaited(_fillSalesman());
             _schedulePreview();
           },
         ),
@@ -483,31 +484,31 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
       DocumentField(
         label: 'Salesman',
         width: 200,
-        child: DropdownButtonFormField<String?>(
-          key: const ValueKey('sales-order-salesman'),
-          initialValue: _salesmanId,
-          isExpanded: true,
-          isDense: true,
-          decoration: documentBoxDecoration(context),
-          items: [
-            const DropdownMenuItem<String?>(
-              value: null,
-              child: Text('Nobody', overflow: TextOverflow.ellipsis),
-            ),
-            for (final FirmMember item in _members)
-              DropdownMenuItem<String?>(
-                value: item.userId,
-                child: Text(item.label, overflow: TextOverflow.ellipsis),
+        // Keyed on the fill, so a box the starting choice filled shows it.
+        child: KeyedSubtree(
+          key: ValueKey<int>(_salesmanFill),
+          child: DropdownButtonFormField<String?>(
+            key: const ValueKey('sales-order-salesman'),
+            initialValue: _salesmanId,
+            isExpanded: true,
+            isDense: true,
+            decoration: documentBoxDecoration(context),
+            items: [
+              const DropdownMenuItem<String?>(
+                value: null,
+                child: Text('Nobody', overflow: TextOverflow.ellipsis),
               ),
-            if (_salesmanId != null &&
-                !_members.any((item) => item.userId == _salesmanId))
-              DropdownMenuItem<String?>(
-                value: _salesmanId,
-                child: Text(_salesmanId!, overflow: TextOverflow.ellipsis),
-              ),
-          ],
-          onChanged:
-              _locked ? null : (value) => _setState(() => _salesmanId = value),
+              // The active salesmen, and a saved one no longer offered kept
+              // visible under their name, so a save does not drop them.
+              for (final ({String id, String label}) option
+                  in salesmanOptions(_salesmen, current: _salesmanId))
+                DropdownMenuItem<String?>(
+                  value: option.id,
+                  child: Text(option.label, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: _locked ? null : _pickSalesman,
+          ),
         ),
       ),
       DocumentField(

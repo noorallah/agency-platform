@@ -9,8 +9,9 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/commission.dart';
 import '../../models/entities.dart';
-import '../../models/firm_member.dart';
+import '../../models/salesman.dart';
 import '../../core/dialogs/app_dialogs.dart';
+import '../sales/firm_salesmen.dart';
 import '../workspace/desktop_framework.dart';
 
 /// What a firm expects to sell, and how it went.
@@ -412,7 +413,10 @@ class _SalesTargetDialogState extends State<_SalesTargetDialog> {
   // Null is "Whole firm". The dialog sent no `salesman_id` at all, so every
   // target made on the desktop was the firm's own (BL-31.15).
   String? _salesmanId;
-  List<FirmMember> _members = const [];
+
+  /// The firm's salesman list (P2): a target's `salesman_id` names an entry
+  /// of it, never a user.
+  List<Salesman> _salesmen = const [];
   String _period = 'MONTHLY';
   String _basis = 'INVOICED';
   bool _saving = false;
@@ -440,38 +444,41 @@ class _SalesTargetDialogState extends State<_SalesTargetDialog> {
     super.dispose();
   }
 
-  /// The firm's people, for the Salesperson picker.
+  /// The firm's salesman list, for the Salesperson picker.
   Future<void> _loadMembers() async {
     try {
-      final List<FirmMember> members = await widget.api.firmMembers();
+      final List<Salesman> salesmen = await FirmSalesmen.of(widget.api);
       if (!mounted) return;
-      setState(() => _members = members);
+      setState(() => _salesmen = salesmen);
     } on ApiException catch (error) {
       if (!mounted) return;
-      setState(() => _error = "The firm's people could not be read: "
+      setState(() => _error = "The firm's salesmen could not be read: "
           '${error.message}');
     }
   }
 
-  /// Every person on offer, plus the one an existing target already names
-  /// if they are no longer a member, so opening it does not lose them.
+  /// Every active salesman, plus the one an existing target already names
+  /// if they are no longer offered, so opening it does not lose them.
   List<DropdownMenuItem<String?>> _salesmanItems() {
     final SalesTargetRecord? row = widget.existing;
-    final bool keepsFormer = row != null &&
-        row.salesmanId.isNotEmpty &&
-        !_members.any((member) => member.userId == row.salesmanId);
+    final String? held =
+        row != null && row.salesmanId.isNotEmpty ? row.salesmanId : null;
+    // Somebody the list has lost altogether is named from the target itself.
+    final bool keepsFormer =
+        held != null && !_salesmen.any((item) => item.id == held);
     return [
       const DropdownMenuItem<String?>(value: null, child: Text('Whole firm')),
-      for (final FirmMember member in _members)
+      for (final ({String id, String label}) option
+          in salesmanOptions(_salesmen, current: keepsFormer ? null : held))
         DropdownMenuItem<String?>(
-          value: member.userId,
-          child: Text(member.label, overflow: TextOverflow.ellipsis),
+          value: option.id,
+          child: Text(option.label, overflow: TextOverflow.ellipsis),
         ),
       if (keepsFormer)
         DropdownMenuItem<String?>(
-          value: row.salesmanId,
+          value: held,
           child: Text(
-            row.salesmanName.isEmpty ? row.salesmanId : row.salesmanName,
+            (row?.salesmanName ?? '').isEmpty ? held : row!.salesmanName,
             overflow: TextOverflow.ellipsis,
           ),
         ),

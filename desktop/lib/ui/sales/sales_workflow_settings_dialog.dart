@@ -319,6 +319,21 @@ class _SalesWorkflowSettingsDialogState
                           _settings.copyWith(newOutletsNeedApproval: value),
                     ),
                   ),
+                  // P2: a document refused without a salesman.
+                  _StageSwitch(
+                    key: const ValueKey('sales-settings-salesman-required'),
+                    label: 'Salesman required on orders, delivery notes and '
+                        'bills',
+                    detail: 'On: an order, a delivery note or a bill with no '
+                        'salesman is refused when it is saved. Off: a blank '
+                        'Salesman box is allowed.',
+                    value: _settings.salesmanRequired,
+                    enabled: _mayManage && _read && !_saving,
+                    onChanged: (value) => setState(
+                      () => _settings =
+                          _settings.copyWith(salesmanRequired: value),
+                    ),
+                  ),
                   const SizedBox(height: AppSpacing.md),
                   // Backlog 119 (M1): approval as a step of its own, per kind.
                   Text('Approval', style: theme.textTheme.titleSmall),

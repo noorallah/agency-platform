@@ -11,8 +11,8 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
-import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
+import 'package:agency_desktop/models/salesman.dart';
 import 'package:agency_desktop/ui/sales/territory_coverage_page.dart';
 import 'package:agency_desktop/ui/sales/territory_import_dialog.dart';
 import 'package:file_selector/file_selector.dart';
@@ -47,15 +47,11 @@ class _CoverageApi extends ApiClient {
         for (final Json row in rows) TerritoryCoverageRecord.fromJson(row),
       ];
 
+  /// The firm's salesman list (P2), which names the coverage rows.
   @override
-  Future<List<FirmMember>>
-      firmMembers() async => <FirmMember>[
-            FirmMember.fromJson(<String, dynamic>{
-              'user_id': 'user-1',
-              'full_name': 'Ravi Kumar',
-              'email': 'ravi@agency.local',
-            }),
-          ];
+  Future<List<Salesman>> firmSalesmen() async => const <Salesman>[
+        Salesman(id: 'sm-1', name: 'Ravi Kumar'),
+      ];
 
   @override
   Future<List<SalesTerritory>> importTerritories({
@@ -76,7 +72,7 @@ void main() {
     addTearDown(tester.view.reset);
     final api = _CoverageApi(rows: <Json>[
       <String, dynamic>{
-        'user_id': 'user-1',
+        'salesman_id': 'sm-1',
         'assigned_territories': 2,
         'assigned_routes': 0,
         'customer_count': 0,
@@ -91,8 +87,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // The id is resolved through the candidate list — `users` lives only in
-    // the platform store, so the coverage rows carry ids and nothing else.
+    // The id is resolved through the firm's salesman list: the coverage
+    // rows carry `salesman_id` and nothing else (P2).
     expect(find.text('Ravi Kumar'), findsOneWidget);
     expect(find.textContaining('carry no route at all'), findsOneWidget);
   });
