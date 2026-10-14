@@ -104,8 +104,20 @@ def newest_lot_cost(
     backend's NULL order. Stock found with no lot named (L2 step 7) and goods
     billed before their lot (step 7a) take it.
     """
-    cost = session.scalar(
-        select(BatchValuation.unit_cost)
+    newest = newest_valued_lot(session, firm_id, product_id)
+    return None if newest is None else newest[1]
+
+
+def newest_valued_lot(
+    session: Session, firm_id: UUID, product_id: UUID
+) -> tuple[BatchRecord, Decimal] | None:
+    """Return the item's newest valued lot and its unit cost, as `newest_lot_cost`.
+
+    Stock found at a count takes that lot's cost and its prices (L3).
+    """
+    found = session.execute(
+        select(BatchRecord, BatchValuation.unit_cost)
+        .select_from(BatchValuation)
         .join(BatchRecord, BatchRecord.id == BatchValuation.batch_id)
         .where(
             BatchValuation.firm_id == firm_id,
@@ -119,8 +131,10 @@ def newest_lot_cost(
             BatchRecord.lot_reference.desc(),
         )
         .limit(1)
-    )
-    return None if cost is None else Decimal(str(cost))
+    ).first()
+    if found is None:
+        return None
+    return found[0], Decimal(str(found[1]))
 
 
 class LotNumbering(TransactionalDocumentService):

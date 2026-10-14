@@ -90,6 +90,12 @@ from app.inventory.schemas import (
     StockQuarantineCreate,
 )
 from app.inventory.services import InventoryService, LineConversion
+from app.inventory.services.lot_margins import (
+    LotPrices,
+    lot_prices,
+    mrp_warning,
+    product_margins,
+)
 from app.inventory.services.lot_shortfalls import LotShortfallService
 from app.inventory.services.lots import LotSource, costs_by_lot
 from app.products.models import Product, ProductCategory
@@ -1191,6 +1197,7 @@ class GoodsReceiptService(TransactionalDocumentService):
             line = GoodsReceiptLineResponse.model_validate(item).model_dump(
                 mode="python"
             )
+            line["mrp_warning"] = self._mrp_warning(item)
             line["serial_tracked"] = item.product_id in (tracked or set())
             line["serial_numbers"] = list((serials or {}).get(item.id, []))
             position = (billing or {}).get(item.id)
@@ -1226,6 +1233,26 @@ class GoodsReceiptService(TransactionalDocumentService):
         payload["vendor_name"] = vendor[0] if vendor else ""
         payload["vendor_code"] = vendor[1] if vendor else ""
         return GoodsReceiptResponse.model_validate(payload)
+
+    def _mrp_warning(self, line: GoodsReceiptLine) -> str | None:
+        """Say which of a line's lot prices bills above its MRP with tax (L3).
+
+        The tax rate is the line's own: its tax over what it was charged on.
+        """
+        if line.mrp is None or (line.ptr is None and line.pts is None):
+            return None
+        taxable = self._q(
+            Decimal(str(line.gross_amount))
+            - Decimal(str(line.discount_amount))
+            - Decimal(str(line.bill_discount_amount or 0))
+        )
+        rate = Decimal(str(line.tax_amount)) / taxable if taxable > ZERO else ZERO
+        return mrp_warning(
+            mrp=Decimal(str(line.mrp)),
+            ptr=None if line.ptr is None else Decimal(str(line.ptr)),
+            pts=None if line.pts is None else Decimal(str(line.pts)),
+            tax_rate=rate,
+        )
 
     def _eway_bill_warnings(self, rows: Sequence[GoodsReceipt]) -> dict[UUID, str]:
         """Say which receipts arrived above the e-way bill limit with none.
@@ -1654,7 +1681,9 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
         return "\n".join(lines)
 
-    def _check_trade_rates(self, line: GoodsReceiptLineWrite, *, firm_id: UUID) -> None:
+    def _check_trade_rates(
+        self, line: GoodsReceiptLineWrite, *, firm_id: UUID, by_lot: bool
+    ) -> None:
         """Judge a line's price to retailer and stockist (PG-14).
 
         Refused where the firm's profile lacks BATCH_PTR_PTS -- only when the
@@ -1662,7 +1691,24 @@ class GoodsReceiptService(TransactionalDocumentService):
         the line names no batch, since the rates live on the batch and have
         nowhere else to go, and above the MRP the line states. The batch's own
         MRP is judged again when the receipt completes.
+
+        A firm costing by lot is past both of the first two: every stocked
+        line makes a lot, printed batch or not, and its retail and wholesale
+        prices are a feature of costing by lot rather than of the pharma
+        profile (`docs/design/LOT_MARGINS_DESIGN.md`, section 3.4). Margins
+        are for such a firm only.
         """
+        if by_lot:
+            # Judged on the prices worked out, in `_line_prices`.
+            return
+        if (
+            line.retail_margin_percent is not None
+            or line.wholesale_margin_percent is not None
+        ):
+            raise ValidationError(
+                f"Line {line.line_number}: margins work out a lot's retail and "
+                "wholesale prices, and this firm does not cost its stock by lot."
+            )
         assert_feature_fields(
             self._session,
             firm_id,
@@ -1677,6 +1723,54 @@ class GoodsReceiptService(TransactionalDocumentService):
                 "so the line needs a batch number."
             )
         assert_trade_rates_within_mrp(mrp=line.mrp, ptr=line.ptr, pts=line.pts)
+
+    def _line_prices(
+        self,
+        line: GoodsReceiptLineWrite,
+        *,
+        product_id: UUID,
+        subtotal: Decimal,
+        accepted: Decimal,
+        factor: Decimal | int | None,
+        by_lot: bool,
+    ) -> LotPrices:
+        """Work out the retail and wholesale prices a line gives its lot (L3).
+
+        On the line's net rate per stock unit: after its own discounts and
+        its share of the bill's, before tax, freight and landed costs. A
+        margin typed on the line is for this lot only; silence takes the
+        product's. A price typed wins over its margin, which is worked back
+        from it. A firm on Average keeps the prices as typed.
+
+        Raises:
+            ValidationError: Where the prices break the register's rules --
+                above the MRP before tax, or wholesale above retail.
+
+        """
+        if not by_lot:
+            return LotPrices(ptr=line.ptr, pts=line.pts)
+        retail, wholesale = product_margins(self._session, product_id)
+        stock_units = accepted * Decimal(str(factor or 1))
+        prices = lot_prices(
+            cost=subtotal / stock_units if stock_units > ZERO else None,
+            retail_margin_percent=(
+                retail
+                if line.retail_margin_percent is None
+                else line.retail_margin_percent
+            ),
+            wholesale_margin_percent=(
+                wholesale
+                if line.wholesale_margin_percent is None
+                else line.wholesale_margin_percent
+            ),
+            ptr=line.ptr,
+            pts=line.pts,
+        )
+        try:
+            assert_trade_rates_within_mrp(mrp=line.mrp, ptr=prices.ptr, pts=prices.pts)
+        except ValidationError as exc:
+            raise ValidationError(f"Line {line.line_number}: {exc.message}") from exc
+        return prices
 
     def _assert_free_goods_left(
         self,
@@ -1781,6 +1875,8 @@ class GoodsReceiptService(TransactionalDocumentService):
         total_damaged = ZERO
         total_free = ZERO
         total_discount = ZERO
+        # A firm costing by lot prices each lot from its margins (L3).
+        by_lot = costs_by_lot(self._session, firm_id)
         for line in data.lines:
             purchase_line = purchase_lines.get(line.purchase_order_line_id)
             if purchase_line is None:
@@ -1798,7 +1894,7 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
             if accepted < ZERO:
                 raise ValidationError("Accepted quantity cannot be negative.")
-            self._check_trade_rates(line, firm_id=firm_id)
+            self._check_trade_rates(line, firm_id=firm_id, by_lot=by_lot)
             if total_sellable < ZERO:
                 raise ValidationError("Receipt quantity cannot be negative.")
             # Capped at what the order line still owes, for every receipt: a
@@ -1880,6 +1976,14 @@ class GoodsReceiptService(TransactionalDocumentService):
                 taxable=line_subtotal,
             )
             net_amount = self._q(line_subtotal + tax_amount)
+            prices = self._line_prices(
+                line,
+                product_id=purchase_line.product_id,
+                subtotal=line_subtotal,
+                accepted=accepted,
+                factor=conversion["factor"],
+                by_lot=by_lot,
+            )
             # Only the manufacturing date typed: the product's shelf life
             # fills the expiry (STK-18). A typed expiry always stands.
             expiry_date = line.expiry_date
@@ -1949,8 +2053,10 @@ class GoodsReceiptService(TransactionalDocumentService):
                 ),
                 mrp=line.mrp,
                 selling_price=line.selling_price,
-                ptr=line.ptr,
-                pts=line.pts,
+                ptr=prices.ptr,
+                pts=prices.pts,
+                retail_margin_percent=prices.retail_margin_percent,
+                wholesale_margin_percent=prices.wholesale_margin_percent,
                 remarks=line.remarks,
                 created_by=actor_id,
                 updated_by=actor_id,
@@ -2397,8 +2503,12 @@ class GoodsReceiptService(TransactionalDocumentService):
                 expiry_date=line.expiry_date if dated else None,
                 mrp=line.mrp,
                 selling_price=line.selling_price,
-                ptr=line.ptr,
-                pts=line.pts,
+                prices=LotPrices(
+                    ptr=line.ptr,
+                    pts=line.pts,
+                    retail_margin_percent=line.retail_margin_percent,
+                    wholesale_margin_percent=line.wholesale_margin_percent,
+                ),
                 manufacturing_date=line.manufacturing_date,
                 shelf_life_days=(
                     product.shelf_life_days if product is not None else None

@@ -72,11 +72,12 @@ from app.inventory.schemas import (
     StockWriteOffCreate,
 )
 from app.inventory.services import pipeline
+from app.inventory.services.lot_margins import LotPrices, lot_prices, product_margins
 from app.inventory.services.lots import (
     LotSource,
     costs_by_lot,
     lot_tie_break,
-    newest_lot_cost,
+    newest_valued_lot,
     switch_over_day,
 )
 from app.inventory.services.movement_numbering import MovementNumbering
@@ -1389,8 +1390,15 @@ class InventoryService:
                 expiry_date=line.expiry_date if dated else None,
                 mrp=line.mrp,
                 selling_price=line.selling_price,
-                ptr=line.ptr,
-                pts=line.pts,
+                # Typed PTR and PTS stand; else the product's margins on the
+                # line's cost (`docs/design/LOT_MARGINS_DESIGN.md`, 3.4).
+                prices=self._margin_prices(
+                    product_id=line.product_id,
+                    cost=line.unit_cost,
+                    mrp=line.mrp,
+                    ptr=line.ptr,
+                    pts=line.pts,
+                ),
             )
             line.batch_id = resolved.id
             return resolved.id
@@ -2848,8 +2856,24 @@ class InventoryService:
         from app.batch_serial.services import BatchSerialService
 
         cost = data.unit_cost
+        prices: LotPrices | None = None
         if cost is None:
-            cost = newest_lot_cost(self._session, firm_scope, data.product_id)
+            newest = newest_valued_lot(self._session, firm_scope, data.product_id)
+            if newest is not None:
+                lot_row, cost = newest
+                # The cost is the newest lot's, and so are its prices (L3).
+                prices = LotPrices(
+                    ptr=lot_row.ptr,
+                    pts=lot_row.pts,
+                    retail_margin_percent=lot_row.retail_margin_percent,
+                    wholesale_margin_percent=lot_row.wholesale_margin_percent,
+                )
+        if prices is None:
+            prices = self._margin_prices(
+                product_id=data.product_id,
+                cost=None if cost is None else Decimal(str(cost)),
+                mrp=None,
+            )
         lot = BatchSerialService(self._session).open_lot(
             firm_scope=firm_scope,
             actor_id=actor_id,
@@ -2865,8 +2889,35 @@ class InventoryService:
             ),
             branch_id=data.branch_id,
             warehouse_id=data.warehouse_id,
+            prices=prices,
         )
         return lot, None if cost is None else Decimal(str(cost))
+
+    def _margin_prices(
+        self,
+        *,
+        product_id: UUID,
+        cost: Decimal | None,
+        mrp: Decimal | None,
+        ptr: Decimal | None = None,
+        pts: Decimal | None = None,
+    ) -> LotPrices:
+        """Price a lot nobody priced on a line, from the product's margins (L3).
+
+        A typed ``ptr`` or ``pts`` stands. A worked price the register would
+        refuse is left off rather than refusing the stock that made the lot.
+        """
+        retail, wholesale = product_margins(self._session, product_id)
+        worked = lot_prices(
+            cost=cost,
+            retail_margin_percent=retail,
+            wholesale_margin_percent=wholesale,
+            ptr=ptr,
+            pts=pts,
+        )
+        if ptr is not None or pts is not None:
+            return worked
+        return worked.within(mrp)
 
     @staticmethod
     def _trace_lot_to(lot: BatchRecord, transaction: InventoryTransaction) -> None:
@@ -6255,12 +6306,14 @@ class InventoryService:
                     "storage location and batch are not allowed."
                 )
             seen.add(unique_key)
-            assert_feature_fields(
-                self._session,
-                firm_id,
-                feature="BATCH_PTR_PTS",
-                values={"ptr": line.ptr, "pts": line.pts},
-            )
+            # A firm costing by lot prices every lot, pharma or not (L3).
+            if not by_lot:
+                assert_feature_fields(
+                    self._session,
+                    firm_id,
+                    feature="BATCH_PTR_PTS",
+                    values={"ptr": line.ptr, "pts": line.pts},
+                )
             assert_trade_rates_within_mrp(
                 mrp=line.mrp,
                 ptr=line.ptr,

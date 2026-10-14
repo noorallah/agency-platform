@@ -32,6 +32,7 @@ from app.finance.services.document_posting import (
 )
 from app.inventory.models.repack import Repack, RepackLine
 from app.inventory.services.inventory_service import InventoryService
+from app.inventory.services.lot_margins import lot_prices, product_margins
 from app.inventory.services.lots import LotSource, costs_by_lot
 from app.products.models import Product
 from app.products.services.stockless import assert_held_as_stock
@@ -268,7 +269,9 @@ class RepackService(TransactionalDocumentService):
         by_lot = costs_by_lot(self._session, firm_id)
         for (number_on_line, line), share in zip(produced, shares, strict=True):
             lot_id = (
-                self._open_produced_lot(row, line, actor_id=actor_id)
+                self._open_produced_lot(
+                    row, line, actor_id=actor_id, cost=share / line.quantity
+                )
                 if by_lot
                 else None
             )
@@ -564,18 +567,23 @@ class RepackService(TransactionalDocumentService):
         line: RepackLineWrite,
         *,
         actor_id: UUID,
+        cost: Decimal,
     ) -> UUID:
         """Open the lot one produce line's goods go into, source ``REPACK``.
 
         `docs/design/LOT_COST_DESIGN.md`, section 3.6: what a repack makes is
         a new lot, costed at the value used. A batch the line named lends the
         lot its printed number, dates and prices; it is never joined.
+
+        Its retail and wholesale prices are the output product's margins on
+        that value (`docs/design/LOT_MARGINS_DESIGN.md`, section 3.4).
         """
         named = (
             self._session.get(BatchRecord, line.batch_id)
             if line.batch_id is not None
             else None
         )
+        retail, wholesale = product_margins(self._session, line.product_id)
         number = line.batch_number or (
             named.batch_number if named is not None and named.has_printed_batch else ""
         )
@@ -601,6 +609,11 @@ class RepackService(TransactionalDocumentService):
             or (named.manufacturing_date if named is not None else None),
             mrp=named.mrp if named is not None else None,
             selling_price=named.selling_price if named is not None else None,
+            prices=lot_prices(
+                cost=cost,
+                retail_margin_percent=retail,
+                wholesale_margin_percent=wholesale,
+            ).within(named.mrp if named is not None else None),
         )
         return lot.id
 
