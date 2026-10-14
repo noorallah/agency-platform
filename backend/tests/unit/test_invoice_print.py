@@ -886,3 +886,23 @@ def test_a_bill_with_its_batches_states_gst_as_one_rate_and_one_amount() -> None
     plain = _text_of(InvoicePdfRenderer(TemplateSettings()).render(_document()))
     plain = plain.replace(" | ", " ")
     assert "CGST %" in plain and "SGST amt" in plain
+
+
+@pytest.mark.parametrize("paper", ["A4", "HALF"])
+def test_a_long_batch_number_wraps_in_its_own_cell(paper: str) -> None:
+    """Nine characters of batch did not fit, and printed over the next cell.
+
+    The customer's own bill wraps such a batch onto a second line; so does
+    this one, so the rate beside it (or the expiry, on a half page) is read
+    whole. Found printing a bill of the fixture firm over HTTP (D-SELL-98).
+    """
+    line = replace(_trade_bill().lines[0], batch="SXHWCNJVB12", expiry="2028-03-31")
+    document = replace(_trade_bill(), lines=(line,))
+    template = TemplateSettings(
+        page_size=paper, show_batch_column=True, show_expiry_column=True
+    )
+    printed = _text_of(InvoicePdfRenderer(template).render(document))
+    assert "2028-03-31" in printed and "250.00" in printed
+    # Split over two runs of the cell, never one run spilling past it.
+    assert "SXHWCNJVB12" not in printed
+    assert "SXHWCNJVB12" in printed.replace(" | ", "")

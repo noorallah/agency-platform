@@ -685,6 +685,12 @@ class InvoicePdfRenderer:
         )
         header.extend([GST_RATE, GST_AMOUNT] if together else split)
         header.append("Amount")
+        size = _CROWDED_FONT if self._is_crowded(header) else 7.6
+        # A batch number longer than its column wraps in its cell, as the
+        # trade's own bill wraps one, rather than printing over the rate.
+        wrapped = ParagraphStyle(
+            "batch", parent=self._body, fontSize=size, leading=size + 1.4
+        )
 
         rows: list[list[object]] = [
             [Paragraph(f"<b>{column}</b>", self._small) for column in header]
@@ -713,7 +719,7 @@ class InvoicePdfRenderer:
                 )
             cells.append(_money(line.rate))
             if self._template.show_batch_column:
-                cells.append(line.batch or "")
+                cells.append(Paragraph(escape(line.batch or ""), wrapped))
             if self._template.show_manufactured_column:
                 cells.append(line.manufactured or "")
             if self._template.show_expiry_column:
@@ -758,7 +764,7 @@ class InvoicePdfRenderer:
             "FONTSIZE",
             (0, 1),
             (-1, -1),
-            _CROWDED_FONT if self._is_crowded(header) else 7.6,
+            size,
         )
         style.add("VALIGN", (0, 0), (-1, -1), "MIDDLE")
         table.setStyle(style)
