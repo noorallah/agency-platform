@@ -17,11 +17,15 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
 from app.finance.models.tds_194q import Tds194QSettings
+from app.settings_sections.services.account_structure import (
+    account_structure_section,
+)
 from app.settings_sections.services.business_profile import (
     business_profile_section,
 )
 from app.settings_sections.services.buying import buying_section
 from app.settings_sections.services.firm import firm_section
+from app.settings_sections.services.party_lists import party_lists_section
 from app.settings_sections.services.pricing import pricing_section
 from app.settings_sections.services.selling import selling_section
 from app.settings_sections.services.steps import (
@@ -36,6 +40,7 @@ from app.settings_sections.services.steps import (
     switch_step,
 )
 from app.settings_sections.services.stock import stock_section
+from app.settings_sections.services.territories import territories_section
 from app.tax.models import GstComplianceSettings, TaxProfile, TaxRule, TaxSettings
 from app.tax.services.gst_template import (
     TEMPLATE_RULE_CODES,
@@ -134,6 +139,9 @@ SECTIONS: dict[str, SectionReader] = {
     "stock": stock_section,
     "business-profile": business_profile_section,
     "pricing": pricing_section,
+    "territories": territories_section,
+    "account-structure": account_structure_section,
+    "party-lists": party_lists_section,
 }
 
 
@@ -156,12 +164,15 @@ __all__ = [
     "SECTIONS",
     "TODO",
     "SettingsStep",
+    "account_structure_section",
     "business_profile_section",
     "buying_section",
     "firm_section",
+    "party_lists_section",
     "pricing_section",
     "section_state",
     "selling_section",
     "stock_section",
     "tax_section",
+    "territories_section",
 ]
