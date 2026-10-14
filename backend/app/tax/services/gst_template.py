@@ -122,6 +122,32 @@ _RCM_PROFILES: tuple[tuple[str, str, list[tuple[str, Decimal]], str], ...] = (
 )
 
 
+#: The rules the template creates switched on, by code. The reverse-charge
+#: rules are left out on purpose: they are created INACTIVE and a firm may
+#: never activate them. ``_create_rules`` writes exactly these, and
+#: ``tests/unit/test_settings_sections.py`` fails when the two part.
+TEMPLATE_RULE_CODES: tuple[str, ...] = (
+    "EXPORT_ZERO",
+    "INTERSTATE_GST_5",
+    "INTERSTATE_GST_12",
+    "INTERSTATE_GST_18",
+    "PURCHASE_INTERSTATE_GST_5",
+    "PURCHASE_INTERSTATE_GST_12",
+    "PURCHASE_INTERSTATE_GST_18",
+    "EXEMPT_PROFILE",
+    "PURCHASE_INPUT_CREDIT",
+)
+
+
+def template_profile_codes() -> frozenset[str]:
+    """Return the codes of the slab profiles the template creates.
+
+    The reverse-charge pair is not among them: a firm that deleted one decided
+    against buying that way, and is still a firm on the template.
+    """
+    return frozenset(code for code, _, _ in _PROFILES)
+
+
 def firm_has_tax_system(session: Session, firm_id: UUID) -> bool:
     """Whether the firm already holds any live tax system."""
     return (
