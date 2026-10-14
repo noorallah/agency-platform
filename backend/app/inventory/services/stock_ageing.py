@@ -17,6 +17,13 @@ and the quantity on hand is laid over them newest first. What is left once
 every receipt is used -- stock found at a count, or older than any movement
 -- goes in the oldest bucket, because nothing says it is young.
 
+**By lot it is exact (L2 step 10).** A firm costing by lot knows which lot
+each unit is in, so each lot's quantity on the day is aged from its own
+``received_on`` and valued at the lot's own cost -- the lots the stock
+valuation adds up (``lot_stock``). A lot with no received date, and stock
+that names no lot, go in the oldest bucket. A day before the firm switched
+is aged as on Average, as the firm was then.
+
 **Slow-moving** -- stock on hand whose issues over the last ``days`` days
 would take more than ``days`` days to sell it at that pace, or that had no
 issue at all. **Dead stock** -- stock on hand with no issue in the last
@@ -38,7 +45,11 @@ from app.core.exceptions import ValidationError
 from app.core.utils.chunks import over_chunks
 from app.core.utils.money import quantize_ledger
 from app.inventory.models import InventoryTransaction
-from app.inventory.services.stock_valuation import StockValuationService
+from app.inventory.services.stock_valuation import (
+    LotStock,
+    StockValuationService,
+    lot_stock,
+)
 from app.products.models import Product, ProductCategory
 from app.products.models.goods_type import GENERAL_GOODS, GoodsType
 from app.uom.models import Uom
@@ -132,6 +143,9 @@ class StockAgeingService:
 
     def ageing(self, firm_id: UUID, *, on: date) -> list[StockAgeingRow]:
         """Return each item on hand as on ``on``, split into age buckets."""
+        by_lot = lot_stock(self._session, firm_id, on=on)
+        if by_lot is not None:
+            return self._ageing_by_lot(firm_id, on, by_lot)
         on_hand = self._on_hand(firm_id, on)
         if not on_hand:
             return []
@@ -190,6 +204,73 @@ class StockAgeingService:
                             Decimal("0.01"), rounding=ROUND_HALF_UP
                         )
                         if issued.get(product_id, ZERO) > ZERO
+                        else None
+                    ),
+                )
+            )
+        rows.sort(key=lambda row: (row.category, row.product_code))
+        return rows
+
+    def _ageing_by_lot(
+        self, firm_id: UUID, on: date, by_lot: LotStock
+    ) -> list[StockAgeingRow]:
+        """Age each lot from the day it was received, valued at its own cost."""
+        thresholds = [on - timedelta(days=bound) for bound in AGE_BOUNDS]
+        held: dict[UUID, tuple[Decimal, Decimal, list[Decimal]]] = {}
+        for lot in by_lot.lots:
+            quantity, value, split = held.setdefault(
+                lot.product_id, (ZERO, ZERO, [ZERO] * (len(AGE_BOUNDS) + 1))
+            )
+            index = next(
+                (
+                    position
+                    for position, threshold in enumerate(thresholds)
+                    if lot.received_on is not None and lot.received_on >= threshold
+                ),
+                len(thresholds),
+            )
+            split[index] += lot.quantity
+            held[lot.product_id] = (
+                quantity + lot.quantity,
+                value + lot.value,
+                split,
+            )
+        on_hand = {pid: entry for pid, entry in held.items() if entry[0] > ZERO}
+        if not on_hand:
+            return []
+        last_receipts = self._last(firm_id, on, RECEIPT_TYPES)
+        items = _items(self._session, product_ids=list(on_hand))
+        issued = self._issued(firm_id, on, since=on - timedelta(days=365))
+        rows: list[StockAgeingRow] = []
+        for product_id, (quantity, value, split) in on_hand.items():
+            item = items.get(product_id)
+            if item is None:
+                continue
+            out = max(issued.get(product_id, ZERO), ZERO)
+            rows.append(
+                StockAgeingRow(
+                    product_code=item.code,
+                    product_name=item.name,
+                    category=item.category,
+                    unit=item.unit,
+                    quantity=quantity,
+                    rate=(value / quantity).quantize(
+                        Decimal("0.000001"), rounding=ROUND_HALF_UP
+                    ),
+                    value=quantize_ledger(value),
+                    days_0_30=split[0],
+                    days_31_60=split[1],
+                    days_61_90=split[2],
+                    days_91_180=split[3],
+                    days_over_180=split[4],
+                    last_receipt_date=last_receipts.get(product_id),
+                    goods_type=item.goods_type,
+                    issued_last_year=out,
+                    turnover=(
+                        (out / quantity).quantize(
+                            Decimal("0.01"), rounding=ROUND_HALF_UP
+                        )
+                        if out > ZERO
                         else None
                     ),
                 )

@@ -29,7 +29,13 @@ that off (``batch_sale_settings``). The finding is still made and kept on the
 approval with the batches named -- the trail says why the floor did not bite --
 but it neither warns nor blocks. The batches are the ones the line will take:
 those its delivery note recorded, or the earliest-expiry split of the line's
-warehouse where nothing is recorded yet. Cost stays one moving average.
+warehouse where nothing is recorded yet.
+
+**By lot (L2 step 10).** A firm costing by lot judges a line against the cost
+of the lots it takes, where those are known: the batch an order line pins, or
+the lots its delivery note line recorded, weighted by quantity, each at its
+unit cost in ``batch_valuations``. A line with no lot chosen yet is judged on
+the item's average, as on a firm on Average, which is unchanged.
 """
 
 from collections.abc import Iterable, Sequence
@@ -45,7 +51,8 @@ from app.batch_serial.services.batch_sale_policy import BatchSalePolicyService
 from app.common.audit.services import record_audit
 from app.core.exceptions import ValidationError
 from app.core.utils.money import quantize_money
-from app.inventory.models import ProductValuation
+from app.inventory.models import BatchValuation, ProductValuation
+from app.inventory.services.lots import costs_by_lot
 from app.products.models import Product
 from app.sales_order.models import PriceFloorSettings
 from app.sales_order.schemas import (
@@ -77,6 +84,9 @@ class PricedLine:
     storage_node_id: UUID | None = None
     #: The delivery-note line a bill line ships, whose batches are recorded.
     delivery_note_line_id: UUID | None = None
+    #: The lot the line names, where it names one: an order line's pinned
+    #: batch. Judged on that lot's cost on a firm costing by lot.
+    lot_id: UUID | None = None
 
 
 def _net(gross: Decimal, discount: Decimal, bill_share: Decimal) -> Decimal:
@@ -107,6 +117,7 @@ def order_lines(
             ),
             warehouse_id=getattr(line, "warehouse_id", None) or warehouse_id,
             storage_node_id=getattr(line, "storage_node_id", None),
+            lot_id=getattr(line, "pinned_batch_id", None),
         )
         for line in lines
     ]
@@ -228,6 +239,72 @@ class PriceFloorService:
             if cost is not None and Decimal(cost) > _ZERO
         }
 
+    def _lot_costs(
+        self, firm_id: UUID, lines: Sequence[PricedLine]
+    ) -> dict[PricedLine, Decimal]:
+        """Return the unit cost of the lots each line takes, where all are known.
+
+        Only for a firm costing by lot. A line's lots are the batch it names,
+        or else those its delivery note line recorded, weighted by quantity.
+        A line with a lot that holds no cost is left to the average, as is
+        a line with no lot at all. One query for every line's lots.
+        """
+        named = {line: line.lot_id for line in lines if line.lot_id is not None}
+        shipped = {
+            line: line.delivery_note_line_id
+            for line in lines
+            if line.lot_id is None and line.delivery_note_line_id is not None
+        }
+        if not (named or shipped) or not costs_by_lot(self._session, firm_id):
+            return {}
+        # Imported here: the delivery note imports this module.
+        from app.delivery_note.models import DeliveryNoteLineBatch
+
+        picks: dict[UUID, list[tuple[UUID, Decimal]]] = {}
+        if shipped:
+            for note_line_id, batch_id, quantity in self._session.execute(
+                select(
+                    DeliveryNoteLineBatch.delivery_note_line_id,
+                    DeliveryNoteLineBatch.batch_id,
+                    DeliveryNoteLineBatch.quantity,
+                ).where(
+                    DeliveryNoteLineBatch.delivery_note_line_id.in_(
+                        set(shipped.values())
+                    ),
+                    DeliveryNoteLineBatch.is_deleted.is_(False),
+                )
+            ).all():
+                picks.setdefault(note_line_id, []).append((batch_id, Decimal(quantity)))
+        wanted = set(named.values()) | {
+            batch_id for rows in picks.values() for batch_id, _ in rows
+        }
+        if not wanted:
+            return {}
+        unit = {
+            batch_id: Decimal(str(cost))
+            for batch_id, cost in self._session.execute(
+                select(BatchValuation.batch_id, BatchValuation.unit_cost).where(
+                    BatchValuation.firm_id == firm_id,
+                    BatchValuation.batch_id.in_(wanted),
+                    BatchValuation.is_deleted.is_(False),
+                )
+            ).all()
+            if cost is not None and Decimal(str(cost)) > _ZERO
+        }
+        found: dict[PricedLine, Decimal] = {}
+        for line, batch_id in named.items():
+            if batch_id in unit:
+                found[line] = unit[batch_id]
+        for line, note_line_id in shipped.items():
+            rows = [row for row in picks.get(note_line_id, []) if row[1] > _ZERO]
+            if not rows or any(batch_id not in unit for batch_id, _ in rows):
+                continue
+            quantity = sum((qty for _, qty in rows), _ZERO)
+            found[line] = (
+                sum((unit[batch_id] * qty for batch_id, qty in rows), _ZERO) / quantity
+            )
+        return found
+
     def _split(
         self, firm_id: UUID, line: PricedLine, *, as_of: date
     ) -> list[tuple[UUID | None, Decimal]]:
@@ -307,6 +384,7 @@ class PriceFloorService:
             )
         }
         costs = self._costs(firm_id, product_ids) if policy.include_cost else {}
+        lot_costs = self._lot_costs(firm_id, charged) if policy.include_cost else {}
         findings: list[PriceFloorFinding] = []
         for line in sorted(charged, key=lambda item: item.line_number):
             product = products.get(line.product_id)
@@ -315,7 +393,7 @@ class PriceFloorService:
             minimum = product.minimum_selling_price
             cost: Decimal | None = None
             if policy.include_cost:
-                cost = costs.get(line.product_id)
+                cost = lot_costs.get(line) or costs.get(line.product_id)
                 if cost is None and product.purchase_price:
                     cost = Decimal(product.purchase_price)
             floors = [

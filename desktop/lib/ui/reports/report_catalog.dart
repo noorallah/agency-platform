@@ -739,6 +739,32 @@ const List<ReportDefinition> reportCatalog = [
     permission: 'SALES_VIEW',
     area: ReportArea.financial,
   ),
+  // What each lot sold for against what its units cost when they left (L2
+  // step 10), returns taken back from the lot they refilled. Cost and margin
+  // come blank for someone who may not see cost; a firm on Average sees its
+  // batches at the average they left with.
+  ReportDefinition(
+    id: 'margin-by-lot',
+    label: 'Margin by lot',
+    description: 'Per item and lot in the dates: quantity sold less '
+        'returned, taxable value, cost, margin and margin %.',
+    path: '/api/v1/sales-invoices/reports/margin-by-lot',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'lot_reference', label: 'Lot'),
+      ReportColumn(key: 'batch_number', label: 'Batch'),
+      ReportColumn(key: 'received_on', label: 'Received'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'sales_value', label: 'Sales value', numeric: true),
+      ReportColumn(key: 'cost', label: 'Cost', numeric: true),
+      ReportColumn(key: 'margin', label: 'Margin', numeric: true),
+      ReportColumn(key: 'margin_percent', label: 'Margin %', numeric: true),
+    ],
+  ),
   ReportDefinition(
     id: 'sales-return-register',
     label: 'Sales return register',
@@ -1098,8 +1124,38 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'mrp_value', label: 'Value at MRP', numeric: true),
     ],
   ),
+  // The lots behind the stock valuation, for a firm costing by lot (L2 step
+  // 10): each lot holding stock with its cost, MRP and value; they add up to
+  // the grand total less the units owed to lots. Cost and value go only to a
+  // holder of PRODUCT_VIEW_COST_PRICE; a firm on Average lists nothing.
+  ReportDefinition(
+    id: 'stock-valuation-lots',
+    label: 'Stock valuation by lot',
+    description: 'Each lot holding stock as on the day, with its reference, '
+        'printed batch, received and expiry dates, MRP, quantity, cost and '
+        'value. For a firm that costs its stock by lot.',
+    path: '/api/v1/inventory/reports/stock-valuation/lots',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    asOnDate: true,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'lot_reference', label: 'Lot'),
+      ReportColumn(key: 'batch_number', label: 'Batch'),
+      ReportColumn(key: 'received_on', label: 'Received'),
+      ReportColumn(key: 'expiry_date', label: 'Expiry'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'rate', label: 'Cost rate', numeric: true),
+      ReportColumn(key: 'value', label: 'Value at cost', numeric: true),
+      ReportColumn(key: 'mrp', label: 'MRP', numeric: true),
+      ReportColumn(key: 'mrp_value', label: 'Value at MRP', numeric: true),
+    ],
+  ),
   // How old the stock on hand is (55 S7): FIFO's answer -- what is left is
-  // what came in last -- in buckets of days, valued at the average cost.
+  // what came in last -- in buckets of days, valued at the average cost; by
+  // lot, each lot from the day it was received (L2 step 10).
   ReportDefinition(
     id: 'stock-ageing',
     label: 'Stock ageing',
