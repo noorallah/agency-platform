@@ -230,6 +230,20 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
 
   bool get _ptrPts => _features.isEnabled('BATCH_PTR_PTS');
 
+  /// The firm costs its stock by lot (L3): every lot has a retail and a
+  /// wholesale price, worked from its margins, whether or not the profile
+  /// has BATCH_PTR_PTS.
+  bool _byLot = false;
+
+  /// Whether the lot's two prices are shown and offered for editing.
+  bool get _lotPrices => _ptrPts || _byLot;
+
+  /// The firm's words for the two prices: PTR and PTS with BATCH_PTR_PTS,
+  /// plain retail and wholesale otherwise.
+  String get _retailLabel => _ptrPts ? 'Retail price (PTR)' : 'Retail price';
+  String get _wholesaleLabel =>
+      _ptrPts ? 'Wholesale price (PTS)' : 'Wholesale price';
+
   Future<void> _loadFeatures() async {
     try {
       final List<String> codes = await widget.api.activeBusinessFeatureCodes();
@@ -237,6 +251,13 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
       setState(() => _features = BusinessFeatures(codes.toSet()));
     } on Object {
       // Left unknown: PTR and PTS stay offered and the server decides.
+    }
+    try {
+      final bool byLot = (await widget.api.lotSettings()).byLot;
+      if (!mounted) return;
+      setState(() => _byLot = byLot);
+    } on Object {
+      // Unreadable: the prices follow the feature alone.
     }
   }
 
@@ -688,8 +709,10 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
             label: 'Expiry Date',
             extraWidth: expiryLabels ? ExpiryDateCell.labelRoom : 0),
         const GridColumn(key: 'mrp', label: 'MRP'),
-        if (_ptrPts) const GridColumn(key: 'ptr', label: 'PTR'),
-        if (_ptrPts) const GridColumn(key: 'pts', label: 'PTS'),
+        if (_lotPrices)
+          GridColumn(key: 'ptr', label: _ptrPts ? 'PTR' : 'Retail price'),
+        if (_lotPrices)
+          GridColumn(key: 'pts', label: _ptrPts ? 'PTS' : 'Wholesale price'),
         const GridColumn(key: 'warehouse', label: 'Warehouse'),
       ],
       id: (b) => b.id,
@@ -710,8 +733,8 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
                 ? ExpiryDateCell.textFor(b.expiryDate)
                 : b.expiryDate,
         b.mrp.isNotEmpty ? b.mrp : '—',
-        if (_ptrPts) b.ptr.isNotEmpty ? b.ptr : '—',
-        if (_ptrPts) b.pts.isNotEmpty ? b.pts : '—',
+        if (_lotPrices) b.ptr.isNotEmpty ? b.ptr : '—',
+        if (_lotPrices) b.pts.isNotEmpty ? b.pts : '—',
         b.warehouseName.isNotEmpty ? b.warehouseName : '—',
       ],
       // Column 5 is the expiry date.
@@ -884,10 +907,20 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
                 if (batch.mrp.isNotEmpty) DetailLine('MRP', batch.mrp),
                 if (batch.sellingPrice.isNotEmpty)
                   DetailLine('Selling price', batch.sellingPrice),
-                if (_ptrPts && batch.ptr.isNotEmpty)
-                  DetailLine('PTR', batch.ptr),
-                if (_ptrPts && batch.pts.isNotEmpty)
-                  DetailLine('PTS', batch.pts),
+                if (_lotPrices && batch.ptr.isNotEmpty)
+                  DetailLine(_retailLabel, batch.ptr),
+                if (batch.retailMarginPercent.isNotEmpty)
+                  DetailLine(
+                      'Retail margin %', batch.retailMarginPercent),
+                if (_lotPrices && batch.pts.isNotEmpty)
+                  DetailLine(_wholesaleLabel, batch.pts),
+                if (batch.wholesaleMarginPercent.isNotEmpty)
+                  DetailLine(
+                      'Wholesale margin %', batch.wholesaleMarginPercent),
+                // L3: a price above the MRP once tax is added warns; the
+                // sale above the MRP is what is refused.
+                if (batch.mrpWarning.isNotEmpty)
+                  DetailLine('Warning', batch.mrpWarning),
                 if (batch.expiryDate.isNotEmpty)
                   DetailLine('Expiry', batch.expiryDate),
                 if (batch.manufacturingDate.isNotEmpty)
@@ -1200,7 +1233,12 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   void _openCreateBatchDialog() {
     showDialog<bool>(
       context: context,
-      builder: (_) => _BatchFormDialog(api: widget.api, ptrPts: _ptrPts),
+      builder: (_) => _BatchFormDialog(
+        api: widget.api,
+        ptrPts: _lotPrices,
+        retailLabel: _retailLabel,
+        wholesaleLabel: _wholesaleLabel,
+      ),
     ).then((created) {
       if (created == true) _load();
     });
@@ -1212,7 +1250,9 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
       builder: (_) => _BatchFormDialog(
         api: widget.api,
         existing: batch,
-        ptrPts: _ptrPts,
+        ptrPts: _lotPrices,
+        retailLabel: _retailLabel,
+        wholesaleLabel: _wholesaleLabel,
       ),
     ).then((updated) {
       if (updated == true) _load();
@@ -1390,11 +1430,17 @@ class _BatchFormDialog extends StatefulWidget {
     required this.api,
     this.existing,
     this.ptrPts = false,
+    this.retailLabel = 'PTR',
+    this.wholesaleLabel = 'PTS',
   });
   final ApiClient api;
 
-  /// Offer PTR and PTS (BATCH_PTR_PTS).
+  /// Offer PTR and PTS (BATCH_PTR_PTS, or a firm costing by lot, L3).
   final bool ptrPts;
+
+  /// What the two prices are called in this firm.
+  final String retailLabel;
+  final String wholesaleLabel;
   final BatchRecord? existing;
 
   @override
@@ -1636,9 +1682,10 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
                       key: const ValueKey('batch-form-ptr'),
                       controller: _ptr,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'PTR',
-                        helperText: 'Price to retailer, per stock unit.',
+                      decoration: InputDecoration(
+                        labelText: widget.retailLabel,
+                        helperText: 'Price to retailer, per stock unit, '
+                            'before tax.',
                       ),
                       validator: _rateError,
                     ),
@@ -1647,9 +1694,10 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
                       key: const ValueKey('batch-form-pts'),
                       controller: _pts,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'PTS',
-                        helperText: 'Price to stockist, per stock unit.',
+                      decoration: InputDecoration(
+                        labelText: widget.wholesaleLabel,
+                        helperText: 'Price to stockist, per stock unit, '
+                            'before tax.',
                       ),
                       validator: _rateError,
                     ),

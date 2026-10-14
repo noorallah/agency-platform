@@ -137,6 +137,34 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
                     ],
                   ),
                 ),
+              if (_mrpWarnings.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Container(
+                    key: const ValueKey('goods-receipt-mrp-warnings'),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: scheme.tertiaryContainer,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.warning_amber_outlined,
+                            size: 18, color: scheme.onTertiaryContainer),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _mrpWarnings.join('\n'),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: scheme.onTertiaryContainer,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (_saving || _loadingLines)
                 const LinearProgressIndicator(minHeight: 2),
               Expanded(
@@ -807,7 +835,8 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
             onChanged: (value) => line.sellingPrice = value,
           ),
         ),
-        if (widget.features.isEnabled('BATCH_PTR_PTS')) ...[
+        if (!widget.costsByLot &&
+            widget.features.isEnabled('BATCH_PTR_PTS')) ...[
           DocumentField(
             label: 'PTR per unit (retailer)',
             width: 258,
@@ -834,6 +863,7 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
           ),
         ],
       ],
+      if (widget.costsByLot) ..._lotPriceFields(context, index, line),
       DocumentField(
         label: 'Scheme',
         width: 258,
@@ -864,5 +894,150 @@ extension _Phase2GoodsReceiptEditor on _GoodsReceiptEditorDialogState {
         "supplier's bill is entered as a purchase invoice.",
       ),
     ]);
+  }
+
+  /// The firm's words for the two lot prices: PTR and PTS where its profile
+  /// has BATCH_PTR_PTS, plain retail and wholesale otherwise.
+  bool get _saysPtrPts => widget.features.isEnabled('BATCH_PTR_PTS');
+  String get _retailPriceLabel =>
+      _saysPtrPts ? 'Retail price (PTR)' : 'Retail price';
+  String get _wholesalePriceLabel =>
+      _saysPtrPts ? 'Wholesale price (PTS)' : 'Wholesale price';
+
+  /// The saved line [draft] answers to, where the receipt is saved at all.
+  GoodsReceiptLine? _savedLineOf(GoodsReceiptDraftLine draft) {
+    final GoodsReceiptRecord? record = _record;
+    if (record == null) return null;
+    for (final GoodsReceiptLine line in record.lines) {
+      if (line.purchaseOrderLineId == draft.purchaseOrderLineId) return line;
+    }
+    return null;
+  }
+
+  /// Every line of the saved receipt whose lot price bills above the MRP
+  /// once tax is added (L3): a warning, said in place, never a refusal.
+  List<String> get _mrpWarnings {
+    final GoodsReceiptRecord? record = _record;
+    if (!widget.costsByLot || record == null) return const [];
+    return [
+      for (final GoodsReceiptLine line in record.lines)
+        if (line.mrpWarning.isNotEmpty)
+          'Line ${line.lineNumber}: ${line.mrpWarning}',
+    ];
+  }
+
+  /// A firm costing by lot (L3): the line's two prices with a margin beside
+  /// each, then what the server worked out when the receipt was saved. The
+  /// margin boxes start blank, which takes the product's margin; a price
+  /// typed wins over its margin.
+  List<Widget> _lotPriceFields(
+    BuildContext context,
+    int index,
+    GoodsReceiptDraftLine line,
+  ) {
+    final ThemeData theme = Theme.of(context);
+    final GoodsReceiptLine? saved = _savedLineOf(line);
+    final TextStyle? note = theme.textTheme.bodySmall?.copyWith(
+      fontSize: 11,
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    String epoch() => line.priceEpoch == 0 ? '' : '-e${line.priceEpoch}';
+    Widget price(String name, String label, String value,
+            ValueChanged<String> onChanged) =>
+        DocumentField(
+          label: '$label per unit, before tax',
+          width: 258,
+          child: TextFormField(
+            key: ValueKey<String>(
+                'goods-receipt-$name-${_order?.id}-$index${epoch()}'),
+            initialValue: value.isEmpty ? '' : documentQuantity(value),
+            readOnly: _saving,
+            keyboardType: TextInputType.number,
+            decoration: documentBoxDecoration(
+              context,
+              hint: 'blank: worked from the margin',
+            ),
+            onChanged: onChanged,
+          ),
+        );
+    Widget margin(String name, String label, String value,
+            ValueChanged<String> onChanged) =>
+        DocumentField(
+          label: label,
+          width: 258,
+          below: Text("Blank takes the product's margin", style: note),
+          child: TextFormField(
+            key: ValueKey<String>('goods-receipt-$name-${_order?.id}-$index'),
+            // Never prefilled: blank is the product's margin.
+            initialValue: value,
+            readOnly: _saving,
+            keyboardType: TextInputType.number,
+            decoration: documentBoxDecoration(context),
+            onChanged: (next) => _setState(() => onChanged(next)),
+          ),
+        );
+    return [
+      price('ptr', _retailPriceLabel, line.ptr, (value) => line.ptr = value),
+      margin('retail-margin', 'Retail margin %', line.retailMargin, (value) {
+        line.retailMargin = value;
+        // A margin changed re-works its price: a price carried in from the
+        // saved draft would otherwise win over it.
+        if (value.trim().isNotEmpty && line.ptr.trim().isNotEmpty) {
+          line.ptr = '';
+          line.priceEpoch++;
+        }
+      }),
+      price('pts', _wholesalePriceLabel, line.pts, (value) => line.pts = value),
+      margin('wholesale-margin', 'Wholesale margin %', line.wholesaleMargin,
+          (value) {
+        line.wholesaleMargin = value;
+        if (value.trim().isNotEmpty && line.pts.trim().isNotEmpty) {
+          line.pts = '';
+          line.priceEpoch++;
+        }
+      }),
+      if (saved != null) ...[
+        DocumentSidePair(
+          '$_retailPriceLabel as saved',
+          saved.ptr.isEmpty ? 'none' : documentMoney(saved.ptr),
+          key: ValueKey<String>('goods-receipt-saved-ptr-$index'),
+        ),
+        if (saved.retailMarginPercent.isNotEmpty)
+          DocumentSidePair(
+            'Retail margin as saved',
+            '${documentQuantity(saved.retailMarginPercent)}%',
+          ),
+        DocumentSidePair(
+          '$_wholesalePriceLabel as saved',
+          saved.pts.isEmpty ? 'none' : documentMoney(saved.pts),
+          key: ValueKey<String>('goods-receipt-saved-pts-$index'),
+        ),
+        if (saved.wholesaleMarginPercent.isNotEmpty)
+          DocumentSidePair(
+            'Wholesale margin as saved',
+            '${documentQuantity(saved.wholesaleMarginPercent)}%',
+          ),
+        if (saved.mrpWarning.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.warning_amber_outlined,
+                    size: 16, color: theme.colorScheme.tertiary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    saved.mrpWarning,
+                    key: ValueKey<String>('goods-receipt-mrp-warning-$index'),
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.tertiary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    ];
   }
 }

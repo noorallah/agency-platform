@@ -823,6 +823,12 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'minimum_selling_price': product.minimumSellingPrice.isEmpty
             ? null
             : product.minimumSellingPrice,
+        'retail_margin_percent': product.retailMarginPercent.isEmpty
+            ? null
+            : product.retailMarginPercent,
+        'wholesale_margin_percent': product.wholesaleMarginPercent.isEmpty
+            ? null
+            : product.wholesaleMarginPercent,
         'remarks': product.remarks.isEmpty ? null : product.remarks,
         'track_batch': product.trackBatch,
         'track_lot': product.trackLot,
@@ -2095,6 +2101,11 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late final TextEditingController _sellingPrice;
   late final TextEditingController _mrp;
   late final TextEditingController _minimumSellingPrice;
+
+  /// The product's margin pair (row L3); shown for every firm, used only by
+  /// one costing by lot.
+  late final TextEditingController _retailMargin;
+  late final TextEditingController _wholesaleMargin;
   late final TextEditingController _shelfLife;
   late final TextEditingController _expiryStopSale;
   late final TextEditingController _expiryAlert;
@@ -2200,6 +2211,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   /// category change replaces only that and never what a person typed.
   String _filledHsn = '';
   String _filledTaxGroup = '';
+  String _filledRetailMargin = '';
+  String _filledWholesaleMargin = '';
   bool _showAllTracking = false;
 
   /// Start a new product on [type]'s switches (General sets them all off) and
@@ -2219,6 +2232,19 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     if (_hsn.text.isEmpty || _hsn.text == _filledHsn) {
       _hsn.text = hsn;
       _filledHsn = hsn;
+    }
+    // The type's margins, only into a box the person has not typed in.
+    final String retail = type?.retailMarginPercent ?? '';
+    if (_retailMargin.text.isEmpty ||
+        _retailMargin.text == _filledRetailMargin) {
+      _retailMargin.text = retail;
+      _filledRetailMargin = retail;
+    }
+    final String wholesale = type?.wholesaleMarginPercent ?? '';
+    if (_wholesaleMargin.text.isEmpty ||
+        _wholesaleMargin.text == _filledWholesaleMargin) {
+      _wholesaleMargin.text = wholesale;
+      _filledWholesaleMargin = wholesale;
     }
     final String wanted = type?.defaultTaxProfileGroupCode ?? '';
     final bool offered = wanted.isNotEmpty &&
@@ -2304,6 +2330,10 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _mrp = TextEditingController(text: product?.mrp ?? '');
     _minimumSellingPrice =
         TextEditingController(text: product?.minimumSellingPrice ?? '');
+    _retailMargin =
+        TextEditingController(text: product?.retailMarginPercent ?? '');
+    _wholesaleMargin =
+        TextEditingController(text: product?.wholesaleMarginPercent ?? '');
     _shelfLife = TextEditingController(
         text: product?.shelfLifeDays == null ? '' : '${product!.shelfLifeDays}');
     _expiryStopSale = TextEditingController(
@@ -2395,6 +2425,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         _sellingPrice,
         _mrp,
         _minimumSellingPrice,
+        _retailMargin,
+        _wholesaleMargin,
         _shelfLife,
         _expiryStopSale,
         _expiryAlert,
@@ -2942,6 +2974,20 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                     width: 460,
                     helper: 'Per stock unit. Selling below it warns or is '
                         "refused, as the firm's price-floor setting says.",
+                  ),
+                  _field(
+                    _retailMargin,
+                    'Retail margin %',
+                    width: 340,
+                    helper: "Mark-up on a lot's purchase rate that works its "
+                        'retail price, for a firm costing by lot.',
+                  ),
+                  _field(
+                    _wholesaleMargin,
+                    'Wholesale margin %',
+                    width: 340,
+                    helper: "Mark-up on a lot's purchase rate that works its "
+                        'wholesale price.',
                   ),
                 ],
               ),
@@ -4139,6 +4185,11 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'minimum_selling_price': _minimumSellingPrice.text.trim().isEmpty
           ? null
           : _minimumSellingPrice.text.trim(),
+      'retail_margin_percent':
+          _retailMargin.text.trim().isEmpty ? null : _retailMargin.text.trim(),
+      'wholesale_margin_percent': _wholesaleMargin.text.trim().isEmpty
+          ? null
+          : _wholesaleMargin.text.trim(),
       'remarks': _remarks.text.trim().isEmpty ? null : _remarks.text.trim(),
       'track_batch': _trackBatch,
       'track_lot': _trackLot,
@@ -4226,6 +4277,10 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _sellingPrice.clear();
       _mrp.clear();
       _minimumSellingPrice.clear();
+      _retailMargin.clear();
+      _wholesaleMargin.clear();
+      _filledRetailMargin = '';
+      _filledWholesaleMargin = '';
       _shelfLife.clear();
       _expiryStopSale.clear();
       _expiryAlert.clear();

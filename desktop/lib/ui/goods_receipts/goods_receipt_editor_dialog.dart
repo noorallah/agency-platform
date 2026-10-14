@@ -107,9 +107,21 @@ class GoodsReceiptDraftLine {
   /// Per stock unit, before tax.
   String sellingPrice;
 
-  /// Retailer / stockist rates (BATCH_PTR_PTS); sent only when typed.
+  /// Retailer / stockist rates (BATCH_PTR_PTS); sent only when typed. For a
+  /// firm costing by lot these are the lot's retail and wholesale prices.
   String ptr;
   String pts;
+
+  /// A firm costing by lot (L3): the mark-ups for this line's lot only.
+  /// Blank takes the product's, so they start blank and are sent only when
+  /// typed; never prefilled.
+  String retailMargin = '';
+  String wholesaleMargin = '';
+
+  /// Bumped when typing a margin clears a price carried in from the saved
+  /// draft, so the price box is rebuilt empty: a margin changed re-works its
+  /// price, and a price left in the box would win over it.
+  int priceEpoch = 0;
   String remarks;
 
   /// The supplier's scheme the free goods came under (BUY-1); optional.
@@ -137,7 +149,10 @@ class GoodsReceiptDraftLine {
     return left < 0 ? 0 : left;
   }
 
-  Json toJson({bool ptrPts = false}) => {
+  /// [byLot] is a firm costing by lot (L3): every stocked line makes a lot,
+  /// so its prices and margins travel without a batch number or the
+  /// BATCH_PTR_PTS feature. A firm on Average must not send margins.
+  Json toJson({bool ptrPts = false, bool byLot = false}) => {
         'purchase_order_line_id': purchaseOrderLineId,
         'line_number': lineNumber,
         if (description.isNotEmpty) 'description': description,
@@ -159,10 +174,16 @@ class GoodsReceiptDraftLine {
           'mrp': mrp.trim(),
         if (batchNumber.trim().isNotEmpty && sellingPrice.trim().isNotEmpty)
           'selling_price': sellingPrice.trim(),
-        if (ptrPts && batchNumber.trim().isNotEmpty && ptr.trim().isNotEmpty)
+        if ((byLot || (ptrPts && batchNumber.trim().isNotEmpty)) &&
+            ptr.trim().isNotEmpty)
           'ptr': ptr.trim(),
-        if (ptrPts && batchNumber.trim().isNotEmpty && pts.trim().isNotEmpty)
+        if ((byLot || (ptrPts && batchNumber.trim().isNotEmpty)) &&
+            pts.trim().isNotEmpty)
           'pts': pts.trim(),
+        if (byLot && retailMargin.trim().isNotEmpty)
+          'retail_margin_percent': retailMargin.trim(),
+        if (byLot && wholesaleMargin.trim().isNotEmpty)
+          'wholesale_margin_percent': wholesaleMargin.trim(),
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
         if (schemeName.trim().isNotEmpty) 'scheme_name': schemeName.trim(),
         if (serialTracked && serialsTouched) 'serial_numbers': serials,
@@ -192,9 +213,15 @@ class GoodsReceiptEditorDialog extends StatefulWidget {
     this.steps = const [],
     this.canAttach = true,
     this.canAddBranch = false,
+    this.costsByLot = false,
   });
 
   final ApiClient api;
+
+  /// The firm costs its stock by lot (L3): each line offers the lot's retail
+  /// and wholesale margins beside its two prices. False on Average, where
+  /// the server refuses margins.
+  final bool costsByLot;
 
   /// Whether **New branch** is offered beside *Received from* (backlog 140):
   /// the user holds `VENDOR_CREATE`.
@@ -621,7 +648,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
         return 'Line ${line.lineNumber}: this product must be received with a '
             'batch number.';
       }
-      if (widget.features.isEnabled('BATCH_PTR_PTS')) {
+      if (widget.costsByLot || widget.features.isEnabled('BATCH_PTR_PTS')) {
         final String? rate = ptrPtsProblem(line);
         if (rate != null) return rate;
       }
@@ -660,6 +687,18 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
   Future<void> _save() async {
     final GoodsReceiptRecord? saved = await _persist();
     if (saved == null || !mounted) return;
+    // L3: a lot price that bills above the MRP once tax is added is shown in
+    // place, so the window stays open on the saved draft to say so. A
+    // warning, never a refusal: Close takes the saved receipt back.
+    if (widget.costsByLot &&
+        Phase2Scope.of(context) &&
+        saved.lines.any((line) => line.mrpWarning.isNotEmpty)) {
+      setState(() {
+        _saved = saved;
+        _saving = false;
+      });
+      return;
+    }
     Navigator.pop(context, saved);
   }
 
@@ -724,6 +763,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
             {
               ...sending[index].toJson(
                 ptrPts: widget.features.isEnabled('BATCH_PTR_PTS'),
+                byLot: widget.costsByLot,
               ),
               'line_number': index + 1,
             },
