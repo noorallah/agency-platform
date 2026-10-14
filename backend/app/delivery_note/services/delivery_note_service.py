@@ -131,6 +131,7 @@ from app.sales_order.services.discount_limit import (
 )
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.salesmen.services.nameable import nameable_salesman
+from app.salesmen.services.required import assert_salesman_named
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
@@ -459,6 +460,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             territory_id=order.territory_id,
             route_id=order.route_id,
         )
+        # A note takes its order's salesman, so the order is what names one.
+        assert_salesman_named(self._session, firm_id, order.salesman_id)
         note_number = self._issue_number(
             numbering_rule,
             typed=data.delivery_note_number,
@@ -608,6 +611,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             row.shipping_address_id = self._ship_to(order, data.shipping_address_id)
         elif order.id != row.sales_order_id:
             row.shipping_address_id = self._ship_to(order, None)
+        assert_salesman_named(self._session, firm_scope, order.salesman_id)
         self._delete_children(note_id)
         row.sales_order_id = order.id
         row.customer_id = order.customer_id

@@ -489,6 +489,12 @@ class SalesWorkflowSettings(BaseEntity):
     round_bills_to_rupee: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: Whether the sales order, the delivery note and the bill refuse a save
+    #: that names no salesman once the server's own fill has run (P2, salesman
+    #: list design section 6). Off, as it has always been.
+    salesman_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
 
 class PriceFloorSettings(BaseEntity):

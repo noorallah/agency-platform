@@ -1,5 +1,6 @@
 """Validated contracts for the firm's salesman list."""
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -99,3 +100,17 @@ class SalesmanResponse(SalesmanSchema):
     earns_commission: bool
     is_active: bool
     notes: str | None
+
+
+class SalesmanStartingChoice(SalesmanSchema):
+    """What the Salesman box starts on for a new order, note or bill (P2).
+
+    ``source`` says why: ``USER`` the entry tied to the signed-in user,
+    ``ACCOUNT_MANAGER`` the customer's own, ``ROUND`` the salesman of the
+    customer's round, ``NONE`` nobody -- with ``salesman_id`` and ``name``
+    null, so the answer always has the same shape.
+    """
+
+    salesman_id: UUID | None
+    name: str | None
+    source: Literal["USER", "ACCOUNT_MANAGER", "ROUND", "NONE"]
