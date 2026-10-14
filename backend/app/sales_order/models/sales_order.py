@@ -21,9 +21,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
-class SalesOrder(BaseEntity):
+class SalesOrder(BoxAndPieceEntryMixin, BaseEntity):
     """Store one sales order header."""
 
     __tablename__ = "sales_orders"
@@ -216,7 +217,7 @@ class SalesOrder(BaseEntity):
     close_reason: Mapped[str | None] = mapped_column(Text)
 
 
-class SalesOrderLine(BaseEntity):
+class SalesOrderLine(BoxAndPieceLineMixin, BaseEntity):
     """Store one sales order line."""
 
     __tablename__ = "sales_order_lines"
@@ -395,7 +396,7 @@ class SalesOrderNote(BaseEntity):
     note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
-class SalesWorkflowSettings(BaseEntity):
+class SalesWorkflowSettings(BoxAndPieceEntryMixin, BaseEntity):
     """Store which sales stages one firm fills in by hand.
 
     The chain is quotation, sales order, delivery note, invoice, and a firm run

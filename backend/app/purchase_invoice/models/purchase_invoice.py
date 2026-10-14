@@ -21,9 +21,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
-class PurchaseInvoice(BaseEntity):
+class PurchaseInvoice(BoxAndPieceEntryMixin, BaseEntity):
     """Store one supplier invoice header."""
 
     __tablename__ = "purchase_invoices"
@@ -208,7 +209,7 @@ class PurchaseInvoiceSource(BaseEntity):
     )
 
 
-class PurchaseInvoiceLine(BaseEntity):
+class PurchaseInvoiceLine(BoxAndPieceLineMixin, BaseEntity):
     """Store one purchase invoice line."""
 
     __tablename__ = "purchase_invoice_lines"

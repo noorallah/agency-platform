@@ -20,9 +20,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
-class SalesInvoice(BaseEntity):
+class SalesInvoice(BoxAndPieceEntryMixin, BaseEntity):
     """Store one customer invoice header."""
 
     __tablename__ = "sales_invoices"
@@ -267,7 +268,7 @@ class SalesInvoiceSource(BaseEntity):
     )
 
 
-class SalesInvoiceLine(BaseEntity):
+class SalesInvoiceLine(BoxAndPieceLineMixin, BaseEntity):
     """Store one sales invoice line."""
 
     __tablename__ = "sales_invoice_lines"

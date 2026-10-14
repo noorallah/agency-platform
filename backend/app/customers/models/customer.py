@@ -23,6 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UTCDateTime, UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin
 
 
 class CustomerGroup(BaseEntity):
@@ -82,7 +83,7 @@ class CustomerGroup(BaseEntity):
     )
 
 
-class Customer(BaseEntity):
+class Customer(BoxAndPieceEntryMixin, BaseEntity):
     """Represent one customer master owned by a firm."""
 
     __tablename__ = "customers"

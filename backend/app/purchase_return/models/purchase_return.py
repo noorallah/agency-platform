@@ -20,9 +20,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
-class PurchaseReturn(BaseEntity):
+class PurchaseReturn(BoxAndPieceEntryMixin, BaseEntity):
     """Store one supplier return header."""
 
     __tablename__ = "purchase_returns"
@@ -159,7 +160,7 @@ class PurchaseReturnSource(BaseEntity):
     )
 
 
-class PurchaseReturnLine(BaseEntity):
+class PurchaseReturnLine(BoxAndPieceLineMixin, BaseEntity):
     """Store one purchase return line."""
 
     __tablename__ = "purchase_return_lines"

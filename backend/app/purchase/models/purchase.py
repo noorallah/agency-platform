@@ -21,9 +21,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
-class PurchaseOrder(BaseEntity):
+class PurchaseOrder(BoxAndPieceEntryMixin, BaseEntity):
     """Store one enterprise purchase order header."""
 
     __tablename__ = "purchase_orders"
@@ -138,7 +139,7 @@ class PurchaseOrder(BaseEntity):
     )
 
 
-class PurchaseOrderLine(BaseEntity):
+class PurchaseOrderLine(BoxAndPieceLineMixin, BaseEntity):
     """Store one purchase order line item."""
 
     __tablename__ = "purchase_order_lines"
@@ -369,7 +370,7 @@ class PurchaseOrderHistory(BaseEntity):
     details_json: Mapped[str | None] = mapped_column(Text)
 
 
-class PurchaseWorkflowSettings(BaseEntity):
+class PurchaseWorkflowSettings(BoxAndPieceEntryMixin, BaseEntity):
     """Store which buying stages one firm fills in by hand.
 
     The chain is purchase order, goods receipt, supplier bill. A firm run by

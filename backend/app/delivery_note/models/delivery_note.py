@@ -20,9 +20,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.uom.models.box_and_piece import BoxAndPieceEntryMixin, BoxAndPieceLineMixin
 
 
-class DeliveryNote(BaseEntity):
+class DeliveryNote(BoxAndPieceEntryMixin, BaseEntity):
     """Store one delivery note header."""
 
     __tablename__ = "delivery_notes"
@@ -220,7 +221,7 @@ class DeliveryNote(BaseEntity):
     delivery_recorded_by: Mapped[UUID | None] = mapped_column(UUIDType())
 
 
-class DeliveryNoteLine(BaseEntity):
+class DeliveryNoteLine(BoxAndPieceLineMixin, BaseEntity):
     """Store one delivery note line."""
 
     __tablename__ = "delivery_note_lines"
