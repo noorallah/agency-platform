@@ -330,6 +330,9 @@ RESET_ORDER: tuple[str, ...] = (
     # clearing history without them fails on a foreign key. They arrived with
     # the receipts and payments module and this list did not know about them.
     "settlement_allocations",
+    # A refund's draws name the refund and the receipts it came off, both
+    # RESTRICT (D-FIN-30).
+    "refund_receipt_draws",
     "settlements",
     # Party adjustments name the bills they clear, the parties and their
     # journals, all RESTRICT (backlog 74 row 2).
