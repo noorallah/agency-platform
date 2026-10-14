@@ -467,6 +467,49 @@ class SalesReturnBillPlacement(BaseEntity):
     )
 
 
+class SalesReturnLineBatch(BaseEntity):
+    """Which lots one completed return line put its goods back into (L2 step 6).
+
+    A return line can go back into several lots: the lots its source line
+    shipped, the last taken first refilled, each at the cost its units left
+    with (``docs/design/LOT_COST_DESIGN.md``, sections 3.2 and 3.5). Written
+    when the return completes and marked deleted when it is cancelled.
+    ``quantity`` is in stock units; ``cost_amount`` is what the movement that
+    brought the lot's units back carried, off the stock ledger.
+    ``inventory_transaction_id`` is a bare id, as every downstream document
+    records its source.
+    """
+
+    __tablename__ = "sales_return_line_batches"
+    __table_args__ = (
+        Index("IX_sales_return_line_batches_line", "sales_return_line_id"),
+        Index("IX_sales_return_line_batches_firm_batch", "firm_id", "batch_id"),
+    )
+
+    sales_return_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "sales_return_lines.id",
+            ondelete="CASCADE",
+            name="FK_sales_return_line_batches_sales_return_line_id",
+        ),
+        nullable=False,
+    )
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    batch_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey(
+            "batches.id",
+            ondelete="RESTRICT",
+            name="FK_sales_return_line_batches_batch_id",
+        ),
+        nullable=False,
+    )
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    cost_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    inventory_transaction_id: Mapped[UUID | None] = mapped_column(UUIDType())
+
+
 class SalesReturnAttachment(BaseEntity):
     """Store sales return attachments."""
 

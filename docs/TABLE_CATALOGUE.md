@@ -606,6 +606,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `sales_return_attachments` | firm store ¹ | Store sales return attachments. | `sales_returns`, `firms` |
 | `sales_return_bill_placements` | firm store ¹ | Store which bill line a completed return line off a note took units from. | `sales_returns`, `sales_return_lines` |
+| `sales_return_line_batches` | firm store ¹ | Which lots one completed return line put its goods back into (L2 step 6). | `sales_return_lines`, `batches` |
 | `sales_return_line_taxes` | firm store ¹ | Store the tax components one return line actually credited. | `sales_return_lines` |
 | `sales_return_lines` | firm store ¹ | Store one customer return line. | `sales_returns`, `firms`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes`, `batches`, `inventory_transactions` |
 | `sales_return_notes` | firm store ¹ | Store sales return notes. | `sales_returns`, `firms` |
