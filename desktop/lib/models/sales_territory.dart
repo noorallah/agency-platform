@@ -497,11 +497,8 @@ class AssignableCustomerRecord {
 }
 
 /// The salesman a round's assignment row names: an id from the firm's
-/// salesman list (P2). Read as `salesman_id`; `user_id` is the key the
-/// server used before the list existed, read only if `salesman_id` is
-/// absent.
-String assignedSalesmanId(Json row) =>
-    stringValue(row['salesman_id'] ?? row['user_id']);
+/// salesman list (P2).
+String assignedSalesmanId(Json row) => stringValue(row['salesman_id']);
 
 /// How much of the firm's ground one salesman covers.
 class TerritoryCoverageRecord {
