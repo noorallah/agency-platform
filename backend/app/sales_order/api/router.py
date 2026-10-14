@@ -159,6 +159,11 @@ SalesWorkflowSettingsScope = Annotated[
 ]
 
 
+def _sees_cost(scope: ResolvedFirmScope) -> bool:
+    """Return whether the caller may see what an order line's goods cost."""
+    return scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
+
+
 def _filters(
     *,
     customer_id: UUID | None,
@@ -238,7 +243,7 @@ def list_sales_orders(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=service.order_responses(rows),
+        data=service.order_responses(rows, show_cost=_sees_cost(scope)),
         pagination=params.metadata(total),
     )
 
@@ -265,7 +270,7 @@ def create_sales_order(
     """Create one sales order."""
     service = SalesOrderService(db)
     row = service.create_order(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
-    return ApiResponse(data=service.order_response(row))
+    return ApiResponse(data=service.order_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.post("/preview", response_model=ApiResponse[SalesOrderPreview])
@@ -484,7 +489,7 @@ def update_sales_order(
         order_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     set_etag(response, row)
-    return ApiResponse(data=service.order_response(row))
+    return ApiResponse(data=service.order_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.post("/{order_id}/approve", response_model=ApiResponse[SalesOrderResponse])
@@ -516,7 +521,7 @@ def approve_sales_order(
         licence_override_reason=authorised_override(scope, licence_override_reason),
         price_override_reason=authorised_price_override(scope, price_override_reason),
     )
-    return ApiResponse(data=service.order_response(row))
+    return ApiResponse(data=service.order_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.get(
@@ -559,7 +564,7 @@ def cancel_sales_order(
         actor_id=scope.actor_id,
         reason=data.reason,
     )
-    return ApiResponse(data=service.order_response(row))
+    return ApiResponse(data=service.order_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.get(
@@ -603,7 +608,7 @@ def hold_sales_order(
         actor_id=scope.actor_id,
     )
     return ApiResponse(
-        data=service.order_response(row),
+        data=service.order_response(row, show_cost=_sees_cost(scope)),
         message=f"{row.order_number} is on hold.",
     )
 
@@ -621,7 +626,10 @@ def reserve_sales_order_again(
     row = service.reserve_again(
         order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=service.order_response(row), message="Stock held again.")
+    return ApiResponse(
+        data=service.order_response(row, show_cost=_sees_cost(scope)),
+        message="Stock held again.",
+    )
 
 
 @router.post("/{order_id}/release", response_model=ApiResponse[SalesOrderResponse])
@@ -640,7 +648,7 @@ def release_sales_order(
         remarks=data.reason,
     )
     return ApiResponse(
-        data=service.order_response(row),
+        data=service.order_response(row, show_cost=_sees_cost(scope)),
         message=f"{row.order_number} released.",
     )
 
@@ -660,7 +668,7 @@ def close_sales_order(
         actor_id=scope.actor_id,
         reason=data.reason,
     )
-    return ApiResponse(data=service.order_response(row))
+    return ApiResponse(data=service.order_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.get("/{order_id}/print", response_class=StreamingResponse)
@@ -691,7 +699,7 @@ def get_sales_order(
     service = SalesOrderService(db)
     row = service.get_order(order_id, firm_scope=scope.firm_id)
     set_etag(response, row)
-    return ApiResponse(data=service.order_response(row))
+    return ApiResponse(data=service.order_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.get(
@@ -848,7 +856,7 @@ async def import_sales_orders(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=service.order_responses(rows))
+    return ApiResponse(data=service.order_responses(rows, show_cost=_sees_cost(scope)))
 
 
 # ---- the customer's purchase order and other paper: uploaded files (SG-6) ---

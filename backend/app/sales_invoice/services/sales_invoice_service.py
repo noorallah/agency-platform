@@ -155,6 +155,7 @@ from app.sales_order.services.discount_limit import (
     invoice_discounts,
     note_reduction,
 )
+from app.sales_order.services.line_margin import cost_invoice_lines
 from app.sales_order.services.price_floor import PriceFloorService, invoice_lines
 from app.sales_order.services.sales_order_service import (
     SalesOrderService,
@@ -3524,6 +3525,14 @@ class SalesInvoiceService(TransactionalDocumentService):
             response.attached_file_count = files.get(response.id, 0)
             if response.id in typed_on_own_order:
                 response.bill_discount_source = "typed"
+        if show_cost:
+            # Cost and margin per line and in total, for the screen only
+            # (L3 step 4): one costing for the whole page.
+            cost_invoice_lines(
+                self._session,
+                rows[0].firm_id,
+                [(response, response.lines) for response in answer],
+            )
         return answer
 
     def _invoice_response(

@@ -535,6 +535,14 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     #: What the goods cost, or null where no dispatch could be traced. Null
     #: is not zero: zero would mean the goods were free.
     cost_amount: Decimal | None = None
+    #: True where ``cost_amount`` is worked out rather than recorded: the
+    #: lots the line takes, else the item's average (L3 step 4).
+    cost_is_estimate: bool = False
+    #: Taxable value less cost, and that as a percentage of cost. Like the
+    #: cost, sent only to a holder of ``PRODUCT_VIEW_COST_PRICE``; never
+    #: printed.
+    margin_amount: Decimal | None = None
+    margin_percent: Decimal | None = None
     net_amount: Decimal
     packaging_type_id: UUID | None
     order_uom_id: UUID | None
@@ -645,6 +653,11 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     additional_charges: Decimal
     round_off: Decimal
     grand_total: Decimal
+    #: What the goods cost and what the bill earns over that, in total
+    #: (L3 step 4). Sent only to a holder of ``PRODUCT_VIEW_COST_PRICE``, and
+    #: null where any line's cost is unknown. Never printed.
+    cost_total: Decimal | None = None
+    margin_total: Decimal | None = None
     #: What the customer is asked to pay: ``grand_total`` at the two decimals
     #: the receivable and the journal carry (D-SELL-83). Money received,
     #: tenders and receipts are judged against this, never the four-decimal
