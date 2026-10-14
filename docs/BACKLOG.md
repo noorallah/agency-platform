@@ -10473,7 +10473,10 @@ field by field** (the owner, 2026-10-14, "possibly we can change the layout
 by moving fields"). That last is a designer -- a stored list of blocks and
 columns with their order and widths, drawn by one renderer -- and wants a
 design note before anything is built; the two fixed layouts stand until
-then and would become its first two presets.
+then and would become its first two presets. **The design note is written:
+`docs/design/BILL_LAYOUT_DESIGNER_DESIGN.md` (2026-10-14), five steps, eight
+points for the owner to confirm in its section 9; lines per page and long
+names are its step 4. Not built; it waits for the owner to read it.**
 
 The rest of this entry is as written on 2026-10-13: what the print did then,
 the design a build would follow, and what is not known.
