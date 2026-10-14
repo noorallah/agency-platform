@@ -29,10 +29,19 @@ from app.core.enums import TokenType
 from app.core.exceptions import ResourceNotFoundError
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
-from app.customers.models.customer import CreditControlSettings
-from app.finance.models.finance import FinancialYear
+from app.customers.models.customer import CreditControlSettings, CustomerGroup
+from app.delivery_note.models.transporter import Transporter
+from app.finance.models.finance import (
+    AccountGroup,
+    CostCenter,
+    FinancialYear,
+    FirmControlAccount,
+    LedgerAccount,
+    ProfitCenter,
+)
 from app.finance.models.tds_194q import Tds194QSettings
 from app.firms.models import Firm
+from app.firms.services.readiness import ALL_PURPOSES
 from app.inventory.models.adjustment_approval import RoleStockAdjustmentLimit
 from app.inventory.models.adjustment_reason import StockAdjustmentReason
 from app.loyalty.models.loyalty import LoyaltyEntry, LoyaltySettings
@@ -46,6 +55,11 @@ from app.purchase.models.purchase import (
     RolePurchaseApprovalLimit,
 )
 from app.sales.models import GeoCountry
+from app.sales.models.territory import (
+    RouteTypeMaster,
+    SalesTerritoryNode,
+    TerritoryCustomerAssignment,
+)
 from app.sales_order.models.sales_order import (
     PriceFloorSettings,
     RoleDiscountLimit,
@@ -59,7 +73,12 @@ from app.tax.models import GstComplianceSettings, TaxProfile, TaxRule
 from app.tax.schemas import TaxProfileWrite, TaxStatus, TaxSystemWrite
 from app.tax.services import TaxFrameworkService, gst_template
 from app.tcs.models.tcs import TcsSettings
+from app.trade_licences.models.trade_licence import (
+    TradeLicenceSettings,
+    TradeLicenceType,
+)
 from app.uom.models.unit_set import UnitSet
+from app.vendors.models.vendor import VendorCategory, VendorType
 
 STEP_CODES = [
     "rates-and-profiles",
@@ -307,7 +326,18 @@ def test_an_unknown_section_is_refused(session: Session) -> None:
 
 @pytest.mark.parametrize(
     "section",
-    ["tax", "firm", "selling", "buying", "stock", "business-profile", "pricing"],
+    [
+        "tax",
+        "firm",
+        "selling",
+        "buying",
+        "stock",
+        "business-profile",
+        "pricing",
+        "territories",
+        "account-structure",
+        "party-lists",
+    ],
 )
 def test_reading_the_state_writes_nothing(session: Session, section: str) -> None:
     """Opening a Settings subject issues selects and nothing else."""
@@ -591,7 +621,18 @@ def test_buying_reads_as_it_comes_then_what_was_set(session: Session) -> None:
 
 
 @pytest.mark.parametrize(
-    "section", ["firm", "selling", "buying", "stock", "business-profile", "pricing"]
+    "section",
+    [
+        "firm",
+        "selling",
+        "buying",
+        "stock",
+        "business-profile",
+        "pricing",
+        "territories",
+        "account-structure",
+        "party-lists",
+    ],
 )
 def test_the_route_serves_each_new_section(session: Session, section: str) -> None:
     """Each subject is registered and answered by the one endpoint."""
@@ -874,4 +915,221 @@ def test_pricing_reads_as_it_comes_then_what_was_set(session: Session) -> None:
         "price-levels": ("OPTIONAL", "2 levels"),
         "promotions": ("OPTIONAL", "2 offers, 1 running"),
         "loyalty": ("OPTIONAL", "1 customer"),
+    }
+
+
+TERRITORIES_CODES = ["territories", "route-types", "route-builder", "transporters"]
+ACCOUNT_STRUCTURE_CODES = ["control-accounts", "cost-centers", "profit-centers"]
+PARTY_LISTS_CODES = [
+    "customer-groups",
+    "vendor-categories",
+    "vendor-types",
+    "licence-types",
+    "licence-check-settings",
+]
+
+
+def _territory(session: Session, firm_id: UUID, code: str, **values: object) -> UUID:
+    """Create one territory node of the firm and return its id."""
+    node = SalesTerritoryNode(
+        firm_id=firm_id,
+        hierarchy_level_id=uuid4(),
+        code=code,
+        name=code.title(),
+        path=f"/{code}",
+        **values,
+    )
+    session.add(node)
+    session.flush()
+    return node.id
+
+
+def test_territories_read_as_they_come_then_what_was_set(session: Session) -> None:
+    """A bare firm owes nothing; a set-up one is told what it holds."""
+    firm = _firm(session)
+
+    bare = _state(session, firm.id, "territories")
+    assert bare.section == "territories"
+    assert [step.code for step in bare.steps] == TERRITORIES_CODES
+    assert bare.todo_count == 0
+    assert _details(bare) == {
+        "territories": ("OPTIONAL", "None yet"),
+        "route-types": ("OPTIONAL", "None yet"),
+        "route-builder": ("OPTIONAL", "None yet"),
+        "transporters": ("OPTIONAL", "None yet"),
+    }
+
+    other = _firm(session, "SET02")
+    north = _territory(session, firm.id, "NORTH")
+    south = _territory(session, firm.id, "SOUTH")
+    _territory(session, firm.id, "OLD", status="INACTIVE")
+    theirs = _territory(session, other.id, "NORTH")
+    session.add_all(
+        [
+            RouteTypeMaster(firm_id=firm.id, code="SALES", name="Sales round"),
+            RouteTypeMaster(firm_id=firm.id, code="GONE", name="Gone", is_active=False),
+            TerritoryCustomerAssignment(
+                territory_id=north, customer_id=uuid4(), is_primary=False
+            ),
+            TerritoryCustomerAssignment(
+                territory_id=north, customer_id=uuid4(), is_primary=False
+            ),
+            TerritoryCustomerAssignment(
+                territory_id=south, customer_id=uuid4(), is_primary=False
+            ),
+            # Another firm's round, and a shop taken off one, are not counted.
+            TerritoryCustomerAssignment(territory_id=theirs, customer_id=uuid4()),
+            TerritoryCustomerAssignment(
+                territory_id=south,
+                customer_id=uuid4(),
+                is_primary=False,
+                is_deleted=True,
+            ),
+            Transporter(firm_id=firm.id, name="Swift Roadways"),
+            Transporter(firm_id=other.id, name="Elsewhere Cargo"),
+        ]
+    )
+    session.commit()
+
+    assert _details(_state(session, firm.id, "territories")) == {
+        "territories": ("OPTIONAL", "2 territories"),
+        "route-types": ("OPTIONAL", "1 route type"),
+        "route-builder": ("OPTIONAL", "3 shops on 2 rounds"),
+        "transporters": ("OPTIONAL", "1 transporter"),
+    }
+
+
+def _ledger_account(session: Session, firm_id: UUID, code: str, **flags: bool) -> UUID:
+    """Create one ledger account of the firm, under a group of its own."""
+    group = AccountGroup(
+        firm_id=firm_id, code=f"G{code}", name=f"Group {code}", account_type="ASSET"
+    )
+    session.add(group)
+    session.flush()
+    account = LedgerAccount(
+        firm_id=firm_id,
+        account_group_id=group.id,
+        code=code,
+        name=f"Account {code}",
+        account_type="ASSET",
+        **flags,
+    )
+    session.add(account)
+    session.flush()
+    return account.id
+
+
+def test_a_bare_firm_owes_its_control_accounts(session: Session) -> None:
+    """Posting refuses an unmapped purpose, so every one of them is owed."""
+    firm = _firm(session)
+    total = len(ALL_PURPOSES)
+
+    bare = _state(session, firm.id, "account-structure")
+    assert bare.section == "account-structure"
+    assert [step.code for step in bare.steps] == ACCOUNT_STRUCTURE_CODES
+    assert bare.todo_count == 1
+    assert _details(bare) == {
+        "control-accounts": ("TODO", f"{total} of {total} unmapped"),
+        "cost-centers": ("OPTIONAL", "None yet"),
+        "profit-centers": ("OPTIONAL", "None yet"),
+    }
+
+    account = _ledger_account(session, firm.id, "1000")
+    session.add(
+        FirmControlAccount(
+            firm_id=firm.id, purpose=ALL_PURPOSES[0].value, ledger_account_id=account
+        )
+    )
+    session.commit()
+    details = _details(_state(session, firm.id, "account-structure"))
+    assert details["control-accounts"] == ("TODO", f"{total - 1} of {total} unmapped")
+
+
+def test_a_mapped_firm_is_done_and_told_its_centres(session: Session) -> None:
+    """Every purpose mapped is done; centres are counted, another firm's not."""
+    firm = _firm(session)
+    other = _firm(session, "SET02")
+    account = _ledger_account(session, firm.id, "1000")
+    session.add_all(
+        [
+            *(
+                FirmControlAccount(
+                    firm_id=firm.id, purpose=purpose.value, ledger_account_id=account
+                )
+                for purpose in ALL_PURPOSES
+            ),
+            CostCenter(firm_id=firm.id, code="SHOP", name="Shop"),
+            CostCenter(firm_id=firm.id, code="VAN", name="Van"),
+            CostCenter(firm_id=firm.id, code="OLD", name="Old", is_active=False),
+            ProfitCenter(firm_id=other.id, code="NORTH", name="North"),
+        ]
+    )
+    session.commit()
+
+    state = _state(session, firm.id, "account-structure")
+    assert state.todo_count == 0
+    assert _details(state) == {
+        "control-accounts": ("DONE", f"All {len(ALL_PURPOSES)} mapped"),
+        "cost-centers": ("OPTIONAL", "2 centres"),
+        "profit-centers": ("OPTIONAL", "None yet"),
+    }
+
+
+def test_an_account_needing_a_centre_owes_one_until_there_is_one(
+    session: Session,
+) -> None:
+    """A line on such an account is refused without a centre, so one is owed."""
+    firm = _firm(session)
+    _ledger_account(session, firm.id, "4000", requires_profit_center=True)
+    _ledger_account(session, firm.id, "4100", requires_profit_center=True)
+    session.commit()
+
+    details = _details(_state(session, firm.id, "account-structure"))
+    assert details["cost-centers"] == ("OPTIONAL", "None yet")
+    assert details["profit-centers"] == ("TODO", "None yet: 2 accounts need one")
+
+    session.add(ProfitCenter(firm_id=firm.id, code="NORTH", name="North"))
+    session.commit()
+    details = _details(_state(session, firm.id, "account-structure"))
+    assert details["profit-centers"] == ("OPTIONAL", "1 centre")
+
+
+def test_party_lists_read_as_they_come_then_what_was_set(session: Session) -> None:
+    """A bare firm owes nothing; a set-up one is told what it holds."""
+    firm = _firm(session)
+
+    bare = _state(session, firm.id, "party-lists")
+    assert bare.section == "party-lists"
+    assert [step.code for step in bare.steps] == PARTY_LISTS_CODES
+    assert bare.todo_count == 0
+    assert _details(bare) == {
+        "customer-groups": ("OPTIONAL", "None yet"),
+        "vendor-categories": ("OPTIONAL", "None yet"),
+        "vendor-types": ("OPTIONAL", "None yet"),
+        "licence-types": ("OPTIONAL", "None yet"),
+        "licence-check-settings": ("OPTIONAL", "Left as it comes"),
+    }
+
+    other = _firm(session, "SET02")
+    session.add_all(
+        [
+            CustomerGroup(firm_id=firm.id, code="RET", name="Retailer"),
+            CustomerGroup(firm_id=firm.id, code="WHL", name="Wholesaler"),
+            CustomerGroup(firm_id=other.id, code="RET", name="Retailer"),
+            VendorCategory(firm_id=firm.id, code="PHARMA", name="Pharma"),
+            VendorCategory(firm_id=firm.id, code="OLD", name="Old", is_active=False),
+            VendorType(firm_id=firm.id, code="MFR", name="Manufacturer"),
+            VendorType(firm_id=firm.id, code="DIST", name="Distributor"),
+            TradeLicenceType(firm_id=firm.id, code="DL", name="Drug licence"),
+            TradeLicenceSettings(firm_id=firm.id, sale_enforcement="BLOCK"),
+        ]
+    )
+    session.commit()
+
+    assert _details(_state(session, firm.id, "party-lists")) == {
+        "customer-groups": ("OPTIONAL", "2 groups"),
+        "vendor-categories": ("OPTIONAL", "1 category"),
+        "vendor-types": ("OPTIONAL", "2 types"),
+        "licence-types": ("OPTIONAL", "1 licence type"),
+        "licence-check-settings": ("OPTIONAL", "Set for this firm"),
     }
