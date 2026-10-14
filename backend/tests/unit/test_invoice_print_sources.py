@@ -255,3 +255,45 @@ def test_a_bill_with_no_offer_and_no_discount_says_neither() -> None:
     text = _printed(setup, _bill(setup, [note]))
     assert "Offers" not in text
     assert "You saved" not in text
+
+
+def test_the_bill_names_its_market_and_when_its_lot_was_made() -> None:
+    """Market is the round the bill is on; the date is the bill line's own.
+
+    Both are read off the bill (row P2): the round from its route, the
+    manufacture date from the line, which took it from the lot when the
+    goods left.
+    """
+    from app.sales.models.territory import SalesTerritoryNode, TerritoryRouteProfile
+    from app.sales_invoice.models import SalesInvoiceLine
+
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup, quantity=Decimal("4"))
+    invoice = _bill(setup, [note])
+    plain = _printed(setup, invoice)
+    assert "Market" not in plain and "Mfg" not in plain
+    assert "Total quantity" in plain
+
+    node = SalesTerritoryNode(
+        firm_id=setup.firm.id,
+        hierarchy_level_id=uuid4(),
+        code="R-GANDHI",
+        name="Gandhi Bazaar",
+        path="/R-GANDHI",
+    )
+    setup.session.add(node)
+    setup.session.flush()
+    route = TerritoryRouteProfile(territory_id=node.id)
+    setup.session.add(route)
+    setup.session.flush()
+    invoice.route_id = route.id
+    line = setup.session.scalar(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+    )
+    assert line is not None
+    line.manufacturing_date = date(2026, 1, 15)
+    setup.session.flush()
+
+    text = _printed(setup, invoice)
+    assert "MarketGandhi Bazaar" in text
+    assert "Mfg" in text and "01/26" in text
