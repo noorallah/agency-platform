@@ -235,6 +235,63 @@ def test_a_receipt_whose_lot_has_moved_cannot_be_cancelled() -> None:
     assert [row.id for row in _batches(fixture.session)] == [lot.id]
 
 
+def _hold(fixture: _Fixture, lot: BatchRecord, *, release: bool) -> None:
+    """Reserve one unit of the lot for an order, and release it if asked."""
+    service = InventoryService(fixture.session)
+    where = {
+        "firm_scope": fixture.firm.id,
+        "actor_id": fixture.actor_id,
+        "branch_id": fixture.branch.id,
+        "warehouse_id": fixture.warehouse.id,
+        "storage_node_id": None,
+        "product_id": fixture.product.id,
+        "reference_number": "SO-HOLD",
+        "transaction_date": date(2026, 8, 6),
+        "batch_id": lot.id,
+    }
+    service.record_sales_order_reservation(**where, reserve_quantity=Decimal("1"))
+    if release:
+        service.release_sales_order_reservation(**where, release_quantity=Decimal("1"))
+    fixture.session.commit()
+
+
+def test_a_released_reservation_does_not_keep_the_receipt() -> None:
+    """D-BUY-76: an order held the lot and was cancelled; nothing moved."""
+    fixture = _shop("LOT6A", by_lot=True)
+    receipt = _receive(fixture, "4", batch_number="BN-1")
+    (lot,) = _batches(fixture.session)
+    _hold(fixture, lot, release=True)
+
+    GoodsReceiptService(fixture.session).cancel_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="wrong delivery",
+    )
+
+    fixture.session.expire_all()
+    assert _batches(fixture.session) == []
+
+
+def test_a_live_reservation_refuses_the_cancel_naming_the_order() -> None:
+    """D-BUY-76: an open order still counts on the lot, so it stays."""
+    fixture = _shop("LOT6B", by_lot=True)
+    receipt = _receive(fixture, "4", batch_number="BN-1")
+    (lot,) = _batches(fixture.session)
+    _hold(fixture, lot, release=False)
+
+    with pytest.raises(ValidationError, match=r"sales order SO-HOLD holds goods"):
+        GoodsReceiptService(fixture.session).cancel_receipt(
+            receipt.id,
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            reason="too late",
+        )
+
+    fixture.session.rollback()
+    assert [row.id for row in _batches(fixture.session)] == [lot.id]
+
+
 def _opening(session: Session, firm_id: UUID) -> OpeningStockBatch:
     """Enter and post day-one stock: one batch at two costs, and loose rice."""
     warehouse = session.scalars(select(Warehouse).where(Warehouse.code == "MAIN")).one()
