@@ -64,8 +64,12 @@ def _base_columns() -> list[sa.Column]:
 
 
 def upgrade() -> None:
-    """Create the table where it is missing."""
-    if sa.inspect(op.get_bind()).has_table(_TABLE):
+    """Create the table where the store holds settlements and not it."""
+    inspector = sa.inspect(op.get_bind())
+    # A store with no settlements keeps no refund of them: the platform
+    # store holds no firm's money, and the keys below would point at a table
+    # it does not have (the first run of this revision failed there).
+    if not inspector.has_table("settlements") or inspector.has_table(_TABLE):
         return
     op.create_table(
         _TABLE,
