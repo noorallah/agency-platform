@@ -2115,12 +2115,14 @@ def _pick_group(batch: BatchRecord) -> str:
     Section 3.4, step 4: one row per batch, expiry, MRP and selling prices.
     Goods with no printed batch carry our reference in ``batch_number``, so
     it is left out of the key -- two such lots at one price are one row.
+    A price is written plainly, 150 and never ``1.5E+2``, which is what
+    ``normalize()`` alone gives a round figure (D-STK-74).
     """
     parts = (
         batch.batch_number if batch.has_printed_batch else "",
         batch.expiry_date.isoformat() if batch.expiry_date else "",
         *(
-            "" if value is None else str(Decimal(str(value)).normalize())
+            "" if value is None else format(Decimal(str(value)).normalize(), "f")
             for value in (batch.mrp, batch.selling_price, batch.ptr, batch.pts)
         ),
     )
