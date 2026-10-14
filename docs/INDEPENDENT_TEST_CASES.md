@@ -1274,6 +1274,22 @@ opens any screen by name.
   - Step 4: Route Builder opens on its own, as it always did.
 - **Leaves:** nothing.
 
+### TC-CONF-014 — Settings > Item lists and Locations open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** the two SET UP cards on the Settings page; Start here and the numbered steps of each; Units of Measure as the one step that can read To do; Storage areas waiting on a warehouse; the old items still found by search
+- **Fixture:** `ready-firm`, as its **Firm admin**
+- **Steps**
+  1. Press the gear and press the **Item lists** card (under SET UP); read the tabs from left to right, then Start here.
+  2. Press the **Locations** card and read the tabs and Start here.
+  3. Go back to Settings, type **Product Categories** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: **Start here, 1 Units of Measure, 2 UOM groups, 3 Conversion rules, 4 Packaging types, 5 Packaging levels, 6 Product categories, 7 Principals, 8 Brands**. Row 1 reads **Done** with the number of units (the store's units are seeded with it); the rest **Optional**, each with what the firm holds or *None yet*; UOM groups and Conversion rules say they need units from step 1, Brands a principal from step 7.
+  - Step 2: **1 Places, 2 Branch types, 3 Warehouse types, 4 Storage areas**, all **Optional**; Places names the countries and states the store holds; Storage areas reads *None yet* (or a count) since the ready firm has a warehouse.
+  - Step 3: Product Categories opens on its own, as it always did.
+- **Leaves:** nothing.
+
 ## Buying — order to payment
 
 Four documents: a purchase order, goods receipts against it, a supplier
