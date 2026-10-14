@@ -8655,7 +8655,7 @@ These cases use the fixture `lot-firm` (firm TEST03, *Test Fixtures Lot Firm*, a
 - **Fixture:** `lot-firm`
 - **Also needs:** TEST03-M2 (MRP 130, PTR 112.00, GST 18), a supplier.
 - **Steps:** (1) Read the receipt line of TEST03-M2. (2) Receive a line at 80.00 with MRP 100 and a retail margin of 40, so PTR 112.00 is above the MRP before tax. (3) Receive a line at 80.00 with retail margin 10 and wholesale margin 40.
-- **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.17). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line: wholesale (112.00) is above retail (88.00).
+- **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.16, cut to the paisa below 130 / 1.18). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line: wholesale (112.00) is above retail (88.00).
 - **Leaves:** TEST03-M2 unchanged; the refused receipts leave nothing.
 
 ### TC-LOT-019 — Changing a price on the lot page works the margin back

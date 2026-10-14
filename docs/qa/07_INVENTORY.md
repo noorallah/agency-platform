@@ -567,7 +567,7 @@ Costing by lot is a firm setting (*Settings > Stock > Costing method*) that valu
 - **Preconditions:** A finished firm already switched to costing by lot, with a batch-tracked product held in two lots at two costs, an untracked product, a supplier and a customer.
 - **Also needs:** TEST03-M2 (MRP 130, PTR 112.00, GST 18), a supplier.
 - **Steps:** (1) Read the receipt line of TEST03-M2. (2) Receive a line at 80.00 with MRP 100 and a retail margin of 40, so PTR 112.00 is above the MRP before tax. (3) Receive a line at 80.00 with retail margin 10 and wholesale margin 40.
-- **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.17). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line: wholesale (112.00) is above retail (88.00).
+- **Expect:** (1) The line carries `mrp_warning`: 112.00 with 18 % tax is 132.16, above 130, and the warning names the price that sits at the MRP (110.16, cut to the paisa below 130 / 1.18). The receipt still completes. (2) Refused, naming the line: a price above the MRP before tax. (3) Refused, naming the line: wholesale (112.00) is above retail (88.00).
 ### TC-LOT-019 — Changing a price on the lot page works the margin back
 
 *Added 2026-10-15 (L3 lot margins, steps 1 to 5) **from the code and the build notes; not yet driven against a server.** Drive it and correct the expectation before relying on it.*
