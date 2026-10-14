@@ -595,8 +595,9 @@ abstract final class SettingsSubjects {
         'steps can wait until the firm plans its routes.',
   );
 
-  /// Account structure (row T2), a Set up section. Control accounts is the
-  /// one step that can be To do: nothing posts to a purpose left unmapped.
+  /// Account structure (row T2), a Set up section. Control accounts is To do
+  /// while a purpose is unmapped (nothing posts to it); a centre is To do
+  /// only while a ledger account requires one and none is active.
   static const SettingsSubject accountStructure = SettingsSubject(
     section: 'Account structure',
     route: MenuLayout.accountStructureSubjectRoute,
@@ -617,16 +618,16 @@ abstract final class SettingsSubjects {
         code: 'cost-centers',
         summary: 'Where the firm spends, for reports by department or '
             'branch.',
-        topLine: 'Needs nothing from the step before. Off unless the firm '
-            'reports by cost centre.',
+        topLine: 'Needs nothing from the step before. To do only when a '
+            'ledger account asks for a cost centre and none is active.',
       ),
       SubjectStep(
         path: 'accounting/profit-centers',
         label: 'Profit centres',
         code: 'profit-centers',
         summary: 'Where the firm earns, for profit by line of business.',
-        topLine: 'Needs nothing from the steps before. Off unless the firm '
-            'reports by profit centre.',
+        topLine: 'Needs nothing from the steps before. To do only when a '
+            'ledger account asks for a profit centre and none is active.',
       ),
     ],
     connects: ['Control account', 'Posting'],

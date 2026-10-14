@@ -1256,6 +1256,24 @@ opens any screen by name.
   - Step 4: Unit Sets opens on its own, as it always did.
 - **Leaves:** nothing.
 
+### TC-CONF-013 — Settings > Territories & routes, Account structure and Party lists open as one screen each
+
+*Added 2026-10-14 (customer task T2, backlog 148). Covered by widget tests and by unit tests of the state read; **no screen was clicked**, so the steps are written from the build, not from the screen.*
+
+- **Covers:** the three SET UP cards on the Settings page; Start here and the numbered steps of each; Control accounts as the one step that reads To do on a firm with an unmapped purpose; Customer Groups opening inside its subject; the old items still found by search
+- **Fixture:** `ready-firm`, as its **Firm admin**
+- **Steps**
+  1. Press the gear and press the **Territories & routes** card (under SET UP); read the tabs from left to right, then Start here.
+  2. Press the **Account structure** card and read the tabs and Start here.
+  3. Press the **Party lists** card, read Start here, then press the button of row 1.
+  4. Go back to Settings, type **Route Builder** in *Search settings* and press the card found.
+- **Expect**
+  - Step 1: **Start here, 1 Territories, 2 Route types, 3 Route builder, 4 Transporters**, all **Optional**, each with what the firm holds or *None yet*; Route builder's tab says it needs a territory from step 1.
+  - Step 2: **1 Control accounts, 2 Cost centres, 3 Profit centres**. Row 1 reads **Done**, *All 64 mapped* (the ready firm's accounts are seeded); rows 2 and 3 **Optional**.
+  - Step 3: **1 Customer groups, 2 Vendor categories, 3 Vendor types, 4 Licence types, 5 Licence check**, all **Optional**; row 5 reads *Left as it comes* or *Set for this firm*. The button opens the Customer Groups list inside the subject.
+  - Step 4: Route Builder opens on its own, as it always did.
+- **Leaves:** nothing.
+
 ## Buying — order to payment
 
 Four documents: a purchase order, goods receipts against it, a supplier
