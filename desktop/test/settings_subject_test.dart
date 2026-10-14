@@ -649,10 +649,9 @@ void main() {
 
     const Map<SettingsSubject, List<String>> numbered = {
       SettingsSubjects.stock: [
-        '1 Inventory settings',
-        '2 Adjustment reasons',
-        '3 Adjustment limits',
-        '4 Batch rules',
+        '1 Adjustment reasons',
+        '2 Adjustment limits',
+        '3 Batch rules',
       ],
       SettingsSubjects.businessProfile: [
         '1 Profile assignment',
@@ -682,12 +681,17 @@ void main() {
         );
         expect(SettingsSubjects.forSection(subject.section), same(subject));
         expect(SettingsSubjects.forRoute(subject.route), same(subject));
-        expect(subject.tools, isEmpty, reason: subject.section);
+        if (subject != SettingsSubjects.stock) {
+          expect(subject.tools, isEmpty, reason: subject.section);
+        }
       }
+      // Inventory Settings is the person's own, so it stands apart.
+      expect(SettingsSubjects.stock.toolsLabel, 'Yours');
+      expect([for (final SubjectStep s in SettingsSubjects.stock.tools) s.path],
+          ['inventory/inventory-settings']);
       // The server's codes, which a server branch answers for.
       expect([for (final SubjectStep s in SettingsSubjects.stock.steps) s.code],
           [
-            'inventory-settings',
             'adjustment-reasons',
             'adjustment-limits',
             'batch-rules',

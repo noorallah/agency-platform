@@ -384,28 +384,23 @@ abstract final class SettingsSubjects {
         'optional steps can wait until the firm needs them.',
   );
 
-  /// Stock (row T2). No step needs another, so none is To do.
+  /// Stock (row T2). No step needs another, so none is To do. Inventory
+  /// Settings holds the signed-in person's own defaults, so it stands apart
+  /// as a tool, as My Branch and Warehouse does on Firm.
   static const SettingsSubject stock = SettingsSubject(
     section: 'Stock',
     route: MenuLayout.stockSubjectRoute,
-    summary: 'Inventory settings, adjustment reasons and limits, batches',
+    summary: 'Adjustment reasons and limits, batch rules',
     sectionCode: 'stock',
     steps: [
-      SubjectStep(
-        path: 'inventory/inventory-settings',
-        label: 'Inventory settings',
-        code: 'inventory-settings',
-        summary: 'How stock is counted and valued for this firm.',
-        topLine: 'Start here. Needs nothing from the steps before.',
-      ),
       SubjectStep(
         path: 'inventory/adjustment-reasons',
         label: 'Adjustment reasons',
         code: 'adjustment-reasons',
         summary: 'The reasons a person picks when stock is adjusted or '
             'written off.',
-        topLine: 'Needs nothing from the steps before. Leave the ready-made '
-            'reasons unless the firm uses its own.',
+        topLine: 'Start here. Leave the ready-made reasons unless the firm '
+            'uses its own.',
       ),
       SubjectStep(
         path: MenuLayout.adjustmentLimitsRoute,
@@ -424,6 +419,16 @@ abstract final class SettingsSubjects {
             'batch is skipped.',
         topLine: 'Needs nothing from the steps before. Matters only for '
             'goods kept by batch.',
+      ),
+    ],
+    toolsLabel: 'Yours',
+    tools: [
+      SubjectStep(
+        path: 'inventory/inventory-settings',
+        label: 'Inventory settings',
+        summary: "Your own defaults for stock screens, not the firm's.",
+        topLine: "Yours, not the firm's: whether opening stock posts when "
+            'you save it, and the format you export in.',
       ),
     ],
     readyNote: 'Stock is ready for this firm.',
