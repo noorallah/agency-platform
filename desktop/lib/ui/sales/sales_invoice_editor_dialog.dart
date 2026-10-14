@@ -11,6 +11,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../models/batch_sale_settings.dart';
 import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
+import '../../models/line_margin.dart';
 import '../../models/customer.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
@@ -33,6 +34,7 @@ import '../workspace/price_level_box.dart';
 import '../workspace/printed_document.dart';
 import 'counter_shift_widgets.dart';
 import 'firm_salesmen.dart';
+import 'line_margin_cells.dart';
 import 'ship_to_field.dart';
 import 'bill_paper_prompt.dart';
 
@@ -241,6 +243,10 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   SalesInvoicePreviewRecord? _preview;
   int _current = 0;
   Timer? _previewTimer;
+
+  /// Waits for the lots of a counter line to settle before the line is
+  /// split by price (L3 step 5), so a pick being typed is not split mid-way.
+  Timer? _splitTimer;
   int _previewSerial = 0;
   bool _phase2 = false;
 
@@ -359,6 +365,13 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   /// The draft as it was read, when correcting one.
   Json? _existing;
+
+  /// The saved bill's cost and margin (L3 step 5): per line by source line,
+  /// with the quantity each was saved at, and in total. Empty and null for a
+  /// new bill or a user the server shows no cost to.
+  final Map<String, LineMargin> _savedMargins = <String, LineMargin>{};
+  final Map<String, String> _savedMarginQuantities = <String, String>{};
+  DocumentMargin? _savedMargin;
 
   /// How much of each source line this draft already bills. In edit mode the
   /// ceiling is that plus whatever is still unbilled elsewhere, because the
@@ -531,6 +544,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _splitTimer?.cancel();
     _customFields.dispose();
     _reference.dispose();
     _coupon.dispose();
@@ -700,6 +714,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   /// contributes how much *more* of each source line is available, so a
   /// correction can go up as well as down.
   void _adoptExisting(Json invoice) {
+    _savedMargins.clear();
+    _savedMarginQuantities.clear();
+    _savedMargin = DocumentMargin.maybeFrom(invoice);
     _raisedItsOwnChain = invoice['allow_direct_sales_order'] == true;
     _salesmanId = _blankToNull('${invoice['salesman_id'] ?? ''}');
     // A saved counter bill starts with no product added beside its lines.
@@ -750,6 +767,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
               '${_ownQuantities[line.sourceDocumentLineId] ?? 0}',
         );
         if (line.trackSerial) _loadSerials(line.productId, line.warehouseId);
+        _savedMarginQuantities[line.sourceDocumentLineId] =
+            _quantities[line.sourceDocumentLineId]!.text;
       }
     }
     _loadTypedUnitNames();
@@ -923,6 +942,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
                 double.tryParse('${raw['quantity'] ?? 0}') ?? 0,
       };
       if (taken.isNotEmpty) _batchPicks[lineId] = taken;
+      final LineMargin? margin = LineMargin.maybeFrom(line);
+      if (margin != null) _savedMargins[lineId] = margin;
       rebuilt.add(BillableLine(
         sourceDocumentLineId: lineId,
         lineNumber: (line['line_number'] as num?)?.toInt() ?? 0,
@@ -2577,6 +2598,12 @@ class _DirectLine {
   /// nobody has, an empty map once the choice is handed back to the server.
   Map<String, double>? batchPicks;
 
+  /// The product's lots as the picker last read them, with their PTR, PTS
+  /// and earliest-expiry shares; null until read. [splitEpoch] is bumped
+  /// when the line is split, so its picker is built afresh.
+  List<BatchAvailabilityRecord>? lots;
+  int splitEpoch = 0;
+
   /// The rate this line was last given without the person typing it -- the
   /// product's own price, or its batch's selling price. A rate still equal to
   /// it may be replaced; anything else was typed and is left alone.
@@ -2589,6 +2616,19 @@ class _DirectLine {
         (double.tryParse(text) ?? 0) == 0 ||
         text == autoPrice;
   }
+}
+
+/// The lots of one counter line that sell at one price on this bill: what
+/// each gives, and that price (PTR on a retail bill, PTS on a wholesale one;
+/// null where the lots carry none).
+class _PriceGroup {
+  _PriceGroup(this.price);
+
+  final double? price;
+  final Map<String, double> picks = <String, double>{};
+
+  double get quantity =>
+      picks.values.fold(0, (double sum, double value) => sum + value);
 }
 
 /// One way of paying on a counter bill (SEL-12): mode, amount, reference.

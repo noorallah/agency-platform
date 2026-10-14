@@ -73,6 +73,7 @@ class BatchPickerPanel extends StatefulWidget {
     this.comparable = true,
     this.showPtrPts = false,
     this.onBatchPrice,
+    this.onBatchesRead,
     this.keyPrefix = 'delivery-note',
     this.unreadableNote = 'could not read the batches; they will go earliest '
         'expiry first when the note is dispatched',
@@ -115,6 +116,11 @@ class BatchPickerPanel extends StatefulWidget {
   /// batches are read and whenever the split changes: null when it ships
   /// from several, or its batch carries no price (backlog 79 row 7).
   final ValueChanged<double?>? onBatchPrice;
+
+  /// Told the batches each time they are read, with the earliest-expiry
+  /// shares for [quantity]: the counter bill splits a line whose lots differ
+  /// in the bill's price (L3 step 5).
+  final ValueChanged<List<BatchAvailabilityRecord>>? onBatchesRead;
   final String keyPrefix;
   final String unreadableNote;
   final String noWarehouseNote;
@@ -188,6 +194,7 @@ class _BatchPickerPanelState extends State<BatchPickerPanel> {
         _failed = false;
       });
       _reportPrice(rows, widget.picks);
+      widget.onBatchesRead?.call(rows);
     } on Object {
       // The picker is a courtesy: without it the server still goes earliest
       // expiry first at dispatch.

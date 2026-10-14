@@ -18,6 +18,8 @@ BatchAvailabilityRecord _batch(
   required double fefo,
   String? mrp,
   String? sellingPrice,
+  String? ptr,
+  String? pts,
 }) =>
     BatchAvailabilityRecord.fromJson(<String, dynamic>{
       'batch_id': id,
@@ -33,6 +35,8 @@ BatchAvailabilityRecord _batch(
       'fefo': fefo.toString(),
       'mrp': mrp,
       'selling_price': sellingPrice,
+      'ptr': ptr,
+      'pts': pts,
     });
 
 class _CounterApi extends ApiClient {
@@ -40,6 +44,8 @@ class _CounterApi extends ApiClient {
     this.existing,
     this.defaultWarehouse = 'wh-main',
     this.priceFromBatch = false,
+    this.tradeClass,
+    this.ptrs,
   })
       : super(
           baseUrl: 'http://localhost:8000',
@@ -51,6 +57,11 @@ class _CounterApi extends ApiClient {
   final Json? existing;
   final String? defaultWarehouse;
   final bool priceFromBatch;
+
+  /// The walk-in customer's trade class, and the PTR of the old and new lot
+  /// (PTS is ten less), for the split by price (L3 step 5).
+  final String? tradeClass;
+  final (String, String)? ptrs;
   Json? created;
   Json? updated;
   final List<Json> previews = <Json>[];
@@ -82,6 +93,24 @@ class _CounterApi extends ApiClient {
             fefo: 10,
             mrp: '120',
             sellingPrice: '95.5'),
+      ];
+    }
+    final (String, String)? prices = ptrs;
+    if (prices != null) {
+      String less(String value) => '${num.parse(value) - 10}';
+      return [
+        _batch('old',
+            expiry: '2026-12-01',
+            days: 20,
+            fefo: 6,
+            ptr: prices.$1,
+            pts: less(prices.$1)),
+        _batch('new',
+            expiry: '2027-06-01',
+            days: 200,
+            fefo: 4,
+            ptr: prices.$2,
+            pts: less(prices.$2)),
       ];
     }
     return [
@@ -125,6 +154,7 @@ class _CounterApi extends ApiClient {
             'code': 'C-1',
             'name': 'Walk-in Customer',
             'display_name': 'Walk-in Customer',
+            'trade_class': tradeClass,
           },
         ],
       };
@@ -425,6 +455,96 @@ void main() {
       final Map<String, dynamic> line = Map<String, dynamic>.from(
           (api.created!['lines'] as List).single as Map);
       expect(num.tryParse('${line['unit_price']}') ?? 0, 0);
+    });
+  });
+
+  // L3 step 5, one line one price: lots that differ in the bill's price --
+  // PTR on a retailer's bill, PTS on a wholesaler's -- are split by the
+  // screen into one line per price, each at its own price.
+  group('one line, one price (L3 step 5)', () {
+    List<Map<String, dynamic>> sent(_CounterApi api) => [
+          for (final dynamic line in api.created!['lines'] as List)
+            Map<String, dynamic>.from(line as Map),
+        ];
+
+    Future<void> settle(WidgetTester tester) async {
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('earliest expiry across two PTRs becomes two lines',
+        (tester) async {
+      final _CounterApi api =
+          _CounterApi(tradeClass: 'RETAILER', ptrs: ('70', '72'));
+      await _pump(tester, api);
+      await _fillCounterBill(tester, rate: null);
+      await settle(tester);
+
+      expect(find.byKey(const ValueKey<String>('sales-invoice-direct-1')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('counter-scan-note')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+
+      final List<Map<String, dynamic>> lines = sent(api);
+      expect(lines, hasLength(2));
+      expect(num.parse('${lines[0]['current_invoice_quantity']}'), 6);
+      expect(num.parse('${lines[0]['unit_price']}'), 70);
+      expect((lines[0]['batches'] as List).single['batch_id'], 'old');
+      expect(num.parse('${lines[1]['current_invoice_quantity']}'), 4);
+      expect(num.parse('${lines[1]['unit_price']}'), 72);
+      expect((lines[1]['batches'] as List).single['batch_id'], 'new');
+      expect(lines[1]['product_id'], 'prod-1');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets("a wholesaler's bill with one PTS stays one line",
+        (tester) async {
+      final _CounterApi api =
+          _CounterApi(tradeClass: 'STOCKIST', ptrs: ('70', '70'));
+      await _pump(tester, api);
+      await _fillCounterBill(tester, rate: null);
+      await settle(tester);
+      // One PTS for both lots: nothing to split.
+      expect(find.byKey(const ValueKey<String>('sales-invoice-direct-1')),
+          findsNothing);
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      expect(sent(api), hasLength(1));
+    });
+
+    testWidgets('lots picked by hand at two prices become two lines',
+        (tester) async {
+      final _CounterApi api =
+          _CounterApi(tradeClass: 'STOCKIST', ptrs: ('70', '80'));
+      await _pump(tester, api);
+      // Picked before the lots settle, so the person's split is the one cut.
+      await _fillCounterBill(tester, rate: null);
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('batch-pick-direct-0-old')), '3');
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('batch-pick-direct-0-new')), '7');
+      await settle(tester);
+
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      final List<Map<String, dynamic>> lines = sent(api);
+      expect(lines, hasLength(2));
+      expect(num.parse('${lines[0]['current_invoice_quantity']}'), 3);
+      expect(num.parse('${lines[0]['unit_price']}'), 60);
+      expect(num.parse('${lines[1]['current_invoice_quantity']}'), 7);
+      expect(num.parse('${lines[1]['unit_price']}'), 70);
+    });
+
+    testWidgets('a customer of neither kind keeps one line', (tester) async {
+      final _CounterApi api =
+          _CounterApi(tradeClass: 'OTHER', ptrs: ('70', '72'));
+      await _pump(tester, api);
+      await _fillCounterBill(tester, rate: null);
+      await settle(tester);
+      await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+      await tester.pumpAndSettle();
+      expect(sent(api), hasLength(1));
     });
   });
 }

@@ -216,8 +216,8 @@ Future<void> _picker(WidgetTester tester, bool show) async {
 }
 
 void main() {
-  testWidgets('a picked trade class is sent; Not set is null', (tester) async {
-    final Json? picked = await _customerSave(tester, pick: 'Stockist');
+  testWidgets('Wholesaler is sent as STOCKIST', (tester) async {
+    final Json? picked = await _customerSave(tester, pick: 'Wholesaler');
     expect(picked!['trade_class'], 'STOCKIST');
   });
 

@@ -11,6 +11,7 @@ import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
+import '../../models/line_margin.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
 import '../../models/salesman.dart';
@@ -26,6 +27,7 @@ import '../workspace/desktop_framework.dart';
 import '../workspace/party_place.dart';
 import '../workspace/price_level_box.dart';
 import 'firm_salesmen.dart';
+import 'line_margin_cells.dart';
 import 'ship_to_field.dart';
 
 part 'sales_order_editor_phase2.dart';
@@ -112,6 +114,24 @@ class _LineDraft {
   /// The product's batches with stock, read for [batchKey]; null until read.
   List<BatchAvailabilityRecord>? batches;
   String batchKey = '';
+
+  /// The saved line's cost and margin (L3 step 5), null for a new line or a
+  /// user the server shows no cost to; and what the line said when it was
+  /// read, so a line changed since shows none rather than stale figures.
+  LineMargin? savedMargin;
+  String savedSignature = '';
+
+  String get signature => [
+        productId ?? '',
+        quantity.text.trim(),
+        free.text.trim(),
+        unitPrice.text.trim(),
+        discountPercent.text.trim(),
+        discountAmount.text.trim(),
+      ].join('|');
+
+  /// The saved figures while the line still says what was saved.
+  LineMargin? get margin => signature == savedSignature ? savedMargin : null;
 
   void followProduct(String price) {
     if (priceEdited) return;
@@ -439,6 +459,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// saved by this window; null for a new order not yet saved.
   Json? _record;
 
+  /// The saved order's cost and margin in total, null where the server sent
+  /// none -- a new order, or a user without PRODUCT_VIEW_COST_PRICE, which
+  /// is what keeps the Cost and Margin columns off their screen (L3 step 5).
+  DocumentMargin? _savedMargin;
+  int _savedMarginLines = 0;
+
   /// Backlog 119: the firm does not make approval a step of its own for
   /// sales orders, so saving a new one completes it.
   bool _approvalOff = false;
@@ -640,6 +666,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// or a discount out of the customer master would rewrite it.
   void _adoptExisting(Json order) {
     _record = order;
+    _savedMargin = DocumentMargin.maybeFrom(order);
     _version = (order['version'] as num?)?.toInt() ?? 0;
     _status = stringValue(order['status']).isEmpty
         ? 'DRAFT'
@@ -740,9 +767,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           lastSource: stringValue(line['discount_source']),
         )
           ..priceEdited = true
-          ..pinnedBatchId = _blankToNull(stringValue(line['pinned_batch_id'])),
+          ..pinnedBatchId = _blankToNull(stringValue(line['pinned_batch_id']))
+          ..savedMargin = LineMargin.maybeFrom(line),
       );
+      _lines.last.savedSignature = _lines.last.signature;
     }
+    _savedMarginLines = _lines.length;
   }
 
   String? _blankToNull(String value) => value.isEmpty ? null : value;
