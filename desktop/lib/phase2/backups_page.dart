@@ -30,7 +30,14 @@ class BackupsPage extends StatefulWidget {
   State<BackupsPage> createState() => _BackupsPageState();
 }
 
-class _BackupsPageState extends State<BackupsPage> {
+class _BackupsPageState extends State<BackupsPage>
+    with ReadsAgainWhenShown<BackupsPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_load());
+  }
+
   BackupOverview? _overview;
   bool _loading = true;
   bool _starting = false;

@@ -39,7 +39,14 @@ class ProfitLossPage extends StatefulWidget {
   State<ProfitLossPage> createState() => _ProfitLossPageState();
 }
 
-class _ProfitLossPageState extends State<ProfitLossPage> {
+class _ProfitLossPageState extends State<ProfitLossPage>
+    with ReadsAgainWhenShown<ProfitLossPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_loadReport());
+  }
+
   List<AccountingPeriod> _periods = const [];
   AccountingPeriod? _period;
   ProfitLossReport _report = ProfitLossReport.empty;

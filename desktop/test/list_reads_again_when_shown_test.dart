@@ -104,6 +104,42 @@ void main() {
     signal.dispose();
   });
 
+  // D-UI-101: a screen that draws its own Refresh is not a list on the
+  // shared layout, so it answers the signal itself.
+  testWidgets('a screen with its own Refresh reads itself again when shown',
+      (tester) async {
+    final ShownAgainSignal signal = ShownAgainSignal();
+    final List<String> reads = [];
+    await tester.pumpWidget(MaterialApp(
+      home: ScreenShownAgain(
+        signal: signal,
+        child: _OwnRefreshScreen(reads: reads),
+      ),
+    ));
+    expect(reads, isEmpty);
+
+    signal.fire();
+    signal.fire();
+    expect(reads, ['again', 'again']);
+  });
+
+  testWidgets('a screen with its own Refresh that has gone does not answer',
+      (tester) async {
+    final ShownAgainSignal signal = ShownAgainSignal();
+    final List<String> reads = [];
+    await tester.pumpWidget(MaterialApp(
+      home: ScreenShownAgain(
+        signal: signal,
+        child: _OwnRefreshScreen(reads: reads),
+      ),
+    ));
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+
+    signal.fire();
+    expect(reads, isEmpty);
+    signal.dispose();
+  });
+
   testWidgets('outside the shell a list has nothing to answer',
       (tester) async {
     tester.view.physicalSize = const Size(1366, 768);
@@ -115,4 +151,23 @@ void main() {
     expect(run, isEmpty);
     expect(tester.takeException(), isNull);
   });
+}
+
+/// A screen drawing its own header and Refresh, as a statement does.
+class _OwnRefreshScreen extends StatefulWidget {
+  const _OwnRefreshScreen({required this.reads});
+
+  final List<String> reads;
+
+  @override
+  State<_OwnRefreshScreen> createState() => _OwnRefreshScreenState();
+}
+
+class _OwnRefreshScreenState extends State<_OwnRefreshScreen>
+    with ReadsAgainWhenShown<_OwnRefreshScreen> {
+  @override
+  void readAgain() => widget.reads.add('again');
+
+  @override
+  Widget build(BuildContext context) => const Text('statement');
 }

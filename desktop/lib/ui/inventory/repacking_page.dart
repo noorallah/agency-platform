@@ -33,7 +33,14 @@ class RepackingPage extends StatefulWidget {
   State<RepackingPage> createState() => _RepackingPageState();
 }
 
-class _RepackingPageState extends State<RepackingPage> {
+class _RepackingPageState extends State<RepackingPage>
+    with ReadsAgainWhenShown<RepackingPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_load());
+  }
+
   List<RepackRecord> _rows = const [];
   String? _selectedId;
   String? _error;

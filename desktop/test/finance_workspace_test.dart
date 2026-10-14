@@ -5,7 +5,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/finance.dart';
 import 'package:agency_desktop/ui/finance/trial_balance_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
-    show Phase2Scope;
+    show Phase2Scope, ScreenShownAgain, ShownAgainSignal;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -88,6 +88,40 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('the trial balance reads itself again when shown again',
+      (tester) async {
+    // It draws its own Refresh, so the shared list layout never told it
+    // (D-UI-101): kept built under a document tab, it showed what it read
+    // when it was opened.
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _FinanceApi api =
+        _FinanceApi(periods: [_period('p1', '2026-04-01')]);
+    final ShownAgainSignal signal = ShownAgainSignal();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ScreenShownAgain(
+            signal: signal,
+            child: TrialBalancePage(
+              api: api,
+              permissions: _permissionsFor(const ['TRIAL_BALANCE_VIEW']),
+              hasActiveFirm: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final int opened = api.requestedPeriods.length;
+
+    signal.fire();
+    await tester.pumpAndSettle();
+
+    expect(api.requestedPeriods.length, opened + 1);
+  });
+
   group('reading the API', () {
     test('a trial balance carries the server\'s own verdict', () {
       // Whether the books balance is the server's answer, not something

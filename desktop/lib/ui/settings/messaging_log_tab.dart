@@ -7,6 +7,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../models/entities.dart';
 import '../../models/messaging.dart';
+import '../../phase2/phase2_scope.dart';
 import 'messaging_channels_tab.dart' show messagingChannelNames;
 
 /// Every message the firm has queued, sent or skipped, newest first.
@@ -26,7 +27,14 @@ class MessagingLogTab extends StatefulWidget {
   State<MessagingLogTab> createState() => _MessagingLogTabState();
 }
 
-class _MessagingLogTabState extends State<MessagingLogTab> {
+class _MessagingLogTabState extends State<MessagingLogTab>
+    with ReadsAgainWhenShown<MessagingLogTab> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_load());
+  }
+
   static const int _pageSize = 20;
   static const List<String> _statuses = [
     'QUEUED',

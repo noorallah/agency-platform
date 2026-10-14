@@ -35,7 +35,14 @@ class BalanceSheetPage extends StatefulWidget {
   State<BalanceSheetPage> createState() => _BalanceSheetPageState();
 }
 
-class _BalanceSheetPageState extends State<BalanceSheetPage> {
+class _BalanceSheetPageState extends State<BalanceSheetPage>
+    with ReadsAgainWhenShown<BalanceSheetPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_loadReport());
+  }
+
   List<AccountingPeriod> _periods = const [];
   AccountingPeriod? _period;
   BalanceSheetReport _report = BalanceSheetReport.empty;

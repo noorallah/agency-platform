@@ -34,7 +34,14 @@ class LedgerStatementPage extends StatefulWidget {
   State<LedgerStatementPage> createState() => _LedgerStatementPageState();
 }
 
-class _LedgerStatementPageState extends State<LedgerStatementPage> {
+class _LedgerStatementPageState extends State<LedgerStatementPage>
+    with ReadsAgainWhenShown<LedgerStatementPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_loadReport());
+  }
+
   List<LedgerAccount> _accounts = const [];
   List<AccountingPeriod> _periods = const [];
   LedgerAccount? _account;

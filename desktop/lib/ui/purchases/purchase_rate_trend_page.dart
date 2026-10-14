@@ -31,7 +31,14 @@ class PurchaseRateTrendPage extends StatefulWidget {
 
 final RegExp _isoDate = RegExp(r'^\d{4}-\d{2}-\d{2}$');
 
-class _PurchaseRateTrendPageState extends State<PurchaseRateTrendPage> {
+class _PurchaseRateTrendPageState extends State<PurchaseRateTrendPage>
+    with ReadsAgainWhenShown<PurchaseRateTrendPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading && _product != null) unawaited(_load());
+  }
+
   final TextEditingController _from = TextEditingController();
   final TextEditingController _to = TextEditingController();
   AnalysisOption? _product;

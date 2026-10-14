@@ -31,7 +31,14 @@ class CashFlowPage extends StatefulWidget {
   State<CashFlowPage> createState() => _CashFlowPageState();
 }
 
-class _CashFlowPageState extends State<CashFlowPage> {
+class _CashFlowPageState extends State<CashFlowPage>
+    with ReadsAgainWhenShown<CashFlowPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_load());
+  }
+
   List<AccountingPeriod> _periods = const [];
   AccountingPeriod? _from;
   AccountingPeriod? _to;

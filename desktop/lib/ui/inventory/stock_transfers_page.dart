@@ -40,7 +40,14 @@ class StockTransfersPage extends StatefulWidget {
   State<StockTransfersPage> createState() => _StockTransfersPageState();
 }
 
-class _StockTransfersPageState extends State<StockTransfersPage> {
+class _StockTransfersPageState extends State<StockTransfersPage>
+    with ReadsAgainWhenShown<StockTransfersPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_load());
+  }
+
   static const List<String> _statuses = [
     'DRAFT',
     'DISPATCHED',

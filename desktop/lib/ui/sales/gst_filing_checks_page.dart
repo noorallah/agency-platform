@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // GST checks before filing (GST-5): what a return for the period would get
 // wrong -- an invalid GSTIN, a missing or short HSN, no place of supply, no
 // IRN, a credit note raised too late or against a cancelled bill -- listed by
@@ -33,7 +35,14 @@ class GstFilingChecksPage extends StatefulWidget {
   State<GstFilingChecksPage> createState() => _GstFilingChecksPageState();
 }
 
-class _GstFilingChecksPageState extends State<GstFilingChecksPage> {
+class _GstFilingChecksPageState extends State<GstFilingChecksPage>
+    with ReadsAgainWhenShown<GstFilingChecksPage> {
+  /// Shown again by the shell: read as Refresh would (D-UI-101).
+  @override
+  void readAgain() {
+    if (!_loading) unawaited(_load());
+  }
+
   late DateTime _from;
   late DateTime _to;
   GstFilingChecks? _result;
