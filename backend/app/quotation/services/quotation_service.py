@@ -11,7 +11,6 @@ since been cut is refused at the point it matters.
 
 from __future__ import annotations
 
-import csv
 import io
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
@@ -32,6 +31,7 @@ from app.common.report_names import customer_names, customers_matching
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.csv_text import SheetWriter
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
     LineDiscount,
@@ -1898,7 +1898,7 @@ class QuotationService(TransactionalDocumentService):
             descending=True,
         )
         buffer = io.StringIO()
-        writer = csv.writer(buffer)
+        writer = SheetWriter(buffer)
         writer.writerow(
             [
                 "quotation_number",

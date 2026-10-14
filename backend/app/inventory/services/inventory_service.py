@@ -26,7 +26,7 @@ from app.common.firm_metadata import firm_today
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import chunks
-from app.core.utils.csv_text import csv_line, sheet_text
+from app.core.utils.csv_text import csv_line, read_records, sheet_text
 from app.core.utils.money import quantize_money
 from app.core.validation.payloads import parse_payload
 from app.finance.services.control_accounts import ControlAccountPurpose
@@ -1711,11 +1711,8 @@ class InventoryService:
         actor_id: UUID,
     ) -> OpeningStockBatch:
         """Build opening-stock lines from a CSV upload."""
-        import csv
-        import io
-
         return self._import_opening_stock_rows(
-            list(csv.DictReader(io.StringIO(csv_content))),
+            list(read_records(csv_content)),
             reference_number=reference_number,
             posting_date=posting_date,
             branch_id=branch_id,

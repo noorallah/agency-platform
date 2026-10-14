@@ -1,6 +1,5 @@
 """Firm-scoped REST endpoints for branch and warehouse management."""
 
-import csv
 import io
 from datetime import date
 from typing import Annotated, Literal
@@ -62,6 +61,7 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.csv_text import SheetWriter
 
 router = APIRouter(
     prefix="/api/v1",
@@ -379,7 +379,7 @@ def _export_cell(value: object) -> str:
 def branches_csv(db: Session, *, firm_id: UUID, search: str | None) -> str:
     """Render a firm's branches as the CSV its importer reads back."""
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = SheetWriter(output)
     writer.writerow(BRANCH_EXPORT_COLUMNS)
     page = 1
     service = BranchWarehouseService(db)
@@ -406,7 +406,7 @@ def branches_csv(db: Session, *, firm_id: UUID, search: str | None) -> str:
 def warehouses_csv(db: Session, *, firm_id: UUID, search: str | None) -> str:
     """Render a firm's warehouses as the CSV its importer reads back."""
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = SheetWriter(output)
     writer.writerow(WAREHOUSE_EXPORT_COLUMNS)
     page = 1
     service = BranchWarehouseService(db)

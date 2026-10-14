@@ -21,7 +21,7 @@ from app.common.audit.services import record_audit, record_change, row_state
 from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.csv_text import csv_line
+from app.core.utils.csv_text import SheetWriter, csv_line, read_records
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer, CustomerAddress
 from app.sales.models import (
@@ -2875,11 +2875,10 @@ class SalesTerritoryService:
 
     def export_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
         """Write every territory as the importer reads it, quoted properly."""
-        import csv
         import io
 
         buffer = io.StringIO()
-        writer = csv.writer(buffer, lineterminator="\n")
+        writer = SheetWriter(buffer, lineterminator="\n")
         writer.writerow(self._EXPORT_HEADINGS)
         writer.writerows(self._export_rows(firm_scope=firm_scope, search=search))
         return buffer.getvalue().rstrip("\n")
@@ -2976,10 +2975,8 @@ class SalesTerritoryService:
     def import_csv(
         self, csv_content: str, *, firm_scope: UUID, actor_id: UUID
     ) -> list[TerritoryResponse]:
-        import csv
-        import io
 
-        reader = csv.DictReader(io.StringIO(csv_content))
+        reader = read_records(csv_content)
         hierarchy = self.get_hierarchy(firm_scope=firm_scope, actor_id=actor_id)
         level_by_name = {
             item.display_name.upper(): item.id for item in hierarchy.levels

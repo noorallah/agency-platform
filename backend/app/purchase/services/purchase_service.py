@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import io
 import json
 from collections import defaultdict
@@ -32,6 +31,7 @@ from app.core.exceptions import (
 )
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
+from app.core.utils.csv_text import SheetWriter, read_records
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
 from app.core.utils.pricing import (
@@ -1652,7 +1652,7 @@ class PurchaseService(TransactionalDocumentService):
         self, csv_content: str, *, firm_scope: UUID, actor_id: UUID
     ) -> list[PurchaseOrder]:
         """Import orders csv."""
-        reader = csv.DictReader(io.StringIO(csv_content))
+        reader = read_records(csv_content)
         records: list[PurchaseOrderCreate] = []
         for row in reader:
             branch_id = (row.get("BranchId") or "").strip()
@@ -1783,7 +1783,7 @@ class PurchaseService(TransactionalDocumentService):
             descending=True,
         )
         output = io.StringIO()
-        writer = csv.writer(output)
+        writer = SheetWriter(output)
         writer.writerow(
             [
                 "PO Number",

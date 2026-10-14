@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ApplicationError, ValidationError
 from app.core.exceptions.handlers import plain_validator_message
+from app.core.utils.csv_text import SheetWriter, unsheet
 from app.core.validation import validate_email, validate_phone
 
 ExistingRows = Literal["refuse", "update"]
@@ -379,14 +380,19 @@ def _read_xlsx(content: bytes) -> Iterator[list[object]]:
 
 
 def _cell_text(value: object) -> str:
-    """Read a cell as trimmed text; a whole float loses its ``.0``."""
+    """Read a cell as trimmed text; a whole float loses its ``.0``.
+
+    The apostrophe an export put in front of a formula's start is taken off
+    again (D-MST-23), so a file exported here and imported back holds what
+    was typed.
+    """
     if value is None:
         return ""
     if isinstance(value, bool):
         return "Yes" if value else "No"
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
-    return str(value).strip()
+    return unsheet(str(value).strip())
 
 
 def indian_phone(value: str) -> str:
@@ -733,7 +739,7 @@ def template_workbook(
 def template_csv(columns: Sequence[Column]) -> str:
     """Build a CSV template: the headings and one example row."""
     buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
+    writer = SheetWriter(buffer, lineterminator="\n")
     writer.writerow([column.heading for column in columns])
     writer.writerow([column.example for column in columns])
     return buffer.getvalue()

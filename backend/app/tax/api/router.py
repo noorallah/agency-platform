@@ -1,7 +1,5 @@
 """Firm-scoped REST endpoints for enterprise tax framework."""
 
-import csv
-from io import StringIO
 from typing import Annotated
 from uuid import UUID
 
@@ -16,6 +14,7 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.csv_text import read_records
 from app.tax.models import TaxProfile
 from app.tax.schemas import (
     BulkTaxStatusRequest,
@@ -1101,7 +1100,7 @@ def import_legacy_tax_mapping_csv(
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxMigrationMappingResponse]]:
     """Import one legacy mapping csv."""
-    reader = csv.DictReader(StringIO(payload))
+    reader = read_records(payload)
     # Every row is read and validated before any is written, and the batch is
     # then written as one transaction: a file refused at row n used to keep
     # rows 1 to n-1 (D-CMP-8).

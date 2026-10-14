@@ -1,6 +1,5 @@
 """Firm-scoped REST endpoints for vendor management."""
 
-import csv
 import io
 from datetime import date
 from typing import Annotated, Literal
@@ -40,6 +39,7 @@ from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.csv_text import SheetWriter
 from app.imports.services import columns_for_kind, mapped_content, parse_mapping
 from app.vendors.models import Vendor
 from app.vendors.schemas import (
@@ -346,7 +346,7 @@ def export_vendors(
 ) -> StreamingResponse:
     """Export vendors."""
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = SheetWriter(output)
     writer.writerow(["Code", "Name", "GSTIN", "PAN", "Email", "Phone", "Status"])
     page = 1
     service = VendorService(db)

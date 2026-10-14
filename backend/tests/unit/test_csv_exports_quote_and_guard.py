@@ -9,6 +9,7 @@ build when an export goes back to joining by hand.
 
 import ast
 import csv
+import io
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -18,8 +19,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.common.file_import import read_grid
 from app.core.database.base import Base
-from app.core.utils.csv_text import csv_line
+from app.core.utils.csv_text import (
+    SheetWriter,
+    csv_line,
+    read_records,
+    sheet_cell,
+    unsheet,
+)
 from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt
 from app.goods_receipt.services import GoodsReceiptService
@@ -75,6 +83,81 @@ def test_a_record_keeps_its_cells_and_a_number_stays_a_number() -> None:
     ]
     # Text that only looks like a number is still guarded.
     assert csv_line(["-5", "+91 98"]) == "'-5,'+91 98"
+
+
+def test_the_sheet_writer_guards_text_and_leaves_a_number_alone() -> None:
+    """D-MST-23: what ``csv.writer`` wrote as it was, ``SheetWriter`` guards.
+
+    A figure an export formatted itself (``-150.00``) is a number, not a
+    formula, and stays one; ``+91 98400 12345`` is text a spreadsheet would
+    run, and is guarded.
+    """
+    buffer = io.StringIO()
+    writer = SheetWriter(buffer, lineterminator="\n")
+    writer.writerow(
+        ["=1+1", "-150.00", "1,250.5", "+919876543210", "+91 98400 12345", 5, None]
+    )
+    writer.writerows([["@cmd", Decimal("-2.5"), "Tea, gold"]])
+
+    assert list(csv.reader(buffer.getvalue().splitlines())) == [
+        ["'=1+1", "-150.00", "1,250.5", "+919876543210", "'+91 98400 12345", "5", ""],
+        ["'@cmd", "-2.5", "Tea, gold"],
+    ]
+    assert sheet_cell("-") == "'-"
+    assert sheet_cell(Decimal("-1")) == Decimal("-1")
+
+
+def test_an_import_takes_the_guard_off_again() -> None:
+    """A file exported here and read back holds what was typed."""
+    assert unsheet("'=1+1") == "=1+1"
+    assert unsheet("'+91 98400 12345") == "+91 98400 12345"
+    # Only the guard: a name that begins with an apostrophe keeps it.
+    assert unsheet("'Sri Ram's") == "'Sri Ram's"
+    assert unsheet("'") == "'"
+
+    buffer = io.StringIO()
+    writer = SheetWriter(buffer, lineterminator="\n")
+    writer.writerow(["Name", "Phone"])
+    writer.writerow(["=HYPERLINK(1)", "+91 98400 12345"])
+    exported = buffer.getvalue()
+
+    assert list(read_records(exported)) == [
+        {"Name": "=HYPERLINK(1)", "Phone": "+91 98400 12345"}
+    ]
+    headings, rows = read_grid(exported.encode("utf-8"), "csv")
+    assert headings == ["Name", "Phone"]
+    assert rows == [["=HYPERLINK(1)", "+91 98400 12345"]]
+
+
+#: Writers that keep the bare ``csv.writer``: ``path`` and why.
+_BARE_WRITER: dict[str, str] = {
+    "core/utils/csv_text.py": "SheetWriter itself wraps it",
+    "finance/services/tds_return.py": (
+        "the TDS deductee sheet, taken into the return utility as written"
+    ),
+    "settlements/services/payment_runs.py": (
+        "the bank's payment file, read by the bank's software as written"
+    ),
+    "common/file_import.py": (
+        "remap_headings rewrites an uploaded file for the import that reads "
+        "it next, which takes any guard off; nobody opens it"
+    ),
+}
+
+
+def test_every_export_writes_through_the_sheet_writer() -> None:
+    """A new export with the bare ``csv.writer`` would hand over a formula."""
+    found = sorted(
+        path.relative_to(_APP).as_posix()
+        for path in _APP.rglob("*.py")
+        if "csv.writer(" in path.read_text(encoding="utf-8")
+    )
+
+    assert found == sorted(_BARE_WRITER), (
+        "These write CSV with the bare csv.writer, which runs a cell that "
+        "begins with '=': write with SheetWriter (app/core/utils/csv_text.py) "
+        f"{sorted(set(found) - set(_BARE_WRITER))}"
+    )
 
 
 def test_the_territory_assignment_exports_quote_and_guard() -> None:

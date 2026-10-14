@@ -69,6 +69,7 @@ MODULES: tuple[tuple[str, frozenset[str]], ...] = (
                 "trade-licences",
                 "uom-framework",
                 "firm-members",
+                "salesmen",
             }
         ),
     ),

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import io
 from collections import defaultdict
 from collections.abc import Sequence
@@ -31,6 +30,7 @@ from app.core.exceptions import (
 )
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.chunks import over_chunks
+from app.core.utils.csv_text import SheetWriter
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger, quantize_money
 from app.core.utils.pricing import (
@@ -2643,7 +2643,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             descending=True,
         )
         buffer = io.StringIO()
-        writer = csv.writer(buffer)
+        writer = SheetWriter(buffer)
         writer.writerow(
             [
                 "return_number",

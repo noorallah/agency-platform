@@ -1,6 +1,5 @@
 """Firm-scoped REST endpoints for customer management."""
 
-import csv
 import io
 from datetime import date
 from decimal import Decimal
@@ -38,6 +37,7 @@ from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.csv_text import SheetWriter
 from app.customers.models import Customer
 from app.customers.schemas import (
     CreditControlSettingsResponse,
@@ -340,7 +340,7 @@ def export_customers(
 ) -> StreamingResponse:
     """Export all matching visible customers as UTF-8 CSV."""
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = SheetWriter(output)
     writer.writerow(["Code", "Name", "Type", "GST", "PAN", "Email", "Phone", "Status"])
     page = 1
     while True:

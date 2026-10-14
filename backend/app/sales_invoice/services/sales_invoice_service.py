@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import io
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -37,6 +36,7 @@ from app.core.database.batch import children_by_parent
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportRows, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
+from app.core.utils.csv_text import SheetWriter
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger, rupee_round_off
 from app.core.utils.pricing import (
@@ -3910,7 +3910,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             descending=True,
         )
         buffer = io.StringIO()
-        writer = csv.writer(buffer)
+        writer = SheetWriter(buffer)
         writer.writerow(
             [
                 "invoice_number",
