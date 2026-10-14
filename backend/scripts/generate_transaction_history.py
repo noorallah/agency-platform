@@ -2452,6 +2452,8 @@ class HistoryBuilder:
                             line_number=1,
                             product_id=product.id,
                             quantity=Decimal(quantity),
+                            # Priced per stock unit, so counted in it (D-PRC-53).
+                            inventory_uom_id=product.inventory_uom_id,
                             free_quantity=Decimal(free_quantity),
                             unit_price=Decimal(unit_price),
                         )
@@ -2785,6 +2787,8 @@ class HistoryBuilder:
                         line_number=1,
                         product_id=product.id,
                         quantity=Decimal(quantity),
+                        # Priced per stock unit, so counted in it (D-PRC-53).
+                        inventory_uom_id=product.inventory_uom_id,
                         free_quantity=Decimal(free_quantity),
                         unit_price=Decimal(unit_price),
                     )

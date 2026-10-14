@@ -148,7 +148,12 @@ from app.trade_licences.services.licence_check import (
     LicenceDocument,
 )
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService, assert_quantity_fits_unit, stock_unit_of
+from app.uom.services import (
+    UomService,
+    assert_quantity_fits_unit,
+    in_selling_units,
+    stock_unit_of,
+)
 
 ZERO = Decimal("0")
 
@@ -545,7 +550,10 @@ class SalesOrderService(TransactionalDocumentService):
         self._session.add(row)
         self._session.flush()
         lines, entered = self._typed_rates_before_tax(
-            row, data.lines, actor_id=actor_id, price_batches=price_batches
+            row,
+            self._in_selling_units(row, data.lines),
+            actor_id=actor_id,
+            price_batches=price_batches,
         )
         totals = self._replace_lines(
             row,
@@ -688,7 +696,7 @@ class SalesOrderService(TransactionalDocumentService):
             row.rate_includes_tax = data.rate_includes_tax
         row.updated_by = actor_id
         lines, entered = self._typed_rates_before_tax(
-            row, data.lines, actor_id=actor_id
+            row, self._in_selling_units(row, data.lines), actor_id=actor_id
         )
         totals = self._replace_lines(
             row,
@@ -3390,6 +3398,23 @@ class SalesOrderService(TransactionalDocumentService):
                 warehouse_id=row.warehouse_id,
             ),
         )
+
+    def _in_selling_units(
+        self, row: SalesOrder, lines: list[SalesOrderLineWrite]
+    ) -> list[SalesOrderLineWrite]:
+        """Name the selling unit of each line that names none (D-PRC-53).
+
+        Asked before anything prices a line, since a price list and a lot
+        price are read in the line's unit. A line sent again for the product
+        it was saved with keeps the unit it was saved in.
+        """
+        saved = {
+            line.line_number: (line.product_id, line.sales_uom_id)
+            for line in self._session.scalars(
+                select(SalesOrderLine).where(SalesOrderLine.sales_order_id == row.id)
+            )
+        }
+        return in_selling_units(self._session, lines, saved=saved)
 
     def _typed_rates_before_tax(
         self,
