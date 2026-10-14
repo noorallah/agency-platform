@@ -6,7 +6,7 @@ somebody allowed to see cost. The arrival comes first; quantities are signed
 in the stock unit; a bill moves nothing and reads zero.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.batch_serial.api.router import get_lot_trail
 from app.batch_serial.models import BatchRecord
 from app.batch_serial.schemas.batch_serial import LotTrail
+from app.batch_serial.services.lot_history import _sales_bills
 from app.core.exceptions import ResourceNotFoundError
 from app.goods_receipt.models import GoodsReceipt
 from app.purchase_invoice.models import PurchaseInvoiceLine
@@ -152,9 +153,55 @@ def test_the_sale_its_bill_and_the_return_follow_the_arrivals() -> None:
     assert trail.has_printed_batch is True
 
 
+def test_a_bills_share_of_a_lot_is_shown_to_four_places() -> None:
+    """D-STK-75: one of three units is a third of the line, to four places."""
+    shop = _ByLot()
+    line = _sold(shop, {"EARLY": "1", "LATE": "2"})
+    early = shop.batches["EARLY"]
+
+    trail = _trail(shop.session, shop.firm.id, early.id, COST)
+
+    [bill] = [e for e in trail.events if e.document_type == "SALES_INVOICE"]
+    taxable = D(line.net_amount) - D(line.tax_amount)
+    assert bill.cost_amount == (taxable / 3).quantize(D("0.0001"))
+    assert bill.cost_amount.as_tuple().exponent == -4
+
+
 def test_another_firms_lot_is_not_found() -> None:
     """A lot is read only inside the firm that owns it."""
     fixture, receipt = _bought()
 
     with pytest.raises(ResourceNotFoundError):
         _trail(fixture.session, uuid4(), _lot_of(fixture, receipt).id, COST)
+
+
+class _PostgresSums:
+    """A session answering the bill query as PostgreSQL does, unrounded.
+
+    SQLite hands the sum back through the column's four-place type, so the
+    suite's own database cannot show the 24 places PostgreSQL returns.
+    """
+
+    def execute(self, statement: object) -> "_PostgresSums":
+        """Accept the bill query."""
+        return self
+
+    def all(self) -> list[tuple[object, ...]]:
+        """Return one bill line whose share ran to 24 places."""
+        return [
+            (
+                uuid4(),
+                "SI-1",
+                date(2026, 8, 4),
+                uuid4(),
+                datetime(2026, 8, 4, tzinfo=UTC),
+                1,
+                D("33.333333333333333333333333"),
+            )
+        ]
+
+
+def test_an_unrounded_share_from_the_database_is_rounded_to_four() -> None:
+    """D-STK-75: the bill's share is quantized, whatever the database returns."""
+    [event] = _sales_bills(_PostgresSums(), uuid4(), uuid4())  # type: ignore[arg-type]
+    assert event.cost_amount == D("33.3333")

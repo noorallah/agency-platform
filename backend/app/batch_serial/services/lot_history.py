@@ -37,6 +37,7 @@ from app.batch_serial.schemas.batch_serial import LotTrail, LotTrailEvent
 from app.batch_serial.services.batch_serial_service import BatchSerialService
 from app.common.report_names import customer_names, vendor_names
 from app.core.utils.dates import as_utc
+from app.core.utils.money import quantize_money
 
 ZERO = Decimal("0")
 
@@ -395,7 +396,10 @@ def _sales_bills(session: Session, firm_id: UUID, batch_id: UUID) -> list[_Event
             document_date=on,
             party_id=customer_id,
             quantity=ZERO,
-            cost_amount=_dec(amount),
+            # A share by quantity divides, so the sum runs to as many places
+            # as the database likes; the trail shows a document's four
+            # (D-STK-75).
+            cost_amount=None if amount is None else quantize_money(amount),
             line_number=line_number,
             rank=_BILL,
             created_at=as_utc(created),
