@@ -84,6 +84,7 @@ from app.purchase_invoice.models import PurchaseInvoice
 from app.sales_invoice.models import SalesInvoice
 from app.sales_order.models import SalesOrder
 from app.settlements.models import (
+    RefundReceiptDraw,
     Settlement,
     SettlementAllocation,
     SettlementDirection,
@@ -1629,7 +1630,7 @@ class SettlementService(TransactionalDocumentService):
             # credit gone (D-PRC-75): the refund names its source or takes
             # the oldest credit held first, before the advance moves, so a
             # credit paid back cannot be set against a bill as well.
-            draw_refund_on_credits(
+            from_credits = draw_refund_on_credits(
                 self._session,
                 firm_id=firm_id,
                 customer_id=data.party_id,
@@ -1639,6 +1640,15 @@ class SettlementService(TransactionalDocumentService):
                 refunded_on=data.settlement_date,
                 actor_id=actor_id,
                 source_id=data.credit_source_id,
+            )
+            # The rest is money the customer's receipts brought in, and the
+            # receipts that gave it read it as unapplied no longer
+            # (D-FIN-30).
+            self._draw_refund_on_receipts(
+                row,
+                customer_id=data.party_id,
+                amount=amount - from_credits,
+                actor_id=actor_id,
             )
             # The receivable service holds the rule that a refund cannot
             # exceed the advance the customer is actually holding, and
@@ -2303,6 +2313,7 @@ class SettlementService(TransactionalDocumentService):
                 actor_id=actor_id,
                 reason=reason or f"{row.settlement_number} reversed.",
             )
+            self._release_receipt_draws(row, actor_id=actor_id)
         if self.DIRECTION == SettlementDirection.RECEIPT:
             # The money is going back, so the tax collected on it goes back
             # too. Mirrored rather than deleted: a quarterly return may
@@ -2354,6 +2365,119 @@ class SettlementService(TransactionalDocumentService):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _draw_refund_on_receipts(
+        self,
+        refund: Settlement,
+        *,
+        customer_id: UUID,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> Decimal:
+        """Take what a refund hands back off the receipts that brought it in.
+
+        Oldest first, by date and then by when it was recorded, each receipt
+        giving no more than it still has unapplied. Locked, so two refunds at
+        once cannot both draw on the same money. What no receipt covers (an
+        advance from an opening balance, say) is left as it was: the
+        customer's advance is what refuses a refund it cannot cover.
+
+        Returns:
+            How much was drawn from receipts.
+
+        """
+        remaining = quantize_ledger(amount)
+        if remaining <= ZERO:
+            return ZERO
+        receipts = self._session.scalars(
+            select(Settlement)
+            .where(
+                Settlement.firm_id == refund.firm_id,
+                Settlement.customer_id == customer_id,
+                Settlement.direction == SettlementDirection.RECEIPT.value,
+                Settlement.status == SettlementStatus.POSTED.value,
+                Settlement.is_deleted.is_(False),
+                Settlement.unallocated_amount > ZERO,
+            )
+            .order_by(
+                Settlement.settlement_date,
+                Settlement.created_at,
+                Settlement.id,
+            )
+            .with_for_update()
+        ).all()
+        drawn = ZERO
+        for receipt in receipts:
+            if remaining <= ZERO:
+                break
+            taken = min(remaining, receipt.unallocated_amount)
+            receipt.unallocated_amount = quantize_ledger(
+                receipt.unallocated_amount - taken
+            )
+            receipt.updated_by = actor_id
+            self._session.add(
+                RefundReceiptDraw(
+                    firm_id=refund.firm_id,
+                    refund_id=refund.id,
+                    receipt_id=receipt.id,
+                    amount=taken,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+            record_audit(
+                self._session,
+                action="settlement.refund.drew_on_receipt",
+                entity_type="settlement",
+                entity_id=receipt.id,
+                actor_id=actor_id,
+                firm_id=refund.firm_id,
+                after_data={
+                    "refund": refund.settlement_number,
+                    "receipt": receipt.settlement_number,
+                    "amount": str(taken),
+                    "unallocated_amount": str(receipt.unallocated_amount),
+                },
+            )
+            remaining -= taken
+            drawn += taken
+        self._session.flush()
+        return drawn
+
+    def _release_receipt_draws(self, refund: Settlement, *, actor_id: UUID) -> None:
+        """Give each receipt back what a reversed refund drew on it."""
+        draws = self._session.scalars(
+            select(RefundReceiptDraw).where(
+                RefundReceiptDraw.firm_id == refund.firm_id,
+                RefundReceiptDraw.refund_id == refund.id,
+                RefundReceiptDraw.status == SettlementStatus.POSTED.value,
+                RefundReceiptDraw.is_deleted.is_(False),
+            )
+        ).all()
+        for draw in draws:
+            receipt = self._session.get(Settlement, draw.receipt_id)
+            if receipt is not None:
+                receipt.unallocated_amount = quantize_ledger(
+                    receipt.unallocated_amount + draw.amount
+                )
+                receipt.updated_by = actor_id
+            draw.status = SettlementStatus.REVERSED.value
+            draw.reversed_at = utc_now()
+            draw.reversed_by = actor_id
+            draw.updated_by = actor_id
+            record_audit(
+                self._session,
+                action="settlement.refund.receipt_draw_reversed",
+                entity_type="settlement",
+                entity_id=draw.receipt_id,
+                actor_id=actor_id,
+                firm_id=refund.firm_id,
+                after_data={
+                    "refund": refund.settlement_number,
+                    "amount": str(draw.amount),
+                },
+            )
+        self._session.flush()
 
     @staticmethod
     def _allocation_target(

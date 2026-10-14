@@ -86,6 +86,16 @@ refund could clear it.
   Unnamed it takes the credits **held on account, oldest first**, before the
   advance moves. Either way the credit paid back cannot be applied as well,
   and reversing the refund frees it.
+- **What the credits do not cover comes off the receipts** (D-FIN-30,
+  2026-10-14). The rest of a refund is money the customer's receipts brought
+  in, taken from the **oldest receipt with money unapplied first**;
+  `refund_receipt_draws` says which receipt gave how much, the receipt's
+  `unallocated_amount` comes down by it, and reversing the refund puts back
+  exactly that. A receipt of 500.00 on account with 200.00 handed back reads
+  300.00 unapplied, on the receipt, in the period close and in the order's
+  advance list; before, it read 500.00 and only the customer's account
+  refused the difference. Refunds recorded before the table existed drew on
+  no receipt and are not gone back over.
 - **A refund with no row paid back what the credits held when it was made**
   (D-PRC-91, 2026-10-06). A refund recorded before the table existed says
   nothing about its source. The reader used to infer it from the total --
