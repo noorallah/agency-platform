@@ -52,6 +52,7 @@ from app.firms.services.readiness import ALL_PURPOSES
 from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserTemplate
 from app.inventory.models.adjustment_approval import RoleStockAdjustmentLimit
 from app.inventory.models.adjustment_reason import StockAdjustmentReason
+from app.inventory.models.inventory import StockLotSettings
 from app.loyalty.models.loyalty import LoyaltyEntry, LoyaltySettings
 from app.messaging.models.messaging import MessagingSettings
 from app.pricing.models.price_level import PriceLevel
@@ -669,6 +670,7 @@ STOCK_CODES = [
     "adjustment-reasons",
     "adjustment-limits",
     "batch-rules",
+    "costing-method",
 ]
 BUSINESS_PROFILE_CODES = [
     "profile-assignment",
@@ -693,6 +695,7 @@ def test_stock_reads_as_it_comes_then_what_was_set(session: Session) -> None:
         "adjustment-reasons": ("OPTIONAL", "8 built in"),
         "adjustment-limits": ("OPTIONAL", "None yet"),
         "batch-rules": ("OPTIONAL", "Left as it comes"),
+        "costing-method": ("OPTIONAL", "Average"),
     }
 
     other = _firm(session, "SET02")
@@ -711,6 +714,13 @@ def test_stock_reads_as_it_comes_then_what_was_set(session: Session) -> None:
                 firm_id=firm.id, role_code="STORE_KEEPER", max_value=Decimal("500")
             ),
             BatchSaleSettings(firm_id=firm.id),
+            StockLotSettings(
+                firm_id=firm.id,
+                costing_method="BY_LOT",
+                switched_on=date(2026, 8, 3),
+            ),
+            # Another firm's switch is not this firm's.
+            StockLotSettings(firm_id=other.id, costing_method="AVERAGE"),
         ]
     )
     session.commit()
@@ -719,7 +729,12 @@ def test_stock_reads_as_it_comes_then_what_was_set(session: Session) -> None:
         "adjustment-reasons": ("OPTIONAL", "8 built in, 1 own"),
         "adjustment-limits": ("OPTIONAL", "1 role limit"),
         "batch-rules": ("OPTIONAL", "Set for this firm"),
+        "costing-method": ("OPTIONAL", "By lot since 2026-08-03"),
     }
+    assert _details(_state(session, other.id, "stock"))["costing-method"] == (
+        "OPTIONAL",
+        "Average",
+    )
 
 
 def test_a_bare_firm_owes_nothing_in_business_profile(session: Session) -> None:

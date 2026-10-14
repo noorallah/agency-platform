@@ -77,6 +77,7 @@ from app.inventory.services.lots import (
     costs_by_lot,
     lot_tie_break,
     newest_lot_cost,
+    switch_over_day,
 )
 from app.inventory.services.movement_numbering import MovementNumbering
 from app.inventory.services.stock_evidence import StockEvidenceService
@@ -6016,9 +6017,31 @@ class InventoryService:
                 "The batch named is not one of this product's batches in this firm."
             )
 
+    def _assert_after_switch_over(self, firm_id: UUID, on: date) -> None:
+        """Refuse stock moving before the day the firm switched to by lot.
+
+        Section 4.4, rule 5 (L2 step 9): the lots were made from the stock
+        held that day at the average of that day, so a movement dated
+        earlier would change a figure they were carried from. Refused as a
+        date in a closed period is. A firm on Average, or one that started
+        by lot, has no such day and is unchanged.
+
+        Raises:
+            ValidationError: If the movement is dated before the switch.
+
+        """
+        switched_on = switch_over_day(self._session, firm_id)
+        if switched_on is not None and on < switched_on:
+            raise ValidationError(
+                f"Stock cannot move on {on.isoformat()}: the firm moved to "
+                f"costing by lot on {switched_on.isoformat()}, and no stock "
+                "movement may be dated before that day."
+            )
+
     def _stage_movement(
         self, inventory: InventoryRecord, *, actor_id: UUID, movement: _Movement
     ) -> InventoryTransaction:
+        self._assert_after_switch_over(inventory.firm_id, movement.transaction_date)
         previous_current = inventory.current_quantity
         previous_reserved = inventory.reserved_quantity
         previous_blocked = inventory.blocked_quantity
