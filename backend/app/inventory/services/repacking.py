@@ -16,6 +16,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
+from app.batch_serial.models import BatchRecord
 from app.batch_serial.services.batch_serial_service import BatchSerialService
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -31,6 +32,7 @@ from app.finance.services.document_posting import (
 )
 from app.inventory.models.repack import Repack, RepackLine
 from app.inventory.services.inventory_service import InventoryService
+from app.inventory.services.lots import LotSource, costs_by_lot
 from app.products.models import Product
 from app.products.services.stockless import assert_held_as_stock
 
@@ -263,7 +265,15 @@ class RepackService(TransactionalDocumentService):
         if not any(weight > ZERO for weight in weights):
             weights = [line.quantity for _, line in produced]
         shares = apportion(carried, weights)
+        by_lot = costs_by_lot(self._session, firm_id)
         for (number_on_line, line), share in zip(produced, shares, strict=True):
+            lot_id = (
+                self._open_produced_lot(row, line, actor_id=actor_id)
+                if by_lot
+                else None
+            )
+            if lot_id is not None:
+                line = line.model_copy(update={"batch_id": lot_id})
             transaction, _ = inventory.stage_repack_movement(
                 firm_scope=firm_id,
                 branch_id=data.branch_id,
@@ -277,9 +287,15 @@ class RepackService(TransactionalDocumentService):
                 remarks=f"Repack {number}: produced",
                 actor_id=actor_id,
             )
-            written.append(
-                self._line(row, number_on_line, line, share, transaction.id, actor_id)
+            record = self._line(
+                row, number_on_line, line, share, transaction.id, actor_id
             )
+            written.append(record)
+            if lot_id is not None:
+                self._session.flush()
+                lot = self._session.get(BatchRecord, lot_id)
+                if lot is not None:
+                    lot.source_document_line_id = record.id
         row.consumed_value = consumed
         row.wastage_value = wastage
         if wastage > ZERO:
@@ -314,6 +330,15 @@ class RepackService(TransactionalDocumentService):
                     actor_id=actor_id,
                     reason=f"Repack {row.repack_number} cancelled.",
                 )
+        # The lots it made are empty again; they go as a receipt's do.
+        lots = BatchSerialService(self._session)
+        lots.remove_lots(
+            lots.lots_of(
+                firm_scope=firm_id, document_type="REPACK", document_id=row.id
+            ),
+            firm_scope=firm_id,
+            actor_id=actor_id,
+        )
         if Decimal(str(row.wastage_value)) > ZERO:
             DocumentPostingService(self._session).post_stock_adjustment(
                 firm_id=firm_id,
@@ -470,9 +495,14 @@ class RepackService(TransactionalDocumentService):
                 "without naming units. Move the units as themselves: a "
                 "transfer, a sale or a write-off names each one."
             )
+        by_lot = costs_by_lot(self._session, firm_id)
         lines: list[RepackLineWrite] = []
         for line in data.lines:
             product = products[line.product_id]
+            if line.kind == "PRODUCE" and by_lot:
+                # What is made is a lot of its own, opened when it is posted.
+                lines.append(self._produced_into_a_lot(line, product))
+                continue
             if line.kind == "PRODUCE":
                 lines.append(
                     self._produced_into_a_batch(
@@ -483,7 +513,8 @@ class RepackService(TransactionalDocumentService):
             if (
                 line.kind != "CONSUME"
                 or line.batch_id is not None
-                or not product.track_batch
+                # By lot every unit is in a lot, batch-tracked or not.
+                or not (product.track_batch or by_lot)
             ):
                 lines.append(line)
                 continue
@@ -499,6 +530,79 @@ class RepackService(TransactionalDocumentService):
                     line.model_copy(update={"batch_id": batch_id, "quantity": quantity})
                 )
         return lines
+
+    def _produced_into_a_lot(
+        self, line: RepackLineWrite, product: Product
+    ) -> RepackLineWrite:
+        """Check a produce line of a firm costing by lot; it opens a new lot.
+
+        The batch the line names, by id or by number, is only what the new
+        lot prints: its number, dates and MRP (`_open_produced_lot`).
+
+        Raises:
+            ValidationError: As `_produced_into_a_batch`, for a batch-tracked
+                product naming no batch and an untracked one naming one.
+
+        """
+        named = line.batch_id is not None or line.batch_number is not None
+        if product.track_batch and not named:
+            raise ValidationError(
+                f"{product.code} - {product.name} is kept in batches. "
+                "Name the batch the repacked goods go into: one it "
+                "already has, or a new number with its dates."
+            )
+        if not product.track_batch and named:
+            raise ValidationError(
+                f"{product.code} - {product.name} is not kept in batches, "
+                "so the repacked goods cannot go into one."
+            )
+        return line
+
+    def _open_produced_lot(
+        self,
+        row: Repack,
+        line: RepackLineWrite,
+        *,
+        actor_id: UUID,
+    ) -> UUID:
+        """Open the lot one produce line's goods go into, source ``REPACK``.
+
+        `docs/design/LOT_COST_DESIGN.md`, section 3.6: what a repack makes is
+        a new lot, costed at the value used. A batch the line named lends the
+        lot its printed number, dates and prices; it is never joined.
+        """
+        named = (
+            self._session.get(BatchRecord, line.batch_id)
+            if line.batch_id is not None
+            else None
+        )
+        number = line.batch_number or (
+            named.batch_number if named is not None and named.has_printed_batch else ""
+        )
+        lot = BatchSerialService(self._session).open_lot(
+            firm_scope=row.firm_id,
+            actor_id=actor_id,
+            product_id=line.product_id,
+            source=LotSource(
+                document_type="REPACK",
+                document_id=row.id,
+                # The line is written after its movement; `post` points the
+                # lot at it then.
+                line_id=row.id,
+                document_number=row.repack_number,
+                received_on=row.repack_date,
+            ),
+            batch_number=number,
+            branch_id=row.branch_id,
+            warehouse_id=row.warehouse_id,
+            expiry_date=line.expiry_date
+            or (named.expiry_date if named is not None else None),
+            manufacturing_date=line.manufacturing_date
+            or (named.manufacturing_date if named is not None else None),
+            mrp=named.mrp if named is not None else None,
+            selling_price=named.selling_price if named is not None else None,
+        )
+        return lot.id
 
     def _produced_into_a_batch(
         self,

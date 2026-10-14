@@ -740,6 +740,13 @@ class InventoryAdjustmentCreate(InventorySchema):
         default=None, max_digits=18, ge=-MAX_STOCK_FIGURE, le=MAX_STOCK_FIGURE
     )
     entered_uom_id: UUID | None = None
+    #: What a unit found is worth, for a firm costing by lot whose goods go
+    #: into a new lot (no batch named). Left out, the item's newest lot cost.
+    #: Refused anywhere else: a named lot takes goods at its own cost, and
+    #: on Average stock found comes in at the average (L2 step 7).
+    unit_cost: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
     #: Optional: left out, the movement is numbered from its series (D-QA-16).
     reference_number: str | None = Field(default=None, min_length=2, max_length=80)
     reference_type: str = Field(default="ADJUSTMENT", min_length=2, max_length=40)

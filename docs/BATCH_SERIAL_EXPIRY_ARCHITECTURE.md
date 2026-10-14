@@ -231,6 +231,43 @@ none, so the number alone took another delivery's lot or the untracked row.
 The movement leaves at the lot's own cost, so a return of what was bought
 leaves no variance.
 
+#### The rest of stock by lot (L2 step 7)
+
+Section 3.6 of `docs/design/LOT_COST_DESIGN.md`, in
+`inventory_service.py`, `stock_transfers.py` and `repacking.py`. No
+migration. A firm on Average moves exactly as before.
+
+- **A movement that names no lot.** For a firm costing by lot every unit is
+  in a lot, so a write-off, an adjustment down, a quarantine hold or release,
+  a transfer and a transfer document's line that name none take the first
+  lot, in the order goods leave (nearest expiry, then oldest received), that
+  holds the whole quantity at that place (`_lot_to_take`). One movement names
+  one lot: a quantity no single lot holds is refused with each lot and what
+  it holds, to be taken lot by lot. Where only the row with no batch (stock
+  from before the switch-over) holds it, that row is used as before. A count
+  line counts one stock row, so one that counts short stays on that row.
+- **Value.** A lot named leaves at its own cost (step 2). A transfer's
+  arriving leg, and a transfer document's in-transit leg, carry exactly the
+  value the leaving leg took (`_Movement.carries`), so the lot's cost stands
+  to the paisa; on Average they still arrive at the average. A hold moves no
+  value.
+- **Stock found.** An adjustment up, or a count finding more, that names no
+  lot opens a new lot, source `ADJUSTMENT`, pointing at the movement
+  (`_found_lot`, `_trace_lot_to`), at the cost typed in the adjustment's new
+  `unit_cost`, else the item's newest valued lot's cost, else the average.
+  A named lot takes goods at its own cost. `unit_cost` is refused anywhere
+  else: on a named lot, on a movement down and on a firm on Average.
+- **Repack and kits.** A consume line naming no batch is drawn from lots as a
+  dispatch is, whether or not the item is batch-tracked; each leaves at its
+  lot's cost. Each produce line opens a new lot, source `REPACK`, costed at
+  its share of the value used; a batch the line names lends the lot its
+  printed number, dates, MRP and selling price and is never joined. A cancel
+  removes the repack's lots, as a receipt's cancel does.
+- **Negative stock.** Refused for a firm costing by lot even where the item
+  allows it, in `_refuse_below_zero` (adjustment, repack) and on a purchase
+  return. Billing without stock, where the firm allows it and the bill maker
+  confirms, is step 7a.
+
 ### Table: `lots`
 
 | Column | Type | Notes |
