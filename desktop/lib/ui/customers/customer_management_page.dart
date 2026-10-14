@@ -1503,9 +1503,9 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     }
   }
 
-  /// The Price level picker. Values are level ids; '' is "no level". A stored
-  /// level that is no longer active stays selectable as its own item so a
-  /// save does not clear it.
+  /// The customer's kind. The stored values stay RETAILER, STOCKIST and
+  /// OTHER; STOCKIST is shown as *Wholesaler*, the word the bill's switch
+  /// uses (LOT_MARGINS_DESIGN 3.5). '' is "not set".
   Widget _tradeClassDropdown() {
     return DropdownButtonFormField<String>(
       key: const ValueKey('customer-trade-class'),
@@ -1513,12 +1513,13 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       initialValue: _tradeClass,
       decoration: const InputDecoration(
         labelText: 'Trade class',
-        helperText: 'Picks PTR or PTS when a sales price is left blank',
+        helperText: 'Retailer bills at PTR, Wholesaler at PTS, when a sales '
+            'price is left blank',
       ),
       items: const [
         DropdownMenuItem(value: '', child: Text('Not set')),
         DropdownMenuItem(value: 'RETAILER', child: Text('Retailer')),
-        DropdownMenuItem(value: 'STOCKIST', child: Text('Stockist')),
+        DropdownMenuItem(value: 'STOCKIST', child: Text('Wholesaler')),
         DropdownMenuItem(value: 'OTHER', child: Text('Other')),
       ],
       onChanged: _readOnly

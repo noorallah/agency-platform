@@ -18,7 +18,31 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     const DocumentColumn('Taxable', 96, numeric: true),
     const DocumentColumn('GST', 48, numeric: true),
     const DocumentColumn('Amount', 104, numeric: true),
+    // Screen only, and only for who may see cost (L3 step 5).
+    if (_showsMargin) ...const [
+      DocumentColumn('Cost', 96, numeric: true),
+      DocumentColumn('Margin', 124, numeric: true),
+    ],
   ];
+
+  /// Whether the saved lines carry Cost and Margin columns: only where the
+  /// server sent the saved bill's cost, which it does only to a holder of
+  /// PRODUCT_VIEW_COST_PRICE.
+  bool get _showsMargin => _existing != null && _savedMargin != null;
+
+  /// A saved line's figures while its quantity is still what was saved.
+  LineMargin? _marginOf(String sourceLineId) {
+    final String? saved = _savedMarginQuantities[sourceLineId];
+    if (saved == null || _quantities[sourceLineId]?.text != saved) return null;
+    return _savedMargins[sourceLineId];
+  }
+
+  /// Whether the saved total still holds: no saved quantity changed and no
+  /// product added.
+  bool get _marginCurrent =>
+      _directLines.every((_DirectLine line) => line.productId == null) &&
+      _savedMarginQuantities.entries.every((MapEntry<String, String> entry) =>
+          _quantities[entry.key]?.text == entry.value);
 
   List<DocumentColumn> get _directColumns => [
     const DocumentColumn('#', 28),
@@ -344,6 +368,11 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                                   const EdgeInsets.fromLTRB(12, 8, 12, 0),
                             ),
                             _invoiceTerms(context),
+                            if (_showsMargin)
+                              DocumentMarginStrip(
+                                margin: _savedMargin!,
+                                current: _marginCurrent,
+                              ),
                             _invoiceTotals(),
                           ],
                         ),
@@ -990,6 +1019,12 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           style: text,
         ),
         ..._figures(context, priced, estimate),
+        if (_showsMargin) ...[
+          lineCostCell(_marginOf(line.sourceDocumentLineId), text,
+              key: ValueKey<String>('sales-invoice-line-cost-$index')),
+          lineMarginCell(_marginOf(line.sourceDocumentLineId), text,
+              key: ValueKey<String>('sales-invoice-line-margin-$index')),
+        ],
       ],
     );
   }
@@ -1752,6 +1787,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     required Map<String, double>? picks,
     required ValueChanged<Map<String, double>> onChanged,
     ValueChanged<double?>? onBatchPrice,
+    ValueChanged<List<BatchAvailabilityRecord>>? onBatchesRead,
   }) {
     final Product? product = _product(productId);
     final bool comparable = product == null ||
@@ -1772,6 +1808,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       comparable: comparable,
       showPtrPts: widget.features.isEnabled('BATCH_PTR_PTS'),
       onBatchPrice: onBatchPrice,
+      onBatchesRead: onBatchesRead,
       keyPrefix: 'sales-invoice',
       unreadableNote: 'could not read the batches; they will go earliest '
           'expiry first when the bill is saved',
@@ -1795,6 +1832,112 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
     _setState(() {
       line.price.text = text;
       line.autoPrice = text;
+    });
+    _schedulePreview();
+  }
+
+  /// The bill's kind for the lot price (LOT_MARGINS_DESIGN 3.5): the class
+  /// of the price level the bill names, else the customer's trade class.
+  /// RETAILER bills at PTR, STOCKIST at PTS; null is neither, and nothing is
+  /// split.
+  String? get _billTradeClass {
+    String? kind;
+    if (_priceLevelChoice.isNotEmpty) {
+      for (final PriceLevelRecord level in _priceLevels) {
+        if (level.id == _priceLevelChoice) kind = level.tradeClass;
+      }
+    }
+    if (kind != 'RETAILER' && kind != 'STOCKIST') kind = _customer?.tradeClass;
+    return kind == 'RETAILER' || kind == 'STOCKIST' ? kind : null;
+  }
+
+  /// The lots [line] takes -- the person's picks, else the earliest-expiry
+  /// shares -- grouped by the price they sell at on this bill, in the order
+  /// the server listed them. Empty when there is nothing to judge by: the
+  /// lots unread, a bill of neither kind, or a line in another unit than
+  /// stock, whose picks cannot be set beside its quantity.
+  List<_PriceGroup> _priceGroups(_DirectLine line) {
+    final String? kind = _billTradeClass;
+    final List<BatchAvailabilityRecord>? lots = line.lots;
+    final Product? product = _product(line.productId);
+    if (kind == null || lots == null || product == null) return const [];
+    if (product.salesUomId.isNotEmpty &&
+        product.inventoryUomId.isNotEmpty &&
+        product.salesUomId != product.inventoryUomId) {
+      return const [];
+    }
+    final Map<String, double>? picks = line.batchPicks;
+    final bool explicit = picks != null && picks.isNotEmpty;
+    final Map<String, _PriceGroup> groups = <String, _PriceGroup>{};
+    for (final BatchAvailabilityRecord lot in lots) {
+      if (lot.expired) continue;
+      final double take = explicit ? picks[lot.batchId] ?? 0 : lot.fefo;
+      if (take <= 0) continue;
+      final double? price = kind == 'RETAILER' ? lot.ptr : lot.pts;
+      groups
+          .putIfAbsent(price?.toStringAsFixed(2) ?? '', () => _PriceGroup(price))
+          .picks[lot.batchId] = take;
+    }
+    return groups.values.toList();
+  }
+
+  /// Split the counter [line] once its lots settle, if they sell
+  /// at more than one price on this bill.
+  void _scheduleSplit(_DirectLine line) {
+    _splitTimer?.cancel();
+    _splitTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted) return;
+      final int index = _directLines.indexOf(line);
+      if (index >= 0) _splitByPrice(index);
+    });
+  }
+
+  /// One line, one price (LOT_MARGINS_DESIGN 3.5): a counter line whose lots
+  /// differ in the bill's price becomes one line per price group, each with
+  /// its own lots and at its group's price, as Marg keeps one line per batch.
+  /// The server refuses the single line, naming the two prices. A rate the
+  /// person typed stays on every part; one nobody typed takes the group's.
+  void _splitByPrice(int index) {
+    final _DirectLine line = _directLines[index];
+    final List<_PriceGroup> groups = _priceGroups(line);
+    if (groups.length < 2) return;
+    final bool typed = !line.priceUntyped;
+    final String typedPrice = line.price.text;
+    String trimmed(double value) => value == value.roundToDouble()
+        ? value.toStringAsFixed(0)
+        : '$value';
+    void priceAt(_DirectLine part, _PriceGroup group) {
+      if (typed) {
+        part.price.text = typedPrice;
+      } else if (!_rateIncludesTax && group.price != null) {
+        final String text = group.price!.toStringAsFixed(2);
+        part.price.text = text;
+        part.autoPrice = text;
+      }
+    }
+
+    _setState(() {
+      final _PriceGroup first = groups.first;
+      line.quantity.text = trimmed(first.quantity);
+      line.batchPicks = Map<String, double>.of(first.picks);
+      line.splitEpoch++;
+      priceAt(line, first);
+      final List<_DirectLine> parts = <_DirectLine>[
+        for (final _PriceGroup group in groups.skip(1))
+          _DirectLine()
+            ..productId = line.productId
+            ..lots = line.lots
+            ..batchPicks = Map<String, double>.of(group.picks),
+      ];
+      for (int i = 0; i < parts.length; i++) {
+        final _DirectLine part = parts[i];
+        part.quantity.text = trimmed(groups[i + 1].quantity);
+        part.discount.text = line.discount.text;
+        priceAt(part, groups[i + 1]);
+      }
+      _directLines.insertAll(index + 1, parts);
+      _scanNote = 'Line ${index + 1} split into ${groups.length} lines: its '
+          'lots sell at ${groups.length} prices on this bill.';
     });
     _schedulePreview();
   }
@@ -1864,14 +2007,26 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           ),
         ],
         if (draft.productId != null && _isBatched(draft.productId!))
-          _batchPanel(
-            lineId: 'direct-$index',
-            productId: draft.productId!,
-            warehouseId: _directWarehouse,
-            quantity: double.tryParse(draft.quantity.text.trim()) ?? 0,
-            picks: draft.batchPicks,
-            onChanged: (picks) => _setState(() => draft.batchPicks = picks),
-            onBatchPrice: (price) => _takeBatchPrice(draft, price),
+          KeyedSubtree(
+            // Built afresh when the line is split, so its boxes show the
+            // part's own lots rather than what was typed before.
+            key: ValueKey<String>('direct-$index-split-${draft.splitEpoch}'),
+            child: _batchPanel(
+              lineId: 'direct-$index',
+              productId: draft.productId!,
+              warehouseId: _directWarehouse,
+              quantity: double.tryParse(draft.quantity.text.trim()) ?? 0,
+              picks: draft.batchPicks,
+              onChanged: (picks) {
+                _setState(() => draft.batchPicks = picks);
+                _scheduleSplit(draft);
+              },
+              onBatchPrice: (price) => _takeBatchPrice(draft, price),
+              onBatchesRead: (rows) {
+                draft.lots = rows;
+                _scheduleSplit(draft);
+              },
+            ),
           ),
       ]);
     } else if (_lineEntries.isNotEmpty) {

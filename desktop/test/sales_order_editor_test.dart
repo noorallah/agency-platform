@@ -1391,4 +1391,100 @@ void main() {
     expect(find.byType(SalesOrderEditorDialog), findsOneWidget);
     expect(find.textContaining('Choose the customer'), findsOneWidget);
   });
+
+  // L3 step 5: a saved line's cost and margin, on screen only, and only for
+  // a user the server sends cost to (PRODUCT_VIEW_COST_PRICE).
+  group('cost and margin on the line (phase 2)', () {
+    Future<void> pumpPhase2(WidgetTester tester, _OrderApi api) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (BuildContext context) => TextButton(
+              onPressed: () => Navigator.of(context).push<bool>(
+                MaterialPageRoute<bool>(
+                  builder: (_) => Scaffold(
+                    body: Phase2Scope(
+                      child: SalesOrderEditorDialog(
+                        api: api,
+                        today: DateTime(2026, 8, 14),
+                        orderId: 'so-1',
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+    }
+
+    Json costed() {
+      final Json order = _draft();
+      final Json line = (order['lines'] as List).first as Json;
+      line['cost_amount'] = '200.0000';
+      line['cost_is_estimate'] = true;
+      line['margin_amount'] = '85.0000';
+      line['margin_percent'] = '42.50';
+      order['cost_total'] = '200.0000';
+      order['margin_total'] = '85.0000';
+      return order;
+    }
+
+    testWidgets('each saved line shows its cost and margin, and the total',
+        (tester) async {
+      final _OrderApi api = _api()..existing = costed();
+      await pumpPhase2(tester, api);
+
+      expect(find.text('Cost'), findsOneWidget);
+      expect(find.text('Margin'), findsOneWidget);
+      final Text cost = tester.widget<Text>(
+          find.byKey(const ValueKey<String>('sales-order-line-cost-0')));
+      expect(cost.data, '200.00 est.');
+      final Text margin = tester.widget<Text>(
+          find.byKey(const ValueKey<String>('sales-order-line-margin-0')));
+      expect(margin.data, '85.00 · 42.5%');
+      final Text total = tester.widget<Text>(
+          find.byKey(const ValueKey('document-margin-total')));
+      expect(total.data, contains('Margin 85.00 (42.5%)'));
+      expect(total.data, isNot(contains('as last saved')));
+    });
+
+    testWidgets('a user the server sends no cost to sees no columns',
+        (tester) async {
+      final _OrderApi api = _api()..existing = _draft();
+      await pumpPhase2(tester, api);
+
+      expect(find.text('Cost'), findsNothing);
+      expect(find.text('Margin'), findsNothing);
+      expect(find.byKey(const ValueKey('document-margin-total')), findsNothing);
+    });
+
+    testWidgets('a line changed since the save drops its saved figures',
+        (tester) async {
+      final _OrderApi api = _api()..existing = costed();
+      await pumpPhase2(tester, api);
+
+      final Finder cells = find.descendant(
+        of: find.byKey(const ValueKey<String>('sales-order-line-0')),
+        matching: find.byType(EditableText),
+      );
+      await tester.enterText(cells.at(1), '4');
+      await tester.pump();
+      final Text margin = tester.widget<Text>(
+          find.byKey(const ValueKey<String>('sales-order-line-margin-0')));
+      expect(margin.data, '');
+      final Text total = tester.widget<Text>(
+          find.byKey(const ValueKey('document-margin-total')));
+      expect(total.data, contains('as last saved'));
+    });
+  });
 }
