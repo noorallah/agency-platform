@@ -10806,7 +10806,7 @@ sit beside it.
 
 **Size.** Large; a design note first.
 
-## 148. Settings: one screen per subject, its items as tabs in set-up order, with a Start here tab -- open; wireframes agreed, to be built for every section (rows T1, T2), not built yet
+## 148. Settings: one screen per subject, its items as tabs in set-up order, with a Start here tab -- part built: Tax and the shared piece (row T1, #1507); every other section is row T2, open
 
 **The owner, 2026-10-13.** Every setting is a menu item of its own and
 nothing says where to start: under Tax a user sees Tax Configuration, Tax
@@ -10871,6 +10871,69 @@ refuses without what and written in a table in
    types are examples).
 
 **Size.** Medium for the first section, small for each one after it.
+
+**Built 2026-10-14, row T1 (#1507): Tax, and the piece every section will
+use.** No server rule changed. No screen was clicked.
+
+- *Settings > Tax* shows **one card**, and it opens one screen, *Tax
+  settings*: **Start here**, then **1 Rates and profiles, 2 Tax rules, 3 Tax
+  settings, 4 GST on documents, 5 TDS on purchases**, then set apart at the
+  end **Check: Rule simulator** and **Check: Execution log**.
+- Start here lists the steps with one line each, a state (Done, To do,
+  Optional), what the firm holds ("10 profiles, from the GST template") and
+  an Open button to the tab; the note on top says *Tax is ready for this
+  firm* or how many steps are to do; a line shows how the steps connect.
+- Steps 1 to 3 and the two tools are today's screens, unchanged, under one
+  line saying what the step needs from the one before.
+- The seven items are still in the menu catalogue under their own names, so
+  search and the command box find and open each as before.
+- **One call for the states**, made when the subject is opened:
+  `GET /api/v1/settings-sections/tax/state` (new package
+  `app/settings_sections`; any member of the firm may read it, it answers
+  counts and on/off words only, and it never writes). The Settings page
+  itself still asks the server nothing. A Refresh button on Start here asks
+  again.
+- **The shared piece:** `desktop/lib/phase2/settings_subject.dart` (a
+  subject is a list of steps and tools, each naming an item the menu already
+  holds), `settings_subject_page.dart` (the strip and Start here) and, on
+  the server, one function per section in the `SECTIONS` registry. A new
+  section adds an entry to each and nothing else.
+
+**The order was checked against the models, and this was found.** A rule
+*can* be saved without a profile (the column is nullable, and the GST
+template's own rules name none: they pick the profile by the product's tax
+group), so step 2 does not strictly need step 1; a rule that taxes anything
+still needs a profile to exist, so the order stays as drawn. A profile
+cannot be saved without a **tax system**, which is made on the same screen
+as step 1, so it is not a step of its own. Tax settings, GST on documents
+and TDS name no profile and no rule: they can be done in any order.
+
+**Decided by the loop, each easy to turn round.**
+
+1. **Steps 4 and 5 are windows today, and stay windows.** Their tab says
+   what the step is, what it is set to now, and has one button that opens
+   the same window. Putting a window's fields inside the tab means rewriting
+   each window, and about twenty settings in the other sections are windows
+   too. The owner to say whether that is wanted before row T2 goes far.
+2. **The card on the Settings page carries no state** (the wireframe shows
+   *Ready* or *2 steps to do* on it). A state on every card is a call per
+   section before any is opened, which the same wireframe rules out.
+3. Steps 1 and 2 read **To do** when the firm holds no profile or no active
+   rule, since its bills would carry no tax; the other three are always
+   Optional.
+4. *GST on documents* reads **E-invoice on** or **Off**. The e-way bill has
+   no switch of its own (only a value limit that applies to every firm), so
+   it is never named.
+5. A firm set up from the GST template reads *Set for this firm* on Tax
+   settings, because the template itself saves that record.
+6. Coming back to the *Tax settings* tab from another open screen reads the
+   states again, as every screen in the shell is rebuilt on return.
+7. A step the user's role is not offered has no tab and no row, and the
+   numbers of the others do not move.
+
+Tests: `backend/tests/unit/test_settings_sections.py`,
+`desktop/test/settings_subject_test.dart`,
+`desktop/test/desktop_shell_menu_layout_test.dart`. Case: TC-CONF-010.
 
 ## 149. Two calculators in the application: an ordinary one and a GST one -- open, low priority, not built
 
