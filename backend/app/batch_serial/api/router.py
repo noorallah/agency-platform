@@ -189,6 +189,7 @@ def batch_availability(
             else (rule.alert_days if rule else policy.near_expiry_days(scope.firm_id))
         ),
         keep_until=keep_until,
+        show_cost=scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE"),
     )
     return ApiResponse(data=rows)
 

@@ -154,6 +154,25 @@ template has a column for each. The key
 `UQ_opening_stock_lines_batch_product_location` is dropped and a firm on
 Average is refused the same item twice by the service.
 
+#### Choosing the lot (L2 step 4)
+
+For a firm costing by lot, lots leave nearest expiry first (no expiry
+last), then oldest `received_on` (none last), then by `lot_reference`:
+`lot_tie_break()` in `backend/app/inventory/services/lots.py`, ranked
+explicitly so PostgreSQL and SQLite agree. `_expiry_ranked_rows` uses it
+for reservation, release and dispatch; under the FIFO issue rule it ranks
+by received date ahead of `created_at`. A firm on Average keeps the order
+it had: expiry, then batch id.
+
+`GET /api/v1/batches/availability` lists the lots in that order, one row
+each, with `lot_reference`, `received_on` and `has_printed_batch` (false:
+`batch_number` is our reference and no screen shows it as a batch). For a
+by-lot firm each row carries `pick_group`, the same for lots that agree on
+batch, expiry, MRP and the selling prices: the picker shows those as one
+row and takes them in the order listed. `unit_cost` comes from
+`batch_valuations` and only to a holder of `PRODUCT_VIEW_COST_PRICE`;
+everybody else, and every firm on Average, gets null.
+
 ### Table: `lots`
 
 | Column | Type | Notes |

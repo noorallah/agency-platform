@@ -72,7 +72,7 @@ from app.inventory.schemas import (
     StockWriteOffCreate,
 )
 from app.inventory.services import pipeline
-from app.inventory.services.lots import LotSource, costs_by_lot
+from app.inventory.services.lots import LotSource, costs_by_lot, lot_tie_break
 from app.inventory.services.movement_numbering import MovementNumbering
 from app.inventory.services.stock_evidence import StockEvidenceService
 from app.products.models import Product
@@ -4142,10 +4142,17 @@ class InventoryService:
         other. A batch without an expiry is not urgent, so it goes last, and
         ties break on the batch id to keep two runs of the same allocation
         identical. Under FIFO the untracked row goes last for the same reason.
+
+        A firm costing by lot breaks a tie on the lot's received date and then
+        our reference (`lot_tie_break`), so lots of one expiry, and goods with
+        no printed batch, leave oldest first (L2 step 4). A firm on Average
+        keeps the order it always had.
         """
+        lots = lot_tie_break() if costs_by_lot(self._session, firm_scope) else ()
         if self.issue_rule(product_id) == "FIFO":
             ranking: tuple[Any, ...] = (
                 case((InventoryRecord.batch_id.is_(None), 1), else_=0).asc(),
+                *lots,
                 BatchRecord.created_at.asc(),
                 InventoryRecord.batch_id.asc(),
             )
@@ -4153,6 +4160,7 @@ class InventoryService:
             ranking = (
                 case((BatchRecord.expiry_date.is_(None), 1), else_=0).asc(),
                 BatchRecord.expiry_date.asc(),
+                *lots,
                 InventoryRecord.batch_id.asc(),
             )
         return list(

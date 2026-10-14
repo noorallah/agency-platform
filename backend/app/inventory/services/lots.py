@@ -7,9 +7,10 @@ firm that costs by lot makes one such row for every purchase line.
 
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord
@@ -45,6 +46,21 @@ class LotSource:
     line_id: UUID
     document_number: str
     received_on: date
+
+
+def lot_tie_break() -> tuple[Any, ...]:
+    """Return the order lots of equal expiry leave in, for a by-lot firm.
+
+    Oldest received first, then our own reference (section 3.4, steps 2 and
+    3), so goods with no printed batch go first in, first out. A lot with no
+    received date -- a batch from before the lot series -- goes after the
+    dated ones, ranked explicitly rather than by the backend's NULL order.
+    """
+    return (
+        case((BatchRecord.received_on.is_(None), 1), else_=0).asc(),
+        BatchRecord.received_on.asc(),
+        BatchRecord.lot_reference.asc(),
+    )
 
 
 def costs_by_lot(session: Session, firm_id: UUID) -> bool:

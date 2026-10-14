@@ -54,10 +54,19 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
-from app.inventory.models import InventoryRecord, InventoryTransaction
+from app.inventory.models import (
+    BatchValuation,
+    InventoryRecord,
+    InventoryTransaction,
+)
 from app.inventory.schemas import BatchStockTotals
 from app.inventory.services import InventoryService
-from app.inventory.services.lots import LotNumbering, LotSource
+from app.inventory.services.lots import (
+    LotNumbering,
+    LotSource,
+    costs_by_lot,
+    lot_tie_break,
+)
 from app.products.models import Product
 from app.sales_order.models import SalesOrder, SalesOrderLine
 
@@ -1383,6 +1392,7 @@ class BatchSerialService:
         sales_order_line_id: UUID | None = None,
         near_expiry_days: int = 30,
         keep_until: date | None = None,
+        show_cost: bool = False,
     ) -> list[BatchAvailability]:
         """List a product's batches in one warehouse for a batch picker (79).
 
@@ -1401,7 +1411,14 @@ class BatchSerialService:
         ``keep_until`` is the customer's minimum shelf life as a date: a batch
         expiring before it is flagged and never pre-filled, as dispatch passes
         it over.
+
+        A firm costing by lot (L2 step 4) gets one row per lot in the order
+        dispatch takes them -- equal expiry oldest received first, then our
+        reference -- each with a ``pick_group`` naming the lots that agree on
+        batch, expiry, MRP and selling prices, and the lot's ``unit_cost``
+        where ``show_cost`` says the caller may see it.
         """
+        by_lot = costs_by_lot(self._session, firm_scope)
         rows = self._session.execute(
             select(InventoryRecord, BatchRecord)
             .join(BatchRecord, BatchRecord.id == InventoryRecord.batch_id)
@@ -1421,6 +1438,7 @@ class BatchSerialService:
             .order_by(
                 case((BatchRecord.expiry_date.is_(None), 1), else_=0).asc(),
                 BatchRecord.expiry_date.asc(),
+                *(lot_tie_break() if by_lot else ()),
                 BatchRecord.id.asc(),
             )
         ).all()
@@ -1452,6 +1470,17 @@ class BatchSerialService:
         own_by_batch = self._own_hold_by_batch(
             sales_order_line_id, firm_scope=firm_scope, warehouse_id=warehouse_id
         )
+        costs: dict[UUID, Decimal] = {}
+        if by_lot and show_cost and batches:
+            costs = {
+                batch_id: Decimal(str(unit_cost))
+                for batch_id, unit_cost in self._session.execute(
+                    select(BatchValuation.batch_id, BatchValuation.unit_cost).where(
+                        BatchValuation.batch_id.in_(list(batches)),
+                        BatchValuation.is_deleted.is_(False),
+                    )
+                )
+            }
         result: list[BatchAvailability] = []
         hold_left = own_hold
         wanted = Decimal(str(quantity))
@@ -1505,6 +1534,11 @@ class BatchSerialService:
                     selling_price=batch.selling_price,
                     ptr=batch.ptr,
                     pts=batch.pts,
+                    lot_reference=batch.lot_reference,
+                    received_on=batch.received_on,
+                    has_printed_batch=batch.has_printed_batch,
+                    pick_group=_pick_group(batch) if by_lot else None,
+                    unit_cost=costs.get(batch_id),
                 )
             )
         return result
@@ -2073,3 +2107,21 @@ class BatchSerialService:
             after_data=_snapshot("serial_number", record) | {"is_deleted": True},
         )
         self._session.commit()
+
+
+def _pick_group(batch: BatchRecord) -> str:
+    """Return the key lots share when the picker shows them as one row.
+
+    Section 3.4, step 4: one row per batch, expiry, MRP and selling prices.
+    Goods with no printed batch carry our reference in ``batch_number``, so
+    it is left out of the key -- two such lots at one price are one row.
+    """
+    parts = (
+        batch.batch_number if batch.has_printed_batch else "",
+        batch.expiry_date.isoformat() if batch.expiry_date else "",
+        *(
+            "" if value is None else str(Decimal(str(value)).normalize())
+            for value in (batch.mrp, batch.selling_price, batch.ptr, batch.pts)
+        ),
+    )
+    return "|".join(parts)

@@ -231,6 +231,19 @@ class BatchAvailability(BatchSchema):
     #: the buyer's trade class is RETAILER or STOCKIST.
     ptr: Decimal | None = None
     pts: Decimal | None = None
+    #: The lot (L2 step 4): our own reference, the day it arrived, and False
+    #: where the goods carry no printed batch -- ``batch_number`` then holds
+    #: the reference and no screen shows it as a batch.
+    lot_reference: str | None = None
+    received_on: date | None = None
+    has_printed_batch: bool = True
+    #: For a firm costing by lot: lots that agree on batch, expiry, MRP and
+    #: selling prices share this key and are one row in the picker, taken in
+    #: the order listed. None for a firm on Average.
+    pick_group: str | None = None
+    #: What one stock unit of the lot cost, for a firm costing by lot, and
+    #: only to somebody allowed to see cost (``PRODUCT_VIEW_COST_PRICE``).
+    unit_cost: Decimal | None = None
 
 
 NearExpiryPolicy = Literal["WARN", "REASON"]
