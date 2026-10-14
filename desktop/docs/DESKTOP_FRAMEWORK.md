@@ -238,3 +238,19 @@ afternoon before `askForReason` in
 `desktop/lib/ui/workspace/reason_prompt.dart` existed; use it rather than a
 third copy. It returns null for a dismissal **and** for an empty box, so a
 caller has one answer to check.
+
+## A dated list opens on the firm's financial year
+
+The working year is a filter and not a wall (backlog 155). A list of
+documents declares `late DatePeriod _period = openingPeriod(context);` and
+never `const DatePeriod.all()`: `openingPeriod` in
+`desktop/lib/ui/workspace/date_range_filter.dart` is the current financial
+year counted from the firm's own first month, which `FirmYearScope` hands
+down from the shell. The month comes on `GET /api/v1/me/firms`, the read the
+shell already holds, so no list makes a call to learn it. A list opened for a
+reason by a `ListViewRequest` sets *All dates*, because Home counted over
+every date. Where the dates hold nothing, show `PeriodEmptyState` rather than
+"no search results". A `DateRangeFilter` handed to `WorkspaceToolbar` as a
+trailing widget is given `DateRangeFilter.room` and may shrink; anything
+else trailing is budgeted 120 px and may not.
+

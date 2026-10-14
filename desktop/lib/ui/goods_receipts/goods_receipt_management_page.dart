@@ -101,7 +101,7 @@ class _GoodsReceiptManagementPageState
   final TextEditingController _search = TextEditingController();
 
   /// The document dates the list is narrowed to (owner, 2026-09-27).
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   bool _loading = false;
   String? _error;
   int _page = 1;

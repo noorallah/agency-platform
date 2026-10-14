@@ -47,7 +47,7 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
   PhysicalCountSheet? _selected;
 
   /// The count dates the list is narrowed to (owner, 2026-09-27).
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   int _page = 1;
   int _total = 0;
   bool _loading = false;
@@ -388,8 +388,9 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
                             'the warehouse currently holds. Posting it turns '
                             'every difference into a stock adjustment.',
                       )
-                    : const StandardEmptyState(
-                        type: EmptyStateType.noSearchResults,
+                    : PeriodEmptyState(
+                        period: _period,
+                        searching: _search.text.trim().isNotEmpty,
                       ))
                 : EnterpriseDataGrid<PhysicalCountSheet>(
                     columns: _columns.gridColumns,

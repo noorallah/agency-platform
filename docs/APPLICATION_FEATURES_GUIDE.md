@@ -247,6 +247,13 @@ Every list screen has the same shape:
   lists (this month, this quarter, the Indian financial year, a custom range;
   ◀ ▶ step to the previous or next period); **Columns**; Refresh; anything
   rarely used under **…**; and **+ New** last.
+- **A list of documents opens on the current financial year**, the firm's
+  own (the Period reads *This financial year*). All of a firm's years are
+  in one place and nothing is switched to reach an older one: ◀ steps to
+  last year and **All dates** shows everything. A list opened from Home
+  for a reason (*Orders to approve*) shows every date, and the reports
+  open on the financial year so far. The counters on the line count
+  every date.
 - **Pick a row** and a bar appears above the grid naming it (number,
   customer or supplier, status, total) with the steps that can be taken now:
   *Open, Edit, Approve, Post, Cancel, Print* ... A step that cannot be taken

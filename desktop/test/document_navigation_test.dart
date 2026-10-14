@@ -66,9 +66,14 @@ class _RecordingApi extends ApiClient {
   ///
   /// Filtered by resource on purpose: the delivery note workspace also pages
   /// the deliverable sales orders, and that call carries a status of its own.
-  Map<String, String> lastQueryFor(String resource) => requests
-      .lastWhere((request) => request.resource == resource)
-      .query;
+  /// Without the dates: a list opens on the financial year, which
+  /// `working_year_filter_test.dart` proves, and these are about the status.
+  Map<String, String> lastQueryFor(String resource) =>
+      Map<String, String>.from(requests
+          .lastWhere((request) => request.resource == resource)
+          .query)
+        ..removeWhere(
+            (key, _) => key.endsWith('_from') || key.endsWith('_to'));
 
   @override
   Future<Json> documentSummary(String resource, {String path = 'summary'}) async =>

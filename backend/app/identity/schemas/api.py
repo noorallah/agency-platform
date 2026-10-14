@@ -412,6 +412,10 @@ class MyFirmResponse(ApiSchema):
     code: str
     name: str
     is_primary: bool
+    #: The first day of the firm's financial year. A list of documents opens
+    #: on the current year, and the screen must not ask again to learn which
+    #: month that begins with.
+    financial_year_start: date
 
 
 class MyRoleResponse(ApiSchema):

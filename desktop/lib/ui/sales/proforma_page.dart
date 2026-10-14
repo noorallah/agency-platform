@@ -57,7 +57,7 @@ class _ProformaPageState extends State<ProformaPage> {
   /// Search (number or customer) and the Period, on phase 2's page line
   /// (owner, 2026-09-27), as the other sales lists.
   final TextEditingController _search = TextEditingController();
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
 
   String? get _from => _period.from == null ? null : DatePeriod.iso(_period.from!);
   String? get _to => _period.to == null ? null : DatePeriod.iso(_period.to!);

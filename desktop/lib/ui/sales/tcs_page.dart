@@ -39,7 +39,7 @@ class _TcsPageState extends State<TcsPage> {
   /// Phase 2's search and Period over the register, applied here: the whole
   /// register is read at once (review, 2026-09-27).
   final TextEditingController _search = TextEditingController();
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   TcsCollectionRecord? _picked;
 
   @override

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'workspace_components.dart';
+
 /// The kinds of period a list can be narrowed to.
 enum PeriodKind {
   all('All dates'),
@@ -35,9 +37,15 @@ class DatePeriod {
   factory DatePeriod.custom(DateTime from, DateTime to) =>
       DatePeriod._(PeriodKind.custom, _day(from), _day(to));
 
-  /// [kind] as it falls around [today].
-  factory DatePeriod.of(PeriodKind kind, DateTime today) {
+  /// [kind] as it falls around [today], in a financial year that begins
+  /// with [yearStartMonth] -- the firm's own, April unless it says otherwise.
+  factory DatePeriod.of(
+    PeriodKind kind,
+    DateTime today, {
+    int yearStartMonth = DateTime.april,
+  }) {
     final DateTime d = _day(today);
+    final int m = yearStartMonth;
     switch (kind) {
       case PeriodKind.all:
         return const DatePeriod.all();
@@ -56,18 +64,18 @@ class DatePeriod {
         return DatePeriod._(
             kind, DateTime(d.year, d.month - 1), DateTime(d.year, d.month, 0));
       case PeriodKind.quarter:
-        // Financial quarters: Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar.
-        // The quarter's first month is never after today's, so it is in
-        // this calendar year: 4, 7, 10 or 13 (January).
-        final int start = ((d.month - 4) % 12) ~/ 3 * 3 + 4;
-        final DateTime from = DateTime(d.year, start > 12 ? start - 12 : start);
+        // Financial quarters, counted from the year's first month: Apr-Jun,
+        // Jul-Sep, Oct-Dec, Jan-Mar for an April year. Today is zero, one
+        // or two months into its quarter.
+        final DateTime from =
+            DateTime(d.year, d.month - ((d.month - m) % 12) % 3);
         return DatePeriod._(kind, from, DateTime(from.year, from.month + 3, 0));
       case PeriodKind.financialYear:
-        final int year = d.month >= 4 ? d.year : d.year - 1;
-        return DatePeriod._(kind, DateTime(year, 4), DateTime(year + 1, 4, 0));
+        final int year = d.month >= m ? d.year : d.year - 1;
+        return DatePeriod._(kind, DateTime(year, m), DateTime(year + 1, m, 0));
       case PeriodKind.lastFinancialYear:
-        final int year = (d.month >= 4 ? d.year : d.year - 1) - 1;
-        return DatePeriod._(kind, DateTime(year, 4), DateTime(year + 1, 4, 0));
+        final int year = (d.month >= m ? d.year : d.year - 1) - 1;
+        return DatePeriod._(kind, DateTime(year, m), DateTime(year + 1, m, 0));
       case PeriodKind.custom:
         return DatePeriod._(kind, d, d);
     }
@@ -115,9 +123,10 @@ class DatePeriod {
 
   /// What the button says: the period's name while it is the named one,
   /// else its dates.
-  String label(DateTime today) {
+  String label(DateTime today, {int yearStartMonth = DateTime.april}) {
     if (isAll) return PeriodKind.all.label;
-    if (kind != PeriodKind.custom && DatePeriod.of(kind, today) == this) {
+    if (kind != PeriodKind.custom &&
+        DatePeriod.of(kind, today, yearStartMonth: yearStartMonth) == this) {
       return kind.label;
     }
     return from == to ? show(from!) : '${show(from!)} – ${show(to!)}';
@@ -148,6 +157,72 @@ class DatePeriod {
   int get hashCode => Object.hash(from, to);
 }
 
+/// The month the firm's financial year begins with, for everything under
+/// the shell that names a year or a quarter.
+///
+/// The working year is a filter and not a wall (the owner, 2026-10-13): all
+/// of a firm's years are in one place, a list opens on the current one, and
+/// an older bill is reached by widening the dates. The month comes with the
+/// firm list the shell already holds, so no screen asks for it.
+class FirmYearScope extends InheritedWidget {
+  const FirmYearScope({
+    super.key,
+    required this.startMonth,
+    required super.child,
+  });
+
+  final int startMonth;
+
+  /// April where nothing above says otherwise -- a screen pumped alone in a
+  /// test. Safe from `initState`: it reads without subscribing, and a change
+  /// of firm rebuilds the screens under it anyway.
+  static int monthOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<FirmYearScope>()?.startMonth ??
+      DateTime.april;
+
+  @override
+  bool updateShouldNotify(FirmYearScope oldWidget) =>
+      startMonth != oldWidget.startMonth;
+}
+
+/// What a list of documents opens on: the firm's current financial year.
+/// *All dates* and the back arrow are one click away for an older bill.
+DatePeriod openingPeriod(BuildContext context, {DateTime? today}) =>
+    DatePeriod.of(
+      PeriodKind.financialYear,
+      today ?? DateTime.now(),
+      yearStartMonth: FirmYearScope.monthOf(context),
+    );
+
+/// What a list says when its period holds nothing. Not "no search results":
+/// nobody searched. The list opened on the year, and an older document is
+/// one choice away.
+class PeriodEmptyState extends StatelessWidget {
+  const PeriodEmptyState({
+    super.key,
+    required this.period,
+    required this.searching,
+  });
+
+  final DatePeriod period;
+
+  /// A search or another filter is on, so the dates are not the only reason.
+  final bool searching;
+
+  @override
+  Widget build(BuildContext context) {
+    if (searching || period.isAll) {
+      return const StandardEmptyState(type: EmptyStateType.noSearchResults);
+    }
+    return const StandardEmptyState(
+      type: EmptyStateType.noSearchResults,
+      title: 'Nothing in these dates',
+      message: 'Step back with the arrow beside the dates, or choose '
+          'All dates, to see older ones.',
+    );
+  }
+}
+
 /// The Period control beside a list's search: ◀, the period, ▶.
 class DateRangeFilter extends StatelessWidget {
   const DateRangeFilter({
@@ -156,6 +231,10 @@ class DateRangeFilter extends StatelessWidget {
     required this.onChanged,
     this.today,
   });
+
+  /// The width a toolbar keeps for this control: the two arrows and the
+  /// longest thing the button says, a pair of dates.
+  static const double room = 300;
 
   final DatePeriod value;
   final ValueChanged<DatePeriod> onChanged;
@@ -194,7 +273,10 @@ class DateRangeFilter extends StatelessWidget {
                 controller.isOpen ? controller.close() : controller.open(),
             icon: const Icon(Icons.calendar_month_outlined, size: 18),
             label: Text(
-              value.label(_today),
+              value.label(
+                _today,
+                yearStartMonth: FirmYearScope.monthOf(context),
+              ),
               overflow: TextOverflow.ellipsis,
               maxLines: 1,
             ),
@@ -214,7 +296,11 @@ class DateRangeFilter extends StatelessWidget {
 
   Future<void> _choose(BuildContext context, PeriodKind kind) async {
     if (kind != PeriodKind.custom) {
-      onChanged(DatePeriod.of(kind, _today));
+      onChanged(DatePeriod.of(
+        kind,
+        _today,
+        yearStartMonth: FirmYearScope.monthOf(context),
+      ));
       return;
     }
     final DateTime now = _today;

@@ -362,6 +362,7 @@ def list_my_firms(
                 # A firm reached by the designation has no membership row, so
                 # it is nobody's primary.
                 is_primary=membership is not None and membership.is_primary,
+                financial_year_start=firm.financial_year_start,
             )
             for membership, firm in rows
         ]

@@ -116,7 +116,7 @@ class _DeliveryNoteManagementPageState
   final TextEditingController _search = TextEditingController();
 
   /// The document dates the list is narrowed to (owner, 2026-09-27).
-  DatePeriod _period = const DatePeriod.all();
+  late DatePeriod _period = openingPeriod(context);
   late DeliveryNoteView _view = widget.initialView;
 
   /// Narrowed to dispatched or completed notes with no proof of delivery yet

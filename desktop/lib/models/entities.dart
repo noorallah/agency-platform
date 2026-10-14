@@ -143,16 +143,26 @@ class AssignedFirm {
     required this.code,
     required this.name,
     required this.isPrimary,
+    this.financialYearStartMonth = DateTime.april,
   });
 
   final String id, code, name;
   final bool isPrimary;
+
+  /// The month the firm's financial year begins with, which is what a list
+  /// opens on (the working year is a filter, 2026-10-13). April where the
+  /// server did not say.
+  final int financialYearStartMonth;
 
   factory AssignedFirm.fromJson(Json json) => AssignedFirm(
         id: stringValue(json['id']),
         code: stringValue(json['code']),
         name: stringValue(json['name']),
         isPrimary: boolValue(json['is_primary']),
+        financialYearStartMonth:
+            DateTime.tryParse(stringValue(json['financial_year_start']))
+                    ?.month ??
+                DateTime.april,
       );
 }
 
