@@ -212,12 +212,19 @@ def _named_ids(
     if inspector.has_table("territory_salesman_assignments") and inspector.has_table(
         "sales_territories"
     ):
+        # `20261014_0382` renames the column; a store `create_all` built from
+        # today's models already holds the new name.
+        held = {
+            column["name"]
+            for column in inspector.get_columns("territory_salesman_assignments")
+        }
+        person = "user_id" if "user_id" in held else "salesman_id"
         rows = bind.execute(
             sa.text(
-                "SELECT a.user_id, t.firm_id, COUNT(*) "
+                f"SELECT a.{person}, t.firm_id, COUNT(*) "  # noqa: S608
                 "FROM territory_salesman_assignments a "
                 "JOIN sales_territories t ON t.id = a.territory_id "
-                "WHERE a.user_id IS NOT NULL GROUP BY a.user_id, t.firm_id"
+                f"WHERE a.{person} IS NOT NULL GROUP BY a.{person}, t.firm_id"
             )
         ).all()
         for user_id, firm_id, count in rows:

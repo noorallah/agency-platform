@@ -55,6 +55,7 @@ from app.sales_order.schemas import (
 )
 from app.sales_order.services import SalesOrderService
 from app.sales_return.schemas import SalesReturnCreate, SalesReturnUpdate
+from app.salesmen.models import Salesman
 from app.tax.models import TaxComponent, TaxProfile, TaxProfileComponent, TaxSystem
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
@@ -944,6 +945,9 @@ def test_the_register_names_every_id_it_carries() -> None:
     session.add(seller)
     session.flush()
     session.add(UserFirm(user_id=seller.id, firm_id=firm.id, is_active=True))
+    session.add(
+        Salesman(id=seller.id, firm_id=firm.id, name="Asha Rao", user_id=seller.id)
+    )
     territory = SalesTerritoryNode(
         firm_id=firm.id,
         hierarchy_level_id=uuid4(),
@@ -1120,6 +1124,9 @@ def test_orders_with_nobody_credited_are_unassigned_rather_than_absent() -> None
     session.add(seller)
     session.flush()
     session.add(UserFirm(user_id=seller.id, firm_id=firm.id, is_active=True))
+    session.add(
+        Salesman(id=seller.id, firm_id=firm.id, name="Asha Rao", user_id=seller.id)
+    )
     territory = SalesTerritoryNode(
         firm_id=firm.id,
         hierarchy_level_id=uuid4(),

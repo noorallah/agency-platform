@@ -72,6 +72,7 @@ from app.sales.models.territory import (
     GeoPostalCode,
     GeoState,
 )
+from app.salesmen.services.nameable import nameable_salesman
 
 #: Any of the six geography masters. They share `BaseEntity` and a `name` (a
 #: postal code calls its own column `postal_code`), which is all this module
@@ -203,10 +204,10 @@ class CustomerService:
         assert_master_references(
             self._session, values, _CUSTOMER_REFERENCES, firm_id=firm_id
         )
-        self._assert_account_manager(firm_id, data.salesman_id, current=None)
-        self._assert_account_manager(
-            firm_id, data.collector_id, current=None, role="collector"
+        values["salesman_id"] = self._account_manager(
+            firm_id, data.salesman_id, current=None, actor_id=actor_id
         )
+        self._assert_collector(firm_id, data.collector_id, current=None)
         self._assert_linked_vendor(
             firm_id,
             data.linked_vendor_id,
@@ -364,18 +365,18 @@ class CustomerService:
         )
         if "salesman_id" in values:
             sent = values["salesman_id"]
-            self._assert_account_manager(
+            values["salesman_id"] = self._account_manager(
                 customer.firm_id,
                 sent if isinstance(sent, UUID) else None,
                 current=customer.salesman_id,
+                actor_id=actor_id,
             )
         if "collector_id" in values:
             collector = values["collector_id"]
-            self._assert_account_manager(
+            self._assert_collector(
                 customer.firm_id,
                 collector if isinstance(collector, UUID) else None,
                 current=customer.collector_id,
-                role="collector",
             )
         if "linked_vendor_id" in values:
             linked = values["linked_vendor_id"]
@@ -1042,34 +1043,47 @@ class CustomerService:
                 after_data=self._audit_snapshot(shop),
             )
 
-    def _assert_account_manager(
+    def _account_manager(
         self,
         firm_id: UUID,
         salesman_id: UUID | None,
         *,
         current: UUID | None,
-        role: str = "account manager",
-    ) -> None:
-        """Refuse an account manager who is not an active member of the firm.
+        actor_id: UUID | None = None,
+    ) -> UUID | None:
+        """Settle the account manager to store: an entry of the salesman list.
 
-        The customer's collector (SG-8) is checked the same way, under its
-        own name in the message.
-
-        Asked only when the write *moves* it: a manager who has since left
+        Asked only when the write *moves* it: a manager made inactive since
         stays on the record (and is skipped when documents are raised, see
-        `resolve_sales_scope`), so a full-form save that resends them does
-        not block an unrelated edit. Through `FirmMetadataReader`, because
-        `users` and `user_firms` live only in the platform store.
+        `resolve_sales_scope`), so a full-form save that resends him does not
+        block an unrelated edit. Read in the firm's own store (P2 step 2).
         """
         if salesman_id is None or salesman_id == current:
+            return salesman_id
+        return nameable_salesman(self._session, firm_id, salesman_id, actor_id=actor_id)
+
+    def _assert_collector(
+        self, firm_id: UUID, collector_id: UUID | None, *, current: UUID | None
+    ) -> None:
+        """Refuse a collector who is not an active member of the firm.
+
+        The collector (SG-8) stays a member rather than a salesman of the
+        list: he signs in to work the collection sheet. Asked only when the
+        write moves him, for the same reason as the account manager. Through
+        `FirmMetadataReader`, because `users` and `user_firms` live only in
+        the platform store.
+        """
+        if collector_id is None or collector_id == current:
             return
         if (
             FirmMetadataReader(self._session).active_member_count(
-                firm_id, [salesman_id]
+                firm_id, [collector_id]
             )
             != 1
         ):
-            raise ValidationError(f"The {role} must be an active member of this firm.")
+            raise ValidationError(
+                "The collector must be an active member of this firm."
+            )
 
     def _settled_pan(
         self,

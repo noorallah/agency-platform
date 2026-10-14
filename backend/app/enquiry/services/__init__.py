@@ -39,6 +39,7 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.enquiry.models import Enquiry, EnquiryFollowUp, EnquiryLine
 from app.products.models import Product
+from app.salesmen.services.nameable import nameable_salesman
 
 SOURCES = ("WALK_IN", "PHONE", "WHATSAPP", "REFERRAL", "EXHIBITION", "WEBSITE", "OTHER")
 LOST_REASONS = (
@@ -243,7 +244,7 @@ class EnquiryService(TransactionalDocumentService):
 
     def create(self, data: EnquiryWrite, *, firm_id: UUID, actor_id: UUID) -> Enquiry:
         """Record an enquiry and number it; commit."""
-        self._check(data, firm_id)
+        salesman_id = self._check(data, firm_id, actor_id=actor_id)
         _, rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
         number = self._issue_number(
             rule,
@@ -261,7 +262,7 @@ class EnquiryService(TransactionalDocumentService):
             status="OPEN",
             created_by=actor_id,
             updated_by=actor_id,
-            **self._fields(data),
+            **{**self._fields(data), "salesman_id": salesman_id},
         )
         self._session.add(row)
         self._flush_or_conflict("Enquiry number already exists in this firm.")
@@ -290,9 +291,12 @@ class EnquiryService(TransactionalDocumentService):
         assert_version(row.version, expected_version)
         if row.status != "OPEN":
             raise ValidationError("Only an open enquiry can be changed.")
-        self._check(data, firm_id)
+        salesman_id = self._check(
+            data, firm_id, current=row.salesman_id, actor_id=actor_id
+        )
         for name, value in self._fields(data).items():
             setattr(row, name, value)
+        row.salesman_id = salesman_id
         row.updated_by = actor_id
         for line in self._lines([row.id]):
             self._session.delete(line)
@@ -690,8 +694,20 @@ class EnquiryService(TransactionalDocumentService):
 
     # ---- helpers -------------------------------------------------------
 
-    def _check(self, data: EnquiryWrite, firm_id: UUID) -> None:
-        """Refuse a customer, branch or product that is not the firm's."""
+    def _check(
+        self,
+        data: EnquiryWrite,
+        firm_id: UUID,
+        *,
+        current: UUID | None = None,
+        actor_id: UUID | None = None,
+    ) -> UUID | None:
+        """Refuse a customer, branch, product or salesman that is not the firm's.
+
+        Answers the salesman id to store: an entry of the firm's salesman list
+        (P2 step 2). The one the enquiry already names is kept as it is, so an
+        edit is not refused for a salesman made inactive since.
+        """
         from app.branches.models import Branch
         from app.customers.models import Customer
 
@@ -719,6 +735,11 @@ class EnquiryService(TransactionalDocumentService):
             data.next_follow_up_on < data.enquiry_date
         ):
             raise ValidationError("A follow-up comes on or after the enquiry.")
+        if data.salesman_id is None or data.salesman_id == current:
+            return data.salesman_id
+        return nameable_salesman(
+            self._session, firm_id, data.salesman_id, actor_id=actor_id
+        )
 
     @staticmethod
     def _fields(data: EnquiryWrite) -> dict[str, object]:

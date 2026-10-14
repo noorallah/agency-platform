@@ -40,15 +40,14 @@ from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import (
-    FirmMetadataReader,
     firm_date_of,
-    platform_reader,
 )
 from app.common.report_names import (
     branch_names,
     customer_labels,
     customer_names,
     customers_matching,
+    salesman_names,
     warehouse_names,
 )
 from app.core.database.batch import children_by_parent
@@ -116,7 +115,6 @@ from app.document_framework.services.transactional_document_service import (
     TransactionalDocumentService,
 )
 from app.finance.services.document_posting import DocumentPostingService
-from app.identity.models import User
 from app.inventory.models import InventoryRecord, StockLedgerEntry
 from app.inventory.services import InventoryService, LineConversion
 from app.messaging.services import MessagingDocument, stage_document_event
@@ -132,6 +130,7 @@ from app.sales_order.services.discount_limit import (
     note_reduction,
 )
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
+from app.salesmen.services.nameable import nameable_salesman
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.rule_stamp import stamps_tax_rules
 from app.tax.services.tax_framework_service import TaxFrameworkService
@@ -4389,22 +4388,10 @@ class DeliveryNoteService(TransactionalDocumentService):
         if warehouse is None:
             raise ValidationError("Warehouse not found in this branch.")
         if salesman_id is not None:
-            # Through `FirmMetadataReader`, not the request session: `users`
-            # and `user_firms` live only in the platform schema, so selecting
-            # `User` here raised `relation "<firm schema>.users" does not
-            # exist` for every firm outside the platform store -- the sixth
-            # time this trap has been sprung. It was invisible because nothing
-            # sent a `salesman_id` until the desktop grew a picker for one.
-            #
-            # It also asks the right question. The old check accepted any user
-            # that existed anywhere, so one firm could tag another firm's
-            # people on its own documents; membership of *this* firm is what
-            # makes somebody a salesman of it.
-            members = FirmMetadataReader(self._session).active_member_count(
-                firm_id, [salesman_id]
-            )
-            if members != 1:
-                raise ValidationError("Salesman is not an active member of this firm.")
+            # An entry of *this* firm's salesman list (P2 step 2), read in the
+            # firm's own store. The note carries its order's salesman, which
+            # the order already stored as an entry id.
+            nameable_salesman(self._session, firm_id, salesman_id)
         if territory_id is not None:
             territory = self._session.scalar(
                 select(SalesTerritoryNode).where(
@@ -4614,26 +4601,8 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
 
     def _salesman_names(self, ids: set[UUID]) -> dict[UUID, str]:
-        """Name the salesmen, reading the store that holds `users`.
-
-        `users` lives only in the platform schema, so a tenant session cannot
-        see it: on PostgreSQL this raised `UndefinedTable` and the report
-        answered 503 -- but only once a document carried a salesman, which no
-        seeded document did, so it sat latent. Fifth occurrence of the trap.
-
-        SQLite keeps every table in one schema, so the unit suite reads it on
-        the request session and could never have caught this.
-        """
-        if not ids:
-            return {}
-        statement = select(User.id, User.full_name).where(User.id.in_(ids))
-        bind = self._session.get_bind()
-        if bind.dialect.name != "postgresql":
-            rows = list(self._session.execute(statement).all())
-        else:
-            with platform_reader() as reader:
-                rows = list(reader.execute(statement).all())
-        return {row[0]: row[1] for row in rows}
+        """Name the salesmen from the firm's own list (P2 step 2)."""
+        return salesman_names(self._session, ids)
 
     def _already_delivered_quantity(
         self,

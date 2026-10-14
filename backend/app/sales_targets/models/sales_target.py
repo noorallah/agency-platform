@@ -96,7 +96,7 @@ class SalesTarget(BaseEntity):
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
     #: Null on both means the firm's own number for the period.
     salesman_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(), ForeignKey("users.id", ondelete="RESTRICT")
+        UUIDType(), ForeignKey("salesmen.id", ondelete="RESTRICT")
     )
     territory_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("sales_territories.id", ondelete="RESTRICT")

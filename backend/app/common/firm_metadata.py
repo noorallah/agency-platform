@@ -291,6 +291,47 @@ class FirmMetadataReader:
             for row in rows
         ]
 
+    def active_member_names(
+        self, firm_id: UUID, user_ids: Sequence[UUID]
+    ) -> dict[UUID, str]:
+        """Name those of ``user_ids`` who are active members of the firm.
+
+        The salesman list's bridge (P2 step 2) makes an entry for a member
+        named before the desktop's pickers read the list, and needs the name
+        as well as the answer; both live in platform tables.
+
+        Args:
+            firm_id: The firm the users must belong to.
+            user_ids: The users to name.
+
+        Returns:
+            Each active, undeleted member's full name, keyed by user id.
+
+        """
+        if not user_ids:
+            return {}
+        statement = (
+            select(User.id, User.full_name, User.email)
+            .join(UserFirm, UserFirm.user_id == User.id)
+            .where(
+                UserFirm.user_id.in_(list(user_ids)),
+                UserFirm.firm_id == firm_id,
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+                User.is_deleted.is_(False),
+                User.is_active.is_(True),
+            )
+        )
+        bind = self._session.get_bind()
+        if bind.dialect.name != "postgresql":
+            rows = list(self._session.execute(statement))
+        else:
+            with platform_reader() as reader:
+                rows = list(reader.execute(statement))
+        return {
+            row[0]: (row[1] or "").strip() or (row[2] or "").strip() for row in rows
+        }
+
     def active_member_count(self, firm_id: UUID, user_ids: Sequence[UUID]) -> int:
         """Count how many of ``user_ids`` are active members of the firm.
 

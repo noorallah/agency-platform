@@ -34,6 +34,7 @@ from app.identity.schemas.api import UserFirmAssignment
 from app.identity.services import IdentityService
 from app.sales.models import SalesTerritoryNode, TerritorySalesmanAssignment
 from app.sales.services.assignment_lifecycle import retire_salesman_assignments
+from app.salesmen.models import Salesman
 
 ADMIN = uuid4()
 
@@ -83,9 +84,22 @@ def _round(session: Session, *, firm_id: UUID, code: str, user_id: UUID) -> UUID
     )
     session.add(node)
     session.flush()
+    # The firm's salesman entry for him: of his own id where that is free, as
+    # the migration makes them; a second firm in one store takes a new one.
+    entry = session.scalar(
+        select(Salesman.id).where(
+            Salesman.firm_id == firm_id, Salesman.user_id == user_id
+        )
+    )
+    if entry is None:
+        entry = user_id if session.get(Salesman, user_id) is None else uuid4()
+        session.add(
+            Salesman(id=entry, firm_id=firm_id, name="Asha Rao", user_id=user_id)
+        )
+        session.flush()
     session.add(
         TerritorySalesmanAssignment(
-            territory_id=node.id, user_id=user_id, is_primary=True
+            territory_id=node.id, salesman_id=entry, is_primary=True
         )
     )
     session.commit()
@@ -93,11 +107,13 @@ def _round(session: Session, *, firm_id: UUID, code: str, user_id: UUID) -> UUID
 
 
 def _live_assignments(session: Session, user_id: UUID) -> list[UUID]:
-    """Return the territories this person is still live on."""
+    """Return the territories this person is still live on, in any firm."""
     return list(
         session.scalars(
-            select(TerritorySalesmanAssignment.territory_id).where(
-                TerritorySalesmanAssignment.user_id == user_id,
+            select(TerritorySalesmanAssignment.territory_id)
+            .join(Salesman, Salesman.id == TerritorySalesmanAssignment.salesman_id)
+            .where(
+                Salesman.user_id == user_id,
                 TerritorySalesmanAssignment.is_deleted.is_(False),
             )
         )

@@ -23,7 +23,7 @@ from app.business.gating import assert_feature_fields
 from app.business.models.framework import AttributeEntityType
 from app.business.services import document_attributes
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader, firm_today
+from app.common.firm_metadata import firm_today
 from app.common.report_names import (
     branch_names,
     customer_labels,
@@ -160,6 +160,7 @@ from app.sales_order.services.sales_order_service import (
     normalized_coupon,
 )
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
+from app.salesmen.services.nameable import nameable_salesman
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.gst_buckets import TaxComponent, split_components
@@ -633,7 +634,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             data.route_id,
         }:
             raise ValidationError("Invoice route must match all source documents.")
-        self._validate_scope_references(
+        salesman_id = self._validate_scope_references(
             firm_id=firm_id,
             salesman_id=salesman_id,
             territory_id=territory_id,
@@ -1015,7 +1016,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             data.route_id,
         }:
             raise ValidationError("Invoice route must match all source documents.")
-        self._validate_scope_references(
+        row.salesman_id = self._validate_scope_references(
             firm_id=firm_id,
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
@@ -6279,21 +6280,15 @@ class SalesInvoiceService(TransactionalDocumentService):
         salesman_id: UUID | None,
         territory_id: UUID | None,
         route_id: UUID | None,
-    ) -> None:
+    ) -> UUID | None:
+        """Check the bill's salesman, territory and route; answer the salesman.
+
+        The salesman is an entry of *this* firm's list (P2 step 2), read in
+        the firm's own store; the id answered is the one to store, which
+        until step 4 may differ from a member's user id a picker sent.
+        """
         if salesman_id is not None:
-            # The third copy of this check, and the third to reach for `users`
-            # on the request session -- `sales_order` and `delivery_note` were
-            # the other two. All three were invisible until the demo seed put
-            # a salesman on a round, at which point every document derived one
-            # and the whole chain failed at the invoice.
-            #
-            # It also asks the right question now: membership of *this* firm,
-            # not mere existence somewhere.
-            members = FirmMetadataReader(self._session).active_member_count(
-                firm_id, [salesman_id]
-            )
-            if members != 1:
-                raise ValidationError("Salesman is not an active member of this firm.")
+            salesman_id = nameable_salesman(self._session, firm_id, salesman_id)
         if territory_id is not None:
             territory = self._session.scalar(
                 select(SalesTerritoryNode.id).where(
@@ -6313,6 +6308,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             if route is None:
                 raise ValidationError("Route profile not found.")
+        return salesman_id
 
     def _validate_customer_invoice_number(
         self,

@@ -43,6 +43,7 @@ from app.sales_targets.schemas import (
     SalesTargetUpdate,
     SalesTargetWrite,
 )
+from app.salesmen.services.nameable import nameable_salesman
 from app.settlements.services.net_sales import (
     NetSale,
     collected_net,
@@ -187,22 +188,23 @@ class SalesTargetService:
         self, data: SalesTargetWrite, *, firm_id: UUID, actor_id: UUID
     ) -> SalesTarget:
         """Set one target."""
-        self._assert_scope_is_the_firms(
+        salesman_id = self._assert_scope_is_the_firms(
             firm_id=firm_id,
             salesman_id=data.salesman_id,
             territory_id=data.territory_id,
+            actor_id=actor_id,
         )
         self._assert_free(
             firm_id=firm_id,
             basis=data.basis.value,
             period_start=data.period_start,
             period_end=data.period_end,
-            salesman_id=data.salesman_id,
+            salesman_id=salesman_id,
             territory_id=data.territory_id,
         )
         row = SalesTarget(
             firm_id=firm_id,
-            salesman_id=data.salesman_id,
+            salesman_id=salesman_id,
             territory_id=data.territory_id,
             period_start=data.period_start,
             period_end=data.period_end,
@@ -274,10 +276,11 @@ class SalesTargetService:
         assert isinstance(period_start, date) and isinstance(period_end, date)
         if period_end < period_start:
             raise ValidationError("A target cannot end before it starts.")
-        self._assert_scope_is_the_firms(
+        merged["salesman_id"] = self._assert_scope_is_the_firms(
             firm_id=firm_scope,
             salesman_id=_optional_uuid(merged["salesman_id"]),
             territory_id=_optional_uuid(merged["territory_id"]),
+            actor_id=actor_id,
         )
         self._assert_free(
             firm_id=firm_scope,
@@ -619,16 +622,17 @@ class SalesTargetService:
         firm_id: UUID,
         salesman_id: UUID | None,
         territory_id: UUID | None,
-    ) -> None:
+        actor_id: UUID | None = None,
+    ) -> UUID | None:
         """Refuse a target set for somebody, or somewhere, that is not the firm's.
 
         Neither id was checked: `users` is a platform table so no firm store
         can carry a key to it, and `sales_territories` lives in the **shared**
         store where a key is satisfied by another firm's node. A target was
         accepted for any UUID at all and then reported for ever against a
-        person nobody could name (D-TER-15). The membership is read through
-        `FirmMetadataReader`, which goes to the platform store, because a
-        tenant session cannot see `users` or `user_firms`.
+        person nobody could name (D-TER-15). The salesman is now an entry of
+        the firm's own list that earns commission (P2 step 2), and the id
+        answered is the one to store.
 
         Both null is the firm's own number for the period and is checked
         against nothing, which is the point of it.
@@ -637,18 +641,24 @@ class SalesTargetService:
             firm_id: The owning firm.
             salesman_id: The person the target is for, if anyone.
             territory_id: The round or region it is for, if any.
+            actor_id: Who is saving, for the audit row of a bridged entry.
+
+        Returns:
+            The salesman id to store.
 
         Raises:
-            ValidationError: If the salesman is not an active member.
+            ValidationError: If the salesman is not one the target may name.
             ResourceNotFoundError: If the territory is not a live node of
                 this firm.
 
         """
-        if salesman_id is not None and not FirmMetadataReader(
-            self._session
-        ).active_member_count(firm_id, [salesman_id]):
-            raise ValidationError(
-                "That salesperson is not an active member of this firm."
+        if salesman_id is not None:
+            salesman_id = nameable_salesman(
+                self._session,
+                firm_id,
+                salesman_id,
+                for_commission=True,
+                actor_id=actor_id,
             )
         if territory_id is not None and not self._session.scalar(
             select(SalesTerritoryNode.id).where(
@@ -658,6 +668,7 @@ class SalesTargetService:
             )
         ):
             raise ResourceNotFoundError("Territory not found.")
+        return salesman_id
 
     def _assert_free(
         self,

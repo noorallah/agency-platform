@@ -161,9 +161,9 @@ def test_an_account_manager_must_be_a_member(session: Session) -> None:
     firm = _firm(session)
     gone = _member(session, firm.id, "gone@example.local", active=False)
 
-    with pytest.raises(ValidationError, match="active member of this firm"):
+    with pytest.raises(ValidationError, match="not on this firm's list"):
         _create(session, firm.id, salesman_id=uuid4())
-    with pytest.raises(ValidationError, match="active member of this firm"):
+    with pytest.raises(ValidationError, match="not on this firm's list"):
         _create(session, firm.id, code="SHOP-2", salesman_id=gone)
 
 

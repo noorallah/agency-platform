@@ -104,7 +104,7 @@ class CommissionRule(BaseEntity):
     #: NULL means the firm-wide default rate. The reference matches
     #: `sales_invoices.salesman_id`, which is what attribution reads.
     salesman_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(), ForeignKey("users.id", ondelete="RESTRICT")
+        UUIDType(), ForeignKey("salesmen.id", ondelete="RESTRICT")
     )
     percentage: Mapped[Decimal] = mapped_column(
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"

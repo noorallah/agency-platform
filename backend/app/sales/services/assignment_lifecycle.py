@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.core.utils.dates import utc_now
 from app.sales.models import SalesTerritoryNode, TerritorySalesmanAssignment
+from app.salesmen.models import Salesman
 
 
 def retire_salesman_assignments(
@@ -61,8 +62,10 @@ def retire_salesman_assignments(
                 SalesTerritoryNode,
                 SalesTerritoryNode.id == TerritorySalesmanAssignment.territory_id,
             )
+            .join(Salesman, Salesman.id == TerritorySalesmanAssignment.salesman_id)
             .where(
-                TerritorySalesmanAssignment.user_id == user_id,
+                Salesman.user_id == user_id,
+                Salesman.firm_id == firm_id,
                 TerritorySalesmanAssignment.is_deleted.is_(False),
                 SalesTerritoryNode.firm_id == firm_id,
             )
@@ -85,6 +88,7 @@ def retire_salesman_assignments(
             firm_id=firm_id,
             before_data={
                 "user_id": str(user_id),
+                "salesman_id": str(row.salesman_id),
                 "include_children": row.include_children,
                 "is_primary": row.is_primary,
             },

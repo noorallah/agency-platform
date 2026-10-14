@@ -1177,7 +1177,7 @@ def test_a_rule_refuses_a_salesman_who_is_not_a_member() -> None:
     """
     books = _Books(_session_factory()())
 
-    with pytest.raises(ValidationError, match="not an active member"):
+    with pytest.raises(ValidationError, match="not on this firm's list"):
         books.rule("5", salesman_id=uuid4())
 
     books.session.rollback()

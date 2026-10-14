@@ -48,7 +48,7 @@ class SalesInvoice(BaseEntity):
         UUIDType(), ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False
     )
     salesman_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(), ForeignKey("users.id", ondelete="RESTRICT")
+        UUIDType(), ForeignKey("salesmen.id", ondelete="RESTRICT")
     )
     territory_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("sales_territories.id", ondelete="RESTRICT")

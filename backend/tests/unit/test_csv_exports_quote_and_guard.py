@@ -108,7 +108,7 @@ def test_the_territory_assignment_exports_quote_and_guard() -> None:
                 ),
                 TerritorySalesmanAssignment(
                     territory_id=node.id,
-                    user_id=users_of[node.id],
+                    salesman_id=users_of[node.id],
                     is_primary=True,
                 ),
             ]

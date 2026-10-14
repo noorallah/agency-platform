@@ -1041,7 +1041,7 @@ def test_a_target_refuses_a_salesman_who_is_not_a_member() -> None:
     outsider = _salesman(session, firm_id=_firm(session, "OTHER").id, email="bala")
 
     for candidate in (uuid4(), outsider):
-        with pytest.raises(ValidationError, match="not an active member"):
+        with pytest.raises(ValidationError, match="not on this firm's list"):
             _target(service, firm_id=firm.id, amount="100", salesman_id=candidate)
 
     assert service.list_targets(firm_scope=firm.id, page=1, page_size=10)[1] == 0
@@ -1072,7 +1072,7 @@ def test_an_edit_refuses_a_salesman_who_is_not_a_member() -> None:
     theirs = _salesman(session, firm_id=firm.id)
     service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=theirs)
 
-    with pytest.raises(ValidationError, match="not an active member"):
+    with pytest.raises(ValidationError, match="not on this firm's list"):
         service.update_target(
             target_id,
             SalesTargetUpdate(salesman_id=uuid4()),
