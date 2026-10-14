@@ -647,6 +647,7 @@ def _batched_tv(shop: _Shop) -> tuple[Product, dict[str, SerialNumber]]:
         ("LATE", date(2027, 12, 31)),
     ):
         batch = BatchRecord(
+            lot_reference=uuid4().hex[:12],
             firm_id=shop.firm.id,
             product_id=tv.id,
             batch_number=number,

@@ -684,6 +684,7 @@ def test_the_ledger_renders_every_movement_type_the_service_writes() -> None:
 def _real_batch(session: Session, firm_id: UUID, product_id: UUID, number: str) -> UUID:
     """Register a batch of the product, as a stock row's batch must be (D-STK-14)."""
     batch = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm_id,
         product_id=product_id,
         batch_number=number,
@@ -860,6 +861,7 @@ def test_a_batch_holds_what_its_movements_gave_it_and_nothing_else() -> None:
     branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
     branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
     march = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm.id,
         product_id=product_id,
         batch_number="MARCH",
@@ -868,6 +870,7 @@ def test_a_batch_holds_what_its_movements_gave_it_and_nothing_else() -> None:
         updated_by=uuid4(),
     )
     june = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm.id,
         product_id=product_id,
         batch_number="JUNE",
@@ -1037,6 +1040,7 @@ def test_a_stock_row_says_which_batch_it_holds() -> None:
     profile = _profile(setup, firm.id)
     branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
     batch = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm.id,
         product_id=product.id,
         batch_number="MARCH-01",
@@ -1114,6 +1118,7 @@ def test_a_batch_that_never_received_stock_reports_zero() -> None:
     profile = _profile(setup, firm.id)
     _, _, product = _branch_warehouse_product(setup, firm, profile)
     batch = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm.id,
         product_id=product.id,
         batch_number="EMPTY",
@@ -1909,6 +1914,7 @@ def _stock_two_batches(
     profile = _profile(setup, firm.id)
     branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
     stale = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm.id,
         product_id=product.id,
         batch_number=f"{code}-STALE",
@@ -1918,6 +1924,7 @@ def _stock_two_batches(
         updated_by=uuid4(),
     )
     fresh = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm.id,
         product_id=product.id,
         batch_number=f"{code}-FRESH",

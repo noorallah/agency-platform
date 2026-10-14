@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**340 tables**, of which **17** live only in the platform store.
+**343 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -337,7 +337,7 @@ trigger each schema owns its own copy of.
 | `gstr2b_documents` | firm store ¹ | One supplier document in a month's GSTR-2B, and what it matched. | `gstr2b_imports` |
 | `gstr2b_imports` | firm store ¹ | One month's GSTR-2B, imported once; a re-import replaces it. |  |
 | `itc_common_reversals` | firm store ¹ | One rule 42 reversal: a period's, or a year's true-up. | `journal_entries` |
-| `itc_reversals` | firm store ¹ | One reversal of credit, or one reclaim of it: on a bill unpaid 180 days (rule 37), or on stock given away or written off (`basis` STOCK, D-CMP-24). | `purchase_invoices`, `inventory_transactions`, `journal_entries` |
+| `itc_reversals` | firm store ¹ | One reversal of credit, or one reclaim of it. | `purchase_invoices`, `inventory_transactions`, `journal_entries` |
 
 ### `app/identity`
 
@@ -626,7 +626,7 @@ trigger each schema owns its own copy of.
 | `customer_credit_applications` | firm store ¹ | Store how much of one return's or credit note's credit went where. | `customers` |
 | `payment_run_lines` | firm store ¹ | One bill in a run, and the payment that settled it. | `payment_runs`, `vendors`, `settlements` |
 | `payment_runs` | firm store ¹ | The bills chosen to be paid on one date (decision A110). | `firms` |
-| `post_dated_cheques` | firm store ¹ | Store one cheque: a customer's dated ahead, or one the firm wrote to a supplier, a customer, an expense or any other account (row F13). | `customers`, `vendors`, `ledger_accounts`, `settlements`, `expenses`, `journal_entries` |
+| `post_dated_cheques` | firm store ¹ | Store one cheque: a customer's dated ahead, or one the firm wrote. | `customers`, `vendors`, `ledger_accounts`, `settlements`, `expenses`, `journal_entries` |
 | `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills`, `customer_opening_bills` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
 | `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `debit_notes`, `purchase_invoices`, `vendor_opening_bills` |

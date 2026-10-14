@@ -19,7 +19,7 @@ from sqlalchemy.sql import Select
 
 from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
-from app.business.gating import resolve_profile_id
+from app.business.gating import assert_feature_fields, resolve_profile_id
 from app.business.models import BusinessProfile
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import firm_today
@@ -72,6 +72,7 @@ from app.inventory.schemas import (
     StockWriteOffCreate,
 )
 from app.inventory.services import pipeline
+from app.inventory.services.lots import LotSource, costs_by_lot
 from app.inventory.services.movement_numbering import MovementNumbering
 from app.inventory.services.stock_evidence import StockEvidenceService
 from app.products.models import Product
@@ -1312,6 +1313,7 @@ class InventoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        by_lot: bool = False,
     ) -> UUID | None:
         """Resolve the batch one opening-stock line puts its goods in.
 
@@ -1321,6 +1323,10 @@ class InventoryService:
         one. Enforcing it here as well as on receipts is what makes the rule
         mean something -- otherwise a firm could take in untraceable stock on
         day one and never be able to say where it came from.
+
+        A firm costing by lot (``by_lot``) takes every line into a lot of
+        its own, as a receipt line is: day-one stock of one batch at two
+        costs is two lots, and goods with no printed batch still get one.
 
         Returns:
             The batch id, or None where the line names none and the product
@@ -1335,17 +1341,44 @@ class InventoryService:
                     f"{product.code} must be taken in with a batch number, "
                     "including as opening stock."
                 )
-            return None
+            if not by_lot:
+                return None
         if product is not None and not product.track_batch:
             # As on a goods receipt: a number typed for a product that keeps
             # no batches registers none (D-STK-43).
-            return None
+            if not by_lot:
+                return None
+            number = ""
         # Imported here rather than at the top: `batch_serial` reads stock
         # totals from this service, so the two modules would import each other
         # at load. The dependency is real in both directions -- a batch is
         # identity and stock is quantity, and each needs the other's answer.
         from app.batch_serial.services import BatchSerialService
 
+        if by_lot:
+            dated = bool(number) or (product is not None and product.track_expiry)
+            resolved = BatchSerialService(self._session).open_lot(
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                product_id=line.product_id,
+                source=LotSource(
+                    document_type="OPENING_STOCK",
+                    document_id=batch.id,
+                    line_id=line.id,
+                    document_number=batch.reference_number,
+                    received_on=line.purchase_date or batch.posting_date,
+                ),
+                batch_number=number,
+                branch_id=batch.branch_id,
+                warehouse_id=batch.warehouse_id,
+                expiry_date=line.expiry_date if dated else None,
+                mrp=line.mrp,
+                selling_price=line.selling_price,
+                ptr=line.ptr,
+                pts=line.pts,
+            )
+            line.batch_id = resolved.id
+            return resolved.id
         resolved = BatchSerialService(self._session).resolve_for_receipt(
             firm_scope=firm_scope,
             actor_id=actor_id,
@@ -1354,6 +1387,10 @@ class InventoryService:
             branch_id=batch.branch_id,
             warehouse_id=batch.warehouse_id,
             expiry_date=line.expiry_date,
+            mrp=line.mrp,
+            selling_price=line.selling_price,
+            ptr=line.ptr,
+            pts=line.pts,
         )
         line.batch_id = resolved.id
         return resolved.id
@@ -1434,7 +1471,17 @@ class InventoryService:
                     "item; correct it with a stock adjustment."
                 )
         movement_ids: list[UUID] = []
+        by_lot = costs_by_lot(self._session, firm_scope)
         for line in batch.lines:
+            if (
+                line.purchase_date is not None
+                and line.purchase_date > batch.posting_date
+            ):
+                raise ValidationError(
+                    f"Line {line.line_number} was bought on "
+                    f"{line.purchase_date:%d-%m-%Y}, after the opening date. "
+                    "Opening stock is what the firm already held that day."
+                )
             (
                 base_quantity,
                 entered_quantity,
@@ -1454,7 +1501,7 @@ class InventoryService:
             # later delivery was traced -- and a product that requires a batch
             # on issue could never ship what it started with.
             line_batch_id = self._opening_stock_batch_id(
-                line, batch, firm_scope=firm_scope, actor_id=actor_id
+                line, batch, firm_scope=firm_scope, actor_id=actor_id, by_lot=by_lot
             )
             inventory = self._ensure_inventory_projection(
                 firm_id=firm_scope,
@@ -2932,6 +2979,11 @@ class InventoryService:
         )
         if row is None:
             row = ProductValuation(firm_id=firm_scope, product_id=product_id)
+            # An item first stocked by a firm costing by lot is valued by
+            # lot from its first movement; items that were there before
+            # the firm switched are stamped by the switch-over.
+            if costs_by_lot(self._session, firm_scope):
+                row.costing_method = COSTING_BY_LOT
             self._session.add(row)
             self._session.flush()
         return row
@@ -5119,6 +5171,12 @@ class InventoryService:
                 "batch_number": row.batch_number,
                 "batch_id": row.batch_id,
                 "expiry_date": row.expiry_date,
+                "mrp": row.mrp,
+                "selling_price": row.selling_price,
+                "ptr": row.ptr,
+                "pts": row.pts,
+                "purchase_date": row.purchase_date,
+                "supplier_bill_reference": row.supplier_bill_reference,
                 "minimum_level": row.minimum_level,
                 "maximum_level": row.maximum_level,
                 "reorder_level": row.reorder_level,
@@ -5573,6 +5631,14 @@ class InventoryService:
         items: list[OpeningStockLine] = []
         seen: set[tuple[UUID, str, str]] = set()
         profile_id = self._resolved_profile_id(firm_id)
+        # Two lots of one batch at two costs fit on one document where the
+        # firm costs by lot; on Average the same item twice is a mistake.
+        by_lot = costs_by_lot(self._session, firm_id)
+        # Imported here for the reason given in `_opening_stock_batch_id`.
+        from app.batch_serial.services.batch_serial_service import (
+            assert_trade_rates_within_mrp,
+        )
+
         for index, line in enumerate(lines, start=1):
             product = self._session.scalar(
                 select(Product).where(
@@ -5604,12 +5670,24 @@ class InventoryService:
             # The batch is part of the key, so one count of one shelf can
             # record two deliveries of a product expiring months apart.
             unique_key = (line.product_id, locator, (line.batch_number or "").strip())
-            if unique_key in seen:
+            if unique_key in seen and not by_lot:
                 raise ValidationError(
                     "Duplicate opening stock lines for the same product, "
                     "storage location and batch are not allowed."
                 )
             seen.add(unique_key)
+            assert_feature_fields(
+                self._session,
+                firm_id,
+                feature="BATCH_PTR_PTS",
+                values={"ptr": line.ptr, "pts": line.pts},
+            )
+            assert_trade_rates_within_mrp(
+                mrp=line.mrp,
+                ptr=line.ptr,
+                pts=line.pts,
+                selling_price=line.selling_price,
+            )
             items.append(
                 OpeningStockLine(
                     line_number=index,
@@ -5624,6 +5702,14 @@ class InventoryService:
                     conversion_version=line.conversion_version,
                     batch_number=(line.batch_number or "").strip() or None,
                     expiry_date=line.expiry_date,
+                    mrp=line.mrp,
+                    selling_price=line.selling_price,
+                    ptr=line.ptr,
+                    pts=line.pts,
+                    purchase_date=line.purchase_date,
+                    supplier_bill_reference=(
+                        (line.supplier_bill_reference or "").strip() or None
+                    ),
                     minimum_level=line.minimum_level,
                     maximum_level=line.maximum_level,
                     reorder_level=line.reorder_level,

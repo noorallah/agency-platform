@@ -70,6 +70,7 @@ class _Shop:
             ("JUNE", date(2027, 6, 30)),
         ):
             batch = BatchRecord(
+                lot_reference=uuid4().hex[:12],
                 firm_id=firm.id,
                 product_id=self.product.id,
                 batch_number=number,
@@ -373,6 +374,7 @@ def test_another_products_batch_is_refused_when_written() -> None:
     shop.session.add(other)
     shop.session.flush()
     stranger = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=shop.firm_id,
         product_id=other.id,
         batch_number="ELSEWHERE",

@@ -12,6 +12,7 @@ serial number is refused, because a repack names no units.
 
 from datetime import date
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
@@ -58,6 +59,7 @@ class _BatchShop(_Shop):
 
     def _batch(self, number: str, expiry: date, quantity: str) -> BatchRecord:
         row = BatchRecord(
+            lot_reference=uuid4().hex[:12],
             firm_id=self.firm.id,
             product_id=self.soap.id,
             warehouse_id=self.warehouse.id,

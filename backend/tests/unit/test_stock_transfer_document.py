@@ -11,6 +11,7 @@ Cancelling a dispatched transfer brings the goods home.
 
 from datetime import date
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError as SchemaError
@@ -258,6 +259,7 @@ def test_more_cannot_arrive_than_was_sent(firm: _Firm) -> None:
 
 def test_a_batch_travels_as_itself(firm: _Firm) -> None:
     batch = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm.firm.id,
         product_id=firm.product.id,
         batch_number="B-2405",

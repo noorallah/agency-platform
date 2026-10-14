@@ -888,6 +888,9 @@ class TradeSimulator:
                         "product_id": product.id,
                         "vendor_id": self.vendors[product.vendor_index].id,
                         "batch_number": product.batch_number,
+                        # Every batch carries a reference; these rows are
+                        # written past the service that issues the series.
+                        "lot_reference": f"V{index + 1:06d}",
                         "manufacturing_date": ctx.start - timedelta(days=30),
                         "expiry_date": product.expiry,
                         "status": "ACTIVE",

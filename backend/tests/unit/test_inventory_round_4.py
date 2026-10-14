@@ -179,6 +179,7 @@ def test_a_later_delivery_dates_a_batch_registered_without_one() -> None:
     fixture = _Fixture(_session_factory()(), "R4OLD")
     _dated_product(fixture)
     old = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=fixture.firm.id,
         product_id=fixture.product.id,
         batch_number="OLD-1",

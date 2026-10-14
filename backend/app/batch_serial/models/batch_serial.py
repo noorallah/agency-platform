@@ -106,10 +106,11 @@ class BatchRecord(BaseEntity):
     remarks: Mapped[str | None] = mapped_column(Text)
 
     # The lot (`docs/design/LOT_COST_DESIGN.md`): where a firm costs by lot,
-    # this row is one purchase line's goods. Nothing reads these columns yet.
+    # this row is one purchase line's goods.
     #: Our own running reference, one per lot, unique per firm among live
-    #: rows. Empty on a batch made before every creator issues one.
-    lot_reference: Mapped[str | None] = mapped_column(String(40))
+    #: rows. From the lot series (`app/inventory/services/lots.py`);
+    #: batches older than the series were numbered `B000001` onwards.
+    lot_reference: Mapped[str] = mapped_column(String(40), nullable=False)
     #: True on a lot made for one purchase line; false on every batch that
     #: "the same number is the same batch" still holds for.
     per_purchase_line: Mapped[bool] = mapped_column(

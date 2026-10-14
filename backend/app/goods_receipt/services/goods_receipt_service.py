@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.models import BatchRecord
 from app.batch_serial.services import BatchSerialService
 from app.batch_serial.services.batch_serial_service import (
     assert_trade_rates_within_mrp,
@@ -85,6 +86,7 @@ from app.goods_receipt.serials import ReceiptSerials
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.schemas import QuarantineAction, StockQuarantineCreate
 from app.inventory.services import InventoryService, LineConversion
+from app.inventory.services.lots import LotSource, costs_by_lot
 from app.products.models import Product, ProductCategory
 from app.products.services.stockless import stockless_products
 from app.purchase.models import PurchaseOrder, PurchaseOrderHistory, PurchaseOrderLine
@@ -647,11 +649,16 @@ class GoodsReceiptService(TransactionalDocumentService):
         # A unit sold or sent back since it arrived cannot be un-received
         # (PG-10); checked before any stock moves back.
         self._serials.refuse_cancel(row)
+        lots = self._lots_to_remove(row, firm_scope=firm_scope)
         before = row.status
         reversed_lines, stock_value = self._reverse_inventory(
             row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
         )
         self._serials.withdraw(row, actor_id=actor_id)
+        # The goods never arrived, so the lots they arrived in go with them.
+        BatchSerialService(self._session).remove_lots(
+            lots, firm_scope=firm_scope, actor_id=actor_id
+        )
         # The stock is back off the shelf; take the journal off the books too,
         # or the ledger keeps a debit for goods the firm no longer holds -- and
         # take it off at what the shelf actually gave back, not at what the
@@ -2183,6 +2190,9 @@ class GoodsReceiptService(TransactionalDocumentService):
         services = stockless_products(
             self._session, (line.product_id for line in lines)
         )
+        # A firm costing by lot takes every stocked line into a lot of its
+        # own (`docs/design/LOT_COST_DESIGN.md`, section 3.3).
+        by_lot = costs_by_lot(self._session, receipt.firm_id)
         for line in lines:
             if line.product_id in services and not (
                 line.id in capital_line_ids or line.is_capital_goods
@@ -2222,9 +2232,17 @@ class GoodsReceiptService(TransactionalDocumentService):
             # the goods are received onto the product's own row and no batch
             # is registered for it (D-STK-43). The text stays on the line as
             # what was typed.
-            if (line.batch_number or "").strip() and (
-                product is None or product.track_batch
-            ):
+            typed = (
+                (line.batch_number or "").strip()
+                if product is None or product.track_batch
+                else ""
+            )
+            if by_lot:
+                batch_id = self._open_lot(
+                    receipt, line, product, typed, actor_id=actor_id
+                )
+                line.batch_id = batch_id
+            elif typed:
                 batch_id = (
                     BatchSerialService(self._session)
                     .resolve_for_receipt(
@@ -2297,6 +2315,93 @@ class GoodsReceiptService(TransactionalDocumentService):
             cost_amount=received_cost,
             actor_id=actor_id,
         )
+
+    def _open_lot(
+        self,
+        receipt: GoodsReceipt,
+        line: GoodsReceiptLine,
+        product: Product | None,
+        typed: str,
+        *,
+        actor_id: UUID,
+    ) -> UUID:
+        """Make the lot one receipt line's goods arrive in, and return its id.
+
+        One line, one lot, always: accepted, free, rejected and damaged units
+        of the line all sit in it. ``typed`` is the printed batch, blank for
+        goods that carry none, which then go by our own reference.
+        """
+        dated = bool(typed) or (product is not None and product.track_expiry)
+        return (
+            BatchSerialService(self._session)
+            .open_lot(
+                firm_scope=receipt.firm_id,
+                actor_id=actor_id,
+                product_id=line.product_id,
+                source=LotSource(
+                    document_type="GOODS_RECEIPT",
+                    document_id=receipt.id,
+                    line_id=line.id,
+                    document_number=receipt.grn_number,
+                    received_on=receipt.receipt_date,
+                ),
+                batch_number=typed,
+                branch_id=receipt.branch_id,
+                warehouse_id=line.warehouse_id,
+                vendor_id=receipt.vendor_id,
+                expiry_date=line.expiry_date if dated else None,
+                mrp=line.mrp,
+                selling_price=line.selling_price,
+                ptr=line.ptr,
+                pts=line.pts,
+                manufacturing_date=line.manufacturing_date,
+                shelf_life_days=(
+                    product.shelf_life_days if product is not None else None
+                ),
+            )
+            .id
+        )
+
+    def _lots_to_remove(
+        self, receipt: GoodsReceipt, *, firm_scope: UUID
+    ) -> Sequence[BatchRecord]:
+        """Return the lots this receipt made, refusing if any has moved since.
+
+        A lot that has been sold from, transferred, adjusted or sent back is
+        named by documents that would be left pointing at nothing. Only the
+        receipt's own movement and its inspection holds may name it.
+        """
+        lots = BatchSerialService(self._session).lots_of(
+            firm_scope=firm_scope,
+            document_type="GOODS_RECEIPT",
+            document_id=receipt.id,
+        )
+        if not lots:
+            return lots
+        moved = self._session.execute(
+            select(InventoryTransaction.reference_number, InventoryTransaction.batch_id)
+            .where(
+                InventoryTransaction.firm_id == firm_scope,
+                InventoryTransaction.batch_id.in_([lot.id for lot in lots]),
+                InventoryTransaction.reference_number != receipt.grn_number,
+                InventoryTransaction.reference_number.not_like(
+                    f"{receipt.grn_number}-QC%"
+                ),
+            )
+            .order_by(InventoryTransaction.created_at)
+            .limit(1)
+        ).first()
+        if moved is not None:
+            reference = next(
+                lot.lot_reference for lot in lots if lot.id == moved.batch_id
+            )
+            raise ValidationError(
+                f"{receipt.grn_number} cannot be cancelled: goods of its lot "
+                f"{reference} have moved since they arrived "
+                f"({moved.reference_number}). Send the goods back with a "
+                "purchase return instead."
+            )
+        return lots
 
     def _receipt_cost(self, transaction_id: UUID) -> Decimal:
         """Return what the stock ledger brought in for one movement."""

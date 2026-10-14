@@ -288,6 +288,7 @@ def test_a_line_larger_than_any_one_batch_still_dispatches() -> None:
         ("SEPTEMBER", date(2027, 9, 30), "40"),
     ):
         batch = BatchRecord(
+            lot_reference=uuid4().hex[:12],
             firm_id=firm.id,
             product_id=product.id,
             batch_number=batch_number,
@@ -408,6 +409,7 @@ def test_a_reservation_holds_the_batch_it_will_ship_from() -> None:
         ("JUNE", date(2027, 6, 30), "20"),
     ):
         batch = BatchRecord(
+            lot_reference=uuid4().hex[:12],
             firm_id=firm.id,
             product_id=product.id,
             batch_number=batch_number,
@@ -501,6 +503,7 @@ def test_a_reservation_larger_than_the_stock_holds_what_it_can() -> None:
     actor_id = uuid4()
 
     batch = BatchRecord(
+        lot_reference=uuid4().hex[:12],
         firm_id=firm.id,
         product_id=product.id,
         batch_number="MARCH",
@@ -585,6 +588,7 @@ def _stale_and_fresh_order(
         ("FRESH", date(2027, 10, 21)),
     ):
         batch = BatchRecord(
+            lot_reference=uuid4().hex[:12],
             firm_id=firm.id,
             product_id=product.id,
             batch_number=batch_number,
