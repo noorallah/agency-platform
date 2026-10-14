@@ -175,6 +175,17 @@ def _fake_migrate_all(
     monkeypatch.setattr(tenancy_migrations, "migration_targets", targets)
     monkeypatch.setattr(tenancy_migrations, "upgrade_store", upgrade)
     monkeypatch.setattr(tenancy_lifecycle, "prune_firm_objects", prune)
+    seen["renamed"] = []
+
+    def rename(*, database_url: str, schema_name: str, user_names: object) -> int:
+        """Record the salesman rename pass over one firm store."""
+        renamed = seen["renamed"]
+        assert isinstance(renamed, list)
+        renamed.append(schema_name)
+        return 0
+
+    monkeypatch.setattr(tenancy_migrations, "read_user_names", lambda _p: {})
+    monkeypatch.setattr(tenancy_migrations, "rename_placeholder_salesmen", rename)
     lines: list[str] = []
     seen["exit"] = tenancy_migrations.upgrade_every_store(
         dry_run=False, report=lines.append
@@ -194,6 +205,7 @@ def test_a_fresh_install_migrates_and_prunes_the_platform_only(
     assert seen["platform_only"] is True
     assert seen["upgraded"] == ["platform"]
     assert seen["pruned"] == ["platform"]
+    assert seen["renamed"] == []
 
 
 def test_an_install_with_firms_migrates_every_store_and_prunes_nothing(
@@ -206,6 +218,9 @@ def test_an_install_with_firms_migrates_every_store_and_prunes_nothing(
     assert seen["platform_only"] is False
     assert seen["upgraded"] == ["platform", "firm_shared"]
     assert seen["pruned"] == []
+    # The firm stores' placeholder salesmen are named from the platform's
+    # users once every store is at head; the platform holds no list.
+    assert seen["renamed"] == ["firm_shared"]
 
 
 def test_firm_count_prints_the_number_and_exits_zero(

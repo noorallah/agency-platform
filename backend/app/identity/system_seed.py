@@ -152,6 +152,9 @@ PERMISSION_GROUPS = {
         "TERRITORY_RESTORE",
         "TERRITORY_ASSIGN_CUSTOMERS",
         "TERRITORY_ASSIGN_SALESMEN",
+        # Keep the firm's own salesman list (P2): add, change, delete and
+        # restore an entry. Reading the list needs only membership.
+        "SALESMAN_MANAGE",
         "TERRITORY_IMPORT",
         "TERRITORY_EXPORT",
     ),
@@ -719,6 +722,9 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "UOM_VIEW",
             "TERRITORY_VIEW",
             "TERRITORY_ASSIGN_CUSTOMERS",
+            # Keeps the list of the salesmen their desk sells through (P2).
+            # What those salesmen are paid stays outside the role, below.
+            "SALESMAN_MANAGE",
             # Reads the offers their team sells under. Setting them is not
             # theirs, for the reason the commission rate below is not: a
             # discount the firm gives away is a control over the role, and

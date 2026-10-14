@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**343 tables**, of which **17** live only in the platform store.
+**344 tables**, of which **17** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -617,6 +617,12 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `sales_targets` | firm store ¹ | One expectation, for one period, of one salesman or round. | `users`, `sales_territories` |
+
+### `app/salesmen`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `salesmen` | firm store ¹ | One entry of the firm's salesman list. |  |
 
 ### `app/settlements`
 

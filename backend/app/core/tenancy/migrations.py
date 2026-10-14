@@ -24,11 +24,13 @@ is not reintroduced by returning to this process.
 """
 
 import threading
-from collections.abc import Callable
+from collections import defaultdict
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from uuid import UUID
 
 from alembic.config import Config
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.engine import make_url
 
 from alembic import command
@@ -263,6 +265,109 @@ def _prune_fresh_platform(target: MigrationTarget, say: Callable[[str], None]) -
     return 0
 
 
+def read_user_names(platform: DatabaseManager) -> dict[UUID, str]:
+    """Return every user's name from the platform store, blank names left out."""
+    # Imported here: the identity models are not this module's concern
+    # otherwise, and `users` is read nowhere else in it.
+    from app.identity.models import User
+
+    platform_schema = platform.config.default_schema or "platform"
+    with platform.sessions(schema=platform_schema).session() as session:
+        rows = session.execute(select(User.id, User.full_name)).all()
+    return {
+        user_id: (full_name or "").strip()
+        for user_id, full_name in rows
+        if (full_name or "").strip()
+    }
+
+
+def rename_placeholder_salesmen(
+    *, database_url: str, schema_name: str, user_names: Mapping[UUID, str]
+) -> int:
+    """Name the store's placeholder salesmen from their users. Returns how many.
+
+    The migration that builds the salesman list (`20261014_0380`) names an
+    entry ``Salesman`` and eight characters of its user's id where it cannot
+    read ``platform.users`` -- a dedicated database. Only an entry still
+    carrying exactly that placeholder for its own user is renamed, so a name
+    somebody typed is never overwritten; a clash within the firm takes the
+    id's eight characters after the name, as the migration does.
+    """
+    from app.salesmen.naming import free_name, placeholder_name
+
+    engine = create_engine(database_url, pool_pre_ping=True)
+    renamed = 0
+    try:
+        with engine.begin() as connection:
+            if connection.dialect.name == "postgresql":
+                connection.execute(text(f'SET search_path TO "{schema_name}"'))
+            if not inspect(connection).has_table("salesmen"):
+                return 0
+            live = connection.execute(
+                text(
+                    "SELECT id, firm_id, user_id, name FROM salesmen "
+                    "WHERE NOT is_deleted"
+                )
+            ).all()
+            taken: dict[str, set[str]] = defaultdict(set)
+            for _, firm_id, _, name in live:
+                taken[str(firm_id)].add(str(name).lower())
+            for row_id, firm_id, user_id, name in live:
+                if user_id is None:
+                    continue
+                user = UUID(str(user_id))
+                wanted = user_names.get(user)
+                if not wanted or name != placeholder_name(user):
+                    continue
+                names = taken[str(firm_id)]
+                names.discard(name.lower())
+                new_name = free_name(wanted, user, names)
+                if new_name is None:
+                    names.add(name.lower())
+                    continue
+                connection.execute(
+                    text(
+                        "UPDATE salesmen SET name = :name, version = version + 1, "
+                        "updated_at = CURRENT_TIMESTAMP WHERE id = :id"
+                    ),
+                    {"name": new_name, "id": row_id},
+                )
+                names.add(new_name.lower())
+                renamed += 1
+    finally:
+        engine.dispose()
+    return renamed
+
+
+def _rename_salesmen_everywhere(
+    targets: list[MigrationTarget], settings: Settings, say: Callable[[str], None]
+) -> int:
+    """Run the salesman rename on every firm store. Returns the failure count."""
+    platform = DatabaseManager.from_settings(settings)
+    try:
+        user_names = read_user_names(platform)
+    except Exception as error:  # noqa: BLE001 - reporting, not control flow
+        say(f"  reading user names for the salesman list FAILED\n    {error}")
+        return 1
+    finally:
+        platform.dispose()
+    failures = 0
+    for target in targets:
+        try:
+            count = rename_placeholder_salesmen(
+                database_url=target.database_url,
+                schema_name=target.schema_name,
+                user_names=user_names,
+            )
+        except Exception as error:  # noqa: BLE001 - reporting, not control flow
+            failures += 1
+            say(f"  {target.label}: naming salesmen FAILED\n    {error}")
+            continue
+        if count:
+            say(f"  {target.label}: {count} salesman name(s) read from users")
+    return failures
+
+
 def upgrade_every_store(
     *, dry_run: bool, report: Callable[[str], None] | None = None
 ) -> int:
@@ -309,6 +414,12 @@ def upgrade_every_store(
 
     if fresh and failures == 0:
         failures += _prune_fresh_platform(targets[0], say)
+
+    # Once every store is at head: the platform store is the only one that
+    # can say what a dedicated database's placeholder salesmen are called.
+    # `targets[0]` is the platform store, which holds no firm's list.
+    if failures == 0:
+        failures += _rename_salesmen_everywhere(targets[1:], settings, say)
 
     if failures:
         say(f"\n{failures} of {len(targets)} store(s) failed.")
