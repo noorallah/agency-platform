@@ -35,6 +35,7 @@ from app.sales_invoice.api.router import (
 from app.sales_invoice.api.router import router as invoice_router
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrderLine
+from app.salesmen.models import Salesman
 from app.settlements.api.router import (
     collections_by_day,
     collections_by_mode,
@@ -91,6 +92,14 @@ class _Firm:
             user_id=self.salesman,
             firm_id=self.id,
             is_active=True,
+        )
+        _add(
+            self.session,
+            Salesman,
+            id=self.salesman,
+            firm_id=self.id,
+            name="Ravi",
+            user_id=self.salesman,
         )
 
     def invoice(

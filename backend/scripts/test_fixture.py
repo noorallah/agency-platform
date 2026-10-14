@@ -2311,8 +2311,16 @@ def build_territory_firm(built: Built) -> None:
     for handle, name in (("asha", "Asha"), ("bala", "Bala")):
         user_id = new_user(built, handle, f"{name} Sales", firms=(firm,))
         firm_roles(built, user_id, firm, ["SALES_EXECUTIVE"])
-        people[handle] = user_id
+        # Rounds, rules and targets name an entry of the firm's salesman
+        # list, never the user, so each gets his entry tied to him.
+        entry = admin.call(
+            "POST",
+            "/api/v1/salesmen",
+            {"name": f"{name} Sales ({built.suffix})", "user_id": user_id},
+        )
+        people[handle] = str(entry["id"])
         built.ids[handle] = user_id
+        built.ids[f"{handle}_salesman"] = str(entry["id"])
 
     def node(
         code: str, name: str, level: str, parent: str | None, route: Json | None
@@ -2560,7 +2568,7 @@ def build_commission_firm(built: Built) -> None:
     month_start = today.replace(day=1).isoformat()
     next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
     month_end = (next_month - timedelta(days=1)).isoformat()
-    users = {handle: built.ids[handle] for handle in ("asha", "bala")}
+    users = {handle: built.ids[f"{handle}_salesman"] for handle in ("asha", "bala")}
     main = by_code(admin, "/api/v1/warehouses", "MAIN")
     head = by_code(admin, "/api/v1/branches", "HO")
     product_p = admin.call("GET", f"/api/v1/products?search={tag}-P")[0]

@@ -200,6 +200,8 @@ from app.sales_order.models import (
     SalesOrderLine,
     SalesOrderNote,
 )
+from app.salesmen.models import Salesman
+from app.salesmen.services.entries import ensure_salesman_entry
 from app.tax.models import (
     TaxComponent,
     TaxProfile,
@@ -604,7 +606,7 @@ class FirmContext:
     primary_routes: list[UUID]
     tax_profiles: dict[str, TaxProfile]
     product_categories: dict[str, ProductCategory]
-    salesmen: list[User]
+    salesmen: list[Salesman]
     branch_by_name: dict[str, Branch]
     warehouse_by_name: dict[str, Warehouse]
 
@@ -2710,7 +2712,18 @@ def _seed_users(
                 firm_name=firm.name,
                 logins=logins,
             )
-            context.salesmen.append(salesman)
+            # Rounds and documents name an entry of the firm's salesman list,
+            # so the user gets his entry -- of his own id where it is free.
+            entry_id = ensure_salesman_entry(
+                session,
+                firm.id,
+                salesman.id,
+                name=salesman.full_name,
+                actor_id=admin_user.id,
+            )
+            entry = session.get(Salesman, entry_id)
+            assert entry is not None
+            context.salesmen.append(entry)
             created_users["salesmen"].append(salesman)
 
     if len(contexts) >= 3:

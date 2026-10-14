@@ -140,6 +140,7 @@ from app.sales.schemas.territory import SalesmanAssignmentInput, VisitFrequency
 from app.sales.services import SalesTerritoryService
 from app.sales_order.schemas import SalesWorkflowSettingsWrite
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
+from app.salesmen.services.entries import ensure_salesman_entry
 from app.tax.models import TaxProfile
 from app.tax.services.gst_template import apply_india_gst_template
 from app.uom.models import ConversionRule, PackagingType, ProductPackagingLevel, Uom
@@ -672,18 +673,27 @@ def main() -> int:
                 _seed_branching(tenant_session, firm, blueprint, actor_id)
                 _seed_vendors(tenant_session, firm, blueprint, actor_id)
                 _seed_customers(tenant_session, firm, blueprint, actor_id)
+                # The sales team are users; rounds and rules name entries of
+                # the firm's salesman list, so each gets his entry first.
+                salesman_ids = tuple(
+                    ensure_salesman_entry(
+                        tenant_session, target.firm_id, user_id, actor_id=actor_id
+                    )
+                    for user_id in target.salesman_ids
+                )
+                tenant_session.commit()
                 _seed_territories(
                     tenant_session,
                     firm,
                     blueprint,
                     actor_id,
-                    salesman_ids=target.salesman_ids,
+                    salesman_ids=salesman_ids,
                 )
                 _seed_commission(
                     tenant_session,
                     firm,
                     actor_id,
-                    salesman_ids=target.salesman_ids,
+                    salesman_ids=salesman_ids,
                 )
                 _seed_products(tenant_session, firm, blueprint, actor_id)
                 _seed_packaging_levels(tenant_session, firm, blueprint, actor_id)

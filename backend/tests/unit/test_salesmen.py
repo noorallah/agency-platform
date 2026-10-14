@@ -64,6 +64,7 @@ from app.salesmen.api.router import (
 from app.salesmen.models import Salesman
 from app.salesmen.naming import free_name, placeholder_name
 from app.salesmen.schemas import SalesmanCreate, SalesmanUpdate
+from app.salesmen.services.entries import ensure_salesman_entry
 from app.salesmen.services.nameable import active_salesman, nameable_salesman
 
 MANAGE = "SALESMAN_MANAGE"
@@ -516,6 +517,26 @@ def test_a_members_user_id_is_refused_though_he_has_an_entry(shop: _Shop) -> Non
     assert nameable_salesman(shop.session, shop.firm.id, entry) == entry
     with pytest.raises(ValidationError, match="not on this firm's list"):
         nameable_salesman(shop.session, shop.firm.id, shop.clerk.id)
+
+
+def test_a_seeded_entry_takes_the_users_id_where_it_is_free(shop: _Shop) -> None:
+    """The seeders' helper follows the migration: own id first, else a new one."""
+    clerk = shop.clerk.id
+
+    made = ensure_salesman_entry(shop.session, shop.firm.id, clerk)
+    entry = shop.session.get(Salesman, made)
+    assert made == clerk
+    assert entry is not None
+    assert (entry.user_id, entry.name) == (clerk, "Ravi Clerk")
+    # Asked again, the entry is found rather than made twice.
+    assert ensure_salesman_entry(shop.session, shop.firm.id, clerk) == clerk
+
+    elsewhere = uuid4()
+    other = ensure_salesman_entry(shop.session, elsewhere, clerk, name="Ravi")
+    assert other != clerk
+    held = shop.session.get(Salesman, other)
+    assert held is not None
+    assert (held.firm_id, held.user_id) == (elsewhere, clerk)
 
 
 def test_a_derived_salesman_skips_one_whose_user_has_left(shop: _Shop) -> None:
