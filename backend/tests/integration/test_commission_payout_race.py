@@ -66,27 +66,27 @@ def sessions(engine: Engine) -> Iterator[Callable[[], Session]]:
         own.dispose()
 
 
-def _add_salesman(session: Session, schema: str) -> UUID:
-    """Add a person for the payout to belong to.
+def _add_salesman(session: Session, schema: str, firm_id: UUID) -> UUID:
+    """Add an entry on the firm's salesman list for the payout to belong to.
 
-    `commission_payouts.salesman_id` carries a real foreign key to `users`,
-    and `create_all` builds that table in the disposable schema too, so a
-    payout cannot be written without one.
+    `commission_payouts.salesman_id` carries a real foreign key to `salesmen`
+    since the firm's own list replaced user ids (P2), so a payout cannot be
+    written without one.
     """
     salesman_id = uuid4()
     session.execute(
         text(
             f"""
-            INSERT INTO "{schema}".users (
-                id, email, full_name, password_hash,
+            INSERT INTO "{schema}".salesmen (
+                id, firm_id, name, earns_commission, is_active,
                 is_deleted, version, created_at, updated_at
             ) VALUES (
-                :id, :email, 'Probe Salesman', 'x',
+                :id, :firm, :name, true, true,
                 false, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """
         ),
-        {"id": salesman_id, "email": f"{salesman_id}@probe.local"},
+        {"id": salesman_id, "firm": firm_id, "name": f"Probe {salesman_id}"},
     )
     session.commit()
     return salesman_id
@@ -159,7 +159,7 @@ def test_two_interleaved_accruals_leave_only_one_live_payout(
     """
     firm_id = uuid4()
     with sessions() as setup:
-        salesman_id = _add_salesman(setup, temp_schema)
+        salesman_id = _add_salesman(setup, temp_schema, firm_id)
 
     one, two = sessions(), sessions()
     try:
@@ -203,7 +203,7 @@ def test_a_cancelled_payout_leaves_the_period_free_to_run_again(
     """
     firm_id = uuid4()
     with sessions() as session:
-        salesman_id = _add_salesman(session, temp_schema)
+        salesman_id = _add_salesman(session, temp_schema, firm_id)
         _add_payout(
             session,
             temp_schema,
@@ -223,7 +223,7 @@ def test_a_different_period_is_not_blocked(
     """The key is per period, so next month accrues normally."""
     firm_id = uuid4()
     with sessions() as session:
-        salesman_id = _add_salesman(session, temp_schema)
+        salesman_id = _add_salesman(session, temp_schema, firm_id)
         _add_payout(session, temp_schema, firm_id=firm_id, salesman_id=salesman_id)
         _add_payout(
             session,
@@ -244,8 +244,8 @@ def test_two_people_can_each_be_paid_for_the_same_period(
     """The key is per person as well, or one accrual would block the team."""
     firm_id = uuid4()
     with sessions() as session:
-        first = _add_salesman(session, temp_schema)
-        second = _add_salesman(session, temp_schema)
+        first = _add_salesman(session, temp_schema, firm_id)
+        second = _add_salesman(session, temp_schema, firm_id)
         _add_payout(session, temp_schema, firm_id=firm_id, salesman_id=first)
         _add_payout(session, temp_schema, firm_id=firm_id, salesman_id=second)
         session.commit()
@@ -259,7 +259,7 @@ def test_the_amounts_are_untouched_by_any_of_this(
     """A guard that changed a figure would be worse than none."""
     firm_id = uuid4()
     with sessions() as session:
-        salesman_id = _add_salesman(session, temp_schema)
+        salesman_id = _add_salesman(session, temp_schema, firm_id)
         _add_payout(session, temp_schema, firm_id=firm_id, salesman_id=salesman_id)
         session.commit()
 
