@@ -49,8 +49,8 @@ void main() {
   for (final MapEntry<String, ReturnableDocument> doc in {
     'a delivery note': _note(),
     'a bill': _bill(),
-  }.entries)
-  testWidgets('9999 against ${doc.key} line of 5 is refused in words',
+  }.entries) {
+    testWidgets('9999 against ${doc.key} line of 5 is refused in words',
       (tester) async {
     tester.view.physicalSize = const Size(1366, 768);
     tester.view.devicePixelRatio = 1;
@@ -85,5 +85,6 @@ void main() {
     expect(find.byKey(const ValueKey<String>('sales-return-save')),
         findsOneWidget);
     expect(find.textContaining('only 5 went out'), findsOneWidget);
-  });
+    });
+  }
 }

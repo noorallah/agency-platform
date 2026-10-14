@@ -191,8 +191,9 @@ void main() {
           final String said = await pressWithReason(tester, 'Cancel');
           final String st = await statusOf('${rClosed['id']}');
           log.saw = '${log.saw}; Cancel pressed: status $st, says "$said"';
-          if (st == 'CANCELLED') throw StateError('a Closed return was '
-              'cancelled');
+          if (st == 'CANCELLED') {
+            throw StateError('a Closed return was cancelled');
+          }
         }
       });
 

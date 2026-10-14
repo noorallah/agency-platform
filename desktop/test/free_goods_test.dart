@@ -68,6 +68,8 @@ void main() {
       'id': 'p-9',
       'code': 'GIFT-1',
       'name': 'Steel bowl',
+      // The form refuses to save a product with no brand (backlog 138).
+      'brand': 'Acme',
       'product_type': 'STOCK_ITEM',
       'status': 'ACTIVE',
       'unit': 'NOS',

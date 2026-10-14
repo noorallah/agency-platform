@@ -57,7 +57,11 @@ def _keys_between(path: Path, first_key: str, stop: str) -> set[str]:
     document.
     """
     text = path.read_text(encoding="utf-8")
-    start = text.index(f"'{first_key}'")
+    # The key as the literal writes it, colon and all: an editor that also
+    # reads the field back (``_held('supplier_invoice_date')``) names it
+    # earlier in the file, and starting there swept every line key into the
+    # document's set.
+    start = text.index(f"'{first_key}':")
     # Walk back to the opening brace of this literal so the first key counts.
     start = text.rindex("{", 0, start)
     end = text.index(stop, start)

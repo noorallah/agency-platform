@@ -111,6 +111,8 @@ Future<Json?> _saveProduct(
     'id': 'product-1',
     'code': 'PROD-001',
     'name': 'Pain Relief',
+    // The form refuses to save a product with no brand (backlog 138).
+    'brand': 'Acme',
     'product_type': 'STOCK_ITEM',
     'status': 'ACTIVE',
     'unit': 'BOX',
