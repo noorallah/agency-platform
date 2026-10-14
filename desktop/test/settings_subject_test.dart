@@ -124,7 +124,7 @@ void main() {
     );
     expect(SettingsSubjects.forSection('Tax'), same(_tax));
     expect(SettingsSubjects.forRoute(MenuLayout.taxSubjectRoute), same(_tax));
-    expect(SettingsSubjects.forSection('Item lists'), isNull);
+    expect(SettingsSubjects.forSection('People'), isNull);
     expect(_tax.page.label, 'Tax settings');
   });
 
@@ -355,10 +355,10 @@ void main() {
     expect(opened, isEmpty);
 
     // A section with no subject is cards as before.
-    await tester.ensureVisible(_key('setup-section-Item lists'));
-    await tester.tap(_key('setup-section-Item lists'));
+    await tester.ensureVisible(_key('setup-section-People'));
+    await tester.tap(_key('setup-section-People'));
     await tester.pumpAndSettle();
-    expect(_key('setup-card-masters/product-categories'), findsOneWidget);
+    expect(_key('setup-card-administration/users'), findsOneWidget);
 
     // Search still names each item, and opens it as it always did.
     await tester.enterText(_key('setup-search'), 'Tax Rules');
@@ -739,6 +739,8 @@ void main() {
             'Territories & routes',
             'Account structure',
             'Party lists',
+            'Item lists',
+            'Locations',
           ]);
     });
 
@@ -1061,6 +1063,216 @@ void main() {
         'sales/route-builder',
         'accounting/control-accounts',
         MenuLayout.customerGroupsRoute,
+      ]);
+    });
+  });
+
+  // Row T2: Item lists and Locations, two more Set up sections on the same
+  // piece.
+  group('Item lists and Locations', () {
+    SettingsSectionState stateOf(SettingsSubject subject,
+            {Map<String, String> states = const {},
+            Map<String, String> details = const {}}) =>
+        SettingsSectionState.fromJson({
+          'section': subject.sectionCode,
+          'todo_count': states.values.where((s) => s == 'TODO').length,
+          'steps': [
+            for (final SubjectStep step in subject.steps)
+              {
+                'code': step.code,
+                'state': states[step.code] ?? 'OPTIONAL',
+                'detail': details[step.code] ?? '',
+              },
+          ],
+        });
+
+    const Map<SettingsSubject, List<String>> numbered = {
+      SettingsSubjects.itemLists: [
+        '1 Units of Measure',
+        '2 UOM groups',
+        '3 Conversion rules',
+        '4 Packaging types',
+        '5 Packaging levels',
+        '6 Product categories',
+        '7 Principals',
+        '8 Brands',
+      ],
+      SettingsSubjects.locations: [
+        '1 Places',
+        '2 Branch types',
+        '3 Warehouse types',
+        '4 Storage areas',
+      ],
+    };
+
+    test('each names the items of its section, and the codes are fixed', () {
+      for (final SettingsSubject subject in numbered.keys) {
+        expect(
+          {for (final SubjectStep step in subject.entries) step.path},
+          {
+            for (final MenuItemSpec item in _itemsOf(subject.section))
+              item.path,
+          },
+          reason: subject.section,
+        );
+        expect(SettingsSubjects.forSection(subject.section), same(subject));
+        expect(SettingsSubjects.forRoute(subject.route), same(subject));
+        expect(subject.tools, isEmpty, reason: subject.section);
+        // The step codes are the menu item keys.
+        for (final SubjectStep step in subject.steps) {
+          expect(step.path.split('/').last, step.code, reason: step.path);
+        }
+      }
+      // The server's codes, which a server branch answers for.
+      expect(
+          [
+            for (final SubjectStep s in SettingsSubjects.itemLists.steps)
+              s.code
+          ],
+          [
+            'uoms',
+            'uom-groups',
+            'conversion-rules',
+            'packaging-types',
+            'packaging-levels',
+            'product-categories',
+            'principals',
+            'brands',
+          ]);
+      expect(
+          [
+            for (final SubjectStep s in SettingsSubjects.locations.steps)
+              s.code
+          ],
+          [
+            'geography-masters',
+            'branch-types',
+            'warehouse-types',
+            'storage-areas',
+          ]);
+      expect(SettingsSubjects.itemLists.route, 'settings/subject/item-lists');
+      expect(SettingsSubjects.locations.route, 'settings/subject/locations');
+      expect(SettingsSubjects.itemLists.page.label, 'Item lists settings');
+      expect(SettingsSubjects.locations.page.label, 'Locations settings');
+      // Each step says what it needs from the step before.
+      expect(SettingsSubjects.itemLists.steps[1].topLine,
+          contains('Needs units'));
+      expect(SettingsSubjects.itemLists.steps[2].topLine,
+          contains('Needs two units'));
+      expect(SettingsSubjects.itemLists.steps[4].topLine,
+          contains('Needs a packaging type'));
+      expect(SettingsSubjects.itemLists.steps[7].topLine,
+          contains('Needs a principal'));
+      expect(SettingsSubjects.locations.steps[3].topLine,
+          contains('Needs a warehouse'));
+    });
+
+    for (final MapEntry<SettingsSubject, List<String>> entry
+        in numbered.entries) {
+      final SettingsSubject subject = entry.key;
+      testWidgets(
+          '${subject.section} opens on Start here, numbers its steps and '
+          'reads once', (tester) async {
+        final _Seen seen = await _pump(
+          tester,
+          subject: subject,
+          state: () => stateOf(subject),
+        );
+
+        expect(_key('subject-start').hitTestable(), findsOneWidget);
+        expect(find.text(subject.readyNote), findsOneWidget);
+        for (final String label in entry.value) {
+          expect(find.text(label), findsOneWidget, reason: label);
+        }
+        double left(String path) =>
+            tester.getTopLeft(_key('subject-tab-$path')).dx;
+        final List<double> order = [
+          left('start'),
+          for (final SubjectStep step in subject.entries) left(step.path),
+        ];
+        expect(order, [...order]..sort());
+
+        for (final SubjectStep step in subject.entries) {
+          await _tapTab(tester, step.path);
+          expect(find.text(step.topLine).hitTestable(), findsOneWidget,
+              reason: step.path);
+          // Every step here is a screen.
+          expect(_key('screen-${step.path}').hitTestable(), findsOneWidget,
+              reason: step.path);
+        }
+        await _tapTab(tester, 'start');
+        expect(seen.reads, 1);
+        expect(seen.windows, isEmpty);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('Item lists: a firm with no unit leaves Units of Measure To do',
+        (tester) async {
+      await _pump(
+        tester,
+        subject: SettingsSubjects.itemLists,
+        state: () => stateOf(
+          SettingsSubjects.itemLists,
+          states: {'uoms': 'TODO'},
+          details: {'uoms': 'None yet'},
+        ),
+      );
+
+      expect(find.text(SettingsSubjects.itemLists.readyNote), findsNothing);
+      expect(_chip(tester, 'uoms'), isNot(_chip(tester, 'uom-groups')));
+      expect(find.text('None yet'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Settings shows each section as one card', (tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final List<SettingsSubject> subjects = [];
+      final List<MenuItemSpec> opened = [];
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SetUpPage(
+            settings: MenuLayout.settings,
+            section: 'Firm',
+            onOpen: opened.add,
+            onOpenSubject: subjects.add,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      for (final SettingsSubject subject in numbered.keys) {
+        await tester.ensureVisible(_key('setup-section-${subject.section}'));
+        await tester.tap(_key('setup-section-${subject.section}'));
+        await tester.pumpAndSettle();
+        for (final MenuItemSpec item in _itemsOf(subject.section)) {
+          expect(_key('setup-card-${item.path}'), findsNothing,
+              reason: item.path);
+        }
+        await tester.tap(_key('setup-subject-${subject.sectionCode}'));
+        await tester.pumpAndSettle();
+      }
+      expect(subjects, numbered.keys.toList());
+      expect(opened, isEmpty);
+
+      // Search still finds each old item by its own name and opens it.
+      for (final String path in [
+        'masters/product-categories',
+        'administration/uoms',
+        'masters/storage-areas',
+      ]) {
+        await tester.enterText(
+            _key('setup-search'), MenuLayout.settings.item(path)!.label);
+        await tester.pumpAndSettle();
+        await tester.tap(_key('setup-card-$path'));
+        await tester.pumpAndSettle();
+      }
+      expect([for (final MenuItemSpec item in opened) item.path], [
+        'masters/product-categories',
+        'administration/uoms',
+        'masters/storage-areas',
       ]);
     });
   });

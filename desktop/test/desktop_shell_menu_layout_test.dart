@@ -278,6 +278,20 @@ void main() {
       'masters/vendor-types',
       'customer-groups',
     ),
+    (
+      'Item lists',
+      'item-lists',
+      'Item lists settings',
+      'masters/brands',
+      'administration/uoms',
+    ),
+    (
+      'Locations',
+      'locations',
+      'Locations settings',
+      'masters/branch-types',
+      'masters/storage-areas',
+    ),
   ]) {
     testWidgets('Settings > $section opens as one screen in a tab of its own',
         (tester) async {
@@ -310,8 +324,8 @@ void main() {
   }
 
   // The old items of Stock, Business profile, Pricing, Territories & routes,
-  // Account structure and Party lists still open from search, each in its
-  // own tab, as before the subjects.
+  // Account structure, Party lists, Item lists and Locations still open from
+  // search, each in its own tab, as before the subjects.
   for (final (String query, String path) in const [
     ('Adjustment Reasons', 'inventory/adjustment-reasons'),
     ('Unit Sets', 'administration/unit-sets'),
@@ -319,6 +333,10 @@ void main() {
     ('Route Builder', 'sales/route-builder'),
     ('Control Accounts', 'accounting/control-accounts'),
     ('Customer Groups', 'customer-groups'),
+    // A Masters item cannot open in this harness (Vendor Types fails here
+    // the same way), so Item lists is proved by its Units of Measure and the
+    // Masters items by settings_subject_test.dart's search.
+    ('Units of Measure', 'administration/uoms'),
   ]) {
     testWidgets('Settings search still opens $query in its own tab',
         (tester) async {

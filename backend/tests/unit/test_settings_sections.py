@@ -12,6 +12,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.approvals.models import ApprovalRule
 from app.batch_serial.models.batch_serial import BatchSaleSettings
+from app.branches.models.branch_warehouse import (
+    Branch,
+    BranchType,
+    Warehouse,
+    WarehouseStorageNode,
+    WarehouseType,
+)
 from app.business.models.framework import (
     AttributeDefinition,
     BusinessFeature,
@@ -48,6 +55,9 @@ from app.loyalty.models.loyalty import LoyaltyEntry, LoyaltySettings
 from app.messaging.models.messaging import MessagingSettings
 from app.pricing.models.price_level import PriceLevel
 from app.pricing.models.price_list import PriceList
+from app.products.models.brand import Brand
+from app.products.models.brand import Principal as AgencyPrincipal
+from app.products.models.product import ProductCategory
 from app.promotions.models.promotion import Promotion
 from app.purchase.models.purchase import (
     PurchaseBudget,
@@ -56,6 +66,7 @@ from app.purchase.models.purchase import (
 )
 from app.sales.models import GeoCountry
 from app.sales.models.territory import (
+    GeoState,
     RouteTypeMaster,
     SalesTerritoryNode,
     TerritoryCustomerAssignment,
@@ -78,6 +89,7 @@ from app.trade_licences.models.trade_licence import (
     TradeLicenceType,
 )
 from app.uom.models.unit_set import UnitSet
+from app.uom.models.uom import ConversionRule, PackagingType, Uom, UomGroup
 from app.vendors.models.vendor import VendorCategory, VendorType
 
 STEP_CODES = [
@@ -337,6 +349,8 @@ def test_an_unknown_section_is_refused(session: Session) -> None:
         "territories",
         "account-structure",
         "party-lists",
+        "item-lists",
+        "locations",
     ],
 )
 def test_reading_the_state_writes_nothing(session: Session, section: str) -> None:
@@ -632,6 +646,8 @@ def test_buying_reads_as_it_comes_then_what_was_set(session: Session) -> None:
         "territories",
         "account-structure",
         "party-lists",
+        "item-lists",
+        "locations",
     ],
 )
 def test_the_route_serves_each_new_section(session: Session, section: str) -> None:
@@ -1132,4 +1148,178 @@ def test_party_lists_read_as_they_come_then_what_was_set(session: Session) -> No
         "vendor-types": ("OPTIONAL", "2 types"),
         "licence-types": ("OPTIONAL", "1 licence type"),
         "licence-check-settings": ("OPTIONAL", "Set for this firm"),
+    }
+
+
+ITEM_LISTS_CODES = [
+    "uoms",
+    "uom-groups",
+    "conversion-rules",
+    "packaging-types",
+    "packaging-levels",
+    "product-categories",
+    "principals",
+    "brands",
+]
+LOCATIONS_CODES = [
+    "geography-masters",
+    "branch-types",
+    "warehouse-types",
+    "storage-areas",
+]
+
+
+def test_a_store_with_no_unit_owes_one(session: Session) -> None:
+    """Units are To do until one exists; everything else is never owed."""
+    firm = _firm(session)
+
+    bare = _state(session, firm.id, "item-lists")
+
+    assert [step.code for step in bare.steps] == ITEM_LISTS_CODES
+    assert bare.todo_count == 1
+    assert _details(bare) == {
+        "uoms": ("TODO", "None yet"),
+        "uom-groups": ("OPTIONAL", "None yet"),
+        "conversion-rules": ("OPTIONAL", "None yet"),
+        "packaging-types": ("OPTIONAL", "None yet"),
+        "packaging-levels": ("OPTIONAL", "None yet"),
+        "product-categories": ("OPTIONAL", "None yet"),
+        "principals": ("OPTIONAL", "None yet"),
+        "brands": ("OPTIONAL", "None yet"),
+    }
+
+
+def test_item_lists_say_what_the_store_and_firm_hold(session: Session) -> None:
+    """The store's lists count for every firm; the firm's own only for it."""
+    firm = _firm(session)
+    other = _firm(session, "SET02")
+    pcs = Uom(code="PCS", name="Pieces")
+    box = Uom(code="BOX", name="Box")
+    session.add_all(
+        [
+            pcs,
+            box,
+            Uom(code="OLD", name="Old", status="INACTIVE"),
+            UomGroup(code="COUNT", name="Count"),
+            PackagingType(code="CTN", name="Carton"),
+            PackagingType(code="PLT", name="Pallet"),
+        ]
+    )
+    session.flush()
+    session.add_all(
+        [
+            ConversionRule(
+                firm_id=firm.id,
+                from_uom_id=box.id,
+                to_uom_id=pcs.id,
+                conversion_factor=Decimal("12"),
+                effective_from=date(2026, 4, 1),
+            ),
+            ConversionRule(
+                firm_id=other.id,
+                from_uom_id=box.id,
+                to_uom_id=pcs.id,
+                conversion_factor=Decimal("10"),
+                effective_from=date(2026, 4, 1),
+            ),
+            ProductCategory(firm_id=firm.id, code="FMCG", name="FMCG", path="FMCG"),
+            AgencyPrincipal(firm_id=firm.id, code="HUL", name="Hindustan Unilever"),
+            AgencyPrincipal(firm_id=other.id, code="ITC", name="ITC"),
+        ]
+    )
+    session.flush()
+    session.add_all(
+        [
+            Brand(firm_id=firm.id, name="Lux"),
+            Brand(firm_id=firm.id, name="Surf"),
+            Brand(firm_id=firm.id, name="Gone", is_active=False),
+        ]
+    )
+    session.commit()
+
+    state = _state(session, firm.id, "item-lists")
+
+    assert state.todo_count == 0
+    assert _details(state) == {
+        "uoms": ("DONE", "2 units"),
+        "uom-groups": ("OPTIONAL", "1 group"),
+        "conversion-rules": ("OPTIONAL", "1 rule"),
+        "packaging-types": ("OPTIONAL", "2 types"),
+        "packaging-levels": ("OPTIONAL", "None yet"),
+        "product-categories": ("OPTIONAL", "1 category"),
+        "principals": ("OPTIONAL", "1 principal"),
+        "brands": ("OPTIONAL", "2 brands"),
+    }
+
+
+def test_locations_read_as_they_come_then_what_was_set(session: Session) -> None:
+    """A bare firm owes nothing; storage areas wait on a warehouse."""
+    firm = _firm(session)
+
+    bare = _state(session, firm.id, "locations")
+    assert [step.code for step in bare.steps] == LOCATIONS_CODES
+    assert bare.todo_count == 0
+    assert _details(bare) == {
+        "geography-masters": ("OPTIONAL", "None yet"),
+        "branch-types": ("OPTIONAL", "None yet"),
+        "warehouse-types": ("OPTIONAL", "None yet"),
+        "storage-areas": ("OPTIONAL", "Needs a warehouse first"),
+    }
+
+    country = GeoCountry(code="IN", name="India")
+    session.add(country)
+    session.flush()
+    branch = Branch(
+        firm_id=firm.id,
+        code="BR-MAIN",
+        name="Main",
+        display_name="Main",
+        currency_code="INR",
+        working_hours={},
+        status="ACTIVE",
+    )
+    session.add_all(
+        [
+            GeoState(country_id=country.id, code="KA", name="Karnataka"),
+            GeoState(country_id=country.id, code="TN", name="Tamil Nadu"),
+            branch,
+            BranchType(firm_id=firm.id, code="DEPOT", name="Depot"),
+            WarehouseType(firm_id=firm.id, code="COLD", name="Cold store"),
+            WarehouseType(firm_id=firm.id, code="DRY", name="Dry store"),
+        ]
+    )
+    session.flush()
+    warehouse = Warehouse(
+        firm_id=firm.id,
+        branch_id=branch.id,
+        code="WH-MAIN",
+        name="Main",
+        display_name="Main",
+        status="ACTIVE",
+        is_default=True,
+    )
+    session.add(warehouse)
+    session.commit()
+
+    assert _details(_state(session, firm.id, "locations"))["storage-areas"] == (
+        "OPTIONAL",
+        "None yet",
+    )
+
+    session.add(
+        WarehouseStorageNode(
+            warehouse_id=warehouse.id,
+            node_type="ZONE",
+            code="Z1",
+            name="Zone 1",
+            path="Z1",
+        )
+    )
+    session.commit()
+
+    assert _details(_state(session, firm.id, "locations")) == {
+        "geography-masters": ("OPTIONAL", "1 country, 2 states"),
+        "branch-types": ("OPTIONAL", "1 type"),
+        "warehouse-types": ("OPTIONAL", "2 types"),
+        "storage-areas": ("OPTIONAL", "1 area"),
     }

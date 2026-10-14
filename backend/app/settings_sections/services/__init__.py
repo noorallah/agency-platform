@@ -25,6 +25,8 @@ from app.settings_sections.services.business_profile import (
 )
 from app.settings_sections.services.buying import buying_section
 from app.settings_sections.services.firm import firm_section
+from app.settings_sections.services.item_lists import item_lists_section
+from app.settings_sections.services.locations import locations_section
 from app.settings_sections.services.party_lists import party_lists_section
 from app.settings_sections.services.pricing import pricing_section
 from app.settings_sections.services.selling import selling_section
@@ -142,6 +144,8 @@ SECTIONS: dict[str, SectionReader] = {
     "territories": territories_section,
     "account-structure": account_structure_section,
     "party-lists": party_lists_section,
+    "item-lists": item_lists_section,
+    "locations": locations_section,
 }
 
 
@@ -168,6 +172,8 @@ __all__ = [
     "business_profile_section",
     "buying_section",
     "firm_section",
+    "item_lists_section",
+    "locations_section",
     "party_lists_section",
     "pricing_section",
     "section_state",
