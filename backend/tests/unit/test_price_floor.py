@@ -14,11 +14,17 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import select
 
+from app.batch_serial.models import BatchRecord
 from app.common.scope import ResolvedFirmScope
 from app.core.exceptions import AuthorizationError, ValidationError
 from app.document_framework.models import DocumentLifecycleEvent
 from app.identity.system_seed import ROLE_PERMISSION_CODES, SYSTEM_PERMISSION_CODES
-from app.inventory.models import InventoryTransaction
+from app.inventory.models import (
+    BatchValuation,
+    InventoryTransaction,
+    StockLotSettings,
+)
+from app.inventory.services.lots import FIRM_BY_LOT
 from app.sales_invoice.schemas import SalesInvoiceStatus
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.api.price_override import authorised_price_override
@@ -28,7 +34,11 @@ from app.sales_order.schemas import (
     SalesOrderLineWrite,
 )
 from app.sales_order.services import SalesOrderService
-from app.sales_order.services.price_floor import PricedLine, PriceFloorService
+from app.sales_order.services.price_floor import (
+    PricedLine,
+    PriceFloorService,
+    order_lines,
+)
 from tests.unit.test_licence_checks import ORDER_DATE
 from tests.unit.test_sales_chain_synthesis import _Firm, _session_factory
 
@@ -281,3 +291,78 @@ def test_the_role_the_floor_constrains_cannot_lift_it() -> None:
     assert "SALES_PRICE_OVERRIDE" in ROLE_PERMISSION_CODES["FIRM_ADMIN"]
     assert "SALES_PRICE_OVERRIDE" not in ROLE_PERMISSION_CODES["SALES_MANAGER"]
     assert "SALES_PRICE_OVERRIDE" not in ROLE_PERMISSION_CODES["SALES_EXECUTIVE"]
+
+
+# -- By lot (L2 step 10) ------------------------------------------------------
+
+
+def _dear_lot(shop: _Shop, *, by_lot: bool = True) -> UUID:
+    """Give the product a lot that cost 120 a unit; return the lot's id.
+
+    The product's average stays 60, so a rate of 80 clears the average and
+    falls short of this lot.
+    """
+    if by_lot:
+        shop.session.add(
+            StockLotSettings(firm_id=shop.firm.id, costing_method=FIRM_BY_LOT)
+        )
+    lot = BatchRecord(
+        firm_id=shop.firm.id,
+        product_id=shop.product.id,
+        batch_number="DEAR",
+        lot_reference=uuid4().hex[:12],
+        status="AVAILABLE",
+    )
+    shop.session.add(lot)
+    shop.session.flush()
+    shop.session.add(
+        BatchValuation(
+            firm_id=shop.firm.id,
+            batch_id=lot.id,
+            product_id=shop.product.id,
+            quantity_on_hand=Decimal("5"),
+            unit_cost=Decimal("120"),
+            total_value=Decimal("600"),
+        )
+    )
+    shop.session.commit()
+    return lot.id
+
+
+def _at_80(shop: _Shop, lot_id: UUID | None) -> list[PricedLine]:
+    """Two units for 160, named to a lot or to none."""
+    return order_lines(
+        [
+            SimpleNamespace(
+                line_number=1,
+                product_id=shop.product.id,
+                base_quantity=Decimal("2"),
+                gross_amount=Decimal("160"),
+                discount_amount=Decimal("0"),
+                bill_discount_amount=Decimal("0"),
+                pinned_batch_id=lot_id,
+            )
+        ]
+    )
+
+
+def test_a_line_on_a_dearer_lot_is_judged_on_that_lot(shop: _Shop) -> None:
+    """80 a unit clears the average of 60 but not the lot's 120."""
+    lot_id = _dear_lot(shop)
+    result = shop.floors.check(shop.firm.id, _at_80(shop, lot_id))
+    assert [item.floor for item in result.findings] == ["cost"]
+    message = result.findings[0].message
+    assert "below what it cost" in message
+    assert "120" not in message and "60" not in message
+
+
+def test_a_line_with_no_lot_chosen_is_judged_on_the_average(shop: _Shop) -> None:
+    """No lot named: the item's average, 60, which 80 clears."""
+    _dear_lot(shop)
+    assert shop.floors.check(shop.firm.id, _at_80(shop, None)).findings == []
+
+
+def test_a_firm_on_average_ignores_the_lot(shop: _Shop) -> None:
+    """On Average the lot's own figure is never read: 80 clears 60."""
+    lot_id = _dear_lot(shop, by_lot=False)
+    assert shop.floors.check(shop.firm.id, _at_80(shop, lot_id)).findings == []

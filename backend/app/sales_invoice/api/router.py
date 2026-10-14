@@ -69,6 +69,7 @@ from app.sales_invoice.services.invoice_pdf import MAX_PRINT_RUN
 from app.sales_invoice.services.invoice_print_service import (
     SalesInvoicePrintService,
 )
+from app.sales_invoice.services.lot_margin import LotMarginRecord, LotMarginService
 from app.sales_invoice.services.sales_analysis import (
     AnalysisFilters,
     Cell,
@@ -887,6 +888,43 @@ def sales_analysis_invoices(
             for invoice, net in rows
         ]
     )
+
+
+@router.get(
+    "/reports/margin-by-lot",
+    response_model=PaginatedResponse[LotMarginRecord],
+    status_code=status.HTTP_200_OK,
+)
+def sales_margin_by_lot(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[LotMarginRecord]:
+    """Report what each lot sold for in the dates against its cost (L2 step 10).
+
+    One row per product and lot: quantity billed less returned, taxable
+    value, cost, margin and margin percent. Cost and margin are omitted, not
+    zeroed, for a caller who may not see cost (``PRODUCT_VIEW_COST_PRICE``).
+    The period defaults to this month. The message says how the rows are
+    costed: by lot, or for a firm on Average at the average its batches left
+    with.
+    """
+    today = firm_today(db, scope.firm_id)
+    first = from_date or today.replace(day=1)
+    last = to_date or today
+    service = LotMarginService(db)
+    rows = service.report(
+        scope.firm_id,
+        from_date=first,
+        to_date=last,
+        show_cost=scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE"),
+    )
+    response = ReportWindow(first, last, page, page_size).respond(rows)
+    response.message = service.note(scope.firm_id)
+    return response
 
 
 @router.get(

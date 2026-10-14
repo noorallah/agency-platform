@@ -739,6 +739,32 @@ const List<ReportDefinition> reportCatalog = [
     permission: 'SALES_VIEW',
     area: ReportArea.financial,
   ),
+  // What each lot sold for against what its units cost when they left (L2
+  // step 10), returns taken back from the lot they refilled. Cost and margin
+  // come blank for someone who may not see cost; a firm on Average sees its
+  // batches at the average they left with.
+  ReportDefinition(
+    id: 'margin-by-lot',
+    label: 'Margin by lot',
+    description: 'Per item and lot in the dates: quantity sold less '
+        'returned, taxable value, cost, margin and margin %.',
+    path: '/api/v1/sales-invoices/reports/margin-by-lot',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'lot_reference', label: 'Lot'),
+      ReportColumn(key: 'batch_number', label: 'Batch'),
+      ReportColumn(key: 'received_on', label: 'Received'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'sales_value', label: 'Sales value', numeric: true),
+      ReportColumn(key: 'cost', label: 'Cost', numeric: true),
+      ReportColumn(key: 'margin', label: 'Margin', numeric: true),
+      ReportColumn(key: 'margin_percent', label: 'Margin %', numeric: true),
+    ],
+  ),
   ReportDefinition(
     id: 'sales-return-register',
     label: 'Sales return register',
