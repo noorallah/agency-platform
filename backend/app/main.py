@@ -85,6 +85,7 @@ from app.sales_invoice.api import router as sales_invoices_router
 from app.sales_order.api import router as sales_orders_router
 from app.sales_return.api import router as sales_returns_router
 from app.sales_targets.api import router as sales_targets_router
+from app.salesmen.api.router import router as salesmen_router
 from app.search.api import router as global_search_router
 from app.settings_sections.api import router as settings_sections_router
 from app.settlements.api import payments_router, receipts_router, refunds_router
@@ -252,6 +253,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(refunds_router)
     application.include_router(expenses_router)
     application.include_router(staff_advances_router)
+    application.include_router(salesmen_router)
     application.include_router(commission_router)
     application.include_router(audit_logs_router)
     application.include_router(firm_members_router)

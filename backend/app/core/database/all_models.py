@@ -116,6 +116,7 @@ from app.sales_invoice.models import sales_invoice  # noqa: F401
 from app.sales_order.models import sales_order  # noqa: F401
 from app.sales_return.models import sales_return  # noqa: F401
 from app.sales_targets.models import sales_target  # noqa: F401
+from app.salesmen.models import salesman  # noqa: F401
 from app.settlements.models import (  # noqa: F401
     cheque_layout,
     payment_run,

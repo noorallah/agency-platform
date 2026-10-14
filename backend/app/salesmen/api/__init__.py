@@ -1,0 +1,1 @@
+"""Salesman list endpoints."""
