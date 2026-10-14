@@ -414,6 +414,8 @@ movement in and out, the supplier's bill and the sales bills. **Costs are
 shown only to someone holding `PRODUCT_VIEW_COST_PRICE`**; everyone else sees
 the same screens with the cost columns missing.
 
+*Margins on the lot (L3, written 2026-10-15 from the build notes; not yet clicked).* For a firm costing by lot, each lot has a **retail** and a **wholesale** price, worked from two margins on what the line cost before tax (PTR and PTS where the firm's profile has them). Set the pair on the goods type; a new product takes it, and the product form can change it. On a goods receipt line a margin box sits beside each price: leave it blank to take the product's, type one for this lot only, or type a price and the margin is worked back. After saving, the worked prices show on the line. A price that goes above the MRP once tax is added shows a **warning**, with the price that would sit at the MRP; a price above the MRP before tax is refused. On the lot page, someone holding `BATCH_UPDATE` can change both prices. Mark each customer **Retailer** or **Wholesaler**: a new bill starts on that kind, and the *Price level* box on the bill (Retail or Wholesale) switches every line at once. A line with no lot chosen is priced at the lot that will leave first; on the counter bill a line spread over lots with different prices is split into one line per price. A saved order or bill line shows **Cost** (marked *est.* when estimated) and **Margin**, with a total, to someone holding `PRODUCT_VIEW_COST_PRICE`; they are never printed.
+
 **Section 9 (Products, batch and serial).** *Copy as new product* opens an
 unsaved form filled from a product; code, barcodes, stock, batches, serials,
 price history and prices by level are not carried. A product that tracks

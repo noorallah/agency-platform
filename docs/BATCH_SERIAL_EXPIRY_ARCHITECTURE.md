@@ -1344,6 +1344,10 @@ the product's price, never above anything typed. See
 
 ---
 
+### A lot's two margins (L3, 2026-10-15)
+
+For a firm costing by lot the lot carries `retail_margin_percent` and `wholesale_margin_percent` beside its `ptr` (retail) and `pts` (wholesale), handed over from the receipt line that made it; see `docs/PRICING_AND_PROMOTIONS.md`, "Retail and wholesale margins on the lot". The batch's own edit (the lot page) is gated on `BATCH_UPDATE`; such a firm does not also need `BATCH_PTR_PTS`. A changed price works its margin back from the lot's cost. The batch answer carries `mrp_warning`, judged at the tax of the receipt line that brought the lot in (a lot no receipt brought in is judged at no tax). A firm on Average keeps the PG-14 rules above.
+
 ## How batch stock is stored, in plain terms
 
 A batch is **not** a separate product. The product is one row in `products`;
