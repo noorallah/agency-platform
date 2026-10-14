@@ -3339,14 +3339,20 @@ class SalesInvoiceService(TransactionalDocumentService):
             raise ResourceNotFoundError("Sales invoice not found.")
         return row
 
-    def invoice_response(self, row: SalesInvoice) -> SalesInvoiceResponse:
+    def invoice_response(
+        self, row: SalesInvoice, *, show_cost: bool = False
+    ) -> SalesInvoiceResponse:
         """Render one sales invoice row as its API contract."""
-        return self.invoice_responses([row])[0]
+        return self.invoice_responses([row], show_cost=show_cost)[0]
 
     def invoice_responses(
-        self, rows: Sequence[SalesInvoice]
+        self, rows: Sequence[SalesInvoice], *, show_cost: bool = False
     ) -> list[SalesInvoiceResponse]:
         """Render a page of invoices, reading each child table once.
+
+        ``show_cost`` says the caller may see what the goods cost
+        (``PRODUCT_VIEW_COST_PRICE``); without it each line's ``cost_amount``
+        is left out (None), as the lot reports and the picker do (D-SELL-100).
 
         One query per child table for the whole page, grouped by invoice in
         Python, rather than about ten per invoice (backlog 56 C, step 3). The
@@ -3447,6 +3453,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 charges=charges[row.id],
                 warning=warnings.get(row.id),
                 customer_name=names.get(row.customer_id, ""),
+                show_cost=show_cost,
             )
             for row in rows
         ]
@@ -3508,6 +3515,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         charges: list[SalesInvoiceCharge],
         warning: str | None,
         customer_name: str,
+        show_cost: bool = False,
     ) -> SalesInvoiceResponse:
         """Build one invoice's response from what the page already read."""
         return SalesInvoiceResponse(
@@ -3592,6 +3600,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     products.get(item.product_id),
                     serials=picked.get(item.source_document_line_id),
                     batches=(chosen or {}).get(item.source_document_line_id, []),
+                    show_cost=show_cost,
                 )
                 for item in lines
             ],
@@ -6654,6 +6663,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         *,
         serials: list[PickedSerial] | None = None,
         batches: list[DeliveryNoteBatchPick] | None = None,
+        show_cost: bool = False,
     ) -> SalesInvoiceLineResponse:
         return SalesInvoiceLineResponse(
             id=row.id,
@@ -6684,6 +6694,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             gross_amount=row.gross_amount,
             tax_profile_id=row.tax_profile_id,
             tax_amount=row.tax_amount,
+            cost_amount=row.cost_amount if show_cost else None,
             net_amount=row.net_amount,
             packaging_type_id=row.packaging_type_id,
             order_uom_id=row.order_uom_id,

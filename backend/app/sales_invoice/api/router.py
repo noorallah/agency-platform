@@ -147,6 +147,11 @@ SalesInvoiceImportScope = Annotated[
 ]
 
 
+def _sees_cost(scope: ResolvedFirmScope) -> bool:
+    """Return whether the caller may see what an invoice line's goods cost."""
+    return scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
+
+
 # "" rather than "/", which is what the other fourteen list endpoints declare.
 # With a slash, FastAPI serves the list at `/api/v1/sales-invoices/` and answers
 # `/api/v1/sales-invoices` with a 307 -- and the desktop client sets
@@ -221,7 +226,7 @@ def list_sales_invoices(
         descending=descending,
     )
     return PaginatedResponse(
-        data=service.invoice_responses(rows),
+        data=service.invoice_responses(rows, show_cost=_sees_cost(scope)),
         pagination=pagination.metadata(total),
     )
 
@@ -242,7 +247,7 @@ def create_sales_invoice(
     """Create a new sales invoice."""
     service = SalesInvoiceService(db)
     row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
-    return ApiResponse(data=service.invoice_response(row))
+    return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
 
 
 class WalkInCustomerResponse(BaseModel):
@@ -370,7 +375,7 @@ def get_sales_invoice(
     """Get a specific sales invoice."""
     service = SalesInvoiceService(db)
     row = service.get_invoice(invoice_id, firm_scope=scope.firm_id)
-    return ApiResponse(data=service.invoice_response(row))
+    return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.put(
@@ -406,7 +411,7 @@ def update_sales_invoice(
         invoice_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     set_etag(response, row)
-    return ApiResponse(data=service.invoice_response(row))
+    return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.post(
@@ -445,7 +450,7 @@ def approve_sales_invoice(
         price_override_reason=authorised_price_override(scope, price_override_reason),
         bill_without_stock=bill_without_stock,
     )
-    return ApiResponse(data=service.invoice_response(row))
+    return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
 
 
 class HoldRequest(BaseModel):
@@ -486,7 +491,7 @@ def hold_sales_invoice(
         invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id, note=data.note
     )
     set_etag(response, row)
-    return ApiResponse(data=service.invoice_response(row))
+    return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.post(
@@ -513,7 +518,7 @@ def recall_sales_invoice(
         invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     set_etag(response, row)
-    return ApiResponse(data=service.invoice_response(row))
+    return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.get(
@@ -559,7 +564,7 @@ def cancel_sales_invoice(
         actor_id=scope.actor_id,
         reason=data.reason,
     )
-    return ApiResponse(data=service.invoice_response(row))
+    return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.post(
@@ -581,7 +586,7 @@ def close_sales_invoice(
         actor_id=scope.actor_id,
         reason=data.reason,
     )
-    return ApiResponse(data=service.invoice_response(row))
+    return ApiResponse(data=service.invoice_response(row, show_cost=_sees_cost(scope)))
 
 
 @router.get(
@@ -1299,7 +1304,9 @@ def import_sales_invoices(
     service = SalesInvoiceService(db)
     rows = service.import_invoices(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     db.commit()
-    return ApiResponse(data=service.invoice_responses(rows))
+    return ApiResponse(
+        data=service.invoice_responses(rows, show_cost=_sees_cost(scope))
+    )
 
 
 class InvoicePrintRunRequest(BaseModel):
