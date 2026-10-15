@@ -42,6 +42,7 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
     amount_in_words,
+    packed_cell,
     qr_drawing,
 )
 
@@ -297,8 +298,10 @@ class HalfPageRenderer:
         rows: list[list[object]] = [
             [Paragraph(f"<b>{column}</b>", self._small) for column in header]
         ]
+        # What the Qty cell holds once its padding is off (design L5 s4).
+        room = width * self._WEIGHTS["Qty"] - 4
         for line in document.lines:
-            rows.append(self._line_cells(line, inclusive=inclusive))
+            rows.append(self._line_cells(line, inclusive=inclusive, room=room))
         totalled = document.show_total_quantity and bool(document.lines)
         if totalled:
             # The quantities added up under the lines (row P2); the free
@@ -307,9 +310,13 @@ class HalfPageRenderer:
             total[header.index("Product Details")] = Paragraph(
                 f"<b>{TOTAL_QUANTITY}</b>", self._text
             )
-            total[header.index("Qty")] = _quantity(document.total_quantity)
+            total[header.index("Qty")] = document.total_in_packs or _quantity(
+                document.total_quantity
+            )
             if document.total_free_quantity:
-                total[header.index("Free")] = _quantity(document.total_free_quantity)
+                total[header.index("Free")] = document.total_free_in_packs or (
+                    _quantity(document.total_free_quantity)
+                )
             rows.append(total)
 
         weights = [self._WEIGHTS.get(column, 0.0) for column in header]
@@ -339,12 +346,23 @@ class HalfPageRenderer:
         table.setStyle(style)
         return table
 
-    def _line_cells(self, line: InvoiceLineBlock, *, inclusive: bool) -> list[object]:
-        """Return one printed line, its tax stated as a rate and an amount."""
+    def _line_cells(
+        self, line: InvoiceLineBlock, *, inclusive: bool, room: float
+    ) -> list[object]:
+        """Return one printed line, its tax stated as a rate and an amount.
+
+        A line in the boxes and pieces layout reads "3/5 (x12)" in Qty and
+        "0/2" in Free, in the columns the page already has.
+        """
         percent = sum((rate for _, rate, _ in line.taxes), ZERO)
         tax = sum((amount for _, _, amount in line.taxes), ZERO)
         quantity = _quantity(line.quantity)
-        if line.uom:
+        free = _quantity(line.free_quantity) if line.free_quantity else ""
+        packed = line.packed_quantity
+        if packed is not None and line.pack_label is not None:
+            quantity = packed_cell(packed, line.pack_label, room, size=7.2)
+            free = line.packed_free or ""
+        elif line.uom:
             quantity = f"{quantity} {line.uom}"
         cells: list[object] = [
             # Zero marks a continuation row: the same line from another batch
@@ -354,7 +372,7 @@ class HalfPageRenderer:
             line.hsn or "",
             "" if line.mrp is None else _money(line.mrp),
             quantity,
-            _quantity(line.free_quantity) if line.free_quantity else "",
+            free,
         ]
         if inclusive:
             cells.append("" if line.entered_rate is None else _money(line.entered_rate))

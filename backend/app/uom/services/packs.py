@@ -359,3 +359,26 @@ def held_packs(rows: Iterable[_HeldLine]) -> dict[int, tuple[UUID, Pack]]:
         for row in rows
         if row.pack_uom_id is not None and row.pack_size is not None
     }
+
+
+def printed_pack(
+    *,
+    in_boxes: bool,
+    pack_size: Decimal | None,
+    unit_id: UUID | None,
+    product: Product | None,
+) -> Decimal | None:
+    """Return the pack a printed line states its quantity in, else None.
+
+    A line prints as boxes and pieces only on a document saved in that layout
+    (design section 4), only where it holds a pack, and only where its
+    quantity is a count of the item's stock unit: a line typed in BOX keeps
+    its pack too (decision 4), and "2 BOX" split by twelve would print
+    nonsense. Any other line prints its plain quantity, as today.
+    """
+    if not in_boxes or pack_size is None or pack_size <= 1:
+        return None
+    stock = stock_unit_of(product)
+    if unit_id is not None and stock is not None and unit_id != stock:
+        return None
+    return pack_size

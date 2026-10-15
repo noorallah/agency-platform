@@ -37,6 +37,7 @@ from app.sales_invoice.services.invoice_pdf import (
     TemplateSettings,
 )
 from app.uom.models import Uom
+from app.uom.services.packs import printed_pack
 from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
@@ -150,6 +151,12 @@ class PurchaseOrderPrintService:
                 discount=line.discount_amount,
                 taxable=self._taxable(line),
                 total=line.net_amount,
+                pack_size=printed_pack(
+                    in_boxes=order.box_and_piece_entry,
+                    pack_size=line.pack_size,
+                    unit_id=line.purchase_uom_id,
+                    product=products.get(line.product_id),
+                ),
             )
             for line in lines
         ]

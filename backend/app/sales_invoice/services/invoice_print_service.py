@@ -56,6 +56,7 @@ from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.trade_licences.services import TradeLicenceService
 from app.uom.models import Uom
 from app.uom.services import StatedLine, stated_line, stock_unit_of
+from app.uom.services.packs import printed_pack
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "SALES_INVOICE"
@@ -671,6 +672,12 @@ class SalesInvoicePrintService:
                     line.entered_rate
                     if invoice.rate_includes_tax and line.entered_rate is not None
                     else typed_on_order.get(line.id)
+                ),
+                pack_size=printed_pack(
+                    in_boxes=invoice.box_and_piece_entry,
+                    pack_size=line.pack_size,
+                    unit_id=said.uom_id,
+                    product=product,
                 ),
             )
             printed.extend(

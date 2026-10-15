@@ -52,6 +52,7 @@ from app.sales_return.models import (
 )
 from app.uom.models import Uom
 from app.uom.services import stated_line
+from app.uom.services.packs import printed_pack
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "SALES_RETURN"
@@ -221,6 +222,12 @@ class CreditNotePrintService:
                 taxes=tuple(
                     (item.component_code, item.percentage, item.amount)
                     for item in taxes.get(line.id, [])
+                ),
+                pack_size=printed_pack(
+                    in_boxes=row.box_and_piece_entry,
+                    pack_size=line.pack_size,
+                    unit_id=stated[line.id].uom_id,
+                    product=products.get(line.product_id),
                 ),
             )
             for line in lines
