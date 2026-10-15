@@ -113,3 +113,17 @@ short-close, it is what `close` is for; decide which. No script asserts it.
 - TC-BUY-101 step 7 and the screen wording/toolbar parts of 001, 006, 036, 037,
   101 and 102: screens are not driven.
 - TC-BUY-102 step 7: tax by the branch's state (no GST numbers on check vendors).
+
+## Triage (2026-10-15, the loop)
+
+- **B-1 -> D-BUY-78, not a defect.** A draft receipt brings nothing in and holds
+  nothing; the order's remainder is checked at Complete (ERPNext / Zoho).
+  `p_buy_receipt_over_order.py` now expects the second draft to save and its
+  Complete to be refused.
+- **B-2 -> D-BUY-77, Medium, fixed on this branch.** Cancel refuses an order a
+  live receipt or bill continues, naming each, and says to close it instead
+  (the D-SELL-11 rule). New probe `p_buy_cancel_part_received.py`.
+- Case text corrected: TC-BUY-017 (second bill 590.00; owes 472.00, then
+  590.00), and TC-BUY-066/093/094/095 refusals now name the unit (PIECE).
+- TC-BUY-101 step 7: no change. The case expects one Save to complete the
+  receipt, which is what the switch does; it does not claim a refusal.

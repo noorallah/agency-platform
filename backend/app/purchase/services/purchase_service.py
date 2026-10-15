@@ -98,6 +98,7 @@ from app.purchase.services.line_quantities import (
     line_status,
     order_line_quantities,
 )
+from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.sales.services.document_preview import purchase_line_companions
 from app.supplier_schemes.schemas import SupplierSchemeSuggestion
 from app.supplier_schemes.services import LineScheme, line_schemes
@@ -1554,6 +1555,7 @@ class PurchaseService(TransactionalDocumentService):
             return row
         if row.status == PurchaseOrderStatus.RECEIVED.value:
             raise ValidationError("Received purchase orders cannot be cancelled.")
+        self._refuse_if_documents_raised(row)
         before = row.status
         row.status = PurchaseOrderStatus.CANCELLED.value
         row.cancel_reason = reason
@@ -1592,6 +1594,50 @@ class PurchaseService(TransactionalDocumentService):
         )
         self._session.flush()
         return row
+
+    def _refuse_if_documents_raised(self, row: PurchaseOrder) -> None:
+        """Refuse to cancel an order that a live receipt or bill continues.
+
+        Cancelling an order with six of ten received read CANCELLED while the
+        receipt and its bill stood (buying round 1, 2026-10-15) -- the twin of
+        D-SELL-11 on the sales side. A cancellation undoes a promise nothing
+        has acted on; once a receipt or a bill exists, those are cancelled
+        first, or the order is closed, which stops what is still to come and
+        keeps what happened.
+        """
+        receipts = self._session.scalars(
+            select(GoodsReceipt.grn_number).where(
+                GoodsReceipt.firm_id == row.firm_id,
+                GoodsReceipt.purchase_order_id == row.id,
+                GoodsReceipt.status != "CANCELLED",
+                GoodsReceipt.is_deleted.is_(False),
+            )
+        ).all()
+        bills = self._session.scalars(
+            select(PurchaseInvoice.invoice_number)
+            .join(
+                PurchaseInvoiceLine,
+                PurchaseInvoiceLine.purchase_invoice_id == PurchaseInvoice.id,
+            )
+            .where(
+                PurchaseInvoice.firm_id == row.firm_id,
+                PurchaseInvoiceLine.source_document_type == "PURCHASE_ORDER",
+                PurchaseInvoiceLine.source_document_id == row.id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoice.status != "CANCELLED",
+                PurchaseInvoice.is_deleted.is_(False),
+            )
+        ).all()
+        raised = [
+            *(f"goods receipt {number}" for number in sorted(set(receipts))),
+            *(f"purchase invoice {number}" for number in sorted(set(bills))),
+        ]
+        if raised:
+            raise ValidationError(
+                f"{row.po_number} cannot be cancelled while "
+                f"{', '.join(raised)} stands against it. Cancel those first, "
+                "or close the order to stop what is still to come."
+            )
 
     def close_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
