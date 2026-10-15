@@ -785,6 +785,23 @@ the document's own. `POST /sales-invoices/preview` answers both, since it is
 the save rolled back. `tests/unit/test_box_and_piece_note_and_bill.py` is the
 guard.
 
+### The pack on a sales return line (L5 step 5)
+
+A return line comes back **at the pack of the note or bill line it returns**
+(design 3.6): a box of 12 sold before the item moved to 10 is returned as a
+box of 12, and a `pack_size` of 10 is refused. A source line written before
+L5 holds none: a saved draft return line keeps what it took, else the item's
+pack on the return's date. Return lines are stored numbered by position, and
+that is the number `line_packs` is asked by. The line is counted in the unit
+it names (`return_uom_id`), else its source line's, so a line typed as boxes
+and pieces naming the box is refused. Every cap -- what was sent, what is
+already back, the free goods -- stays a sum of pieces, as before.
+
+Header: a new return takes `box_and_piece_entry` where any note or bill it
+returns has it; absent (or null) on an update keeps its own. The worked
+example's return -- 1 box + 1 piece off the bill -- is 13 pieces credited
+130.00 + 15.60 GST. `tests/unit/test_box_and_piece_return.py` is the guard.
+
 ## Effective dating
 
 `uom_conversion_rules` are dated (`effective_from`, `effective_to`) and
