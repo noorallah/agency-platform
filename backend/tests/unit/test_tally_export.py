@@ -20,8 +20,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
-from app.finance.models import FirmControlAccount
+from app.finance.models import FirmControlAccount, JournalEntry
 from app.finance.services.control_accounts import ControlAccountPurpose
+from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.tally_export import TallyExportService, TallyMappingsWrite
 from tests.unit.test_purchase_chain_synthesis import _Firm
 
@@ -132,3 +133,30 @@ def test_two_accounts_cannot_share_a_tally_name(firm: _Firm) -> None:
             ),
             actor_id=firm.actor_id,
         )
+
+
+def test_a_reversed_journal_goes_out_with_its_mirror(firm: _Firm) -> None:
+    """A reversed original and its mirror both go out, so the file nets to zero.
+
+    The export once took only POSTED journals; a reversal marks the original
+    REVERSED, so the file carried the mirror alone and every ledger it
+    touched closed off the books by twice the amount (D-FIN-34).
+    """
+    entry = firm.session.scalars(
+        select(JournalEntry).where(
+            JournalEntry.firm_id == firm.firm.id,
+            JournalEntry.status == "POSTED",
+        )
+    ).first()
+    assert entry is not None
+    JournalEntryEngine(firm.session).reverse_entry(
+        entry.id,
+        firm_id=firm.firm.id,
+        reference_number=f"{entry.reference_number}-REV",
+        journal_date=entry.journal_date,
+        actor_id=firm.actor_id,
+    )
+    firm.session.commit()
+    numbers = [v.findtext("VOUCHERNUMBER") for v in _export(firm).findall(".//VOUCHER")]
+    assert entry.reference_number in numbers
+    assert f"{entry.reference_number}-REV" in numbers

@@ -48,6 +48,7 @@ from app.finance.models import (
     LedgerAccount,
 )
 from app.finance.models.tally import TallyLedgerMapping
+from app.finance.services.books_register import IN_THE_BOOKS
 from app.finance.services.control_accounts import ControlAccountPurpose
 
 ZERO = Decimal("0")
@@ -237,7 +238,7 @@ class TallyExportService:
                 .where(
                     JournalEntry.firm_id == firm_id,
                     JournalEntry.is_deleted.is_(False),
-                    JournalEntry.status == "POSTED",
+                    JournalEntry.status.in_(IN_THE_BOOKS),
                     JournalEntry.journal_date >= from_date,
                     JournalEntry.journal_date <= to_date,
                 )
